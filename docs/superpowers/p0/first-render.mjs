@@ -29,7 +29,13 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
-  ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".ico": "image/x-icon" };
+  ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".ico": "image/x-icon",
+  // P2 ADDED THIS ENTRY, and the instrument is where it belongs: since the panel's logic moved to
+  // Rust the page fetches `panel_logic_bg.wasm` at its first migrated call, and serving it as
+  // anything but this makes the wasm-bindgen glue fall back to an ArrayBuffer with a console
+  // warning — measured, and INVISIBLE to an FCP number, which is exactly why the harness should not
+  // be the part that is wrong. It cannot move the baseline: the fetch starts after the first paint.
+  ".wasm": "application/wasm" };
 const which = process.argv[2];
 const RUNS = Number(process.argv[3] || 5);
 

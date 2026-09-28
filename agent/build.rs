@@ -36,10 +36,24 @@ use std::time::SystemTime;
 /// accepted: the gate is a safety net, not a proof.
 const STALENESS_GRACE_SECS: u64 = 120;
 
-/// Products the gate + hash cover: the two `?v=`-stamped bundles. index.html
-/// is the host page (rewritten with the hash at serve time); the vendor/
-/// third-party files carry no `?v=` and change with the bundle rebuild.
-const PRODUCT_FILES: [&str; 2] = ["panel.js", "panel.css"];
+/// Products the gate + hash cover: the two `?v=`-stamped bundles, plus the panel's wasm (P2).
+/// index.html is the host page (rewritten with the hash at serve time); the vendor/ third-party
+/// files carry no `?v=` and change with the bundle rebuild.
+///
+/// WHY THE WASM IS IN THIS LIST, and it is in BOTH jobs for the same reason: `web/panel.rs`
+/// `include_bytes!`es it, so an agent built without it would not compile at all (a missing product
+/// fails the hash step below with the command that produces it) — and its BYTES are folded into
+/// `PANEL_BUNDLE_HASH`, which is what the panel's loader appends to the wasm's URL. A wasm that
+/// changed while `?v=` did not would be served from a browser cache for up to Cloudflare's 4h
+/// Browser-Cache-TTL, which is the exact failure the hash was introduced for.
+///
+/// AND ONE THING THIS LIST CANNOT DO, stated because the shape of the list invites the opposite
+/// belief: `staleness_gate` compares the newest SOURCE against the NEWEST product, so a rebuild that
+/// refreshed `panel.js` while leaving a stale wasm behind is not drift it can see. The wasm is
+/// produced by `agent/resources/panel-logic/build.sh` (wasm-pack is not in CI), and the rule that
+/// covers it is the one `resources/panel/` has always had — a source change owes its build — stated
+/// in that crate's README rather than enforced here.
+const PRODUCT_FILES: [&str; 3] = ["panel.js", "panel.css", "panel_logic_bg.wasm"];
 
 fn main() {
     let manifest = PathBuf::from(
@@ -52,6 +66,7 @@ fn main() {
     // file change; these narrow it to what this script actually reads.
     println!("cargo:rerun-if-changed=resources/panel/panel.js");
     println!("cargo:rerun-if-changed=resources/panel/panel.css");
+    println!("cargo:rerun-if-changed=resources/panel/panel_logic_bg.wasm");
     println!("cargo:rerun-if-changed=resources/panel-react/src");
 
     // Reproducible-build pin: without /Brepro, lld stamps the PE header with the
@@ -80,10 +95,17 @@ fn main() {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a-64 offset basis
     for name in PRODUCT_FILES {
         let bytes = std::fs::read(panel_dir.join(name)).unwrap_or_else(|e| {
+            // THE FIX IS NAMED PER PRODUCT, because they have different producers: the bundle is
+            // vite's, the wasm is the Rust crate's, and a message that named the wrong one would
+            // send the reader to a command that cannot produce the file it is missing.
+            let fix = if name.ends_with(".wasm") {
+                "`agent/resources/panel-logic/build.sh` (wasm-pack; needs the wasm32 target)"
+            } else {
+                "`cd agent/resources/panel-react && npm run build`"
+            };
             panic!(
                 "summrise-agent build: resources/panel/{name} unreadable ({e}) — \
-                 run the panel build first: `cd agent/resources/panel-react && npm run build` \
-                 (or `./scripts/build.sh agent` from the repo root)"
+                 build it first: {fix} (or `./scripts/build.sh agent` from the repo root)"
             )
         });
         hash = fnv1a64(&bytes, hash);

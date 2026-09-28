@@ -186,8 +186,19 @@ export interface DeviceReadOptions<T> {
    *      cannot use is a FAILED read" (`useSessionArchive`, `DeviceLogsCard`) rather than folding it
    *      into a default that would render as a device which is empty.
    *
-   *  Anything else it does to the caller's own state is the caller's business. */
-  reduce: (previous: T, body: unknown) => T;
+   *  Anything else it does to the caller's own state is the caller's business.
+   *
+   *  IT MAY RETURN A PROMISE, and it is awaited (P2, 2026-09-28). A fold that parses with the
+   *  panel's Rust cannot answer synchronously: the wasm is fetched at the first call rather than at
+   *  page load — criterion ③ of the migration plan, so that it is in neither the first-load payload
+   *  nor the page's critical path — and `archiveEntries` is the first fold to move
+   *  (`lib/archive.ts`). The two guarantees above are unchanged by it: a REJECTION is caught by the
+   *  same catch that already handles a throw (a refused body still reports `"unreadable"` with the
+   *  last good value kept), and the fold still runs before the value is written. What the await
+   *  DOES change is that the fold is a suspension point, so the ordering guard is re-checked after
+   *  it — a read that started while this one was folding must not be overwritten by the older
+   *  reply, which is the same rule the check before the fold states. */
+  reduce: (previous: T, body: unknown) => T | Promise<T>;
   /** The value before the first successful read. */
   initial: T;
   /** How often to read. Omitted = read once at mount, and on `refresh`. */
@@ -465,11 +476,19 @@ export function useDeviceRead<T>(opts: DeviceReadOptions<T>): DeviceRead<T> {
         return;
       }
       const fold = reduceRef.current;
+      // AWAITED, because a fold may parse with the panel's Rust (see `reduce`'s doc). Awaiting a
+      // plain value costs one microtask and changes nothing else.
+      const folded = await fold(dataRef.current, body);
+      // AND THE GUARD IS RE-CHECKED AFTER IT. The await is a suspension point, so a read that
+      // started while this one was folding could already have settled — and the older reply must
+      // not land on top of it. This is the same rule as the check above the fold, applied to the
+      // half of the settle that now happens after it.
+      if (!aliveRef.current || seq !== seqRef.current) return;
       // THE EDITS COME BACK OVER THE ANSWER, in the same settle that sets the value: a form the
       // operator is typing in must not be written over, and the merge is the MODULE's so that no
       // form-seeding caller has to remember the rule (see `keepEdits`). The fold still runs FIRST,
       // so a cursor-carrying caller's cursor advances on the read it just made.
-      const next = withEdits(fold(dataRef.current, body), keepEditsRef.current);
+      const next = withEdits(folded, keepEditsRef.current);
       dataRef.current = next;
       setData(next);
       // A SUCCESS CLEARS THE REASON IN THE SAME SETTLE THAT SETS THE VALUE, which is what lets a caller

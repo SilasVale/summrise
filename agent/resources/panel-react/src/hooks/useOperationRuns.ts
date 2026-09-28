@@ -35,11 +35,30 @@
 // is what the `path` FUNCTION reads and what the `reduce` advances.
 import { useEffect, useRef } from "react";
 import { useDeviceRead } from "./useDeviceRead";
-import type { OperationEvent, RunBoundary } from "../lib/runs";
+import { deriveRuns, EMPTY_GROUPS } from "../lib/runs";
+import type {
+  ActivityGroup,
+  OperationEvent,
+  OperationGroups,
+  RunBoundary,
+} from "../lib/runs";
 
+/**
+ * WHAT ONE READ OF THE TIMELINE IS, and it is FOUR things rather than two since P2.
+ *
+ * `groups` and `rows` are the DERIVED half — the same two readings of the one snapshot the run
+ * strip and the Activity page used to compute for themselves in a `useMemo`. They are computed in
+ * the fold below, at the data boundary, and they ride out on the SAME value the events do; see
+ * `lib/runs.ts`'s header for the sync story and for why a render-path derivation had to move here
+ * rather than into an effect (an effect would show one frame of new events under an old grouping).
+ */
 interface OperationSnapshot {
   events: OperationEvent[];
   boundaries: RunBoundary[];
+  /** `groupOperation`'s output, computed where the data landed. */
+  groups: OperationGroups;
+  /** `operationRows`' output, from those same groups — never a second grouping. */
+  rows: ActivityGroup[];
 }
 
 /** How often to ask while the Path view is on screen. A run boundary is a
@@ -60,7 +79,14 @@ const PAGE_LIMIT = 500;
 const MAX_EVENTS = 2000;
 const MAX_BOUNDARIES = 200;
 
-const EMPTY: OperationSnapshot = { events: [], boundaries: [] };
+/** THE EMPTY DERIVATION, which lives beside the derivation it is the empty case of
+ *  (`lib/runs.ts`) — the panel's suite asserts the wasm answers exactly this for the empty input. */
+const EMPTY: OperationSnapshot = {
+  events: [],
+  boundaries: [],
+  groups: EMPTY_GROUPS,
+  rows: [],
+};
 
 /** Identity of one event for de-duplication.
  *
@@ -153,7 +179,7 @@ export function useOperationRuns(pollMs: number = OPERATION_POLL_MS): OperationS
   //     returns straight back into its state, so an unchanged merge re-renders nothing.
   const { data, refresh } = useDeviceRead<OperationSnapshot>({
     path: () => `/api/operation?since_ms=${cursorRef.current}&limit=${PAGE_LIMIT}`,
-    reduce: (prev, body) => {
+    reduce: async (prev, body) => {
       const res = body as { events?: unknown; runs?: unknown; cursor_ms?: unknown } | null;
       // NO `deviceRefused` GUARD HERE, DELIBERATELY (round 232). A `{ok:false}` yields `[]`, and this
       // hook MERGES (`mergeEvents(prev.events, [])` returns `prev`), so a refusal cannot blank the
@@ -177,8 +203,22 @@ export function useOperationRuns(pollMs: number = OPERATION_POLL_MS): OperationS
       }
       const merged = mergeEvents(prev.events, events);
       const bounds = mergeBoundaries(prev.boundaries, boundaries);
+      // THE RENDER-SKIP COMES FIRST, and it is what keeps the derivation off the common path: a
+      // poll that added nothing returns `prev` — with its own derived fields — and neither the wasm
+      // nor the grouping runs at all. Only a reply that CHANGED something is grouped.
       if (merged === prev.events && bounds === prev.boundaries) return prev;
-      return { events: merged, boundaries: bounds };
+      // ── THE DATA BOUNDARY ────────────────────────────────────────────────────
+      // This is the sync story, in one line: the fold is already asynchronous (the module awaits
+      // it), the wasm is in hand here, and the two derivations a RENDER used to compute are
+      // computed NOW — in the same state update that produces their input. The render that first
+      // sees these events is the render that sees their grouping, and neither surface ever calls
+      // the wasm.
+      //
+      // A FAILED LOAD IS A FAILED READ, which is the honest degradation: this throws, the module
+      // catches it, and the strip keeps the last good snapshot and reports `unreadable` — the same
+      // thing a dead route does, rather than a component that renders nothing.
+      const { groups, rows } = await deriveRuns(merged, bounds);
+      return { events: merged, boundaries: bounds, groups, rows };
     },
     initial: EMPTY,
     everyMs: pollMs,

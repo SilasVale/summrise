@@ -26,8 +26,10 @@ const rows = (): OperationEvent[] => [
 ];
 
 describe("the runs fixture, end to end", () => {
-  it("groups the device's own example into ONE run, by the run_id it carries", () => {
-    const groups = groupOperation(rows(), []);
+  it("groups the device's own example into ONE run, by the run_id it carries", async () => {
+    // `await` ONLY: the fold is the panel's Rust now (lib/runs.ts), and not one expected value below
+    // was touched.
+    const groups = await groupOperation(rows(), []);
     expect(groups.runs.length).toBe(1);
     const g = groups.runs[0];
     expect(g.runId).toBe("run-1000-abc123");
@@ -39,8 +41,8 @@ describe("the runs fixture, end to end", () => {
     expect(g.rows.length).toBe(3);
   });
 
-  it("keeps the fields the panel reads per row: plan step, intent, the alternatives, exit code and duration", () => {
-    const g = groupOperation(rows(), []).runs[0];
+  it("keeps the fields the panel reads per row: plan step, intent, the alternatives, exit code and duration", async () => {
+    const g = (await groupOperation(rows(), [])).runs[0];
     const start = g.rows.find((r) => r.kind === "command/start");
     const end = g.rows.find((r) => r.kind === "command/end");
     const action = g.rows.find((r) => r.source === "browser");
@@ -61,8 +63,8 @@ describe("the runs fixture, end to end", () => {
     expect(action?.status).toBeNull();
   });
 
-  it("reads every field the fixture promises for the panel, on the feed that carries it", () => {
-    const g = groupOperation(rows(), []).runs[0];
+  it("reads every field the fixture promises for the panel, on the feed that carries it", async () => {
+    const g = (await groupOperation(rows(), [])).runs[0];
     const union = new Set(g.rows.flatMap((r) => Object.keys(r)));
     // the panel's own field names, which is what `required_by_panel` was read off
     const promised = [

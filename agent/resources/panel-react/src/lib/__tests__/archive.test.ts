@@ -12,6 +12,15 @@
 //   * the order is DERIVED from the last recorded event's stamp, because
 //     `list_sessions` walks the directory and directory order is neither
 //     chronological nor stable.
+//
+// AND THE FIRST DESCRIBE BLOCK NOW TESTS RUST (P2, 2026-09-28). `archiveEntries` moved to
+// `agent/resources/panel-logic/src/archive.rs`, and these assertions were NOT rewritten to suit it:
+// every expected value and every `toThrow` below is the one that was written against the
+// TypeScript, and the only edit is `await` — the call is a promise now because the wasm is fetched
+// at the first call rather than at page load. That is criterion ① of the migration plan: the tests
+// that were the JS version's evidence are the Rust version's evidence too, including the sentences
+// a bad body produces. The corpus behind them (121 payload shapes, both implementations, compared
+// on values AND messages) is in the commit message.
 import { describe, it, expect } from "vitest";
 import {
   ARCHIVE_PAGE,
@@ -39,8 +48,8 @@ const entry = (
 });
 
 describe("archiveEntries — reading the device's manifest", () => {
-  it("maps id + the folded last event", () => {
-    const rows = archiveEntries({
+  it("maps id + the folded last event", async () => {
+    const rows = await archiveEntries({
       ok: true,
       sessions: [
         { id: "s-1", state: { kind: "command/end", ts: 1700, exit_code: 0, reason: null, status: null } },
@@ -51,21 +60,21 @@ describe("archiveEntries — reading the device's manifest", () => {
     expect(rows[0].last).toEqual({ kind: "command/end", ts: 1700, status: null, exitCode: 0, reason: null });
   });
 
-  it("THROWS on a response it does not understand, instead of reporting an empty device", () => {
+  it("THROWS on a response it does not understand, instead of reporting an empty device", async () => {
     // An agent that is too old, a proxy that answered HTML, a 200 shell: none of
     // these is "this device has recorded no sessions".
-    expect(() => archiveEntries(null)).toThrow();
-    expect(() => archiveEntries("<html>")).toThrow();
-    expect(() => archiveEntries({ ok: false, error: "boom" })).toThrow();
-    expect(() => archiveEntries({ ok: true })).toThrow();
+    await expect(archiveEntries(null)).rejects.toThrow();
+    await expect(archiveEntries("<html>")).rejects.toThrow();
+    await expect(archiveEntries({ ok: false, error: "boom" })).rejects.toThrow();
+    await expect(archiveEntries({ ok: true })).rejects.toThrow();
   });
 
-  it("accepts a genuinely empty manifest as empty — the two are different answers", () => {
-    expect(archiveEntries({ ok: true, sessions: [] })).toEqual([]);
+  it("accepts a genuinely empty manifest as empty — the two are different answers", async () => {
+    expect(await archiveEntries({ ok: true, sessions: [] })).toEqual([]);
   });
 
-  it("drops a row it cannot NAME rather than rendering it under a fabricated id", () => {
-    const rows = archiveEntries({
+  it("drops a row it cannot NAME rather than rendering it under a fabricated id", async () => {
+    const rows = await archiveEntries({
       ok: true,
       sessions: [
         { state: { kind: "status", ts: 1 } },               // no id
@@ -77,13 +86,13 @@ describe("archiveEntries — reading the device's manifest", () => {
     expect(rows.map((r) => r.sid)).toEqual(["kept"]);
   });
 
-  it("keeps a session whose folded state the device did not write, with no state invented", () => {
-    const rows = archiveEntries({ ok: true, sessions: [{ id: "bare" }, { id: "empty-state", state: {} }] });
+  it("keeps a session whose folded state the device did not write, with no state invented", async () => {
+    const rows = await archiveEntries({ ok: true, sessions: [{ id: "bare" }, { id: "empty-state", state: {} }] });
     expect(rows.map((r) => r.last)).toEqual([null, null]);
   });
 
-  it("rejects a stamp or exit code of the wrong type instead of coercing it", () => {
-    const [row] = archiveEntries({
+  it("rejects a stamp or exit code of the wrong type instead of coercing it", async () => {
+    const [row] = await archiveEntries({
       ok: true,
       sessions: [{ id: "s", state: { kind: "command/end", ts: "1700", exit_code: "0", reason: 7, status: "" } }],
     });

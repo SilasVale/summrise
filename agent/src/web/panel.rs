@@ -33,13 +33,19 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
     const XTERM_JS: &str = include_str!("../../resources/panel/vendor/xterm.min.js");
     const XTERM_CSS: &str = include_str!("../../resources/panel/vendor/xterm.css");
     const FIT_JS: &str = include_str!("../../resources/panel/vendor/xterm-addon-fit.min.js");
-    let body: &str = match file {
-        "index.html" => HTML,
-        "panel.js" => JS,
-        "panel.css" => CSS,
-        "vendor/xterm.min.js" => XTERM_JS,
-        "vendor/xterm.css" => XTERM_CSS,
-        "vendor/xterm-addon-fit.min.js" => FIT_JS,
+    // P2 OF THE RUST MIGRATION: the panel's LOGIC, compiled to wasm and fetched by the panel at its
+    // first call (never at page load — criterion ③ of the plan). `include_bytes!` and not
+    // `include_str!`, because a wasm module is not text; it is embedded exactly like the bundle, so
+    // the exe serves the artifact it was built with and no second file has to be deployed.
+    const WASM: &[u8] = include_bytes!("../../resources/panel/panel_logic_bg.wasm");
+    let body: Body = match file {
+        "index.html" => Body::from(apply_bundle_hash(HTML)),
+        "panel.js" => Body::from(JS),
+        "panel.css" => Body::from(CSS),
+        "vendor/xterm.min.js" => Body::from(XTERM_JS),
+        "vendor/xterm.css" => Body::from(XTERM_CSS),
+        "vendor/xterm-addon-fit.min.js" => Body::from(FIT_JS),
+        "panel_logic_bg.wasm" => Body::from(WASM),
         _ => {
             return built_response(
                 StatusCode::NOT_FOUND,
@@ -50,11 +56,6 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
     };
     // The host page carries content-hash bundle URLs (each panel rebuild is
     // a distinct cache key); the raw assets serve byte-identical.
-    let body = if file == "index.html" {
-        Body::from(apply_bundle_hash(body))
-    } else {
-        Body::from(body)
-    };
     let mut resp = built_response(StatusCode::OK, content_type, body);
     set_cache_control(&mut resp, "no-cache");
     // CROSS-ORIGIN FOR THE ASSETS, NEVER FOR THE PAGE (round 234). A harness that renders this panel from another origin cannot
@@ -113,6 +114,11 @@ pub(crate) fn panel_content_type(file: &str) -> &'static str {
         "text/javascript; charset=utf-8"
     } else if file.ends_with(".css") {
         "text/css; charset=utf-8"
+    } else if file.ends_with(".wasm") {
+        // The ONLY type here the browser does not sniff: `WebAssembly.instantiateStreaming` (and
+        // the wasm-bindgen glue's own fetch) REFUSE a module served as anything but this, and
+        // `application/octet-stream` fails with "Incorrect response MIME type".
+        "application/wasm"
     } else {
         "text/html; charset=utf-8"
     }

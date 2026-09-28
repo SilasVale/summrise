@@ -11,7 +11,17 @@
 // small; the history changes at most once per boot. A minute is fast enough that a device
 // which restarts while the operator watches shows up, and cheap enough that a device that
 // never restarts costs one small request a minute.
+//
+// ── THE PARSE IS RUST NOW (P2, 2026-09-28) ───────────────────────────────────
+//
+// `parseBootHistory` moved to `agent/resources/panel-logic/src/boot.rs` — the same crate and the
+// same loader as `lib/archive.ts`'s parse, so the pipeline cost was paid once. It is `async` for
+// the reason that file's header records: the wasm is fetched at the first call, never at page load
+// (criterion ③ of the migration plan), so a migrated function cannot answer synchronously during
+// render. This one is a `useDeviceRead` fold — already asynchronous — so the hook's own call site
+// is unchanged (`reduce` may return a promise now, and the module awaits it).
 import { useDeviceRead } from "./useDeviceRead";
+import { panelLogic } from "../wasm/panelLogic";
 import type { BootKind } from "./useAgentVitals";
 
 export interface BootRecord {
@@ -46,54 +56,21 @@ export const EMPTY_BOOT_HISTORY: BootHistory = {
   summary: { windowSecs: 86_400, boots: 0, crashes: 0 },
 };
 
-const KINDS: BootKind[] = [
-  "first-run",
-  "clean-exit",
-  "replaced",
-  "machine-restart",
-  "crashed",
-];
-
-const str = (v: unknown): string | null =>
-  typeof v === "string" && v ? v : null;
-const num = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
-
 /** Read `/api/boots`'s body. Never throws; a body it cannot use is an empty history, which
  *  the card renders as "nothing to show" rather than as a device that never restarted —
- *  the failure flag is the caller's to keep (see the hook's `failed`). */
-export function parseBootHistory(j: unknown): BootHistory {
-  const body = (j ?? {}) as { boots?: unknown; summary?: unknown };
-  const boots: BootRecord[] = (
-    Array.isArray(body.boots) ? body.boots : []
-  ).flatMap((raw) => {
-    const r = (raw ?? {}) as Record<string, unknown>;
-    const tsMs = num(r.ts_ms);
-    // A record with no usable stamp is DROPPED: it cannot be placed on a time axis, and a
-    // list sorted by guesswork is worse than a shorter list (the same rule the device's
-    // own timeline states for its records).
-    if (tsMs === null) return [];
-    const rawKind = str(r.kind);
-    return [
-      {
-        tsMs,
-        kind: KINDS.find((k) => k === rawKind) ?? null,
-        detail: str(r.detail) ?? "",
-        uptimeSecs: num(r.uptime_secs),
-        gapSecs: num(r.gap_secs),
-        release: str(r.release),
-      },
-    ];
-  });
-  const s = (body.summary ?? {}) as Record<string, unknown>;
-  return {
-    boots,
-    summary: {
-      windowSecs: num(s.window_secs) ?? 86_400,
-      boots: num(s.boots) ?? boots.length,
-      crashes: num(s.crashes) ?? 0,
-    },
-  };
+ *  the failure flag is the caller's to keep (see the hook's `failed`).
+ *
+ *  RUST SINCE P2 (2026-09-28): the body above is `agent/resources/panel-logic/src/boot.rs`. The
+ *  rules it keeps are the ones written here and they are unchanged — a record with no usable stamp
+ *  is DROPPED, an unrecognised `kind` renders as "unrecorded" rather than borrowing another kind's
+ *  words, and nothing throws. `KINDS`, `str` and `num` are gone from this file with it, so there is
+ *  no second derivation of the restart history left in the panel.
+ *
+ *  `EMPTY_BOOT_HISTORY` STAYS: it is the value `useDeviceRead` starts from, not a parse result, and
+ *  the test that pins `parseBootHistory(null)` against it is what keeps the two agreeing. */
+export async function parseBootHistory(j: unknown): Promise<BootHistory> {
+  const logic = await panelLogic();
+  return logic.parse_boot_history(j) as BootHistory;
 }
 
 /** The history, refreshed once a minute. `failed` distinguishes "the device did not

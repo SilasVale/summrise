@@ -5,8 +5,17 @@
 // controls) and the strip's chip ("192.168.1.1:22 down 4m"), which must be visible from any
 // page. One poller per shell feeds both, and the actions live here too so a card and any future
 // caller send exactly the same requests.
+//
+// AND IT IS NOW HALF A SEAM (P2, 2026-09-28). `parseMonitors` and `parseMonitorChange` — the two
+// PARSES, the half of this file that decides what the device said — moved to
+// `agent/resources/panel-logic/src/monitors.rs` and are called from here through
+// `src/wasm/panelLogic.ts` (P0's BOUNDARY class: it computes nothing, it fetches). `fmtSince`,
+// `unstableTargets` and `downTargets` are still TypeScript because they are called during RENDER
+// and the wasm is fetched at the first call rather than at page load — P0's "the hooks are a SPLIT,
+// not a unit", applied: the parse goes to Rust, the `useEffect` stays.
 import { useCallback, useEffect, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
+import { panelLogic } from "../wasm/panelLogic";
 import { useDeviceRead } from "./useDeviceRead";
 
 interface MonitorProbe {
@@ -71,77 +80,33 @@ export const EMPTY_MONITORS: Monitors = {
   seriesMax: 0,
 };
 
-const num = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
+/** `str(v)` — a string, or `""`. THE PARSE BELOW NO LONGER USES IT (`str_of` lives in
+ *  `panel-logic/src/monitors.rs` now); the hook's own actions still do, for the device's `error`
+ *  and for the id of a target it just added. */
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** Read `/api/monitors`. A body this build cannot use is an EMPTY monitor list — never a throw
- *  — and a probe with no usable stamp is dropped (it cannot be placed on the time axis). */
-export function parseMonitors(j: unknown): Monitors {
-  const body = (j ?? {}) as Record<string, unknown>;
-  const rows = Array.isArray(body.targets) ? body.targets : [];
-  const targets: MonitorTarget[] = rows.flatMap((raw) => {
-    const r = (raw ?? {}) as Record<string, unknown>;
-    const id = str(r.id);
-    if (!id) return [];
-    const s = (r.summary ?? {}) as Record<string, unknown>;
-    const lat = (s.latency ?? null) as Record<string, unknown> | null;
-    const series: MonitorProbe[] = (
-      Array.isArray(r.series) ? r.series : []
-    ).flatMap((p) => {
-      const pr = (p ?? {}) as Record<string, unknown>;
-      const tsMs = num(pr.ts_ms);
-      if (tsMs === null) return [];
-      return [{ tsMs, ok: pr.ok === true, ms: num(pr.ms) }];
-    });
-    const transitions: MonitorTransition[] = (
-      Array.isArray(r.transitions) ? r.transitions : []
-    ).flatMap((raw) => {
-      const t = (raw ?? {}) as Record<string, unknown>;
-      const atMs = num(t.at_ms);
-      if (atMs === null) return [];
-      return [{ atMs, up: t.up === true, lastedMs: num(t.lasted_ms) ?? 0 }];
-    });
-    return [
-      {
-        id,
-        host: str(r.host),
-        port: num(r.port) ?? 0,
-        path:
-          r.path === null || r.path === undefined ? null : str(r.path) || null,
-        expect:
-          r.expect === null || r.expect === undefined
-            ? null
-            : str(r.expect) || null,
-        transitions,
-        series,
-        summary: {
-          probes: num(s.probes) ?? series.length,
-          up: num(s.up) ?? 0,
-          down: num(s.down) ?? 0,
-          upPct: num(s.up_pct),
-          upNow: typeof s.up_now === "boolean" ? s.up_now : null,
-          sinceMs: num(s.since_ms),
-          drops: num(s.drops),
-          latency: lat
-            ? {
-                min: num(lat.min) ?? 0,
-                avg: num(lat.avg) ?? 0,
-                max: num(lat.max) ?? 0,
-              }
-            : null,
-          lastStatus: num(s.last_status),
-          lastExpectOk:
-            typeof s.last_expect_ok === "boolean" ? s.last_expect_ok : null,
-        },
-      },
-    ];
-  });
-  return {
-    targets,
-    intervalSecs: num(body.interval_secs) ?? 0,
-    seriesMax: num(body.series_max) ?? 0,
-  };
+ *  — and a probe with no usable stamp is dropped (it cannot be placed on the time axis).
+ *
+ *  ── THIS FUNCTION IS RUST NOW (P2, 2026-09-28) ──────────────────────────────
+ *
+ *  The body that was here moved to `agent/resources/panel-logic/src/monitors.rs`, transliterated:
+ *  the same drops (a target with no id, a probe or transition with no stamp), the same collapses
+ *  (`str` → `""`, `num` → absence, `str(v) || null` for `path`/`expect`), the same `?? 0` and
+ *  `?? series.length` defaults, and the same two strict tests (`=== true`, `typeof … === "boolean"`)
+ *  that a truthiness test would have widened. `num` went with it; the TypeScript copy is gone, so
+ *  there is no second derivation of a monitor row left in the panel.
+ *
+ *  WHY IT IS `async` AND THE THREE FUNCTIONS BELOW IT ARE NOT. The wasm is fetched at the first
+ *  call rather than at page load — criterion ③ of the migration plan, so it is in neither the
+ *  first-load payload nor the page's critical path — and a call during RENDER cannot wait for that
+ *  fetch. This one is a `useDeviceRead` fold, so it is free: the fold already may return a promise.
+ *  `fmtSince`, `unstableTargets` and `downTargets` below are called while `MonitorAlerts`,
+ *  `MonitorsCard` and `MonitorChip` render, so they stay TypeScript until the sync story is
+ *  decided; the numbers behind that decision are in the commit message. */
+export async function parseMonitors(j: unknown): Promise<Monitors> {
+  const logic = await panelLogic();
+  return logic.parse_monitors(j) as Monitors;
 }
 
 /** The monitors, refreshed on the device's own cadence (a probe every 15 s: polling slower
@@ -259,23 +224,27 @@ export interface MonitorAlert {
 }
 
 /** Read one `monitor-change` frame. A frame this build cannot use is null — never a thrown
- *  error inside an event handler, and never a banner about something that did not happen. */
-export function parseMonitorChange(detail: unknown): MonitorAlert | null {
-  const d = (detail ?? {}) as Record<string, unknown>;
-  if (d.ev !== "monitor-change") return null;
-  const id = str(d.id);
-  const atMs = num(d.at_ms);
-  if (!id || atMs === null) return null;
-  return {
-    key: `${id}:${atMs}`,
-    id,
-    host: str(d.host),
-    port: num(d.port) ?? 0,
-    up: d.up === true,
-    lastedMs: num(d.lasted_ms) ?? 0,
-    atMs,
-    status: num(d.status),
-  };
+ *  error inside an event handler, and never a banner about something that did not happen.
+ *
+ *  ── THIS FUNCTION IS RUST NOW (P2, 2026-09-28) ──────────────────────────────
+ *
+ *  It moved with `parseMonitors`, into the same module (`monitors.rs`), and it is the FIRST migrated
+ *  function whose call site is an EVENT HANDLER rather than a data fold — the `monitor-change`
+ *  listener below and `useAttention`'s OS-notification listener. That is free for the same reason a
+ *  fold is: nothing in an event handler is on the first render's path.
+ *
+ *  THE KEY IS THE ONE THING HERE THAT IS NOT A TRANSLITERATION OF A PREDICATE BUT OF A CONVERSION.
+ *  `` `${id}:${atMs}` `` is JS number → text, and Rust's `format!` is a different function
+ *  (`1e21` → `1000000000000000000000` where JS says `1e+21`; `-0` → `-0` where JS says `0`). A key
+ *  spelled differently is a DIFFERENT key, so the same transition would stack in the strip instead
+ *  of replacing itself. `monitors.rs` therefore asks the ENGINE (`Number.prototype.toString`), not
+ *  Rust's formatter — which is also what keeps the float formatter out of the binary (P0 measured
+ *  one `{:.3}` at 8,879 gz). */
+export async function parseMonitorChange(
+  detail: unknown,
+): Promise<MonitorAlert | null> {
+  const logic = await panelLogic();
+  return logic.parse_monitor_change(detail) as MonitorAlert | null;
 }
 
 const MAX_ALERTS = 3;
@@ -285,17 +254,22 @@ export function useMonitorAlerts(ttlMs = 12_000): MonitorAlert[] {
   const [alerts, setAlerts] = useState<MonitorAlert[]>([]);
   useEffect(() => {
     const onFrame = (e: Event) => {
-      const alert = parseMonitorChange((e as CustomEvent).detail);
-      if (!alert) return;
-      setAlerts((prev) =>
-        [alert, ...prev.filter((a) => a.key !== alert.key)].slice(
-          0,
-          MAX_ALERTS,
-        ),
-      );
-      window.setTimeout(() => {
-        setAlerts((prev) => prev.filter((a) => a.key !== alert.key));
-      }, ttlMs);
+      // THE FRAME'S DETAIL IS READ BEFORE THE AWAIT, deliberately: `parseMonitorChange` is a promise
+      // now, and the event is the dispatcher's object rather than this listener's. What crosses the
+      // await is the parsed value, never the event.
+      const detail = (e as CustomEvent).detail;
+      void parseMonitorChange(detail).then((alert) => {
+        if (!alert) return;
+        setAlerts((prev) =>
+          [alert, ...prev.filter((a) => a.key !== alert.key)].slice(
+            0,
+            MAX_ALERTS,
+          ),
+        );
+        window.setTimeout(() => {
+          setAlerts((prev) => prev.filter((a) => a.key !== alert.key));
+        }, ttlMs);
+      });
     };
     window.addEventListener("summrise-monitor-change", onFrame);
     return () => window.removeEventListener("summrise-monitor-change", onFrame);

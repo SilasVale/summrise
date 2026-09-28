@@ -20,6 +20,7 @@
 //      ZERO is a value and not a missing one.
 import { describe, it, expect } from "vitest";
 import {
+  EMPTY_GROUPS,
   groupOperation,
   groupCount,
   operationRows,
@@ -54,8 +55,8 @@ const end = (run_id: string, ts_ms: number, extra: Partial<RunBoundary> = {}): R
 const T0 = 1_700_000_000_000;
 
 describe("groupOperation — grouping", () => {
-  it("makes ONE row per run and counts the events carrying its id", () => {
-    const g = groupOperation(
+  it("makes ONE row per run and counts the events carrying its id", async () => {
+    const g = await groupOperation(
       [
         ev({ ts_ms: T0 + 10, run_id: "r-a" }),
         ev({ ts_ms: T0 + 20, run_id: "r-a", kind: "command/end", exit_code: 0 }),
@@ -69,8 +70,8 @@ describe("groupOperation — grouping", () => {
     expect(g.runs[1]).toMatchObject({ terminal: 1, browser: 1 });
   });
 
-  it("sorts runs by START time, whatever order the device listed them in", () => {
-    const g = groupOperation([], [
+  it("sorts runs by START time, whatever order the device listed them in", async () => {
+    const g = await groupOperation([], [
       begin("r-late", T0 + 500),
       begin("r-early", T0 + 100),
       begin("r-mid", T0 + 300),
@@ -79,9 +80,9 @@ describe("groupOperation — grouping", () => {
     expect(g.runs.map((r) => r.startMs)).toEqual([T0 + 100, T0 + 300, T0 + 500]);
   });
 
-  it("registers a run whose begin arrives AFTER its events", () => {
+  it("registers a run whose begin arrives AFTER its events", async () => {
     // The hook accumulates across polls, so arrival order is not time order.
-    const g = groupOperation(
+    const g = await groupOperation(
       [ev({ ts_ms: T0 + 10, run_id: "r-a" })],
       [begin("r-a", T0 + 5), end("r-a", T0 + 20)],
     );
@@ -89,8 +90,8 @@ describe("groupOperation — grouping", () => {
     expect(g.runs[0]).toMatchObject({ state: "closed", startMs: T0 + 5, terminal: 1 });
   });
 
-  it("ignores records with no usable stamp or id rather than placing them by guess", () => {
-    const g = groupOperation(
+  it("ignores records with no usable stamp or id rather than placing them by guess", async () => {
+    const g = await groupOperation(
       [
         ev({ ts_ms: undefined, run_id: "r-a" }),
         ev({ ts_ms: Number.NaN, run_id: "r-a" }),
@@ -104,8 +105,8 @@ describe("groupOperation — grouping", () => {
 });
 
 describe("groupOperation — the three states", () => {
-  it("CLOSED: a run/end exists, and the outcome rides with it when given", () => {
-    const g = groupOperation(
+  it("CLOSED: a run/end exists, and the outcome rides with it when given", async () => {
+    const g = await groupOperation(
       [ev({ ts_ms: T0 + 10, run_id: "r-a" })],
       [begin("r-a", T0, { label: "provision the ONU", goal: "get it online" }), end("r-a", T0 + 60_000, { outcome: "done" })],
     );
@@ -119,26 +120,26 @@ describe("groupOperation — the three states", () => {
     });
   });
 
-  it("CLOSED without an outcome carries NOTHING — not '', not a placeholder", () => {
-    const g = groupOperation([], [begin("r-a", T0), end("r-a", T0 + 5)]);
+  it("CLOSED without an outcome carries NOTHING — not '', not a placeholder", async () => {
+    const g = await groupOperation([], [begin("r-a", T0), end("r-a", T0 + 5)]);
     expect(g.runs[0].state).toBe("closed");
     expect(g.runs[0].outcome).toBeNull();
     // The device's own blank-collapse, from the other side: a client that
     // "said nothing" must not render as a client that said something empty.
-    const blank = groupOperation([], [begin("r-a", T0), end("r-a", T0 + 5, { outcome: "   " })]);
+    const blank = await groupOperation([], [begin("r-a", T0), end("r-a", T0 + 5, { outcome: "   " })]);
     expect(blank.runs[0].outcome).toBeNull();
   });
 
-  it("CLOSED takes priority when an end has no begin (the device's log is capped)", () => {
+  it("CLOSED takes priority when an end has no begin (the device's log is capped)", async () => {
     // The runs log keeps the newest N boundaries, so an old run's `run/begin`
     // can be trimmed out from under its recent `run/end`. A recorded end is
     // still a recorded end.
-    const g = groupOperation([ev({ ts_ms: T0 + 30, run_id: "r-old" })], [end("r-old", T0 + 40, { outcome: "done" })]);
+    const g = await groupOperation([ev({ ts_ms: T0 + 30, run_id: "r-old" })], [end("r-old", T0 + 40, { outcome: "done" })]);
     expect(g.runs[0]).toMatchObject({ state: "closed", outcome: "done", startMs: T0 + 30, endMs: T0 + 40 });
   });
 
-  it("OPEN: a begin with no end — the COMMON case, not an error", () => {
-    const g = groupOperation(
+  it("OPEN: a begin with no end — the COMMON case, not an error", async () => {
+    const g = await groupOperation(
       [ev({ ts_ms: T0 + 10, run_id: "r-a" }), ev({ ts_ms: T0 + 4_000, run_id: "r-a", kind: "command/end" })],
       [begin("r-a", T0)],
     );
@@ -146,12 +147,12 @@ describe("groupOperation — the three states", () => {
     expect(g.runs[0].outcome).toBeNull();
   });
 
-  it("OPEN derives its extent from its NEWEST EVENT, never from the clock", () => {
+  it("OPEN derives its extent from its NEWEST EVENT, never from the clock", async () => {
     // A `[begin, now]` span ticks up on every render and claims "still running"
     // — knowledge nobody has: the client may have stopped, or the agent may
     // have restarted. The end must be the newest activity carrying the id.
     const newest = T0 + 12_345;
-    const g = groupOperation(
+    const g = await groupOperation(
       [ev({ ts_ms: T0 + 10, run_id: "r-a" }), ev({ ts_ms: newest, run_id: "r-a" })],
       [begin("r-a", T0)],
     );
@@ -159,13 +160,13 @@ describe("groupOperation — the three states", () => {
     expect(g.runs[0].endMs).toBeLessThan(Date.now() - 24 * 60 * 60 * 1000);
   });
 
-  it("OPEN with NO events yet spans only its begin — a zero extent, not a live one", () => {
-    const g = groupOperation([], [begin("r-a", T0)]);
+  it("OPEN with NO events yet spans only its begin — a zero extent, not a live one", async () => {
+    const g = await groupOperation([], [begin("r-a", T0)]);
     expect(g.runs[0]).toMatchObject({ state: "open", startMs: T0, endMs: T0 });
   });
 
-  it("UNREGISTERED: events carrying an id whose begin was never recorded", () => {
-    const g = groupOperation(
+  it("UNREGISTERED: events carrying an id whose begin was never recorded", async () => {
+    const g = await groupOperation(
       [ev({ ts_ms: T0, run_id: "run-1700000000000-a1b2c3" }), ev({ ts_ms: T0 + 900, run_id: "run-1700000000000-a1b2c3" })],
       [],
     );
@@ -183,21 +184,21 @@ describe("groupOperation — the three states", () => {
     });
   });
 
-  it("a run that is both registered and unregistered in the data is NOT split", () => {
+  it("a run that is both registered and unregistered in the data is NOT split", async () => {
     // Same id in both arrays: one row. Rendering two rows for one id would
     // double every count on screen.
-    const g = groupOperation([ev({ ts_ms: T0 + 1, run_id: "r-a" })], [begin("r-a", T0)]);
+    const g = await groupOperation([ev({ ts_ms: T0 + 1, run_id: "r-a" })], [begin("r-a", T0)]);
     expect(g.runs).toHaveLength(1);
     expect(g.runs[0].state).toBe("open");
   });
 });
 
 describe("groupOperation — the unattributed bucket", () => {
-  it("keeps events with no run_id in their OWN group, never folded into the run before them", () => {
+  it("keeps events with no run_id in their OWN group, never folded into the run before them", async () => {
     // THE central guarantee. The unattributed event sits directly after r-a's
     // events in the stream; folding by adjacency would report r-a as having run
     // three commands when it ran two.
-    const g = groupOperation(
+    const g = await groupOperation(
       [
         ev({ ts_ms: T0 + 10, run_id: "r-a" }),
         ev({ ts_ms: T0 + 20, run_id: "r-a" }),
@@ -218,8 +219,8 @@ describe("groupOperation — the unattributed bucket", () => {
     });
   });
 
-  it("treats a MISSING run_id and a blank one identically — both are unattributed", () => {
-    const g = groupOperation(
+  it("treats a MISSING run_id and a blank one identically — both are unattributed", async () => {
+    const g = await groupOperation(
       [ev({ ts_ms: T0 }), ev({ ts_ms: T0 + 1, run_id: "" }), ev({ ts_ms: T0 + 2, run_id: "   " })],
       [],
     );
@@ -227,34 +228,34 @@ describe("groupOperation — the unattributed bucket", () => {
     expect(g.unattributed?.terminal).toBe(3);
   });
 
-  it("does not invent an id for the bucket", () => {
+  it("does not invent an id for the bucket", async () => {
     // "unknown" would render as an id the operator could ask the device about,
     // and there is none.
-    const g = groupOperation([ev({ ts_ms: T0 })], []);
+    const g = await groupOperation([ev({ ts_ms: T0 })], []);
     expect(g.unattributed!.runId).toBeNull();
     expect(g.unattributed!.label).toBeNull();
   });
 
-  it("is null — and therefore not rendered — when every event carries a run", () => {
-    const g = groupOperation([ev({ ts_ms: T0, run_id: "r-a" })], [begin("r-a", T0)]);
+  it("is null — and therefore not rendered — when every event carries a run", async () => {
+    const g = await groupOperation([ev({ ts_ms: T0, run_id: "r-a" })], [begin("r-a", T0)]);
     expect(g.unattributed).toBeNull();
   });
 
-  it("survives a timeline with no runs at all", () => {
-    const g = groupOperation([ev({ ts_ms: T0 })], []);
+  it("survives a timeline with no runs at all", async () => {
+    const g = await groupOperation([ev({ ts_ms: T0 })], []);
     expect(g.runs).toEqual([]);
     expect(groupCount(g)).toBe(1);
   });
 });
 
 describe("groupOperation — absent values", () => {
-  it("reads absent label/goal/outcome as null, and blank as absent too", () => {
+  it("reads absent label/goal/outcome as null, and blank as absent too", async () => {
     // The device collapses blank to NULL WITH THE KEY PRESENT (`"label": null`,
     // which `agent/src/runs.rs` states outright) — NOT to a missing key, which is
     // what this comment and the type's doc both claimed. The reader must handle
     // all three kinds of nothing: null, a missing key, and "   ". A reader that
     // rendered any of them as "" would put an empty label where a name belongs.
-    const g = groupOperation([], [
+    const g = await groupOperation([], [
       begin("r-none", T0),
       { kind: "run/begin", run_id: "r-blank", ts_ms: T0 + 1, label: "", goal: "  " },
     ]);
@@ -264,8 +265,8 @@ describe("groupOperation — absent values", () => {
     }
   });
 
-  it("keeps the label when the client DID supply one, and nothing else", () => {
-    const g = groupOperation([], [begin("r-a", T0, { label: "provision the ONU" })]);
+  it("keeps the label when the client DID supply one, and nothing else", async () => {
+    const g = await groupOperation([], [begin("r-a", T0, { label: "provision the ONU" })]);
     expect(g.runs[0].label).toBe("provision the ONU");
     expect(g.runs[0].goal).toBeNull();
     expect(g.runs[0].outcome).toBeNull();
@@ -273,24 +274,41 @@ describe("groupOperation — absent values", () => {
 });
 
 describe("groupCount", () => {
-  it("counts the unattributed bucket as a row, so the strip never renders a 0-row list", () => {
-    expect(groupCount(groupOperation([ev({ ts_ms: T0 })], []))).toBe(1);
-    expect(groupCount(groupOperation([], []))).toBe(0);
-    expect(groupCount(groupOperation([ev({ ts_ms: T0, run_id: "r-a" })], [begin("r-a", T0)]))).toBe(1);
+  it("counts the unattributed bucket as a row, so the strip never renders a 0-row list", async () => {
+    expect(groupCount(await groupOperation([ev({ ts_ms: T0 })], []))).toBe(1);
+    expect(groupCount(await groupOperation([], []))).toBe(0);
+    expect(groupCount(await groupOperation([ev({ ts_ms: T0, run_id: "r-a" })], [begin("r-a", T0)]))).toBe(1);
+  });
+});
+
+describe("the empty derivation the panel STARTS from", () => {
+  // `EMPTY_GROUPS` (lib/runs.ts) is what `useOperationRuns` holds before the first reply lands, so
+  // the two surfaces read a derived field unconditionally rather than each carrying a null check.
+  // That makes it a CLAIM about the wasm — "the derivation of the empty input is this object" —
+  // and a claim nobody checked is a lie the reader believes: if the Rust ever answered something
+  // else for `[]`, the strip would draw a group nobody sent on every cold mount. So it is checked
+  // here, against the artifact the operator's browser loads.
+  it("IS the wasm's own answer for an empty input, not a hand-written stand-in", async () => {
+    expect(await groupOperation([], [])).toEqual(EMPTY_GROUPS);
+    expect(await operationRows([], [])).toEqual([]);
+    // AND THE PROBE IS NOT VACUOUS: a single unattributed event is the smallest input that answers
+    // something else, so a `group_operation` that ignored its arguments would fail the line above
+    // and this one would still have to move.
+    expect(await groupOperation([ev({ ts_ms: T0 })], [])).not.toEqual(EMPTY_GROUPS);
   });
 });
 
 /** The flattened rows, for the tests that only care about them. */
-function rowsOf(events: OperationEvent[], boundaries: RunBoundary[] = []): ActivityRow[] {
-  return operationRows(events, boundaries).flatMap((g) => g.rows);
+async function rowsOf(events: OperationEvent[], boundaries: RunBoundary[] = []): Promise<ActivityRow[]> {
+  return (await operationRows(events, boundaries)).flatMap((g) => g.rows);
 }
 
 describe("operationRows — the records are carried, not just counted", () => {
-  it("extracts WHAT ran with the fields the panel used to discard", () => {
+  it("extracts WHAT ran with the fields the panel used to discard", async () => {
     // THE POINT OF THIS MODULE'S NEW HALF. Every field below was fetched by the
     // hook and then dropped on the floor: the operator could see "2 terminal"
     // and never the command.
-    const rows = rowsOf(
+    const rows = await rowsOf(
       [
         ev({
           ts_ms: T0 + 10,
@@ -341,12 +359,12 @@ describe("operationRows — the records are carried, not just counted", () => {
     });
   });
 
-  it("keeps the exit code ZERO apart from an exit code nobody recorded", () => {
+  it("keeps the exit code ZERO apart from an exit code nobody recorded", async () => {
     // `0` is the single most common REAL outcome. A reader that treats it as
     // falsy (or a type that says `number | null` and is checked with `if (x)`)
     // makes "it succeeded" and "nobody wrote down how it ended" identical —
     // which is the one distinction this whole panel refuses to blur.
-    const [ok, absent] = rowsOf([
+    const [ok, absent] = await rowsOf([
       ev({ ts_ms: T0, kind: "command/end", exit_code: 0 }),
       ev({ ts_ms: T0 + 1, kind: "command/end" }),
     ]);
@@ -354,11 +372,11 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(absent.exitCode).toBeNull();
     expect(ok.exitCode).not.toBe(absent.exitCode);
     // Same rule for a duration: a measured 0 ms is not a missing measurement.
-    expect(rowsOf([ev({ ts_ms: T0, duration_ms: 0 })])[0].durationMs).toBe(0);
+    expect((await rowsOf([ev({ ts_ms: T0, duration_ms: 0 })]))[0].durationMs).toBe(0);
   });
 
-  it("reads absent values as ABSENCE — never '' and never a stand-in word", () => {
-    const [row] = rowsOf([
+  it("reads absent values as ABSENCE — never '' and never a stand-in word", async () => {
+    const [row] = await rowsOf([
       ev({ ts_ms: T0, command: "ls", intent: "   ", considered: [], screenshots: [] }),
     ]);
     expect(row.command).toBe("ls");
@@ -372,12 +390,12 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(row.script).toBeNull();
   });
 
-  it("orders rows by ts_ms ALONE, whatever order they arrived in", () => {
+  it("orders rows by ts_ms ALONE, whatever order they arrived in", async () => {
     // Both feeds are merged onto one axis and the hook accumulates them across
     // polls, so arrival order is not time order. The device's two feeds stamp
     // `ts` in different UNITS (seconds vs milliseconds); nothing here reads it,
     // and this pins the axis that is actually used.
-    const rows = rowsOf([
+    const rows = await rowsOf([
       ev({ ts_ms: T0 + 5_000, command: "third" }),
       ev({ ts_ms: T0 + 1_000, command: "first" }),
       ev({ ts_ms: T0 + 3_000, command: "second" }),
@@ -386,10 +404,10 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(rows.map((r) => r.tsMs)).toEqual([T0 + 1_000, T0 + 3_000, T0 + 5_000]);
   });
 
-  it("puts unattributed records in the bucket, never in a neighbouring run's rows", () => {
+  it("puts unattributed records in the bucket, never in a neighbouring run's rows", async () => {
     // The same central guarantee as the counts, one level down: a row is only
     // ever in the group whose id it carries.
-    const grouped = operationRows(
+    const grouped = await operationRows(
       [
         ev({ ts_ms: T0 + 10, run_id: "r-a", command: "in the run" }),
         ev({ ts_ms: T0 + 20, command: "nobody's" }),
@@ -405,8 +423,8 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(grouped.flatMap((g) => g.rows)).toHaveLength(3);
   });
 
-  it("returns the groups in render order: oldest run first, the bucket LAST", () => {
-    const grouped = operationRows(
+  it("returns the groups in render order: oldest run first, the bucket LAST", async () => {
+    const grouped = await operationRows(
       [ev({ ts_ms: T0 + 10, run_id: "r-late" }), ev({ ts_ms: T0 + 1, command: "loose" })],
       [begin("r-late", T0 + 5), begin("r-early", T0)],
     );
@@ -415,11 +433,11 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(grouped[0].rows).toEqual([]);
   });
 
-  it("gives every row a unique id, so a list keyed on it cannot silently drop one", () => {
+  it("gives every row a unique id, so a list keyed on it cannot silently drop one", async () => {
     // Two records can be genuinely identical (the browser feed has no sequence
     // and a client may run the same script twice inside one millisecond), and a
     // duplicate React key throws one of them away without a word.
-    const grouped = operationRows(
+    const grouped = await operationRows(
       [
         ev({ ts_ms: T0, source: "browser", kind: "action", script: "click" }),
         ev({ ts_ms: T0, source: "browser", kind: "action", script: "click" }),
@@ -431,21 +449,21 @@ describe("operationRows — the records are carried, not just counted", () => {
     expect(new Set(ids).size).toBe(2);
   });
 
-  it("keeps a row's identity stable across identical recomputation", () => {
+  it("keeps a row's identity stable across identical recomputation", async () => {
     // The hook re-derives on every poll; an id that changed each time would
     // re-mount every row (and lose the reader's scroll position) for no new
     // fact. Same input ⇒ same ids.
     const events = [ev({ ts_ms: T0 + 10, run_id: "r-a", seq: 7, command: "ls" })];
-    const first = rowsOf(events, [begin("r-a", T0)]).map((r) => r.id);
-    const second = rowsOf(events, [begin("r-a", T0)]).map((r) => r.id);
+    const first = (await rowsOf(events, [begin("r-a", T0)])).map((r) => r.id);
+    const second = (await rowsOf(events, [begin("r-a", T0)])).map((r) => r.id);
     expect(second).toEqual(first);
   });
 
-  it("drops a record with no usable stamp rather than placing it by guess", () => {
+  it("drops a record with no usable stamp rather than placing it by guess", async () => {
     // Unchanged from the grouping rule, and stated here because the rows obey
     // it too: the device itself drops an unstamped record, and a guessed
     // position on the axis would be worse than a missing row.
-    const rows = rowsOf([
+    const rows = await rowsOf([
       ev({ ts_ms: undefined, command: "unstamped" }),
       ev({ ts_ms: Number.NaN, command: "nan" }),
       ev({ ts_ms: T0, command: "placed" }),
@@ -455,8 +473,8 @@ describe("operationRows — the records are carried, not just counted", () => {
 });
 
 describe("groupOperation — rows ride with their group", () => {
-  it("gives each group its own rows and leaves the others alone", () => {
-    const g = groupOperation(
+  it("gives each group its own rows and leaves the others alone", async () => {
+    const g = await groupOperation(
       [
         ev({ ts_ms: T0 + 10, run_id: "r-a", command: "a1" }),
         ev({ ts_ms: T0 + 20, run_id: "r-b", command: "b1" }),
