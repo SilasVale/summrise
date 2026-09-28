@@ -46,8 +46,8 @@
 //                  the raw id, because that is the only true name it has.
 // plus the UNATTRIBUTED group: events with no run id at all, kept separate so
 // adjacency is never mistaken for attribution.
-import { useMemo, useState } from "react";
-import { groupOperation, groupCount, RUN_STATE_LABEL, runStateNote, type RunGroup } from "../lib/runs";
+import { useState } from "react";
+import { groupCount, RUN_STATE_LABEL, runStateNote, type RunGroup } from "../lib/runs";
 import { useOperationRuns } from "../hooks/useOperationRuns";
 import { fmtDuration } from "./CommandCard";
 
@@ -129,8 +129,10 @@ export function RunGroupHead({ group }: { group: RunGroup }) {
 }
 
 export function RunStrip({ pollMs }: { pollMs?: number }) {
-  const { events, boundaries } = useOperationRuns(pollMs);
-  const groups = useMemo(() => groupOperation(events, boundaries), [events, boundaries]);
+  // THE GROUPING IS THE HOOK'S NOW (P2): `useOperationRuns` derives it in the fold that produces
+  // the events, because the wasm is fetched at the first call and a `useMemo` here runs during
+  // render. This component reads a field — see `lib/runs.ts`'s header for the sync story.
+  const { groups } = useOperationRuns(pollMs);
   const [open, setOpen] = useState(true);
 
   const total = groupCount(groups);

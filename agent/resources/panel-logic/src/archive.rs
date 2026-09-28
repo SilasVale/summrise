@@ -17,8 +17,14 @@ use wasm_bindgen::prelude::*;
 /// DROPPED rather than rendered under a fabricated name" is a rule `archive.ts` states.
 ///
 /// The ORIGINAL string is what the caller keeps; the trim only decides whether it counts.
-fn js_trim(s: &str) -> &str {
-    s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+///
+/// AND THE TWO SETS DIFFER IN ONE MORE PLACE, which the first version of this helper missed:
+/// `White_Space` includes **U+0085 (NEL)** and JS's WhiteSpace does not. So `"\u{85}"` is a NAME to
+/// the panel and was an empty string here — the mirror image of the U+FEFF case, one line down.
+/// Corrected where the predicate lives rather than worked around at a caller, and it is now shared
+/// with `runs.rs` (`value()`), whose corpus covers both characters from the other side.
+pub(crate) fn js_trim(s: &str) -> &str {
+    s.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}')
 }
 
 /// JS `typeof v`.

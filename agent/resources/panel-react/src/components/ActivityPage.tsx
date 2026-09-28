@@ -31,7 +31,7 @@
 //     empty list that reads as a broken feature.
 import { useMemo } from "react";
 import { stateFromEnd } from "../lib/path";
-import { operationRows, type ActivityRow } from "../lib/runs";
+import type { ActivityRow } from "../lib/runs";
 import { useOperationRuns } from "../hooks/useOperationRuns";
 import { fmtDuration } from "./CommandCard";
 import { RunGroupHead, clock } from "./RunStrip";
@@ -179,11 +179,11 @@ const plural = (n: number, one: string, many: string): string =>
   `${n} ${n === 1 ? one : many}`;
 
 export function ActivityPage({ pollMs }: { pollMs?: number }) {
-  const snapshot = useOperationRuns(pollMs);
-  const groups = useMemo(
-    () => operationRows(snapshot.events, snapshot.boundaries),
-    [snapshot],
-  );
+  // THE ROWS ARE THE HOOK'S NOW (P2): `useOperationRuns` derives them in the fold that produces
+  // the events — one grouping, at the data boundary, where the wasm is already loaded. This page
+  // reads a field, and then only MEASURES what it was handed (`extent` below), which is not a
+  // second derivation of anything: it is the min and max of the very rows the list draws.
+  const { rows: groups } = useOperationRuns(pollMs);
   const span = useMemo(() => extent(groups), [groups]);
 
   const runCount = groups.filter((g) => g.group.state !== "unattributed").length;

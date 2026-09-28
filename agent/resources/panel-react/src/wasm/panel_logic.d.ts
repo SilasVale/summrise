@@ -13,6 +13,32 @@
 export function archive_entries(payload: any): any;
 
 /**
+ * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
+ * one group per run, plus the unattributed bucket.
+ *
+ * Order-independent: both inputs may arrive in any order (the hook accumulates them across polls),
+ * so extents are computed with min/max rather than by position, and a `run/begin` that arrives
+ * after its own events still registers the run.
+ *
+ * `pushRow` sorts a group's rows by `ts_ms` after every push; a single stable sort of the whole
+ * list at the end is the same order (each push appends, and a stable sort of an already-sorted
+ * list preserves what it had), so that is what happens here.
+ */
+export function group_operation(events: any, boundaries: any): any;
+
+/**
+ * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
+ * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
+ * bucket last and separate".
+ *
+ * It takes the GROUPS rather than the raw events, because the grouping has exactly one
+ * implementation above: the rows a reader sees cannot disagree with the counts a strip shows.
+ * The TypeScript wrapper keeps its `(events, boundaries)` signature for its own callers and makes
+ * the same two calls this does.
+ */
+export function operation_rows(groups: any): any;
+
+/**
  * `parseBootHistory(j)` — never throws, and never invents a value.
  */
 export function parse_boot_history(j: any): any;
@@ -40,6 +66,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly archive_entries: (a: any) => [number, number, number];
+    readonly group_operation: (a: any, b: any) => [number, number, number];
+    readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];

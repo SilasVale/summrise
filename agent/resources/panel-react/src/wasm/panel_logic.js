@@ -20,6 +20,49 @@ export function archive_entries(payload) {
 }
 
 /**
+ * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
+ * one group per run, plus the unattributed bucket.
+ *
+ * Order-independent: both inputs may arrive in any order (the hook accumulates them across polls),
+ * so extents are computed with min/max rather than by position, and a `run/begin` that arrives
+ * after its own events still registers the run.
+ *
+ * `pushRow` sorts a group's rows by `ts_ms` after every push; a single stable sort of the whole
+ * list at the end is the same order (each push appends, and a stable sort of an already-sorted
+ * list preserves what it had), so that is what happens here.
+ * @param {any} events
+ * @param {any} boundaries
+ * @returns {any}
+ */
+export function group_operation(events, boundaries) {
+    const ret = wasm.group_operation(events, boundaries);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
+ * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
+ * bucket last and separate".
+ *
+ * It takes the GROUPS rather than the raw events, because the grouping has exactly one
+ * implementation above: the rows a reader sees cannot disagree with the counts a strip shows.
+ * The TypeScript wrapper keeps its `(events, boundaries)` signature for its own callers and makes
+ * the same two calls this does.
+ * @param {any} groups
+ * @returns {any}
+ */
+export function operation_rows(groups) {
+    const ret = wasm.operation_rows(groups);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `parseBootHistory(j)` — never throws, and never invents a value.
  * @param {any} j
  * @returns {any}
@@ -124,6 +167,10 @@ function __wbg_get_imports() {
         },
         __wbg_length_d4bdea10311bd9cf: function(arg0) {
             const ret = arg0.length;
+            return ret;
+        },
+        __wbg_localeCompare_90de64421aef2322: function(arg0, arg1, arg2, arg3, arg4) {
+            const ret = arg0.localeCompare(getStringFromWasm0(arg1, arg2), arg3, arg4);
             return ret;
         },
         __wbg_new_617a8cdb8bb1130e: function() {
