@@ -180,10 +180,17 @@ export function ConnectCard() {
             </div>
           </>
         )}
-      </div>
 
-      <div className="settings-section">
-        <h2>Give it to your client</h2>
+        {/* **THE SECOND HEADING NAMED SOMETHING THE FIRST ONE HAD ALREADY INTRODUCED.**
+            This component rendered TWO top-level `settings-section` cards — and the lede under the
+            first one ends with the words *"point one here and it can operate this device **with the
+            tools below**"*. The tabs, the snippet and the buttons ARE the tools below. So the second
+            heading was a name for a thing the reader had just been told to look at, and the page paid
+            for it with a twelfth `<h2>` on a screen that already had too many.
+
+            **WHAT IS LOST BY MERGING: nothing.** Every control, the client tabs, the snippet, the
+            probe result and the closing warning all follow the lede and the tool count in exactly the
+            order that sentence describes. The card got shorter and the reading order got truer. */}
         <div className="connect-tabs">
           {CLIENTS.map((c) => (
             <button
