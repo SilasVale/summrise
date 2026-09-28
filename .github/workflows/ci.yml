@@ -164,12 +164,6 @@ jobs:
         # failed with "Executable doesn't exist at .../chromium_headless_shell-1228/...". Running the local
         # CLI installs the builds the local version will look for, which is the whole question.
         run: node node_modules/playwright-core/cli.js install --with-deps
-      # THE ASSEMBLER RUNS BEFORE THE SWEEPS, because the sweeps' device scripts are assembled by it. It needs no
-      # browser and no network: it builds three-module payloads in memory, writes the bundle into a temp directory
-      # that holds NOTHING else, and runs it — so a bundle that still needs its sources, or that resolves a relative
-      # require to an id string instead of to the exports (the defect its own first version shipped), fails here.
-      - name: the sweep assembler runs what it emits
-        run: node scripts/test/sweep-bundle-check.mjs
       - name: Design sweep (contrast, spacing, hierarchy, typography, states)
         run: bash scripts/design-sweep-ci.bash
 
@@ -445,11 +439,6 @@ jobs:
       - name: the header-timeout budget is the one number the README states
         run: node scripts/test/proxy-timeout-parity-check.mjs
 
-      # A TEST THAT MOCKS lib/api WHOLESALE REPLACES EVERY EXPORT: the next one added there is `undefined`
-      # at the call site, and a hook that catches its own read failures turns that TypeError into "a failed
-      # read must not update" — indistinguishable from correct behaviour, and invisible to tsc.
-      - name: no test replaces lib/api wholesale, or the next export added there vanishes
-        run: node scripts/test/panel-mock-spread-check.mjs
       # STATE COLOUR IS FOR STATE. Measured first — 163 uses of an ok/warn/fail/running/danger token across the
       # panel and console sheets, essentially all of them on the state layer, a destructive action, a category
       # lane or a token definition — and a clean result nothing enforced is one commit from not being true.
@@ -560,16 +549,6 @@ jobs:
       # inline sheet. The check pins the rule as a pure function AND the wiring in all three emitted artifacts.
       - name: press anchor checks
         run: node scripts/test/press-anchor-check.mjs
-      # A SKIP MUST NOT LOOK LIKE A PASS — the third time this repo has had to say
-      # so. `panel-render-audit.mjs` needs a Playwright runtime; where there is none
-      # it emits its harness (deliberately) but it used to exit 0, and its own
-      # message admitted that "a caller watching only the exit code reads this skip
-      # as a pass". It now exits 2 = DID NOT RUN, distinct from 1 = ran and failed
-      # and 0 = ran and clean, and this asserts the codes rather than the prose.
-      # (Round 33: "a check that reads nothing must not report success". Round 46:
-      # a harness that could not tell an unmocked request from an empty page.)
-      - name: panel-audit skip-vs-pass checks
-        run: node scripts/test/panel-audit-skip-check.mjs
       # A `var()` THAT RESOLVES TO NOTHING SILENTLY DELETES ITS DECLARATION. No
       # error, no log, the page renders — just not what the rule says. Round 43's
       # console Models page used three names that exist in the PANEL's tokens and not
@@ -579,14 +558,6 @@ jobs:
       # declaration that never applied.
       - name: dangling custom-property checks
         run: node scripts/test/custom-prop-check.mjs
-      # THE SAME DISEASE IN THE E2E GATE, and this one was in CI on every push.
-      # The suite ends on `exit(failed.length ? 1 : 0)`, so `--only` naming a
-      # section that does not exist ran NOTHING, printed "== 0/0 passed ==" and
-      # exited 0. One renamed section would have turned the gate into a no-op that
-      # still reported success. It now validates `--only` against a declared
-      # section list and exits 2 when zero checks execute.
-      - name: e2e --only skip-vs-pass checks
-        run: node scripts/test/e2e-only-check.mjs
       # ONE design vocabulary across the two frontends. They shared 16 token
       # NAMES and 12 of them held different VALUES — the console's frame was
       # Bootstrap's gray scale while the panel's was zinc/Apple — and the
@@ -602,12 +573,6 @@ jobs:
       # definition is a string with no counterpart, which a check is good at.
       - name: css custom properties resolve (panel, console)
         run: node scripts/test/css-vars-check.mjs
-      # THE HARNESS FIXTURES ARE PART OF THE INSTRUMENT, and a fixture that cannot express a state hides
-      # that state from every sweep that uses it. Round 150's example: the live session list was a fixed
-      # three, so the panel's EMPTY state had no surface at all. This checks the EMITTED harness, and
-      # self-tests each check against a deliberately broken copy. Needs no device and no browser.
-      - name: harness fixtures can express their states
-        run: node scripts/test/harness-fixture-check.mjs
       # THE OTHER TWO SWEEPS' JUDGES. `panel-design-sweep.bash` has gated the panel's judge since round 50;
       # the console's and the extension's adapter-specific rules had NO gate — the shared judge they call is
       # covered through the panel's, which is exactly why the gap was easy to miss. Each case here plants one
@@ -672,15 +637,6 @@ jobs:
       # `workflow-yaml-check.mjs` is the gate that now fails on this shape instead of a silent two-hour outage.
       - name: every route the header lists is served
         run: node scripts/test/http-route-header-check.mjs
-      - name: every skill's frontmatter is well formed
-        run: node scripts/test/skill-frontmatter-check.mjs
-      - name: the instruction files' labelled snippets parse
-        run: node scripts/test/agents-snippet-check.mjs
-      # A FIXTURE TABLE MUST NOT SAY ONE THING TWICE (round 60 of the standing goal). Round 59's `prov-dot` hunt ended
-      # on a duplicate key: in a JS object the LAST one wins, so a fixture body added in round 57 never reached the page
-      # and the Models page rendered its failure banner for three rounds with every other axis green.
-      - name: fixture tables have no duplicate keys
-        run: node scripts/test/sweep-fixture-dupes-check.mjs
       # ONE FACT, ONE DERIVATION (round 78 of the standing goal). The spine's rule was enforced by READING until now:
       # round 29 deleted a private second derivation in the trajectory view that mapped a backgrounded command to `warn`
       # while the canonical one said `bg`, so one command wore two states in one view. This fails, by file and line, any
@@ -717,22 +673,10 @@ jobs:
       # mutation was about the mutation.
       - name: the two backends offer the same surface
         run: node scripts/test/stub-surface-check.mjs
-      # THE TABLE THAT SAYS WHAT CI RUNS MUST MATCH WHAT CI RUNS (round 151 of the standing goal). Round 146 drifted exactly
-      # here: AGENTS.md claimed the agent's checks run in "both feature sets" while the workflow ran one, and the missing
-      # configuration was broken at the time.
-      - name: the command table matches the workflow
-        run: node scripts/test/ci-command-table-check.mjs
-      # A GATE THAT RUNS MUST BE A GATE SOMEBODY NAMED (round 152 of the standing goal). AGENTS.md said "ten gates" while
-      # the objective was at ten and a round later there were twelve — the drift that file itself records for the sweep's
-      # check count. The count is gone; this holds the part that can be checked.
-      - name: every wired gate is named in the docs
-        run: node scripts/test/numbered-claims-check.mjs
       # THE CONSOLE'S SIDE OF "ONE FACT, ONE DERIVATION" (round 173 of the standing goal). The panel has had that gate since
       # round 78; the console had nothing, and round 172 found the prefix rule written nine times with two behaviours.
       - name: the console's derivations have one home each
         run: node scripts/test/console-derivation-check.mjs
-      - name: every gate is broken on purpose and bites
-        run: node scripts/test/gate-mutations-check.mjs
       # A DEVICE FIELD IS READ IN THE MAPPING SECTION OR NOT AT ALL (round 98 of the standing goal). Rounds 96-97 removed
       # the same duplication twice in `useSessions.ts` — a byte-identical row mapper, then the device-owned half of it
       # written three times — and this is the rule that keeps it removed: outside that section, no device field is read.

@@ -119,12 +119,7 @@ when you change the gate** — a gate that cannot be broken is worse than no gat
 **AND READ IT WHEN A FINDING SAYS SOMETHING IS UNUSED AND YOU ARE ABOUT TO DELETE IT** — that rule outlived the table it was
 written for.
 
-**AND FOUR GATES WERE DOCUMENTED *ONLY* IN THE LEDGER, WHICH IS WHY THEY ARE NAMED HERE NOW.** Deleting it turned
-`numbered-claims-check` red with `proxy-cors-parity-check`, `proxy-timeout-parity-check`, `panel-mock-spread-check` and
-`custom-prop-check` — gates the census could not find anywhere an operator reads, because a round narrative was their only
-mention. That is the ledger's own recorded failure mode arriving from the other side (*"they were reachable ONLY through
-it"*), and the fix is the one this section already prescribes: **a gate is named where a person can find it, or it is a gate
-nobody can run by hand.**
+**AND A GATE IS NAMED WHERE A PERSON CAN FIND IT, OR IT IS A GATE NOBODY CAN RUN BY HAND.** That is why the list above exists at all.
 
 ## Pushing: wait for the run in flight
 
@@ -244,21 +239,23 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 ## Every gate CI runs
 
-**A GATE NOBODY CAN NAME IS A GATE NOBODY RUNS BY HAND.** These are the gate scripts the workflow invokes, 66 of them, listed because deleting the ledger proved they were documented *only* there: `numbered-claims-check` went from zero unnamed to **52** the moment the two reference tables went. A gate is named where a person can find it, or it does not exist.
+**A GATE NOBODY CAN NAME IS A GATE NOBODY RUNS BY HAND.** These are the gate scripts the workflow invokes. A gate is named where a person can find it, or it does not exist.
+
+**AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no Node, no browser, no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
 
 **Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
 
-`agents-snippet-check.mjs`, `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `ci-command-table-check.mjs`, `console-derivation-check.mjs`
+`all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `console-derivation-check.mjs`
 `console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`, `css-vars-check.mjs`
-`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `e2e-only-check.mjs`, `exports-check.mjs`
-`feedback-check.mjs`, `gate-mutations-check.mjs`, `gateway-device-field-check.mjs`, `harness-fixture-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
+`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
+`feedback-check.mjs`, `gateway-device-field-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`, `model-drift-check.mjs`
-`motion-check.mjs`, `numbered-claims-check.mjs`, `one-derivation-check.mjs`, `panel-audit-skip-check.mjs`, `panel-design-sweep.bash`, `panel-mock-spread-check.mjs`
+`motion-check.mjs`, `one-derivation-check.mjs`, `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `particles-check.mjs`, `powershell-structure-check.mjs`, `press-anchor-check.mjs`, `production-host-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `retired-colours-check.mjs`, `scan-dups-check.py`, `script-syntax.bash`
-`session-carry-detect-check.mjs`, `session-row-check.mjs`, `skill-frontmatter-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`, `spacing-scale-check.mjs`
-`state-colour-check.mjs`, `stub-surface-check.mjs`, `stylesheet-hygiene.mjs`, `sweep-bundle-check.mjs`, `sweep-fixture-dupes-check.mjs`, `sweep-judges.bash`
+`session-carry-detect-check.mjs`, `session-row-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`, `spacing-scale-check.mjs`
+`state-colour-check.mjs`, `stub-surface-check.mjs`, `stylesheet-hygiene.mjs`, `sweep-judges.bash`
 `token-contract-check.mjs`, `wire-field-check.mjs`, `workflow-shell-check.mjs`, `workflow-yaml-check.mjs`
 
 ## Where the long form lives
