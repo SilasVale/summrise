@@ -33,7 +33,7 @@
 // Regenerate panel.js/panel.css first: (cd agent/resources/panel-react && npm run build)
 
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -229,6 +229,24 @@ async function main() {
   const html = buildHarness();
   const harnessPath = join(OUT, "panel-harness.html");
   writeFileSync(harnessPath, html);
+
+  // ── THE ARTIFACTS THE BUNDLE FETCHES, WRITTEN BESIDE THE HARNESS ──────────────────────────────────────────────
+  //
+  // THE PANEL IS NO LONGER ONE FILE. `wasm/panelLogic.ts` fetches `panel_logic_bg.wasm` from panel.js's own
+  // directory, and this harness INLINES panel.js with no `src`, so the loader falls back to
+  // `<document.baseURI>panel_logic_bg.wasm` — a request the sweep's fixture used to answer with the harness HTML.
+  // `instantiateStreaming` refuses that, the glue's `arrayBuffer` fallback compiles HTML and throws, and every
+  // card whose parse moved to Rust (monitors, the archive, the run strip) renders "The device did not answer, so
+  // its watch list could not be read" — a FALSE product defect, manufactured by the fixture and reported 40-odd
+  // times by the design job on `d33e5592` and `5bfd5437`.
+  //
+  // IT IS COPIED RATHER THAN REFERENCED because the sweep runs in two places and only one of them has a repo:
+  // the fixture serves whatever sits beside the harness, and on a device the emitted harness is the only thing
+  // that travels. `copyFileSync` and not `writeFileSync(readFileSync(...))` for the same reason the bundle is
+  // inlined as text: this is a binary and a re-encode is a chance to change it.
+  const wasm = join(PANEL, "panel_logic_bg.wasm");
+  const wasmBeside = join(OUT, "panel_logic_bg.wasm");
+  copyFileSync(wasm, wasmBeside);
 
   // WHERE THIS RUNS. The audit needs a Playwright runtime, and on the Linux dev
   // box there is none that can launch (the system chromium is missing

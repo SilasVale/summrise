@@ -356,7 +356,16 @@ return {
       const cls = (el.getAttribute && el.getAttribute('class')) || el.tagName.toLowerCase();
       // THE DISPLAYED TEXT IS THE KEY, not the whole paragraph: the first run reported the same sentence FOUR times
       // per surface, because the card's paragraph is split across sibling nodes that differ past the cut.
-      const claim = cls + ': ' + own.replace(/s+/g, ' ').slice(0, 70);
+      // A BACKSLASH BEFORE THE s, AND NOT THE LETTER ALONE, WHICH IS WHAT THIS SAID FOR AS LONG AS THE CLAUSE HAS
+      // EXISTED (fixed 2026-09-29). The pattern was slash-s-plus-slash-g, which replaces runs of the LETTER s with
+      // a space, so every claim this probe has ever reported reached the judge with its s's eaten: "The device did
+      // not answer, so its watch list could not be read" arrived as "The device did not an wer,  o it  watch li t
+      // could not be read" — 40-odd times in the design job's own log, where it read as corruption rather than as
+      // a sentence. The whitespace collapse it was written for is the same one the sentence needs, so the fix is
+      // one character and the claim is legible for the first time. FOUND WHILE FIXING THE FIXTURE THAT PRODUCED
+      // THOSE CLAIMS: the mangling was in the instrument, not in the panel — the third time this sweep has
+      // reported a defect in itself in the shape of one in the page.
+      const claim = cls + ': ' + own.replace(/\\s+/g, ' ').slice(0, 70);
       if (out.indexOf(claim) < 0) out.push(claim);
     }
     return [...new Set(out)].slice(0, 5);
