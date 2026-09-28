@@ -407,8 +407,14 @@ jobs:
       # THE CONSOLE'S STATE DOTS, which the panel's own guards cannot see (they read the panel's sheet). Three
       # identical circles distinguished only by fill colour, one of them 2.46:1 in the light theme — the panel
       # retired exactly this arrangement in round 245 and the console still had it (round 11 of the standing goal).
-      - name: the console's state dots differ in shape, and are legible
-        run: node scripts/test/console-marks-check.mjs
+      # THE CONSOLE'S STATE MARKS MOVED TO RUST — `agent/tests/console_marks.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. The step here ran `scripts/test/console-marks-check.mjs`, and that
+      # file is DELETED rather than left beside the new gate: two gates for one rule is two gates. Both
+      # implementations were run over the same tree on SIX cases — the clean tree, four mutations that must bite
+      # (the failing ink, two states with one silhouette, a FILL inside a RING, a state whose rule is gone) and one
+      # that must not (a state's ink moved to a STRONGER token) — and every body is byte-identical: 125 / 121 /
+      # 167 / 224 / 87 / 125 bytes. Nothing replaced the step, deliberately: a `cargo test` step here would
+      # compile the crate a second time in a job with no Rust cache.
       # A COMMENT THAT ASSERTS PARITY IS NOT A COMPARISON: five files carry the same CORS allowlist, and the test
       # whose NAME claims to be the drift guard reads no gateway file at all. It is a RUST gate now
       # (`agent/tests/proxy_cors_parity.rs`, batch 6 of the P1 migration), run by the `cargo test` step in this job.

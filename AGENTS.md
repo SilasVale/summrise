@@ -258,7 +258,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 **Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`
-`console-marks-check.mjs`, `console-smoke-check.mjs`, `contrast-probe-check.mjs`
+`console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `feedback-check.mjs`, `hook-finds-its-repo.bash`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`
 `panel-design-sweep.bash`
