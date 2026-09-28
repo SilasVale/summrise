@@ -139,3 +139,98 @@ worktree 的三个假前提 · "听起来对"的假设 · 门禁悄悄豁免 · 
 
 **两条元规则**：**每一条防法都要能被证伪**（"小心一点"不是防法，"跑 `curl | cmp`"是）·
 **每一条都从真的发生过的错长出来**。
+
+
+---
+
+## P3.0 的答案（2026-09-28 实测，`47e487f1`）：**冷启动真的更慢，而顺序要改**
+
+**计划里写着 `proxies` → `index` → `gateway` ✓。而那个顺序**没有测量支撑**✗——**现在有了，而它指向反方向 ✓。**
+
+### 数字（Cloudflare 自己的 per-request `cpuTime`，单位 **µs**）
+
+| | TypeScript | Rust→wasm | 比 |
+|---|---|---|---|
+| 冷 cpuTime p50 | **583** | **9 627** | **16.5×** |
+| 冷 wallTime p50 | 965 | 10 230 | 10.6× |
+| 暖 cpuTime p50 | 543 | 977 | **1.8×（rust 慢）** |
+| bundle gzip | **0.51 KiB** | **141.56 KiB** | **277×** |
+
+**即 **+9.0 ms CPU / 每个新 isolate**✓（18 个配对轮次 ✓，冷 min/p50/max：ts 288/583/935 · rust 846/9627/28441 ✓）。**
+
+**而"wasm 的赢面是 CPU"这条**在这里不成立**** ✗——**暖态 rust 慢 1.8× ✓**，因为这条路由**没有计算可赢**，
+**只有边界成本 ✓**。**不要用速度论证迁移 ✓；理由是类型与统一 ✓。**
+
+### 怎么强制冷，以及怎么**证明**它是冷的
+
+`wrangler deploy`（新脚本版本 → 空 isolate 池）然后**恰好一个**请求 ✓。
+**而证明不是假设**：两个 worker 都返回 `requestIndex` / `isolateAgeMs` ✓——**`requestIndex === 1` 意味着
+**这个请求创建了 isolate**✓**。16 个保存的样本带着它 ✓，确认轮拿到 `isolateAgeMs = 0` ✓✓。
+
+### 而**最重要的那条**：两个仪器不一致，而外面那个**自信地错**
+
+**从外面观察（哪怕从一个**在 Cloudflare 内部**的 driver Worker）会给出一个**自信的错答案**：
+冷 p50 ts 69 ms vs rust **61 ms——**rust 看起来更快**** ✗✓。**
+
+**因为那个样本里是网络 ＋ 排队 ＋ isolate 启动（方差 50–90 ms ✓），而效应只有 ~9 ms ✓。**
+**答案只出现在 Cloudflare 的 per-request 数据集里——那里**一个只有一次请求的桶就是那个请求**✓✓。**
+
+**所以：量冷启动时，判据是 `workersInvocationsAdaptive` 的 per-request `cpuTime` ✓，
+不是任何从外面量的延迟 ✗。**
+
+### 而它对顺序的判断
+
+**惩罚是**按 isolate**✓，不是按请求 ✓——所以暴露量 = **冷请求的比例**✓。**
+- **`proxies` 是**流量最低、最突发**的 ✓，而它**在设备的关键路径上**✓（git 镜像 = `proxies/api-relay/api/git.ts` ✓）
+  → **它在**最大比例的请求**上付那 9.6 ms ✗**——**所以**不是**先搬它 ✓。**
+- **`gateway` 流量最大 ✓（一个真人在用 ✓），摊销得最好 ✓✓。**
+
+**所以 P3 的第一步不是搬任何一个 ✓，是**量每个 Worker 的冷请求比例**✓（`analytics.mjs` 能 ✓），
+**然后按那个比例排序 ✓**——**而不是把 `proxies` 先行当成定论 ✗。**
+
+**而上限要说清** ✓：**这是一个 trivial echo ✓——它隔离了运行时（那正是问题问的 ✓），
+**但它不预测一条真实路由 ✓。**
+
+### 三条环境事实（都是它踩出来的，别再踩）
+
+1. **`wrangler tail` 在这台机器上跑不了** ✗（ECONNRESET ✓，`tail.developers.workers.dev` 被封 ✓）。
+2. **`*.workers.dev` 是 TLS-reset（SNI 被封）** ✗——**从这台机器**和**设备**都不通 ✓，
+   **所以流量只能从 Cloudflare 内部发起 ✓。**
+3. **`wrangler dev --remote` 起不来** ✗（workerd 要 GLIBC ≥ 2.32 ✓，这台是 2.31 ✓）。
+4. **而它**没有用 `wasm-pack`**** ✓——**它用 `worker-build --release` ＋ `WASM_OPT_BIN` ✓，**5.5 秒**✓，
+   **没有那 14 分钟的挂 ✓**——**即 `wasm-pack` 那两条警告对 Workers 这条路**不适用**** ✓。
+
+
+### P3.0 的第二遍测量，更正了第一遍的四条（`7d96b772`）
+
+**同一件事被两个 agent 各量一遍 ✓，而第二遍**更正了第一遍**✓——**而它的结论一样 ✓：**
+**冷 **15.5×**（569 → 8 795 µs p50，n=16/17）· 暖 **1.7×**（542 → 940 µs）· bundle **277×**** ✓
+（**第一遍是 16.5× / 1.8× ✓——**两个独立测量在同一个量级上 ✓✓**）
+
+**① 而 `isolateAgeMs = 0` **不是**第二个独立确认 ✗✓✓——**它是同义反复**** ✓：
+  **"the birth is stamped **ON THE FIRST REQUEST**, so it is 0 exactly when `requestIndex === 1`"** ✓✓——
+  **即第一版把**同一个证据**数了两遍 ✓，并把它叫做两个 ✗**——**而原因是**：
+  **Workers 在**模块作用域**返回 `Date.now()` 的 **0**** ✓（**measured ✓**）——
+  **而 `crypto.randomUUID()` 在模块作用域被直接拒绝 ✓（deploy error 10021 ✓）**
+  → **所以"它是冷的"只有一个独立证据：**一次新部署 ✓ ＋ **isolate 自己报的 `requestIndex === 1`** ✓**
+**② 而 cron **确实会**触发 ✗✓——**零读数是在**第一个到达之前**取的 ✓**（**~7 分钟 ✓，而它 ~7.5 分钟才启动 ✓**）——
+  **它只是**太慢**（~7.5 分钟 ✓），不能当按需触发器 ✓**
+**③ 而那个"配对"设计的失败**不只是方差**** ✓✓：
+  **"pairing cancels the transport (sd 16.4 vs 50–90 unpaired), yet a **+9 ms penalty still fails to appear**
+   (mean −0.5, p50 0). Likely cause is an **ORDER BIAS** the design cannot remove — ts is always subrequest #1,
+   rust #2, **so rust starts on a just-warmed DNS/TLS path**."** ✓✓✓——**记录，未修复 ✓：**重跑必须**交替顺序**✓**
+**④ `analytics.mjs` 说 cpuTime 的量纲是毫秒 ✗——**它是**微秒**** ✓✓
+  （**"543 CPU vs 10 230 wall is only coherent as µs"** ✓）
+
+### 而六条环境事实（都是两遍测量踩出来的）
+
+1. **`wrangler tail` 在这台机器上跑不了** ✗（`tail.developers.workers.dev` 是 TLS-reset ✓）。
+2. **`*.workers.dev` 从这台机器**和两台 Windows 设备**都 TLS-reset（SNI 被封）** ✗——
+   **所以"side by side"需要一条临时的 `saisi.online` 路由 ✓。**
+3. **而一个 Worker 对**自己 zone**的子请求**不重入 Workers routes**** ✓（**每个样本 522 in 19 ms ✓**）——
+   **所以 driver 必须走 `workers.dev` 调目标 ✓。**
+4. **8 个并发请求**不会**产生 8 个 isolate** ✗✓（**measured: isolates = 1 ✓——**并发排队到暖 isolate ✓**）——
+   **所以**突发不能强制冷 ✓；**一次新部署能 ✓。**
+5. **免费版每次调用上限 **50 个子请求**** ✓（**#49 ok ✓，第 50 个抛 "Too many subrequests by single Worker
+   invocation" ✓**）——**那给任何重跑定了规模 ✓。**
+6. **`wrangler dev --remote` 起不来** ✗（workerd 要 GLIBC ≥ 2.32 ✓，这台是 2.31 ✓）。
