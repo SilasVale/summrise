@@ -704,7 +704,18 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                                 Ok(r) => {
                                     let st = r.status();
                                     let ok = st.is_success();
-                                    if !ok {
+                                    if ok {
+                                        // **A REGISTRATION THAT WORKED USED TO LEAVE NO TRACE AT ALL.** Only the
+                                        // failure arm logged, so "this device never registered" and "it registered
+                                        // an hour ago" were THE SAME LOG — one silent outcome, one loud one, and
+                                        // the silent one is the one an operator is usually looking for. Measured
+                                        // 2026-09-28: after the device row was deleted in the console the agent
+                                        // re-registered on its next attempt, and agent.log said nothing about it;
+                                        // the only evidence was the console card itself.
+                                        tracing::info!(
+                                            "[summrise-agent] device self-register to {url} → HTTP {st} (registered)"
+                                        );
+                                    } else {
                                         if st.as_u16() == 409 {
                                             conflict = true;
                                         }
@@ -727,10 +738,16 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                     };
                     fast_retry = !ok && !conflict;
                     if conflict {
-                        // Permanent per current credentials: retry at the
-                        // hourly heartbeat so a console-side fix still lands
-                        // without a restart.
-                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                        // **AN HOUR WAS THE WRONG CADENCE FOR A CONFLICT WHOSE FIX IS ON THE OTHER END.** The
+                        // comment below has always said the point is that "a console-side fix still lands
+                        // without a restart" — and the ONLY thing that can clear a 409 is a person editing
+                        // the Devices page, which they do within minutes of seeing the problem. A 3600 s
+                        // wait therefore turns a solved problem into an unresolved-looking one for up to an
+                        // hour: measured 2026-09-28, the row was deleted and the device did not return until
+                        // someone restarted the agent by hand. Five minutes is still ~12 attempts/hour —
+                        // nothing like the 60 s hammering this backoff was written to prevent — and it is
+                        // short enough that the operator's own fix is the thing that resolves it.
+                        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
                         continue;
                     }
                     if !fast_retry {
