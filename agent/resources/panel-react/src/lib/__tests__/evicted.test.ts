@@ -22,8 +22,11 @@ const frame = {
 };
 
 describe("session evictions", () => {
-  it("reads the device's frame", () => {
-    const n = parseEvicted(frame)!;
+  // `await` on all three, because the parse is RUST NOW (P2, 2026-09-29): the wasm is fetched at
+  // the first call, so the seam is a promise. THE ASSERTIONS ARE UNCHANGED — `tsc --noEmit` named
+  // these lines, which is the point of running the checker rather than reading the call sites.
+  it("reads the device's frame", async () => {
+    const n = (await parseEvicted(frame))!;
     expect(n.cause).toBe("cap");
     expect(n.limit).toBe(16);
     expect(n.sessions[0].label).toBe("d1");
@@ -32,8 +35,8 @@ describe("session evictions", () => {
     expect(evictedText(n)).toContain("16-session cap");
   });
 
-  it("reads an idle reaping, with how long the session had been silent", () => {
-    const n = parseEvicted({
+  it("reads an idle reaping, with how long the session had been silent", async () => {
+    const n = (await parseEvicted({
       ev: "session-evicted",
       cause: "idle",
       limit: 900,
@@ -46,41 +49,41 @@ describe("session evictions", () => {
           reason: "silent for 39960s (idle TTL)",
         },
       ],
-    })!;
+    }))!;
     expect(evictedText(n)).toContain("11h 00m");
     expect(evictedText(n)).toContain("serial:COM4");
     expect(evictedText(n)).toContain("15-minute limit");
   });
 
-  it("draws NOTHING for a frame it cannot describe", () => {
+  it("draws NOTHING for a frame it cannot describe", async () => {
     // Another event on the same stream, a missing cause, an empty list, junk.
-    expect(parseEvicted({ ev: "monitor-change" })).toBeNull();
+    expect(await parseEvicted({ ev: "monitor-change" })).toBeNull();
     expect(
-      parseEvicted({ ev: "session-evicted", sessions: frame.sessions }),
+      await parseEvicted({ ev: "session-evicted", sessions: frame.sessions }),
     ).toBeNull();
     expect(
-      parseEvicted({ ev: "session-evicted", cause: "cap", sessions: [] }),
+      await parseEvicted({ ev: "session-evicted", cause: "cap", sessions: [] }),
     ).toBeNull();
     expect(
-      parseEvicted({
+      await parseEvicted({
         ev: "session-evicted",
         cause: "melted",
         sessions: frame.sessions,
       }),
     ).toBeNull();
     expect(
-      parseEvicted({
+      await parseEvicted({
         ev: "session-evicted",
         cause: "cap",
         sessions: [{ label: "no id" }],
       }),
     ).toBeNull();
-    expect(parseEvicted(null)).toBeNull();
-    expect(parseEvicted(undefined)).toBeNull();
+    expect(await parseEvicted(null)).toBeNull();
+    expect(await parseEvicted(undefined)).toBeNull();
   });
 
-  it("names a session without a label by its id, and one eviction in the singular", () => {
-    const n = parseEvicted({
+  it("names a session without a label by its id, and one eviction in the singular", async () => {
+    const n = (await parseEvicted({
       ev: "session-evicted",
       cause: "idle",
       limit: 900,
@@ -93,7 +96,7 @@ describe("session evictions", () => {
           reason: "silent for 1s (idle TTL)",
         },
       ],
-    })!;
+    }))!;
     expect(evictedText(n)).toContain("term-ab-3");
     expect(evictedText(n)).toContain("Closed session");
   });

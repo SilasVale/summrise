@@ -16,11 +16,17 @@ export function useEvictedNotice(ttlMs: number = EVICTED_TTL_MS): EvictionNotice
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const onFrame = (e: Event) => {
-      const parsed = parseEvicted((e as CustomEvent).detail);
-      if (!parsed) return;
-      setNotice(parsed);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => setNotice(null), ttlMs);
+      // `void … .then(…)` AND NOT `async`: the parse is RUST NOW (P2, 2026-09-29), so it answers a
+      // promise — and a listener that returned one would be handing it to an event dispatcher that
+      // does nothing with it. The listener stays synchronous; the notice arrives one microtask
+      // later, which is invisible for a frame that is already off the first render's path. The
+      // timer is armed inside the callback so a frame this build REFUSES (`null`) never arms one.
+      void parseEvicted((e as CustomEvent).detail).then((parsed) => {
+        if (!parsed) return;
+        setNotice(parsed);
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => setNotice(null), ttlMs);
+      });
     };
     window.addEventListener("summrise-session-evicted", onFrame);
     return () => {
