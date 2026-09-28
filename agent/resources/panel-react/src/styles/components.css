@@ -3996,9 +3996,17 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
   100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0); }
 }
 
-/* button reset for the tab close affordance (was a span) */
-button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; cursor: pointer; color: inherit; display: inline-flex; align-items: center; opacity: .6; }
-button.dtab-close:hover { opacity: 1; }
+/* button reset for the tab close affordance (was a span). THE RESET IS A RESET AGAIN: it carried
+   `opacity: .6` and a `:hover` twin raising it to 1, from the era when the close control was a span with its
+   own reveal. `desktop.css` then gave `.dtab-close` the reveal this row actually wants — `opacity: 0`, shown
+   on `.dtab:hover` and on `.dtab.active` — and the reset's selector, `button.dtab-close` (0,1,1), OUT-SPECIFIES
+   the plain `.dtab-close` (0,1,0). So every INACTIVE tab painted a close affordance at rest, at 60%: measured
+   on the device with no pointer over the strip, `opacity` 1 on the active tab and **0.6 on both inactive
+   ones**, against a sheet that says 0. An independent review of the strip saw it in the pixels before it was
+   measured ("three close affordances share a row carrying only three 7px status dots — inverted ink budget").
+   Deleting the two declarations restores what the row declares, and makes this density agree with the panel's,
+   whose close control is `visibility: hidden` until hover or active. */
+button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; cursor: pointer; color: inherit; display: inline-flex; align-items: center; }
 
 /* round-255: when the evidence drawer is open the EMBEDDED native view
    shrinks by the drawer width (340px) so the SPA drawer (which always
