@@ -63,11 +63,31 @@ if [ "${#gates[@]}" -lt 40 ]; then
   exit 1
 fi
 
+# THE RUST GATES ARE A CI JOB, NOT A `scripts/test/` SCRIPT — AND THE DERIVATION ABOVE CANNOT SEE
+# THEM. `cargo test -p summrise-agent` runs in ci.yml's `agent` job under `working-directory: agent`,
+# and the extraction above matches `node|bash|python3 scripts/test/…` only. So the gates that have
+# MOVED into `agent/tests/*.rs` would be invisible here — and "invisible to the local run" reads
+# exactly like "passed". This is that reach, restored as a derived command rather than a promise:
+# the same invocation CI runs, from the same directory. `cargo:` marks the entries that need it,
+# because a relative path resolved from the repo root is the one mistake a migrated gate can make
+# and this is the file that would hide it.
+mapfile -t cargo_gates < <(
+  # THE PATTERN IS ANCHORED ON THE WHOLE INVOCATION, not on its prefix. A looser one
+  # (`cargo test -p summrise-agent([^ ]*)`) cannot span the space before `--features`, so it
+  # silently derives the BARE command and drops the flag — a pattern that truncates its subject is
+  # the defect this suite exists to catch, and it would have been committed here.
+  grep -oE 'cargo test -p summrise-agent(-core)?( --features [a-z,]+)?' "$WORKFLOW" | sort -u | sed 's/^/cargo:/'
+)
+gates+=("${cargo_gates[@]}")
+
 fail=0
 notrun=0
 ok=0
 for cmd in "${gates[@]}"; do
-  out=$($cmd 2>&1)
+  case $cmd in
+    cargo:*) out=$( (cd agent && ${cmd#cargo:}) 2>&1) ;;
+    *)       out=$($cmd 2>&1) ;;
+  esac
   code=$?
   case $code in
     # A GATE THAT SAID NOTHING HAS PROVED NOTHING (round 175). Exit 0 with EMPTY output is
