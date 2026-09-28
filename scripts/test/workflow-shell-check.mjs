@@ -22,8 +22,8 @@
 // push with a run carrying ZERO jobs and `conclusion: failure`. No job, no log, and `all-gates.bash` read the same file by
 // regex and stayed green. **The instrument read the file as TEXT; the other end reads it as YAML.**
 //
-// `workflow-yaml-check.mjs` now answers the question this file cannot ("does the file parse at all?"), with a real parser
-// where the host has one and a differentially-proven fallback where it does not. THIS file keeps its own job — whether the
+// `agent/tests/workflow_yaml.rs` now answers the question this file cannot ("does the file parse at all?"), with a real
+// parser in process. THIS file keeps its own job — whether the
 // SHELL inside a `run:` block parses — and the two are deliberately separate: a `run:` block that is valid YAML can still
 // be a script that cannot run, which is what this file was written for (the unclosed `<<<"` below).
 //
@@ -41,7 +41,7 @@ const DIR = `${ROOT}/.github/workflows`;
 // Using a real parser would be better, but this file must not depend on a package the workflow runner has — AND THE
 // HEADER USED TO CLAIM IT DID USE ONE, which is how the orphaned-line outage stayed invisible for thirty-five commits
 // (round 273). The limit is real and it is named: A LINE WITH NO `run:` KEY IS NOT EXTRACTED HERE AT ALL. That question
-// belongs to `workflow-yaml-check.mjs`, which runs beside this one in the pack-chain job.
+// belongs to `agent/tests/workflow_yaml.rs`, which runs in the `agent` job's `cargo test`.
 function runBlocks(text) {
   const out = [];
   const lines = text.split("\n");

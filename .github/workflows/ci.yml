@@ -568,7 +568,7 @@ jobs:
       # there, so the whole FILE stopped parsing: GitHub answered every push with a completed run carrying ZERO jobs and
       # `conclusion: failure`, which is indistinguishable in a count from a real red and has no log to open. Measured:
       # 8ca63398 ran 11 jobs and succeeded; e92fbf32, the first of the three, ran 0 -- and so did the ~35 commits after it.
-      # `workflow-yaml-check.mjs` is the gate that now fails on this shape instead of a silent two-hour outage.
+      # `agent/tests/workflow_yaml.rs` is the gate that now fails on this shape instead of a silent two-hour outage.
       # EVERY ROUTE THE HEADER LISTS IS SERVED is a RUST gate now (`agent/tests/http_route_header.rs`, batch 7 of the
       # P1 migration), run by the `cargo test` step in this job. Round 147 made the header say "A SELECTION, NOT THE
       # INVENTORY"; the gate keeps the one direction that is checkable — a header naming a route nothing serves.
@@ -599,13 +599,15 @@ jobs:
         # later, so the runner blamed a line that is valid. One character, unreachable for 40 rounds because
         # only a SECOND publish reaches it.
         run: node scripts/test/workflow-shell-check.mjs
-      - name: every workflow file is valid YAML
-        # THE GATE ABOVE CANNOT SEE THIS, AND THAT IS MEASURED RATHER THAN ASSUMED (round 273). It extracts `run:`
-        # blocks, so a line with NO `run:` key is invisible to it — which is how three gates wired in as orphaned
-        # lines under a previous step's `run:` left ci.yml unparseable for ~35 commits. GitHub answered every push
-        # with a run carrying ZERO jobs and conclusion "failure", indistinguishable in a count from a real red and
-        # with no log to open. THIS STEP IS ITS OWN `- name:`/`run:` PAIR, which is the shape whose absence it checks.
-        run: node scripts/test/workflow-yaml-check.mjs
+      # EVERY WORKFLOW FILE IS VALID YAML MOVED TO RUST — `agent/tests/workflow_yaml.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. The gate above cannot see this, and that is MEASURED rather than assumed
+      # (round 273): it extracts `run:` blocks, so a line with NO `run:` key is invisible to it — which is how three
+      # gates wired in as orphaned lines under a previous step's `run:` left ci.yml unparseable for ~35 commits.
+      # GitHub answered every push with a run carrying ZERO jobs and conclusion "failure", indistinguishable in a
+      # count from a real red and with no log to open. THE STEP HERE WAS ITS OWN `- name:`/`run:` PAIR, which is the
+      # shape whose absence it checks, and the Rust gate is checked the same way by being a `cargo test` target
+      # rather than a line inside this file. Nothing replaced the step: a `cargo test` step here would compile the
+      # crate a second time in a job with no Rust cache, and the `agent` job already runs it.
       - name: main advances only by merge
         # MAIN IS THE ONE BRANCH WHERE A MISTAKE IS EVERYONE'S. `main` had zero merge commits in its last 300 and red
         # reached it three times (rounds 117, 128, 171), each by a status thrown away one step after it was read. The

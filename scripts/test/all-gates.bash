@@ -76,7 +76,17 @@ mapfile -t gates < <(
 # file refuses to run at all — the exact outage batch 6 created and this paragraph exists to prevent.
 # 26 is two below the count the two removals leave and four below `main`, which is the same margin the
 # paragraph above describes. The number moved because the tree moved, and the measurement is the reason.
-if [ "${#gates[@]}" -lt 26 ]; then
+#
+# AND THE RULE IS NOW WRITTEN AS A RULE, BECAUSE THE NUMBER KEPT NEEDING A PARAGRAPH. Three migrations
+# have each lowered it by hand and each wrote its own justification, which is how a floor becomes a
+# number somebody edits rather than a margin somebody checks. THE RULE: THE FLOOR IS THE DERIVED COUNT
+# MINUS FOUR. Four is the margin the round-170 paragraph chose ("leaves room for a deliberate removal
+# and none for a collapse"), and it is a margin in MOVES, not in gates — so it is re-measured the same
+# way each time: run the derivation above against the tree, subtract four.
+#
+# MEASURED FOR THIS MOVE: `workflow-yaml-check.mjs` moves to `agent/tests/workflow_yaml.rs` and the
+# derivation reads 29, so the floor is 25. (The two moves before it: 32 → 31 → 30, floor 26.)
+if [ "${#gates[@]}" -lt 25 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi
