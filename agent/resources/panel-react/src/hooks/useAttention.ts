@@ -87,15 +87,38 @@ function monitorsSignature(m: Monitors | null | undefined): string {
  * restored the moment nothing needs attention.
  */
 export function useAttentionTitle(items: AttentionItem[]) {
+  // `async` BECAUSE BOTH CHANNELS ARE RUST NOW (P2, 2026-09-29): the wasm is fetched at the first
+  // call rather than at page load, and AN EFFECT IS A BOUNDARY — nothing in it is on the first
+  // render's path, so an awaited seam costs nothing here. `attentionFrom` and the other four
+  // functions in that module stay TypeScript because they ARE called during render; this is the
+  // first family where the split falls inside the file rather than around it.
   useEffect(() => {
+    let cancelled = false;
+    // THE TWO NODES ARE RESOLVED BEFORE THE AWAIT, not inside it: the cleanup below has to restore
+    // the SAME elements it changed, and a `const` inside the async body is not in the cleanup's
+    // scope. The first version of this move put them in the IIFE and the typechecker named four
+    // lines — which is the second time this session that `tsc` found a call-site problem a reading
+    // of the diff would have missed.
     const link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     const baseHref = link?.getAttribute("href") ?? "";
-    const count = items.length;
-    // THE DESKTOP WINDOW KEEPS ITS PLAIN NAME (round 199): see `titleFor` — the count is a tab idiom, and this surface
-    // shows the same attention, with hosts named, in its own status bar.
-    document.title = titleFor(items, BASE_TITLE, !inDesktopWindow());
-    if (link) link.setAttribute("href", badgeIcon(count, items.some((i) => i.kind === "approval"), baseHref));
+    void (async () => {
+      const count = items.length;
+      // THE DESKTOP WINDOW KEEPS ITS PLAIN NAME (round 199): see `titleFor` — the count is a tab idiom, and this surface
+      // shows the same attention, with hosts named, in its own status bar.
+      const title = await titleFor(items, BASE_TITLE, !inDesktopWindow());
+      // THE UNMOUNT GUARD IS NEW WITH THE MOVE, and it is the one thing `await` adds to an effect: the
+      // fetch may resolve after the panel is gone, and writing a title into a page that no longer
+      // tracks anything is the stale-count lie the cleanup below exists to prevent.
+      if (cancelled) return;
+      document.title = title;
+      if (link) {
+        const icon = await badgeIcon(count, items.some((i) => i.kind === "approval"), baseHref);
+        if (cancelled) return;
+        link.setAttribute("href", icon);
+      }
+    })();
     return () => {
+      cancelled = true;
       // Leaving the panel restores the plain title/icon: a stale count in a tab that no longer
       // tracks anything is a lie that outlives its page.
       document.title = BASE_TITLE;

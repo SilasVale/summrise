@@ -13,6 +13,14 @@
 export function archive_entries(payload: any): any;
 
 /**
+ * `badgeIcon(count, urgent, baseHref)` — the favicon for this much attention, as a data URL.
+ *
+ * `count` arrives as a JS number rather than a `usize` because the TypeScript's own tests are the
+ * subject: `count <= 0` and `count > 9` are the two tests, and a `-1` or a `2.5` reaches them.
+ */
+export function badge_icon(count: number, urgent: boolean, base_href: any): string;
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -93,11 +101,22 @@ export function parse_monitors(j: any): any;
  */
 export function parse_vitals_series(j: any): any;
 
+/**
+ * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
+ *
+ * `items.length` IS A NON-NEGATIVE INTEGER BELOW 2^32, which is the one place this file may use
+ * Rust's formatter for a number: `String(n)` and `{}` agree on every such value (they diverge at
+ * 1e21 and on `-0`, neither of which an array length can be). The crate's rule — ask the ENGINE,
+ * never Rust's formatter — is about values a device can send, and this one cannot be sent at all.
+ */
+export function title_for(items: any, base: string, tab: boolean): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly archive_entries: (a: any) => [number, number, number];
+    readonly badge_icon: (a: number, b: number, c: any) => [number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
@@ -106,12 +125,14 @@ export interface InitOutput {
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

@@ -20,6 +20,7 @@
 // disagree about how much needs attention — a title saying 1 and a badge saying 2 is worse than
 // either alone.
 import type { Monitors } from "../hooks/useMonitors";
+import { panelLogic } from "../wasm/panelLogic";
 
 /** The key for "this target is in THIS state, since this moment" — shared by the poll
  *  (`summary.sinceMs`) and the device's push (`at_ms`), which describe the same transition. */
@@ -99,16 +100,9 @@ export function attentionFrom(
 /** The `document.title` for this much attention. The count comes FIRST because a browser tab
  *  truncates from the right, and a title that ends in `…` before the number is a title that told
  *  nobody anything. */
-export function titleFor(items: AttentionItem[], base: string = BASE_TITLE, tab: boolean = true): string {
-  if (items.length === 0) return base;
-  // THE COUNT IS FOR A TAB, NOT FOR A WINDOW (round 199, from the operator's screen: "(2) Summrise Agent, the (2) should not be
-  // there"). The prefix exists because a browser tab TRUNCATES FROM THE RIGHT — the reason is written above — and that
-  // reason does not hold in the desktop app, which is a native window whose title is its identity rather than a queue of
-  // pages. It also does not need the count: the status bar it always draws carries the same attention ("192.168.1.1:443
-  // down 1h 20m (+1)"), with the hosts named, which a window title could never do.
-  if (!tab) return base;
-  const urgent = items.some((i) => i.kind === "approval");
-  return `(${items.length})${urgent ? " ⚠" : ""} ${base}`;
+export async function titleFor(items: AttentionItem[], base: string = BASE_TITLE, tab: boolean = true): Promise<string> {
+  const logic = await panelLogic();
+  return logic.title_for(items, base, tab);
 }
 
 /** Is this the desktop app's own window rather than a page in a browser? The desktop density is served at /desktop/ and
@@ -128,29 +122,9 @@ export function inDesktopWindow(): boolean {
  *  Returns the base unchanged when there is nothing to badge, or when the base is not an inline
  *  SVG (a file URL, an empty href) — an icon that cannot be parsed is left alone rather than
  *  replaced by something invented. */
-export function badgeIcon(count: number, urgent: boolean, baseHref?: string): string {
-    const base = baseHref ?? "";
-    if (count <= 0 || !base) return base;
-    // THE REAL HREF IS PERCENT-ENCODED (`data:image/svg+xml,%3Csvg …%3C/svg%3E`), so the markers
-    // must be looked for in BOTH spellings: the first version searched for a literal `<svg`, never
-    // found one in the encoded href, and silently returned the base — the artwork was preserved and
-    // the badge never appeared (found on d1 by asking the panel what its icon actually was; the
-    // test's fixture was an unencoded SVG, i.e. a guess).
-    const encoded = base.includes("%3Csvg") || base.includes("%3csvg");
-    const close = encoded ? Math.max(base.lastIndexOf("%3C/svg%3E"), base.lastIndexOf("%3c/svg%3e")) : base.lastIndexOf("</svg>");
-    const marker = encoded ? Math.max(base.indexOf("%3Csvg"), base.indexOf("%3csvg")) : base.indexOf("<svg");
-    if (marker < 0 || close < marker) return base;
-    const fill = urgent ? "%23d9480f" : "%23e03131";
-    const label = count > 9 ? "" : String(count);
-    const lt = encoded ? "%3C" : "<";
-    const gt = encoded ? "%3E" : ">";
-    const badge =
-        `${lt}circle cx='37' cy='11' r='11' fill='${fill}'/${gt}` +
-        (label
-            ? `${lt}text x='37' y='43' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white' text-anchor='middle'${gt}${label}${lt}/text${gt}`
-            : "");
-    // Inserted just before the closing tag: on top of the artwork, with the artwork intact.
-    return base.slice(0, close) + badge + base.slice(close);
+export async function badgeIcon(count: number, urgent: boolean, baseHref?: string): Promise<string> {
+  const logic = await panelLogic();
+  return logic.badge_icon(count, urgent, baseHref);
 }
 
 /** The one-line summary the settings card and any tooltip use. */
