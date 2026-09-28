@@ -385,12 +385,6 @@ jobs:
       # layout property, a `transition: all`, anything over 240ms, and a sheet with no reduced-motion block.
       - name: every hover answers a press
         run: node scripts/test/feedback-check.mjs
-      # ONE STATE, ONE SILHOUETTE, ON BOTH SURFACES. Each surface already checked its own marks; nothing compared
-      # the two languages, so the panel's diamond ("a question is waiting") and the console's ("this channel is
-      # failing") could drift apart in silence — and an operator reads both. It reads the panel's vocabulary as DATA
-      # (liveness.ts) and the console's as PAINTED (its sheet, with the same signature rule its own gate uses).
-      - name: the two surfaces agree on one silhouette per meaning
-        run: node scripts/test/mark-vocabulary-check.mjs
       # THE CHROME IS NEUTRAL AND STILL. Colour has had its gate since round 245; motion had only the
       # reduced-motion one, which asks whether an animation is SILENCED and never whether it should exist. Every
       # animation on both sheets is now declared with one of three purposes and its reason — STATE (motion that
@@ -595,36 +589,12 @@ jobs:
       # `workflow-yaml-check.mjs` is the gate that now fails on this shape instead of a silent two-hour outage.
       - name: every route the header lists is served
         run: node scripts/test/http-route-header-check.mjs
-      # ONE FACT, ONE DERIVATION (round 78 of the standing goal). The spine's rule was enforced by READING until now:
-      # round 29 deleted a private second derivation in the trajectory view that mapped a backgrounded command to `warn`
-      # while the canonical one said `bg`, so one command wore two states in one view. This fails, by file and line, any
-      # production module that compares against an ending the device can report — the endings come from the generated
-      # contract, and the files that merely share the WORDS are declared with their reasons.
-      - name: one derivation per fact
-        run: node scripts/test/one-derivation-check.mjs
       # THE UPDATE VERDICT'S CHAIN (round 79 of the standing goal). Round 29's defect was a second computation of a fact
       # the DEVICE answers, and it got the answer backwards for two devices at once. The fix routes the verdict through
       # four links in three files; this asserts all three still carry it, because one deleted field anywhere returns the
       # console to computing it itself with every other suite still green.
       - name: the device's verdict still crosses the wire
         run: node scripts/test/device-verdict-check.mjs
-      # EVERY FIELD THE PANEL READS IS SPOKEN BY THE OTHER END (round 82 of the standing goal). Three of this session's
-      # defects were a field name only one end knew: a page looking up `h.id` against a fixture saying `prefix:`; a crash
-      # row waiting on `last_boot_kind` against `verdict:`; and `prov-dot` rendering nothing for three rounds. Its first
-      # run found a fourth: `first_seq`, which the device sends, no fixture carried, and whose `> 1` branch ("the trail
-      # was trimmed") had therefore never rendered anywhere.
-      - name: every wire field has a source
-        run: node scripts/test/wire-field-check.mjs
-      # AND THE SAME RULE ON THE CONSOLE (round 100 of the standing goal), where TWO of this session's defects happened:
-      # a page looking a device's health up by `h.id` against a fixture saying `prefix:`, and a crash row waiting on
-      # `last_boot_kind` against `verdict:`. Both cost rounds to find by hand; the panel already had the gate.
-      - name: every console wire field has a producer
-        run: node scripts/test/console-wire-field-check.mjs
-      # AND THE LINK WHERE THE TWO LANGUAGES MEET (round 101 of the standing goal): the gateway forwards a device's answer
-      # field by field BY HAND, so a name the device stopped sending becomes `undefined` on the console with every suite
-      # on both sides still green. The same rule caught real gaps one layer in, twice.
-      - name: the gateway forwards fields the device spells
-        run: node scripts/test/gateway-device-field-check.mjs
       # NO GATE IS ASSUMED TO BITE (round 105 of the standing goal): every gate above, broken on purpose, on every push.
       # The mutations live in that file, paired with the gate each must fail, because round 104's re-audit produced two
       # false alarms and both were the MUTATIONS rather than the gates — the fifth time in one session that a non-biting

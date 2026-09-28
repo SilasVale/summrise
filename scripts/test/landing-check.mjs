@@ -21,17 +21,24 @@
 // ITS VALUES ARE READ FROM THE FILE, NOT COPIED HERE. A check that hardcodes what it is checking tests itself.
 // The pairs below are the ones the page actually paints: the three label weights on each of its three
 // backgrounds, the button's foreground on its fill and hover, and the business state colour on a white card.
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { contrastRatio, parseColour } from "../../agent/scripts/lib/contrast-probe.mjs";
 import { PAGE as renderLanding } from "../../index/src/page.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const PAGE = "index/src/page.js";
+// WHERE THE VALUES BEING READ LIVE. The landing migrated to Rust (2026-09-28): the document is
+// rendered by `index/landing/src/page.rs`, the stylesheet it embeds is
+// `index/landing/assets/page.css`, and this gate reads the colours out of the RENDERED page —
+// so the name below is the file the values come from, which is what its messages claim.
+const PAGE = "index/landing/assets/page.css";
+
+const CONSOLE_URL = "https://ai.saisi.online";
+const INSTALLER_URL = "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz";
+const SETUP_URL = "summrise setup";
 
 // BOTH BLOCKS, from the stylesheet the page actually renders. The light values are the ones outside the dark
 // attribute; the dark ones are inside it, and a token the dark block does not restate keeps its light value.
-const rendered = renderLanding("https://ai.saisi.online", "https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz", "summrise setup");
+const rendered = renderLanding(CONSOLE_URL, INSTALLER_URL, SETUP_URL);
 const style = (/<style[\s\S]*?<\/style>/.exec(rendered) || [""])[0];
 if (!style) throw new Error("the landing rendered no <style> — this check is reading the wrong thing");
 const darkStart = style.indexOf("body[data-ds-dark-theme]");
@@ -160,7 +167,15 @@ console.log(`landing contrast: ok — ${PAIRS.length} pairs in BOTH themes (${ch
 // READMEs used the URL form — and the paragraph even ended "not with npm's exit code", so the class was
 // known and the safe form was one line away.
 {
-  const src = readFileSync(PAGE, "utf8");
+  // THE RENDERED DOCUMENTS, NOT THE SOURCE (2026-09-28). This read `index/src/page.js` as text;
+  // the landing migrated to Rust, that file no longer contains the page, and the scan read ZERO
+  // commands — which it reported as "the scan is reading the wrong thing", correctly. The
+  // criterion is about the command a VISITOR COPIES, so the document is the right input, and
+  // both arms are read: a tgz-only release must not start naming the bare package either.
+  const src = [
+    renderLanding(CONSOLE_URL, INSTALLER_URL, SETUP_URL),
+    renderLanding(CONSOLE_URL, INSTALLER_URL, null),
+  ].join("\n");
   // A bare package name is one with no URL and no --prefix in front of it.
   const bare = [...src.matchAll(/npm i -g (?:--prefix [^<]*)? ?summrise-agent\b/g)];
   if (bare.length) {

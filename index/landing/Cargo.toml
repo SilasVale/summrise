@@ -1,0 +1,35 @@
+[package]
+name = "summrise-landing"
+version = "0.1.0"
+edition = "2021"
+description = "The Summrise landing page: rendered by Rust at build time, with its two behaviours in Rust -> wasm."
+
+# A cdylib for the browser (the two behaviours) and an rlib for the host binary
+# that renders the document. THE SAME CRATE, because the page and the code that
+# animates it are one surface and a second copy of the markup is how two
+# renderers come to disagree.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "gen"
+path = "src/bin/gen.rs"
+
+# NOTHING ON THE HOST SIDE. `gen` renders the document and needs no dependency at
+# all — the URL whitelist that the spike carried here moved to the worker, because
+# the values it checks do not exist until a request arrives (see src/page.rs).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+  "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement",
+  "CanvasRenderingContext2d", "Storage", "MediaQueryList", "Node",
+  "Event", "EventTarget", "MouseEvent", "CssStyleDeclaration",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
