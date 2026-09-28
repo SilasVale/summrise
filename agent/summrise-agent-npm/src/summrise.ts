@@ -642,7 +642,14 @@ export function ensureDesktopPs(scriptsQ: string, logsQ: string): string[] {
     "  exit",
     "}",
     "$was = 'no earlier launch is recorded in the log tail'",
-    "$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching \\(start=(\\d+)\\)' | Select-Object -Last 1",
+    // THE PATTERN MUST MATCH THE LINE `startDesktopPs` ACTUALLY WRITES, and the first version of
+    // it did NOT: it read `launching \(start=` while the launcher writes `launching from <dir>
+    // (start=`. Every pulse therefore fell through to "no earlier launch is recorded in the log
+    // tail" and the previous shell's lifetime was never reported. MEASURED on desktop-14rjcr8 —
+    // the pulse said exactly that at 18:06:53 while the launching line it was looking for sat
+    // thirty lines above it in the same file. The ` .*` is the fix, and test/cli.test.mjs now
+    // runs THIS pattern against a REAL captured line, which is the check that would have caught it.
+    "$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching .*\\(start=(\\d+)\\)' | Select-Object -Last 1",
     "if ($prev -and ($prev.Line -match '\\(start=(\\d+)\\)')) {",
     "  $E = [int]$Matches[1]",
     "  if ($tail -match ('desktop: electron\\.exe exited \\(start=' + $E + ' ')) { $was = 'the previous shell exited and its code is in the exited (start=' + $E + ') line' }",

@@ -721,9 +721,52 @@ test("the desktop shell says what it did — and says what it CANNOT see", () =>
     "the dedup reads the log tail — the record IS the state, so none can go out of sync",
   );
 
+  // THE TWO SCRIPTS MUST AGREE ON THE LINE FORMAT, AND THIS IS THE CHECK FOR IT — so it runs the
+  // PULSE'S OWN pattern against the LAUNCHER'S OWN line, both captured from the device.
+  //
+  // The first version of that pattern did not agree. It read `launching \(start=` while the
+  // launcher writes `launching from <dir> (start=`, so every pulse fell through to "no earlier
+  // launch is recorded in the log tail" and the previous shell's lifetime — the number that
+  // makes a restart loop visible — was never reported. MEASURED on desktop-14rjcr8: at
+  // 18:06:53 the pulse said exactly that, with the line it was looking for sitting thirty lines
+  // above it in the same file. No assertion in this file could see it, because they were all
+  // `includes()` on strings; a pattern is not a string.
+  const patSrc = /Select-String -Pattern '([^']+)'/.exec(ensure);
+  assert.ok(patSrc, "the pulse must look for the previous launch in the log tail");
+  const realLaunch =
+    "[2026-09-28T18:06:20.6814912+08:00] desktop: electron.exe launching from " +
+    "D:\\Summrise\\components\\summrise-desktop-electron (start=1790589980)";
+  const launchMatch = new RegExp(patSrc[1], "i").exec(realLaunch);
+  assert.ok(
+    launchMatch,
+    `the pulse's pattern must match the launcher's real line — got ${patSrc[1]}`,
+  );
+  assert.equal(
+    launchMatch[1],
+    "1790589980",
+    "and it must capture the epoch the exit line is paired by",
+  );
+  // ...and the other half of the pair: the exit test must match the exit line the launcher writes,
+  // or the pulse would call a clean exit a kill. Captured from the device at 18:06:47.
+  const exitSrc = /'([^']*electron\\?\.exe exited[^']*)' \+ \$E/.exec(ensure);
+  assert.ok(exitSrc, "the pulse must look for the exit line that closes a start");
+  const realExit =
+    "[2026-09-28T18:06:47.3402859+08:00] desktop: electron.exe exited " +
+    "(start=1790589980 exit code 1 lived=27s)";
+  assert.ok(
+    new RegExp(exitSrc[1] + "1790589980 ", "i").test(realExit),
+    `the exit test must match the real exit line — got ${exitSrc[1]}`,
+  );
+  assert.ok(
+    !new RegExp(exitSrc[1] + "1790589980 ", "i").test(
+      "[2026-09-28T18:09:00.0000000+08:00] desktop: electron.exe exited (start=1790599999 exit code 1 lived=5s)",
+    ),
+    "and it must NOT match a different start — the epoch is what pairs them",
+  );
+
   // AND THE ONE CASE THAT CANNOT BE RECORDED IS WRITTEN DOWN WHERE IT HAPPENS. A scheduler
-  // kill takes the logging PowerShell with it: `&` never returns, so there is no exit code to
-  // write, EVER. A log that silently omitted that would omit precisely the death measured here.
+  // kill takes the logging PowerShell with it, so no exit code is ever written for that death —
+  // the one measured here. A log that silently omitted it would be worse than no log.
   assert.ok(
     /CANNOT SEE/.test(start) && /NO exit code/.test(start),
     "the launcher states the blind spot in its own file",
