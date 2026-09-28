@@ -311,3 +311,39 @@
 
 **怎么验证防法生效**：**说得出那条命令**没有经过 shell**✓（**argv 数组 ✓，不是一个字符串 ✗**）——
 **而不是"我转义对了" ✗。**
+
+
+---
+
+## 错误模式 7b：**两个 agent 共用一棵树**（而它今晚咬了**两次** ✗✓）
+
+**证据（2026-09-28，实测 ✓）**：
+
+```
+**① 而两个 subagent 各自**在主检出里**开始写东西 ✗✓✓**——**而它们**都不知道**✗**：
+  · **第一个**：**`?? agent/tests/http_route_header.rs`** ✓——**它在写下一个门禁的 Rust 版 ✓**
+  · **第二个**：**`?? gateway/wasm/`** ✓——**它在建那个 Worker 的 wasm crate ✓**
+  · **而两次都是**同一个形状**✓**：**一个 agent 以为它在自己的 worktree 里 ✗，而它在 `main` 上 ✓**
+**② 而那个推送作业**印出了它**✓✓**：**"working tree after the push: `?? gateway/wasm/`"** ✓——
+  **而那一行是**我加的 ✓，**而它**立刻抓到了第二个 ✗✓✓**——**"That is now a habit worth keeping on both sides."** ✓
+**③ 而**两次都被一条消息救了**✓✓**——**而那条消息的**第一句是**一个测量**✓✓**：
+  · **"CHECK WHERE YOU ARE WORKING — your `gateway/wasm/` is in the MAIN CHECKOUT, not a worktree."** ✓
+  · **而它接着给的是**判据**✓：**`$ git status --porcelain` → `?? gateway/wasm/`** ✓✓**——
+    **即**那个 agent 自己就能看见它 ✓**，**而不是要相信我的话 ✗**
+  · **而第一个 agent 的回信说** ✓✓：**"Your message arrived **between 'write the file' and 'commit it'**,
+    which is **the only reason this is clean**."** ✓
+**④ 而那个**真正会发生的**事故是**被吞掉**✗✓✓**：**我的提交是**故意收窄的**✓（`git add -A **docs/**` ✓，
+  **never `git add -A`** ✗）——**而**那个收窄是它们还在它们手里的唯一理由**✓✓**——
+  **"Your work is **one word away from being swallowed**."** ✓
+```
+
+**防法**：
+1. **给一个 subagent 的第一句话里写清**它该在哪棵树**✓✓**——**而**判据是它自己跑 `git status` ✓，
+   **而不是"我在派单里说过" ✗**。
+2. **而**收窄每一次 `git add`**✓✓**——**`git add -A docs/` ✓ 与 `git add -A` ✗ **只差一个词**✓，
+   **而那个词是**另一件活的护栏**✓。
+3. **而在**每一次推送之后印出工作树**✓✓**——**因为一个 `??` 行**是唯一能看见"有人在这儿"的信号 ✓，
+   **而它**不花任何东西 ✓**。
+4. **而**一个 agent 提交之前**要跑 `git branch --show-current`**✓——**而如果它答 `main` ✓，它就在**错的地方**✓✓**。
+
+**怎么验证防法生效**：**说得出那棵树现在有**几个**agent** ✓——**而不是"我以为它只有一个" ✗**。
