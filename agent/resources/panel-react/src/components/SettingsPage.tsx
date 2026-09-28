@@ -43,6 +43,42 @@ function isLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
 }
 
+/** HOW TO REACH THIS MACHINE — the sentence, and the one thing besides the bind that changes it.
+ *
+ *  `relayConfigured` IS THREE-VALUED, AND THE THREE VALUES ARE THREE DIFFERENT FACTS:
+ *    - `false`     — the device ANSWERED, and its `server.relay_url` was empty. There is no relay, so offering one
+ *                    is an instruction that cannot be followed.
+ *    - `true`      — a relay is configured, so the list is true as written and the sentence is left alone.
+ *    - `undefined` — the reply carried NO relay at all, or nobody has polled yet. **SILENCE IS NOT A "NO".**
+ *                    `useAgentVitals` distinguishes "the body omitted `relay`" (it clears the field to null) from
+ *                    "the body said `configured: false`" — and printing "no relay configured" off silence would be
+ *                    the same lie in the other direction, about an agent that simply predates the field.
+ *
+ *  WHY THE CLAUSE NAMES `server.relay_url` AND WHEN IT WAS READ: the config file's path is printed two rows lower on
+ *  this same card, so the sentence points at a file the reader can see. And `configured` is set ONCE at bind time
+ *  (`agent/src/mcp/server.rs`, inside the relay-spawn block) with NOTHING watching the file afterwards — so an
+ *  operator who hand-edits `config.yaml` and sees no change now has the reason on screen instead of a mystery.
+ *
+ *  AND IT DELIBERATELY DOES NOT SAY `unavailable`, `disconnected` OR `unreachable`: nothing was attempted and there is
+ *  no relay to be down. Those words are reserved for `configured: true && connected: false`, which is a relay that
+ *  exists and is failing — a different fact, and the one place they would be true.
+ *
+ *  NOT EXPORTED, and that is the gate's own rule rather than an oversight: `exports-check` refuses an export
+ *  nobody outside the file uses, and every case here is covered through the RENDERED page (see the three relay
+ *  states in `__tests__/SettingsPage.test.tsx`), which is the surface the operator actually reads. A second,
+ *  string-level unit test would test the same three sentences twice. */
+function reachabilityHint(host: string, relayConfigured?: boolean): string {
+  const noRelay = relayConfigured === false;
+  if (isLoopback(host)) {
+    return noRelay
+      ? "This machine only. To reach it from another one: a VPN or ssh -L. No relay configured — server.relay_url was empty when the agent started."
+      : "This machine only. To reach it from another one: the relay, a VPN, or ssh -L.";
+  }
+  return noRelay
+    ? "Reachable on the network; keep the device token secret. No relay configured — server.relay_url was empty when the agent started."
+    : "Reachable on the network; keep the device token secret.";
+}
+
 /** WHAT THE DEVICE'S SETTINGS READ PUTS INTO THIS PAGE'S FIELDS — the five editable values it seeds,
  *  as the inputs render them.
  *
@@ -82,9 +118,29 @@ function seedSettings(previous: SettingsSeed, body: unknown): SettingsSeed {
   if (j && typeof j.console_url === "string" && j.console_url) {
     next.gwUrl = j.console_url;
     // Persisted gateway state — show it, don't blank the card.
-    const parts = ["connected"];
-    if (j.tunnel_configured) parts.push(j.tunnel_running ? "tunnel: running" : "tunnel: configured");
-    next.gwStatus = parts.join(" · ");
+    //
+    // **AND SHOW WHAT WAS OBSERVED, NOT WHAT THE READER WANTS TO HEAR (round 359).** This used to push the LITERAL
+    // `"connected"`, whose only input was `console_url` being a non-empty STRING — measured on a live device answering
+    // `console_url=https://api.saisi.online`, where nothing on this path contacted the console, at all, ever. The two
+    // facts the reply actually carries are STEPS: `tunnel_configured` is "tunnel.yml exists" and `tunnel_running` is a
+    // `tasklist` SUBSTRING MATCH for `cloudflared.exe` (`agent/src/web/mod.rs`). So the line names each as the step it
+    // is, and says outright that the one thing a reader would assume — that something verified reachability — did not
+    // happen. A tunnel that is configured, running and reachable from nowhere is the ordinary case this hides.
+    //
+    // THE HONEST VOCABULARY ALREADY EXISTS AND IS NOT REACHABLE FROM HERE: `agent/src/tunnel.rs` reports
+    // "verified via the API" / "provisioned … but NOT REACHABLE — the API reports status '…' with 0 live
+    // connection(s); remote clients will get 530" / "reachability NOT VERIFIED (the API did not answer)". **NONE OF IT
+    // IS PERSISTED**, so a page load cannot show it and this line is what remains. Persisting that verdict is the
+    // larger fix; it is named here rather than attempted, because it is a change to the agent's stored state and not
+    // to one sentence.
+    //
+    // `null` IS UNTOUCHED ABOVE: a reply that mentions no gateway still leaves `gwStatus` alone, because "this reply
+    // said nothing about a gateway" is not "there is none" — the one place this card already behaved honestly, and an
+    // empty `console_url` still renders no status line at all.
+    const parts = ["console configured"];
+    if (j.tunnel_configured)
+      parts.push(j.tunnel_running ? "cloudflared.exe running" : "cloudflared.exe not running");
+    next.gwStatus = `${parts.join(" · ")} (reachability not checked)`;
   }
   if (j && typeof j.memory_max_entries === "number") next.memEntries = String(j.memory_max_entries);
   if (j && typeof j.memory_max_bytes_mb === "number") next.memBytesMb = String(j.memory_max_bytes_mb);
@@ -100,6 +156,7 @@ export function SettingsPage({
   vitalsFailed,
   runningRelease,
   config,
+  relayConfigured,
   monitors,
   monitorsFailed,
   onMonitorAdd,
@@ -138,6 +195,12 @@ export function SettingsPage({
   /** The CONFIGURED bind, from /api/status. Optional: a caller that does not pass it renders no bind line rather than a
    *  guessed one — the rule the device line below already follows for `location.host`. */
   config?: { host?: string; port?: number; path?: string } | null;
+  /** WHETHER A RELAY IS CONFIGURED, out of the same `/api/status` sample that carries `config` — and **THREE-VALUED ON
+   *  PURPOSE**: `false` means the device ANSWERED that its `server.relay_url` was empty, while `undefined` means it said
+   *  nothing about a relay at all (an older agent, or no poll yet). The reachability sentence prints "No relay
+   *  configured" for the first and must not for the second — printing it off silence is the same lie in the other
+   *  direction. See `reachabilityHint`. */
+  relayConfigured?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
   const token = getToken();
@@ -375,11 +438,7 @@ export function SettingsPage({
         </p>
       ) : null}
       {config?.host ? (
-        <p className="hint">
-          {isLoopback(config.host)
-            ? "This machine only. To reach it from another one: the relay, a VPN, or ssh -L."
-            : "Reachable on the network; keep the device token secret."}
-        </p>
+        <p className="hint">{reachabilityHint(config.host, relayConfigured)}</p>
       ) : null}
 
       {/* Onboarding FIRST. Until an AI client is pointed here, none of the rest

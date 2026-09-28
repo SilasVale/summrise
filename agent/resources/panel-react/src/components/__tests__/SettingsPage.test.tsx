@@ -223,6 +223,103 @@ describe("SettingsPage — the configured bind", () => {
 });
 
 
+// ── THE WAY IN THAT DID NOT EXIST ───────────────────────────────────────────────────────────────────────────────────────
+// The loopback sentence listed three ways to reach the machine and the FIRST of them was not on the device that printed it:
+// `/api/status` answered `relay: {configured: false, …}` while the card offered "the relay". `useAgentVitals` keeps that as a
+// real answer and renders nothing for it — right for a status strip, wrong for the one sentence whose whole subject is HOW TO
+// REACH THIS MACHINE. It is also THREE-VALUED, and the third value is the trap: an agent that never mentioned a relay must not
+// be told it has none. Saying "no relay configured" off silence is the same lie in the other direction, which is exactly what
+// `useAgentVitals` goes out of its way to keep distinguishable (`relay` is cleared to null, not set to `{configured:false}`).
+describe("SettingsPage — the way in that does not exist", () => {
+  beforeEach(() => {
+    mockCallApi.mockResolvedValue({ ok: true });
+  });
+
+  it("drops the relay from the list when the device SAID its relay_url was empty", () => {
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080 }} relayConfigured={false} />);
+    expect(screen.queryByText(/the relay/)).toBeNull();
+    expect(screen.getByText(/a VPN or ssh -L/)).toBeTruthy();
+    // AND IT NAMES THE THING OBSERVED, WHERE IT LIVES AND WHEN IT WAS READ: the config file's path is printed two rows
+    // below on this same card, and `configured` is set ONCE at bind time — nothing watches the file afterwards, so an
+    // operator who hand-edits config.yaml and sees no change has the reason on screen.
+    expect(screen.getByText(/server\.relay_url was empty when the agent started/)).toBeTruthy();
+  });
+
+  it("says the same on a network bind, and does not borrow the loopback sentence", () => {
+    render(<SettingsPage config={{ host: "0.0.0.0", port: 18080 }} relayConfigured={false} />);
+    expect(screen.queryByText(/this machine only/i)).toBeNull();
+    expect(screen.getByText(/keep the device token secret\. No relay configured/)).toBeTruthy();
+  });
+
+  it("keeps the relay in the list when one IS configured — the list is then true", () => {
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080 }} relayConfigured />);
+    expect(screen.getByText(/the relay, a VPN, or ssh -L/)).toBeTruthy();
+    expect(screen.queryByText(/No relay configured/)).toBeNull();
+  });
+
+  it("does NOT infer 'there is no relay' from an agent that said nothing about one", () => {
+    // `undefined` is the older-agent case (and the no-poll-yet case). The sentence stays as it was, because the reply did
+    // not contradict it — only a reply that SAID `configured: false` may drop the relay from the list.
+    render(<SettingsPage config={{ host: "127.0.0.1", port: 18080 }} />);
+    expect(screen.getByText(/the relay, a VPN, or ssh -L/)).toBeTruthy();
+    expect(screen.queryByText(/No relay configured/)).toBeNull();
+  });
+});
+
+
+// ── THE GATEWAY LINE SAID `connected`, WHICH NOTHING OBSERVED ────────────────────────────────────────────────────────────
+// `connected` was a LITERAL whose only input was `console_url` being a non-empty string — measured on a live device answering
+// `console_url=https://api.saisi.online`, where nothing on that path contacted the console at all. The reply's two facts are
+// STEPS: `tunnel_configured` is "tunnel.yml exists", `tunnel_running` is a `tasklist` substring match. The line names each as
+// the step it is and says outright that reachability was not checked.
+describe("SettingsPage — the gateway line says what was observed", () => {
+  /** Answer `GET /api/settings` with a console configured, and the tunnel state the test asks for. */
+  function answerWith(extra: Record<string, unknown>) {
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET"))
+        return { ...SETTINGS, console_url: "https://api.saisi.online", ...extra };
+      return { ok: true };
+    });
+  }
+  const statusLine = (container: HTMLElement) =>
+    container.querySelector(".settings-status")?.textContent ?? null;
+
+  it("names the console and the cloudflared process, and admits nothing was reachability-checked", async () => {
+    answerWith({ tunnel_configured: true, tunnel_running: true });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() =>
+      expect(statusLine(container)).toBe(
+        "console configured · cloudflared.exe running (reachability not checked)",
+      ),
+    );
+    // THE WORD THAT WAS NEVER EARNED IS GONE FROM THE LINE — `connected` was produced by a non-empty string.
+    expect(statusLine(container)).not.toMatch(/connected/);
+  });
+
+  it("says the process is NOT running rather than 'tunnel: configured'", async () => {
+    answerWith({ tunnel_configured: true, tunnel_running: false });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() =>
+      expect(statusLine(container)).toBe(
+        "console configured · cloudflared.exe not running (reachability not checked)",
+      ),
+    );
+  });
+
+  it("still shows nothing at all when the reply carries no console", async () => {
+    // `null` means "this reply said nothing about a gateway", and an empty `console_url` correctly renders no status —
+    // the one place this card already behaved honestly, and it is unchanged.
+    mockCallApi.mockImplementation(async (path: string, opts?: any) => {
+      if (path === "/api/settings" && (!opts || !opts.method || opts.method === "GET")) return SETTINGS;
+      return { ok: true };
+    });
+    const { container } = render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Memory max entries")).toBeTruthy());
+    expect(statusLine(container)).toBeNull();
+  });
+});
+
+
 // ── THE DECLUTTER (1.2.448) ──────────────────────────────────────────────────────────────────────────────────────────────
 // The operator's words: "too much unnecessary stuff; the device token and the config file are the two that are needed, trim the
 // rest, the panel looks cluttered". Three things follow from that, and each is pinned here: the two named things are ON the

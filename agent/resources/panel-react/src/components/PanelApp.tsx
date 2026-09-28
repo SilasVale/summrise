@@ -276,6 +276,10 @@ export function PanelApp(props: Props) {
                   port: vitals.port,
                   path: vitals.configPath,
                 }}
+                /* THE RELAY, OUT OF THE SAME `/api/status` SAMPLE the three fields above came from — and `undefined`
+                   when the reply carried no relay at all, which the page must NOT read as "there is none"
+                   (see `reachabilityHint`). */
+                relayConfigured={vitals.relay?.configured}
               />
             )}
           </div>
