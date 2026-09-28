@@ -26,6 +26,42 @@ const PLUGIN_BASE = "/api/plugins";
 
 /* ---------------- Device module helpers (copied verbatim from index.js) ---------------- */
 
+/**
+ * WHAT THE DEVICE ANSWERS AT `/api/update`, and the ONE place this file spells it — the probe state and the
+ * `/api/plugins/status` payload are the same object travelling two hops, and two hand-written copies of a
+ * wire shape is how one of them silently stops being forwarded.
+ *
+ * THE FIRST FOUR ARE THE VERDICT. THE LAST FOUR ARE WHY IT IS ACTED ON, and each was DROPPED by this
+ * projection until now — which is what the console needs them for:
+ *
+ *   * `busy`        — the presence of the device's update marker. Without it the console cannot tell a device
+ *                     that is mid-swap from one that is idle, so it offers a second update the device refuses.
+ *   * `error`       — THE LIE. `update_status` answers `update_available: false` when the release server did
+ *                     not answer, and this projection forwarded that as "no newer build". A device whose
+ *                     channel is unreachable therefore read as UP TO DATE, which is the one thing the field
+ *                     exists to prevent (`agent/src/plugins/update/tools.rs`: "NOT AVAILABLE WHEN NOBODY
+ *                     ANSWERED: an unreachable channel must never read as up to date").
+ *   * `checked_at`  — when the DEVICE asked the channel. The row's own `checked_at` is the console's probe
+ *                     time, a different fact: without this one the version chip has no date to stand on.
+ *   * `last_attempt`— `{at_ms, from, to, launched}`, written when the device handed the swap to WMI. This is
+ *                     the only record of WHEN an update started; the log is the narration of what happened next.
+ *
+ * AND `pinned_to` IS READ NOW. It was forwarded and displayed by nobody, so a device held on a version by
+ * `summrise rollback` looked exactly like a current one. `force` on the device DELETES that pin
+ * (`tools.rs` — `if force && !pin.is_empty() { remove_file(.rollback-pin) }`), so a console that cannot see
+ * the pin cannot avoid overriding it.
+ */
+interface DeviceUpdate {
+  current?: string;
+  latest?: string;
+  update_available: boolean;
+  pinned_to: string | null;
+  busy?: boolean;
+  error?: string | null;
+  checked_at?: number;
+  last_attempt?: { at_ms: number; from?: string; to?: string; launched?: boolean } | null;
+}
+
 interface DeviceProbeState {
   tunnel: boolean;
   agent: boolean;
@@ -39,12 +75,7 @@ interface DeviceProbeState {
   /// computed `outdated = lastVersion !== install.version` from the KV copy it keeps — which ignores a rollback pin
   /// and can be an hour stale (SEEN_WRITE_INTERVAL_MS) — while the device answers the same question at /api/update
   /// with `newer()` plus the pin. Two computations of one fact, free to disagree; this carries the device's own.
-  update?: {
-    current?: string;
-    latest?: string;
-    update_available: boolean;
-    pinned_to: string | null;
-  };
+  update?: DeviceUpdate;
   /// How the device's PREVIOUS run ended, straight from its /api/status
   /// (round 256). Two fields for one fact, and the split is deliberate: the
   /// fleet card has to DECIDE something (mark the row, or leave it alone), and
@@ -158,6 +189,18 @@ export async function cachedDeviceProbe(
           ...(typeof u.latest === "string" ? { latest: u.latest } : {}),
           update_available: u.update_available === true,
           pinned_to: typeof u.pinned_to === "string" ? u.pinned_to : null,
+          // THE FOUR THE VERDICT CANNOT BE ACTED ON WITHOUT — see `DeviceUpdate` for what each costs. Each
+          // is spread-guarded, like the two above: an ABSENT field says "this device did not report it",
+          // which is a different sentence from a field forwarded as `undefined` or as `0`.
+          ...(typeof u.busy === "boolean" ? { busy: u.busy } : {}),
+          ...(typeof u.error === "string" && u.error ? { error: u.error } : {}),
+          ...(typeof u.checked_at === "number" && u.checked_at > 0 ? { checked_at: u.checked_at } : {}),
+          ...(u.last_attempt &&
+          typeof u.last_attempt === "object" &&
+          typeof (u.last_attempt as { at_ms?: unknown }).at_ms === "number" &&
+          (u.last_attempt as { at_ms: number }).at_ms > 0
+            ? { last_attempt: u.last_attempt }
+            : {}),
         };
       }
     }
@@ -188,12 +231,7 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
       version?: string;
       last_boot_kind?: string;
       last_boot?: string;
-      update?: {
-        current?: string;
-        latest?: string;
-        update_available: boolean;
-        pinned_to: string | null;
-      };
+      update?: DeviceUpdate;
       checked_at: number;
     }
   > = {};
