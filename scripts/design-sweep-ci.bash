@@ -37,13 +37,13 @@
 # ── AND THE QUESTION THIS BLOCK USED TO ASK IS ANSWERED: THEY ARE NOT DUPLICATES ──────────────────────────────────
 #
 # It asked whether `hover`, `motion` and `reflow` are measured TWICE, because each has a standalone gate elsewhere in CI
-# (`press-anchor-check`, `motion-check`, `feedback-check`) — and if they were, this step could run `pages,unstyled` and
+# (`press-anchor-check`, `motion_check`, `feedback-check`) — and if they were, this step could run `pages,unstyled` and
 # give back minutes. **They are not, and the difference is the one thing those gates cannot do: RENDER A PAGE.**
 #
 #   * `press-anchor-check` pins `pressDelta` as a PURE FUNCTION and asserts the emitted artifact reads the hovered
 #     snapshot before `mouse.down()`. It renders nothing. The `hover` pass measures hover-state CONTRAST on ~31
 #     interactive elements in a real browser. A wiring assertion is not a measurement of what the wiring found.
-#   * `motion-check` READS BOTH SHEETS and asserts every selector that runs an animation is named in a
+#   * `motion-check` (now `agent/tests/motion_check.rs`) READS BOTH SHEETS and asserts every selector that runs an animation is named in a
 #     `prefers-reduced-motion` block. The `motion` pass renders with the preference EMULATED and asks the page what
 #     still animates — which the gate's own header says a sheet cannot answer ("a media query adds no specificity, so
 #     the answer depends on cascade order, selector scope and xterm's runtime-injected sheet"). Its "verified on the

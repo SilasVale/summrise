@@ -86,7 +86,12 @@ mapfile -t gates < <(
 #
 # MEASURED FOR THIS MOVE: `workflow-yaml-check.mjs` moves to `agent/tests/workflow_yaml.rs` and the
 # derivation reads 29, so the floor is 25. (The two moves before it: 32 → 31 → 30, floor 26.)
-if [ "${#gates[@]}" -lt 25 ]; then
+#
+# AND AGAIN FOR THE NEXT ONE, BY THE SAME RULE: `motion-check.mjs` moves to
+# `agent/tests/motion_check.rs` and the derivation reads 28, so the floor is 24. THE RULE IS APPLIED
+# RATHER THAN REMEMBERED — the derivation above is run against the tree and four is subtracted — which
+# is what this paragraph is for; the numbers are the record of it being done.
+if [ "${#gates[@]}" -lt 24 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi
