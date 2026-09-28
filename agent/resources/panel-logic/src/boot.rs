@@ -3,13 +3,11 @@
 //! The second family to move (P2), and the first to reuse the pipeline the archive move built: the
 //! same crate, the same loader, the same served artifact, no new infrastructure.
 //!
-//! THE VOCABULARY IS THE ONE THING HERE THAT IS NOT A TRANSLITERATION, and it is worth stating
-//! because it is a real (small) cost of moving a parse into Rust: `KINDS` used to live in the
-//! TypeScript, and it is a copy of `BOOT_KINDS` in `lib/contract.gen.ts`, which is GENERATED from
-//! `agent/src/vocabulary.rs`. It is still a copy after this move — of the same list, in a third
-//! language. The right fix is one Rust home for the vocabulary that both crates depend on (or a
-//! generator that emits this file too); it is named in the commit message rather than done here,
-//! because it touches the contract generator and the gate that watches it.
+//! THE VOCABULARY IS THE ONE THING HERE THAT IS NOT A TRANSLITERATION, and the copy this file used
+//! to keep is GONE (2026-09-29): `KINDS` was a local `const`, and the second family that needed the
+//! same five strings (`parse_last_boot`, in `agent_vitals.rs`) is what made a third copy of one list
+//! worth removing rather than adding. It lives in `crate::vocabulary` now, one copy for the crate,
+//! and the drift is caught by `agent/tests/contract_vocabulary.rs` rather than by a comment.
 //!
 //! What the parse itself guarantees, in the panel's own words (from the TypeScript's header):
 //!   * a record with no usable stamp is DROPPED, because it cannot be placed on a time axis;
@@ -17,17 +15,9 @@
 //!   * nothing throws: a body this build cannot use is an EMPTY history, and the failure flag is
 //!     the caller's to keep.
 
+use crate::vocabulary::BOOT_KINDS;
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
-
-/// The kinds the device writes. `lib/contract.gen.ts`'s `BOOT_KINDS`, from `vocabulary.rs`.
-const KINDS: [&str; 5] = [
-    "first-run",
-    "clean-exit",
-    "replaced",
-    "machine-restart",
-    "crashed",
-];
 
 fn type_of(v: &JsValue) -> String {
     v.js_typeof().as_string().unwrap_or_default()
@@ -106,7 +96,7 @@ pub fn parse_boot_history(j: JsValue) -> Result<JsValue, JsValue> {
         let Some(ts_ms) = ts_ms else { continue };
         let raw_kind = non_empty(&prop(&raw, "kind"));
         let kind = raw_kind
-            .filter(|k| KINDS.contains(&k.as_str()))
+            .filter(|k| BOOT_KINDS.contains(&k.as_str()))
             .map(|k| JsValue::from_str(&k))
             .unwrap_or(JsValue::NULL);
         let rec = Object::new();

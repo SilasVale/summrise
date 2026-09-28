@@ -264,7 +264,13 @@ const NOT_DEVICE_FIELDS: [&str; 2] = ["session_id", "ev"];
 /// THE SIXTH FAMILY IS WHAT MADE IT SAY SO: `lib/evicted.ts` and `useVitalsSeries.ts` lost their
 /// parses, the count fell to 19, and the floor refused with "the parsers moved, so this proves
 /// nothing" — which is exactly what had happened, four families earlier than the gate noticed.
-const PANEL_LOGIC: [&str; 6] = [
+///
+/// **AND A FAMILY MOVE NOW ADDS ITS FILE HERE IN THE SAME COMMIT**, which is the rule that keeps this
+/// from happening again: the parse and its scan move together, or the next move re-opens the same
+/// hole one family smaller. `agent_vitals.rs` was added this way on 2026-09-29, in the commit that
+/// created it.
+const PANEL_LOGIC: [&str; 7] = [
+    "agent/resources/panel-logic/src/agent_vitals.rs",
     "agent/resources/panel-logic/src/archive.rs",
     "agent/resources/panel-logic/src/boot.rs",
     "agent/resources/panel-logic/src/evicted.rs",
@@ -531,7 +537,7 @@ fn gateway_check() -> Result<String, String> {
 fn panel_wire_fields() {
     let msg = panel_check().unwrap_or_else(|e| panic!("{e}"));
     println!("{msg}");
-    assert!(msg.contains("field(s) read by 12 panel parser(s)"), "{msg}");
+    assert!(msg.contains("field(s) read by 13 panel parser(s)"), "{msg}");
 }
 
 #[test]

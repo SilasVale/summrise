@@ -60,6 +60,11 @@ export function parse_boot_history(j: any): any;
 export function parse_evicted(detail: any): any;
 
 /**
+ * `parseLastBoot(j)` — the last boot, or `null` when the body does not describe one.
+ */
+export function parse_last_boot(j: any): any;
+
+/**
  * `parseMonitorChange(detail)` — one `monitor-change` frame → one alert, or `null`.
  *
  * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must
@@ -97,6 +102,7 @@ export interface InitOutput {
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
     readonly parse_evicted: (a: any) => [number, number, number];
+    readonly parse_last_boot: (a: any) => [number, number, number];
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_vitals_series: (a: any) => [number, number, number];

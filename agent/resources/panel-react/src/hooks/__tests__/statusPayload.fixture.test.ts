@@ -32,29 +32,33 @@ describe("the /api/status payload", () => {
     }
   });
 
-  it("reads the boot verdict from the pair the device sends together", () => {
+  // `await` on all five, and `tsc --noEmit` COULD NOT SEE THIS FILE: `expect(promise).toEqual(object)`
+  // type-checks, so the only thing that catches a forgotten await here is RUNNING the suite. It did —
+  // this file failed while the typechecker was green, which is the "run the command the other end
+  // runs" rule arriving from the other side.
+  it("reads the boot verdict from the pair the device sends together", async () => {
     // The device's own comment (round 256): `last_boot` is the sentence a human reads, `last_boot_kind`
     // the same verdict as data, and they ride the same response. A kind with no sentence is DROPPED by
     // this parser rather than rendered as a bare word.
-    expect(parseLastBoot(fixture.example)).toEqual({
+    expect(await parseLastBoot(fixture.example)).toEqual({
       kind: "crashed",
       detail: "2026-09-13 04:12:03 +08:00 — unexpected exit",
     });
     // The steady state: no verdict on record is a fact, not an error.
-    expect(parseLastBoot({ ok: true, version: "1.2.433" })).toBeNull();
+    expect(await parseLastBoot({ ok: true, version: "1.2.433" })).toBeNull();
     // Half a pair is not a verdict.
-    expect(parseLastBoot({ last_boot_kind: "crashed" }), "a kind with no sentence").toBeNull();
+    expect(await parseLastBoot({ last_boot_kind: "crashed" }), "a kind with no sentence").toBeNull();
     // And a vocabulary this build does not know is not borrowed from another kind.
-    const unknown = parseLastBoot({ last_boot: "something happened", last_boot_kind: "melted" });
+    const unknown = await parseLastBoot({ last_boot: "something happened", last_boot_kind: "melted" });
     expect(unknown).toEqual({ kind: null, detail: "something happened" });
   });
 
-  it("survives the payload a HEALTHY device sends, which omits every conditional field", () => {
+  it("survives the payload a HEALTHY device sends, which omits every conditional field", async () => {
     // This is the shape that broke a field once before (the device's comment records it): the steady
     // state has nothing pending, no vitals sample on a non-Windows host, and no boot verdict on a fresh
     // install. The parser must not need any of them.
     const steady = { ok: true, version: "1.2.433", port: 18080, uptime_secs: 5412, live_sessions: 0, serial_ports: [] };
-    expect(parseLastBoot(steady)).toBeNull();
+    expect(await parseLastBoot(steady)).toBeNull();
     for (const k of Object.keys(fixture.conditional_keys)) {
       expect(k in steady, `${k} is conditional — a steady payload should not carry it`).toBe(false);
     }
