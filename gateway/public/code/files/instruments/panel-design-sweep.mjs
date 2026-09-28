@@ -160,6 +160,17 @@
 //     device, so harness geometry findings pointing at tab children are suspect;
 //   * a background that is an image (judged by the worst-BASE rule in the probe suite instead);
 //   * any state the harness fixture cannot produce. Add the fixture, or say the state is unmeasured.
+//   * **THE SETTINGS REACHABILITY HINT — NAMED, BECAUSE IT IS THE ONE PARAGRAPH ON THAT PAGE THIS SWEEP
+//     CANNOT RENDER, AND IT WAS THE WORST LINE ON THE PAGE.** `/api/status` is the only place the panel
+//     learns `host` and `relay.configured`; the stub's `/api/status` answers without either, so `host` is
+//     absent, the hint does not render AT ALL in the harness, and the `prose` axis therefore measures every
+//     Settings paragraph EXCEPT the one an operator with a loopback bind and no relay actually reads. That
+//     state is not hypothetical: it is what every installer defaults to (`host: 127.0.0.1`, no
+//     `server.relay_url`), and it was measured on a live device instead — which is how the sentence was found
+//     running the full width of the card while the `muted` paragraphs beside it wrapped at their cap. Until
+//     the fixture exists (`host`, `config_path` and a `relay` with `configured: false` on the stub's
+//     `/api/status`), the honest reading of a clean prose axis is that it covers that page MINUS this state,
+//     and a sentence may grow past `proseFloor` there with every gate green.
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";

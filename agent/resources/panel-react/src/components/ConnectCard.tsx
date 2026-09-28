@@ -165,11 +165,14 @@ export function ConnectCard() {
             It is the same deletion as 9975b363 one card over — a heading naming something a visible
             label had already named — and it survived that round because I had counted HEADINGS rather
             than looking at what the reader sees. */}
-        <p className="connect-lede">
-          This panel is the <b>human</b> view of the machine. AI clients drive
-          it over MCP — point one here and it can operate this device with the
-          tools below.
-        </p>
+        {/* **AND THE LEDE BELOW IT WAS THE SAME SENTENCE ONE LEVEL UP**: *"This panel is the human view of the
+            machine. AI clients drive it over MCP — point one here and it can operate this device with the tools
+            below."* It explains the product to a person already inside it, under a summary that says *Connect an
+            AI client*, above tabs and a snippet that already ARE the thing it described.
+            **What is lost:** the panel-versus-MCP distinction, for a first-timer who has never met either. It is
+            said in six words by the two lines that follow instead — the tool count (`N tools available on this
+            device`) and the three client tabs, which are what an AI client is configured WITH. Measured on the
+            live page before deleting: two lines of grey prose, ahead of every control on the card. */}
 
         {read === "reading" ? (
           <p className="connect-muted">Reading the tool surface…</p>

@@ -3734,6 +3734,16 @@ h3 { font-size: var(--fs-base); }
   font-size: var(--fs-lg);
   font-weight: var(--fw-semi);
 }
+/* A QUALIFIER ON A HEADING IS NOT A SECOND HEADING. The Gateway card carried a three-line paragraph whose job
+   was to say two words the card could not otherwise say — that this is optional, and that local mode needs
+   none of it — while the URL, the console and the key it also mentioned were already the words inside the two
+   controls below it. The paragraph is gone and the two words ride the heading row, quieter than the title they
+   qualify: same size step as the card's muted prose, one weight down from the heading. */
+.settings-section > h2 .settings-optional {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+}
 /* THE FIRST PARAGRAPH OF A CARD IS ITS LEDE, so it keeps the reader's eye and the controls below it get room. */
 .settings-section > p { margin: 0 0 var(--sp-3); }
 /* PROSE HAS A MEASURE, AND THIS PAGE HAD NONE (round 265). Measured on the live panel at 1440px, in BOTH
@@ -3746,8 +3756,16 @@ h3 { font-size: var(--fs-base); }
    where it was simply never written, not a new one.
    AND THE RULE IS MEASURED NOW, not remembered: the panel design sweep reports the worst rendered line per
    surface (`measure`) and its judge fails any surface over `proseFloor` — 90 — so the next uncapped lede
-   fails a run instead of waiting for somebody to notice it in a screenshot. */
-.desktop-settings p.muted { max-width: 66ch; }
+   fails a run instead of waiting for somebody to notice it in a screenshot.
+   **AND THE RULE MISSED THE ONE PROSE CLASS BESIDE IT**: `p.hint` carries no measure of its own, so the
+   reachability sentence on the first card rendered as a SINGLE unbroken line — the longest line this page
+   has — while every `p.muted` around it wrapped at the cap. The sentence is not the defect: it names the
+   observation, the config key, and WHEN that key was read, and the last clause is the one that explains a
+   hand-edited file that changed nothing. So the sentence stands and the cap arrives — same page, same
+   reason, same rule. The cost is one line on the first card at the widest layouts, which is the trade the
+   floor asks for; below the width at which that sentence already wrapped, it costs nothing at all. */
+.desktop-settings p.muted,
+.desktop-settings p.hint { max-width: 66ch; }
 
 
 
@@ -3782,9 +3800,10 @@ h3 { font-size: var(--fs-base); }
    The first thing on the Settings page and, for a new install, the only card
    whose content the user cannot get anywhere else. Styled with the same
    restrained vocabulary as the rest of this sheet: no new colours, no
-   decoration — the tool counts and the snippet carry the weight. */
-.connect-lede { margin: 0 0 10px; font-size: var(--fs-base); color: var(--muted); line-height: 1.55; max-width: 66ch; }
-.connect-lede b { color: var(--ink); }
+   decoration — the tool counts and the snippet carry the weight.
+   AND THE CARD'S LEDE IS GONE (with the `connect-lede` rules that drew it): it explained the product to a
+   person already inside it — under a fold whose summary already says *Connect an AI client*, above tabs and a
+   snippet that ARE the thing it described. What it cost the reader was two grey lines before anything usable. */
 .connect-muted { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--muted); max-width: 66ch; }
 .connect-total { font-size: var(--fs-base); color: var(--muted); margin-bottom: 7px; }
 .connect-total b { font-size: var(--fs-lg); color: var(--ink); font-weight: var(--fw-semi); }
@@ -5250,12 +5269,34 @@ button.dtab-close:hover { opacity: 1; }
   margin-bottom: var(--sp-3);
 }
 .settings-fold > summary {
+  position: relative;
   padding: var(--sp-3) 0;
   font-size: var(--fs-base);
   font-weight: var(--fw-semi);
   color: var(--ink);
   cursor: pointer;
+  /* THE DOORWAY'S TRIANGLE WAS THE ONE GLYPH ON THIS PAGE NOBODY DREW. A `summary` is `display: list-item`
+     with a UA `::marker`, so the label started beside a triangle the sheet never described — and because the
+     marker is laid out INSIDE the content box, it pushed the label off the column every card heading sits on:
+     the two folds' titles began a marker's width to the right of the `h2`s above and below them, which is the
+     only visible grid break on the page. Both halves are needed — the list-item marker is a `::marker` in
+     Chromium and Firefox, and an older WebKit draws it as the pseudo-element below. */
+  list-style: none;
 }
+.settings-fold > summary::-webkit-details-marker { display: none; }
+/* AND THE AFFORDANCE IS DRAWN, NOT BORROWED: the same 16px chevron the rest of the panel uses (`ui/Icon`), in
+   the card's own padding gutter so it OVERHANGS the column instead of indenting the label. The label therefore
+   starts exactly where every card's `h2` starts, and the summary's ink carries the glyph (no colour of its own,
+   which is what the marker it replaces did). It rotates on open — the panel's own disclosure idiom, the one the
+   command card's toggle already uses — and it is out of flow, so the text is untouched by it. */
+.settings-fold > summary > svg {
+  position: absolute;
+  left: calc(-1 * var(--sp-4));
+  top: 50%;
+  transform: translateY(-50%);
+  transition: transform var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+.settings-fold[open] > summary > svg { transform: translateY(-50%) rotate(90deg); }
 /* NO COLOUR OF ITS OWN: the summary inherits the page's ink, and the first version of this rule named `--ink-dim`, a token that
    does not exist — the build's `build-css` step refused it by name, which is what that step is for. A doorway does not need its
    own ink; only its hover does. */

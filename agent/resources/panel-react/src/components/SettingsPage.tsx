@@ -16,6 +16,7 @@ import type { VitalsSeries } from "../hooks/useVitalsSeries";
 import { EMPTY_BOOT_HISTORY, type BootHistory } from "../hooks/useBootHistory";
 import { EMPTY_SERIES } from "../hooks/useVitalsSeries";
 import { useAck } from "../lib/useAck";
+import { Icon } from "../ui/Icon";
 
 // SettingsPage — device settings as a first-class page (both densities).
 // Cards: Connect an AI client (onboarding — first, because nothing else on this
@@ -470,12 +471,22 @@ export function SettingsPage({
           needs; neither is a setting, and both were competing with the twenty controls that are. A `details` keeps them one
           click away and out of the page's reading order. */}
       <details className="settings-fold">
-        <summary>Connect an AI client</summary>
+        {/* THE DOORWAY IS DRAWN (see the sheet's `summary` rules): the UA disclosure triangle was the only glyph on
+            this page nobody drew, and it indented the label off the column every card heading sits on. The chevron
+            is the panel's own `Icon`, sized to the card's padding gutter so it overhangs that column instead of
+            pushing the title off it. `summary`'s textContent is unchanged, and the glyph is `aria-hidden`. */}
+        <summary>
+          <Icon name="chevron" size={16} />
+          Connect an AI client
+        </summary>
         <ConnectCard />
       </details>
 
       <details className="settings-fold">
-        <summary>Diagnostics</summary>
+        <summary>
+          <Icon name="chevron" size={16} />
+          Diagnostics
+        </summary>
       <DeviceHealthCard series={vitals ?? EMPTY_SERIES} failed={vitalsFailed} />
 
       <UpdateSection runningRelease={runningRelease} />
@@ -501,11 +512,15 @@ export function SettingsPage({
       </details>
 
       <div className="settings-section">
-        <h2>Gateway</h2>
-        <p className="muted">
-          Optional — connect this device to a Summrise gateway console so remote clients can use its
-          terminal / browser / memory. Pure local mode needs none of this.
-        </p>
+        {/* THE LEDE SAID TWO THINGS THE CARD COULD NOT SAY ANYWHERE ELSE, AND THEY ARE THE TWO WORDS ON THE
+            HEADING ROW NOW. It read *"Optional — connect this device to a Summrise gateway console so remote
+            clients can use its terminal / browser / memory. Pure local mode needs none of this."* — three grey
+            lines that restated the two placeholders directly beneath them (`Gateway URL (e.g. …)`,
+            `Registration key (optional — generate at the console)`), which already carry the URL, the console
+            and the key. **What is lost:** the words "Optional" and "Pure local mode needs none of this" — kept,
+            as *optional*, beside the title. What is NOT lost is any fact: every noun the paragraph named is
+            still in the controls' own text. */}
+        <h2>Gateway <span className="settings-optional">· optional</span></h2>
         <div className="settings-gw-form">
           <input
             /* no class: `input:not([type])` and `input[type=password]` are styled by the sheet's generic input
