@@ -36,6 +36,7 @@
 // is how a warning becomes furniture.
 mod agent_vitals;
 mod archive;
+mod attention;
 mod boot;
 mod evicted;
 mod js;
@@ -46,6 +47,7 @@ mod vocabulary;
 
 pub use agent_vitals::parse_last_boot;
 pub use archive::archive_entries;
+pub use attention::{badge_icon, title_for};
 pub use boot::parse_boot_history;
 pub use evicted::parse_evicted;
 pub use monitors::{parse_monitor_change, parse_monitors};

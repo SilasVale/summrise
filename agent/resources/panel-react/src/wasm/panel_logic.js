@@ -20,6 +20,29 @@ export function archive_entries(payload) {
 }
 
 /**
+ * `badgeIcon(count, urgent, baseHref)` — the favicon for this much attention, as a data URL.
+ *
+ * `count` arrives as a JS number rather than a `usize` because the TypeScript's own tests are the
+ * subject: `count <= 0` and `count > 9` are the two tests, and a `-1` or a `2.5` reaches them.
+ * @param {number} count
+ * @param {boolean} urgent
+ * @param {any} base_href
+ * @returns {string}
+ */
+export function badge_icon(count, urgent, base_href) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.badge_icon(count, urgent, base_href);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -163,6 +186,33 @@ export function parse_vitals_series(j) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
+ *
+ * `items.length` IS A NON-NEGATIVE INTEGER BELOW 2^32, which is the one place this file may use
+ * Rust's formatter for a number: `String(n)` and `{}` agree on every such value (they diverge at
+ * 1e21 and on `-0`, neither of which an array length can be). The crate's rule — ask the ENGINE,
+ * never Rust's formatter — is about values a device can send, and this one cannot be sent at all.
+ * @param {any} items
+ * @param {string} base
+ * @param {boolean} tab
+ * @returns {string}
+ */
+export function title_for(items, base, tab) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(base, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.title_for(items, ptr0, len0, tab);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
 }
 function __wbg_get_imports() {
     const import0 = {

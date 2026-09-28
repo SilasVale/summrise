@@ -95,15 +95,18 @@ describe("one event, one channel", () => {
 });
 
 describe("the tab title and the badge", () => {
-  it("leads with the count, because a tab truncates from the right", () => {
-    expect(titleFor([])).toBe(BASE_TITLE);
+  // `await` on every call, because BOTH CHANNELS ARE RUST NOW (P2, 2026-09-29): the wasm is fetched at
+  // the first call, so the seams are promises. THE ASSERTIONS ARE UNCHANGED — `tsc --noEmit` named
+  // these lines, which is the point of running the checker rather than reading the call sites.
+  it("leads with the count, because a tab truncates from the right", async () => {
+    expect(await titleFor([])).toBe(BASE_TITLE);
     const items: AttentionItem[] = [{ key: "down:a:22", kind: "down", text: "a:22 is down" }];
-    expect(titleFor(items)).toBe("(1) Summrise Agent");
+    expect(await titleFor(items)).toBe("(1) Summrise Agent");
     const both: AttentionItem[] = [...items, { key: "approval:1", kind: "approval", text: "waiting" }];
-    expect(titleFor(both)).toBe("(2) ⚠ Summrise Agent");
+    expect(await titleFor(both)).toBe("(2) ⚠ Summrise Agent");
   });
 
-  it("ADDS the badge to the existing icon instead of drawing a new one", () => {
+  it("ADDS the badge to the existing icon instead of drawing a new one", async () => {
     // The first version returned a simplified drawing of its own, which read as a different, wrong
     // icon the moment anything needed attention (the operator noticed immediately). The artwork must
     // survive byte-for-byte; only a disc is added.
@@ -113,9 +116,9 @@ describe("the tab title and the badge", () => {
     const artwork = `%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='s'%3E%3Cstop stop-color='%23f59f00'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='url(%23s)'/%3E%3Cpath fill='%23fff' d='M14 41Q26 16 44 41Z'/%3E%3C/svg%3E`;
     const base = `data:image/svg+xml,${artwork}`;
     // Nothing to badge: the base comes back untouched (and an empty href stays empty).
-    expect(badgeIcon(0, false, base)).toBe(base);
-    expect(badgeIcon(0, false, undefined)).toBe("");
-    const one = badgeIcon(1, false, base);
+    expect(await badgeIcon(0, false, base)).toBe(base);
+    expect(await badgeIcon(0, false, undefined)).toBe("");
+    const one = await badgeIcon(1, false, base);
     // THE ARTWORK IS INTACT — the gradient, the mountain, the rounding are all still there.
     expect(one).toContain("%3ClinearGradient id='s'%3E");
     expect(one).toContain("M14 41Q26 16 44 41Z");
@@ -126,11 +129,11 @@ describe("the tab title and the badge", () => {
     expect(one).toContain("1%3C/text%3E");
     expect(decodeURIComponent(one)).toContain("</text>");
     // Past nine the number is illegible at 16 px, so the badge is a plain disc.
-    expect(badgeIcon(12, false, base)).not.toContain("text");
+    expect(await badgeIcon(12, false, base)).not.toContain("text");
     // An urgent item changes the disc, so the shape carries it as well as the title's ⚠.
-    expect(badgeIcon(1, true, base)).not.toBe(one);
+    expect(await badgeIcon(1, true, base)).not.toBe(one);
     // An icon that is not an inline SVG is left alone rather than replaced by something invented.
-    expect(badgeIcon(3, false, "/favicon.ico")).toBe("/favicon.ico");
+    expect(await badgeIcon(3, false, "/favicon.ico")).toBe("/favicon.ico");
   });
 });
 
