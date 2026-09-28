@@ -405,6 +405,60 @@ fn the_task_has_one_definition() {
         "the update flow's heal must pass the settings, or an installed device keeps its old \
          execution limit forever: {heal}"
     );
+
+    // AND BOTH ENDS MUST WRITE THE SHELL'S RECORD, because both of them WRITE THE LAUNCHERS.
+    // The NSIS installer's step 6 runs AFTER `summrise setup` and re-writes ensure-desktop.ps1
+    // and start-desktop.ps1 unconditionally, so anything the CLI adds to those files and the
+    // installer does not is silently reverted on every NSIS install — and vice versa. That
+    // drift is invisible on the machine that was installed the other way, which is the whole
+    // reason this test reads BOTH files rather than one.
+    //
+    // MEASURED on desktop-14rjcr8 (2026-09-28): the shell was killed every ten minutes by the
+    // task's execution limit and revived by the guarded pulse, and `logs\startup.log` (4,015
+    // lines) contained ZERO occurrences of `desktop`, `electron` or `ExecutionTimeLimit`. The
+    // record had to be recovered from the Task Scheduler's own operational log.
+    for (needle, what) in [
+        (
+            "desktop: no electron shell is running",
+            "the watchdog's decision line — the observation it acted on",
+        ),
+        (
+            "desktop: electron shell alive",
+            "the healthy-case line (hourly, so the record is not 288 lines a day)",
+        ),
+        (
+            "desktop: electron.exe exited",
+            "the exit line, whose `exit code N` is what tells a kill from a crash",
+        ),
+    ] {
+        assert!(
+            ps1.contains(needle),
+            "the installer must write {what} into ensure-desktop.ps1/start-desktop.ps1: its \
+             step 6 runs last, so its copy is the one that survives an NSIS install"
+        );
+        assert!(
+            cli.contains(needle),
+            "the CLI must write {what} — `summrise setup`, `summrise desktop` and \
+             `summrise update` all write these launchers"
+        );
+    }
+    // AND NEITHER END MAY PRETEND IT CAN SEE A SCHEDULER KILL. A Task Scheduler stop takes the
+    // logging PowerShell with it, so no exit code is ever written for that death — the one that
+    // actually happened here. A launcher that dropped the sentence would be a log that silently
+    // omits the case it exists for.
+    //
+    // THE NEEDLE IS THE EMITTED SENTENCE, not a nearby comment: this exact wording appears only
+    // in the watchdog line both ends WRITE INTO THE FILE (the CLI's doc comment and the
+    // installer's own prose say it differently), so a scan that matches it cannot be satisfied
+    // by a paragraph about the code.
+    const KILL_LEAVES_NOTHING: &str = "a taskkill /T or a reboot leaves no exit code";
+    for (text, who) in [(ps1.as_str(), "the installer"), (cli.as_str(), "the CLI")] {
+        assert!(
+            text.contains(KILL_LEAVES_NOTHING),
+            "{who} must keep the line that says an outside kill leaves no exit code, because a \
+             log that silently omits that case omits the death this record was built for"
+        );
+    }
 }
 
 /// A FAILED INSTALL MUST STILL BE REMOVABLE (round 147).
@@ -524,6 +578,40 @@ fn exit_keyword(line: &str) -> Option<usize> {
     None
 }
 
+/// The line indices that lie INSIDE a single-quoted here-string (`@'` … `'@`, each alone on its
+/// line). The body of one is RAW TEXT — it is the launcher script this installer WRITES, not this
+/// installer's own control flow — so an `exit` in there is data.
+///
+/// WHY THIS EXISTS AT ALL. `unquoted()` blanks single-quoted spans on ONE line, and that was enough
+/// for as long as the launcher text was one line long: `Set-Content … -Value ('… { exit }; …')` had
+/// its `exit` blanked with the rest of the span. When the launchers grew real multi-line bodies —
+/// the desktop shell's record, written from a here-string so its quotes and braces travel verbatim
+/// — the watchdog's `exit` moved onto a line of its own, and this scan began reading it as an exit
+/// of the INSTALLER. The property was always true; the instrument had stopped being able to see it.
+///
+/// THE LIMIT, STATED RATHER THAN IMPLIED: only the single-quoted form is skipped, because it is the
+/// only form this installer writes (and the form whose body expands NOTHING, so "it is data" is
+/// exactly true). An `@"` here-string — which expands variables and `$( … )` — would be code in its
+/// subexpressions and must not be skipped wholesale; today there is none, and the day one appears
+/// this function would skip it too, which is a reason to change the function rather than a licence.
+fn here_string_lines(raw: &[&str]) -> Vec<bool> {
+    let mut out = vec![false; raw.len()];
+    let mut inside = false;
+    for (i, line) in raw.iter().enumerate() {
+        if inside {
+            out[i] = true;
+            if line.trim_start().starts_with("'@") {
+                inside = false;
+            }
+        } else if line.trim_end().ends_with("@'") {
+            // The opener: PowerShell requires the newline straight after `@'`, so the body starts
+            // on the NEXT line and this one carries no body at all.
+            inside = true;
+        }
+    }
+    out
+}
+
 /// THE INSTALL LOG IS PART OF THE FAILURE REPORT, SO EVERY EXIT CLOSES IT FIRST.
 ///
 /// WHY. On any non-zero exit from the setup script, `summrise-setup.nsi` shows the user:
@@ -552,9 +640,9 @@ fn exit_keyword(line: &str) -> Option<usize> {
 /// WHAT IS PINNED, honestly: that every `exit` is preceded by `Stop-InstallLog` — on its own line
 /// (`Stop-InstallLog; exit 7`) or on the line immediately above it. That is a TEXTUAL property, and
 /// for "a call before each exit site" it is the form the property actually has; it is judged on
-/// comment-stripped and single-quote-stripped code, so neither this prose nor the launcher text the
-/// script writes can satisfy it or trip it. Removing the call from ONE exit fails it — measured, not
-/// assumed.
+/// comment-stripped, single-quote-stripped code with the single-quoted here-string BODIES skipped
+/// (`here_string_lines`), so neither this prose, nor the launcher text the script writes, can
+/// satisfy it or trip it. Removing the call from ONE exit fails it — measured, not assumed.
 #[test]
 fn every_exit_closes_the_install_log() {
     let ps1 = read("deploy/summrise-online-setup.ps1");
@@ -609,9 +697,14 @@ fn every_exit_closes_the_install_log() {
     );
 
     // EVERY exit, one at a time. This is the assertion the fix is for.
+    let raw: Vec<&str> = code.lines().collect();
+    let written: Vec<bool> = here_string_lines(&raw);
     let lines: Vec<String> = code.lines().map(unquoted).collect();
     let mut judged = 0;
     for (i, line) in lines.iter().enumerate() {
+        if written[i] {
+            continue; // the text this installer WRITES is not control flow it RUNS
+        }
         let Some(at) = exit_keyword(line) else {
             continue;
         };

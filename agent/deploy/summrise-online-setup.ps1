@@ -432,16 +432,91 @@ if ($electronOk) { Say "Electron 就绪" } else { Say "警告：Electron 没装�
 # ensure-desktop.ps1 pulse, and its console-less VBS wrapper.
 try {
   $sdPath = Join-Path $InstallDir "scripts\start-desktop.ps1"
-  $sdLines = @(
-    ("`$dir = '" + $shellDir.Replace("'","''") + "'"),
-    'Set-Location $dir',
-    '& "$dir\node_modules\electron\dist\electron.exe" .'
-  )
-  Set-Content -Path $sdPath -Value $sdLines -Encoding ASCII
+  # THE SHELL'S RECORD, AND THIS END HAS TO CARRY IT TOO: step 6 runs AFTER `summrise
+  # setup`, so on the NSIS path THIS write is the one that survives. The launcher says when
+  # the shell started, when it exited, and with what exit code -- and its own comments say
+  # that a Task Scheduler kill takes this PowerShell with it and therefore leaves NO exit
+  # code at all. Both ends write the same words (installer_integrity.rs holds them
+  # together) into the log directory the agent itself resolves from DataDir.
+  # Paths are SUBSTITUTED, not interpolated: the body is a single-quoted here-string, so
+  # nothing in it expands -- which is also why its braces are not read as code.
+  $sdBody = @'
+# written by `summrise setup` / `summrise desktop` / `summrise update` -- start the
+# Electron shell, and leave a record of the launch and of the exit. The comments stay
+# IN the file on purpose: this is what an operator reads when the window is gone.
+#
+# WHAT THIS CANNOT SEE. The launch below WAITS, so it returns with the shell's exit code
+# when the shell exits OR crashes. It does NOT return when the whole process tree is
+# killed from outside -- a Task Scheduler execution limit, a `taskkill /T`, a machine
+# going down -- because this PowerShell dies first, and then NO exit code is written at
+# all. ensure-desktop.ps1 reports that absence on the next pulse; a log that recorded
+# only exits would silently omit the one death that actually happens here.
+#
+# WHY NOT `& electron.exe .` AND $LASTEXITCODE (measured on desktop-14rjcr8, 2026-09-28):
+# electron.exe is a GUI-subsystem binary and Windows PowerShell 5.1 does not set
+# $LASTEXITCODE for one. `& cmd /c 'exit 7'` set it to 7; the next `& electron.exe
+# --version` left it at 7, unchanged. The first version of this file used `&` and wrote
+# `exit code ` with the number missing -- a field that looks like a value and is not one.
+# System.Diagnostics.Process is the same CreateProcess, and its ExitCode is real.
+$dir = '__SD_DIR__'
+$log = '__SD_LOG__'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+$E = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe launching from ' + $dir + ' (start=' + $E + ')') -ErrorAction SilentlyContinue
+Set-Location $dir
+$code = $null
+try {
+  $si = New-Object System.Diagnostics.ProcessStartInfo
+  $si.FileName = "$dir\node_modules\electron\dist\electron.exe"
+  $si.Arguments = '.'
+  $si.WorkingDirectory = $dir
+  $si.UseShellExecute = $false
+  $p = [System.Diagnostics.Process]::Start($si)
+  $p.WaitForExit()
+  $code = $p.ExitCode
+} catch { $code = $null }
+$L = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $E)
+if ($null -ne $code) {
+  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe exited (start=' + $E + ' exit code ' + $code + ' lived=' + $L + 's)') -ErrorAction SilentlyContinue
+} else {
+  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe DID NOT RUN (start=' + $E + ') -- the launcher could not start it, so there is no exit code') -ErrorAction SilentlyContinue
+}
+'@
+  $sdBody = $sdBody.Replace('__SD_DIR__', $shellDir.Replace("'","''")).Replace('__SD_LOG__', (Join-Path $DataDir 'logs\startup.log').Replace("'","''"))
+  Set-Content -Path $sdPath -Value $sdBody -Encoding ASCII
   $en1 = Join-Path $InstallDir "scripts\ensure-desktop.ps1"
   $vb1 = Join-Path $InstallDir "scripts\desktop-pulse.vbs"
-  Set-Content -Path $en1 -Value ('if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $InstallDir "scripts\start-desktop.ps1") + '"') -Force
-  Set-Content -Path $vb1 -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + (Join-Path $InstallDir "scripts\ensure-desktop.ps1") + '" & Chr(34), 0, False') -Force
+  $enBody = @'
+# written by `summrise setup` / `summrise desktop` / `summrise update` -- the desktop
+# shell's watchdog, run every 5 minutes by desktop-pulse.vbs under SummriseDesktop.
+# Start the shell if none is running, and RECORD WHICH OF THE TWO THINGS HAPPENED:
+# silence is not a status. The builder in src/summrise.ts carries the full reasoning,
+# including why the healthy case is one line an hour and not one per pulse.
+$log = '__EN_LOG__'
+New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
+$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$tail = @(Get-Content -Path $log -Tail 400 -ErrorAction SilentlyContinue)
+$p = @(Get-Process electron -ErrorAction SilentlyContinue)
+if ($p.Count -gt 0) {
+  $h = 'hour=' + (Get-Date -Format 'yyyy-MM-ddTHH')
+  if (-not ($tail -match ('desktop: electron shell alive .*' + $h))) {
+    $up = ($p | Sort-Object StartTime | Select-Object -First 1).StartTime
+    Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron shell alive -- ' + $p.Count + ' process(es), oldest since ' + $up + ' ' + $h) -ErrorAction SilentlyContinue
+  }
+  exit
+}
+$was = 'no earlier launch is recorded in the log tail'
+$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching \(start=(\d+)\)' | Select-Object -Last 1
+if ($prev -and ($prev.Line -match '\(start=(\d+)\)')) {
+  $E = [int]$Matches[1]
+  if ($tail -match ('desktop: electron\.exe exited \(start=' + $E + ' ')) { $was = 'the previous shell exited and its code is in the exited (start=' + $E + ') line' }
+  else { $was = 'the previous shell lived ' + ([int]$now - $E) + 's and left NO exit line -- it was KILLED, not exited: a Task Scheduler stop, a taskkill /T or a reboot leaves no exit code (start=' + $E + ')' }
+}
+Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no electron shell is running -- the watchdog is starting it; previous: ' + $was) -ErrorAction SilentlyContinue
+& powershell -NoProfile -ExecutionPolicy Bypass -File "__EN_START__"
+'@
+  $enBody = $enBody.Replace('__EN_LOG__', (Join-Path $DataDir 'logs\startup.log').Replace("'","''")).Replace('__EN_START__', (Join-Path $InstallDir 'scripts\start-desktop.ps1').Replace("'","''"))
+  Set-Content -Path $en1 -Value $enBody -Force
   # ALWAYS re-register (Register -Force overwrites an existing definition).
   # The old create-if-absent logic left a pre-layout-v2 task pointing at the
   # retired root "D:\Summrise\desktop-pulse.vbs" — it fired every 5 min and popped
