@@ -33,6 +33,25 @@ six type errors, because the `ui` job runs `npm run build` instead. **A command 
 
 Green tests are the bar for a release.
 
+**AND TWO WAYS OF RUNNING A CHECK THAT MAKE IT MEAN NOTHING — BOTH MEASURED 2026-09-28.**
+
+**① WHEN A TEST READS A BUILT ARTIFACT, `build` MUST RUN BEFORE `test`.** The panel's
+`src/lib/unstyledMarkup.test.ts` compares the class names the JSX renders against
+`resources/panel/panel.css` — the **BUILT** sheet, not the sources under `src/styles/`. A `test` that runs
+first therefore validates the PREVIOUS build. That is exactly how a change reached `main` whose own test
+failed: the test passed against the old artifact, the build then removed a CSS rule, the rebuilt artifact
+shipped with a class no rule could paint, and the failure appeared only on the NEXT run — by which time the
+commit was pushed. **The order is `npm run build && npm test`**, and getting it backwards cost a revert
+(`92ae19f2`) and a second merge to land the work again.
+
+**② `scripts/test/spacing-scale-check.mjs` COUNTS PIXEL LITERALS ANYWHERE IN THE STYLESHEET — COMMENTS
+INCLUDED.** Writing a measurement into a CSS comment therefore **creates an off-scale value**, and the
+ratchet — a baseline that may only fall — refuses the commit. The first version of the monitor-button fix
+documented the gap it closed and turned red on the documentation: **the record of the defect became the
+defect.** Put the measurements in the commit message, where nothing parses them. The neighbouring rules in
+`components.css` carry literals in their comments too; those predate the ratchet and are part of its
+baseline, which is why the number looks larger than the source suggests.
+
 ## Release — npm is the only channel
 
 ```bash
