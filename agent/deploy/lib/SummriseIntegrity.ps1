@@ -1,4 +1,4 @@
-# SummriseIntegrity.ps1 — what the online installer checks before it installs anything.
+﻿# SummriseIntegrity.ps1 — what the online installer checks before it installs anything.
 #
 # WHY THIS FILE EXISTS (round 124). The installer's CDN fallback ran
 # `npm install -g <url>` on a tarball it had never hashed, while `/api/version`

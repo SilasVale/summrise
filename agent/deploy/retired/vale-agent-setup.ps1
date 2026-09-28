@@ -1,4 +1,4 @@
-# vale-agent-setup.ps1 - full headless install on a Windows machine:
+﻿# vale-agent-setup.ps1 - full headless install on a Windows machine:
 #   - downloads vale-agent.exe and vale-tray.exe from the download origin
 #   - bootstraps config.yaml + auth token
 #   - installs cloudflared, authenticates to Cloudflare, creates the tunnel,

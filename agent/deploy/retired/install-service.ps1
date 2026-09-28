@@ -1,4 +1,4 @@
-# install-service.ps1 - register vale-command headless as a Windows service.
+﻿# install-service.ps1 - register vale-command headless as a Windows service.
 #
 # Usage (PowerShell, as Administrator):
 #   .\deploy\install-service.ps1 -InstallDir "C:\vale-command"

@@ -1,4 +1,4 @@
-# build-windows.ps1 — RETIRED (round 237). Kept for history; do not run.
+﻿# build-windows.ps1 — RETIRED (round 237). Kept for history; do not run.
 #
 # It built `--bin vale-command`, and that binary no longer exists: `cargo build
 # --features terminal --bin vale-command` answers
