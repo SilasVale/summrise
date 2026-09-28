@@ -120,10 +120,7 @@ fn split_class(body: &str) -> Vec<String> {
 fn named_routes(head: &str) -> Vec<String> {
     let mut named = Vec::new();
     for line in head.split('\n') {
-        let t: Vec<char> = line
-            .trim_matches(|c| common::is_js_space(c))
-            .chars()
-            .collect();
+        let t: Vec<char> = line.trim_matches(common::is_js_space).chars().collect();
         if t.len() < 4 || t[0] != '/' || t[1] != '/' || t[2] != '!' {
             continue;
         }
