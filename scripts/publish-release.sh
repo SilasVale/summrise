@@ -203,7 +203,38 @@ if [ "${#PENDING_VERSIONS[@]}" -gt 0 ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
     no) echo "  Settle one:      none of them — --audit-only has no tarball left to download (see above)" >&2 ;;
     *)  echo "  Settle one:      ./scripts/publish-release.sh --audit-only <ver>   (after its tag/release exists)" >&2 ;;
   esac
-  echo "  Or acknowledge:  rerun with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)" >&2
+  # THE ACKNOWLEDGEMENT LINE DESCRIBED A TRACE THE CODE NEVER WROTE (measured 2026-09-28). It said
+  # "this run ADDS to the ledger; it does not clear it", and the run does NEITHER. `ACK_UNRECONCILED`
+  # is read in exactly one place — the guard above, where it SKIPS this block — and `reconcile_record`,
+  # the ledger's only writer, is called from the `--skip-reconcile` branch, which is a different flag.
+  # Measured on this box: a run of 1.2.493 with --acknowledge-unreconciled left
+  # docs/agents/release-reconcile.txt byte-identical, sha256 dbe534d7…, mtime still 2026-09-23
+  # 16:13:25 — so the next publish refuses with this same message, and nothing anywhere records that a
+  # human accepted the debt.
+  #
+  # THE SENTENCE IS WHAT WAS WRONG, NOT THE FLAG, and making the code write the acceptance down was
+  # rejected on four measured grounds. (1) It would be a write with no reader: the ledger's three
+  # operations are all debt bookkeeping — reconcile_pending ("what is owed?"), reconcile_record,
+  # reconcile_clear — and NOTHING asks "was this acknowledged?". That is the shape release-lib.sh
+  # already records as a defect for version.json's per-component `url`, which "was read by NOBODY".
+  # (2) The ledger is GITIGNORED (.gitignore:48) and untracked, so an acceptance written there
+  # survives nothing and appears in no review — while the record of a decision already has a home
+  # here: the release commit message. (3) 1.2.453 CAN NEVER BE SETTLED (its release exists, its tgz
+  # answers 404), so under a recording flag the file would gain a line on EVERY future publish,
+  # breaking the rule reconcile_record states for itself: "a re-run must not grow the ledger, or 'how
+  # many versions owe a reconcile' becomes unanswerable". (4) Done honestly it could not be written
+  # HERE at all: this gate sits above the --dry-run exit, whose contract is "changes nothing", and
+  # above every later refusal — measured tonight, the acknowledged run passed this gate and was then
+  # refused by the pack-input mode gate, so a record written at parse time would have recorded an
+  # acceptance for a publish that never happened. That is this same defect one level down.
+  #
+  # So the line says what the flag does: it carries THIS run past THIS refusal, leaves the ledger
+  # alone, and the refusal returns on the next publish. The entry stays — correctly, because the debt
+  # is real, and 1.2.453's is permanent.
+  echo "  Or acknowledge:  rerun with --acknowledge-unreconciled" >&2
+  echo "                   it carries THIS run past this refusal and leaves the ledger untouched — the entry" >&2
+  echo "                   stays, so the next publish refuses again. Acknowledging is not settling; the record" >&2
+  echo "                   of accepting is the release commit message, because nothing here writes it down." >&2
   exit 1
 fi
 ASSET_DIR=index/public/summrise-agent
