@@ -1,0 +1,5 @@
+# Build outputs. `worker-build --release` regenerates both, and neither is evidence — the committed
+# sources rebuild them. `dist/` is verify.mjs's scratch (the reference module it imports).
+target/
+build/
+dist/

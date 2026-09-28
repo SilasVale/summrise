@@ -1,0 +1,30 @@
+{
+  // THE WORKER THIS CRATE BUILDS — and it is NOT DEPLOYED, and it is NOT `vale-gate`.
+  //
+  // `gateway/wrangler.jsonc` is the live console worker (`vale-gate`), and a real user is on it.
+  // This file is the Rust half's own config, so that the crate can be built and measured without
+  // touching the deployed script, its routes or its assets. The name is deliberately different from
+  // `vale-gate`: `wrangler deploy` in this directory can create a NEW worker and can never
+  // overwrite the console worker by accident.
+  //
+  // `workers_dev: false` and no `routes`: nothing on the internet can reach this worker until the
+  // cutover, which is a separate decision with its own plan (a zone route on the console host is a
+  // change to the live front door, not a step in this one).
+  "name": "vale-gate-wasm",
+  "main": "build/index.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "observability": { "enabled": false },
+  "build": { "command": "worker-build --release" },
+  // THE SAME DURABLE OBJECT THE TYPESCRIPT ROUTE READS. `script_name` is what makes this the SAME
+  // BreakerDO instance the deployed console worker uses — without it, the binding would have to
+  // name a class defined in THIS script, and the health card would be reporting a different
+  // breaker's state. `reliability.ts`: `env.BREAKER.get(env.BREAKER.idFromName("og"))`.
+  "durable_objects": {
+    "bindings": [{ "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" }]
+  }
+  // `DO_AUTH` is a SECRET on the deployed worker (`wrangler secret put DO_AUTH`), not a var: it is
+  // read here for the same reason `breakerHeaders` reads it — the DO refuses an unauthenticated
+  // `/check`, and a refused read is `false`, which would report og healthy while its circuit is
+  // open. The cutover must set it on this worker too.
+}

@@ -1,0 +1,26 @@
+[package]
+name = "summrise-gate-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Rust half of the Summrise Gate worker (workers-rs). FIRST ROUTE: GET /api/health."
+
+# A Cloudflare Worker, built by `worker-build --release` — NOT by wasm-pack, which
+# was never used for a Worker on this repository and whose binaryen hang (14 min,
+# measured) does not apply to this path (worker-build: 5.5 s, P3.0).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker = "0.8.7"
+serde = { version = "1", features = ["derive"] }
+# `worker` already links serde_json (its own dependency), so this line adds no
+# second copy of it to the module — the size measurement in the commit message is
+# the check on that claim, not this comment.
+serde_json = "1"
+
+# NO [profile.release] OVERRIDES ON PURPOSE — same reason as P3.0's spike: the
+# deployed module is what `worker-build --release` produces with the default
+# profile, so the size below is the number a naive migration gets, not a tuned
+# best case. (The plan's P2 finding is that a naive port pays costs it cannot see;
+# the honest move is to MEASURE the naive one first.)
