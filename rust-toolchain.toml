@@ -16,4 +16,4 @@ channel = "1.98.1"
 # llvm-lib/llvm-dlltool (ring's cc build). A `--profile minimal` toolchain has
 # no llvm-tools, so both builders must install it explicitly.
 components = ["rustfmt", "clippy", "llvm-tools"]
-targets = ["x86_64-pc-windows-msvc", "wasm32-unknown-unknown"]
+targets = ["x86_64-pc-windows-msvc"]
