@@ -64,6 +64,10 @@ pub(crate) fn supervise_tunnel() {
             let mut backoff: u64 = 5;
             // Only so the not-staged line is not repeated every 30 s forever.
             let mut warned_absent = false;
+            // A SECOND guard rather than a reuse of the one above: "the file is not there" and
+            // "the file is another device's" are different conditions with different fixes, and
+            // whoever reads the log must be able to tell which one fired.
+            let mut warned_foreign = false;
             loop {
                 // THE PATHS COME FROM `paths.rs`, and that is the whole bug this fixes:
                 // these were hand-joined as `install_dir\tools\cloudflared.exe` and
@@ -96,6 +100,41 @@ pub(crate) fn supervise_tunnel() {
                     continue;
                 }
                 warned_absent = false;
+                // ── AND THE FILE ITSELF MUST BELONG TO THIS MACHINE ─────────────────────────────────────────────
+                // **A TUNNEL THAT CONNECTED PERFECTLY, AS THE WRONG DEVICE.** Measured 2026-09-28 on a machine
+                // reinstalled at 10:00:41: its `tunnel.yml` was dated 2026-09-10 and had been written for `d1`.
+                // cloudflared read it, joined `d1`'s tunnel and served ANOTHER device's hostname for about twelve
+                // minutes — its own log says `Updated to new configuration config="…d1.agent.saisi.online…"` —
+                // while the tunnel provisioned FOR this device reported `status: healthy` with **0 connectors**, so
+                // this machine was unreachable at its own hostname: the relay answered 530 and the console showed it
+                // offline. Nothing above can see this. The existence check asks whether the FILE IS THERE and the
+                // binary is there, and the run SUCCEEDS — as the wrong machine, splitting traffic meant for another.
+                //
+                // The decision is a pure function in `tunnel.rs`, beside the writer whose shape it reads (the round-112
+                // reason `tunnel_outcome` was hoisted out of `provision_tunnel`): this module is `#![cfg(windows)]`, so
+                // a rule decided in HERE is a rule no Linux CI run can ever see.
+                //
+                // REFUSED, not repaired: the file names a tunnel ID, a token and a credentials file that belong to the
+                // other device, so there is nothing here to rewrite into this one's. The wait-and-retry below is the
+                // same one the absent branch uses, and a re-provision from the Settings card writes a fresh file whose
+                // generation bump restarts the child.
+                let yml = std::fs::read_to_string(&cfg).unwrap_or_default();
+                let this_device =
+                    std::fs::read_to_string(summrise_agent::paths::hostname_file()).unwrap_or_default();
+                if let Some((file_dev, device_dev)) =
+                    summrise_agent::tunnel::foreign_tunnel_device(&yml, &this_device)
+                {
+                    if !warned_foreign {
+                        log_line(&format!(
+                            "cloudflared tunnel: {} is provisioned for '{file_dev}' but this device is '{device_dev}' — refusing to run it, re-provision from the Settings card",
+                            cfg.display()
+                        ));
+                        warned_foreign = true;
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    continue;
+                }
+                warned_foreign = false;
                 let my_gen = summrise_agent::tunnel_ctl::generation();
                 // `cloudflared.exe` is a console-subsystem binary, so this
                 // supervised spawn asks for the no-console flag before spending
