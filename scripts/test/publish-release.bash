@@ -139,7 +139,7 @@ fi
 
 source scripts/lib/release-lib.sh
 
-if pack_input_mode_verdict "$PWD" "agent/summrise-agent-npm" >/tmp/mode.out 2>&1; then
+if worktree_mode_verdict "$PWD" "agent/summrise-agent-npm" >/tmp/mode.out 2>&1; then
   ok "this checkout's pack inputs match a fresh checkout"
 else
   bad "this checkout's pack inputs DO NOT match: $(cat /tmp/mode.out)"
@@ -155,14 +155,14 @@ printf 'x\n' > "$FIX_TMP/agent/summrise-agent-npm/README.md"
 git -C "$FIX_TMP" add -A
 git -C "$FIX_TMP" -c user.email=t@t -c user.name=t commit -qm fixture
 chmod 600 "$FIX_TMP/agent/summrise-agent-npm/README.md"
-FIX_OUT=$(pack_input_mode_verdict "$FIX_TMP" "agent/summrise-agent-npm" 2>&1); FIX_RC=$?
+FIX_OUT=$(worktree_mode_verdict "$FIX_TMP" "agent/summrise-agent-npm" 2>&1); FIX_RC=$?
 if [ "$FIX_RC" -ne 0 ] && grep -q 'README.md' <<<"$FIX_OUT"; then
   ok "a 0600 pack input is refused BY NAME"
 else
   bad "mode drift not refused: rc=$FIX_RC out=$(head -c 200 <<<"$FIX_OUT")"
 fi
 chmod 644 "$FIX_TMP/agent/summrise-agent-npm/README.md"
-if pack_input_mode_verdict "$FIX_TMP" "agent/summrise-agent-npm" >/dev/null 2>&1; then
+if worktree_mode_verdict "$FIX_TMP" "agent/summrise-agent-npm" >/dev/null 2>&1; then
   ok "the same fixture passes once its mode is corrected"
 else
   bad "corrected mode still refused"
@@ -429,6 +429,115 @@ if grep -q 'required-in-tgz.txt' scripts/publish-release.sh \
   ok "both builders derive the list from the one owner (no restated copy in either)"
 else
   bad "the packed-tgz list is restated in a builder again"
+fi
+
+# MUTATION: `chmod 664 README.md` — a REAL tracked file of this tree, and deliberately NOT one of the
+#           twenty-four pack inputs, so the subject this gate had before cannot see it at all.
+# RESULT:   exit 1 — "README.md (worktree 664, this checkout should be 644)" and the one-line repair,
+#           with the pack-input subject alone passing the SAME edit (that is the control inside the
+#           case below, and it is what proves the widening is the fix). The 0775 half is asserted too,
+#           because the `awk '$1=="100644"'` count that found the last 483 cannot see it at all.
+#
+
+
+# MUTATION: `chmod 664 README.md` — a REAL tracked file of this tree, and deliberately NOT one of the
+#           twenty-four pack inputs, so the subject this gate had before cannot see it at all.
+# RESULT:   exit 1 — "README.md (worktree 664, this checkout should be 644)" and the one-line repair,
+#           while the pack-input subject alone PASSES the same edit. That control is inside the case
+#           below and it is what proves the widening is the fix; the 0775 half is asserted too,
+#           because the `awk '$1=="100644"'` count that found the last 483 cannot see it at all.
+#
+# ── THE CLASS, NOT THE PACK: THE WHOLE TREE (measured 2026-09-28) ─────────────────────────────
+# THE GAP THIS CLOSES. Every mode case above covers TWENTY-FOUR files — the ones npm packs — so
+# drift anywhere else in the tree was refused by NOTHING until a publish was attempted, which is
+# the day the operator has the least appetite for it. And the class is not "pack": this box's umask
+# is 0002, so ANY tracked file rewritten here can land as 664 (or 775) while the index records 644
+# (755). `git status` prints nothing — git compares only the owner-EXECUTE bit — and `git diff` is
+# empty, because the CONTENT is identical. So the author has no signal at all, and the file that
+# goes red is somebody else's: three incidents in one day, the last of them 483 files.
+#
+# MEASURED ON THIS CHECKOUT WHILE THIS CASE WAS WRITTEN: fifteen tracked files at 0775 against an
+# index that records 0755. EVERY one of them outside the pack inputs, nine of them `scripts/test/*`,
+# and a `git ls-files -s | awk '$1=="100644"'` count — the one-liner that found the 483 — cannot see
+# a single one. That is why the subject is the whole tree and not the pack.
+#
+# REFUSAL, NOT REPAIR. A verdict that chmod-ed would be a gate that cannot fail, and this
+# repository's standard is that a gate that cannot be broken is worse than no gate. What it does
+# instead is name each file, the mode it has, the mode git records, and the exact one-line command
+# that repairs the tree — the command the 483 were repaired with, by hand.
+#
+# COST, which is what made this affordable to run on EVERY commit rather than at publish time: the
+# same ONE implementation (scripts/lib/release-lib.sh) asked for a different subject — `.` — reads
+# all 985 tracked files in 0.05 s. The per-file shapes it replaces measured 4.4 s (a `stat` per
+# file) and 10.6 s (a `git ls-files -s` per file).
+
+# AND IT IS UMASK-SENSITIVE BY NATURE, WHICH IS MEASURED RATHER THAN ASSUMED. git creates a file
+# with 0666 & ~umask (0777 & ~umask when the index entry is 100755), so on a host whose umask is
+# 002 a `git clone` — or a branch switch that rewrites files — lands 664/775 and this check refuses
+# a tree nobody edited. Measured in a scratch repository whose index records 644/755:
+#
+#     clone under umask 002 -> 664, 775      clone under umask 022 -> 644, 755
+#     `git checkout HEAD~1 -- <differing file>` under 002 -> 664, 775
+#
+# THE TWENTY-FOUR-FILE PACK GATE THIS WIDENS HAS ALWAYS HAD THAT PROPERTY; the wider subject only
+# makes it visible (987 files instead of 24), and the repair is the one-liner the refusal prints —
+# the same command the operator ran by hand on the 483. What must NOT be read into the CI paragraph
+# of the commit that added this: a CI checkout is clean because GitHub's runners use umask 022, not
+# because the object store forces it. Measured live in the shared checkout this was written in: a
+# concurrent agent switched branches, and the eleven files that differed between the two branches
+# came back as 664/775 — every 100644 entry 664 and every 100755 entry 775.
+#
+# FIRST THE PROOF THAT THE RULE BITES, THEN THE TREE ITSELF — and that ORDER is the point: this
+# suite's last case is the one `all-gates` shows (it prints the last four lines of a failing gate's
+# output), so the whole-tree assertion runs LAST and a red run names the file and the repair there.
+# The fixture proves two things a good day on the live tree cannot:
+#   (a) that the WIDER SUBJECT is what catches it — the same fixture, asked the pack-input question,
+#       passes, which is the blind spot itself; and
+#   (b) the 0755/0775 half, which no `$1=="100644"` count can see.
+# Modes are set BEFORE the commit because that is what the index records.
+FIX_MODE=$(mktemp -d)
+git -C "$FIX_MODE" init -q
+mkdir -p "$FIX_MODE/agent/summrise-agent-npm/bin"
+printf 'x\n' > "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.js"
+printf 'root\n' > "$FIX_MODE/README.md"
+printf '#!/bin/sh\n' > "$FIX_MODE/tool.sh"
+chmod 644 "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.js" "$FIX_MODE/README.md"
+chmod 755 "$FIX_MODE/tool.sh"
+git -C "$FIX_MODE" add -A
+git -C "$FIX_MODE" -c user.email=t@t -c user.name=t commit -qm fixture
+chmod 664 "$FIX_MODE/README.md"    # the mutation: a real 664, and NOT a pack input
+chmod 775 "$FIX_MODE/tool.sh"      # ... and the half the operator's own count cannot see
+if worktree_mode_verdict "$FIX_MODE" "agent/summrise-agent-npm" >/dev/null 2>&1; then
+  ok "the pack-input subject alone cannot see it (the control that proves the widening IS the fix)"
+else
+  bad "the fixture is wrong: its pack inputs are drifted, so the control proves nothing"
+fi
+MODE_OUT=$(worktree_mode_verdict "$FIX_MODE" "agent/summrise-agent-npm" . 2>&1); MODE_RC=$?
+if [ "$MODE_RC" -ne 0 ] \
+   && grep -qx 'README.md (worktree 664, this checkout should be 644)' <<<"$MODE_OUT" \
+   && grep -qx 'tool.sh (worktree 775, this checkout should be 755)' <<<"$MODE_OUT" \
+   && grep -q 'xargs -r chmod 644' <<<"$MODE_OUT" && grep -q 'xargs -r chmod 755' <<<"$MODE_OUT"; then
+  ok "a 664 OUTSIDE the pack inputs and a 775 are refused BY NAME, with the repair named"
+else
+  bad "the whole-tree subject did not refuse both: rc=$MODE_RC out=$(head -c 200 <<<"$MODE_OUT")"
+fi
+chmod 644 "$FIX_MODE/README.md"; chmod 755 "$FIX_MODE/tool.sh"
+if worktree_mode_verdict "$FIX_MODE" "agent/summrise-agent-npm" . >/dev/null 2>&1; then
+  ok "and the same fixture passes once the two modes are corrected"
+else
+  bad "the corrected fixture is still refused"
+fi
+rm -rf "$FIX_MODE"
+
+# AND HERE IT IS ON THE TREE THIS RUN IS STANDING IN. The subject is `.` — every tracked file —
+# because that is the class: a 664 or a 775 created by ANY tool on this box, not only the ones whose
+# output npm packs. This is the case the ordinary local gate run now carries.
+WT_OUT=$(worktree_mode_verdict "$PWD" "agent/summrise-agent-npm" . 2>&1); WT_RC=$?
+if [ "$WT_RC" -eq 0 ]; then
+  ok "every tracked file's worktree mode matches the mode git records (the whole tree: $(git ls-files | wc -l) files, not just the 24 pack inputs)"
+else
+  printf '%s\n' "$WT_OUT"
+  bad "worktree mode drift (whole tree): $(head -1 <<<"$WT_OUT") — fix: the 'git ls-files' line printed above"
 fi
 
 printf '\npublish-release: %d checks passed, %d failed\n' "$PASS" "$FAIL"
