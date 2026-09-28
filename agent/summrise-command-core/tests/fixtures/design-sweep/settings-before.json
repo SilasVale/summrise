@@ -1,0 +1,47 @@
+{
+  "_why": "THE DEFECT THE PORT EXISTS FOR, BEFORE THE FIX: `panel/light rail panel-Settings` read `0pressed/2found` and filed twelve findings against a live button. Both rows are `changed: false` with `reached: true` — the pointer DID arrive and the two snapshots were identical, which is what the criterion says it looks for.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "mode": "rail",
+        "page": "Settings",
+        "found": 2,
+        "measured": 0,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-primary.btn-mini",
+            "size": "111x24",
+            "changed": false,
+            "reached": true,
+            "props": []
+          },
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-ghost.btn-mini",
+            "size": "50x24",
+            "changed": false,
+            "reached": true,
+            "props": []
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [
+      "panel/light rail Settings: button.btn (button.btn.btn-primary.btn-mini) renders NOTHING when pressed — before and during are identical (111x24)",
+      "panel/light rail Settings: button.btn (button.btn.btn-ghost.btn-mini) renders NOTHING when pressed — before and during are identical (50x24)",
+      "panel/light rail Settings: the press pass measured 0 control(s) of the 2 this page renders — a press pass that pressed nothing proves nothing"
+    ],
+    "lines": [],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}

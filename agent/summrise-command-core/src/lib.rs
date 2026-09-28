@@ -3,6 +3,10 @@
 pub mod config;
 pub mod error;
 pub mod events;
+/// The design sweep's JUDGE — pure logic over a sweep report's JSON (see the module header for why it
+/// lives in the foundation crate rather than beside `agent/src/plugins/design/`, and for the one measured
+/// divergence from the JavaScript it was ported from).
+pub mod sweep_judge;
 
 pub use config::Config;
 pub use error::DeviceError;

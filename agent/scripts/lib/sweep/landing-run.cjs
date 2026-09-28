@@ -64,7 +64,13 @@ const PAGES = ["installer", "npm-only"];
     const full = path.join(ROOT, file);
     if (!fs.existsSync(full)) return route.fulfill({ status: 404, contentType: "text/plain", body: "not found" });
     const ext = path.extname(full);
-    const type = ext === ".js" ? "text/javascript" : ext === ".css" ? "text/css" : ext === ".png" ? "image/png" : ext === ".svg" ? "image/svg+xml" : "text/html; charset=utf-8";
+    // `.wasm` IS IN THE MAP because the page's two behaviours are a wasm module now
+    // (2026-09-28) and this server is the only thing serving them to the sweep. Without
+    // it they arrive as `text/html`, `instantiateStreaming` refuses them, and the glue
+    // falls back to `arrayBuffer()` — which WORKS, with a console warning, so the page
+    // would still pass while every run printed a MIME complaint about a file this file
+    // is responsible for labelling.
+    const type = ext === ".js" ? "text/javascript" : ext === ".css" ? "text/css" : ext === ".wasm" ? "application/wasm" : ext === ".png" ? "image/png" : ext === ".svg" ? "image/svg+xml" : "text/html; charset=utf-8";
     return route.fulfill({ status: 200, contentType: type, headers: { "cache-control": "no-store" }, body: fs.readFileSync(full) });
   });
   for (const scheme of ["light", "dark"]) {

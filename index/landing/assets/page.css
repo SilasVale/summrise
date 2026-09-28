@@ -1,0 +1,292 @@
+
+  :root {
+    /* THE PRODUCT'S TOKENS, not a third set. This page carried its own
+       --dsw-alias-* namespace whose BRAND WAS BLUE (#4d6bfe) and whose primary
+       button was near-BLACK (#0f1115) — while the console and the device panel
+       are ORANGE (#d9480f) with an accent primary. It was the last holdout of a
+       brand the rest of the product had already left: the panel's own dead
+       fallbacks still spelled that blue (#4f7cff / #4f6bed) until round 43
+       removed them.
+       The NAMES below are kept so the rest of this file did not have to be
+       rewritten at the same time; the VALUES are the panel's scale, so all three
+       surfaces finally resolve to the same colours. */
+    --dsw-alias-bg-base: #fafafa;
+    --dsw-alias-bg-layer-1: #ffffff;
+    --dsw-alias-bg-layer-2: #f4f4f5;
+    --dsw-alias-label-primary: #1d1d1f;
+    --dsw-alias-label-secondary: #52525b;
+    --dsw-alias-label-tertiary: #71717a;
+    --dsw-alias-border-l1: rgba(0,0,0,0.08);
+    --dsw-alias-border-l2: rgba(0,0,0,0.12);
+    /* WHITE ON --accent measures 4.30 and is under AA; the solid weight clears
+       it at 6.05. The panel learned this for .btn-new and .goal-save. */
+    --dsw-alias-button-primary-fill: #b03a0a;
+    --dsw-alias-button-primary-hover: #9c3a0a;
+    --dsw-alias-button-primary-foreground: #ffffff;
+    --dsw-alias-state-business-primary: #9c3a0a;
+    --dsw-alias-interactive-bg-hover: rgba(0,0,0,0.04);
+    /* ---- aurora art direction ----
+       The same iridescent layer the console and the panel carry, expressed against
+       THIS page's token names. Decorative only: nothing here ever supplies a text
+       colour, so the page's contrast is unchanged. */
+    /* Brand hues for the mote field: the SAME values the device panel declares, so
+       the two surfaces draw from one palette. Warm on purpose — the field is
+       sunlight in a room, not an aurora. */
+    --brand-mark-a: #f59f00;
+    --brand-mark-b: #e8590c;
+    --brand-mark-c: #ffd43b;
+    --glass-blur: 14px;
+    --dsw-shadow-lv1: 0 1px 2px rgba(0,0,0,0.06);
+    --dsw-shadow-lv2: 0 4px 12px rgba(0,0,0,0.08);
+    --ds-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --ds-font-family-code: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+    --ds-transition-duration: 0.2s;
+    --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body[data-ds-dark-theme] {
+    --dsw-alias-bg-base: #131418;
+    --dsw-alias-bg-layer-1: #17181d;
+    --dsw-alias-bg-layer-2: #1f2026;
+    --dsw-alias-label-primary: #ecedef;
+    --dsw-alias-label-secondary: #a2a3ac;
+    --dsw-alias-label-tertiary: #a2a3ac;
+    --dsw-alias-border-l1: rgba(255,255,255,0.07);
+    --dsw-alias-border-l2: rgba(255,255,255,0.10);
+    /* On the dark surface the accent itself carries dark ink, so the button is
+       the accent and the FOREGROUND is what changes. */
+    --dsw-alias-button-primary-fill: #ffa94d;
+    --dsw-alias-button-primary-hover: #ffc078;
+    --dsw-alias-button-primary-foreground: #2b1a09;
+    --dsw-alias-state-business-primary: #ffa94d;
+    --dsw-alias-interactive-bg-hover: rgba(255,255,255,0.05);
+    --dsw-shadow-lv1: 0 1px 2px rgba(0,0,0,0.24);
+    --dsw-shadow-lv2: 0 4px 12px rgba(0,0,0,0.32);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  /* THE FIXED LIGHT LAYER THAT USED TO BE HERE WAS THE DARK-MODE BUG, AND IT IS DELETED.
+     It painted a hardcoded LIGHT gradient (#f1f0ee to #f7f6f4 to #f3f1ee) as body::before —
+     position:fixed, z-index 0, so ABOVE body's own background and BELOW its children — and
+     nothing overrode it for body[data-ds-dark-theme]. Every dark-OS visitor therefore got
+     LIGHT background pixels with dark ink. Measured on the live page by sampling the painted
+     pixels: light and dark backgrounds byte-identical at rgb(242,239,236), the h1's #ecedef
+     on it at 1.03:1, .desc at 2.20:1, the console link at 1.67:1.
+     What it bought was a ~6/255 warm tonal wash and the glass card's backdrop texture; what it
+     cost was a page whose MEASURED contrast pairs were not the pairs PAINTED. Deleted rather
+     than given a dark twin: one theme-aware background, from --dsw-alias-bg-base below, is the
+     version whose contrast can be checked at all.
+     (No backticks in this comment — it lives inside page.js's template literal.) */
+  /* Kept for the particle canvas, which is position:fixed with z-index 0 and is appended to
+     body LAST: without this every non-positioned child would paint underneath it. */
+  body > * { position: relative; z-index: 1; }
+
+  body {
+    background: var(--dsw-alias-bg-base);
+    color: var(--dsw-alias-label-primary);
+    font: 14px/1.5 var(--ds-font-family);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background var(--ds-transition-duration) var(--ds-ease-in-out),
+                color var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+
+  /* ── Layout ─────────────────────────────────────── */
+  /* A SPLIT PAGE. Measured before: the content column was 440px on a 1440px
+     screen — a narrow ribbon in a void, with the install steps as bare text
+     rows. The brand and the "what is this" sentence now own the left half and
+     the things you actually DO own the right, the same composition the console's
+     login page uses, so the two surfaces read as one product. */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 56px;
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 56px 40px;
+  }
+  .aside { display: flex; flex-direction: column; gap: 20px; }
+  .card {
+    width: 100%; max-width: 520px; justify-self: end;
+    /* THE CARD HAD NO RADIUS. This file declared six (20/12/10/8/5/50%) and none of them was
+       the card, so the largest surface on the page rendered as a hard-edged slab — worst in
+       dark mode, where it is a lighter panel on a dark ground and the square corners read as a
+       rendering fault rather than a choice. 20px is the console's own .card radius (--radius-lg)
+       and is already a value this page uses, for .btn-primary. */
+    border-radius: 20px;
+    /* Glass, so the wash reads THROUGH the card. An opaque card hides it entirely —
+       the lesson the console learned the hard way. */
+    background: color-mix(in srgb, var(--dsw-alias-bg-base) 84%, transparent);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  }
+
+  /* ── Brand ──────────────────────────────────────── */
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+  .brand-mark {
+    display: block;
+    width: 40px; height: 40px; border-radius: 10px;
+    box-shadow: var(--dsw-shadow-lv1),
+                0 6px 22px -8px color-mix(in srgb, var(--brand-mark-c) 55%, transparent);
+  }
+  .brand-text { display: flex; flex-direction: column; gap: 2px; }
+  .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--dsw-alias-label-primary); margin: 0; } /* margin: 0 IS LOAD-BEARING (round 240): this is an <h1> now, not a <div>, so the UA would add 0.67em above and below and move the whole aside. The class was written for a div; a heading needs it complete. */
+  .brand-tag {
+    font: 11px/1 var(--ds-font-family-code);
+    color: var(--dsw-alias-label-tertiary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* ── Description ────────────────────────────────── */
+  .desc {
+    color: var(--dsw-alias-label-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 24px;
+  }
+  .desc a {
+    color: var(--dsw-alias-state-business-primary);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+  .desc a:hover { border-bottom-color: var(--dsw-alias-state-business-primary); }
+
+  /* ── Primary action ─────────────────────────────── */
+  .actions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 40px; padding: 0 20px;
+    background: var(--dsw-alias-button-primary-fill);
+    color: var(--dsw-alias-button-primary-foreground);
+    border: none; border-radius: 20px;
+    font: 500 14px/1 var(--ds-font-family);
+    cursor: pointer; text-decoration: none;
+    transition: background var(--ds-transition-duration) var(--ds-ease-in-out),
+                transform var(--ds-transition-duration) var(--ds-ease-in-out),
+                box-shadow var(--ds-transition-duration) var(--ds-ease-in-out);
+    box-shadow: var(--dsw-shadow-lv1);
+  }
+  .btn-primary:hover {
+    background: var(--dsw-alias-button-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--dsw-shadow-lv2);
+  }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--dsw-alias-state-business-primary);
+    outline-offset: 2px;
+  }
+  .btn-primary svg { width: 16px; height: 16px; flex: none; }
+  .hint { font-size: 12px; color: var(--dsw-alias-label-tertiary); line-height: 1.5; }
+
+  /* ── Steps ──────────────────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 8px; }
+  /* A URL is ONE token. Without this the installer URL broke across lines in the
+     middle of the path, which is unreadable and unpasteable. */
+  code, .cmd { overflow-wrap: anywhere; word-break: break-word; }
+  .step {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    transition: background var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+  .step:hover { background: var(--dsw-alias-interactive-bg-hover); }
+  .step-num {
+    flex: none; width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: var(--dsw-alias-bg-layer-2);
+    color: var(--dsw-alias-label-secondary);
+    font: 500 12px/1 var(--ds-font-family);
+    border: 1px solid var(--dsw-alias-border-l2);
+    margin-top: 1px;
+  }
+  .step-body { font-size: 13px; line-height: 1.55; color: var(--dsw-alias-label-secondary); }
+  .step-body a {
+    color: var(--dsw-alias-state-business-primary);
+    text-decoration: none;
+  }
+  .step-body a:hover { text-decoration: underline; }
+
+  /* THE PRESS, WHICH A LINK CANNOT SHOW WITH A TRANSFORM (round 81). The sheet-level feedback check proves a press
+     RULE exists and would have found none here; the RENDERED press pass is what reported it: the link measured
+     IDENTICAL before and during a press, in both colour schemes, on the landing's first rendered run. A transform does
+     not move an inline box — the lesson the console's own anchor and card-link recorded first, where the fix was
+     opacity, and it is the fix here. Both link families answer, and this rule comes AFTER both hover rules because
+     hover ALWAYS co-occurs with active: at equal specificity the later one wins, which is how four rows in the panel
+     once had a press that could not be seen. (No backticks: this comment lives inside page.js's template literal —
+     49th time this session, and the emit failed on the first attempt.) */
+  .desc a:active,
+  .step-body a:active { opacity: 0.72; }
+  .step-body code {
+    font: 12px/1.4 var(--ds-font-family-code);
+    background: var(--dsw-alias-bg-layer-1);
+    border: 1px solid var(--dsw-alias-border-l1);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: var(--dsw-alias-label-primary);
+  }
+
+  /* ── Theme toggle ───────────────────────────────── */
+  .theme-toggle {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px;
+    background: var(--dsw-alias-bg-layer-1);
+    border: 1px solid var(--dsw-alias-border-l2);
+    border-radius: 8px;
+    color: var(--dsw-alias-label-secondary);
+    cursor: pointer;
+    transition: background var(--ds-transition-duration) var(--ds-ease-in-out),
+                color var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+  .theme-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+  /* THE TOGGLE WAS THE ONE INPUT ON THIS PAGE THAT ANSWERED A HOVER AND IGNORED A PRESS (round 95). Measured on
+     the device, both schemes: hoverChanges=[background,color] and pressAddsBeyondHover=[] — while .btn-primary
+     adds a transform and every link adds opacity on the same page. The transform vocabulary is the one the panel
+     and the console already use for a press that RENDERS (translateY(1px)); it is not in this rule's transition
+     list, so the press lands on the event rather than easing in behind it.
+     (No backticks in this comment: it lives inside page.js's template literal — 50th time, and the emit guard
+     caught it before the commit.) */
+  .theme-toggle:active { transform: translateY(1px); }
+  .theme-toggle svg { width: 16px; height: 16px; }
+  .theme-toggle .icon-sun { display: none; }
+  body[data-ds-dark-theme] .theme-toggle .icon-moon { display: none; }
+  body[data-ds-dark-theme] .theme-toggle .icon-sun { display: block; }
+
+  /* ── Responsive ─────────────────────────────────── */
+  @media (max-width: 860px) {
+    .main {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 32px;
+      align-items: start;
+      padding: 40px 24px;
+      max-width: 620px;
+    }
+    .card { max-width: none; justify-self: stretch; }
+  }
+  @media (max-width: 480px) {
+    .main { padding: 28px 16px; }
+  }
+
+  /* REDUCED MOTION: THE PAGE STOPS MOVING (round 82). The canvas already refuses to start under reduce — its guard
+     is in the script below, and it has been verified on a device — and the CSS was never asked, so the theme
+     toggle, every link and the body kept their 200 ms transitions while a person was asking for less motion. The
+     rendered landing arm found exactly that on its second run: "reduced motion (landing): 5 element(s) still
+     animate — body trans=0.2s, .theme-toggle trans=0.2s, a trans=0.2s". ZERO, not a shorter duration: the panel
+     and the console both stop outright, and 0s is the value the console's own sheet is recorded using. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0s !important;
+      animation-duration: 0s !important;
+      animation-iteration-count: 1 !important;
+    }
+  }

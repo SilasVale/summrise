@@ -36,17 +36,20 @@ import { fileURLToPath } from "node:url";
  * `:active` rule — while the panel has had this gate for hundreds of rounds. Each sheet carries its own floors,
  * because "a scan that read nothing" means something different in a sheet with 78 hovers and one with 25.
  *
- * AND THE LANDING IS THE THIRD (round 95). Its stylesheet is inline in `index/src/page.js` rather than in a .css
- * file, which is exactly why it went unchecked: this file read two paths and the fourth surface was neither. The
- * cost was measured on the device — `.theme-toggle` answered a hover and ignored a press, and the rendered pass
+ * AND THE LANDING IS THE THIRD (round 95). Its stylesheet used to be inline in `index/src/page.js` rather than in a
+ * .css file, which is exactly why it went unchecked: this file read two paths and the fourth surface was neither.
+ * The landing migrated to Rust on 2026-09-28 and the sheet is now a plain file (`index/landing/assets/page.css`,
+ * embedded into the document with `include_str!`), so the `crop` is gone: the landing entry reads the CSS directly,
+ * which is the same sheet and one extraction fewer.
+ * The cost was measured on the device — `.theme-toggle` answered a hover and ignored a press, and the rendered pass
  * could not see it either, because it measured the press against REST and the hover looked like the press (see
- * `press-anchor-check.mjs`). `crop` takes the `<style>` block out of the module, so this reads the CSS that ships
- * rather than a copy of it.
+ * `press-anchor-check.mjs`). The landing's markup is still scanned for `class="…"` by the walk below, because the
+ * generated arms under `index/src/landing/` are `.js` modules and that is the spelling they use.
  */
 const SHEETS = [
   { label: "panel", path: fileURLToPath(new URL("../../agent/resources/panel/panel.css", import.meta.url)), src: fileURLToPath(new URL("../../agent/resources/panel-react/src", import.meta.url)), minHovers: 30, minPresses: 20, minTransitions: 10 },
   { label: "console", path: fileURLToPath(new URL("../../gateway/ui/src/styles/globals.css", import.meta.url)), src: fileURLToPath(new URL("../../gateway/ui/src", import.meta.url)), minHovers: 10, minPresses: 1, minTransitions: 3 },
-  { label: "landing", path: fileURLToPath(new URL("../../index/src/page.js", import.meta.url)), src: fileURLToPath(new URL("../../index/src", import.meta.url)), minHovers: 4, minPresses: 3, minTransitions: 3, crop: /<style>([\s\S]*?)<\/style>/ },
+  { label: "landing", path: fileURLToPath(new URL("../../index/landing/assets/page.css", import.meta.url)), src: fileURLToPath(new URL("../../index/src", import.meta.url)), minHovers: 4, minPresses: 3, minTransitions: 3 },
 ];
 
 /** Everything this file knows how to check, for ONE sheet. */

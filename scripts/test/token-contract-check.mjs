@@ -40,8 +40,10 @@ const SPACING_STEPS = ["--sp-0-5", "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp
 const CONSOLE = "gateway/ui/src/styles/globals.css";
 const PANEL = "agent/resources/panel-react/src/styles/tokens.css";
 // The THIRD surface. It has its own namespace, but the names it DOES share must mean
-// the same thing — and nothing was checking them.
-const LANDING = "index/src/page.js";
+// the same thing — and nothing was checking them. The landing migrated to Rust on
+// 2026-09-28, so the sheet is a plain file now (`include_str!` puts it in the document)
+// instead of a `<style>` block inside a JS module.
+const LANDING = "index/landing/assets/page.css";
 
 /** Every `--name: value;` in every rule OUTSIDE comments, keyed by selector.
  *  Comments are stripped FIRST: the console's header mentions
@@ -262,18 +264,20 @@ const cases = [
 ];
 const gc = blocks(readFileSync(`${ROOT}${CONSOLE}`, "utf8"));
 const pc = blocks(readFileSync(`${ROOT}${PANEL}`, "utf8"));
-// page.js is a JS MODULE with a <style> block inside a template literal, not a
-// stylesheet — handing the whole file to a CSS parser makes it match JS braces too.
-// (It happened to read `:root` correctly, which is exactly the kind of accidental
-// success that hides a parser pointed at the wrong input.) Extract the stylesheet
-// first, and FAIL if there is not one.
+// THE LANDING IS A PLAIN STYLESHEET NOW (2026-09-28). It used to be a `<style>` block
+// inside a template literal in `index/src/page.js`, and handing that whole file to a CSS
+// parser made it match JS braces too — which is why the extraction below existed and why
+// it FAILED rather than falling through when the block was missing. The landing migrated
+// to Rust and the sheet is `index/landing/assets/page.css`, embedded into the document
+// with `include_str!`, so the file IS the stylesheet and the extraction has nothing left
+// to do. The read stays fatal for the same reason it always was: a parser pointed at an
+// empty string reports a clean surface.
 const landingSrc = readFileSync(`${ROOT}${LANDING}`, "utf8");
-const landingCss = /<style>([\s\S]*?)<\/style>/.exec(landingSrc);
 assert.ok(
-  landingCss,
-  `${LANDING}: no <style> block found — the parser would read JS`,
+  landingSrc.includes(":root"),
+  `${LANDING}: no :root block — the parser is reading the wrong input`,
 );
-const lc = blocks(landingCss[1]);
+const lc = blocks(landingSrc);
 
 // --- the accent family must be READABLE, in both directions ------------------
 //

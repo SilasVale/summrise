@@ -1,0 +1,19 @@
+[package]
+name = "wasm-pack-proof"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# PINNED TO THE CLI THAT IS INSTALLED (`wasm-bindgen --version` -> 0.2.129). wasm-pack refuses a
+# mismatch between the crate and the CLI, and it fetches a matching CLI from GitHub releases when
+# the crate does not pin one — which is the slow path on this box. Pinning makes the build use the
+# CLI already on PATH, and makes the version a decision in a file rather than a side effect.
+wasm-bindgen = "=0.2.129"
+
+[profile.release]
+opt-level = "z"
+lto = true
