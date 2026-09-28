@@ -248,8 +248,32 @@ export const psq = (x: string) => String(x).replace(/'/g, "''");
  *  silently reverts to the backing executable (stock `electron.exe`, since the shell runs
  *  unpackaged) with nothing on the device to read that says why.
  *  PowerShell/Windows AppUserModelIDs cannot contain spaces, and this one does not.
+ *
+ *  WHY IT IS NOT `online.saisi.summrise.agent`, WHICH IS WHAT IT WAS CALLED BEFORE —
+ *  MEASURED on desktop-14rjcr8 (release 1.2.490), ONE VARIABLE AT A TIME:
+ *
+ *    | window's AppUserModelID          | shortcut carries it  | taskbar draws   |
+ *    | online.saisi.summrise.agent      | ID + icon, read back | Electron logo   |
+ *    | online.saisi.summrise.desktop    | ID + icon, read back | THE SUNRISE     |
+ *
+ *  Everything else was identical across the two runs: the same three shortcuts (both
+ *  desktops and an all-users Start Menu one) written by the same `IPropertyStore` call and
+ *  read back, the same `icon.ico` (rendered and checked — it IS the sunrise), and the same
+ *  shell restarted under the `SummriseDesktop` task, with the running process appending
+ *  `AUMID-SET-OK` to a log from inside `setAppUserModelId` so the ID was provably set in
+ *  BOTH runs. Only the string differed.
+ *
+ *  The cause is the OLD ID's history, and it is the shell's bookkeeping rather than anything
+ *  on the window: releases up to 1.2.489 set that AUMID on the process while no shortcut
+ *  anywhere carried it, so the shell resolved it against the backing executable and kept the
+ *  result. `shell:AppsFolder` still lists it as `name=[Electron]
+ *  path=[online.saisi.summrise.agent]` — a stale app entry named after `electron.exe`, which
+ *  a fresh ID has not got. An ID already resolved to the wrong image is NOT repaired by
+ *  adding the shortcut afterwards; the association has to be under a name the machine has
+ *  never seen. Keep this string STABLE from here: changing it again costs the pin and the
+ *  jump list, so this is a one-time migration, not a knob.
  */
-export const DESKTOP_AUMID = "online.saisi.summrise.agent";
+export const DESKTOP_AUMID = "online.saisi.summrise.desktop";
 
 /** The two `IPropertyStore` values `Summrise.lnk` must carry, as DATA.
  *

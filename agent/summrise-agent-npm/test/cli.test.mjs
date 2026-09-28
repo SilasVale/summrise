@@ -395,8 +395,11 @@ test("lnkIdentity: the taskbar identity is the same ID the shell sets, + the sun
   const { id, icon } = lnkIdentity("D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico");
   assert.equal(
     id,
-    "online.saisi.summrise.agent",
-    "the AppUserModelID the desktop shell sets on its process",
+    "online.saisi.summrise.desktop",
+    "the AppUserModelID the desktop shell sets on its process — NOT the pre-1.2.490 " +
+      "'…summrise.agent', which the shell had already resolved to electron.exe on machines " +
+      "that ran an older release: measured to draw the Electron logo even with both halves " +
+      "present and read back, while this string drew the sunrise",
   );
   assert.equal(id, DESKTOP_AUMID, "one string, exported once");
   assert.equal(
