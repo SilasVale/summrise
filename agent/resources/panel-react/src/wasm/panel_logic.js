@@ -76,6 +76,30 @@ export function parse_boot_history(j) {
 }
 
 /**
+ * `parseEvicted(detail)` — the notice, or `null` for anything this build cannot describe.
+ *
+ * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must
+ * be a frame it says nothing about rather than a listener that raises. The three refusals are the
+ * TypeScript's own and each is a strict test:
+ *
+ *   * `d.ev !== "session-evicted"` — the frame's own name, so a listener registered for one event
+ *     cannot turn a different one into a notice about something that did not happen;
+ *   * a `cause` that is neither `"idle"` nor `"cap"` — the two rules the device enforces, and a
+ *     third one invented by a newer device is not a line this build knows how to write;
+ *   * NO SESSIONS LEFT after the rows are filtered — a notice that says nothing was taken is worse
+ *     than no notice, and it is what an empty `sessions` array would produce.
+ * @param {any} detail
+ * @returns {any}
+ */
+export function parse_evicted(detail) {
+    const ret = wasm.parse_evicted(detail);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `parseMonitorChange(detail)` — one `monitor-change` frame → one alert, or `null`.
  *
  * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must

@@ -11,16 +11,20 @@ const frame = (label: string) => ({
 });
 
 describe("useEvictedNotice", () => {
-  it("shows the newest eviction and lets it expire", () => {
+  // EVERY `act` IS `await`ed NOW, AND THAT IS THE PARSE MOVING TO RUST (P2, 2026-09-29) RATHER THAN
+  // A TEST BEING MADE TO PASS: the listener dispatches, the seam fetches the wasm, and the notice
+  // lands one microtask later — so an `act` that does not await observes the state BEFORE the
+  // callback ran. The assertions are unchanged; what changed is when they are allowed to look.
+  it("shows the newest eviction and lets it expire", async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useEvictedNotice(1000));
     expect(result.current).toBeNull();
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(new CustomEvent("summrise-session-evicted", { detail: frame("d1") }));
     });
     expect(result.current?.sessions[0].label).toBe("d1");
     // A second eviction REPLACES the first: two lines about housekeeping is one line too many.
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(new CustomEvent("summrise-session-evicted", { detail: frame("serial:COM4") }));
     });
     expect(result.current?.sessions[0].label).toBe("serial:COM4");
@@ -31,9 +35,9 @@ describe("useEvictedNotice", () => {
     vi.useRealTimers();
   });
 
-  it("ignores frames that are not evictions", () => {
+  it("ignores frames that are not evictions", async () => {
     const { result } = renderHook(() => useEvictedNotice(1000));
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(new CustomEvent("summrise-monitor-change", { detail: { ev: "monitor-change" } }));
     });
     expect(result.current).toBeNull();

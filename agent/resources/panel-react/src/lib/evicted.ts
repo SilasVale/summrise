@@ -24,32 +24,32 @@ export interface EvictionNotice {
   sessions: EvictedSession[];
 }
 
-/** Read one `session-evicted` frame. `null` for anything this build cannot describe. */
-export function parseEvicted(detail: unknown): EvictionNotice | null {
-  const d = (detail ?? {}) as Record<string, unknown>;
-  if (d.ev !== "session-evicted") return null;
-  const cause = d.cause === "idle" || d.cause === "cap" ? d.cause : null;
-  if (!cause) return null;
-  const raw = Array.isArray(d.sessions) ? d.sessions : [];
-  const sessions: EvictedSession[] = [];
-  for (const s of raw) {
-    const r = (s ?? {}) as Record<string, unknown>;
-    if (typeof r.id !== "string" || !r.id) continue;
-    sessions.push({
-      id: r.id,
-      label: typeof r.label === "string" ? r.label : "",
-      kind: typeof r.kind === "string" ? r.kind : "",
-      idleMs: typeof r.idle_ms === "number" ? r.idle_ms : 0,
-      reason: typeof r.reason === "string" ? r.reason : "",
-    });
-  }
-  if (sessions.length === 0) return null;
-  return { cause, limit: typeof d.limit === "number" ? d.limit : 0, sessions };
+/** Read one `session-evicted` frame. `null` for anything this build cannot describe.
+ *
+ *  ── IT IS RUST NOW (P2, 2026-09-29), and this is the seam ────────────────────────────────────
+ *
+ *  The parse moved to `agent/resources/panel-logic/src/evicted.rs`, transliterated: the same strict
+ *  `d.ev !== "session-evicted"`, the same two accepted causes, the same `!r.id` truthiness that
+ *  skips an EMPTY id as well as a missing one, the same "no sessions left ⇒ null".
+ *
+ *  WHY IT IS `async`: the wasm is fetched at the first call rather than at page load (criterion ③),
+ *  and this one is called from an EVENT HANDLER (`useEvictedNotice`'s listener), where nothing is on
+ *  the first render's path — so the promise costs nothing. `evictedText` below stays TypeScript
+ *  because `EvictedNotice` calls it while RENDERING.
+ *
+ *  AND `idleMs` IS `typeof … === "number"`, NOT this crate's `num()`. The two differ on `NaN` and
+ *  `Infinity`: `num` is for values plotted on an axis, where a non-finite number is not a reading,
+ *  and this field is formatted into a sentence. The Rust file says the same thing at the same
+ *  boundary, because that is where a port would have gone wrong silently. */
+export async function parseEvicted(detail: unknown): Promise<EvictionNotice | null> {
+  const logic = await panelLogic();
+  return logic.parse_evicted(detail) as EvictionNotice | null;
 }
 
 /** How long a silence lasts — ONE OWNER now (`lib/duration.ts`). This file kept a private copy that
  *  emitted `1h04m` where the panel writes `1h 04m`, while the doc below claimed the opposite. The
  *  import is what `evictedText` calls; the re-export keeps this module's public surface. */
+import { panelLogic } from "../wasm/panelLogic";
 import { humanIdle } from "./duration";
 export { humanIdle };
 

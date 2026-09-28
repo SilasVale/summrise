@@ -36,6 +36,7 @@
 // is how a warning becomes furniture.
 mod archive;
 mod boot;
+mod evicted;
 mod js;
 mod monitors;
 mod runs;
@@ -43,6 +44,7 @@ mod vitals;
 
 pub use archive::archive_entries;
 pub use boot::parse_boot_history;
+pub use evicted::parse_evicted;
 pub use monitors::{parse_monitor_change, parse_monitors};
 pub use runs::{group_operation, operation_rows};
 pub use vitals::parse_vitals_series;
