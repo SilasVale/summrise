@@ -566,8 +566,9 @@ jobs:
       # `conclusion: failure`, which is indistinguishable in a count from a real red and has no log to open. Measured:
       # 8ca63398 ran 11 jobs and succeeded; e92fbf32, the first of the three, ran 0 -- and so did the ~35 commits after it.
       # `workflow-yaml-check.mjs` is the gate that now fails on this shape instead of a silent two-hour outage.
-      - name: every route the header lists is served
-        run: node scripts/test/http-route-header-check.mjs
+      # EVERY ROUTE THE HEADER LISTS IS SERVED is a RUST gate now (`agent/tests/http_route_header.rs`, batch 7 of the
+      # P1 migration), run by the `cargo test` step in this job. Round 147 made the header say "A SELECTION, NOT THE
+      # INVENTORY"; the gate keeps the one direction that is checkable — a header naming a route nothing serves.
       # THE UPDATE VERDICT'S CHAIN (round 79 of the standing goal) is a RUST gate now (`agent/tests/device_verdict.rs`,
       # batch 6 of the P1 migration), run by the `cargo test` step in this job. Round 29's defect was a second computation
       # of a fact the DEVICE answers, and it got the answer backwards for two devices at once. The fix routes the verdict
@@ -575,8 +576,9 @@ jobs:
       # returns the console to computing it itself with every other suite still green.
       # THE CONSOLE'S SIDE OF "ONE FACT, ONE DERIVATION" (round 173 of the standing goal). The panel has had that gate since
       # round 78; the console had nothing, and round 172 found the prefix rule written nine times with two behaviours.
-      - name: the console's derivations have one home each
-        run: node scripts/test/console-derivation-check.mjs
+      # THE CONSOLE'S DERIVATIONS HAVE ONE HOME EACH is a RUST gate now (`agent/tests/console_derivation.rs`, batch 7
+      # of the P1 migration), run by the `cargo test` step in this job. It pins `lib/lane.ts` as the only place the
+      # trailing-slash strip lives, and `views/DevicesPanel.tsx` as the only place the update verdict is compared.
       # THE SESSION ROW'S CARRY LIST AND DETECT LIST must agree — a RUST gate now (`agent/tests/
       # session_carry_detect.rs`, batch 6 of the P1 migration), run by the `cargo test` step in this job.
       # They are two lists on purpose: `pendingApproval` is derived at map time, so comparing the mapped
