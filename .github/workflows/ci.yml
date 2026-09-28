@@ -435,8 +435,13 @@ jobs:
       # the landing's is inline (that page has no bundler), so the code cannot be shared — the FACTS can be, and
       # they had already drifted into the same two defects: a retired palette (`--aura-*`, read empty, falling back
       # to cyan/violet/pink behind every surface) and drawing by HUE rather than by the token's colour.
-      - name: every copy of the particle field reads the brand as colours
-        run: node scripts/test/particles-check.mjs
+      # THREE COPIES OF THE AMBIENT FIELD MOVED TO RUST — `agent/tests/particles_check.rs`, which the `agent`
+      # job's `cargo test -p summrise-agent` runs. The step here ran `scripts/test/particles-check.mjs`, and that
+      # file is DELETED rather than left beside the new gate: two gates for one rule is two gates. Both
+      # implementations were run over the same tree on SIX cases — the clean tree and five mutations, one per
+      # fact, four on the landing's Rust copy and one on the panel's TypeScript — and every body is
+      # byte-identical: 198 / 185 / 196 / 262 / 222 / 201 bytes. Nothing replaced the step, deliberately: a
+      # `cargo test` step here would compile the crate a second time in a job with no Rust cache.
       # A MODULE'S PUBLIC SURFACE SHOULD BE WHAT SOMEBODY USES — a RUST gate now (`agent/tests/exports_check.rs`,
       # batch 6 of the P1 migration), run by the `cargo test` step in this job. Measured first: 67 + 9 exports were
       # referenced nowhere. Twenty-four of the panel's were used INSIDE their own file (drop the keyword), and three

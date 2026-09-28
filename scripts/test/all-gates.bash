@@ -91,7 +91,10 @@ mapfile -t gates < <(
 # `agent/tests/motion_check.rs` and the derivation reads 28, so the floor is 24. THE RULE IS APPLIED
 # RATHER THAN REMEMBERED — the derivation above is run against the tree and four is subtracted — which
 # is what this paragraph is for; the numbers are the record of it being done.
-if [ "${#gates[@]}" -lt 24 ]; then
+#
+# AND AGAIN: `particles-check.mjs` moves to `agent/tests/particles_check.rs` and the derivation reads
+# 27, so the floor is 23.
+if [ "${#gates[@]}" -lt 23 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi
