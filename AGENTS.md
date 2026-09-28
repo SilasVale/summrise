@@ -247,7 +247,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `console-derivation-check.mjs`
 `console-marks-check.mjs`, `console-smoke-check.mjs`, `contrast-probe-check.mjs`
-`device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
+`docs-budget-check.mjs`, `exports-check.mjs`
 `feedback-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`
 `motion-check.mjs`, `panel-design-sweep.bash`
