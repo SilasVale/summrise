@@ -808,10 +808,17 @@ if (gotTheLock) {
   // there) as System.AppUserModel.ID — the same string — plus RelaunchIconResource pointing
   // at the sunrise .ico. KEEP THE TWO IN STEP; the literal below is a copy because this file
   // is emitted to plain JS in two packages and cannot import the CLI's module.
+  // THE VALUE IS NOT THE ONE THIS FILE USED BEFORE ("…summrise.agent"), and that is the
+  // measured half of the fix rather than a rename. On desktop-14rjcr8, with that string set
+  // on the window AND read back off the shortcut, the taskbar still drew the Electron logo:
+  // releases up to 1.2.489 had already resolved that AUMID — set with no shortcut anywhere —
+  // against the backing executable and kept the answer, and `shell:AppsFolder` still lists it
+  // as an app named "Electron". The same machine drew the SUNRISE under a string it had never
+  // seen, with every other variable held. DESKTOP_AUMID carries the two-row table.
   // (The same shortcut association is also the documented precondition for the hide-to-tray
   // toast below: Electron requires a Start Menu shortcut carrying the ID and a
   // ToastActivatorCLSID, and this one carries neither — unchanged by this call.)
-  const AUMID = "online.saisi.summrise.agent";
+  const AUMID = "online.saisi.summrise.desktop";
   try {
     if (process.platform === "win32") app.setAppUserModelId(AUMID);
     iconReport["appUserModelId"] = process.platform === "win32" ? AUMID : "(non-windows)";
