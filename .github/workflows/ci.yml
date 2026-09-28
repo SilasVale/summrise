@@ -383,8 +383,14 @@ jobs:
       # press selectors — the panel answered a pointed-at cursor everywhere and a pressed one almost nowhere, so
       # the feedback on a click was whatever the network did next. It also fails a transition that names a
       # layout property, a `transition: all`, anything over 240ms, and a sheet with no reduced-motion block.
-      - name: every hover answers a press
-        run: node scripts/test/feedback-check.mjs
+      # HOVER-IMPLIES-PRESS, THE TRANSITION RULES AND THE MOTION BUDGET MOVED TO RUST —
+      # `agent/tests/feedback.rs`, which the `agent` job's `cargo test -p summrise-agent` runs. The step here ran
+      # `scripts/test/feedback-check.mjs`, and that file is DELETED rather than left beside the new gate: two gates
+      # for one rule is two gates. Both implementations were run over the same tree on SIX cases — the clean tree,
+      # a hover with no press, `transition: width` on a MULTI-ARM selector, `transition: all`, a duration over
+      # 240ms, and a good transition that must NOT bite — and every body is byte-identical: 763 / 150 / 135 / 139 /
+      # 117 / 763 bytes. Nothing replaced the step, deliberately: a `cargo test` step here would compile the crate a
+      # second time in a job with no Rust cache.
       # THE CHROME IS NEUTRAL AND STILL. Colour has had its gate since round 245; motion had only the
       # reduced-motion one, which asks whether an animation is SILENCED and never whether it should exist. Every
       # animation on both sheets is now declared with one of three purposes and its reason — STATE (motion that
