@@ -6,6 +6,7 @@
 //! the comparison corpus rather than by argument.
 
 use js_sys::{Array, Object, Reflect};
+use crate::js::{opt_num, prop, type_of};
 use wasm_bindgen::prelude::*;
 
 /// JS `String.prototype.trim()` — which is NOT `str::trim`.
@@ -25,11 +26,6 @@ use wasm_bindgen::prelude::*;
 /// with `runs.rs` (`value()`), whose corpus covers both characters from the other side.
 pub(crate) fn js_trim(s: &str) -> &str {
     s.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}')
-}
-
-/// JS `typeof v`.
-fn type_of(v: &JsValue) -> String {
-    v.js_typeof().as_string().unwrap_or_default()
 }
 
 /// `typeof v === "object"` — and in JS that is TRUE for an array and TRUE for `null`, which is why
@@ -65,25 +61,8 @@ fn finite_number(v: &JsValue) -> Option<f64> {
     }
 }
 
-/// A property read that never throws. `Reflect::get` REFUSES a primitive target ("called on
-/// non-object") where JS's `v.k` auto-boxes, so the read is guarded — and every caller in
-/// `archive.ts` guards it too, one line earlier, with the same `typeof` test.
-fn prop(v: &JsValue, key: &str) -> JsValue {
-    if v.is_null() || v.is_undefined() || !is_object_like(v) {
-        return JsValue::UNDEFINED;
-    }
-    Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
-}
-
 fn put(obj: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(obj.as_ref(), &JsValue::from_str(key), value).map(|_| ())
-}
-
-fn opt_num(n: Option<f64>) -> JsValue {
-    match n {
-        Some(x) => JsValue::from_f64(x),
-        None => JsValue::NULL,
-    }
 }
 
 fn opt_str(s: Option<String>) -> JsValue {

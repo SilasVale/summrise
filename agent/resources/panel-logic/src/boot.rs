@@ -17,11 +17,8 @@
 
 use crate::vocabulary::BOOT_KINDS;
 use js_sys::{Array, Object, Reflect};
+use crate::js::{opt_num, prop, type_of};
 use wasm_bindgen::prelude::*;
-
-fn type_of(v: &JsValue) -> String {
-    v.js_typeof().as_string().unwrap_or_default()
-}
 
 /// `str(v)` — a NON-EMPTY string, and NOTE THE ABSENCE OF A TRIM: this module's rule is not
 /// `archive.rs`'s `nonEmptyString`. `" "` is a usable `detail` here and an absent one there, and
@@ -51,25 +48,8 @@ fn finite_number(v: &JsValue) -> Option<f64> {
     }
 }
 
-/// A property read that never throws, for the same reason as `archive.rs`'s: `Reflect::get` refuses
-/// a primitive target where JS auto-boxes. `(j ?? {})` in the TypeScript is this, spelled out —
-/// and it is why `parseBootHistory("nope")` answers an empty history rather than raising.
-fn prop(v: &JsValue, key: &str) -> JsValue {
-    if v.is_null() || v.is_undefined() || type_of(v) != "object" {
-        return JsValue::UNDEFINED;
-    }
-    Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
-}
-
 fn put(obj: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(obj.as_ref(), &JsValue::from_str(key), value).map(|_| ())
-}
-
-fn opt_num(n: Option<f64>) -> JsValue {
-    match n {
-        Some(x) => JsValue::from_f64(x),
-        None => JsValue::NULL,
-    }
 }
 
 fn opt_str(s: Option<String>) -> JsValue {

@@ -66,21 +66,8 @@
 
 use crate::archive::js_trim;
 use js_sys::{Array, JsString, Number, Object, Reflect};
+use crate::js::{opt_num, prop, type_of};
 use wasm_bindgen::prelude::*;
-
-/// JS `typeof v`.
-fn type_of(v: &JsValue) -> String {
-    v.js_typeof().as_string().unwrap_or_default()
-}
-
-/// A property read that never throws, for the reason every module here states: `Reflect::get`
-/// REFUSES a primitive target where JS auto-boxes. `e?.field` and `b?.field` are this guard.
-fn prop(v: &JsValue, key: &str) -> JsValue {
-    if v.is_null() || v.is_undefined() || type_of(v) != "object" {
-        return JsValue::UNDEFINED;
-    }
-    Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
-}
 
 fn put(obj: &JsValue, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(obj, &JsValue::from_str(key), value).map(|_| ())
@@ -89,13 +76,6 @@ fn put(obj: &JsValue, key: &str, value: &JsValue) -> Result<(), JsValue> {
 fn opt_str(s: Option<&str>) -> JsValue {
     match s {
         Some(x) => JsValue::from_str(x),
-        None => JsValue::NULL,
-    }
-}
-
-fn opt_num(n: Option<f64>) -> JsValue {
-    match n {
-        Some(x) => JsValue::from_f64(x),
         None => JsValue::NULL,
     }
 }
