@@ -157,7 +157,14 @@ export function ConnectCard() {
   return (
     <>
       <div className="settings-section">
-        <h2>Connect an AI client</h2>
+        {/* **THE FOLD'S OWN SUMMARY ALREADY SAYS THIS, BYTE FOR BYTE.** This card is rendered INSIDE
+            `<details><summary>Connect an AI client</summary>` (SettingsPage.tsx:414), so opening the
+            fold printed the same six words twice, ~20px apart: once as the 13px semibold summary and
+            once as this 17px `<h2>`. An independent reviewer found it by grepping the string.
+
+            It is the same deletion as 9975b363 one card over — a heading naming something a visible
+            label had already named — and it survived that round because I had counted HEADINGS rather
+            than looking at what the reader sees. */}
         <p className="connect-lede">
           This panel is the <b>human</b> view of the machine. AI clients drive
           it over MCP — point one here and it can operate this device with the
@@ -180,10 +187,17 @@ export function ConnectCard() {
             </div>
           </>
         )}
-      </div>
 
-      <div className="settings-section">
-        <h2>Give it to your client</h2>
+        {/* **THE SECOND HEADING NAMED SOMETHING THE FIRST ONE HAD ALREADY INTRODUCED.**
+            This component rendered TWO top-level `settings-section` cards — and the lede under the
+            first one ends with the words *"point one here and it can operate this device **with the
+            tools below**"*. The tabs, the snippet and the buttons ARE the tools below. So the second
+            heading was a name for a thing the reader had just been told to look at, and the page paid
+            for it with a twelfth `<h2>` on a screen that already had too many.
+
+            **WHAT IS LOST BY MERGING: nothing.** Every control, the client tabs, the snippet, the
+            probe result and the closing warning all follow the lede and the tool count in exactly the
+            order that sentence describes. The card got shorter and the reading order got truer. */}
         <div className="connect-tabs">
           {CLIENTS.map((c) => (
             <button
