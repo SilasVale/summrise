@@ -3,10 +3,10 @@
   "version": "0.2.0",
   "description": "Summrise Desktop — Electron shell over the local summrise-agent service (SecureCRT-style multi-session workspace: terminal / SSH / serial / browser) with AI control. Stage-m: TS main process, agent lifecycle in Rust.",
   "main": "src/main.js",
+  "//scripts": "THERE IS DELIBERATELY NO `build` SCRIPT HERE — the shell's shipped artifact is src/*.js, emitted by a SIBLING package. agent/summrise-agent-npm `npm run build` compiles this directory's tsconfig (`tsc -p ../summrise-desktop-electron/tsconfig.json --outDir /tmp/... --noCheck`) and copies main/preload/url-policy.js into src/; ci.yml, release.yml and publish-release.sh each re-emit and cmp it (`electron src freshness`), so a stale src/*.js is RED in CI instead of silently shipped. The removed script was `tsc -p tsconfig.json`, which wrote the gitignored dist/ that nothing read — and `start`/`dist` invoked it, which is why both are rewritten here rather than left calling a script that no longer exists.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder",
+    "start": "electron .",
+    "dist": "electron-builder",
     "test": "node --test"
   },
   "license": "Apache-2.0",
