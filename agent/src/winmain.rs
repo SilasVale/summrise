@@ -111,6 +111,25 @@ pub(crate) fn supervise_tunnel() {
                     .arg("run")
                     .kill_on_drop(true);
                 summrise_agent::spawn::hidden(&mut cf_cmd);
+                // ── AND ITS OUTPUT GOES SOMEWHERE, BECAUSE IT USED TO GO NOWHERE ──────────────────────────────────────
+                // **A TUNNEL THAT STARTED AND COULD NOT CONNECT SAID NOTHING ANYWHERE.** Measured 2026-09-28: a device's
+                // agent restarted normally at 00:13 (its own log has `Config loaded`, `Starting MCP server`, `playwright
+                // auto-start`), `startup.log` recorded `cloudflared tunnel: launched from install dir (supervised)` — and
+                // the tunnel had NO CONNECTOR for roughly two hours while **not one line about it reached any log.** The
+                // child's stdout and stderr were inherited-and-discarded, so cloudflared's own account of why it could not
+                // reach the edge — the only place that reason exists — was thrown away by the process that supervises it.
+                //
+                // A FILE RATHER THAN A PUMP TASK, deliberately: this function owns the child's lifetime and its restart
+                // logic, and adding an async reader would put a second moving part inside the loop that has to keep the
+                // device reachable. `Stdio::from(File)` has no such cost, and the file lands beside `agent.log` where the
+                // operator already looks. Truncated per spawn: each run's account is its own.
+                let _ = std::fs::create_dir_all(summrise_agent::paths::logs_dir());
+                if let Ok(f) = std::fs::File::create(summrise_agent::paths::logs_dir().join("cloudflared.log")) {
+                    if let Ok(f2) = f.try_clone() {
+                        cf_cmd.stdout(std::process::Stdio::from(f));
+                        cf_cmd.stderr(std::process::Stdio::from(f2));
+                    }
+                }
                 match cf_cmd.spawn() {
                     Ok(mut child) => {
                         log_line("cloudflared tunnel: launched from install dir (supervised)");
