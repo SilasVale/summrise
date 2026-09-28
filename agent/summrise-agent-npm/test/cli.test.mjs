@@ -12,6 +12,8 @@ const {
   psq,
   busyIsFresh,
   deskShortcutRepairPs,
+  lnkIdentity,
+  DESKTOP_AUMID,
   playwrightProbePs,
   parseAgentPort,
   agentPort,
@@ -383,6 +385,94 @@ test("deskShortcutRepairPs: stale-shortcut repair is repair-only + sunrise-pinne
   assert.ok(
     !body.includes("Remove-Item -Recurse"),
     "never deletes directories, files only",
+  );
+});
+
+// The COM call itself cannot run here (no Windows, no ShellLink coclass), so what
+// these pin is the DECISION: the exact property values the CLI intends to write, and
+// that the write is reached, verified and never allowed to fail the caller.
+test("lnkIdentity: the taskbar identity is the same ID the shell sets, + the sunrise ico", () => {
+  const { id, icon } = lnkIdentity("D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico");
+  assert.equal(
+    id,
+    "online.saisi.summrise.agent",
+    "the AppUserModelID the desktop shell sets on its process",
+  );
+  assert.equal(id, DESKTOP_AUMID, "one string, exported once");
+  assert.equal(
+    icon,
+    "D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico,0",
+    "RelaunchIconResource is the shell's .ico AND a resource index — the property " +
+      "documentation requires the index even for a single-image .ico",
+  );
+  assert.ok(!id.includes(" "), "AppUserModelIDs cannot contain spaces");
+});
+
+test("deskShortcutRepairPs: writes System.AppUserModel.ID + RelaunchIconResource", () => {
+  const dir = "D:\\Summrise\\components\\summrise-desktop-electron";
+  const body = deskShortcutRepairPs("D:\\Summrise\\scripts", dir, "Write-Host").join("\n");
+  // The property set is identified by ITS format ID; PID 5 is ID and PID 3 is the icon.
+  assert.match(
+    body,
+    /9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3/,
+    "the System.AppUserModel property set",
+  );
+  assert.match(body, /Get\(lnk, 5, 0\)/, "reads PID 5 (AppUserModel.ID)");
+  assert.match(body, /Get\(lnk, 3, 0\)/, "reads PID 3 (RelaunchIconResource)");
+  assert.match(body, /Put\(s, 5, id\); Put\(s, 3, icon\);/, "writes both PIDs");
+  assert.match(body, /Add-Type -TypeDefinition/, "compiles the interop in the box");
+  assert.match(
+    body,
+    /\$dCs = @'\n/,
+    "the C# rides in a here-string, so its double quotes need no escaping",
+  );
+  assert.match(
+    body,
+    /\[SummriseLnk\]::Write\(\$dLnk, \$dId, \$dRes\)/,
+    "writes the identity onto the link it just repaired",
+  );
+  assert.match(
+    body,
+    /\('desk: Summrise\.lnk taskbar identity \[' \+ \[SummriseLnk\]::Read\(\$dLnk\) \+ '\]'\)/,
+    "the verification is a READ-BACK of the written file, printed to the sink",
+  );
+  // `IconLocation` is what EXPLORER draws for the .lnk file; these two are what the
+  // TASKBAR GROUP uses. Removing the former to add the latter would trade one
+  // wrong picture for another.
+  assert.match(body, /\$dSc\.IconLocation = \$dIco \+ ',0'/, "IconLocation is kept");
+  // A link that is otherwise healthy is still repaired when its identity is absent —
+  // the state every existing install is in, and the bug this change exists to fix.
+  assert.match(
+    body,
+    /if \(\(\[SummriseLnk\]::Read\(\$dLnk\)\) -ne \(\$dId \+ '\|' \+ \$dRes\)\) \{ \$dNeed = \$true \}/,
+    "a missing identity sets the repair flag on an otherwise-healthy link",
+  );
+  assert.ok(
+    body.includes("if (Test-Path $dLnk) {"),
+    "repair-only: a headless install still must not sprout a desktop icon",
+  );
+  assert.ok(
+    !/throw\b/.test(body) && !body.includes("exit 1"),
+    "best-effort: the identity can never fail the caller",
+  );
+});
+
+test("deskShortcutRepairPs: stays under cmd.exe's 8191-char command line", () => {
+  // `setup` hands this to ps(), which spawns through cmd.exe (`psArgv`), and the
+  // C# interop is the largest thing this file has ever put in a -Command string.
+  // This file already carries the scar: a ~10KB script failed with "命令行太长"
+  // and silently no-op'd, which is why psFile() exists. The limit is per-command-
+  // line, and `powershell -NoProfile -Command ` is ~31 characters of it.
+  const body = deskShortcutRepairPs(
+    "D:\\Summrise\\scripts",
+    "D:\\Summrise\\components\\summrise-desktop-electron",
+    "Write-Host",
+  ).join("; ");
+  assert.ok(
+    body.length < 8191,
+    `the joined script is ${body.length} chars; cmd.exe caps a command line at 8191 ` +
+      `and over it the call fails as "命令行太长" — move the C# into a file written ` +
+      `to <install>\\scripts\\ beside start-desktop.ps1 instead of growing this`,
   );
 });
 

@@ -34,8 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BOOT_TASKS = exports.psq = void 0;
+exports.BOOT_TASKS = exports.DESKTOP_AUMID = exports.psq = void 0;
 exports.psArgv = psArgv;
+exports.lnkIdentity = lnkIdentity;
 exports.deskShortcutRepairPs = deskShortcutRepairPs;
 exports.startDesktopPs = startDesktopPs;
 exports.desktopTaskPs = desktopTaskPs;
@@ -298,13 +299,135 @@ function psFile(script) {
 // exported: unit-tested in test/cli.test.mjs (SYSTEM-context PS quoting = injection surface)
 const psq = (x) => String(x).replace(/'/g, "''");
 exports.psq = psq;
+/** The taskbar identity: ONE string, and it lives on BOTH sides of an association.
+ *
+ *  It is the AppUserModelID the desktop shell sets on its process
+ *  (`agent/summrise-desktop-electron/src/main.ts`) and the value written into
+ *  `System.AppUserModel.ID` on the shortcut below. Microsoft's lookup for the taskbar
+ *  group's icon takes the shortcut arm only when the window carries an explicit ID, and
+ *  the window's arm only names a shortcut carrying the SAME ID — so the two halves are one
+ *  association and this is the string that ties them. If they ever disagree, the icon
+ *  silently reverts to the backing executable (stock `electron.exe`, since the shell runs
+ *  unpackaged) with nothing on the device to read that says why.
+ *  PowerShell/Windows AppUserModelIDs cannot contain spaces, and this one does not.
+ */
+exports.DESKTOP_AUMID = "online.saisi.summrise.agent";
+/** The two `IPropertyStore` values `Summrise.lnk` must carry, as DATA.
+ *
+ *  Deliberately separated from the PowerShell that performs the write, and exported, so the
+ *  DECISION is testable where the COM call is not: a test can pin what the CLI intends to
+ *  write without a Windows box. `icoPath` is the shell's own sunrise `.ico`; the `,0` is the
+ *  icon index and is REQUIRED — the property's own documentation: "because .ico files can
+ *  contain multiple icon resources, a resource ID is required in the string. If the .ico
+ *  file is a single image, use '0'".
+ *
+ *  `IconLocation` on the shortcut is a DIFFERENT thing and is left alone: it is what
+ *  Explorer draws for the .lnk FILE. These two are what the taskbar GROUP uses.
+ */
+function lnkIdentity(icoPath) {
+    return { id: exports.DESKTOP_AUMID, icon: `${icoPath},0` };
+}
+/** C# interop for the two shortcut properties `WScript.Shell` cannot set.
+ *
+ *  WHY THIS MECHANISM, given this repository prefers Rust for logic: `System.AppUserModel.ID`
+ *  and `System.AppUserModel.RelaunchIconResource` are not fields of the .lnk header — they
+ *  live in the shortcut's `IPropertyStore`, and `WScript.Shell` exposes no way to reach one.
+ *  The route Microsoft documents for a shortcut is `IShellLink` + `QueryInterface` for
+ *  `IPropertyStore` ("A shortcut (as an IShellLink, CLSID_ShellLink, or a .lnk file) supports
+ *  properties through IPropertyStore", shell/appids.md) — COM interop, in the launcher's own
+ *  script generator, which is already PowerShell and already writing this shortcut.
+ *  `Add-Type` compiles it with the C# compiler that ships IN the box: nothing installed,
+ *  nothing downloaded, and it runs on a stock Windows box with no Node, no Rust and no SDK.
+ *  A Rust helper is the repository's usual preference and was rejected HERE on cost, not on
+ *  taste: it needs a new cross-compiled binary in the npm package, and this package "carries
+ *  NO boxed components" by design — `setup` fetches and hash-pins them — so ~60 lines of
+ *  interop would buy a build stage, a release-host component and a new pin.
+ *
+ *  TWO THINGS THE DEVICE TAUGHT, both load-bearing:
+ *   - `IPersistFile::Load` must be given STGM_READWRITE (2). Loading with 0 opens the link
+ *     READ-ONLY and the later `IPropertyStore::Commit` fails STG_E_ACCESSDENIED (0x80030005)
+ *     — measured on desktop-14rjcr8, where the first version of this passed 0 and wrote
+ *     nothing while reporting no error the caller could see.
+ *   - the write is verified by READING THE PROPERTIES BACK with `Read`, which is also what
+ *     decides whether the shortcut needs repairing at all.
+ */
+const LNK_PROPS_CS = `using System;
+using System.Runtime.InteropServices;
+public static class SummriseLnk {
+  [StructLayout(LayoutKind.Sequential, Pack = 4)]
+  struct PROPERTYKEY { public Guid fmtid; public uint pid; }
+  [StructLayout(LayoutKind.Sequential)]
+  struct PROPVARIANT { public ushort vt, r1, r2, r3; public IntPtr p, p2; }
+  [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IPropertyStore {
+    int GetCount(out uint c);
+    int GetAt(uint i, out PROPERTYKEY k);
+    int GetValue(ref PROPERTYKEY k, out PROPVARIANT v);
+    int SetValue(ref PROPERTYKEY k, ref PROPVARIANT v);
+    int Commit();
+  }
+  [ComImport, Guid("0000010b-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IPersistFile {
+    void GetClassID(out Guid g);
+    [PreserveSig] int IsDirty();
+    void Load([MarshalAs(UnmanagedType.LPWStr)] string f, uint m);
+    void Save([MarshalAs(UnmanagedType.LPWStr)] string f, [MarshalAs(UnmanagedType.Bool)] bool r);
+    void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string f);
+    void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string f);
+  }
+  static readonly Guid CLSID = new Guid("00021401-0000-0000-C000-000000000046");
+  static readonly Guid FMT = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+  const uint RW = 2;
+  static PROPERTYKEY K(uint pid) { PROPERTYKEY k; k.fmtid = FMT; k.pid = pid; return k; }
+  static object New(string lnk, uint mode) {
+    object o = Activator.CreateInstance(Type.GetTypeFromCLSID(CLSID));
+    ((IPersistFile)o).Load(lnk, mode);
+    return o;
+  }
+  static string Get(string lnk, uint pid, uint mode) {
+    IPropertyStore s = (IPropertyStore)New(lnk, mode);
+    PROPERTYKEY k = K(pid); PROPVARIANT v;
+    if (s.GetValue(ref k, out v) != 0) return "";
+    if (v.vt != 31 || v.p == IntPtr.Zero) return "";
+    string r = Marshal.PtrToStringUni(v.p);
+    Marshal.FreeCoTaskMem(v.p);
+    return r;
+  }
+  static void Put(IPropertyStore s, uint pid, string val) {
+    PROPERTYKEY k = K(pid); PROPVARIANT v = new PROPVARIANT();
+    v.vt = 31; v.p = Marshal.StringToCoTaskMemUni(val);
+    try { int hr = s.SetValue(ref k, ref v); if (hr != 0) Marshal.ThrowExceptionForHR(hr); }
+    finally { Marshal.FreeCoTaskMem(v.p); }
+  }
+  public static string Read(string lnk) { return Get(lnk, 5, 0) + "|" + Get(lnk, 3, 0); }
+  public static void Write(string lnk, string id, string icon) {
+    object o = New(lnk, RW);
+    IPropertyStore s = (IPropertyStore)o;
+    Put(s, 5, id); Put(s, 3, icon);
+    int hr = s.Commit();
+    if (hr != 0) Marshal.ThrowExceptionForHR(hr);
+    ((IPersistFile)o).Save(lnk, true);
+  }
+}`;
 // stage-brand: healed desktop shortcut. A 2026-09-01 Summrise.lnk on devices
 // points at the RETIRED Tauri summrise-desktop.exe (embedded stale icon) —
 // double-clicking it launches the dead app instead of the Electron shell.
 // Repair (only if the link already exists — headless installs must not
 // sprout desktop icons): repoint at start-desktop.ps1 (the SummriseDesktop
-// onlogon path) with IconLocation pinned to the sunrise icon.ico, and
-// remove the retired Tauri/tray orphans nothing ships anymore.
+// onlogon path) with IconLocation pinned to the sunrise icon.ico, remove the
+// retired Tauri/tray orphans nothing ships anymore, AND write the taskbar
+// identity (System.AppUserModel.ID + RelaunchIconResource) into the link's
+// property store.
+//
+// WHY THE IDENTITY IS PART OF *THIS* FUNCTION: a shortcut with the right target
+// and the wrong (or absent) identity is exactly the state that draws the
+// Electron logo — the shell sets the same AppUserModelID on its process, and the
+// taskbar's icon lookup reaches the shortcut arm only when a shortcut carrying
+// that ID can be found. MEASURED on desktop-14rjcr8 before this change: both
+// Summrise.lnk files existed and carried NEITHER property, which is why an
+// explicit ID on the window alone changed nothing and why deleting that ID
+// (d4edbb64) changed nothing either.
+//
 // Best-effort + logged, never fatal. `sink` is a PS output pipe
 // (e.g. Write-Host, or the update log pipe). Single-quoted PS literals
 // only (npm audit #6) except the double quotes the .lnk Arguments path
@@ -313,18 +436,37 @@ exports.psq = psq;
 // script to `ps()` as argv and the update swap runs it from a file. The
 // backslash-escape `setup` used to apply was deleted with that conversion
 // (see step 7), which is why this line no longer says "escape them".
+// The C# rides in a single-quoted HERE-STRING (`@'` … `'@`, both alone on
+// their line): it contains double quotes and is literal end to end, so the
+// doubling rule above cannot be defeated by anything inside it.
 // exported: unit-tested in test/cli.test.mjs.
 function deskShortcutRepairPs(scriptsQ, deskDirQ, sink) {
+    const { id, icon } = lnkIdentity(`${deskDirQ}\\icon.ico`);
     return [
         `$dLnk = Join-Path $env:PUBLIC 'Desktop\\Summrise.lnk'`,
         `$dIco = '${deskDirQ}\\icon.ico'`,
         `$dPs1 = '${scriptsQ}\\start-desktop.ps1'`,
+        `$dId = '${id}'`,
+        `$dRes = '${icon}'`,
+        `$dSet = $false`,
         `$dNeed = $false`,
         `if (Test-Path $dLnk) {`,
+        // Compiled only when there IS a link to write, so a headless install does not pay for
+        // it. The `-as [type]` guard keeps a second call in one process from turning a
+        // "type already exists" throw into a silent skip of the write below.
+        `  $dCs = @'\n${LNK_PROPS_CS}\n'@`,
+        `  try { if (-not ('SummriseLnk' -as [type])) { Add-Type -TypeDefinition $dCs }; $dSet = [bool]('SummriseLnk' -as [type]) } catch { ('desk: lnk identity helper unavailable: ' + $_.Exception.Message) | ${sink} }`,
         `  try { $dEx = (New-Object -ComObject WScript.Shell).CreateShortcut($dLnk); if (($dEx.TargetPath -like '*summrise-desktop.exe') -or ($dEx.TargetPath -like '*summrise-tray.exe') -or (-not (Test-Path $dEx.TargetPath))) { $dNeed = $true } } catch { $dNeed = $true }`,
+        // ...and a link that is otherwise healthy still needs repairing when its identity is
+        // missing or names a different ID/icon. `Read` returns "id|icon", so ONE comparison
+        // covers both properties — and it is the same call the verification below prints.
+        `  if ($dSet) { try { if (([SummriseLnk]::Read($dLnk)) -ne ($dId + '|' + $dRes)) { $dNeed = $true } } catch { $dNeed = $true } }`,
         `}`,
         `if ($dNeed -and (Test-Path $dIco) -and (Test-Path $dPs1)) {`,
         `  try { $dWs = New-Object -ComObject WScript.Shell; $dSc = $dWs.CreateShortcut($dLnk); $dSc.TargetPath = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'; $dSc.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $dPs1 + '"'; $dSc.WorkingDirectory = '${deskDirQ}'; $dSc.IconLocation = $dIco + ',0'; $dSc.Save(); 'desk: Summrise.lnk repointed to electron shell' | ${sink} } catch { ('desk: Summrise.lnk repair failed: ' + $_.Exception.Message) | ${sink} }`,
+        // The verification is the READ-BACK, not the absence of an exception: SetValue+Commit
+        // returning cleanly is a claim about a call, and this records what the file now carries.
+        `  if ($dSet) { try { [SummriseLnk]::Write($dLnk, $dId, $dRes); ('desk: Summrise.lnk taskbar identity [' + [SummriseLnk]::Read($dLnk) + ']') | ${sink} } catch { ('desk: Summrise.lnk identity write failed: ' + $_.Exception.Message) | ${sink} } }`,
         `}`,
         `foreach ($dRx in @('summrise-desktop.exe','summrise-tray.exe')) { $dRp = '${deskDirQ}\\' + $dRx; if (Test-Path $dRp) { try { Remove-Item -Force -ErrorAction Stop $dRp; ('desk: removed retired ' + $dRx) | ${sink} } catch { ('desk: retired ' + $dRx + ' locked, kept') | ${sink} } } }`,
     ];

@@ -892,27 +892,35 @@ const httpServer = http.createServer((req, res) => {
     }
 });
 if (gotTheLock) {
-    // NO app.setAppUserModelId() HERE — DELETED, and the deletion IS the icon fix.
-    // A window's taskbar-group icon is System.AppUserModel.RelaunchIconResource. With an
-    // EXPLICIT AppUserModelID set, Windows looks for a Start Menu shortcut carrying that ID
-    // and uses ITS icon; when no such shortcut exists it falls back to the BACKING EXECUTABLE.
-    // This shell is launched unpackaged (`electron.exe .` out of the staged runtime), so the
-    // fallback is stock electron.exe — the Electron logo. And no shortcut on the machine
-    // carries "online.saisi.summrise.agent": the installer writes Summrise.lnk as a
-    // WScript.Shell shortcut to powershell.exe with IconLocation pinned and no
-    // System.AppUserModel.ID at all (summrise-agent-npm/src/summrise.ts). So the explicit ID
-    // did the OPPOSITE of what it claimed (grouping/identity "under Summrise"): it named a
-    // shortcut that does not exist, and grouping was not achieved either. With none set, the
-    // window groups as part of its owning process and the taskbar draws the WINDOW's icon —
-    // the one BrowserWindow's `icon` sets. (That is also why this "was right once": before
-    // the migration the running image was a PACKAGED Tauri exe, and a packaged exe is its own
-    // backing executable, so the fallback landed on the sunrise.)
-    // The same shortcut lookup is the documented precondition for the hide-to-tray toast
-    // below; it is reported here rather than omitted, because /api/shell/icon-status is the
-    // remote read of icon facts and a missing key is indistinguishable from a broken report.
-    iconReport["appUserModelId"] = process.platform === "win32"
-        ? "(not set — no Start Menu shortcut carries one; see the comment above)"
-        : "(non-windows)";
+    // TASKBAR GROUPING AND THE TASKBAR GROUP'S ICON — HALF ONE OF TWO, AND THIS IS THE HALF
+    // THAT IS A PRECONDITION RATHER THAN A HINT.
+    // Microsoft's rule for System.AppUserModel.RelaunchIconResource is a three-step lookup:
+    // the property ON THE WINDOW; else "the system attempts to find a shortcut with the same
+    // AppUserModelID, and pins that shortcut to the taskbar to represent the window"; else
+    // "the backing executable of the process that owns it is used". Which step is reachable
+    // at all depends on THIS call — the same page: the shortcut lookup happens only "If an
+    // explicit AppUserModelID is set on the window", and without one the property "is ignored
+    // and the window is grouped and pinned as if it were part of its owning process".
+    // This shell is launched UNPACKAGED (`electron.exe .` out of the staged runtime), so
+    // step three is stock electron.exe — the Electron logo. Removing this call (d4edbb64)
+    // could not fix that: it deleted the caller's half of an association whose OTHER half is
+    // the shortcut, which left step three as the only reachable step in BOTH states. The
+    // shortcut half is written in agent/summrise-agent-npm/src/summrise.ts (see DESKTOP_AUMID
+    // there) as System.AppUserModel.ID — the same string — plus RelaunchIconResource pointing
+    // at the sunrise .ico. KEEP THE TWO IN STEP; the literal below is a copy because this file
+    // is emitted to plain JS in two packages and cannot import the CLI's module.
+    // (The same shortcut association is also the documented precondition for the hide-to-tray
+    // toast below: Electron requires a Start Menu shortcut carrying the ID and a
+    // ToastActivatorCLSID, and this one carries neither — unchanged by this call.)
+    const AUMID = "online.saisi.summrise.agent";
+    try {
+        if (process.platform === "win32")
+            electron_1.app.setAppUserModelId(AUMID);
+        iconReport["appUserModelId"] = process.platform === "win32" ? AUMID : "(non-windows)";
+    }
+    catch {
+        iconReport["appUserModelId"] = "(set-failed)";
+    }
     electron_1.app.whenReady().then(async () => {
         // Custom-port installs: pin every origin predicate + probe/load URL to
         // the agent's actual bind port BEFORE any window or probe exists.
