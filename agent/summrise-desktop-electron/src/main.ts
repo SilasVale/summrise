@@ -14,8 +14,11 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, MenuItemConstructorOptions, Notification, session, WebContentsView } from "electron";
 // IPC audit #6: execSync/ChildProcess were vestigial imports from the
 // pre-async-spawn era (round-117 removed the call sites) — dropped so
-// eslint/tsc keep the surface honest.
-import type {} from "child_process";
+// eslint/tsc keep the surface honest. The last one to go was the empty
+// `import type {} from "child_process"` that stood here: it imported
+// NOTHING (the schtasks runner reaches the module through require() with its
+// own `as typeof import(...)` type), and a type-only import of a module the
+// shell does not otherwise import is a "dependency" no reader can act on.
 import * as path from "path";
 import * as fs from "fs";
 import * as http from "http";
@@ -276,13 +279,7 @@ function buildMenu(): Menu {
         { label: "New Serial Connection…", accelerator: "CmdOrCtrl+Shift+P", click: () => sendMenu("new-serial") },
         { label: "New Browser Session…", accelerator: "CmdOrCtrl+Shift+B", click: () => sendMenu("new-browser") },
         { type: "separator" },
-        { label: "Browser", accelerator: "CmdOrCtrl+Shift+G", click: () => sendMenu("open-browser") },
-        { label: "Memory", accelerator: "CmdOrCtrl+Shift+M", click: () => sendMenu("open-memory") },
-        { label: "Settings", accelerator: "CmdOrCtrl+Shift+," , click: () => sendMenu("open-settings") },
-        { label: "Plugins", click: () => sendMenu("open-plugins") },
-        { type: "separator" },
         { label: "Close Session", accelerator: "CmdOrCtrl+W", click: () => sendMenu("close-session") },
-        { label: "Close Window", accelerator: isMac ? "Cmd+Shift+W" : "Alt+F4", role: "close" },
         { type: "separator" },
         isMac ? { role: "close" as const } : { role: "quit", label: "Exit" },
       ],
@@ -309,8 +306,6 @@ function buildMenu(): Menu {
         { role: "resetZoom" as const },
         { role: "zoomIn" as const },
         { role: "zoomOut" as const },
-        { type: "separator" },
-        { label: "Toggle Theme", accelerator: "CmdOrCtrl+Shift+D", click: () => sendMenu("toggle-theme") },
         { role: "toggleDevTools" as const },
       ],
     },
@@ -319,28 +314,13 @@ function buildMenu(): Menu {
       submenu: [
         { label: "Next Session", accelerator: "Ctrl+Tab", click: () => sendMenu("next-session") },
         { label: "Previous Session", accelerator: "Ctrl+Shift+Tab", click: () => sendMenu("prev-session") },
-        { type: "separator" },
-        { label: "Export Session Log…", accelerator: "CmdOrCtrl+Shift+E", click: () => sendMenu("export-session") },
-        { type: "separator" },
         // IPC audit #6: the "List Sessions" entry dispatched 'list-sessions',
         // a command with NO SPA-side handler — deleted (dead menu surface).
-      ],
-    },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" as const },
-        { role: "zoom" as const },
-        ...(isMac ? [
-          { type: "separator" as const },
-          { role: "front" as const },
-        ] : []),
-      ],
-    },
-    {
-      role: "help",
-      submenu: [
-        { label: "Summrise Agent Status", click: () => { focusMain(); sendMenu("show-status"); } },
+        // The "Export Session Log…" entry (^⇧E) was deleted for the same kind of
+        // reason read the other way: the per-tab export mark IS the action
+        // (TabBar's .tab-export, one mark per session, so it exports what you
+        // point at rather than whatever happens to be active). The accelerator
+        // is still handled by the SPA's own keydown map in a plain browser.
       ],
     },
   ];
@@ -596,7 +576,9 @@ function embeddedRecover(): { ok: boolean } {
   if (!view || view.webContents.isDestroyed()) return { ok: false };
   // Already decided by loadTarget() when embeddedUrl was set (the ONE load
   // door) — recovery re-loads that decision, it does not re-open the policy.
-  const url = embeddedUrl && embeddedUrl !== "about:blank" ? embeddedUrl : "https://www.bing.com";
+  // The fallback is about:blank, NOT a third-party home page: recovering a
+  // crashed view must not make a request to a search engine to do it.
+  const url = embeddedUrl || "about:blank";
   view.webContents.loadURL(url).catch(() => { /* did-fail-load surfaces */ });
   // Re-show if the SPA slot is live (bounds were placed before the crash).
   if (embeddedVisible && win && embeddedBounds) {
@@ -809,14 +791,27 @@ const httpServer = http.createServer((req, res) => {
 });
 
 if (gotTheLock) {
-  // Taskbar grouping/identity on Windows (taskbar button + jump list group
-  // under Summrise instead of Electron). Must be set before ready.
-  try {
-    if (process.platform === "win32") app.setAppUserModelId("online.saisi.summrise.agent");
-    iconReport["appUserModelId"] = process.platform === "win32" ? "online.saisi.summrise.agent" : "(non-windows)";
-  } catch {
-    iconReport["appUserModelId"] = "(set-failed)";
-  }
+  // NO app.setAppUserModelId() HERE — DELETED, and the deletion IS the icon fix.
+  // A window's taskbar-group icon is System.AppUserModel.RelaunchIconResource. With an
+  // EXPLICIT AppUserModelID set, Windows looks for a Start Menu shortcut carrying that ID
+  // and uses ITS icon; when no such shortcut exists it falls back to the BACKING EXECUTABLE.
+  // This shell is launched unpackaged (`electron.exe .` out of the staged runtime), so the
+  // fallback is stock electron.exe — the Electron logo. And no shortcut on the machine
+  // carries "online.saisi.summrise.agent": the installer writes Summrise.lnk as a
+  // WScript.Shell shortcut to powershell.exe with IconLocation pinned and no
+  // System.AppUserModel.ID at all (summrise-agent-npm/src/summrise.ts). So the explicit ID
+  // did the OPPOSITE of what it claimed (grouping/identity "under Summrise"): it named a
+  // shortcut that does not exist, and grouping was not achieved either. With none set, the
+  // window groups as part of its owning process and the taskbar draws the WINDOW's icon —
+  // the one BrowserWindow's `icon` sets. (That is also why this "was right once": before
+  // the migration the running image was a PACKAGED Tauri exe, and a packaged exe is its own
+  // backing executable, so the fallback landed on the sunrise.)
+  // The same shortcut lookup is the documented precondition for the hide-to-tray toast
+  // below; it is reported here rather than omitted, because /api/shell/icon-status is the
+  // remote read of icon facts and a missing key is indistinguishable from a broken report.
+  iconReport["appUserModelId"] = process.platform === "win32"
+    ? "(not set — no Start Menu shortcut carries one; see the comment above)"
+    : "(non-windows)";
   app.whenReady().then(async () => {
     // Custom-port installs: pin every origin predicate + probe/load URL to
     // the agent's actual bind port BEFORE any window or probe exists.
@@ -836,6 +831,16 @@ if (gotTheLock) {
 
     win = new BrowserWindow({
       width: 1200, height: 800, title: "Summrise",
+      // NO WHITE FLASH (window-creation honesty, round-275). The window used to be
+      // created VISIBLE, before loadDesktop() runs its ~800 ms /api/status probe and
+      // before the first loadURL — so every launch painted a blank white frame and then
+      // whatever the agent turned out to be. show:false keeps it off screen until the
+      // first document has painted (ready-to-show, below); backgroundColor paints that
+      // first frame in the shell's own ink instead of Chromium's white, which is the one
+      // of the two documents that had NOT already fixed this (WAIT_HTML hardcodes
+      // background:#111, and the SPA's chrome is dark).
+      show: false,
+      backgroundColor: "#111",
       // Taskbar + title-bar icon: without this Windows shows the stock
       // electron.exe icon (the running binary is stock Electron). PNG —
       // see windowIcon() on why not .ico here.
@@ -857,6 +862,11 @@ if (gotTheLock) {
         backgroundThrottling: false,
       },
     });
+    // The other half of show:false — the first paint shows the window. It fires on the
+    // first document to paint (the SPA when the agent answers, the wait page when it does
+    // not), and the handler is registered in the same tick as the constructor, before any
+    // loadURL can happen, so there is no window in which the event is missed.
+    win.once("ready-to-show", () => { win?.show(); });
     // review #6 (MED) TOP RISK: the main window carries the summriseDesktop/
     // summriseBrowser preload bridge (setAutoLaunch → schtasks /create …
     // -File <ps1>, browser-session:open). Without a navigation veto a
@@ -946,23 +956,15 @@ if (gotTheLock) {
     let retryMs = 2000;
     const nextRetry = (): number => { retryMs = Math.min(retryMs * 2, 30000); return retryMs; };
     const resetRetry = (): void => { retryMs = 2000; };
-    /** Window title carries the agent version for at-a-glance diagnosis:
-     *  "Summrise — v1.2.x" (the npm RELEASE version — /api/status `release`,
-     *  written by the update/setup swap paths; falls back to the Cargo
-     *  protocol `version` when the marker is absent). "Summrise" when down. */
-    const setVersionTitle = async (): Promise<void> => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 3000);
-        const r = await fetch(`${agentBase()}/api/status`, { signal: ctrl.signal, headers: authHeaders() });
-        clearTimeout(t);
-        if (r.ok) {
-          const j = await r.json() as { version?: string; release?: string };
-          const v = j.release || j.version;
-          if (v) win?.setTitle(`Summrise — v${v}`);
-        }
-      } catch { /* agent down — keep default title */ }
-    };
+    // NO setVersionTitle() HERE, DELETED. It fetched /api/status with the device token and
+    // called win.setTitle("Summrise — v1.2.x"), and that title NEVER REACHED THE SCREEN: the
+    // SPA owns document.title (`useAttentionTitle` assigns it on every attention change,
+    // panel-react/src/hooks/useAttention.ts:96 — plain "Summrise Agent" in the desktop window)
+    // and no page-title-updated handler on THIS window stops it, so the renderer's title
+    // replaced the native one on the first render. The version it wanted to show is already on
+    // screen, in the panel's own status bar (DesktopShell's .desktop-status) and in the tray
+    // tooltip, both of which read the same /api/status. A native title that only the process
+    // could read was also the LAST credentialed fetch on this path — the tray keeps its own.
     // stage-n: SELF-HEAL watchdog. The wait-page button needed a human, but
     // when the AGENT is down the cloudflared tunnel (agent-supervised) dies
     // too — a remote operator then has NO channel left to click anything
@@ -981,7 +983,6 @@ if (gotTheLock) {
       if (await agentReady()) {
         agentMissCount = 0;
         resetRetry();
-        setVersionTitle();
         win?.loadURL(`${agentBase()}/desktop/`).catch(() => { /* did-fail-load retries below */ });
       } else {
         loadWaitPage();
@@ -1018,11 +1019,13 @@ if (gotTheLock) {
     // without it, playwright grabbed the MAIN window (now tripwired) or the
     // user had to open the Browser page first. The view is hidden until the
     // SPA's Browser page reports bounds (embeddedViewPlace shows it).
+    // NO EAGER NAVIGATION: this used to loadURL("https://www.bing.com"), i.e. a
+    // request to a third party on EVERY launch before anyone asked for a page.
+    // The view is still created — about:blank is a first-class CDP target (the
+    // reason it exists here is that a target be available, not that a page be
+    // loaded), and the user/AI navigates it next (loadTarget is the one door).
     try {
-      const v = embeddedViewEnsure();
-      if (v && !v.webContents.isDestroyed()) {
-        v.webContents.loadURL("https://www.bing.com").catch(() => { /* pre-created; user/AI navigates next */ });
-      }
+      embeddedViewEnsure();
     } catch { /* non-fatal */ }
     console.log(`[summrise] CDP endpoint: http://127.0.0.1:${CDP_PORT} (playwright connectOverCDP)`);
     // stage-n: CDP self-check — if 9333 is occupied by another process
@@ -1083,6 +1086,9 @@ if (gotTheLock) {
     // status strip shows the same pair).
     let trayAgentCpu: number | null = null;
     let trayAgentMem: number | null = null;
+    /** WHEN /api/status last ANSWERED (null = it never has since launch) — the tray's
+     *  tooltip reports this instead of asserting a state it cannot date. */
+    let trayLastAnsweredAt: number | null = null;
     /** "3m 24s" / "1h 5m" / "2d 3h" — compact uptime for the tray. */
     const fmtUptime = (secs: number): string => {
       if (secs < 60) return `${secs}s`;
@@ -1090,10 +1096,15 @@ if (gotTheLock) {
       if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
       return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
     };
+    /** "14:02:31" local — the WHEN of an observation, for the one surface that cannot
+     *  re-derive it (a tray tooltip is a string set once per poll, not a render). */
+    const fmtClock = (at: number): string => new Date(at).toTimeString().slice(0, 8);
     const refreshTray = async (): Promise<void> => {
       // HTTP liveness, not the TCP probe (see agentReady above): a wedged-
       // but-listening agent must show as STOPPED, not "running".
       const running = await agentResponds(1000);
+      const observedAt = Date.now();
+      if (running) trayLastAnsweredAt = observedAt;
       let version = trayAgentVersion;
       let uptime = trayAgentUptime;
       let sessions = trayAgentSessions;
@@ -1127,9 +1138,19 @@ if (gotTheLock) {
       const vitals = running && mem !== null
         ? `, CPU ${cpu === null ? "?" : Math.round(cpu)}% · MEM ${Math.round(mem)}%`
         : "";
+      // THE TOOLTIP NAMES THE OBSERVATION, NOT A VERDICT (round-275). It used to print
+      // "Agent stopped" as present tense from ONE un-timestamped probe, recomputed every
+      // 30 s — half a minute stale while reading as now, the shape the panel's liveness
+      // strings were already fixed for (`checked 12s ago`, `reachability NOT VERIFIED`).
+      // The WHEN is a CLOCK rather than "answered 12s ago", deliberately: a tooltip is a
+      // string written once per poll and Electron gives it no way to recompute, so a
+      // relative age would freeze at the value it had when written and read as "now" for
+      // the next 30 s — the very failure this line removes. A timestamp does not decay.
       const health = running
-        ? `Agent running (v${version || "?"}${uptime ? `, up ${uptime}` : ""}${sessions ? `, ${sessions} session${sessions === 1 ? "" : "s"}` : ""}${vitals})`
-        : "Agent stopped";
+        ? `answered ${fmtClock(observedAt)} · v${version || "?"}${uptime ? `, up ${uptime}` : ""}${sessions ? `, ${sessions} session${sessions === 1 ? "" : "s"}` : ""}${vitals}`
+        : trayLastAnsweredAt === null
+          ? "reachability NOT VERIFIED · no reply since launch"
+          : `not answering · last reply ${fmtClock(trayLastAnsweredAt)}`;
       // stage-n: the agent died WHILE the window was showing the SPA (the
       // wait page only renders when the boot probe fails). Swap the window
       // to the wait page — its "Start Agent" button is now actually visible
@@ -1144,15 +1165,14 @@ if (gotTheLock) {
       }
       if (running && agentWatchActive) agentWatchActive = false;
       tray!.setToolTip(`Summrise — ${health}`);
+      // THE FOUR "New …" ROWS ARE GONE (round-275): they duplicated the desktop
+      // header's `+ New` menu item for item (pty/ssh/serial/browser), one click
+      // cheaper than the tray path, which had to restore and focus the window
+      // first anyway. "Open" is the tray's job; creating sessions is the app's.
       tray!.setContextMenu(Menu.buildFromTemplate([
         { label: "Open", click: () => { focusMain(); } },
         { type: "separator" },
         { label: health, enabled: false },
-        { type: "separator" },
-        { label: "New Terminal", click: () => { focusMain(); sendMenu("new-pty"); } },
-        { label: "New SSH…", click: () => { focusMain(); sendMenu("new-ssh"); } },
-        { label: "New Serial…", click: () => { focusMain(); sendMenu("new-serial"); } },
-        { label: "New Browser…", click: () => { focusMain(); sendMenu("new-browser"); } },
         { type: "separator" },
         { label: "Quit", click: () => { (app as any).isQuitting = true; app.quit(); } },
       ]));
