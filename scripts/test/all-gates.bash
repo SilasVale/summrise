@@ -58,7 +58,16 @@ mapfile -t gates < <(
 # THE FLOOR IS A FLOOR, NOT A FORMALITY (round 170). It was 20 against a list of 50, so HALVING the
 # workflow still passed it — a check that cannot notice half its subject missing is the vacuity this
 # file exists to catch in others. 40 leaves room for a deliberate removal and none for a collapse.
-if [ "${#gates[@]}" -lt 40 ]; then
+#
+# AND THE FLOOR ITSELF HAS TO FOLLOW THE MIGRATION DOWN, which is why it is 30 as of batch 6 of the P1
+# gate migration. MEASURED: 43 commands were derived before that batch and 34 after it, because EIGHT
+# gates moved into `agent/tests/*.rs` and each one's `run:` line went with its `.mjs`. The `cargo test`
+# steps that run them now are added AFTER this check, so they cannot hold this count up — and batch 5's
+# three removals had already taken 43 to 40, exactly ON the floor, before batch 6 took it to 34, where
+# this file refused to run at all. A floor that a deliberate, verified migration crosses silently stops
+# being a floor and becomes an outage; a floor lowered without a measurement stops being one too. 30
+# leaves room for four more moves and none for a collapse.
+if [ "${#gates[@]}" -lt 30 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi

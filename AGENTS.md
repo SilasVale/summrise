@@ -246,16 +246,16 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 **Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `console-derivation-check.mjs`
-`console-marks-check.mjs`, `console-smoke-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`
-`device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
+`console-marks-check.mjs`, `console-smoke-check.mjs`, `contrast-probe-check.mjs`
+`docs-budget-check.mjs`
 `feedback-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`
 `motion-check.mjs`, `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
-`particles-check.mjs`, `powershell-structure-check.mjs`, `press-anchor-check.mjs`, `production-host-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
+`particles-check.mjs`, `press-anchor-check.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
-`session-carry-detect-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`
-`state-colour-check.mjs`, `stub-surface-check.mjs`, `stylesheet-hygiene.mjs`, `sweep-judges.bash`
+`smoke-helpers.bash`, `smoke-index.bash`
+`state-colour-check.mjs`, `sweep-judges.bash`
 `token-contract-check.mjs`, `workflow-shell-check.mjs`, `workflow-yaml-check.mjs`
 
 ## Where the long form lives
