@@ -511,24 +511,32 @@ export function SettingsPage({
         {status && <p className="hint">{status}</p>}
       </div>
 
-      {/* Desktop-app card — only in the Electron shell (window.summriseDesktop bridge). */}
-      <div className="settings-section">
-        <h2>Desktop app</h2>
-        <p className="muted">
-          Start Summrise Desktop automatically when you log in to this machine.
-        </p>
-        <label className="settings-check">
-          <input
-            type="checkbox"
-            checked={autoLaunch}
-            disabled={autoLaunchBusy || !hasDesktopBridge}
-            {...autoLaunchAck("autolaunch")}
-            onChange={(e) => setAutoLaunch(e.target.checked)}
-          />
-          <span>Start on login{!hasDesktopBridge ? " (desktop app only)" : ""}</span>
-        </label>
-        {autoLaunchStatus && <p className="hint">{autoLaunchStatus}</p>}
-      </div>
+      {/* **A CARD WHOSE ONLY CONTROL CANNOT BE REACHED BY THE READER LOOKING AT IT.** In a plain browser
+          `window.summriseDesktop` is absent, so this card rendered a 17px heading, a sentence, and a
+          checkbox that was **DISABLED** — a control permanently out of reach, sitting beside live ones.
+          It renders only where the bridge exists now, which is the Electron shell, where it works.
+
+          **AND THE SENTENCE ABOVE THE CHECKBOX WENT WITH IT**, for the reason the first review of this
+          page gave: "Start Summrise Desktop automatically when you log in to this machine" sat 16px above
+          a checkbox whose own label is `Start on login`. **Prose restating the control underneath it** —
+          the same class as the `Local agent on …` line and the `Bound to …` echo deleted in 1.2.489.
+          **What is lost: nothing. The label says it, and it is the label of the thing it describes.** */}
+      {hasDesktopBridge && (
+        <div className="settings-section">
+          <h2>Desktop app</h2>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={autoLaunch}
+              disabled={autoLaunchBusy}
+              {...autoLaunchAck("autolaunch")}
+              onChange={(e) => setAutoLaunch(e.target.checked)}
+            />
+            <span>Start on login</span>
+          </label>
+          {autoLaunchStatus && <p className="hint">{autoLaunchStatus}</p>}
+        </div>
+      )}
 
       <div className="settings-section">
         <h2>Memory</h2>
