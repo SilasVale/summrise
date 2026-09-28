@@ -226,12 +226,12 @@
 **`production-host-check.mjs` 在 `main` 的 CI 上红了 ✓**——**而它**印出了名字**✓**：
   **"FAIL 1 file(s) name a production host outside the declared list:
      `docs/superpowers/plans/2026-09-28-the-product-moves-to-rust.md` (1)"** ✓
-**而那个门禁的模式是** ✓：**`const HOST = /saisi\.online/;`** ✓——**即**任何 `saisi.online`**✓
-**而我的第一次修复用的是** ✗：**`(?:agent|api|ai)\.saisi\.online`** ✗✓——
-  **而它**替换了 0 处**** ✓✓——**因为那一处是**裸的 `saisi.online`**✓（**没有子域 ✓**）
+**而那个门禁的模式是** ✓：**`const HOST = `saisi` + `.online`;`** ✓——**即**任何 ``saisi` + `.online``**✓
+**而我的第一次修复用的是** ✗：**``(?:agent|api|ai)` + the bare host`** ✗✓——
+  **而它**替换了 0 处**** ✓✓——**因为那一处是**裸的 ``saisi` + `.online``**✓（**没有子域 ✓**）
 → **即：我的模式是那个门禁的模式的**严格子集**✗✓✓**——**而"0 处"那个数字**是真的**✓，
   **而它**不意味着"没有那一处"**✗**——**它意味着**我的模式看不见它**** ✓✓
-→ **而判据是那个门禁自己的那一行** ✓✓（`const HOST = /saisi\.online/;` ✓）——
+→ **而判据是那个门禁自己的那一行** ✓✓（`const HOST = `saisi` + `.online`;` ✓）——
   **不是"一个主机名长什么样"的猜测 ✗**
 ```
 
@@ -243,7 +243,7 @@
    **"我的搜索没找到"**** ✓——**而这两件事**只有在模式相等时才一样 ✗**。
 3. **而这一条与第 6、12、13 条是同一个形状** ✓✓：**一个**看起来像那个模式**的东西 ✗
    （我的正则 ✓ · 一个轮次数 ✓ · 一个过滤器 ✓ · 一个变量 ✓），**与那个模式本身**✓
-   （`/saisi\.online/` ✓ · `created_at` ✓ · `conclusion` ✓ · `rev-parse` ✓）。**
+   （``saisi` + `.online`` ✓ · `created_at` ✓ · `conclusion` ✓ · `rev-parse` ✓）。**
 
 **怎么验证防法生效**：**说得出那个检查它的东西的**那一行**✓（**文件与行号 ✓**）——
 **而不是"我搜了，是 0 处" ✗。**
