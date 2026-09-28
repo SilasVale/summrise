@@ -424,6 +424,22 @@ not a number**"** ✓——**而**isolate 的存活不是一个固定的超时**
 **地板 = 推导出的条数 − 4 ✓**（4 是 round 170 那个「留一次有意的删除、不留一次塌方」的余量 ✓），
 **每次照同一条推导重量一遍 ✓**：32 → 31 → 30 → 29，地板 26 → 26 → 25。
 
+**而同一夜抓到一条**只在这个环境里红**的 ✓✗**——**记下来，因为它是**下一条要查的**✓，
+而它现在**没有解释 ✗**：`3024bc5e` 那次 CI 的 `pack-chain` 里，**`all-gates` 的第 24 步
+（「every gate, in one command」）在 `cargo test -p summrise-agent --features terminal,keyring`
+上红 ✓**：**`756 passed; 1 failed` · `error: test failed, to rerun pass '-p summrise-agent --lib'`** ✓。
+
+**三条测量，而它们指向**同一个方向 ✓**：① **同一个提交的 `agent` job 跑了**同一条命令**，
+**绿 ✓**；② **本机跑同一条命令：`757 passed; 0 failed`，exit 0 ✓**（69.24s ✓）；
+③ **`all-gates` 只打印**尾部 ✗**——**那个测试的**名字不在日志里**✗✓，
+**所以「哪个测试」这一步**必须下次在 CI 里重跑才能拿到**✓**（`--no-fail-fast` ＋ 不截断输出 ✓）。
+
+**而它为什么值得单独记** ✓：**`pack-chain` 是**没有 Rust 缓存**的那个 job ✓**——
+**它编译整棵 crate 是冷的 ✓**，而**同一个命令在 `agent` job 里是热的 ✓**——
+**即这条红的形状是「冷环境下有一个 lib 测试会红」✓**，**而那不是 flake 的同义词 ✗**：
+**一个只在冷编译/慢机器上红的测试，通常是一个**真的时间/端口依赖**✓**（本仓库为此付过
+`ci-not-in-flight` 与 `main-shape-shallow` 两次 ✓）。**下一次不要重跑等它变绿 ✓——先拿到名字 ✓。**
+
 **留 10**，**每一个都有它自己的理由** ✓：**`console-assets` ✓（**驱动 `npm run build` ✓**）·
 `console-smoke` ✓（**跑 Node 脚本，要构建产物 ✓**）· `contrast-probe` ✓（**AGENTS.md 豁免：
 注入页面的代码 ✓**）· `landing` ✓（**输入是 JS 渲染的产物 ✓**）· `main-shape` ✓（**"最弱的一个" ✓**）·
