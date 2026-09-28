@@ -20,12 +20,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  UPDATE_DARK_WINDOW_MS,
   forgetUpdateAttempt,
   rememberedUpdateAttempt,
   rememberUpdateAttempt,
   updateControl,
 } from "../src/lib/deviceUpdate.ts";
+
+/** THE TWO HOURS, RESTATED HERE AS A LITERAL ON PURPOSE. Importing the constant would make the test that pins the
+ *  window agree with whatever the source happens to say — the one thing a test must not do. If the window moves,
+ *  this fails and the move has to be argued for. */
+const DARK_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 const NOW = 1_800_000_000_000;
 
@@ -105,7 +109,7 @@ test("a DARK device with this console's own attempt record is in flight, dated b
 });
 
 test("...and the record expires with the window, so a day-old press is not resurrected", () => {
-  const old = NOW - UPDATE_DARK_WINDOW_MS - 1;
+  const old = NOW - DARK_WINDOW_MS - 1;
   assert.deepEqual(
     updateControl({ update: null, agentSignal: "err", remembered: { at: old, to: "1.2.491" }, now: NOW }),
     { kind: "none" },
@@ -128,7 +132,7 @@ test("a start time OLDER than the window is not used — `busy` alone is undated
   // record is written at the WMI handoff after it), so a device busy right now can be carrying the record of an
   // update that finished hours ago. Dated with that, the sentence would claim an outage far longer than the one
   // being observed — `null` makes the view say "no start time shown" instead of inventing one.
-  const stale = NOW - UPDATE_DARK_WINDOW_MS - 60_000;
+  const stale = NOW - DARK_WINDOW_MS - 60_000;
   assert.deepEqual(updateControl(answered({ busy: true, last_attempt: { at_ms: stale } })), {
     kind: "inflight",
     since: null,

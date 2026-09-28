@@ -41,7 +41,7 @@ import type { Signal } from "./deviceState.ts";
 /** The device's own answer at `/api/update`, as far as the gateway forwards it (`DeviceUpdate` in
  *  `gateway/src/plugins/mcp.ts` owns the field-by-field justification). Everything optional here is optional
  *  because an older agent does not send it — absent means "not reported", never "zero". */
-export interface DeviceUpdateWire {
+interface DeviceUpdateWire {
   current?: string;
   latest?: string;
   update_available: boolean;
@@ -64,7 +64,7 @@ export interface DeviceUpdateWire {
  *  (`st.update?.current ?? st.version ?? d.lastVersion`); a second copy of that choice inside this module is a
  *  second answer to "what version is this device on", and the two would drift the first time one changed. What
  *  this module owns is the DECISION — whether anything may be pressed — and the facts that qualify it. */
-export type UpdateControl =
+type UpdateControl =
   | { kind: "none" }
   | { kind: "action"; to: string }
   | { kind: "inflight"; since: number | null; source: "device" | "console" }
@@ -83,7 +83,7 @@ export type UpdateControl =
  *  retry backoff — 12x800ms for the exe, 3x8x500ms for the desktop sources, about 25 seconds in total — and
  *  neither describes the TUNNEL, which is what actually goes dark. A window that is a fraction of the observed
  *  outage is worse than no window, because it is the number an operator would plan around. */
-export const UPDATE_DARK_WINDOW_MS = 2 * 60 * 60 * 1000;
+const UPDATE_DARK_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /* ── THE CONSOLE'S OWN MEMORY OF AN ATTEMPT ────────────────────────────────────────────────────────────────
  *
@@ -163,7 +163,10 @@ export function rememberedUpdateAttempt(name: string, now = Date.now()): Attempt
 
 /* ── THE DERIVATION ──────────────────────────────────────────────────────────────────────────────────────── */
 
-export interface UpdateInputs {
+/** What `updateControl` takes. NOT EXPORTED, and `exports-check` is why: nobody outside names this shape — the
+ *  view passes an object literal and the compiler infers it — so the keyword would be a promise about a public
+ *  surface with nobody on the other end of it. It goes back on the day a second caller has to assemble one. */
+interface UpdateInputs {
   /** `st.update` — the device's OWN answer. Absent whenever the gateway's probe did not reach it. */
   update?: DeviceUpdateWire | null;
   /** The tri-state agent signal from `agentSignal()`. REQUIRED: see the header for why a boolean is the wrong
