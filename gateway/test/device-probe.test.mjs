@@ -65,6 +65,78 @@ test("the device's OWN update verdict is forwarded, and its absence is survivabl
   assert.equal(down.update, undefined, "a down device costs one call and carries no verdict");
 });
 
+// THE PRESENCE ARM OF THE SAME FOUR FIELDS (round 3c0e1c0d's projection, pinned after the test above caught
+// `busy: u.busy === true`). The case above answers with NONE of the four, so the only rule it can prove is that
+// they are not FABRICATED. That is one rule; the other is that a field the device DID send survives the
+// projection unchanged — and nothing pinned it, which is how a projection that dropped `error` (the field that
+// keeps an unreachable release server from reading as "up to date") left every suite green.
+//
+// THE TWO ARMS, SAID ONCE: absent stays ABSENT (the device reported nothing — never `false`, never `0`), and
+// present travels UNCHANGED (`false` included, because a device that answered "not updating" made a claim).
+test("the four actionable fields travel: present unchanged, absent not fabricated", async () => {
+  const at = 1759000000000;
+  const attempt = { at_ms: at - 1000, from: "1.2.491", to: "1.2.492", launched: true };
+
+  // A device mid-swap: `busy` and the record of when it started are the whole "in flight" sentence.
+  const busy = await withFetch(
+    async (url) =>
+      String(url).includes("/api/update")
+        ? statusJson({
+            current: "1.2.491",
+            latest: "1.2.492",
+            update_available: true,
+            pinned_to: null,
+            busy: true,
+            error: null, // the device's "no error" — a null the projection DROPS (not a string), so it is absent below
+            checked_at: at,
+            last_attempt: attempt,
+          })
+        : statusJson({ release: "1.2.491" }),
+    () => cachedDeviceProbe(ENV, dev("r3c0-busy")),
+  );
+  assert.deepEqual(
+    busy.update,
+    {
+      current: "1.2.491",
+      latest: "1.2.492",
+      update_available: true,
+      pinned_to: null,
+      busy: true,
+      checked_at: at,
+      last_attempt: attempt,
+    },
+    "busy + checked_at + last_attempt + current/latest/pin travel; a null error is not a sentence",
+  );
+
+  // The channel that did not answer: `update_available` is false, and `error` is the ONLY thing that stops that
+  // false from rendering as "up to date".
+  const err = "release server did not answer";
+  const unreachable = await withFetch(
+    async (url) =>
+      String(url).includes("/api/update")
+        ? statusJson({ current: "1.2.491", latest: null, update_available: false, pinned_to: null, busy: false, error: err, checked_at: at })
+        : statusJson({ release: "1.2.491" }),
+    () => cachedDeviceProbe(ENV, dev("r3c-error")),
+  );
+  assert.deepEqual(
+    unreachable.update,
+    { current: "1.2.491", update_available: false, pinned_to: null, busy: false, error: err, checked_at: at },
+    "an unreachable channel's error is carried, and a `latest: null` is not a version",
+  );
+
+  // An agent older than the field: no `busy` key at all. Absent is the honest answer and the console's truth
+  // test decides the row the same way an explicit `false` does — the point is that the projection does not
+  // invent the claim.
+  const legacy = await withFetch(
+    async (url) =>
+      String(url).includes("/api/update")
+        ? statusJson({ current: "1.2.436", latest: "1.2.437", update_available: true, pinned_to: null })
+        : statusJson({ release: "1.2.436" }),
+    () => cachedDeviceProbe(ENV, dev("r3c-legacy")),
+  );
+  assert.equal("busy" in legacy.update, false, "a device that never reported `busy` must not read as `busy: false`");
+});
+
 test("tunnel up, agent down (HTTP error, no unreachable shape) → split verdict", async () => {
   const p = await withFetch(async () => new Response("bad", { status: 500 }), () =>
     cachedDeviceProbe(ENV, dev("r31-agentdown")),
