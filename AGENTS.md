@@ -151,11 +151,11 @@ missed `production-host-check` until after a commit, and re-learned `pack-chain`
 mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
 and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
 
-**AND A JOB'S OWN RECORD CAN SAY `in_progress` AFTER THE RUN CONCLUDED `success` — READ THE STEPS, NOT THE JOB.**
-Measured on `83fcb70d`: the run answered `completed success` while the `ui` job answered `in_progress` / `null`, and **all
-fifteen steps, `Complete job` included, said `success`**. The run-level conclusion is the aggregate; a job record that
-never flipped is a reporting artifact, and misreading it costs a re-run. Check `…/actions/runs/<id>/jobs` →
-`steps[].conclusion`.
+**A JOB RECORD AND ITS STEPS CAN DISAGREE — READ `steps[].conclusion`, NOT THE JOB, AND BOTH DIRECTIONS ARE MEASURED.**
+`83fcb70d`: the run said `success` while `ui` said `in_progress` / `null` with all fifteen steps `success`. `4d47d538`: the
+run said `failure` while `ui`'s ONLY step was `in_progress` — **the runner died in `Set up job` and nothing of yours ran**,
+so it is not a red gate. The second costs a `POST …/runs/<id>/rerun-failed-jobs` (its re-run was green), not a hunt for a
+defect that does not exist.
 
 **AND SET `umask 022` BEFORE ANY GIT OPERATION THAT WRITES FILES ON THIS BOX — a merge, a checkout, a worktree add.** This
 shell's umask is **0002**, and the rule is narrower than "a rewrite": **A FILE THAT IS CREATED INHERITS THE UMASK; A FILE
