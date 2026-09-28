@@ -407,30 +407,100 @@ installer_manifest_verdict() {
   echo "mismatch:$got"
 }
 
-# pack_input_mode_verdict <repo_root> <npm_dir>
-# Prints one line per pack input whose WORKTREE mode differs from the mode git
-# records, and returns 0 when none do. Extracted from publish-release.sh (round
-# 154) so the gate has BEHAVIOURAL tests: `npm pack` preserves worktree modes, so
-# a 0600 file packs a tarball that differs from a fresh checkout's by its tar
-# HEADER alone — the measured cause of twenty consecutive "packaging metadata"
-# WARNs and of the 3-byte drift on the 1.2.348 pair (README.md's mode field plus
-# the header checksum, with every file's sha256 matching, the exe included).
-# The gate sat mid-chain in the orchestrator, behind the reconcile gate, the
-# version check and the exe check, so no test could reach it; this is that logic,
-# reachable.
-pack_input_mode_verdict() {
+# worktree_mode_verdict <repo_root> <npm_dir> [<pathspec>...]
+# Prints one line per file whose WORKTREE mode differs from the mode git records,
+# and returns 0 when none do. Extracted from publish-release.sh (round 154) so the
+# gate has BEHAVIOURAL tests: `npm pack` preserves worktree modes, so a 0600 file
+# packs a tarball that differs from a fresh checkout's by its tar HEADER alone —
+# the measured cause of twenty consecutive "packaging metadata" WARNs and of the
+# 3-byte drift on the 1.2.348 pair (README.md's mode field plus the header
+# checksum, with every file's sha256 matching, the exe included). The gate sat
+# mid-chain in the orchestrator, behind the reconcile gate, the version check and
+# the exe check, so no test could reach it; this is that logic, reachable.
+#
+# THE SUBJECT IS AN ARGUMENT, AND THE PACK INPUTS ARE ONLY ITS DEFAULT (measured
+# 2026-09-28). The publish gate needs the twenty-four files npm packs; the RULE is
+# wider than that, because this box's umask is 0002 and git compares only the
+# owner-execute bit — ANY tracked file rewritten here can land as 664 (or 775)
+# while the index records 644 (755), `git status` says nothing and `git diff` is
+# empty. A reader who counts that class with `awk '$1=="100644"'` cannot see the
+# 0755 half of it AT ALL: fifteen files were drifted that way on this checkout
+# when this parameter was added, EVERY one of them outside the pack inputs. So a
+# pathspec REPLACES the subject (`.` is the whole tree, which is what the ordinary
+# local gate run asks for) and the pack inputs stay the default, leaving the
+# publish path's subject — and its refusal — unchanged.
+#
+# ONE PASS, NOT ONE `git` PER FILE. Measured over this tree's 985 tracked files:
+# the per-file `git ls-files -s` + `stat` shape this started as took 10.6 s, one
+# `git` with a `stat` per file took 4.4 s, and this — one `git`, one `xargs stat`,
+# one `awk` join — takes 0.05 s, which is what lets it run on every commit instead
+# of at publish time.
+#
+# IT REFUSES; IT DOES NOT REPAIR. A verdict that chmod-ed would be a gate that
+# cannot fail, and this repository's standard is that a gate that cannot be broken
+# is worse than no gate. So it names each file, the mode it has, the mode git
+# records, and the exact command that repairs the tree.
+#
+# The line format is kept verbatim: the 1.2.348 investigation quoted
+# `<file> (worktree 664, this checkout should be 644)`.
+worktree_mode_verdict() {
   local root="${1:?repo root}" npm_dir="${2:?npm dir}"
-  local bad="" f idx want have
-  while IFS= read -r f; do
-    [ -f "$root/$f" ] || continue
-    idx=$(git -C "$root" ls-files -s -- "$f" | awk '{print $1}')
-    [ -n "$idx" ] || continue
-    want=644; [ "$idx" = "100755" ] && want=755
-    have=$(stat -c '%a' "$root/$f" 2>/dev/null || echo '?')
-    [ "$have" = "$want" ] || bad="${bad}$f (worktree $have, this checkout should be $want)"$'\n'
-  done < <(git -C "$root" ls-files -- "$npm_dir/bin" "$npm_dir/src" "$npm_dir/test" \
-             "$npm_dir/README.md" "$npm_dir/summrise-desktop-electron" "agent/summrise-desktop-electron")
-  if [ -n "$bad" ]; then printf '%s' "$bad"; return 1; fi
+  shift 2
+  local -a spec=("$@")
+  if [ "${#spec[@]}" -eq 0 ]; then
+    spec=("$npm_dir/bin" "$npm_dir/src" "$npm_dir/test" "$npm_dir/README.md" \
+          "$npm_dir/summrise-desktop-electron" "agent/summrise-desktop-electron")
+  fi
+  local idx wt bad="" n=0 k=0
+  idx=$(mktemp) || return 1
+  wt=$(mktemp) || { rm -f "$idx"; return 1; }
+  # The index side: <mode> TAB <path>, in ONE `git` call for the whole subject.
+  git -C "$root" ls-files -s -- "${spec[@]}" |
+    awk -F'\t' '{split($1, a, " "); print a[1] "\t" $2}' > "$idx"
+  # AN EMPTY SUBJECT PROVES NOTHING, and answering 0 would be the vacuity this
+  # suite reports elsewhere as "exited 0 having printed NOTHING".
+  if [ ! -s "$idx" ]; then
+    rm -f "$idx" "$wt"
+    echo "no tracked file matched the subject (${spec[*]}) — this proves nothing"
+    return 1
+  fi
+  n=$(wc -l < "$idx")
+  # The worktree side, from $root so the index's relative paths resolve. A path
+  # that no longer exists (a deletion in progress) prints nothing and is skipped,
+  # exactly as the per-file `[ -f ]` guard it replaces did.
+  git -C "$root" ls-files -z -- "${spec[@]}" |
+    (cd "$root" && xargs -0 -r stat -c '%a %n' 2>/dev/null) > "$wt"
+  if [ ! -s "$wt" ]; then
+    rm -f "$idx" "$wt"
+    echo "no worktree mode could be read for the subject (${spec[*]}) — this proves nothing"
+    return 1
+  fi
+  # 100644 and 100755 are the modes this repository's index carries; 120000 (a
+  # symlink) is 777 in the worktree; anything else (a gitlink) has no worktree mode
+  # to compare and is skipped. A path containing a TAB would not join here — this
+  # repository tracks none (measured: 0 of 985), and `stat -c` offers no separator
+  # that survives one.
+  bad=$(awk -F'\t' '
+    NR == FNR {
+      want[$2] = ($1 == "100644") ? 644 : ($1 == "100755") ? 755 : ($1 == "120000") ? 777 : 0
+      next
+    }
+    {
+      p = $0; sub(/^[0-9]+ /, "", p)
+      m = $0; sub(/ .*$/, "", m)
+      w = want[p]
+      if (w != "" && w != 0 && m != w) printf "%s (worktree %s, this checkout should be %s)\n", p, m, w
+    }' "$idx" "$wt")
+  rm -f "$idx" "$wt"
+  if [ -n "$bad" ]; then
+    printf '%s\n' "$bad"
+    k=$(printf '%s\n' "$bad" | wc -l)
+    printf '%s\n' "$k of $n checked file(s) disagree with the worktree mode git records."
+    # ONE line, so a reader of all-gates — which shows the LAST FOUR lines of this
+    # gate's output — sees the repair as well as the refusal.
+    printf '%s\n' "fix (whole tree, one line): git ls-files -s | awk '\$1==\"100644\"{print \$4}' | xargs -r chmod 644 && git ls-files -s | awk '\$1==\"100755\"{print \$4}' | xargs -r chmod 755"
+    return 1
+  fi
   return 0
 }
 

@@ -75,7 +75,7 @@ NPM_DIR=agent/summrise-agent-npm
 # offending file per line itself; the long explanation stays at the mid-chain call
 # site, where a publish is actually being refused, so the text is not duplicated.
 if [ "${1:-}" = "--check-modes-only" ]; then
-  pack_input_mode_verdict "$PWD" "$NPM_DIR" || exit 1
+  worktree_mode_verdict "$PWD" "$NPM_DIR" || exit 1
   echo "pack input modes match a fresh checkout OK"
   exit 0
 fi
@@ -455,7 +455,7 @@ echo "pack inputs committed-clean OK"
 # behavioural tests; publish-release.sh has no harness of its own, which is why
 # this check had none for as long as it existed. Same wording, same refusal, same
 # exit.
-if ! MODE_BAD=$(pack_input_mode_verdict "$PWD" "$NPM_DIR"); then
+if ! MODE_BAD=$(worktree_mode_verdict "$PWD" "$NPM_DIR"); then
   echo "::error::pack inputs have WORKTREE PERMISSIONS that differ from a fresh checkout — npm pack preserves them, so this tgz would differ from CI's by its tar headers alone:" >&2
   printf '%s' "$MODE_BAD" >&2
   echo "  Fix: chmod each file to the mode git records (e.g. \`chmod 644 <file>\`)." >&2
