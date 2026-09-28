@@ -1,0 +1,222 @@
+{
+  "_why": "A CLEAN RUN: one surface that satisfies every clause. The corpus needs a row the judge PASSES — a judge that fails everything is as useless as one that passes everything.",
+  "opts": {
+    "navless": [],
+    "proseFloor": 90,
+    "implicitStates": {
+      "xterm-screen": "xterm.js DOM, styled by the sheet it injects at runtime"
+    },
+    "ignore": [
+      {
+        "contains": [
+          "div.rail-dot",
+          "2.33"
+        ],
+        "reason": "the working rail dot's halo is emphasis, not the signal — the fill carries the state"
+      }
+    ]
+  },
+  "report": {
+    "harnessBuild": "h-2026-09-28",
+    "passes": "all",
+    "entryCheck": {
+      "bytes": 613677,
+      "sha": "abc123",
+      "stale": false,
+      "expected": {
+        "bytes": 613677,
+        "sha": "abc123"
+      }
+    },
+    "surfaces": [
+      {
+        "page": "Terminal",
+        "width": 1280,
+        "h1Count": 1,
+        "firstIsH1": true,
+        "mains": 1,
+        "navs": 1,
+        "skipped": 0,
+        "over": [],
+        "clipped": [],
+        "slivers": [],
+        "loud": [
+          "button.btn-new"
+        ],
+        "loudUnreadable": 0,
+        "marks": {
+          "ringFill": [],
+          "collisions": [],
+          "families": [],
+          "present": []
+        },
+        "measure": {
+          "measured": 40,
+          "worst": [
+            {
+              "sel": "p.lede",
+              "cpl": 66,
+              "chars": 120,
+              "lines": 2,
+              "w": 600,
+              "fs": 14,
+              "maxw": "66ch"
+            }
+          ]
+        },
+        "claims": []
+      }
+    ],
+    "names": [
+      {
+        "page": "Terminal",
+        "width": 1280,
+        "unnamed": [],
+        "titleOnly": []
+      }
+    ],
+    "focus": [
+      {
+        "page": "Terminal",
+        "density": "panel",
+        "theme": "light",
+        "pressed": 12,
+        "landed": 12,
+        "escaped": 0,
+        "missing": 0,
+        "unconfirmed": 0,
+        "paintConfirmed": 0
+      }
+    ],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "Terminal",
+        "found": 2,
+        "measured": 2,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-primary",
+            "size": "111x24",
+            "changed": true,
+            "reached": true,
+            "props": [
+              "transform"
+            ]
+          },
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-ghost",
+            "size": "50x24",
+            "changed": true,
+            "reached": true,
+            "props": [
+              "transform"
+            ]
+          }
+        ]
+      }
+    ],
+    "ack": [
+      {
+        "density": "panel",
+        "page": "Terminal",
+        "sel": "button.btn",
+        "where": "button.btn.btn-primary",
+        "size": "111x24",
+        "hasCounter": true,
+        "acked": true,
+        "asked": true,
+        "via": "data-busy",
+        "msToAck": 4,
+        "msToClear": 912,
+        "budgetMs": 100,
+        "presses": 1
+      }
+    ],
+    "targets": [
+      {
+        "density": "panel",
+        "page": "Terminal",
+        "distinct": []
+      }
+    ],
+    "rows": [
+      {
+        "sel": "p.lede",
+        "page": "Terminal",
+        "kind": "text",
+        "size": 14,
+        "text": "Sessions",
+        "cr": 7.2
+      }
+    ],
+    "sse": [
+      {
+        "page": "Terminal",
+        "opened": true,
+        "fail": false
+      }
+    ],
+    "idle": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "Terminal",
+        "seconds": 6,
+        "mutations": 1,
+        "byTarget": {
+          "__probe": 1
+        }
+      }
+    ],
+    "motion": [
+      {
+        "density": "panel",
+        "stillAnimating": [],
+        "normal": 12
+      }
+    ],
+    "unstyled": [
+      {
+        "page": "Terminal",
+        "classes": [],
+        "sheetsUnreadable": 0,
+        "styledClasses": 1123
+      }
+    ],
+    "hover": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "underAA": []
+      }
+    ],
+    "reflow": [
+      {
+        "width": 320,
+        "docScrollsSideways": false,
+        "sideScrollers": [],
+        "spilling": [],
+        "clipped": []
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [],
+    "lines": [
+      "note: harness build h-2026-09-28",
+      "note: delivered entry 613677 bytes / sha abc123 — matches the build",
+      "note: ack panel Terminal button.btn (button.btn.btn-primary) — acked=true via=data-busy ms=4 budget=100 presses=1",
+      "note: 1 of 1 declared unstyled-by-design class(es) were not seen in this run (0 unstyled name(s) over 1 page(s)) — a reason nothing needs is weight; prune it or say why it stays:",
+      "  xterm-screen — xterm.js DOM, styled by the sheet it injects at runtime",
+      "note: 1 of 1 ignore entr(ies) matched none of this run's 0 finding(s) and does not say why it stays — an exemption nothing needs is weight; prune it, or declare it dormant with the measurement that makes it a guard:",
+      "  the working rail dot's halo is emphasis, not the signal — the fill carries the state"
+    ],
+    "notes": [],
+    "summary": "panel: 1 text nodes · 1 surface(s) · 1 name checks · worst prose line 66 chars (p.lede)"
+  }
+}

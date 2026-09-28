@@ -1,0 +1,53 @@
+{
+  "_why": "THE PREMISE HAS TO HOLD BEFORE THE CLAUSE APPLIES: the console has no backend, so every API call fails for real and `could not be read` is TRUE — a report that declares nothing about what its fixture served is not judged on that axis. Also here: `navless: [\"login\"]` matched by PREFIX, so `login-dark` (the same page in another theme) is not reported as missing a navigation it has no business having.",
+  "opts": {
+    "navless": [
+      "login"
+    ],
+    "implicitStates": {}
+  },
+  "report": {
+    "passes": "all",
+    "surfaces": [
+      {
+        "page": "login-dark",
+        "h1Count": 1,
+        "firstIsH1": true,
+        "mains": 1,
+        "navs": 0,
+        "skipped": 0,
+        "over": [],
+        "clipped": [],
+        "slivers": [],
+        "loud": [],
+        "claims": [
+          "could not be read"
+        ]
+      },
+      {
+        "page": "devices",
+        "h1Count": 1,
+        "firstIsH1": true,
+        "mains": 1,
+        "navs": 1,
+        "skipped": 0,
+        "over": [],
+        "clipped": [],
+        "slivers": [],
+        "loud": [],
+        "claims": []
+      }
+    ],
+    "names": [],
+    "rows": [],
+    "notes": []
+  },
+  "expect": {
+    "findings": [],
+    "lines": [
+      "note: read-failure claims are NOT judged here — this report declares nothing about what its fixture served, so the clause has no premise (the console has no backend)"
+    ],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 2 surface(s) · 0 name checks"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "_why": "IDLE REPAINT, WITH BOTH EXEMPTIONS IN VIEW: one row repaints unchanged output (a finding), one changes only a live duration (a note, exempt by name with its reason in CLOCKS), and one never saw its own probe mutation (a finding — a blind instrument reports a still panel forever). The repaint list is built from `byTarget`'s KEYS, which is the port's one measured divergence: `serde_json` sorts them.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "idle": [
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "Terminal",
+        "seconds": 6,
+        "mutations": 7,
+        "byTarget": {
+          "__probe": 1,
+          "#text": 6
+        }
+      },
+      {
+        "density": "panel",
+        "theme": "dark",
+        "page": "Terminal",
+        "seconds": 6,
+        "mutations": 7,
+        "byTarget": {
+          "__probe": 1,
+          "span.approval-left": 6
+        }
+      },
+      {
+        "density": "panel",
+        "theme": "light",
+        "page": "History",
+        "seconds": 6,
+        "mutations": 4,
+        "byTarget": {}
+      }
+    ],
+    "notes": [
+      "panel/dark/Terminal: span.approval-left x6 changed while idle — a live duration, exempt by name with its reason in CLOCKS"
+    ]
+  },
+  "expect": {
+    "findings": [
+      "panel/light/Terminal: 6 DOM mutation(s) in 6s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (#text x6)",
+      "panel/light/History: the idle observer did not see its own probe mutation — a blind instrument reports a still panel forever, so this measurement proves nothing"
+    ],
+    "lines": [],
+    "notes": [
+      "panel/dark/Terminal: span.approval-left x6 changed while idle — a live duration, exempt by name with its reason in CLOCKS"
+    ],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}

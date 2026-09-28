@@ -1,0 +1,47 @@
+{
+  "_why": "THE CASE THAT MUST NOT BITE: a row the pointer never delivered a press to. `reached: false` is not `changed: false` — the control was never asked, so accusing it of rendering nothing would be the false finding arriving from the other side.",
+  "opts": {},
+  "report": {
+    "passes": "all",
+    "surfaces": [],
+    "press": [
+      {
+        "density": "panel",
+        "theme": "dark",
+        "mode": "rail",
+        "page": "Terminal",
+        "found": 2,
+        "measured": 2,
+        "rows": [
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-primary",
+            "size": "111x24",
+            "changed": false,
+            "reached": false,
+            "note": "the pointer never reached this control"
+          },
+          {
+            "sel": "button.btn",
+            "where": "button.btn.btn-ghost",
+            "size": "50x24",
+            "changed": true,
+            "reached": true,
+            "props": [
+              "transform"
+            ]
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "expect": {
+    "findings": [],
+    "lines": [
+      "note: panel/dark rail Terminal button.btn — the pointer never reached this control"
+    ],
+    "notes": [],
+    "summary": "panel: 0 text nodes · 0 surface(s) · 0 name checks"
+  }
+}
