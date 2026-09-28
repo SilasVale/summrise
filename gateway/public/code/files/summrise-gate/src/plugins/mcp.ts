@@ -194,7 +194,9 @@ export async function cachedDeviceProbe(
           // which is a different sentence from a field forwarded as `undefined` or as `0`.
           ...(typeof u.busy === "boolean" ? { busy: u.busy } : {}),
           ...(typeof u.error === "string" && u.error ? { error: u.error } : {}),
-          ...(typeof u.checked_at === "number" && u.checked_at > 0 ? { checked_at: u.checked_at } : {}),
+          ...(typeof u.checked_at === "number" && u.checked_at > 0
+            ? { checked_at: u.checked_at }
+            : {}),
           ...(u.last_attempt &&
           typeof u.last_attempt === "object" &&
           typeof (u.last_attempt as { at_ms?: unknown }).at_ms === "number" &&
