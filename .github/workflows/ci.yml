@@ -424,8 +424,13 @@ jobs:
       # covered: that token reaches every transition written with it and NOT ONE of the four `animation:`
       # declarations, each of which carries its own duration. The panel was the model for that fix and turned out
       # to have seven of its own twelve unsilenced (round 13 of the standing goal).
-      - name: motion can be turned off
-        run: node scripts/test/motion-check.mjs
+      # MOTION CAN BE TURNED OFF MOVED TO RUST — `agent/tests/motion_check.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. The step here ran `scripts/test/motion-check.mjs`, and that file is
+      # DELETED rather than left beside the new gate: two gates for one rule is two gates. Both implementations
+      # were run over the same tree on FIVE cases — the clean tree, three mutations that must bite (one on the
+      # panel's sheet, two on the console's) and one that must not (a global `*` while a named selector is
+      # removed) — and every one is byte-identical, 103 / 352 / 467 / 356 / 103 bytes. Nothing replaced the step,
+      # deliberately: a `cargo test` step here would compile the crate a second time in a job with no Rust cache.
       # THREE COPIES OF ONE AMBIENT FIELD, held to one set of facts. The panel's and the console's are modules and
       # the landing's is inline (that page has no bundler), so the code cannot be shared — the FACTS can be, and
       # they had already drifted into the same two defects: a retired palette (`--aura-*`, read empty, falling back

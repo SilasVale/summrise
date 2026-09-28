@@ -249,7 +249,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `console-marks-check.mjs`, `console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `feedback-check.mjs`, `hook-finds-its-repo.bash`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`
-`motion-check.mjs`, `panel-design-sweep.bash`
+`panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `particles-check.mjs`, `press-anchor-check.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`

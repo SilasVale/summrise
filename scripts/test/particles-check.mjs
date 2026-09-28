@@ -74,7 +74,7 @@ for (const [rel, why] of FIELDS) {
   if (!/rgba\(/.test(code)) failures.push(`${rel} never draws rgba() — the palette is supposed to arrive as a colour triple`);
 
   // ── 4. IT REFUSES TO RUN AT ALL UNDER prefers-reduced-motion.
-  // A canvas loop is not a CSS animation, so `motion-check.mjs` cannot see it: it reads the sheets, and this is
+  // A canvas loop is not a CSS animation, so `motion-check` cannot see it: it reads the sheets, and this is
   // JavaScript painting every 1/30th of a second forever. All three copies return before creating their canvas,
   // which is the honest fallback — the static wash stays, the motion does not — and VERIFIED ON THE DEVICE:
   // with reduced motion emulated, rAF 0/s, clears 0/s, fills 0/s and no canvas in the DOM at all.
