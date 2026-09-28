@@ -2,7 +2,9 @@
 
 Windows deployment notes for the summrise-agent device agent. The install and
 update channel is **npm-only** — but that is the AGENT's channel, not the whole story: the
-NSIS installer is **NOT retired** — but it is OPT-IN, and that is the state to hold in mind: `scripts/publish-release.sh` builds it only under `--with-installer` (default `WITH_INSTALLER=0`), and the default path PRUNES any staged `SummriseAgent-Setup-*.exe` (`retire_installers`). That is why the manifest carries no `installer` field and the landing shows no button right now — a PUBLICATION STATE, not a retirement. When it IS built it ships the desktop task and the one-click install, and it is served as an asset. Only
+The manifest DOES carry an `installer` field for every published release, and the landing serves the
+button whenever the release advertises one. (This paragraph said the opposite, and was false: it is how
+a reader learns not to try.)
 `setup.ps1` is retired, in `deploy/retired/`. `scripts/build.sh`'s comment carries the history of a
 comment that called the installer retired for long enough that a reader would have believed it.
 
@@ -10,8 +12,8 @@ comment that called the installer retired for long enough that a reader would ha
 
 ```powershell
 npm i -g summrise-agent          # or: npm i -g <your tgz URL>
-summrise setup                   # pure local install (registry-first)
-summrise setup --reg-key <key>   # optional: register with a Summrise Gate console
+summrise setup                   # install and start (the agent self-registers on first start)
+summrise setup --reg-key <key>   # only with --tunnel; the agent self-registers on first start regardless
 summrise update                  # one-command update
 ```
 

@@ -36,7 +36,7 @@ from `version.json`, round-297).
 
 ```bash
 npm i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
-summrise setup            # pure local; --reg-key <key> registers with a console
+summrise setup            # installs and starts the agent; --reg-key needs --tunnel (below)
 ```
 
 To UPDATE an already-installed device, add `--prefix` — without it npm installs

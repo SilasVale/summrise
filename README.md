@@ -41,8 +41,8 @@ Satellites (not in the request path): satellite proxies (Cloudflare/VPS AI egres
 
 ```powershell
 npm.cmd i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz   # or pin an exact version
-summrise setup                 # pure local install (registry-first, no cloud needed)
-summrise setup --reg-key <key> # optional: register the device with a Summrise Gate console
+summrise setup                 # install and start; the agent self-registers with the configured console on first start
+summrise setup --reg-key <key> # only useful WITH --tunnel: it names the console that issues the tunnel token
 summrise update                # later: swap the exe (run `npm i -g` FIRST when the CLI is behind — it refuses otherwise)
 ```
 
