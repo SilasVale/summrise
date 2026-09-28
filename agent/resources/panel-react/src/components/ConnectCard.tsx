@@ -127,6 +127,12 @@ export function ConnectCard() {
 
   const where = (CLIENTS.find((c) => c.id === client) ?? CLIENTS[0]).where;
 
+  /** THE COPY BUTTON'S TWO LABELS — see the comment at the button. Both carry the qualification, so the click's
+   *  own feedback (`Copied …`) answers the question the label asked: whether the pasted config is usable as it
+   *  stands or is waiting on a reveal. */
+  const copyLabel = revealed ? "Copy config" : "Copy config (token masked)";
+  const copiedLabel = revealed ? "Copied" : "Copied (token masked)";
+
   const doCopy = useCallback((what: string, text: string) => {
     copyText(text).then(() => {
       setCopied(what);
@@ -219,8 +225,21 @@ export function ConnectCard() {
           <button type="button" onClick={() => setRevealed((r) => !r)}>
             {revealed ? "Hide token" : "Reveal token"}
           </button>
+          {/* **THE BUTTON SAID `Copy config` WHILE THE TOKEN WAS MASKED, AND WHAT IT COPIED WAS A 401.** Measured in
+              the live DOM (1.2.492): the `<pre>` above reads `"Authorization": "Bearer <your-device-token>"`, and
+              `doCopy("snippet", snippet)` copies that string character for character — so the paste target is a
+              config that cannot authenticate, and the only feedback was the label becoming `Copied`, which is
+              indistinguishable from having copied a working one.
+              **THE FIX IS THE LABEL, HELD THROUGH THE FEEDBACK** — `Copy config (token masked)`, and `Copied (token
+              masked)` while it is. That was chosen over revealing on copy, which was the other honest option the
+              review offered, for two reasons: this card's own contract is that the credential is *"masked by default,
+              revealed only on request"*, and a Copy button that reveals is an implicit request doing a secret's work
+              (`SettingsPage`'s reg-key wipe is the same rule from the other side); and the masked snippet has a
+              second, legitimate use — a template handed to someone who supplies their own token — which a
+              reveal-on-copy would destroy. The precondition is now stated WHERE THE DECISION IS MADE, and the control
+              that lifts it (`Reveal token`) is the button beside it. */}
           <button type="button" onClick={() => doCopy("snippet", snippet)}>
-            {copied === "snippet" ? "Copied" : "Copy config"}
+            {copied === "snippet" ? copiedLabel : copyLabel}
           </button>
           <button
             type="button"

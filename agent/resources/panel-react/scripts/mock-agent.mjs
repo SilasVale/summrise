@@ -92,7 +92,10 @@ const server = http.createServer((req, res) => {
   ] });
   if (p === "/api/plugins/status") return json(res, { playwright: { running: true, port: 9229, started_at: Date.now() - 3600000, healthy: true } });
   if (p.startsWith("/api/plugins/playwright/")) return json(res, { ok: true, status: "started" });
-  if (p === "/api/settings" && req.method === "GET") return json(res, { buffer_mb: 8, console_url: "https://ai.saisi.online", tunnel_configured: true, tunnel_running: true });
+  // `memory_path` IS THE DEVICE'S OWN RESOLUTION of the store's file — under `data_dir()`, NOT under the install
+  // dir, and those differ on every registry-first install. The stub answers it too, so `npm run dev` shows the
+  // sentence the real panel shows instead of the "does not report which one" fallback.
+  if (p === "/api/settings" && req.method === "GET") return json(res, { buffer_mb: 8, console_url: "https://ai.saisi.online", tunnel_configured: true, tunnel_running: true, memory_path: "C:\\ProgramData\\Summrise\\memory\\memory.jsonl" });
   if (p === "/api/settings" && req.method === "PUT") return json(res, { ok: true });
   if (p === "/api/gateway/connect") return json(res, { ok: true, registered: true, tunnel: "running" });
   // Vitals ride the same payload the real agent sends (`agent/src/metrics.rs`):
