@@ -147,6 +147,41 @@ worktree 的三个假前提 · "听起来对"的假设 · 门禁悄悄豁免 · 
 
 **计划里写着 `proxies` → `index` → `gateway` ✓。而那个顺序**没有测量支撑**✗——**现在有了，而它指向反方向 ✓。**
 
+### P1 的普查：**一个门禁能不能搬，由它 spawn 什么决定**（2026-09-29 ✓）
+
+**计划要的"普查（留/删）"就是这个 ✓——而它在此之前**从没被写下来**✓，而它的答案**不是行数**✓✓。**
+
+**判据是环境，不是代码**：`cargo test` 跑在 **`agent` job** 里 ✓，而那个 job **只有 cargo**——**没有 `npm ci` ✓、
+没有 node_modules ✓、没有浏览器 ✓**（`ci.yml` 里 `ui` job 是 `npm ci && npm run build` ✓，`design` job 才装 playwright ✓）。
+**所以一个门禁要搬进 `cargo test`，它必须**不 spawn 任何需要依赖的东西**✓**；否则只有两条路 ✗：
+在 `agent` job 里加装依赖 ✓（**真金白银的 CI 成本 ✓**），或者**在缺依赖时静默跳过** ✗✗——
+**而"静默跳过"正是这份计划自己列的**门禁悄悄豁免**✗。**
+
+**实测（`grep -oE 'exec[A-Za-z]*Sync\("[a-z]+"' scripts/test/*.mjs` ✓）：**
+
+| 门禁 | 它 spawn 什么 | 能不能搬 |
+|---|---|---|
+| `token-contract-check` ✓ | **无**（纯读两个 CSS ＋ 算对比度 ✓） | **能** ✓ |
+| `feedback-check` ✓ | **无**（读 CSS ＋ 源码 ✓） | **能** ✓ |
+| `contrast-probe-check` ✓ | **无** | **能** ✓ |
+| `state-colour-check` ✓ | **无** | **能** ✓ |
+| `landing-check` ✓ | **无** | **能** ✓ |
+| `main-shape-check` ✓ | `git` ✓（agent job 里有 git ✓） | **能** ✓ |
+| `console-assets-check` ✗ | `git` ＋ **`npm`**（它**跑一次 console 构建** ✓） | **不能** ✗ |
+| `npm-test-floored` ✗ | **`npm`** | **不能** ✗ |
+| `panel-sheet-freshness-check` ✗ | `git` ＋ **`npm`** | **不能** ✗ |
+| `console-smoke-check` ✗ | **`node`**（jsdom 渲染冒烟 ✓） | **不能** ✗ |
+| `press-anchor-check` ✗ | **`node`**（playwright ✓） | **不能** ✗ |
+
+**所以 P1 的**可搬集合是 6 个**（约 1,558 行 ✓），而**不是"所有剩下的"**✓✓——**而已经搬完的 11 个
+（`docs-budget` ✓、`workflow-yaml` ✓、`chrome-stillness` ✓、`motion` ✓、`particles` ✓、`console-marks` ✓、
+`workflow-shell` ✓ …）**全都在这个集合的形状里**✓：**它们读文件、算，然后说话 ✓。**
+
+**而剩下那 5 个不是"还没做"✓，是**具名的例外**✓✓**——**它们要的不是一次移植，而是一个决定**✓：
+**要么承认它们永远留在 `.mjs`** ✓（**而那与 AGENTS.md 里那四条 carve-out 是同一类东西：有理由的、被点名的** ✓），
+**要么给 `agent` job 加 `npm ci` ＋ 一个浏览器** ✓——**而那会让每一个 Rust 提交都多付一次装依赖的钱 ✓**，
+**为了 5 个门禁 ✓。这个决定属于操作者 ✓。**
+
 ### 数字（Cloudflare 自己的 per-request `cpuTime`，单位 **µs**）
 
 | | TypeScript | Rust→wasm | 比 |
