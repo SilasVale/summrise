@@ -424,8 +424,16 @@ jobs:
       # STATE COLOUR IS FOR STATE. Measured first — 163 uses of an ok/warn/fail/running/danger token across the
       # panel and console sheets, essentially all of them on the state layer, a destructive action, a category
       # lane or a token definition — and a clean result nothing enforced is one commit from not being true.
-      - name: state colour only lands on state
-        run: node scripts/test/state-colour-check.mjs
+      # STATE COLOUR IS FOR STATE MOVED TO RUST — `agent/tests/state_colour.rs`, which the `agent` job's
+      # `cargo test -p summrise-agent` runs. The step here ran `scripts/test/state-colour-check.mjs`, and that
+      # file is DELETED rather than left beside the new gate: two gates for one rule is two gates. Both
+      # implementations were run over the same tree on four cases — the clean tree, a neutral element painted
+      # with a state colour, a LOUD state surface (the console's dark `--info-bg`, the half judged by
+      # `loudnessOf` rather than by a selector), and a status surface that must NOT bite — and the verdict is
+      # identical on all four, 153 state-colour uses read in each. One deliberate difference: the failure says
+      # the rule belongs "on the list in <file>", and the Rust names the list's NEW home, because the old path
+      # is the file this commit deletes. Nothing replaced the step, deliberately: a `cargo test` step here would
+      # compile the crate a second time in a job with no Rust cache.
       # NOTHING ANIMATES FOR SOMEONE WHO ASKED FOR NO MOTION. The console set `--ds-dur: 0s` and believed it was
       # covered: that token reaches every transition written with it and NOT ONE of the four `animation:`
       # declarations, each of which carries its own duration. The panel was the model for that fix and turned out
