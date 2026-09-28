@@ -280,3 +280,34 @@
 
 **怎么验证防法生效**：**说得出那个地板**保护的是什么**✓（**以及它触发时说了什么 ✓**）——
 **而不是"它拦住了我" ✗。**
+
+
+---
+
+## 错误模式 16：**把一条命令拼成字符串，再交给一个 shell**（而它咬了**三次** ✗）
+
+**证据（2026-09-28，实测 ✓）**：
+
+```
+**① 而 AGENTS.md 早就写了它** ✓✓：**"DO NOT DRIVE WINDOWS PATHS THROUGH `terminal_execute` …
+  the shell that receives the command **is not the one the quoting was written for**"** ✓
+**② 而我今晚撞了它三次** ✗✓✓：
+  · **第一次**：`cmd /c node -e "…"` → **`Unterminated string constant`** ✗（**而那是**我的引号 ✓**）
+  · **第二次**：同一个形状 → **`Cannot find module 'Node.js v24.19.0 '`** ✗✓
+  · **第三次**：**`execFileSync(cmd, ['/c', 'node "' + P + '"'])`** →
+    **`Cannot find module '…\pwout\"D:\Summrise\live-panel-probe.js"'`** ✗✓✓——
+    **即那个引号**变成了路径的一部分**✓**
+**③ 而修法**一次就成**✓✓**：**`execFileSync(NODE, [P])`** ✓——**argv 传参 ✓，**不拼字符串**✗**——
+  而那个探针**跑通了 ✓✓**（**`verdict: {ok: true}` ✓ · 两个密度 ✓ · 0 个失败 ✓**）
+```
+
+**防法**：
+1. **要跑一个程序 ✓，用 `execFileSync(file, [args])` ✓✓**——**而不是 `execSync('… ' + arg + ' …')` ✗**。
+   **argv 传参不经过任何 shell ✓，所以没有引号可以写错 ✓。**
+2. **而 `cmd /c` 只在**需要 shell 内建**时才用 ✓**（**`set` ✓ · `&&` ✓ · 重定向 ✓**）——
+   **而"跑一个 node 脚本"**不需要**它 ✗**（**而 `process.execPath` 就是那个 node ✓**）。
+3. **而这一条与第 8 条（worktree 的三个假前提）同源** ✓✓：**两者都是**关于工具怎么工作的断言**✓，
+   而**两者都可以用**读那个工具**来回答 ✓——**而不是用一个记忆里的形状 ✗**。
+
+**怎么验证防法生效**：**说得出那条命令**没有经过 shell**✓（**argv 数组 ✓，不是一个字符串 ✗**）——
+**而不是"我转义对了" ✗。**
