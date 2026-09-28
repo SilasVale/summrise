@@ -564,23 +564,6 @@ export function SettingsPage({
         {memStatus && <p className="hint">{memStatus}</p>}
         {onOpenMemory && <button className="btn btn-ghost btn-mini" onClick={onOpenMemory}>Open Memory</button>}
       </div>
-
-      <div className="settings-section">
-        <h2>Terminal</h2>
-        <p className="muted">
-          Sessions (PTY/SSH/serial) are held by the agent service — closing this
-          window or refreshing never kills a running session. Reconnect via the
-          + buttons or <code>terminal_connect_saved</code>.
-        </p>
-      </div>
-
-      <div className="settings-section">
-        <h2>Transport</h2>
-        <p className="muted">
-          The desktop shell talks to the agent over loopback HTTP/WS with the
-          device token. No cloud dependency — gateway endpoints are optional.
-        </p>
-      </div>
     </div>
   );
 }
