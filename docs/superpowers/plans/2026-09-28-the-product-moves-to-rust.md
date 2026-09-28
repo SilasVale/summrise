@@ -283,3 +283,44 @@ not a number**"** ✓——**而**isolate 的存活不是一个固定的超时**
 **② "三个 Worker" 是**五个部署脚本**✗✓**（**`proxies/` 是三个 ✓**）·
 **③ 而**第六个脚本 `vale-dist`**在账号上而**不在任何计划里**** ✗✓——**`BRAND.md:280` 说它 domainless ✓，
 **而它在同一个窗口里服务了 620 个请求**✓**——**即它不是死的 ✓**。
+
+
+### P2 的转折点：**异步边界那条路用尽了**（`5aa635d2`）
+
+**而这一节是 P2 的**下一步的判据**✓——**因为它把"接着搬哪一个"变成了"选哪条已经算过价的路" ✓✓。**
+
+**① 而那个 agent 核了**每一个剩下的大族的调用点** ✓——**而它们**全是渲染路径**✓✓**：
+
+| 族 | 而它的调用点 |
+|---|---|
+| `path.ts` 的 `derivePath` / `attentionSteps` | `PathView.tsx:104-105` 的 `useMemo` |
+| `liveness.ts` 的 `deviceLiveness` / `sessionLiveness` / `sessionWaiting` / `anyCommandRunning` | 组件渲染 |
+| `runs.ts` 的 `groupOperation` | `RunStrip.tsx:133` 的 `useMemo` |
+| `operationRows` | `ActivityPage.tsx:184` 的 `useMemo` |
+| `useCommandEvents.ts` 的 `groupEvents` | `:483` 的 `useMemo` |
+| `useTrajectory.ts` 的 `groupRounds` | `:102` 的 `useMemo` |
+| `disambiguateLabels` · `cardState` | 渲染 |
+
+**而问题是** ✓：**wasm 是在**第一次调用**时取的 ✓——**所以渲染期间的**同步**调用**等不到它**✓✓**。
+
+**② 而两条路它都**算过价**** ✓✓：
+
+- **① 内联字节 → **+18,913 gz = 首屏载荷（273,252 gz）的 6.9%**** ✗——**"and it GROWS with every
+  family" ✗**（**wasm 的 base64 是 43,448 raw / 18,869 gz ✓，加上胶水的增量 ✓**）——
+  **而按实测的边际（每族 ~1.5–2.7k gz ✓），它是一个**只会变坏**的固定选择 ✓**——
+  **"It cannot be the answer for the render-path majority."** ✓
+- **② 在数据边界派生 → **0 gz**** ✓✓——**而那是计划自己那句**"parse 去 Rust ✓，`useEffect` 留着"✓
+  **的**下一层**✓✓**——**即：**把派生从 `useMemo` 挪到**数据边界**✓（**那里 wasm 已经加载了 ✓**），
+  **而让组件读那个结果 ✓**。
+
+**③ 而它同时留下两条可复用的判据** ✓✓：
+- **`key` 是 `` `${id}:${atMs}` `` ✓——一个 JS 的**数字→文本**转换 ✓，而 Rust 的 `format!` 说
+  `1000000000000000000000` 而 JS 说 `1e+21` ✓——**而一个拼法不同的 key 是一个**不同的 key**✓，
+  于是"重复的转换会**堆叠**而不是替换自己"✓**——**而那正是 `key` 存在的理由 ✓✓**。
+  **修法：问那个**引擎**✓（`Number.prototype.toString` via `js_sys` ✓），**永远不要用 Rust 的
+  formatter** ✗**——**而那与那个 8,879 gz 的 `{:.3}` 教训是**同一个修法**✓✓**。
+- **而它**拒绝了一个豁免清单**✓✓**：`wire-field-check` 把 `logic.parse_monitors(j)` 读成了一个
+  wire 字段 ✓，而它的信息里提供了 `NOT_DEVICE_FIELDS` ✓——**而它拒绝了**✓：
+  **"because the migration adds one export name per family and **an exemption list that grows with it
+  is a gate being quietly exempted**"** ✓✓——**而它改的是**那个正则**✓**（**跳过一个**被调用**的名字 ✓，
+  因为**设备送的是数据 ✓，从来不是一个函数**✓**）——**而那个门禁**仍然报同一个断言**✓**（**20 个字段 ✓**）
