@@ -81,13 +81,16 @@ fn css_dir(rel: &str) -> String {
     files.iter().map(|p| read(p)).collect::<Vec<_>>().join("\n")
 }
 
-/// The landing page carries its CSS inside a JS template literal.
+/// The landing page's CSS.
+///
+/// IT WAS A `<style>` BLOCK INSIDE A JS TEMPLATE LITERAL until the landing migrated to Rust
+/// (2026-09-28), which is why the crop below existed; the sheet is now
+/// `index/landing/assets/page.css`, embedded into the document with `include_str!`. The
+/// migration left this function returning an EMPTY string, and the gate said so in the right
+/// words — "landing (index/page.js): parsed only 0 definitions / 0 uses — the parser read the
+/// wrong thing" — rather than passing on a sheet it had not read.
 fn landing_css() -> String {
-    let src = read(&repo("index/src/page.js"));
-    match (src.find("<style>"), src.find("</style>")) {
-        (Some(a), Some(b)) if b > a => src[a..b].to_string(),
-        _ => String::new(),
-    }
+    read(&repo("index/landing/assets/page.css"))
 }
 
 fn is_name_char(c: char) -> bool {
@@ -189,7 +192,7 @@ const FRONTENDS: [Frontend; 3] = [
         min_used: 5,
     },
     Frontend {
-        name: "landing (index/page.js)",
+        name: "landing (index/landing/assets/page.css)",
         css: landing_css,
         min_defined: 20,
         min_used: 5,

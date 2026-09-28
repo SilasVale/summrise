@@ -2,7 +2,7 @@
 //
 // WHY IT EXISTS (round 81). Three of the four surfaces were measured as rendered: the panel through a generated
 // harness, the console through a build of its own checkout. The landing was measured as TEXT — `landing-check` reads
-// `page.js`'s own values and asserts contrast, exactly one h1 and a 320px reflow — and a static read cannot see the
+// the page's own values and asserts contrast, exactly one h1 and a 320px reflow — and a static read cannot see the
 // cascade as painted, the state that replaces the installer button when a release publishes none, focus order, or a
 // press. This serves the page the WORKER serves, in BOTH installer states and both colour schemes, and measures it
 // with the probes and the judge the other two surfaces use.
@@ -35,12 +35,16 @@ const mode = process.argv[2] || "";
  *  runtime, and the local check that missed it read the OUTPUT instead of the exit code — the rule this repository's
  *  AGENTS.md states in bold, broken by the loop that quotes it.) */
 function landingStyles() {
-  const src = readFileSync(new URL("../../index/src/page.js", import.meta.url), "utf8");
-  const m = /<style>([\s\S]*?)<\/style>/.exec(src);
-  if (!m) {
-    throw new Error("the landing's <style> block was not found — the coverage note would be reading an empty sheet and reporting a clean surface");
+  // THE SHEET IS A FILE NOW (2026-09-28). The landing migrated to Rust and its
+  // stylesheet lives at `index/landing/assets/page.css`, embedded into the document with
+  // `include_str!` — so the `<style>` crop this used to need (the sheet was a block
+  // inside a template literal) has nothing left to extract, and reading the source file
+  // is reading the sheet that ships.
+  const css = readFileSync(new URL("../../index/landing/assets/page.css", import.meta.url), "utf8");
+  if (!css.includes(":root")) {
+    throw new Error("the landing's stylesheet was not found — the coverage note would be reading an empty sheet and reporting a clean surface");
   }
-  return m[1];
+  return css;
 }
 
 // THE TWO STATES A RELEASE CAN PRODUCE, and the reason a rendered arm is worth its cost. When a release publishes no
@@ -61,6 +65,22 @@ function render() {
   // emitted script can serve ONE directory wherever it runs.
   const brand = join(REPO, "index", "public", "brand");
   if (existsSync(brand)) cpSync(brand, join(OUT, "brand"), { recursive: true });
+  // AND THE PAGE'S OWN BEHAVIOURS, AT THE PATH THE PAGE NAMES (2026-09-28). The landing's
+  // two behaviours are wasm now, and the document loads them from an ABSOLUTE
+  // `/summrise-agent/landing/summrise_landing.js` — the same prefix the CDN serves them
+  // under, because the page is served at `/` and at `/index.html` and a relative specifier
+  // would resolve differently at the two. The emitted script serves ONE directory, so
+  // without this copy the sweep would measure a page whose module never loads: no canvas,
+  // no toggle, and — the part that matters — a run that reports those absences as the
+  // page's condition rather than as its own missing file.
+  const landingPkg = join(REPO, "index", "public", "summrise-agent", "landing");
+  if (existsSync(landingPkg)) {
+    cpSync(landingPkg, join(OUT, "summrise-agent", "landing"), { recursive: true });
+  } else {
+    throw new Error(
+      `the landing's wasm package is not at ${landingPkg} — run index/landing/build.sh, or this sweep measures a page whose behaviours never boot`,
+    );
+  }
   return PAGES.map(([label]) => label);
 }
 
@@ -153,9 +173,10 @@ function judge(file) {
   const check = report.entryCheck || {};
   if (check.stale) findings.push(`the delivered entry is ${check.bytes} bytes / sha ${check.sha} but this sweep was emitted against ${check.expected && check.expected.bytes} / ${check.expected && check.expected.sha} — every measurement below is of a stale build`);
   // THE STATES THIS SHEET DECLARES AND THIS RUN NEVER PAINTED (round 51 of the standing goal), the third and last
-  // surface to get the queue the panel has had since round 32. The landing's styles are not a sheet of their own: they
-  // are a `<style>` block inside `index/src/page.js`, so they are cropped out of the module — the same extraction
-  // `feedback-check.mjs` and `landing-check.mjs` already use, and it THROWS rather than measuring an empty string,
+  // surface to get the queue the panel has had since round 32. The landing's styles were a `<style>` block inside
+  // `index/src/page.js` and were cropped out of the module; the landing migrated to Rust (2026-09-28) and they are a
+  // stylesheet of their own at `index/landing/assets/page.css`, so `landingStyles` reads that file — and it THROWS
+  // rather than measuring an empty string,
   // because a note about zero declared families reads exactly like a clean surface.
   for (const line of markCoverageNotes(landingStyles(), report)) console.log(line);
   console.log(reportSummary("landing", report));

@@ -3,14 +3,14 @@
 // Read this when you change this file: the mutation is how you find out whether the gate can still
 // fail at all. A gate that cannot be broken is worse than no gate.
 //
-// MUTATION: put the retired palette back (`colourOf('--aura-1', '#00ffff')` in the landing), or give a copy a fallback that is not a brand colour
-// RESULT:   exit 1 either way: "index/src/page.js reads the RETIRED --aura-1 — that is the palette the rebrand removed" and "falls back to #00ffff, which is not one of the brand's colours — a fallback is what people SEE when a token is missing". It holds all three copies (panel module, console module, landing inline script) to FIVE facts (the fifth added in round 48): brand tokens and no retired one, every hex fallback is a brand colour, the draw is `rgba(` from a triple rather than `hsla(` from a hue, and it refuses to run under `prefers-reduced-motion` — a canvas loop is motion the CSS-level `motion-check` cannot see. Verified on the device: with reduced motion emulated the field reports rAF 0/s, clears 0/s, fills 0/s and no canvas in the DOM. The fifth is that THE THREE COPIES DRAW THE SAME FIELD — the same cap, the same density and the same peak alpha — which nothing compared until round 48: the numbers happened to agree (90 / 5.5 per 100000 / MAX_ALPHA * twinkle * 0.35) and would have drifted apart in silence, since facts 1-4 are all about where the COLOUR comes from and three copies can agree on every one of them while drawing visibly different fields. The density needed care: the modules write `DENSITY = 0.55` and apply it as `(w * h / 100_000) * DENSITY * 10`, the landing writes `(w * h / 100000) * 5.5`, so the check resolves the named constant and compares the EFFECTIVE per-100000 value instead of the literals. Mutation: `MAX_MOTES = 140` in the landing fails with "index/src/page.js draws a different field: cap is 140 where the others are 90". Rendered evidence for the landing copy: mote cores measure 255,210,60 (= `#ffd43b` exactly), 243,156,0 and 232,87,12, with ZERO blue-dominant pixels
+// MUTATION: put the retired palette back (`colour_of("--aura-1", "#00ffff")` in the landing), or give a copy a fallback that is not a brand colour
+// RESULT:   exit 1 either way: "index/landing/src/interactive.rs reads the RETIRED --aura-1 — that is the palette the rebrand removed" and "falls back to #00ffff, which is not one of the brand's colours — a fallback is what people SEE when a token is missing". It holds all three copies (panel module, console module, the landing's RUST) to FIVE facts (the fifth added in round 48): brand tokens and no retired one, every hex fallback is a brand colour, the draw is `rgba(` from a triple rather than `hsla(` from a hue, and it refuses to run under `prefers-reduced-motion` — a canvas loop is motion the CSS-level `motion-check` cannot see. Verified on the device: with reduced motion emulated the field reports rAF 0/s, clears 0/s, fills 0/s and no canvas in the DOM. The fifth is that THE THREE COPIES DRAW THE SAME FIELD — the same cap, the same density and the same peak alpha — which nothing compared until round 48: the numbers happened to agree (90 / 5.5 per 100000 / MAX_ALPHA * twinkle * 0.35) and would have drifted apart in silence, since facts 1-4 are all about where the COLOUR comes from and three copies can agree on every one of them while drawing visibly different fields. The density needed care: the modules write `DENSITY = 0.55` and apply it as `(w * h / 100_000) * DENSITY * 10`, the landing writes `(w * h / 100000) * 5.5`, so the check resolves the named constant and compares the EFFECTIVE per-100000 value instead of the literals. Mutation: `const MAX_MOTES: usize = 140;` in the landing fails with "index/landing/src/interactive.rs draws a different field: cap is 140 where the others are 90". Rendered evidence for the landing copy: mote cores measure 255,210,60 (= `#ffd43b` exactly), 243,156,0 and 232,87,12, with ZERO blue-dominant pixels
 
 // particles-check.mjs — THREE COPIES OF ONE FIELD, HELD TO ONE SET OF FACTS.
 //
 // WHY THIS EXISTS (round 15 of the standing goal). The ambient particle field exists three times — the panel and
-// the console as TypeScript modules (a canvas behind every surface), the landing inlined in its page script
-// (because that page has no bundler). The objective's spine says no surface should compute its own version of the
+// the console as TypeScript modules (a canvas behind every surface), the landing in RUST compiled to wasm
+// (2026-09-28: that page has no JS left at all). The objective's spine says no surface should compute its own version of the
 // same fact, and this is the one place where the copies are unavoidable; so the FACTS they must share are checked
 // instead of the code being shared.
 //
@@ -38,7 +38,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 const FIELDS = [
   ["agent/resources/panel-react/src/lib/particles.ts", "the panel's — a module, bundled"],
   ["gateway/ui/src/lib/particles.ts", "the console's — a module, bundled"],
-  ["index/src/page.js", "the landing's — INLINE, because that page has no bundler"],
+  ["index/landing/src/interactive.rs", "the landing's — RUST now, compiled to wasm; the page has no JS left to inline it into"],
 ];
 
 /** The brand's own values, across all three surfaces: the white-text gradient pair, the accent, and the mark. */
@@ -103,6 +103,29 @@ const fieldOf = (rel, code) => {
     const m = new RegExp("(?:const |var |let )?" + name + "\\s*=\\s*([0-9.]+)").exec(code);
     return m ? Number(m[1]) : null;
   };
+  // THE FOURTH COPY IS RUST (the landing migrated, 2026-09-28), AND RUST SPELLS THE SAME
+  // FOUR NUMBERS DIFFERENTLY: a const carries a type between its name and its `=`
+  // (`const MAX_MOTES: usize = 90`), and a minimum is a method call (`MAX_MOTES.min(…)`).
+  // Every expression below therefore reads null for it, which the guard at the bottom
+  // reports as "a comparison that cannot see all three" — the right FAILURE, but not a
+  // useful check. The facts are unchanged; only the reader follows the language.
+  if (rel.endsWith(".rs")) {
+    const konst = (name) => {
+      const m = new RegExp("(?:const|static)\\s+" + name + "\\s*:\\s*[A-Za-z0-9_<>]+\\s*=\\s*([0-9.]+)").exec(code);
+      return m ? Number(m[1]) : null;
+    };
+    // The USE is checked as well as the value, exactly as `Math.min(MAX_MOTES` checks it
+    // for the three JavaScript copies: a constant nobody multiplies by is not a density.
+    const used = code.includes("MAX_MOTES.min(");
+    const peak = code.includes("MAX_ALPHA * tw * TWINKLE");
+    return {
+      rel,
+      cap: used ? konst("MAX_MOTES") : null,
+      alpha: konst("MAX_ALPHA"),
+      density: used ? konst("DENSITY") : null,
+      alphaFactor: peak ? konst("TWINKLE") : null,
+    };
+  }
   const cap = num("MAX_MOTES");
   const alpha = num("MAX_ALPHA");
   let density = null;
