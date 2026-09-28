@@ -492,14 +492,20 @@ repair is worse. Substituting the `install dir:` that `summrise status` prints i
 `added 1 package` — the agent's install dir is not the npm prefix, which is the directory the `summrise` command resolves
 from. The non-PowerShell form, which needs no quoting because the 8.3 short name has no spaces:
 
-    where summrise                                   # -> D:\Program Files\nodejs\summrise
+    (Get-Command summrise.cmd).Source                # -> D:\Program Files\nodejs\summrise.cmd
+    #   NOT `where summrise` — it prints NOTHING in the agent-hosted PTY, which runs as SYSTEM with
+    #   a cwd of C:\Windows\System32\config\systemprofile and a PATH holding no npm prefix.
+    #   summrise IS installed and working; `where` simply has nothing to find.
     npm i -g --prefix D:\PROGRA~1\nodejs https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
     summrise status                                  # `this CLI:` is the ONLY proof; npm prints "changed 1 package" either way
 
 And `summrise update` returns a **502 from the device agent** while it swaps the exe and restarts — that is the swap, not a
 failure; `summrise status` afterwards is what says whether it took (it did: `latest: 1.2.475 (this device is current)`).
 
-**AND THE SWAP CAN TAKE HOURS, NOT THE TEN SECONDS THIS FILE USED TO IMPLY.** Measured 2026-09-28: a device took `summrise update`, its tunnel answered **502** then **530 / error code 1033** for roughly TWO HOURS, and `startup.log` showed the agent starting normally at 00:13 with `release marker: 1.2.487` — **the swap had SUCCEEDED, slowly.** **AND THE OBVIOUS EXPLANATION IS WRONG, WHICH IS WHY THIS SENTENCE WAS REWRITTEN**: the retries are 12x800ms for the exe and 3x8x500ms for the desktop sources — **about 25 seconds in total, not two hours** — so the dark window is NOT the backoff: the run journal's heartbeat shows the AGENT alive throughout, and it was the TUNNEL with no connector — which 1.2.488 now logs. **The `finally` (1.2.486) is what brought it back; nothing brings it back FAST**, and "the device is never left dark" is a promise about the outcome rather than the duration. **Do not call a device broken inside that window — read `startup.log`.**
+**AND THE SWAP CAN TAKE MINUTES TO HOURS, AND THE OBVIOUS EXPLANATION IS WRONG.** Measured 2026-09-28: a device's
+tunnel answered 502 then 530/1033 for ~2 hours while `startup.log` showed the agent starting normally at 00:13 with
+its new release marker — **the swap had SUCCEEDED, slowly.** The retries total ~25 seconds, so the dark window is
+**the tunnel with no connector**, not backoff. **Do not call a device broken inside that window — read `startup.log`.**
 
 **AND THREE THINGS BITE A FIRST-TIME WINDOWS INSTALL, ALL MEASURED ON 2026-09-27 WHILE INSTALLING A FRESH MACHINE:**
 
