@@ -60,86 +60,14 @@
 //! RESULT:   fails, printing the file, the field name, and the sentence that says which corpus is
 //!           missing it — "the agent's sources and fixtures never spell" for the gateway layer.
 
+mod common;
+
+use common::{
+    decomment, decomment_line, decommented_corpus, files_under, is_word, read, rel_to_repo, repo,
+};
+
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-/// `cargo test` runs from the CRATE root, not the repo root.
-const CRATE: &str = env!("CARGO_MANIFEST_DIR");
-
-fn repo() -> PathBuf {
-    Path::new(CRATE)
-        .parent()
-        .expect("the crate lives one level below the repo root")
-        .to_path_buf()
-}
-
-fn read(rel: &str) -> String {
-    let p = repo().join(rel);
-    fs::read_to_string(&p).unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()))
-}
-
-// ── the shared scanner ─────────────────────────────────────────────────────────────────────────
-
-/// A COMMENT IS NOT A PRODUCER, NOR A DERIVATION (rounds 135-137).
-///
-/// For this family a comment that satisfied the scan was a FALSE NEGATIVE — a requirement met by
-/// prose, so a deleted producer could be kept alive by a comment. The strip is deliberately
-/// conservative because `//` also opens a URL: block comments always go; a whole-line `//` comment
-/// goes; a trailing `// …` goes only when the character before it is not a colon.
-fn decomment(text: &str) -> String {
-    let without_blocks = strip_block_comments(text);
-    without_blocks
-        .split('\n')
-        .map(decomment_line)
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn strip_block_comments(text: &str) -> String {
-    let c: Vec<char> = text.chars().collect();
-    let mut out = String::new();
-    let mut i = 0;
-    while i < c.len() {
-        if c[i] == '/' && c.get(i + 1) == Some(&'*') {
-            let mut j = i + 2;
-            let mut close = None;
-            while j + 1 < c.len() {
-                if c[j] == '*' && c[j + 1] == '/' {
-                    close = Some(j);
-                    break;
-                }
-                j += 1;
-            }
-            if let Some(k) = close {
-                i = k + 2;
-                continue;
-            }
-        }
-        out.push(c[i]);
-        i += 1;
-    }
-    out
-}
-
-fn decomment_line(line: &str) -> String {
-    if line.trim_start().starts_with("//") {
-        return String::new();
-    }
-    let c: Vec<char> = line.chars().collect();
-    let mut p = 0;
-    while p + 1 < c.len() {
-        if c[p] == '/' && c[p + 1] == '/' && (p == 0 || c[p - 1] != ':') {
-            return c[..p].iter().collect();
-        }
-        p += 1;
-    }
-    line.to_string()
-}
-
-fn is_word(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
-}
 
 fn is_lower_or_digit(c: char) -> bool {
     c.is_ascii_lowercase() || c.is_ascii_digit()
@@ -267,52 +195,6 @@ fn spoken(corpus: &str, field: &str) -> bool {
         }
     }
     false
-}
-
-fn walk(dir: &Path, test: &dyn Fn(&str) -> bool, out: &mut Vec<PathBuf>) {
-    let entries =
-        fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
-    for e in entries {
-        let p = e.expect("a readable directory entry").path();
-        if p.is_dir() {
-            walk(&p, test, out);
-        } else {
-            let name = p
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            if test(&name) {
-                out.push(p);
-            }
-        }
-    }
-}
-
-fn files_under(dir: &str, test: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    walk(&repo().join(dir), test, &mut out);
-    out
-}
-
-fn decommented_corpus(paths: &[PathBuf]) -> String {
-    paths
-        .iter()
-        .map(|p| {
-            decomment(
-                &fs::read_to_string(p)
-                    .unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display())),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn rel_to_repo(p: &Path) -> String {
-    p.strip_prefix(repo())
-        .expect("a walked path is under the repo root")
-        .to_string_lossy()
-        .replace('\\', "/")
 }
 
 fn fixtures_corpus() -> String {
