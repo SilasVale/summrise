@@ -97,7 +97,10 @@ mapfile -t gates < <(
 #
 # AND AGAIN: `console-marks-check.mjs` moves to `agent/tests/console_marks.rs` and the derivation
 # reads 26, so the floor is 22.
-if [ "${#gates[@]}" -lt 22 ]; then
+#
+# AND AGAIN: `workflow-shell-check.mjs` moves to `agent/tests/workflow_shell.rs` and the derivation
+# reads 25, so the floor is 21.
+if [ "${#gates[@]}" -lt 21 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi

@@ -609,12 +609,15 @@ jobs:
       # which of the device's two version fields wins, in different packages with no shared module — and BOTH were
       # broken independently: round-304 on the gateway side (the frozen Cargo `version` showed v1.0.145 forever), and
       # the panel records the other direction.
-      - name: every workflow s embedded shell parses
-        # A script inside a workflow is still a script, and nothing checked that ours ran. release.yml s publish
-        # step had never executed: an unclosed `<<<"` swallowed two lines and the parser gave up three lines
-        # later, so the runner blamed a line that is valid. One character, unreachable for 40 rounds because
-        # only a SECOND publish reaches it.
-        run: node scripts/test/workflow-shell-check.mjs
+      # THE SHELL INSIDE EVERY `run:` BLOCK MOVED TO RUST — `agent/tests/workflow_shell.rs`, which the `agent`
+      # job's `cargo test -p summrise-agent` runs. The step here ran `scripts/test/workflow-shell-check.mjs`, and
+      # that file is DELETED rather than left beside the new gate: two gates for one rule is two gates. Both
+      # implementations were run over the same tree on four cases — the clean tree, the historical unclosed-string
+      # defect in a BLOCK scalar, an unclosed quote on an INLINE scalar, and a valid line that must NOT bite — and
+      # the verdict is identical on all four, 82 run blocks read in each. The failure bodies are identical too,
+      # after normalising the temp path the `.mjs` pasted verbatim (its own failure output differs on every run;
+      # the Rust's is reproducible). Nothing replaced the step, deliberately: a `cargo test` step here would compile
+      # the crate a second time in a job with no Rust cache.
       # EVERY WORKFLOW FILE IS VALID YAML MOVED TO RUST — `agent/tests/workflow_yaml.rs`, which the `agent` job's
       # `cargo test -p summrise-agent` runs. The gate above cannot see this, and that is MEASURED rather than assumed
       # (round 273): it extracts `run:` blocks, so a line with NO `run:` key is invisible to it — which is how three
