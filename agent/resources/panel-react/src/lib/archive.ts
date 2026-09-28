@@ -26,6 +26,14 @@
 // folded into `state` by `session_log::terminal_state_of`, so that stamp is the
 // ordering key — and a record without one sorts LAST rather than being placed
 // by guess.
+//
+// AND THIS FILE IS NOW HALF A SEAM: `archiveEntries` is a call into Rust (see its
+// own doc), while the four functions below it are still TypeScript — not because
+// they are hard, but because they are called during RENDER and the wasm is loaded
+// lazily. `mapLast`/`nonEmptyString`/`finiteNumber` above went WITH the function
+// that used them; the TypeScript copies are gone, so there is no second
+// derivation of "what the device recorded" left in the panel.
+import { panelLogic } from "../wasm/panelLogic";
 
 /** The last event of a session, folded by the device
  *  (`session_log::terminal_state_of`): kind/ts/reason/exit_code/status. Every
@@ -64,34 +72,6 @@ export interface ArchiveEntry {
  *  uses, rather than an unbounded list. */
 export const ARCHIVE_PAGE = 50;
 
-function nonEmptyString(v: unknown): string | null {
-  return typeof v === "string" && v.trim().length > 0 ? v : null;
-}
-
-function finiteNumber(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-/** One `state` object from the route → its usable fields. */
-function mapLast(state: unknown): ArchiveLastEvent | null {
-  if (!state || typeof state !== "object") return null;
-  const s = state as Record<string, unknown>;
-  const kind = nonEmptyString(s.kind) ?? "";
-  const last: ArchiveLastEvent = {
-    kind,
-    ts: finiteNumber(s.ts),
-    status: nonEmptyString(s.status),
-    exitCode: finiteNumber(s.exit_code),
-    reason: nonEmptyString(s.reason),
-  };
-  // A state object carrying NOTHING usable is absence, not an empty event: the
-  // component then draws no state word at all.
-  if (!kind && last.ts == null && last.status == null && last.exitCode == null && last.reason == null) {
-    return null;
-  }
-  return last;
-}
-
 /**
  * `GET /api/sessions` → `{ ok, sessions: [{ id, state }] }` → entries.
  *
@@ -100,32 +80,38 @@ function mapLast(state: unknown): ArchiveLastEvent | null {
  * no sessions", which is a claim about the DEVICE drawn from a response the
  * panel failed to understand — the same class of lie as a failed poll
  * tombstoning every live session (round-113).
+ *
+ * ── THIS FUNCTION IS RUST NOW (P2, 2026-09-28) ───────────────────────────────
+ *
+ * The body above moved to `agent/resources/panel-logic/src/archive.rs` —
+ * transliterated, not rewritten: the same two sentences, the same predicates
+ * (JS `typeof`, JS `trim()`, `Number.isFinite`), the same dropped rows. The wasm
+ * is built by `panel-logic/build.sh`, served by `web/panel.rs` beside panel.js,
+ * and loaded through `src/wasm/panelLogic.ts` — the seam, which P0 classifies as
+ * BOUNDARY because it computes nothing.
+ *
+ * WHY IT IS `async` AND THE OTHERS BELOW ARE NOT. The wasm is fetched at the
+ * first call rather than at page load, which is criterion ③ of the migration
+ * plan: it is not in the first-load payload and it does not block the page. A
+ * synchronous call during render cannot wait for that fetch, so a move is free
+ * exactly where the call site is already asynchronous — and this one is: it is a
+ * `useDeviceRead` fold, running after `callApi` resolved. `newestFirst`,
+ * `pageOf`, `lastEventWords` and `archiveClock` below are called during RENDER
+ * of `ArchivePage`, so they stay here until the sync story is decided; the
+ * numbers behind that decision are in this change's commit message.
+ *
+ * The two sentences the device's unreadable body produces are unchanged, and
+ * `useDeviceRead` still carries them out as the reason a read failed.
  */
-export function archiveEntries(payload: unknown): ArchiveEntry[] {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("session archive: response is not an object");
+export async function archiveEntries(payload: unknown): Promise<ArchiveEntry[]> {
+  const logic = await panelLogic();
+  try {
+    return logic.archive_entries(payload) as ArchiveEntry[];
+  } catch (e) {
+    // The wasm raises the sentence as a STRING (`JsValue::from_str`); this module has always
+    // thrown an `Error`, and `useDeviceRead` reads `e.message` as the failure's reason.
+    throw new Error(String(e));
   }
-  const list = (payload as Record<string, unknown>).sessions;
-  if (!Array.isArray(list)) {
-    throw new Error("session archive: response carries no sessions array");
-  }
-  const out: ArchiveEntry[] = [];
-  for (const row of list) {
-    if (!row || typeof row !== "object") continue;
-    const sid = nonEmptyString((row as Record<string, unknown>).id);
-    if (!sid) continue; // unnameable — the panel cannot open what it cannot name
-    // Both keys must be present for the identity to be usable: a row carrying a
-    // kind but no label is a shape the device does not produce, and half an
-    // identity rendered as if whole is how a placeholder becomes a fact.
-    const kind = nonEmptyString((row as Record<string, unknown>).kind);
-    const label = nonEmptyString((row as Record<string, unknown>).label);
-    out.push({
-      sid,
-      last: mapLast((row as Record<string, unknown>).state),
-      identity: kind && label ? { kind, label } : null,
-    });
-  }
-  return out;
 }
 
 /**

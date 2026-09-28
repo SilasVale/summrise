@@ -1,0 +1,45 @@
+[package]
+name = "panel-logic"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# NO `[workspace] members` LINE HERE ON PURPOSE, and the empty table is what keeps this crate out
+# of the agent's workspace: `agent/Cargo.toml` lists its members explicitly, and cargo REFUSES to
+# build a package that sits inside a workspace directory without being a member ("current package
+# believes it's in a workspace when it's not"). This crate is not part of the agent's build in
+# either direction — the release pipeline must never try to build a wasm cdylib for
+# x86_64-pc-windows-msvc, and this crate must never be built for the host (its whole surface is
+# `js_sys`, which has no host implementation).
+[workspace]
+
+[dependencies]
+# BOTH PINNED TO WHAT IS INSTALLED (`wasm-bindgen --version` -> 0.2.129). wasm-pack REFUSES a
+# mismatch between the crate and the CLI, and when the crate does not pin one it fetches a matching
+# CLI from GitHub releases — which is the path that never finishes on this box (P0's README).
+# Pinning makes the build use the CLI already on PATH and turns the version into a decision in a
+# file rather than a side effect. `js-sys` is the same generation as the bindings it belongs to.
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"
+
+# WHAT IS DELIBERATELY NOT A DEPENDENCY, because it was MEASURED before it was chosen (2026-09-28,
+# same machine, same flags, `wasm-opt -Oz` after the build):
+#
+#   serde_json          43,824 gz wasm + 2,140 gz glue   (a JSON string in, a JSON string out)
+#   serde-wasm-bindgen  31,046 gz wasm + 3,967 gz glue   (JsValue in, JsValue out, no text)
+#   this crate, js-sys    see build.sh's output           (JsValue in, JsValue out, no serde)
+#
+# The floor for ANY wasm crate here is 7,016 gz wasm + 2,089 gz glue (P0's proof crate, which
+# contains an i32 add and a five-byte string). serde_json is therefore ~37 KB gz over the floor —
+# 13.5% of the panel's entire 271,487 gz first-load payload and 39% of the console's 112,718 gz —
+# paid for a serialization round trip this crate does not need. The brief's warning (one
+# `format!("{:.3}")` cost 8,879 gz) is the same class of cost, four times smaller.
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
