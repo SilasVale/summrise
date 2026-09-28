@@ -159,3 +159,20 @@ pub fn git_ls_files(dir: &str) -> Vec<String> {
         .map(str::to_string)
         .collect()
 }
+
+/// `git ls-files` with NO pathspec — every tracked path, in the index's own order, which is the list
+/// `production-host-check` walks. Its own function rather than `git_ls_files("")`, because an empty
+/// pathspec is a question about git's matching rules and this is a question about the index.
+pub fn git_ls_files_all() -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(repo())
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run git ls-files: {e}"));
+    assert!(out.status.success(), "git ls-files failed");
+    String::from_utf8_lossy(&out.stdout)
+        .split('\n')
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}

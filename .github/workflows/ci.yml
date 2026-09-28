@@ -560,14 +560,9 @@ jobs:
       # be named here, and the grader for the local capability has to be the same list CI runs.
       - name: every gate, in one command, as a developer would run them
         run: bash scripts/test/all-gates.bash
-      # WHERE A PRODUCTION HOST MAY APPEAR (round 46 of the standing goal). The operator asked twice to get the
-      # deployment's domain out of a PUBLIC repository; 493 occurrences across 118 files later, the honest answer is
-      # that three quarters of it is the infrastructure this repository IS. So the files that may name one are DECLARED
-      # with reasons, and any other file that mentions one fails here — the list may only shrink. (This comment is what
-      # the gate caught first: it spelled the domain it was describing.)
-
-      - name: production hosts are declared
-        run: node scripts/test/production-host-check.mjs
+      # WHERE A PRODUCTION HOST MAY APPEAR is a RUST gate now (`agent/tests/production_host.rs`, batch 6 of the P1
+      # migration): same declared list, same ratchet, same two streams — and it is run by the `cargo test` step, which
+      # is already in this job. The step that ran `production-host-check.mjs` went with the file.
       # THREE STEPS, NOT THREE ORPHANED LINES (round 273). Each of these three gates was added by a separate round whose
       # commit message said "the invocation, beside production-host-check" -- and each wrote its command on the line BELOW
       # that step's `run:` instead of starting a new `- name:`/`run:` pair. YAML has no `run` key with a multi-line scalar
