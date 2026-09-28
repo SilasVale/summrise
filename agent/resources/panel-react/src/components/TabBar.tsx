@@ -56,14 +56,15 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   const { overflowing: more, hidden } = useStripOverflow(tabsRef, sessions.length);
   // TEN TABS, ONE LABEL. Measured on the live device (2026-09-17): 16 sessions, 10 of them labelled
   // `pwsh`, so the strip rendered ten identical tabs truncated to `pws…` — no way to tell which session
-  // was which, in the ONLY surface this density offers for reaching them. The first keeps the bare label
-  // (the least surprising change), and repeats take a counter: `pwsh`, `2·pwsh`, `3·pwsh`.
+  // was which, in the ONLY surface this density offers for reaching them. A label that appears more than
+  // once is now numbered on EVERY member — `1·pwsh`, `2·pwsh`, `3·pwsh` — and a label that appears once
+  // stays bare, because there is no set for it to be a member of.
   //
   // The distinguisher is a NUMBER because that is the only information the row actually has — a pty
   // session's label is its shell, its sid is opaque, and two PowerShell sessions ARE interchangeable
   // until you look inside them. A number says exactly that instead of implying a difference.
-  // IT LEADS THE LABEL, and `lib/sessionLabels.ts` carries the measurement that moved it there: as a
-  // suffix it was the first thing `text-overflow: ellipsis` removed, so the token that made two tabs
+  // IT LEADS THE LABEL, and `lib/sessionLabels.ts` carries the measurements that put it there: as a
+  // SUFFIX it was the first thing `text-overflow: ellipsis` removed, so the token that made two tabs
   // different was the token the renderer deleted — and the operator's two `stc@192.168.1.1` tabs read
   // as one. The helper lives in lib/ because the DESKTOP strip needs it too and had been left out
   // (round 170 found `d1, serial:COM4, d1, …` on a rendered page). One implementation, two strips.

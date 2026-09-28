@@ -38,11 +38,43 @@
 //
 // `·` IS THIS REPOSITORY'S SEPARATOR (the status strip, the archive row, the memory card all use it), so
 // the counter reads as a MARK ON the label rather than as part of the name: `2·stc@192.168.1.1`.
+//
+// ── THE WHOLE COLLISION IS NUMBERED, AND `·` WAS CHOSEN BY MEASUREMENT ────────────────────────────────
+//
+// A LONE `2` IS NOT A COUNTER. An independent review of the rendered strip made the point that numbering
+// only the repeats makes the mark a MUTATION of one label rather than an ordinal over a set: a reader who
+// sees `2·` and no `1·` has to work out what the 2 is the second OF. So a label that appears more than once
+// is numbered on EVERY member, the first included; a label that appears once stays bare, because there is
+// no set for it to be a member of.
+//
+// AND THE SEPARATOR IS NOT A TASTE CHOICE — IT IS THE ONLY ONE THAT FITS. The same review objected, fairly,
+// that `·` is an identifier character, so `2·stc@192.168.1.1` can be misread as the username `2·stc`. Its
+// preferred mark was `#`, which is already this repository's duplicate mark (`lib/runs.ts`). MEASURED IN THE
+// DEVICE'S OWN FONT at the inactive tab's weight, against the 112px cap:
+//
+//     stc@192.168.1.1      100.98px   fits
+//     stc@192.168.1.1 2    112.45px   OVER by 0.45 — this is the defect
+//     2·stc@192.168.1.1    111.73px   fits, and so does 1·stc@192.168.1.1
+//     1 stc@192.168.1.1    112.45px   OVER by 0.45
+//     #1 stc@192.168.1.1   120.75px   OVER by 8.75
+//     #1·stc@192.168.1.1   120.03px   OVER by 8.03
+//
+// `#1 ` costs 8.75px and puts BOTH labels over the cap, so it does not remove a truncation — it ADDS one,
+// and the one it adds eats the tail of the address on the tab that reads perfectly well today. `·` is the
+// narrowest mark available and the only form measured that keeps the whole address readable. The ambiguity
+// the review named is real, and it is recorded here rather than argued away; what buys it back is the
+// counter LEADING — a reader who mis-parses the mark still sees two different strings, which is the whole
+// of what this function is for.
 export function disambiguateLabels<T extends { label: string }>(items: T[]): string[] {
+  // TWO PASSES, because "does this label collide" is a fact about the WHOLE list that the first pass cannot
+  // know. The one-pass version numbered a repeat by its position in the array, which is why only the repeats
+  // carried a mark at all.
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
   const seen = new Map<string, number>();
   return items.map((item) => {
     const n = (seen.get(item.label) ?? 0) + 1;
     seen.set(item.label, n);
-    return n === 1 ? item.label : `${n}·${item.label}`;
+    return counts.get(item.label) === 1 ? item.label : `${n}·${item.label}`;
   });
 }
