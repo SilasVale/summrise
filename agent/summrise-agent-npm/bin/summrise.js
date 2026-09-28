@@ -568,7 +568,30 @@ function desktopTaskPs(installQ) {
         `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
         `$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
         `$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest`,
-        `$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
+        // NO EXECUTION TIME LIMIT -- the same value, in the same spelling, the agent's own task has
+        // carried since round 118 for the same reason: `- ExecutionTimeLimit 0   never kill the
+        // running task`. It was `-Minutes 10` here, and that WAS the defect.
+        //
+        // WHY A LIMIT KILLS A SHELL MEANT TO LIVE INDEFINITELY: this task's action is
+        // desktop-pulse.vbs -> ensure-desktop.ps1 -> start-desktop.ps1, and that last line is
+        // `& electron.exe .` -- the PowerShell CALL OPERATOR, which WAITS. The PowerShell the task
+        // launched therefore stays alive for as long as the shell does, as the shell's PARENT, and
+        // Task Scheduler enforces ExecutionTimeLimit on that process tree. Ten minutes after every
+        // start the scheduler killed the running shell; five minutes later the guarded pulse
+        // correctly brought a fresh one back; ten minutes after that it died again. The operator
+        // reported that as "反复重启", four times.
+        //
+        // NOTHING RELIED ON THE KILL, which is why removing it is the fix rather than a trade. This
+        // repository's recovery for a shell that is GONE is the guarded 5-minute pulse, and
+        // summrise-desktop-electron/src/main.ts says so from the other side, naming a logon-only task
+        // as one that "cannot recover a wedged shell". A shell that is RUNNING but wedged was never
+        // this limit's business either: the pulse's guard is a process-EXISTENCE check
+        // (`if (Get-Process electron) { exit }`), so it cannot see a wedged shell whether the limit is
+        // ten minutes or absent. `summrise update` is what heals a wedged shell, and its log says so.
+        //
+        // Measured on desktop-14rjcr8: under PT10M the four electron PIDs were replaced about every
+        // ten minutes; under PT0S the same four PIDs were still there 11 minutes later.
+        `$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
         `Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1,$dw1) -Principal $pr -Settings $st -Force | Out-Null`,
         `Start-ScheduledTask -TaskName SummriseDesktop`,
     ];
@@ -3084,7 +3107,15 @@ const commands = {
             `  $da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb1 + '"') -WorkingDirectory '${q}'`,
             `  $dt1 = New-ScheduledTaskTrigger -AtLogOn`,
             `  $dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
-            `  Set-ScheduledTask -TaskName 'SummriseDesktop' -Action $da -Trigger @($dt1, $dw1) | Out-Null`,
+            // AND THE SETTINGS, WHICH IS THE HALF THAT REACHES A MACHINE ALREADY INSTALLED.
+            // This call used to pass only -Action and -Trigger, and `Set-ScheduledTask` PRESERVES the
+            // components it is not given — so an execution limit already on the task survived every
+            // update. That is the wrong shape for a heal: `summrise update` is the only mechanism that
+            // reaches the fleet, and a device carrying the old 10-minute limit would have kept it
+            // forever while its log said "hardened". The value is the same one `setup` writes, so the
+            // two cannot diverge — and installer_integrity.rs holds both ends to it.
+            `  $dst = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew`,
+            `  Set-ScheduledTask -TaskName 'SummriseDesktop' -Action $da -Trigger @($dt1, $dw1) -Settings $dst | Out-Null`,
             `  "[$(Get-Date -Format o)] desk: SummriseDesktop hardened (guarded 5-min pulse)" | ${log}`,
             `}`,
             `if ((Test-Path $deskDir) -and (Test-Path $deskStart)) {`,

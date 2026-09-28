@@ -272,6 +272,22 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   assert.match(task, /Register-ScheduledTask SummriseDesktop/);
   assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
 
+  // AND THE TASK MUST NOT BE ABLE TO KILL THE SHELL. This builder wrote a 10-minute
+  // ExecutionTimeLimit, and that WAS the defect: start-desktop.ps1 ends on `& electron.exe .` —
+  // the PowerShell CALL OPERATOR, which WAITS — so the PowerShell the task launched stays alive
+  // as the shell's PARENT, and Task Scheduler enforces the limit on that whole tree. The running
+  // shell was killed every ten minutes and the guarded 5-minute pulse correctly revived it,
+  // which the operator reported as "反复重启" four times (measured on desktop-14rjcr8).
+  //
+  // THE WHOLE ARGUMENT IS ASSERTED, NOT A `0` SUBSTRING — see the bootTaskPs test below, whose
+  // `/ExecutionTimeLimit.*0/` reads as a pin and is not one: `-Minutes 10` contains a "0" and
+  // satisfied it for as long as the value was wrong.
+  assert.match(task, /-ExecutionTimeLimit \(New-TimeSpan -Seconds 0\)/);
+  assert.ok(
+    !/-ExecutionTimeLimit \(New-TimeSpan -Minutes/.test(task),
+    "no finite execution limit: the shell is meant to outlive the task that launched it",
+  );
+
   const start = desktopStartPs("C:\\Summrise").join("\n");
   for (const word of ["already-running", "started", "not-started"]) {
     assert.ok(start.includes(word), `the command must be able to say ${word}`);
@@ -791,7 +807,16 @@ test("bootTaskPs: explicit config argument, hardened SYSTEM task, optional kick"
     "the exe path must never be the argument",
   );
   assert.match(reg, /-UserId SYSTEM/, "SYSTEM principal");
-  assert.match(reg, /ExecutionTimeLimit.*0/, "never kill the running task");
+  // THE WHOLE ARGUMENT, NOT `/ExecutionTimeLimit.*0/` — that regex was here, and it reads as a
+  // pin while passing on `-Minutes 10`, because "10" contains a "0". The agent's task is the
+  // sibling that got this RIGHT (round 118: a 72h inherited default "silently kills the agent
+  // after 3 days"), and the desktop task is where the lesson was not applied. Same value, same
+  // spelling, so one assertion covers both.
+  assert.match(
+    reg,
+    /-ExecutionTimeLimit \(New-TimeSpan -Seconds 0\)/,
+    "never kill the running task",
+  );
   assert.match(
     reg,
     /Register-ScheduledTask SummriseAgent/,

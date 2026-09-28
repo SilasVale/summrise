@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
   Summrise Agent 在线安装引导脚本（NSIS 安装包内嵌调用，也可手动运行）。
   只做最小引导，真正的安装复用 npm 通道本身：
@@ -453,13 +453,26 @@ try {
   # THE PRINCIPAL AND THE SETTINGS THE COMMENT ABOVE ALREADY CLAIMED (round 143).
   # It said the shape was "copied from the update flow's hardened version" and the body
   # passed NEITHER: no -Principal (the CLI writes LogonType Interactive, RunLevel
-  # Highest) and no -Settings (a 10-minute ExecutionTimeLimit and IgnoreNew).
+  # Highest) and no -Settings (IgnoreNew, and a battery-safe StartWhenAvailable).
   # ORDER IS WHY THIS MATTERS: step 6 runs AFTER `summrise setup`, so on the NSIS path
   # THIS registration is the one that survives — the weaker definition was overwriting
   # the hardened one on every install. Same shape as agent/summrise-agent-npm's register
   # step, and installer_integrity.rs fails if the two ever diverge again.
+  #
+  # AND THE LIMIT IS ZERO — NO LIMIT — BECAUSE THE PREVIOUS VALUE KILLED THE SHELL.
+  # This line said `(New-TimeSpan -Minutes 10)` and `-Force` re-applies it on every install
+  # and every repair, so it was the writer that kept restoring the defect no matter what
+  # anyone set by hand. The task's action ends in start-desktop.ps1, whose last line is
+  # `& electron.exe .` — the PowerShell CALL OPERATOR, which WAITS — so the PowerShell the
+  # task launched lives as long as the shell does, as its PARENT, and Task Scheduler enforces
+  # the limit on that whole tree: the running shell was killed every ten minutes and the
+  # guarded 5-minute pulse correctly revived it, which the operator reported as "反复重启".
+  # Zero is the value the agent's own task has used since round 118 for the same reason
+  # (`- ExecutionTimeLimit 0   never kill the running task`), and the value SummrisePlaywright
+  # and the update flow's tasks use; keeping the desktop shell on the same value is what lets
+  # installer_integrity.rs hold the two ends together.
   $pr = New-ScheduledTaskPrincipal -UserId ('{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest
-  $st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+  $st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
   Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1, $dw1) -Principal $pr -Settings $st -Force | Out-Null
   Say "SummriseDesktop 登录任务已就绪（含修复旧版指向）"
   Start-ScheduledTask -TaskName "SummriseDesktop" -ErrorAction SilentlyContinue

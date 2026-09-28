@@ -291,7 +291,7 @@ fn every_prestaged_component_is_verified() {
 /// THE LOGON TASK HAS TWO OWNERS AND THEY MUST SAY THE SAME THING (round 143).
 ///
 /// `summrise setup` registers SummriseDesktop with an Interactive/Highest principal
-/// and a settings set (10-minute limit, IgnoreNew). The NSIS installer's setup script
+/// and a settings set (IgnoreNew, no execution limit). The NSIS installer's setup script
 /// registers it TOO, and its step runs AFTER setup — so its definition is the one that
 /// survives, and it used to pass neither, overwriting the hardened one on every
 /// install. Both ends now carry both, and this fails if either drifts.
@@ -332,6 +332,50 @@ fn the_task_has_one_definition() {
     assert!(
         ps1.contains("IgnoreNew") && cli.contains("IgnoreNew"),
         "both ends must refuse a second instance"
+    );
+
+    // AND THE EXECUTION LIMIT IS ZERO — the one value in this settings set that KILLED the
+    // thing the task exists to keep alive, measured on desktop-14rjcr8 on 2026-09-28.
+    //
+    // A non-zero limit here kills a process meant to live indefinitely. The task's action is
+    // desktop-pulse.vbs -> ensure-desktop.ps1 -> start-desktop.ps1, and that last line is
+    // `& electron.exe .` — the PowerShell CALL OPERATOR, which WAITS — so the PowerShell the
+    // task launched stays alive as the SHELL'S PARENT and Task Scheduler enforces the limit on
+    // that whole tree. Under PT10M the four electron PIDs were replaced about every ten
+    // minutes, and the guarded 5-minute pulse correctly revived them: the operator's "反复重启",
+    // reported four times. Zero is what the agent's own task has carried since round 118 for
+    // the same reason, so this is the value the two ends already agree on elsewhere.
+    //
+    // A SUBSTRING CHECK FOR "0" WOULD NOT CATCH A REGRESSION — "10" contains one, which is how
+    // the ten-minute value survived a test that read `/ExecutionTimeLimit.*0/`. So this asserts
+    // the WHOLE argument, on the comment-stripped text, because prose can satisfy a scan.
+    const UNLIMITED: &str = "-ExecutionTimeLimit (New-TimeSpan -Seconds 0)";
+    let ps1_code = without_comments(&ps1, '#');
+    let cli_code = without_comments(&cli, '/');
+    for (text, who) in [(&ps1_code, "the installer"), (&cli_code, "the CLI")] {
+        assert!(
+            text.contains(UNLIMITED),
+            "{who} must leave SummriseDesktop with NO execution limit: its action WAITS on \
+             electron, so any finite limit kills a live shell every time it expires"
+        );
+        assert!(
+            !text.contains("ExecutionTimeLimit (New-TimeSpan -Minutes"),
+            "{who} sets a finite execution limit on a task whose process must live indefinitely"
+        );
+    }
+
+    // AND THE UPDATE PATH MUST CARRY THE SETTINGS, because that is the only route that reaches a
+    // machine already installed. `Set-ScheduledTask` PRESERVES the components it is not given, so
+    // a task carrying the old limit kept it through every update while the log said "hardened" —
+    // the fix would have needed a reinstall to land anywhere.
+    let heal = cli_code
+        .lines()
+        .find(|l| l.contains("Set-ScheduledTask -TaskName 'SummriseDesktop'"))
+        .expect("the update flow must still re-register SummriseDesktop");
+    assert!(
+        heal.contains("-Settings $dst"),
+        "the update flow's heal must pass the settings, or an installed device keeps its old \
+         execution limit forever: {heal}"
     );
 }
 
