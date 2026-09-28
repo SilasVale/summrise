@@ -724,15 +724,48 @@ async fn route_dns_via_api(cf_token: &str, tunnel_id: &str, hostname: &str) -> b
         .await;
     match cr {
         Ok(r) => {
-            let ok = r.status().is_success();
-            if !ok {
-                let txt = r.text().await.unwrap_or_default();
-                tracing::warn!(
-                    "[summrise-agent] tunnel route: the API refused '{hostname}': {}",
-                    &txt[..txt.len().min(300)]
-                );
+            if r.status().is_success() {
+                return true;
             }
-            ok
+            let txt = r.text().await.unwrap_or_default();
+            // **A RECORD THAT ALREADY EXISTS IS A RECORD THAT ALREADY WORKS, AND THIS CALLED IT A FAILURE.**
+            // Measured 2026-09-28 on desktop-14rjcr8, all four at the same moment: this function returned
+            // false; the caller fell through to `cloudflared tunnel route dns`, which failed for the same
+            // reason; the device logged *"neither the API nor cloudflared could point
+            // 'desktop-14rjcr8.agent.saisi.online' at the tunnel — remote clients will get 530 until it
+            // exists"*; **and the record HAD existed since 02:12:45 with `modified_on == created_on`** (so
+            // nothing had ever touched it) **while the edge answered HTTP 200.**
+            //
+            // Cloudflare refuses a second POST for a name that already has a record. That is not a failure
+            // of the ROUTE — it is the route reporting its own step in the grammar of an outcome, the same
+            // mistake `tunnel_health_via_api` below exists to undo. **So ask what is there rather than what
+            // this call did**, which is the adopt pattern `find_tunnel_id_via_api` already uses one level up
+            // for the tunnel itself.
+            if let Ok(g) = client
+                .get(format!(
+                    "https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?type=CNAME&name={hostname}"
+                ))
+                .header("authorization", format!("Bearer {cf_token}"))
+                .send()
+                .await
+            {
+                if let Ok(j) = g.json::<serde_json::Value>().await {
+                    let want = format!("{tunnel_id}.cfargotunnel.com");
+                    for rec in j["result"].as_array().cloned().unwrap_or_default() {
+                        if rec["content"].as_str() == Some(want.as_str()) {
+                            tracing::info!(
+                                "[summrise-agent] tunnel route: '{hostname}' already points at this tunnel — adopted (the API's create refusal is not a failure)"
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+            tracing::warn!(
+                "[summrise-agent] tunnel route: the API refused '{hostname}': {}",
+                &txt[..txt.len().min(300)]
+            );
+            false
         }
         Err(e) => {
             tracing::warn!("[summrise-agent] tunnel route: {e}");
