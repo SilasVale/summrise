@@ -1,0 +1,34 @@
+[package]
+name = "spike-rust-landing"
+version = "0.1.0"
+edition = "2021"
+description = "Spike: the Summrise landing page rendered by Rust, with its two interactive behaviours in Rust -> wasm."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "gen"
+path = "src/bin/gen.rs"
+
+[dependencies]
+# The same WHATWG URL parser the browser and `new URL()` use. The landing's
+# P2-8 whitelist is a *parser* question, not a string question, so the spike
+# ports it with the reference parser rather than a hand-rolled prefix match.
+url = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+  "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement",
+  "CanvasRenderingContext2d", "Storage", "MediaQueryList", "Node",
+  "Event", "EventTarget", "MouseEvent", "CssStyleDeclaration",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
