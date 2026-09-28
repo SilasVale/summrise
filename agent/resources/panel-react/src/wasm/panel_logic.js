@@ -100,6 +100,19 @@ export function parse_evicted(detail) {
 }
 
 /**
+ * `parseLastBoot(j)` — the last boot, or `null` when the body does not describe one.
+ * @param {any} j
+ * @returns {any}
+ */
+export function parse_last_boot(j) {
+    const ret = wasm.parse_last_boot(j);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `parseMonitorChange(detail)` — one `monitor-change` frame → one alert, or `null`.
  *
  * `null` and not a throw: this runs inside an event handler, and a frame this build cannot use must

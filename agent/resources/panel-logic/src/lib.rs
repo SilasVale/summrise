@@ -34,6 +34,7 @@
 // modules and re-exports their functions, and each module imports the prelude for its own
 // `#[wasm_bindgen]` attribute. The line was here and unused — the build said so on every run, which
 // is how a warning becomes furniture.
+mod agent_vitals;
 mod archive;
 mod boot;
 mod evicted;
@@ -41,7 +42,9 @@ mod js;
 mod monitors;
 mod runs;
 mod vitals;
+mod vocabulary;
 
+pub use agent_vitals::parse_last_boot;
 pub use archive::archive_entries;
 pub use boot::parse_boot_history;
 pub use evicted::parse_evicted;

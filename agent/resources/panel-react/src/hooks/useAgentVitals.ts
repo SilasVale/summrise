@@ -11,6 +11,7 @@
 // the second poll onward. Nothing here invents a zero for it — an instrument that
 // reports 0% when it means "unknown" is worse than one that reports nothing.
 import { useDeviceRead } from "./useDeviceRead";
+import { panelLogic } from "../wasm/panelLogic";
 import { releaseVersion } from "../lib/agentVersion";
 
 export interface AgentVitals {
@@ -64,24 +65,23 @@ export interface LastBoot {
   detail: string;
 }
 
-const BOOT_KINDS: BootKind[] = [
-  "first-run",
-  "clean-exit",
-  "replaced",
-  "machine-restart",
-  "crashed",
-];
+// THE LOCAL `BOOT_KINDS` ARRAY IS GONE WITH THE PARSE (P2, 2026-09-29), and it was the FOURTH copy
+// of one list: this file's, `lib/contract.gen.ts`'s (generated from `agent/src/vocabulary.rs`, and
+// what `lib/bootNotice.ts` reads), `panel-logic/src/boot.rs`'s, and — the one this move ADDED — the
+// crate's shared `panel-logic/src/vocabulary.rs`. The Rust parse validates against that one, so the
+// array here had no reader left; `BootKind` above stays because `LastBoot` is typed by it.
+//
+// AND THE DEAD COPY IS WHY THE COUNT MATTERS: a list with four homes is a list where a change lands
+// in three of them, and the gate that catches it (`agent/tests/contract_vocabulary.rs`) reads the
+// GENERATED file rather than any of the hand-kept ones.
 
 /** Read the boot verdict off a `/api/status` body. `null` when the response carries
  *  none — which is a fact ("this device has never booted a build that records one"),
  *  not an error. The detail is what makes the verdict worth showing; a kind with no
  *  sentence is dropped rather than rendered as a bare word. */
-export function parseLastBoot(j: Record<string, unknown>): LastBoot | null {
-  const detail = typeof j.last_boot === "string" ? j.last_boot.trim() : "";
-  if (!detail) return null;
-  const raw = typeof j.last_boot_kind === "string" ? j.last_boot_kind : "";
-  const kind = BOOT_KINDS.find((k) => k === raw) ?? null;
-  return { kind, detail };
+export async function parseLastBoot(j: Record<string, unknown>): Promise<LastBoot | null> {
+  const logic = await panelLogic();
+  return logic.parse_last_boot(j) as LastBoot | null;
 }
 
 const EMPTY_VITALS: AgentVitals = {
@@ -110,7 +110,12 @@ export function fmtUptime(secs: number): string {
  *  have been read as a sample. `{}` is a refusal to the shared `deviceRefused` predicate,
  *  and `useDeviceRead` refuses to fold it. Keep-last is the right answer for a failed poll
  *  — "vitals are a nicety" — and keeping last means not READING it. */
-function reduceVitals(previous: AgentVitals, body: unknown): AgentVitals {
+// `async` BECAUSE THE BOOT PARSE IS RUST NOW (P2, 2026-09-29): `useDeviceRead` declares its
+// `reduce` as `T | Promise<T>`, so a fold that awaits is exactly what that seam is for. Nothing
+// else in this function is asynchronous, and the await is the LAST statement — so the fold's own
+// rules (a partial sample updates only what it carries; a boot verdict is CLEARED, not kept) are
+// untouched by the move.
+async function reduceVitals(previous: AgentVitals, body: unknown): Promise<AgentVitals> {
   // Only a body the device actually sent arrives here, so it is an object with `ok: true`.
   const j = body as Record<string, unknown>;
   // A partial sample UPDATES ONLY WHAT IT CARRIES. cpu_pct is missing on the
@@ -150,7 +155,7 @@ function reduceVitals(previous: AgentVitals, body: unknown): AgentVitals {
   // none — keeping a stale "the last run crashed" would be the panel asserting a
   // fault that no longer exists. A FAILED poll never reaches this line (the read
   // loop keeps everything), which is the distinction that matters.
-  next.lastBoot = parseLastBoot(j);
+  next.lastBoot = await parseLastBoot(j);
   return next;
 }
 
