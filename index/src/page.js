@@ -100,23 +100,20 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { -webkit-text-size-adjust: 100%; }
-  /* The iridescent light behind the page. Fixed + pointer-events:none, exactly as on
-     the console and the panel — it never scrolls, never enters the layout, and never
-     covers a control. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    /* The paper ground — the same material the two app surfaces sit on: warm, very
-       slightly graded, no colour of its own. The iridescent wash that used to be
-       composed here is retired with the rest of the aurora layer. */
-    background:
-      radial-gradient(76rem 44rem at 14% -12%, rgba(245, 159, 0, 0.05), transparent 62%),
-      radial-gradient(70rem 44rem at 88% 108%, rgba(120, 100, 80, 0.05), transparent 64%),
-      linear-gradient(180deg, #f1f0ee 0%, #f7f6f4 40%, #f3f1ee 100%);
-  }
+  /* THE FIXED LIGHT LAYER THAT USED TO BE HERE WAS THE DARK-MODE BUG, AND IT IS DELETED.
+     It painted a hardcoded LIGHT gradient (#f1f0ee to #f7f6f4 to #f3f1ee) as body::before —
+     position:fixed, z-index 0, so ABOVE body's own background and BELOW its children — and
+     nothing overrode it for body[data-ds-dark-theme]. Every dark-OS visitor therefore got
+     LIGHT background pixels with dark ink. Measured on the live page by sampling the painted
+     pixels: light and dark backgrounds byte-identical at rgb(242,239,236), the h1's #ecedef
+     on it at 1.03:1, .desc at 2.20:1, the console link at 1.67:1.
+     What it bought was a ~6/255 warm tonal wash and the glass card's backdrop texture; what it
+     cost was a page whose MEASURED contrast pairs were not the pairs PAINTED. Deleted rather
+     than given a dark twin: one theme-aware background, from --dsw-alias-bg-base below, is the
+     version whose contrast can be checked at all.
+     (No backticks in this comment — it lives inside page.js's template literal.) */
+  /* Kept for the particle canvas, which is position:fixed with z-index 0 and is appended to
+     body LAST: without this every non-positioned child would paint underneath it. */
   body > * { position: relative; z-index: 1; }
 
   body {
@@ -151,6 +148,12 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   .aside { display: flex; flex-direction: column; gap: 20px; }
   .card {
     width: 100%; max-width: 520px; justify-self: end;
+    /* THE CARD HAD NO RADIUS. This file declared six (20/12/10/8/5/50%) and none of them was
+       the card, so the largest surface on the page rendered as a hard-edged slab — worst in
+       dark mode, where it is a lighter panel on a dark ground and the square corners read as a
+       rendering fault rather than a choice. 20px is the console's own .card radius (--radius-lg)
+       and is already a value this page uses, for .btn-primary. */
+    border-radius: 20px;
     /* Glass, so the wash reads THROUGH the card. An opaque card hides it entirely —
        the lesson the console learned the hard way. */
     background: color-mix(in srgb, var(--dsw-alias-bg-base) 84%, transparent);
@@ -266,15 +269,6 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     color: var(--dsw-alias-label-primary);
   }
 
-  /* ── Footer ─────────────────────────────────────── */
-  footer {
-    padding: 16px 24px;
-    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
-    border-top: 1px solid var(--dsw-alias-border-l1);
-    font-size: 12px; color: var(--dsw-alias-label-tertiary);
-  }
-  footer .mono { font-family: var(--ds-font-family-code); }
-
   /* ── Theme toggle ───────────────────────────────── */
   .theme-toggle {
     position: fixed; top: 16px; right: 16px; z-index: 10;
@@ -315,7 +309,6 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   }
   @media (max-width: 480px) {
     .main { padding: 28px 16px; }
-    footer { padding: 12px 16px; }
   }
 
   /* REDUCED MOTION: THE PAGE STOPS MOVING (round 82). The canvas already refuses to start under reduce — its guard
@@ -368,18 +361,18 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
     <div class="card">
       <div class="actions">
         ${setupBlock}
-        <code class="cmd">npx summrise-agent setup --reg-key &lt;key&gt;</code>
+        <code class="cmd">npx summrise-agent setup</code>
         <span class="hint">Run on the Windows machine connected to the device. Requires Node.js + admin rights.</span>
       </div>
 
       <div class="steps">
         <div class="step">
           <div class="step-num">1</div>
-          <div class="step-body">Install and set up in one command: <code>npx summrise-agent setup --reg-key &lt;key&gt;</code> (get a key from the <a href="${safeConsole}">Summrise console</a> → Devices). With no key it still installs, local-only. <b>Behind a locked-down network</b> that cannot reach the npm registry, install from the release host instead: <code>npm i -g ${safeInstaller}</code></div>
+          <div class="step-body">Install and set up in one command: <code>npx summrise-agent setup</code>. The device registers itself with the <a href="${safeConsole}">Summrise console</a> on first start — a no-key install is not a local-only one. <b>Behind a locked-down network</b> that cannot reach the npm registry, install from the release host instead: <code>npm i -g ${safeInstaller}</code></div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
-          <div class="step-body">The setup installs the agent service, fetches the boxed components it needs (the tunnel binary, the browser bundle, the desktop runtime), auto-registers the device, and prints the panel URL + token. Copy them for the next step.</div>
+          <div class="step-body">Setup installs the agent service, fetches the boxed components it needs (about 200MB: cloudflared 54MB, playwright 30MB, the desktop runtime 115MB) and starts the agent. For the panel URL run <code>summrise status</code> (<code>summrise.cmd status</code> in PowerShell) — <code>setup</code> prints neither a URL nor a token.</div>
         </div>
       </div>
       <!-- THE THIRD "STEP" WAS NOT A STEP.
@@ -392,17 +385,9 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
            backticks, which CLOSED the template and made the module stop parsing — the round-93 accident, caught by
            node --check before the commit rather than by five red CI jobs after it. -->
 
-      <p class="hint">Updates are the same channel — but <b>pass <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, while <code>summrise</code> lives elsewhere when the agent runs as a service, so <code>summrise update</code> then runs the OLD CLI and stages the OLD build. npm reports success and nothing happens. <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) ${safeInstaller}</code> then <code>summrise update</code>, and confirm with <code>summrise status</code> — not with npm's exit code. <b>Install from the URL, never the bare package name</b>: the package name alone has a resolution step, and a stale cached <code>latest</code> leaves the OLD CLI in place while printing <code>changed 1 package</code> — the same failure this step is about, one layer down.</div>
-        </p>
-
-      </div>
+      <p class="hint"><b>Later updates need <code>--prefix</code></b>: a plain <code>npm i -g</code> writes npm's default global prefix, not the one <code>summrise</code> lives in, so <code>summrise update</code> runs the OLD CLI and stages the OLD build while npm reports success. In PowerShell: <code>npm i -g --prefix (Split-Path (Get-Command summrise).Source) &lt;url&gt;</code>. Install from the URL above, never the bare package name.</p>
     </div>
   </main>
-
-  <footer>
-    <span>Summrise Agent — device access for AI agents</span>
-    <span class="mono" id="foot-time"></span>
-  </footer>
 </div>
 
 <script>
@@ -491,8 +476,6 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   window.addEventListener('resize', resize);
   raf = requestAnimationFrame(frame);
 })();
-
-document.getElementById('foot-time').textContent = new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
 
 function toggleTheme() {
   var isDark = document.body.hasAttribute('data-ds-dark-theme');
