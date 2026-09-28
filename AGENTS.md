@@ -247,14 +247,14 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 `all-gates.bash`, `build-pins.bash`, `chrome-stillness-check.mjs`, `console-derivation-check.mjs`
 `console-marks-check.mjs`, `console-smoke-check.mjs`, `console-wire-field-check.mjs`, `contract-vocabulary-check.mjs`, `contrast-probe-check.mjs`, `css-vars-check.mjs`
-`custom-prop-check.mjs`, `device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
+`device-verdict-check.mjs`, `device-version-rule-check.mjs`, `docs-budget-check.mjs`, `exports-check.mjs`
 `feedback-check.mjs`, `gateway-device-field-check.mjs`, `hook-finds-its-repo.bash`, `http-route-header-check.mjs`
 `landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`, `mark-vocabulary-check.mjs`, `model-drift-check.mjs`
 `motion-check.mjs`, `one-derivation-check.mjs`, `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `particles-check.mjs`, `powershell-structure-check.mjs`, `press-anchor-check.mjs`, `production-host-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
-`publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `retired-colours-check.mjs`, `scan-dups-check.py`, `script-syntax.bash`
-`session-carry-detect-check.mjs`, `session-row-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`, `spacing-scale-check.mjs`
+`publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
+`session-carry-detect-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`
 `state-colour-check.mjs`, `stub-surface-check.mjs`, `stylesheet-hygiene.mjs`, `sweep-judges.bash`
 `token-contract-check.mjs`, `wire-field-check.mjs`, `workflow-shell-check.mjs`, `workflow-yaml-check.mjs`
 
