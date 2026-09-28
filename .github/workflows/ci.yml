@@ -582,12 +582,12 @@ jobs:
       # round 78; the console had nothing, and round 172 found the prefix rule written nine times with two behaviours.
       - name: the console's derivations have one home each
         run: node scripts/test/console-derivation-check.mjs
-      - name: the session row s CARRY list and DETECT list agree
-        # They are two lists on purpose — `pendingApproval` is derived at map time, so comparing the
-        # mapped objects would report a change on every poll. The bug this guards was the two
-        # disagreeing: `wireFieldsChanged` omitted `idleMs` and `commandRunning` while `wireFields`
-        # carried them, so a row kept its discovery values for life. Nothing compared them until now.
-        run: node scripts/test/session-carry-detect-check.mjs
+      # THE SESSION ROW'S CARRY LIST AND DETECT LIST must agree — a RUST gate now (`agent/tests/
+      # session_carry_detect.rs`, batch 6 of the P1 migration), run by the `cargo test` step in this job.
+      # They are two lists on purpose: `pendingApproval` is derived at map time, so comparing the mapped
+      # objects would report a change on every poll. The bug this guards was the two disagreeing —
+      # `wireFieldsChanged` omitted `idleMs` and `commandRunning` while `wireFields` carried them, so a
+      # row kept its discovery values for life. Nothing compared them until the JS gate did.
       - name: the two halves of the device-version rule agree
         # The panel and the console each decide which of the device s two version fields wins, in different
         # packages with no shared module — and BOTH were broken independently: round-304 on the gateway side

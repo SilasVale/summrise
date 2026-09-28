@@ -254,7 +254,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `particles-check.mjs`, `press-anchor-check.mjs`, `proxy-cors-parity-check.mjs`, `proxy-timeout-parity-check.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
-`session-carry-detect-check.mjs`, `smoke-helpers.bash`, `smoke-index.bash`
+`smoke-helpers.bash`, `smoke-index.bash`
 `state-colour-check.mjs`, `sweep-judges.bash`
 `token-contract-check.mjs`, `workflow-shell-check.mjs`, `workflow-yaml-check.mjs`
 
