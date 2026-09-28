@@ -5,6 +5,24 @@
 #
 # MUTATION: prune keeps 4 instead of 5 per minor
 # RESULT:   exit 1, actual/expected listed
+#
+# MUTATION: put the reconcile gate's old sentence back on its tgz_gone limb — print
+#           "on the CDN with no GitHub release to audit against" for a version whose release
+#           EXISTS and whose CDN tgz is a 404. That is the defect, restored:
+#           `reconcile_entry_lines`'s tgz_gone branch made to print the no_release line.
+# RESULT:   exit 1 — "FAIL: tgz_gone says the release EXISTS", with the restored sentence printed
+#           under it:
+#               1.2.453  on the CDN with no GitHub release to audit against   (GitHub release
+#               v1.2.453: does not exist)
+#           The `check_absent` case below ("tgz_gone must not claim there is no release") catches
+#           the same edit on its own — running the mutated function showed the rendered line
+#           containing "no GitHub release", which is what that case refuses — while the positive
+#           case is the one that fires first.
+#
+#           AND THE FIRST DRAFT OF THIS BLOCK NAMED THE WRONG CASE. It claimed the RESULT was the
+#           check_absent line: a guess about assertion order rather than a measurement. What the
+#           line says now is what the run said. Same rule as everywhere else in this repo — a
+#           RESULT is a claim, and the command that produced it belongs beside it.
 
 # release-lib.bash — regression tests for the extracted publish-release
 # stages (last-5-per-minor prune + version.json writer). Plain bash asserts,
@@ -355,5 +373,84 @@ pin_says "a bundle producer whose OUT default moved is a FAILURE, not silence" "
 # AND THE REAL TREE: the pin must be silent on the repo as it stands — every copy in it names a
 # path the worker serves. A fixture-only gate would pass while the repo itself drifted.
 check "the repo's own copies all name a served route" "$(component_route_verdict "$PWD")" ""
+
+# ── the reconcile gate's DIAGNOSIS: four limbs, each named from what was observed ─────────────
+# THE REAL INPUT THIS EXISTS FOR (measured 2026-09-28): the ledger held 1.2.453 and the gate
+# printed "these versions are on the CDN with no GitHub release to audit against" — while
+# GET /releases/tags/v1.2.453 answered 200 and HEAD /summrise-agent/summrise-agent-1.2.453.tgz
+# answered 404. BOTH clauses false. It sent a reader to create a release that already existed;
+# the road that works (--acknowledge-unreconciled) was never named. The live limbs are measured
+# against the real API and the real CDN in the commit that added this; what is pinned HERE is
+# the mapping and the sentences, which need no network.
+check_absent() { # check_absent <desc> <string> <regex-that-must-NOT-match>
+  if [[ "$2" =~ $3 ]]; then
+    echo "FAIL: $1"; echo "  string: $2"; echo "  which must NOT match: $3"; exit 1
+  else PASS=$((PASS+1)); fi
+}
+
+check "200 is present"                       "$(http_asset_verdict 200)" "present"
+check "204 is present"                       "$(http_asset_verdict 204)" "present"
+check "404 is absent"                        "$(http_asset_verdict 404)" "absent"
+check "410 is absent — Gone is the same fact, stated permanently" "$(http_asset_verdict 410)" "absent"
+check "a redirect is NOT an answer"          "$(http_asset_verdict 301)" "unknown"
+check "a server error is NOT an answer"      "$(http_asset_verdict 500)" "unknown"
+check "curl's own 000 is NOT an answer"      "$(http_asset_verdict 000)" "unknown"
+check "an empty answer is NOT an answer"     "$(http_asset_verdict '')"   "unknown"
+
+check "release absent -> no_release"                  "$(reconcile_entry_limb absent unknown)"  "no_release"
+check "release absent + tgz present -> STILL no_release (nothing to audit against)" \
+                                                      "$(reconcile_entry_limb absent present)"  "no_release"
+check "release present + tgz 404 -> tgz_gone"         "$(reconcile_entry_limb present absent)"  "tgz_gone"
+check "release present + tgz 200 -> settleable"       "$(reconcile_entry_limb present present)" "settleable"
+check "release present + CDN silent -> cdn_unknown"   "$(reconcile_entry_limb present unknown)" "cdn_unknown"
+check "GitHub silent -> rel_unknown"                  "$(reconcile_entry_limb unknown unknown)" "rel_unknown"
+
+# LIMB 1 — the one the ORIGINAL SENTENCE is true for, kept verbatim. This is not a rewrite:
+# if this line ever stops saying it, the fix has deleted a sentence that was right.
+l="$(reconcile_entry_lines 1.2.453 no_release '' '')"
+check_match "no_release keeps the original sentence, word for word" "$l" \
+  'on the CDN with no GitHub release to audit against'
+check_match "no_release names the observation that makes it true" "$l" 'GitHub release v1\.2\.453: does not exist'
+
+# LIMB 2 — 1.2.453's ACTUAL state, the one that produced the wrong sentence.
+l="$(reconcile_entry_lines 1.2.453 tgz_gone '' 404)"
+check_match "tgz_gone says the release EXISTS"          "$l" 'release v1\.2\.453 EXISTS'
+check_match "tgz_gone says the CDN tgz is gone, with the status it answered" "$l" 'CDN tgz is GONE \(HTTP 404\)'
+check_match "tgz_gone says the entry can never be settled" "$l" 'can never settle this entry'
+check_match "tgz_gone names the version and the road that works" "$l" 'acknowledge-unreconciled'
+check_absent "tgz_gone must not claim there is no release — v1.2.453 has one" "$l" 'no GitHub release'
+check_absent "tgz_gone must not claim the version is on the CDN"              "$l" 'on the CDN'
+
+# LIMB 3 — 1.2.492's real state: release AND tgz present. Not this condition at all.
+l="$(reconcile_entry_lines 1.2.492 settleable '' 200)"
+check_match "settleable says the condition does not hold" "$l" 'settleable, not blocked'
+check_match "settleable names the version and the road that works" "$l" 'audit-only 1\.2\.492'
+check_absent "settleable must not claim there is no release" "$l" 'no GitHub release'
+
+# LIMB 4 — the two questions that can go UNANSWERED, and each says WHICH one.
+l="$(reconcile_entry_lines 1.2.501 rel_unknown 'cannot list assets for v1.2.501: no GitHub token' '')"
+check_match "rel_unknown says which question went unanswered" "$l" 'could not check whether release v1\.2\.501 exists'
+check_match "rel_unknown claims neither cause"                "$l" 'does not claim either cause'
+check_match "rel_unknown prints the PROBE's own words, as its own line" "$l" 'the probe said: cannot list assets'
+check_absent "rel_unknown must not claim the release is absent" "$l" 'does not exist'
+check_absent "rel_unknown must not claim the tgz is gone"       "$l" 'GONE'
+l="$(reconcile_entry_lines 1.2.492 cdn_unknown '' 000)"
+check_match "cdn_unknown still says the release EXISTS"          "$l" 'release v1\.2\.492 EXISTS'
+check_match "cdn_unknown names the status that did not answer"   "$l" 'could not be determined \(HTTP 000\)'
+check_match "cdn_unknown claims neither cause"                   "$l" 'does not claim either cause'
+check_absent "cdn_unknown must not claim the tgz is gone"        "$l" 'GONE'
+check_absent "cdn_unknown must not claim the version is on the CDN" "$l" 'on the CDN'
+
+# THE FOOTER, which is the second half of the defect: naming the cause per version is not enough
+# while the advice two lines below still recommends the dead road to every one of them.
+check "one settleable entry -> yes"                       "$(reconcile_settleable_verdict settleable)" "yes"
+check "release-absent only -> yes (the road exists, it is not open yet)" \
+                                                          "$(reconcile_settleable_verdict no_release)" "yes"
+check "EVERY entry tgz_gone -> no (never recommend a road with no tarball on it)" \
+                                                          "$(reconcile_settleable_verdict tgz_gone)" "no"
+check "a mixed ledger still has a road -> yes"            "$(reconcile_settleable_verdict tgz_gone settleable)" "yes"
+check "anything unanswerable -> maybe (a footer must not claim to know)" \
+                                                          "$(reconcile_settleable_verdict tgz_gone rel_unknown)" "maybe"
+check "nothing classified -> maybe"                       "$(reconcile_settleable_verdict)" "maybe"
 
 echo "release-lib: $PASS checks passed"

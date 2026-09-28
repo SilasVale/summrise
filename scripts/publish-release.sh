@@ -145,11 +145,64 @@ done
 # REFUSES until it is settled. It used to be silence: measured 2026-09-14, the
 # newest GitHub release that existed at all was v1.2.361 while the CDN served
 # 1.2.361-1.2.364 — three versions published with no release, no tag and no audit.
-PENDING_RECONCILE="$(reconcile_pending | tr '\n' ' ')"
-if [ -n "${PENDING_RECONCILE// /}" ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
-  echo "::error::refusing to publish: these versions are on the CDN with no GitHub release to audit against:" >&2
-  echo "  $PENDING_RECONCILE" >&2
-  echo "  Settle one:      ./scripts/publish-release.sh --audit-only <ver>   (after its tag/release exists)" >&2
+# AND THE REFUSAL NOW ASKS BEFORE IT NAMES A CAUSE (measured 2026-09-28). It printed one
+# sentence for every pending version — "these versions are on the CDN with no GitHub release
+# to audit against" — and for the version its own ledger held, 1.2.453, that sentence was
+# false twice over: release v1.2.453 EXISTS (HTTP 200) and the CDN answers 404 for its tgz.
+# A reader following it went to CREATE A RELEASE THAT ALREADY EXISTED, while the road that
+# works — `--acknowledge-unreconciled`, accepting an entry that can never be settled because
+# the tarball it would be audited against is gone — went unnamed. The probes, the limbs and
+# the sentences they produce live in scripts/lib/release-lib.sh, where all five limbs are
+# unit-tested without a network.
+#
+# WHAT THE PROBES COST, AND WHEN — the whole of the risk they add: NOTHING unless a run is
+# already being refused. An empty ledger, or --acknowledge-unreconciled, makes zero network
+# calls: they run only inside this branch. They are reads, not downloads — a GitHub API GET
+# through audit_asset_names (the SAME three-verdict probe --audit-only uses, reused so the
+# gate and the audit cannot disagree about whether a release exists) and, only when the
+# release IS there, one HEAD bounded at 20 s (10 s to connect). A probe that cannot answer —
+# offline, timeout, DNS, no token, an unrecognised status — is its own limb and claims
+# NEITHER cause, because a check that fails open and reports a confident wrong thing is the
+# failure this repository has recorded.
+mapfile -t PENDING_VERSIONS < <(reconcile_pending)
+if [ "${#PENDING_VERSIONS[@]}" -gt 0 ] && [ "$ACK_UNRECONCILED" -eq 0 ]; then
+  # shellcheck source=lib/release-audit.sh
+  source "scripts/lib/release-audit.sh"
+  CDN_ASSET_BASE="${SMOKE_BASE_URL:-https://agent.saisi.online}"
+  LIMBS=()
+  echo "::error::refusing to publish: the reconcile ledger names versions whose audit is not settled:" >&2
+  for pend in "${PENDING_VERSIONS[@]}"; do
+    # 1. DOES THE RELEASE EXIST? 0 = exists, 3 = does not exist, 1 = the question could not
+    #    be asked. stderr is captured and stdout discarded: verdict 1 explains itself there,
+    #    and verdict 0 lists asset names this gate has no use for.
+    rel="unknown"; rel_detail=""; rc_rel=0
+    rel_detail="$(audit_asset_names "$pend" 2>&1 >/dev/null)" || rc_rel=$?
+    # The probe speaks in GitHub annotations; this gate is not GitHub, and `::error::` at the
+    # start of a line IS a workflow command — one prefix stripped, the sentence itself kept
+    # verbatim so a reader sees which of the two layers said what.
+    rel_detail="${rel_detail#::error::}"
+    case "$rc_rel" in
+      0) rel="present" ;;
+      3) rel="absent" ;;
+      *) rel="unknown" ;;
+    esac
+    # 2. THE CDN IS ASKED ONLY WHERE THE ANSWER CAN CHANGE THE MESSAGE. A release that does
+    #    not exist is nothing to audit against whatever the CDN holds, and that is the common
+    #    case (a genuine first publish) — so the cheap arm stays a single API call.
+    cdn="unknown"; cdn_code=""
+    if [ "$rel" = "present" ]; then
+      read -r cdn cdn_code < <(cdn_asset_verdict "$CDN_ASSET_BASE/summrise-agent/summrise-agent-$pend.tgz") || true
+    fi
+    limb="$(reconcile_entry_limb "$rel" "$cdn")"
+    LIMBS+=("$limb")
+    reconcile_entry_lines "$pend" "$limb" "$rel_detail" "$cdn_code" >&2
+  done
+  # THE FOOTER HAS TO AGREE WITH THE LINES ABOVE IT. With every entry in the tgz_gone limb,
+  # "Settle one: --audit-only" is the dead road this change exists to stop recommending.
+  case "$(reconcile_settleable_verdict "${LIMBS[@]}")" in
+    no) echo "  Settle one:      none of them — --audit-only has no tarball left to download (see above)" >&2 ;;
+    *)  echo "  Settle one:      ./scripts/publish-release.sh --audit-only <ver>   (after its tag/release exists)" >&2 ;;
+  esac
   echo "  Or acknowledge:  rerun with --acknowledge-unreconciled  (this run ADDS to the ledger; it does not clear it)" >&2
   exit 1
 fi

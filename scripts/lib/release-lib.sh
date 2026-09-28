@@ -226,6 +226,165 @@ reconcile_clear() {
   mv "$tmp" "$RECONCILE_LEDGER"
 }
 
+# ── the reconcile gate's DIAGNOSIS: ask, then name only what was observed ────
+# THE GATE NAMED A CAUSE IT HAD NOT CHECKED. Measured 2026-09-28 against its own ledger,
+# which held 1.2.453: it refused with "these versions are on the CDN with no GitHub release
+# to audit against", and EVERY clause of that sentence was false — GET
+# /releases/tags/v1.2.453 answers 200 (the release exists, and did at publish time), and the
+# CDN answers 404 for summrise-agent-1.2.453.tgz, so the version is not "on the CDN" either.
+# The sentence sent a reader to CREATE A RELEASE THAT ALREADY EXISTED, while the road that
+# works — `--acknowledge-unreconciled`, accepting that the entry can never be settled because
+# the tarball it would be audited against is gone — went unnamed. And the script already knew
+# how to say it: `--audit-only 1.2.453`, the road THIS message recommends, prints
+# "cannot download the CDN tgz". Two sentences about one version, one of them wrong, and the
+# wrong one is the one a refusing gate prints first.
+#
+# So the gate ASKS before it names: GitHub for the release, the CDN for the tgz. Each answer
+# has THREE states, not two — present, absent, and `unknown` for a probe that could not answer
+# at all (no token, offline, timeout, DNS, an unrecognised status). The third is the one this
+# repository keeps having to add: a check that fails open and reports a confident wrong cause
+# is worse than one that says it does not know, so an unanswerable probe claims NEITHER cause.
+
+# http_asset_verdict <http-status-code> → present | absent | unknown
+#
+# PURE, so the judgement is unit-tested without a network:
+#   2xx        the object is served.
+#   404 / 410  the object is NOT there. 410 Gone is the same fact stated permanently, and it
+#              means exactly what 404 means here — there is nothing left to audit.
+#   everything else — 3xx, 5xx, an empty answer, curl's own 000 — is `unknown`. A redirect is
+#   not an answer to "is it there" without following it, and following it is a second request
+#   this gate does not need: saying "could not tell" beats guessing in either direction.
+http_asset_verdict() {
+  case "${1:-}" in
+    2*) echo present ;;
+    404|410) echo absent ;;
+    *) echo unknown ;;
+  esac
+}
+
+# cdn_asset_verdict <url> → prints "<verdict> <http-code>"
+#
+# ONE HEAD REQUEST, NEVER A DOWNLOAD. The audit path downloads the 6.7 MB tgz because it has to
+# hash it; this probe only has to learn whether the object is THERE, and the script already asks
+# the CDN that question this way in its own post-publish checklist
+# (`curl -sI $CDN_BASE/summrise-agent/SummriseAgent-Setup.exe | grep -i etag`). Measured on the
+# live CDN: HEAD /summrise-agent/summrise-agent-1.2.453.tgz → 404, …-1.2.492.tgz → 200.
+#
+# THE TIMEOUT IS BOUNDED AND SHORT ON PURPOSE, and it is the whole of the risk this probe adds:
+# it runs INSIDE A REFUSAL — only when the ledger is non-empty and not acknowledged — and a
+# refusal that hangs is worse than one that names less. The audit's 300 s belongs to a 6.7 MB
+# body with a 20 KB/s stall floor; a HEAD carries no body, so 20 s is already generous, and
+# `--connect-timeout` bounds the case that actually hangs a dry run (a SYN to a host that never
+# answers). A probe that hits either bound returns `unknown`, which is a verdict, not a failure.
+CDN_PROBE_TIMEOUT="${CDN_PROBE_TIMEOUT:-20}"
+CDN_PROBE_CONNECT_TIMEOUT="${CDN_PROBE_CONNECT_TIMEOUT:-10}"
+cdn_asset_verdict() {
+  local url="$1" code=""
+  code="$(curl -sS -o /dev/null -w '%{http_code}' -I \
+            -m "$CDN_PROBE_TIMEOUT" --connect-timeout "$CDN_PROBE_CONNECT_TIMEOUT" \
+            "$url" 2>/dev/null)" || code=""
+  printf '%s %s\n' "$(http_asset_verdict "$code")" "${code:-000}"
+}
+
+# reconcile_entry_limb <release-verdict> <cdn-verdict> → the limb, ONE classification
+#
+#   no_release   the GitHub release does not exist      → the original sentence is true
+#   tgz_gone     release present, CDN tgz absent        → can never be settled by --audit-only
+#   settleable   release present, CDN tgz present       → not this condition at all; settle it
+#   cdn_unknown  release present, CDN did not answer    → claim neither cause
+#   rel_unknown  GitHub did not answer                  → claim neither cause
+#
+# THE TWO UNANSWERABLE LIMBS ARE SEPARATE ON PURPOSE: "which question went unanswered" is the
+# thing a reader needs, and collapsing them printed a sentence that could not say. Both are
+# read as "cannot claim" by the fold below.
+reconcile_entry_limb() {
+  case "${1:-}" in
+    absent) echo no_release ;;
+    present)
+      case "${2:-}" in
+        absent) echo tgz_gone ;;
+        present) echo settleable ;;
+        *) echo cdn_unknown ;;
+      esac
+      ;;
+    *) echo rel_unknown ;;
+  esac
+}
+
+# reconcile_settleable_verdict <limb…> → yes | no | maybe
+#   yes    at least one entry is on a road --audit-only can travel (no_release once its tag
+#          exists, or settleable now), and every entry was classified.
+#   no     EVERY entry is tgz_gone: the footer's "Settle one: --audit-only" line would send a
+#          reader down the dead road this whole change exists to stop recommending.
+#   maybe  something was unanswerable, and a footer must not claim to know about it.
+#
+# WHY THE FOOTER NEEDS THIS. Naming the cause per version is not enough while the advice two
+# lines below still recommends the dead road to every one of them — that is the brief's own
+# complaint ("two sentences, two different roads, one of them dead") and a fixed pair is one
+# where the footer stops recommending a road that cannot be travelled.
+reconcile_settleable_verdict() {
+  local l any_road=0 any_dead=0 any_unknown=0
+  for l in "$@"; do
+    case "$l" in
+      no_release|settleable) any_road=1 ;;
+      tgz_gone) any_dead=1 ;;
+      *) any_unknown=1 ;;
+    esac
+  done
+  if [ "$any_unknown" -eq 1 ]; then echo maybe; return 0; fi
+  if [ "$any_road" -eq 1 ]; then echo yes; return 0; fi
+  if [ "$any_dead" -eq 1 ]; then echo no; return 0; fi
+  echo maybe   # no entries at all: nothing was classified, so nothing may be claimed
+}
+
+# reconcile_entry_lines <ver> <limb> <release-detail> <cdn-code>
+#
+# ONE LINE PER OBSERVED STATE, and the limb decides which. The old message asserted the first
+# limb for every version, whatever was true.
+#   no_release   the ORIGINAL SENTENCE, kept verbatim — this is the limb it is true for, and
+#                there is genuinely nothing to audit against.
+#   tgz_gone     name the observation, name the version, and name the only road left: this
+#                entry can never be settled, because --audit-only has no tarball to download.
+#   settleable   say that the condition does not hold, and point at the road that works.
+#   cdn_unknown  the release is there; the CDN did not answer. Name which of the two facts is
+#   rel_unknown  missing, and claim neither cause.
+#
+# <release-detail> is the unanswerable probe's own words, printed as ITS line rather than
+# folded into this gate's sentence — the probe's message is not this gate's message, and a
+# reader has to be able to tell which one is guessing. <cdn-code> is the status the CDN
+# answered with (000 when nothing answered).
+reconcile_entry_lines() {
+  local ver="$1" limb="$2" rel_detail="${3:-}" cdn_code="${4:-}"
+  case "$limb" in
+    no_release)
+      printf '  %s  on the CDN with no GitHub release to audit against   (GitHub release v%s: does not exist)\n' \
+        "$ver" "$ver"
+      ;;
+    tgz_gone)
+      printf '  %s  release v%s EXISTS but the CDN tgz is GONE (HTTP %s)\n' "$ver" "$ver" "${cdn_code:-404}"
+      printf '        there is no tarball left to download, so --audit-only can never settle this entry.\n'
+      printf '        The only road left:  rerun with --acknowledge-unreconciled\n'
+      ;;
+    settleable)
+      printf '  %s  release v%s EXISTS and the CDN serves its tgz (HTTP %s) — settleable, not blocked\n' \
+        "$ver" "$ver" "${cdn_code:-200}"
+      printf '        settle it now:  ./scripts/publish-release.sh --audit-only %s\n' "$ver"
+      ;;
+    cdn_unknown)
+      printf '  %s  release v%s EXISTS, but whether its CDN tgz is there could not be determined (HTTP %s)\n' \
+        "$ver" "$ver" "${cdn_code:-000}"
+      printf '        — this run does not claim either cause\n'
+      ;;
+    *)
+      printf '  %s  could not check whether release v%s exists — this run does not claim either cause\n' \
+        "$ver" "$ver"
+      # `if`, not `[ … ] &&`: a false test as the last command of a function is a non-zero
+      # status, and `set -e` in the caller would end the whole publish over a printed line.
+      if [ -n "$rel_detail" ]; then printf '        the probe said: %s\n' "$rel_detail"; fi
+      ;;
+  esac
+}
+
 # ── the installer manifest verdict (round 130) ───────────────────────────────
 # A DEPLOY THAT LEAVES THE MANIFEST BEHIND IS NOT A SUCCESS.
 # `build-installer.sh`'s default path staged the exe, deployed the worker and
