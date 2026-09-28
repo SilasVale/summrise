@@ -815,7 +815,19 @@ export async function discoverPressTargets(page, cap, skip) {
   return page.evaluate(
     ({ cap, skip }) => {
       const out = [];
+      const labels = {};
       const seen = new Set();
+      // CLEAR FIRST, DEFINE THE CLEARER HERE. The mark below is per-discovery and resolves to ONE element, so a
+      // second discovery on the same page load must not leave the first one's marks behind: `p0` would match the
+      // older element in DOM order and every press after it would be aimed at the wrong control — the same collapse
+      // this marking exists to remove, one layer down. The clearer lives in the PAGE, not in a Node-side helper,
+      // which is also why neither pass that discovers has to know anything about it beyond one line: a value that
+      // has to be threaded through four payloads by name is a value that can be missing from one of them at run
+      // time, and this file has already paid for that (`discoverPressTargets is not defined`).
+      window.__summriseUnmark = () => {
+        for (const el of document.querySelectorAll("[data-summrise-press]")) el.removeAttribute("data-summrise-press");
+      };
+      window.__summriseUnmark();
       for (const el of document.querySelectorAll(
         'button:not([disabled]), a[href], [role="button"], [role="tab"]',
       )) {
@@ -842,13 +854,39 @@ export async function discoverPressTargets(page, cap, skip) {
           el.tagName.toLowerCase() + cls + "|" + Math.round(r.width) + "x" + Math.round(r.height);
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push(el.tagName.toLowerCase() + cls);
+        // ── A SELECTOR IS NOT A HANDLE, AND THAT IS HOW TWELVE FINDINGS WERE FILED AGAINST A LIVE BUTTON ──────────
+        // MEASURED 2026-09-28, on `main` at 067efc52, in a local Chromium against the bundle this checkout builds.
+        // `panel/light rail panel-Settings` rendered `button.btn` twice at 111x24 and both rows read `changed: []`
+        // — "renders NOTHING when pressed". The pass was pressing the right control and reading a DIFFERENT one:
+        // the row's whole handle was the STRING `button.btn`, and `styleOf` re-resolved it to `document.querySelectorAll`
+        // match #1, which on that page is the `Update to 1.2.433` button inside a CLOSED `<details>` — a layout box
+        // with no hit-testable surface, which is exactly why the loop above rejects it and why the string never
+        // resolved back to the element that was discovered. The press landed on `Save & connect`; the baseline and
+        // the "during" snapshot both described the hidden one; the two were identical and the control was accused.
+        // The same collapse made `found: 2` a fiction: `box` re-resolved the string too, so BOTH targets pressed
+        // element #1 and the second control was never pressed at all — while the row claimed it had been.
+        // A DISCOVERED TARGET IS THEREFORE IDENTIFIED, not merely described: it is marked so that its selector
+        // resolves to it and to nothing else. The row keeps the readable `tag.class` (`labels`), because a finding
+        // has to name something a person can find; the MARK is what the pointer and the two reads are aimed at and
+        // it is removed when the pass is over. `data-summrise-idle-probe` is the same idiom in `idlePass`.
+        const label = el.tagName.toLowerCase() + cls;
+        el.setAttribute("data-summrise-press", "p" + out.length);
+        const handle = '[data-summrise-press="p' + out.length + '"]';
+        labels[handle] = label;
+        out.push(handle);
       }
-      return { found: out.length, targets: out.slice(0, cap) };
+      return { found: out.length, targets: out.slice(0, cap), labels };
     },
     { cap, skip },
   );
 }
+
+/** NOT EXPORTED AS A HELPER, ON PURPOSE: the cleanup is two lines of page code that each discovering pass owns
+ *  inline. A Node-side `unmarkPressTargets` would be a name `pressPass` and `ackPass` reference, which means four
+ *  payloads and four emitters have to bind it — and a missing binding there is a RUNTIME `is not defined` on the
+ *  device, which the assembler cannot catch because it only compiles. The mark is inert (nothing in any of these
+ *  sheets selects it); what matters is that it does not outlive the pass, because the next probe must not be
+ *  measuring a page this one wrote to. `idlePass` owns its own probe the same way (`window.__summriseIdleStop`). */
 
 /**
 /** HOW LONG UNTIL THE CONTROL ACKNOWLEDGES THE PRESS — measured, against a stated budget (round 19).
@@ -947,6 +985,8 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   // without a third option: "nothing is wrong, this is the protocol working".
   // emitted script by inserting into it — the second time this loop has paid for that, after round 41's stylesheet.)
   const rows = [];
+  // HANDLE -> THE NAME A NOTE PRINTS, filled only by a discovered pass (see `discoverPressTargets`).
+  let labels = {};
   // AND IT ASKS THE DOM TOO (round 20). Round 19 measured a CURATED pair on one page and found two controls with no
   // acknowledgement at all — which raises the obvious question the list cannot answer: how many others are there?
   // A list can only contain what somebody thought of, and the controls that answer nothing are exactly the ones
@@ -955,6 +995,9 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
   if (label.discover) {
     const skip = [...targets.filter((t) => !t.includes(",")), ...(label.skip || [])];
     const d = await discoverPressTargets(page, label.discover, skip);
+    // THE SAME SPLIT AS `pressPass` (measured 2026-09-28): a discovered target is a MARKED HANDLE, so the press
+    // and every read after it resolve to the element that was discovered, and `labels` is what the note prints.
+    labels = d.labels || {};
     targets = [...targets.filter((t) => !t.includes(",")), ...d.targets];
   // ── AND THE PAGE IS PUT IN A STATE A USER WOULD BE IN (round 48 of the standing goal) ────────────────────────────
   // Round 47 answered the second-press note for `[Search]`: `search()` guards on `query.trim()`, this pass presses
@@ -1214,7 +1257,7 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       // so `a.name` was `undefined` for every row no matter what the probe returned. That is the same class as rounds
       // 13, 21, 34 and 43 (the instrument holds the datum and does not pass it on), one level deeper: the datum was
       // computed, returned, and then discarded when the row was built.
-      sel, size: box.w + "x" + box.h, name: (acked && acked.name) || (before && before.name) || "",
+      sel: labels[sel] || sel, size: box.w + "x" + box.h, name: (acked && acked.name) || (before && before.name) || "",
       where: acked ? acked.where : (before ? before.where : sel),
       acked: acked !== null, via: acked ? acked.attr || "paint" : null, msToAck, msToClear, budgetMs, attempts, msFirstPress,
       asked, calls: callsInPress, callsInWindow: callsAfter - callsBefore, hasCounter,
@@ -1228,6 +1271,9 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
     // AND PUT THE PAGE BACK: the next control is measured from rest, not from whatever this click did.
     await page.mouse.move(2, 2);
   }
+  // AND THE MARKS COME OFF — `ackPass` discovers too, so it marks too. Leaving them would be a page the NEXT probe
+  // measures with attributes this pass wrote.
+  if (label.discover) await page.evaluate(() => { if (window.__summriseUnmark) window.__summriseUnmark(); });
   return rows;
 }
 
@@ -1281,6 +1327,8 @@ export async function pressPass(page, targets, label = {}) {
   // THE DISCOVERED SET IS OPT-IN: a page of fifty archive rows must not cost fifty presses. The curated list stays
   // for the surfaces it was written for, and `discover` adds what the DOM knows that the list does not.
   let found = null;
+  // HANDLE -> THE NAME A FINDING PRINTS. Empty for a curated pass, whose selectors already read as names.
+  let labels = {};
   if (label.discover) {
     // THE CHROME IS ALREADY MEASURED, AND THE CAP IS SMALL. The rail walk presses the CONTENT controls of a page —
     // the mode passes already own the rail buttons, the session tabs and the side rows — so those are skipped here.
@@ -1291,6 +1339,10 @@ export async function pressPass(page, targets, label = {}) {
     const skip = [...targets.filter((t) => !t.includes(",")), ...(label.skip || [])];
     const d = await discoverPressTargets(page, label.discover, skip);
     found = d.found;
+    // THE MARKED HANDLES ARE WHAT IS PRESSED AND READ; THE LABEL IS WHAT A FINDING PRINTS. They travel together
+    // because a handle is `[data-summrise-press="p3"]` and a finding that said that would name nothing a reader
+    // could go and look at.
+    labels = d.labels || {};
     targets = [...targets.filter((t) => !t.includes(",")), ...d.targets];
     // A PAGE WITH NO CONTENT CONTROLS IS A FACT, NOT AN EMPTY SET. Without a row to carry it, `found` never reaches
     // the report, the judge falls back to its curated floor of two, and the harness's Browser page — an explanation
@@ -1308,6 +1360,16 @@ export async function pressPass(page, targets, label = {}) {
       const r = el.getBoundingClientRect();
       const st = getComputedStyle(el);
       if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
+      // THE BASELINE MUST COME FROM THE ELEMENT THE POINTER IS AIMED AT (measured 2026-09-28 on 067efc52).
+      // This reader and the `box` reader below both open with `document.querySelectorAll(sel)` and take the first
+      // match — and they did NOT agree on what "first" means: `box` also asks `checkVisibility` (round 265, the
+      // closed-`<details>` fix) and this one did not, so for any selector whose first match is a control with a
+      // layout box and no hit-testable surface, the press landed on one element and BOTH snapshots described
+      // another. A discovered target is marked now and cannot be ambiguous, but a CURATED selector (`.tab`, `.btn`,
+      // `a`) is still a string that several elements can answer to, so the two readers have to ask the same
+      // question. One predicate, spelled the same way in both, or this returns.
+      if (typeof el.checkVisibility === "function" &&
+          !el.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true, visibilityProperty: true })) continue;
       const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : "";
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       return {
@@ -1352,9 +1414,9 @@ export async function pressPass(page, targets, label = {}) {
       }
       return null;
     }, sel);
-    if (!box) { rows.push({ sel, note: "not rendered on this page" }); continue; }
+    if (!box) { rows.push({ sel: labels[sel] || sel, note: "not rendered on this page" }); continue; }
     if (box.offscreen) {
-      rows.push({ sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
+      rows.push({ sel: labels[sel] || sel, note: "could not be scrolled into the viewport (top=" + box.top + ", bottom=" + box.bottom + " of " + box.viewport + ") — NOT pressed, and that is not evidence about its press" });
       continue;
     }
     // HOVER FIRST, THEN READ, THEN PRESS. The order is the measurement: the hover must have SETTLED before the
@@ -1384,7 +1446,9 @@ export async function pressPass(page, targets, label = {}) {
     // uses; when it is false the pointer never arrived, and the row says so instead of accusing the control.
     const reached = box.reaches !== false;
     rows.push({
-      sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
+      // THE READABLE NAME, NOT THE MARK. `labels` maps a discovered handle back to the `tag.class` the finding
+      // should print; a curated selector is its own name and is not in the map.
+      sel: labels[sel] || sel, where: pressed ? pressed.where : hovered.where, size: box.w + "x" + box.h,
       // WHAT THE PAGE HAD, on every row of a discovered pass: the harness's Browser page renders an EXPLANATION with
       // exactly one control in a plain browser (round 45), and "measured 1" there is a COMPLETE pass, not a vacuous
       // one. The judge sizes its floor to this instead of to a constant.
@@ -1400,6 +1464,9 @@ export async function pressPass(page, targets, label = {}) {
   // an accident. A pass that moves the pointer owns putting it back.
   await page.mouse.move(2, 2);
   await page.waitForTimeout(60);
+  // AND THE MARKS COME OFF, for the same reason: this pass wrote `data-summrise-press` on every control it
+  // discovered, and the next probe must not be measuring a page this one wrote to. See the note on the cleaner.
+  if (found != null) await page.evaluate(() => { if (window.__summriseUnmark) window.__summriseUnmark(); });
   return rows;
 }
 

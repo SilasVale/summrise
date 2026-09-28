@@ -3,8 +3,8 @@
 // Read this when you change this file: the mutation is how you find out whether the gate can still
 // fail at all. A gate that cannot be broken is worse than no gate.
 //
-// MUTATION: read the press baseline BEFORE the hover (put `const hovered = await styleOf(sel);` back above `page.mouse.move`), or add `width` to `pressDelta`'s key list
-// RESULT:   exit 1 both ways: "the baseline is read BEFORE the hover (move@…, hovered@…) — that is the resting anchor this check exists for", and "layout properties are not a press response". It pins the rule as a pure function AND the wiring in all three EMITTED artifacts, because a probe measured against rest calls every hover a press — that is how the landing's theme toggle passed for as long as it existed. The first version of the wiring assertion checked only "hovered before down" and PASSED the mutation (round 95). **AND IT REACHES EVERY CONTROL A PAGE RENDERS (round 15)**: it scrolls an element into view only when it is not
+// MUTATION: read the press baseline BEFORE the hover (put `const hovered = await styleOf(sel);` back above `page.mouse.move`), or add `width` to `pressDelta`'s key list; **AND, added 2026-09-28: (a) hand a discovered target back as a bare selector (`out.push(label)` in place of the mark + handle + label map), or (b) delete the `checkVisibility` predicate from `pressPass`'s `styleOf`**
+// RESULT:   exit 1 every way: "the baseline is read BEFORE the hover (move@…, hovered@…) — that is the resting anchor this check exists for", "layout properties are not a press response", **"(a) the discovered control is not MARKED — so the press and the two snapshots re-resolve a bare selector and can land on different elements, which is how a live button was accused of rendering nothing"** and **"(b) the baseline reader takes the first match WITHOUT asking whether the browser renders it, while the box reader does ask — so the press and both snapshots can describe two different elements"**. Both new cases were run as mutations, not assumed, and **THE FIRST VERSION OF (a) PASSED ITS OWN MUTATION**: it asked for the string `data-summrise-press` anywhere in the discovery's first 4000 characters, and the CLEARER defined three lines above carries that selector in its own body — so reverting the marking left the gate green. That is this file's recorded trap ("a check that a string exists is not a check that the RULE is where it has to be") arriving at the assertion written to avoid it, and it is why the check now pins three STATEMENTS (the mark is assigned, mapped to a readable name, and handed back) instead of a word. **AND THE 4000-CHARACTER WINDOW WAS ITSELF A DEFECT**: the discovery's body grew past it while the marking was being added, so the assertion failed against a CORRECT artifact — a fixed-size window measures how much comment somebody wrote. The window is now the function (up to the next top-level declaration the pieces module emits). It pins the rule as a pure function AND the wiring in all three EMITTED artifacts, because a probe measured against rest calls every hover a press — that is how the landing's theme toggle passed for as long as it existed. The first version of the wiring assertion checked only "hovered before down" and PASSED the mutation (round 95). **AND IT REACHES EVERY CONTROL A PAGE RENDERS (round 15)**: it scrolls an element into view only when it is not
 
 // press-anchor-check.mjs — a press must be measured against the HOVER, not against rest.
 //
@@ -139,9 +139,61 @@ try {
       // caught it: the guard was removed from `discoverPressTargets` and the gate stayed green).
       const discovery = src.indexOf("function discoverPressTargets");
       assert.ok(discovery >= 0, `${name}: the DOM discovery is not embedded`);
+      // THE WINDOW IS THE FUNCTION, NOT A CHARACTER COUNT. It was `discovery + 4000` and that number is a trap: the
+      // discovery's own body grew past it while this round was adding the marking, so the assertion written to pin
+      // the new rule failed against a CORRECT artifact — a fixed-size window measures how much comment somebody
+      // wrote, not where the code is. The pieces module declares each function as `const <name> = <fn.toString()>;`
+      // joined by newlines, so the next top-level declaration is the honest end of this one.
+      const nextDecl = src.indexOf("\nconst ", discovery + 1);
+      const marks = src.slice(discovery, nextDecl > 0 ? nextDecl : undefined);
       assert.ok(
-        src.slice(discovery, discovery + 4000).includes("checkVisibilityCSS: true"),
+        marks.includes("checkVisibilityCSS: true"),
         `${name}: the DOM discovery offers controls the browser does not render — a closed <details> keeps layout boxes for its content, which is how the connect tabs were pressed through the section drawn over them`,
+      );
+      // ── AND A DISCOVERED TARGET IS A HANDLE, NOT A SELECTOR (measured 2026-09-28 on `main` at 067efc52) ─────────
+      // The pass pressed `Save & connect` and read BOTH of its snapshots from `Update to 1.2.433` — a button inside a
+      // CLOSED `<details>`, a layout box with no hit-testable surface, which is exactly the control the discovery
+      // rejects three lines above. `styleOf` and `box` both begin `document.querySelectorAll(sel)` and take match #1,
+      // and the row's whole handle was the STRING `button.btn`, so the two disagreed about which element that was:
+      // the hidden one. Two identical snapshots, one false finding — `renders NOTHING when pressed` — and the same
+      // collapse made `found: 2` a fiction, because `box` re-resolved the string too and pressed element #1 twice
+      // while the rows claimed both controls had been measured.
+      //
+      // THE RULE, asserted at the FUNCTION rather than as a string somewhere in the artifact: what the discovery
+      // hands back must RESOLVE TO THE ELEMENT IT FOUND, and the pass must unmark what it marked.
+      //
+      // **THE FIRST VERSION OF THIS ASSERTION PASSED THE MUTATION, WHICH IS HOW IT WAS FOUND.** It asked for the
+      // string `data-summrise-press` anywhere in the discovery's first 4000 characters — and the CLEARER, defined
+      // three lines above, carries that selector in its own body, so reverting the marking to a bare selector left
+      // the gate green. That is this file's own recorded trap one level down ("a check that a string exists is not a
+      // check that the RULE is where it has to be", round 265) arriving at the assertion written to avoid it. What is
+      // pinned now is the SHAPE the rule needs: the discovery ASSIGNS the mark, MAPS it to the name a finding prints,
+      // and HANDS BACK THE MARK — three statements, and the mutation deletes all three.
+      assert.ok(
+        marks.includes('el.setAttribute("data-summrise-press"'),
+        `${name}: the discovered control is not MARKED — so the press and the two snapshots re-resolve a bare selector and can land on different elements, which is how a live button was accused of rendering nothing`,
+      );
+      assert.ok(
+        marks.includes("out.push(handle)"),
+        `${name}: the discovery hands back something other than the marked handle — a bare selector is not a handle, and a page with two controls sharing one class had both rows describe the first one`,
+      );
+      assert.ok(
+        marks.includes("labels[handle] = label"),
+        `${name}: the marked handle has no readable name, so a finding would print an attribute selector instead of the control it is about`,
+      );
+      assert.ok(
+        src.includes("window.__summriseUnmark"),
+        `${name}: the pass marks the page and never takes the marks off — the next probe would measure a page this one wrote to`,
+      );
+      // AND THE TWO READERS OF ONE TARGET ASK THE SAME VISIBILITY QUESTION. `box` has asked `checkVisibility` since
+      // round 265; `styleOf` did not, so for any selector whose first match is unhittable they read different
+      // elements. A marked handle cannot be ambiguous, but a CURATED selector (`.tab`, `.btn`, `a`) still can, so the
+      // predicate is pinned in BOTH readers rather than in one.
+      const styleOf = src.indexOf("const styleOf = (sel) => page.evaluate");
+      assert.ok(styleOf >= 0, `${name}: the baseline reader is not embedded`);
+      assert.ok(
+        src.slice(styleOf, styleOf + 1400).includes("checkVisibilityCSS: true"),
+        `${name}: the baseline reader takes the first match WITHOUT asking whether the browser renders it, while the box reader does ask — so the press and both snapshots can describe two different elements`,
       );
       // AND IT ASKS THE DOM FOR THE CONTROLS, with the count that lets the judge size its floor to the page.
       assert.ok(src.includes("function discoverPressTargets"), `${name}: the DOM discovery is not embedded — a control on a page no list names is never pressed (that is how the log toggle was missed)`);
