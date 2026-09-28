@@ -57,13 +57,16 @@ export function TabBar({ sessions, activeSid, onActivate, onClose, onExport, vie
   // TEN TABS, ONE LABEL. Measured on the live device (2026-09-17): 16 sessions, 10 of them labelled
   // `pwsh`, so the strip rendered ten identical tabs truncated to `pws…` — no way to tell which session
   // was which, in the ONLY surface this density offers for reaching them. The first keeps the bare label
-  // (the least surprising change), and repeats take a counter: `pwsh`, `pwsh 2`, `pwsh 3`.
+  // (the least surprising change), and repeats take a counter: `pwsh`, `2·pwsh`, `3·pwsh`.
   //
   // The distinguisher is a NUMBER because that is the only information the row actually has — a pty
   // session's label is its shell, its sid is opaque, and two PowerShell sessions ARE interchangeable
   // until you look inside them. A number says exactly that instead of implying a difference.
-  // The helper lives in lib/ because the DESKTOP strip needs it too and had been left out (round 170 found
-  // `d1, serial:COM4, d1, …` on a rendered page). One implementation, two strips.
+  // IT LEADS THE LABEL, and `lib/sessionLabels.ts` carries the measurement that moved it there: as a
+  // suffix it was the first thing `text-overflow: ellipsis` removed, so the token that made two tabs
+  // different was the token the renderer deleted — and the operator's two `stc@192.168.1.1` tabs read
+  // as one. The helper lives in lib/ because the DESKTOP strip needs it too and had been left out
+  // (round 170 found `d1, serial:COM4, d1, …` on a rendered page). One implementation, two strips.
   const displayLabel = disambiguateLabels(sessions);
   return (
     <div className="tabrow" data-more={more ? "1" : undefined}>
