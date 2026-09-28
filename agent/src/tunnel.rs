@@ -396,10 +396,7 @@ pub(crate) async fn provision_tunnel(
             format!("credentials-file: {cred}")
         }
     };
-    let yml = format!(
-        "tunnel: {id}\n{auth_line}\nallow-remote-config: false\ningress:\n  - hostname: {hostname}\n    service: {}\n  - service: http_status:404\n",
-        ingress_service(port)
-    );
+    let yml = tunnel_yml(&id, &auth_line, &hostname, port);
     let cfg_path = crate::paths::tunnel_file();
     // Supervision audit #5: atomic (the boot-spawned cloudflared may be
     // mid-read) — and #1: DO NOT spawn a second tunnel here; the supervisor
@@ -577,6 +574,83 @@ async fn ensure_cf_credentials() {
 /// every non-default install).
 fn ingress_service(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
+}
+
+/// The `tunnel.yml` body for this device — THE ONE PLACE THE FILE'S SHAPE IS WRITTEN.
+///
+/// Split out of `provision_tunnel` so that the READER of this shape
+/// (`first_ingress_hostname`, below) can be tested against the WRITER instead of against a
+/// copy of it. The supervisor's foreign-file check depends on the ingress hostname being
+/// where this format puts it, and a parser tested against a transcribed fixture would keep
+/// passing after a shape change — the check would then quietly return "no claim to
+/// contradict" and the device would go back to running another device's tunnel, silently,
+/// which is the whole defect.
+fn tunnel_yml(id: &str, auth_line: &str, hostname: &str, port: u16) -> String {
+    format!(
+        "tunnel: {id}\n{auth_line}\nallow-remote-config: false\ningress:\n  - hostname: {hostname}\n    service: {}\n  - service: http_status:404\n",
+        ingress_service(port)
+    )
+}
+
+/// The hostname in the FIRST `ingress:` entry of a `tunnel.yml` body — the `- hostname:` line
+/// `tunnel_yml` writes. `None` when the body has no ingress hostname at all (not a file this
+/// crate wrote, or a write that was cut short), which the caller must read as "nothing to
+/// contradict" rather than as a mismatch.
+fn first_ingress_hostname(yml: &str) -> Option<&str> {
+    let mut under_ingress = false;
+    for line in yml.lines() {
+        let line = line.trim();
+        if line.starts_with("ingress:") {
+            under_ingress = true;
+            continue;
+        }
+        if !under_ingress {
+            continue;
+        }
+        // The second entry is `- service: http_status:404` and has no hostname; only the
+        // `- hostname:` key is a claim about an identity.
+        if let Some(host) = line.strip_prefix("- hostname:") {
+            let host = host.trim();
+            return (!host.is_empty()).then_some(host);
+        }
+    }
+    None
+}
+
+/// The DEVICE a hostname names: its first dot-separated label.
+///
+/// Only the label is comparable across the two files. `summrise setup --hostname <sub>` may
+/// write the bare label while the ingress carries the fully qualified name
+/// (`d1` vs `d1.agent.saisi.online`), so comparing whole strings would refuse a file this
+/// device wrote itself — and with the domain hardcoded it would break the day the domain
+/// moves, which is precisely when devices are re-provisioned.
+fn device_label(host: &str) -> &str {
+    host.trim().split('.').next().unwrap_or("")
+}
+
+/// The device a `tunnel.yml` claims to serve, when that is NOT this machine:
+/// `Some((label in the file, this device's label))`.
+///
+/// **MEASURED 2026-09-28, AND IT IS WHY THIS EXISTS.** A machine reinstalled at 10:00:41 came
+/// up with a `tunnel.yml` dated 2026-09-10, written for a different device (`d1`). cloudflared
+/// read it, joined `d1`'s tunnel and served `d1.agent.saisi.online` for about twelve minutes —
+/// its log shows `Updated to new configuration config="…d1.agent.saisi.online…"` — while the
+/// tunnel provisioned FOR this device reported `status: healthy` with 0 connectors, so the
+/// device was unreachable at its own hostname (relay 530, console offline). Nothing in the
+/// supervisor's existence check can see this: the file is there, the binary is there, and the
+/// run SUCCEEDS — as the wrong machine.
+///
+/// Pure, and in the LIB rather than in `supervise_tunnel` (which is `#![cfg(windows)]` and so
+/// has no test on the Linux CI that gates every release — the round-112 reason `tunnel_outcome`
+/// was hoisted out of `provision_tunnel`). `None` covers every case that is not a refusal: an
+/// ingress-less file, an unnamed device, and the normal one where the labels agree.
+pub fn foreign_tunnel_device(yml: &str, device_host: &str) -> Option<(String, String)> {
+    let file_dev = device_label(first_ingress_hostname(yml)?);
+    let this_dev = device_label(device_host);
+    if file_dev.is_empty() || this_dev.is_empty() || file_dev == this_dev {
+        return None;
+    }
+    Some((file_dev.to_string(), this_dev.to_string()))
 }
 
 /// The verdict of the REMOTE config PUT — deliberately NOT the same thing as the local
@@ -1058,6 +1132,93 @@ mod tests {
         assert_eq!(ingress_service(7740), "http://127.0.0.1:7740");
         // A custom port must never silently fall back to the default.
         assert!(!ingress_service(7740).contains("18080"));
+    }
+
+    /// THE PARSER IS PINNED TO THE WRITER, not to a transcribed copy of it: the fixture below
+    /// comes from `tunnel_yml`, so a future change to the file's shape fails HERE. A fixture
+    /// written out by hand would keep passing, the supervisor's check would quietly return
+    /// "no claim to contradict", and the device would go back to running another device's
+    /// tunnel without a single line anywhere — which is the defect this check exists for.
+    #[test]
+    fn the_foreign_check_reads_the_shape_the_writer_writes() {
+        let yml = tunnel_yml(
+            "11111111-1111-1111-1111-111111111111",
+            "token: eyJhIjoiZm9vIn0=",
+            "d1.agent.saisi.online",
+            18080,
+        );
+        assert_eq!(
+            foreign_tunnel_device(&yml, "desktop-14rjcr8.agent.saisi.online\n"),
+            Some(("d1".to_string(), "desktop-14rjcr8".to_string())),
+            "another device's ingress must be reported as FOREIGN"
+        );
+        assert_eq!(
+            foreign_tunnel_device(&yml, "d1.agent.saisi.online"),
+            None,
+            "and this device's own file must not be"
+        );
+    }
+
+    #[test]
+    fn a_bare_label_and_a_qualified_name_are_one_device() {
+        // `summrise setup --hostname d1` writes the bare label, while `provision_tunnel`
+        // copies whatever the hostname file holds into the ingress — so the two spellings
+        // meet in practice, and a whole-string compare would refuse this device's own file.
+        let bare = tunnel_yml("id", "token: t", "d1", 18080);
+        assert_eq!(foreign_tunnel_device(&bare, "d1.agent.saisi.online"), None);
+        let qualified = tunnel_yml("id", "token: t", "d1.agent.saisi.online", 18080);
+        assert_eq!(foreign_tunnel_device(&qualified, "d1"), None);
+        // The DOMAIN is deliberately not part of the comparison: it is not hardcoded here,
+        // and a file that disagrees about the domain still names the same device.
+        let other_domain = tunnel_yml("id", "token: t", "d1.other.example", 18080);
+        assert_eq!(
+            foreign_tunnel_device(&other_domain, "d1.agent.saisi.online"),
+            None
+        );
+    }
+
+    #[test]
+    fn labels_are_compared_whole_not_as_prefixes() {
+        let yml = tunnel_yml("id", "token: t", "d10.agent.saisi.online", 18080);
+        assert_eq!(
+            foreign_tunnel_device(&yml, "d1.agent.saisi.online"),
+            Some(("d10".to_string(), "d1".to_string())),
+            "d10 is not d1"
+        );
+        assert_eq!(device_label("d1.agent.saisi.online"), "d1");
+        assert_eq!(device_label(" d1 "), "d1");
+        assert_eq!(device_label("d1"), "d1");
+        assert_eq!(device_label(""), "");
+    }
+
+    /// "Either side missing" is NOT a mismatch. The supervisor reads an unreadable file as
+    /// "no claim to contradict" and an unnamed device as a state the rest of the code already
+    /// refuses ("cannot provision: summrise-agent.hostname missing or invalid"): treating
+    /// either as foreign would take a working device dark for a reason nobody could see.
+    #[test]
+    fn nothing_is_refused_when_either_side_is_missing() {
+        assert_eq!(foreign_tunnel_device("", "d1.agent.saisi.online"), None);
+        assert_eq!(
+            foreign_tunnel_device("tunnel: id\n", "d1.agent.saisi.online"),
+            None
+        );
+        assert_eq!(
+            foreign_tunnel_device(
+                "ingress:\n  - service: http_status:404\n",
+                "d1.agent.saisi.online"
+            ),
+            None
+        );
+        assert_eq!(
+            foreign_tunnel_device(
+                "ingress:\n  - hostname:\n    service: http://127.0.0.1:18080\n",
+                "d1"
+            ),
+            None
+        );
+        let yml = tunnel_yml("id", "token: t", "d1.agent.saisi.online", 18080);
+        assert_eq!(foreign_tunnel_device(&yml, ""), None);
+        assert_eq!(foreign_tunnel_device(&yml, "\n"), None);
     }
 
     /// sha256("abc") — FIPS vector. Hardcodes the digest so the hex-encode +
