@@ -18,6 +18,19 @@ export function archive_entries(payload) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * `parseBootHistory(j)` — never throws, and never invents a value.
+ * @param {any} j
+ * @returns {any}
+ */
+export function parse_boot_history(j) {
+    const ret = wasm.parse_boot_history(j);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,

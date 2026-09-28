@@ -12,11 +12,17 @@
  */
 export function archive_entries(payload: any): any;
 
+/**
+ * `parseBootHistory(j)` — never throws, and never invents a value.
+ */
+export function parse_boot_history(j: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly archive_entries: (a: any) => [number, number, number];
+    readonly parse_boot_history: (a: any) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

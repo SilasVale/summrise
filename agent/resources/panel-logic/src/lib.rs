@@ -33,5 +33,7 @@
 use wasm_bindgen::prelude::*;
 
 mod archive;
+mod boot;
 
 pub use archive::archive_entries;
+pub use boot::parse_boot_history;
