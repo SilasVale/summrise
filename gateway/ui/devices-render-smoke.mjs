@@ -17,6 +17,8 @@ const routes = {
     devices: [
       { name: "d1", hostname: "d1.agent.saisi.online", token: "a1b2c3d4e5f6g7h8", registeredAt: now - 86400000, lastSeenAt: now - 60000, lastVersion: "1.0.106" },
       { name: "d2", hostname: "d2.agent.saisi.online", token: "z9y8x7w6v5u4t3s2", lastVersion: "1.0.100" },
+      { name: "d3", hostname: "d3.agent.saisi.online", token: "q1w2e3r4t5y6u7i8", lastVersion: "1.0.100" },
+      { name: "d4", hostname: "d4.agent.saisi.online", token: "p9o8i7u6y5t4r3e2", lastVersion: "1.0.99" },
     ],
   },
   "/api/plugins/status": {
@@ -28,11 +30,24 @@ const routes = {
       // THE TWO DIRECTIONS THIS PAGE GOT WRONG (round 29): d1's KV copy EQUALS the CDN version while the device
       // itself says it is behind (a stale `lastVersion`), and d2's KV copy is OLDER than the CDN while the device
       // says it is current — because it is PINNED to 1.0.100. The old comparison badged d2 and left d1 unmarked.
+      // THE FOUR ARMS OF THE UPDATE CONTROL, one device each — the whole point of carrying the four fields the
+      // gateway used to drop. `busy` is forwarded as a boolean by the projection, so every row spells it.
       d1: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now,
-            update: { current: "1.0.106", latest: "1.0.106", update_available: true, pinned_to: null },
+            update: { current: "1.0.106", latest: "1.0.106", update_available: true, pinned_to: null, busy: false, checked_at: now },
             last_boot_kind: "crashed", last_boot: "run journal: previous run DID NOT EXIT CLEANLY — CRASHED or was killed; survived 61s" },
+      // HELD: the device is pinned, so it reports `update_available: false` however old the CDN is. Before
+      // `pinned_to` was read, this row was indistinguishable from a current one.
       d2: { online: false, agent_up: false, tunnel_up: false, checked_at: now,
-            update: { current: "1.0.100", latest: "1.0.106", update_available: false, pinned_to: "1.0.100" } },
+            update: { current: "1.0.100", latest: "1.0.106", update_available: false, pinned_to: "1.0.100", busy: false, checked_at: now } },
+      // IN FLIGHT: `busy` plus the device's own record of when the swap was handed to WMI. Twenty minutes ago
+      // and still answering — the state that must not offer a second update.
+      d3: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now,
+            update: { current: "1.0.100", latest: "1.0.106", update_available: false, pinned_to: null, busy: true,
+                      checked_at: now, last_attempt: { at_ms: now - 20 * 60000, from: "1.0.100", to: "1.0.106", launched: true } } },
+      // UP TO DATE, and it can DATE that claim: `checked_at` is the device's own channel check, which is what
+      // the chip's hover now reads.
+      d4: { online: false, agent_up: true, tunnel_up: true, version: "1.0.106", checked_at: now,
+            update: { current: "1.0.106", latest: "1.0.106", update_available: false, pinned_to: null, busy: false, checked_at: now - 120000 } },
     },
   },
   // version = agent (Cargo) scheme; the download filename carries the npm version.
@@ -75,9 +90,9 @@ const doc = window.document;
 const text = doc.body.textContent || "";
 const checks = [
   ["stats strip renders", doc.querySelector(".dev-stats") !== null && text.includes("台设备") && text.includes("在线")],
-  ["stat numbers (2 devices, 1 online, 1 tunnel, 1 key)", doc.querySelectorAll(".dev-stat").length === 4],
-  ["card grid with 2 cards", doc.querySelectorAll(".dev-card").length === 2],
-  ["signal rows per card (2 + 1 crash + 2)", doc.querySelectorAll(".dev-sig").length === 5],
+  ["stat numbers (4 devices, 3 online, 3 tunnels, 1 key)", doc.querySelectorAll(".dev-stat").length === 4],
+  ["card grid with 4 cards", doc.querySelectorAll(".dev-card").length === 4],
+  ["signal rows per card (3 + 2 + 2 + 2)", doc.querySelectorAll(".dev-sig").length === 9],
   // The crash mark is a FLEET EXCEPTION, and this pins both halves of that claim: the
   // device that reported it carries the row, and the healthy one does not grow one. The
   // full sentence rides the row's tooltip — the mark has to survive a glance, the detail
@@ -89,16 +104,40 @@ const checks = [
       && [...doc.querySelectorAll(".dev-card")][1].textContent.indexOf("上次运行") === -1],
   ["d1 online LED + d2 offline LED", doc.querySelector(".dev-led.on") !== null && doc.querySelector(".dev-led.off") !== null],
   ["tunnel down state text", text.includes("隧道断开")],
-  // THE DEVICE'S VERDICT, NOT THE PAGE'S ARITHMETIC. d1 is badged although its KV version equals the CDN (the
-  // device knows better); d2 is NOT badged although its KV version is older (it is pinned). One badge, on the
+  // THE DEVICE'S VERDICT, NOT THE PAGE'S ARITHMETIC. d1 gets the CONTROL although its KV version equals the CDN
+  // (the device knows better); d2 does NOT although its KV version is older (it is pinned). One control, on the
   // device that earned it.
-  ["one outdated badge, on the device whose own verdict says so",
-    text.includes("可更新到 1.0.106")
-      && [...doc.querySelectorAll(".dev-card")].filter((c) => (c.textContent || "").includes("可更新到")).length === 1
-      && [...doc.querySelectorAll(".dev-card")][0].textContent.includes("可更新到")
-      && ![...doc.querySelectorAll(".dev-card")][1].textContent.includes("可更新到")],
-  ["a pinned device still shows its version, not a badge",
-    [...doc.querySelectorAll(".dev-card")][1].textContent.includes("v1.0.100")],
+  ["one update control, on the device whose own verdict says so",
+    text.includes("更新到 1.0.106")
+      && [...doc.querySelectorAll(".dev-card")].filter((c) => (c.textContent || "").includes("更新到")).length === 1
+      && [...doc.querySelectorAll(".dev-card")][0].textContent.includes("更新到")
+      && ![...doc.querySelectorAll(".dev-card")][1].textContent.includes("更新到")],
+  // THE GEOMETRY RULE, PINNED. The control is a BUTTON IN THE HEADER and the action row still has exactly its
+  // four — a fifth button there wraps `.dev-actions`, whose `margin-top: auto` would add 32px to every card in
+  // the row. This is the assertion that a later "just put it with the other buttons" cannot pass.
+  ["the control is a header button, not a fifth card action",
+    [...doc.querySelectorAll(".dev-card")][0].querySelector(".dev-card-head button.btn-primary") !== null
+      && [...doc.querySelectorAll(".dev-card")][0].querySelectorAll(".dev-actions button").length === 4
+      && doc.querySelectorAll(".dev-actions button").length === 16],
+  ["a held device says it is held, and offers no button",
+    [...doc.querySelectorAll(".dev-card")][1].textContent.includes("已锁定 v1.0.100")
+      && [...doc.querySelectorAll(".dev-card")][1].querySelector("button.btn-primary") === null
+      && ([...doc.querySelectorAll(".dev-card")][1].querySelector(".dev-card-ver")?.getAttribute("title") || "").includes("summrise rollback")],
+  // IN FLIGHT IS A SENTENCE: no button to press a second time (the device's own marker refuses it), and no
+  // spinner (which would be this console claiming to know when the device comes back). Its hover carries the
+  // honest window — the measured TWO HOURS, not the device's "~1 minute" or the panel's "within about a minute".
+  ["an in-flight device gets a sentence, not a button and not a spinner",
+    [...doc.querySelectorAll(".dev-card")][2].textContent.includes("更新中")
+      && [...doc.querySelectorAll(".dev-card")][2].querySelector("button.btn-primary") === null
+      && (([...doc.querySelectorAll(".dev-card")][2].querySelector(".dev-card-head span[title]")?.getAttribute("title")) || "").includes("两小时")],
+  // UP TO DATE SAYS NOTHING AND DOES NOTHING — the chip is the sentence, and it carries the DEVICE's own check
+  // time as its hover, which is what makes it a dateable claim rather than a bare string.
+  ["a current device shows its version, dated by the device's own check",
+    [...doc.querySelectorAll(".dev-card")][3].textContent.includes("v1.0.106")
+      && ([...doc.querySelectorAll(".dev-card")][3].querySelector(".dev-card-ver")?.getAttribute("title") || "").includes("检查过发布服务器")],
+  // ONE PRESSABLE CONTROL IN THE WHOLE FLEET, and it is on the only device whose OWN answer said a newer build
+  // exists. A device that never reported its update state cannot reach the button, whatever this page computes.
+  ["exactly one update button across every card", doc.querySelectorAll(".dev-card button.btn-primary").length === 1],
   ["relative last-seen on d1", text.includes("最近在线") && /最近在线 (刚刚|\d+ 分钟前)/.test(text)],
   ["ssh quick-copy on cards", doc.querySelectorAll('.dev-host .btn').length >= 2],
   ["reg key listed", text.includes("abcd1234")],

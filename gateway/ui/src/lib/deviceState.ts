@@ -136,6 +136,10 @@ function deviceTally(devices: { name: string }[] | null | undefined, statuses: R
 
 export { deviceTally };
 export type { DeviceTally };
+/** EXPORTED SO A SECOND MODULE CAN REQUIRE THE TRI-STATE ANSWER RATHER THAN A BOOLEAN (the update control does:
+ *  `lib/deviceUpdate.ts` takes this type, not `agentUp`, because "not yet asked" and "offline" are the same
+ *  `false` and only the signal tells them apart). */
+export type { Signal };
 
 /**
  * HOW OFTEN THE CONSOLE ASKS FOR DEVICE STATUS — the single value both views used to hard-code separately.

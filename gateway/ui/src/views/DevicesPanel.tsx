@@ -13,6 +13,12 @@ import {
 import { maskToken } from "../lib/format.ts";
 import { CONSOLE_POLL_MS, agentSignal, deviceIsUp, deviceTally, tunnelKnownDown, tunnelSignal } from "../lib/deviceState.ts";
 import {
+  forgetUpdateAttempt,
+  rememberedUpdateAttempt,
+  rememberUpdateAttempt,
+  updateControl,
+} from "../lib/deviceUpdate.ts";
+import {
   Card,
   PageHeader,
   Badge,
@@ -68,6 +74,10 @@ export default function DevicesPanel() {
   // attributes in the same tick as the click, which is the half of "responsive" that has nothing to do with the network.
   // Ported from the panel, where every control has had it since rounds 49-51 (see `lib/useAck.ts`).
   const { ack: refreshAck, run: runAck } = useAck();
+  // A SECOND INSTANCE, and it is keyed by DEVICE NAME rather than by "update": the acknowledgement has to land on
+  // the row that was pressed. `busyOn` is read for `disabled` for the same reason — pressing one device must not
+  // grey out the other rows' buttons, which `busy` (true while ANY control here is in flight) would do.
+  const { ack: updateAck, run: runUpdate, busyOn: updateBusyOn } = useAck();
   const [regKey, setRegKey] = useState("");
   const [regKeys, setRegKeys] = useState<RegKeyInfo[] | null>(null);
   const [install, setInstall] = useState<{
@@ -263,6 +273,55 @@ export default function DevicesPanel() {
     }
   };
 
+  // ── ASK ONE DEVICE TO UPDATE ITSELF ──────────────────────────────────────────────────────────────────────
+  //
+  // **ONE DEVICE, NEVER A FLEET.** `agent_update` takes no device argument — it acts on the agent that
+  // receives it — so a fleet-wide button would open N dark windows nobody can observe, and the operator would
+  // have no way to tell which of them took. That is why this lives on the card and not in the header extra.
+  //
+  // **AND IT NEVER SENDS `force`.** On the device `force: true` is not a repair flag, it is
+  // `remove_file(.rollback-pin)` — the explicit override of a human's `summrise rollback`. The panel's
+  // UpdateCard sends it for a REINSTALL (`apply(status.latest === status.current)`), which silently deletes
+  // that pin; `api.updateDevice` has no `force` parameter for this caller to pass. For an ordinary update the
+  // device does not need it: `force` only short-circuits `newer()`, which is already true here.
+  //
+  // **THE ATTEMPT IS RECORDED BEFORE THE REQUEST LEAVES, and cleared only by an answer that PROVES nothing
+  // started.** A timeout is not a refusal: the swap can kill the tunnel while the download is still running,
+  // and forgetting the attempt on that error would delete the in-flight sentence in the one case it exists for
+  // (the device is dark and this console is the only end that knows why). See `lib/deviceUpdate.ts`.
+  const handleUpdate = async (name: string, to: string) => {
+    rememberUpdateAttempt(name, to);
+    try {
+      const r = await api.updateDevice(name);
+      const result = r?.result ?? {};
+      if (r?.ok === false) {
+        // A tool refusal arrives inside a 200 (`{ok:false,error}` — the device's own documented shape).
+        forgetUpdateAttempt(name);
+        toast(r.error || t("devices.updateRefused"), true);
+        return;
+      }
+      if (result.status === "up_to_date") {
+        forgetUpdateAttempt(name);
+        toast(t("devices.updateCurrent"));
+        return;
+      }
+      if (result.status === "pinned") {
+        // The device's OWN sentence, not a rephrasing: it names `summrise rollback --clear` and the pin.
+        forgetUpdateAttempt(name);
+        toast(result.message || t("devices.updatePinned"), true);
+        return;
+      }
+      toast(t("devices.updateSent"));
+    } catch (err) {
+      // KEPT, deliberately — see above. The sentence will say the device has not answered.
+      toast(err instanceof ApiError ? err.message : t("devices.updateFailed"), true);
+    } finally {
+      // Re-probe rather than wait for the 60s poll: the device may already be answering `busy`, and the
+      // sentence the operator gets instead of the button should appear now, not a minute from now.
+      await loadStatus(true);
+    }
+  };
+
   const handleFormSave = async (
     original: Device | null,
     name: string,
@@ -389,6 +448,26 @@ export default function DevicesPanel() {
                 ? verdict.update_available
                 : !!d.lastVersion && !!install?.version && d.lastVersion !== install.version;
               const behindTo = verdict?.latest ?? install?.version ?? null;
+              // THE CONTROL, AND THE TWO INPUTS THAT DECIDE IT. The first is the device's own answer —
+              // `st.update`, which the gateway sets only inside `if (res.ok)` of its probe, so a device that did
+              // not answer has no verdict and therefore no control. The second is the TRI-STATE agent signal:
+              // `agent.signal`, never `agentUp`, because "not yet asked" is also falsy and a boolean test would
+              // make this row speak about a device nobody has asked anything of yet. `lib/deviceUpdate.ts` owns
+              // the rest, including why a device held by `summrise rollback` gets no button.
+              const control = updateControl({
+                update: verdict,
+                agentSignal: agent.signal,
+                remembered: rememberedUpdateAttempt(d.name),
+              });
+              // THE CHIP SHOWS THE DEVICE'S OWN VERSION when it gave one. `d.lastVersion` is the KV copy the
+              // gateway writes at most hourly (`SEEN_WRITE_INTERVAL_MS`), so a chip built from it alone can be an
+              // hour out of date on the exact field the operator is looking at — which is what this page read
+              // until now. The device's `current` is live; `st.version` is the same probe's reading; the KV copy
+              // is the last resort for an agent too old to answer `/api/update` at all.
+              const liveVersion = verdict?.current ?? st?.version ?? d.lastVersion ?? null;
+              // The device's own date for its last channel check, when it gave one — the observation and WHEN,
+              // which is what turns "v1.2.490" from a bare string into a claim somebody can act on.
+              const chipCheckedAt = control.kind === "current" ? control.checkedAt : null;
               const signals = [
                 // THREE STATES, NOT TWO: a device with no status entry has not been checked, and painting it red
                 // says its agent is down — a claim nothing has earned (round 35). The `.sig-dot.off` state existed
@@ -412,11 +491,75 @@ export default function DevicesPanel() {
                   <div className="dev-card-head">
                     <span className={`dev-led ${agentUp ? "on" : "off"}`} />
                     <span className="dev-name">{d.name}</span>
-                    {outdated && behindTo ? (
+                    {/* ── THE UPDATE CONTROL, IN THE HEADER ────────────────────────────────────────────────
+                        WHY HERE AND NOT IN `.dev-actions`: that row is 269px of the card's 296px content
+                        width (330 − 32 padding − 2 border) with four buttons already, and it carries
+                        `margin-top: auto` — so a fifth button WRAPS and adds 32px (26px button + 6px gap) to
+                        every card in the row. The header does not pay that. And the header is where the
+                        statement this control replaces has always lived.
+                        THE ORDER OF THE ARMS IS THE DERIVATION: `action` is the device's own
+                        `update_available`, so a device that never reported one cannot reach it. */}
+                    {control.kind === "action" ? (
+                      <button
+                        className="btn btn-mini btn-primary"
+                        onClick={() => void runUpdate(d.name, () => handleUpdate(d.name, control.to))}
+                        disabled={updateBusyOn === d.name}
+                        {...updateAck(d.name)}
+                        title={t("devices.updateHint", { ver: control.to })}
+                      >
+                        {t("devices.updateTo", { ver: control.to })}
+                      </button>
+                    ) : control.kind === "inflight" ? (
+                      // ONE SENTENCE, NOT A BUTTON AND NOT A SPINNER. A spinner would be this console claiming
+                      // to know when the device comes back, and a second press is what the device's own marker
+                      // exists to refuse. The mark has to survive a glance; the honest window is in the hover,
+                      // because it does not fit here and would wrap the header (see the geometry note above).
+                      <span
+                        title={
+                          control.source === "console" && control.since !== null
+                            ? t("devices.updateInFlightConsoleHint", { time: fmtTime(control.since) })
+                            : control.since !== null
+                              ? t("devices.updateInFlightHint", { time: fmtTime(control.since) })
+                              : t("devices.updateInFlightNoTimeHint")
+                        }
+                      >
+                        <Badge tone="info">
+                          {control.since !== null
+                            ? t("devices.updateInFlight", { since: fmtRel(control.since, t) })
+                            : t("devices.updateInFlightNoTime")}
+                        </Badge>
+                      </span>
+                    ) : control.kind === "unchecked" ? (
+                      // THE LIE THIS CONTROL EXISTS TO REMOVE. The device sets `update_available: false` when its
+                      // release server did not answer, so a chip showing only a version says "you are current"
+                      // when the truth is "nobody asked successfully". It says so instead.
+                      <span title={t("devices.versionUncheckedHint", { error: control.error })}>
+                        <Badge tone="warning">{t("devices.versionUnchecked")}</Badge>
+                      </span>
+                    ) : control.kind === "held" ? (
+                      // A ROLLBACK LOCK IS VISIBLE, AND IS NOT OVERRIDDEN. `pinned_to` was forwarded and read by
+                      // nobody, so a device held on a version looked exactly like a current one. No button is
+                      // offered here and this console never sends `force` — on the device, `force` DELETES the pin.
+                      <span
+                        className="dev-card-ver"
+                        title={t("devices.versionHeldHint", {
+                          ver: `v${control.pinnedTo}`,
+                          current: `v${liveVersion ?? control.pinnedTo}`,
+                        })}
+                      >
+                        {t("devices.versionHeld", { ver: `v${control.pinnedTo}` })}
+                      </span>
+                    ) : outdated && behindTo ? (
+                      // AN AGENT TOO OLD TO ANSWER `/api/update`: there is no verdict to act on, so this end's
+                      // comparison is the LABEL and nothing more — it cannot reach the button above, which the
+                      // device's own answer gates. This is the arm `device-verdict-check` holds in place.
                       <Badge tone="warning">{t("devices.versionOutdated", { ver: behindTo })}</Badge>
                     ) : (
-                      <span className="dev-card-ver">
-                        {d.lastVersion ? `v${d.lastVersion}` : t("devices.versionUnknown")}
+                      <span
+                        className="dev-card-ver"
+                        title={chipCheckedAt !== null ? t("devices.versionCheckedHint", { time: fmtTime(chipCheckedAt) }) : undefined}
+                      >
+                        {liveVersion ? `v${liveVersion}` : t("devices.versionUnknown")}
                       </span>
                     )}
                   </div>

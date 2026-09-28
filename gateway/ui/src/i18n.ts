@@ -303,6 +303,32 @@ const I18N = {
     "devices.versionUnknown": "版本未知",
     "devices.versionLatest": "最新",
     "devices.versionOutdated": "可更新到 {ver}",
+    // ── THE UPDATE CONTROL (the card header). Three states, and each sentence names the thing that was
+    //    OBSERVED and WHEN — never a promise about when the device comes back. `{since}` is a relative time
+    //    ("20 分钟前"), `{time}` a clock time, and both come from `fmtRel`/`fmtTime` in the view. ──
+    "devices.updateTo": "更新到 {ver}",
+    "devices.updateHint":
+      "在这台设备上安装 {ver}。设备会重启，替换期间可能离线——本仓库记录的一次替换约两小时后才恢复。",
+    "devices.updateInFlight": "更新中 · {since}",
+    "devices.updateInFlightNoTime": "更新中",
+    "devices.updateInFlightHint":
+      "更新在 {time} 启动，设备正在重启。本仓库记录的一次替换约两小时后才恢复——在设备自己回答之前，这里不声称它已完成。",
+    "devices.updateInFlightNoTimeHint":
+      "设备报告有更新正在进行，但它自己的启动记录早于它信任标记的窗口，所以这里不给出启动时间。",
+    "devices.updateInFlightConsoleHint":
+      "这次更新是本控制台下发的（{time}），设备目前没有应答。本仓库记录的一次替换约两小时后才恢复——在设备自己回答之前，这里不声称它已完成。",
+    "devices.versionHeld": "已锁定 {ver}",
+    "devices.versionHeldHint":
+      "设备被 summrise rollback 锁定在 {ver}（当前运行 {current}）：它会拒绝其它版本，直到在设备上清除锁定——所以这里不提供更新按钮，也不代它覆盖锁定。",
+    "devices.versionUnchecked": "无法确认版本",
+    "devices.versionUncheckedHint":
+      "设备的发布服务器没有应答（{error}）——所以「是否有更新」是未知，不是「已是最新」。",
+    "devices.versionCheckedHint": "设备在 {time} 检查过发布服务器。",
+    "devices.updateSent": "已下发更新，设备会自行重启。",
+    "devices.updateCurrent": "设备已是最新版本。",
+    "devices.updatePinned": "设备被 summrise rollback 锁定，拒绝了这次更新。",
+    "devices.updateRefused": "设备拒绝了这次更新。",
+    "devices.updateFailed": "无法下发更新。",
     "devices.registeredAt": "注册 {date}",
     "devices.lastSeen": "最近在线 {date}",
     "devices.loadingList": "正在加载设备…",
@@ -692,6 +718,30 @@ const I18N = {
     "devices.versionUnknown": "version unknown",
     "devices.versionLatest": "latest",
     "devices.versionOutdated": "update to {ver} available",
+    // ── THE UPDATE CONTROL (the card header) — see the zh block for what each sentence is answering. ──
+    "devices.updateTo": "Update to {ver}",
+    "devices.updateHint":
+      "Install {ver} on this device. It restarts, and may be offline while it swaps — one swap in this repository's own record took about two hours to come back.",
+    "devices.updateInFlight": "updating · {since}",
+    "devices.updateInFlightNoTime": "updating",
+    "devices.updateInFlightHint":
+      "Launched at {time}; the device is restarting. One swap in this repository's own record took about two hours to come back — nothing here claims it has finished.",
+    "devices.updateInFlightNoTimeHint":
+      "The device reports an update in flight, but its own record of the launch predates the window it trusts the marker for, so no start time is shown.",
+    "devices.updateInFlightConsoleHint":
+      "This console launched the update at {time} and the device is not answering. One swap in this repository's own record took about two hours to come back — nothing here claims it has finished.",
+    "devices.versionHeld": "held at {ver}",
+    "devices.versionHeldHint":
+      "Held at {ver} by summrise rollback (currently running {current}): the device refuses anything else until the pin is cleared on the device — so no update button is offered, and the lock is not overridden from here.",
+    "devices.versionUnchecked": "version unconfirmed",
+    "devices.versionUncheckedHint":
+      "The device's release server did not answer ({error}) — so whether a newer build exists is UNKNOWN, not “you are current”.",
+    "devices.versionCheckedHint": "The device checked the release server at {time}.",
+    "devices.updateSent": "Update dispatched — the device restarts on its own.",
+    "devices.updateCurrent": "The device is already current.",
+    "devices.updatePinned": "The device is pinned by summrise rollback and refused the update.",
+    "devices.updateRefused": "The device refused the update.",
+    "devices.updateFailed": "Could not dispatch the update.",
     "devices.registeredAt": "registered {date}",
     "devices.lastSeen": "last seen {date}",
     "devices.loadingList": "Loading devices…",

@@ -214,8 +214,25 @@ export interface DeviceStatus {
   /** THE DEVICE'S OWN UPDATE VERDICT (round 29 of the standing goal), forwarded by the gateway's probe instead of
    *  re-derived here. This page used to decide `lastVersion !== install.version` from the KV copy — which can be an
    *  hour old and knows nothing about a rollback pin — while the device answers the same question live, pin-aware.
-   *  Absent for an agent older than the route; then the page falls back to the comparison. */
-  update?: { current?: string; latest?: string; update_available: boolean; pinned_to: string | null };
+   *  Absent for an agent older than the route; then the page falls back to the comparison.
+   *
+   *  THE LAST FOUR ARE WHY THE VERDICT CAN BE ACTED ON, and this console shipped without them (the gateway's
+   *  projection dropped them — `DeviceUpdate` in `gateway/src/plugins/mcp.ts` is where each one is justified):
+   *    * `busy`         — an update is ALREADY running on the device;
+   *    * `error`        — the release server did NOT answer, so "no newer build" is UNKNOWN, not "you are current";
+   *    * `checked_at`   — when the DEVICE asked the channel (the row's own `checked_at` is this console's probe time,
+   *                       a different fact — see the note in `lib/deviceState.ts`);
+   *    * `last_attempt` — `{at_ms, from, to, launched}`, the device's record that a swap actually STARTED. */
+  update?: {
+    current?: string;
+    latest?: string;
+    update_available: boolean;
+    pinned_to: string | null;
+    busy?: boolean;
+    error?: string | null;
+    checked_at?: number;
+    last_attempt?: { at_ms: number; from?: string; to?: string; launched?: boolean } | null;
+  };
   checked_at?: number;
 }
 
@@ -465,5 +482,23 @@ export const api = {
   getPluginStatus: (fresh?: boolean) =>
     request<{ devices: Record<string, DeviceStatus> }>(
       fresh ? "/api/plugins/status?fresh=1" : "/api/plugins/status",
+    ),
+
+  /** ASK ONE DEVICE TO UPDATE ITSELF — the console's ONE write to a device, through the proxy that already
+   *  exists for it (`POST /api/devices/<name>/proxy/api/tools/agent_update`; the device forwards it —
+   *  `agent_update: { panel: true }` in `gateway/src/tool-policy.ts`, which `device-proxy.ts` enforces — and
+   *  the route is admin-gated, as is this page).
+   *
+   *  `force` IS NOT A PARAMETER, DELIBERATELY. On the device `force: true` is not "repair", it is
+   *  `remove_file(.rollback-pin)`: it deletes a human's "do not touch this device" (see the panel's UpdateCard,
+   *  which sends it for a REINSTALL). This console never wants that, so the name it cannot spell is absent
+   *  from the signature — a caller cannot pass it by accident, which is stronger than a comment saying not to.
+   *
+   *  The device answers `{ok, result}` and reports a REFUSAL inside a 200 (`{ok:false, error}`), so the caller
+   *  must read `ok === false`; `result.status` is then `upgrading` | `up_to_date` | `pinned`. */
+  updateDevice: (name: string) =>
+    request<{ ok?: boolean; result?: { status?: string; message?: string }; error?: string }>(
+      `/api/devices/${encodeURIComponent(name)}/proxy/api/tools/agent_update`,
+      { method: "POST", body: JSON.stringify({}) },
     ),
 };
