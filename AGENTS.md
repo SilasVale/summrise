@@ -151,6 +151,18 @@ missed `production-host-check` until after a commit, and re-learned `pack-chain`
 mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
 and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
 
+**AND SET `umask 022` BEFORE ANY GIT OPERATION THAT WRITES FILES ON THIS BOX — a merge, a checkout, a worktree add.** This
+shell's umask is **0002**, and the rule is narrower than "a rewrite": **A FILE THAT IS CREATED INHERITS THE UMASK; A FILE
+EDITED IN PLACE KEEPS ITS MODE.** Measured: `touch x` and Python's `open(x, "w")` both produce `-rw-rw-r--`, while editing an
+existing 644 file leaves it 644 — so what drifts is what git and the tools CREATE (a merge that adds or replaces a file, a
+worktree add, a scratch file), not what a patch rewrites. `git status` says NOTHING about it (git compares only the
+owner-execute bit) and `git diff` is empty, so the only thing that can see it is `publish-release.bash`'s whole-tree mode
+check — which is how it was found, **three times in one session, every time after a merge**. It matters at release time
+because `npm pack` preserves worktree modes: the 1.2.348 pair differs by 3 bytes out of 17,774,080 with every sha256
+matching. If a merge already happened, the gate prints the repair and it is one line:
+`git ls-files -s | awk '$1=="100644"{print $4}' | xargs -r chmod 644` (and the same for `100755`/`755` — **the 0755 half is
+invisible to the `100644` count**, which is why both are printed).
+
 ## A status says what was CHECKED
 
 **EVERY SENTENCE A SURFACE SHOWS ABOUT THE DEVICE'S STATE IS A CLAIM, AND A CLAIM NOBODY CHECKED IS A LIE THE READER
