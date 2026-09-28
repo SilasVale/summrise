@@ -39,6 +39,7 @@ exports.psArgv = psArgv;
 exports.lnkIdentity = lnkIdentity;
 exports.deskShortcutRepairPs = deskShortcutRepairPs;
 exports.startDesktopPs = startDesktopPs;
+exports.ensureDesktopPs = ensureDesktopPs;
 exports.desktopTaskPs = desktopTaskPs;
 exports.desktopStartPs = desktopStartPs;
 exports.parseAgentPort = parseAgentPort;
@@ -534,16 +535,175 @@ function deskShortcutRepairPs(scriptsQ, deskDirQ, sink) {
         `foreach ($dRx in @('summrise-desktop.exe','summrise-tray.exe')) { $dRp = '${deskDirQ}\\' + $dRx; if (Test-Path $dRp) { try { Remove-Item -Force -ErrorAction Stop $dRp; ('desk: removed retired ' + $dRx) | ${sink} } catch { ('desk: retired ' + $dRx + ' locked, kept') | ${sink} } } }`,
     ];
 }
-// exported: the start-desktop.ps1 launcher (the SummriseDesktop onlogon task +
-// desktop Summrise.lnk both call it). Launches the Electron shell from
-// components\summrise-desktop-electron\ with the working directory set there
-// (electron . resolves src/main.js via package.json main). The script is
-// intentionally tiny + ASCII-only (system-locale PS). unit-tested.
-function startDesktopPs(deskDirQ) {
+// ── THE DESKTOP SHELL'S RECORD: WHAT THE LAUNCHERS CAN SEE, AND WHAT THEY CANNOT ──
+//
+// MEASURED on desktop-14rjcr8 (2026-09-28). The desktop shell was KILLED every ten minutes
+// by `<ExecutionTimeLimit>PT10M</ExecutionTimeLimit>` on the SummriseDesktop task: the
+// launcher ends on `& electron.exe .` — the PowerShell CALL OPERATOR, which WAITS — so the
+// shell lives inside the task's process tree and the scheduler killed the whole tree when
+// the limit expired. The guarded 5-minute pulse then revived it, correctly, and ten minutes
+// later it died again. `logs\startup.log` held 4,015 lines and answered ZERO for `desktop`,
+// ZERO for `electron` and ZERO for `ExecutionTimeLimit`. Nothing in the product recorded
+// it; the operator said "还一直在重启呢" four times, and the answer had to be recovered from
+// the Task Scheduler's own operational log, where Summrise is one line among a stream of
+// Edge update tasks.
+//
+// THE SHAPE ALREADY EXISTED ONE PROCESS OVER. The agent has exactly the right sentence
+// about itself in its own run journal — `runstate.rs`: "previous run DID NOT EXIT CLEANLY —
+// REPLACED by a restart" — and the shell, which is the process that IS killed from outside,
+// had no counterpart. These are that counterpart.
+//
+// WHERE THE LINES GO, AND WHY THERE. `logs\startup.log`, under the SAME registry-first DataDir
+// the agent's own `paths.rs` resolves (`DATA_DIR` above — never a hardcoded ProgramData, and
+// the value is baked in at generation time by the process that DID the lookup). `startup.log`
+// is the file the operator actually grepped. A record in a second file nobody knows to open
+// would be tonight's failure one level down.
+//
+// EVERY LINE CONTAINS THE WHOLE WORD `desktop` — the search that failed was
+// `findstr /i desktop ...\logs\startup.log` — and names `electron` wherever it is the subject.
+//
+// AND THE ONE CASE THAT CANNOT BE RECORDED IS WRITTEN DOWN WHERE IT HAPPENS, in
+// `startDesktopPs` below: a Task Scheduler kill takes the logging process with it, so it
+// leaves NO exit code, ever. The next pulse reports that ABSENCE out loud.
+/** The desktop shell's launcher — and the only place in the product that can see it EXIT.
+ *
+ *  `exit code N` is what tells a crash from a kill, and GETTING IT COST A MEASUREMENT. The
+ *  obvious form was `& "$dir\node_modules\electron\dist\electron.exe" .` then `$LASTEXITCODE`,
+ *  and it does not work: **electron.exe is a GUI-subsystem binary and Windows PowerShell 5.1
+ *  does not set `$LASTEXITCODE` for one.** Measured on desktop-14rjcr8, 2026-09-28:
+ *
+ *      & cmd /c 'exit 7'             -> $LASTEXITCODE = 7
+ *      & electron.exe --version      -> returned in 0.05s, $LASTEXITCODE STILL 7 (unchanged)
+ *      [Diagnostics.Process] variant -> waited, .ExitCode = 0
+ *
+ *  The first version of this file used `&`, and the line it wrote on a real restart read
+ *  `desktop: electron.exe exited (start=1790589628 exit code  lived=1s)` — an empty field
+ *  where a number belongs. That is the same defect this whole record exists to remove (a
+ *  surface reporting a step in the grammar of an outcome), so the launch goes through
+ *  `System.Diagnostics.Process` with `UseShellExecute = $false`: the SAME CreateProcess the
+ *  call operator uses, same inherited handles, same working directory — plus `WaitForExit()`
+ *  and a real `.ExitCode`.
+ *
+ *  `WaitForExit()` IS LOAD-BEARING BEYOND THE EXIT CODE: it is why this PowerShell stays
+ *  alive as the shell's parent, which is why the shell lives inside the task's process tree.
+ *
+ *  WHAT IT CANNOT SEE, AND IT IS THE CASE THAT HAPPENED. The task's action is
+ *  desktop-pulse.vbs -> ensure-desktop.ps1 -> THIS FILE, and Task Scheduler's
+ *  `<ExecutionTimeLimit>` terminates that whole tree — electron, this PowerShell and the
+ *  wscript above it. So a scheduler kill records NOTHING here, and neither do `taskkill /T`
+ *  and a machine going down: the process that would write the line dies with the shell. On
+ *  2026-09-28 PT10M killed the shell every ten minutes and this file, as it stood, said
+ *  nothing at all. The signature is therefore the ABSENCE of an `exited (start=N …)` line for
+ *  a start the watchdog watched disappear, and `ensureDesktopPs` says those words on the next
+ *  pulse rather than leaving the gap to be interpreted.
+ *
+ *  Launches the Electron shell from components\summrise-desktop-electron\ with the working
+ *  directory set there (electron . resolves src/main.js via package.json main). Intentionally
+ *  small + ASCII-only (system-locale PS). unit-tested. */
+function startDesktopPs(deskDirQ, logsQ) {
     return [
+        "# written by `summrise setup` / `summrise desktop` / `summrise update` -- start the",
+        "# Electron shell, and leave a record of the launch and of the exit. The comments stay",
+        "# IN the file on purpose: this is what an operator reads when the window is gone.",
+        "#",
+        "# WHAT THIS CANNOT SEE. The launch below WAITS, so it returns with the shell's exit code",
+        "# when the shell exits OR crashes. It does NOT return when the whole process tree is",
+        "# killed from outside -- a Task Scheduler execution limit, a `taskkill /T`, a machine",
+        "# going down -- because this PowerShell dies first, and then NO exit code is written at",
+        "# all. ensure-desktop.ps1 reports that absence on the next pulse; a log that recorded",
+        "# only exits would silently omit the one death that actually happens here.",
+        "#",
+        "# WHY NOT `& electron.exe .` AND $LASTEXITCODE (measured on desktop-14rjcr8, 2026-09-28):",
+        "# electron.exe is a GUI-subsystem binary and Windows PowerShell 5.1 does not set",
+        "# $LASTEXITCODE for one. `& cmd /c 'exit 7'` set it to 7; the next `& electron.exe",
+        "# --version` left it at 7, unchanged. The first version of this file used `&` and wrote",
+        "# `exit code ` with the number missing -- a field that looks like a value and is not one.",
+        "# System.Diagnostics.Process is the same CreateProcess, and its ExitCode is real.",
         `$dir = '${deskDirQ}'`,
-        `Set-Location $dir`,
-        `& "$dir\\node_modules\\electron\\dist\\electron.exe" .`,
+        `$log = '${logsQ}\\startup.log'`,
+        "New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null",
+        "$E = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()",
+        "Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe launching from ' + $dir + ' (start=' + $E + ')') -ErrorAction SilentlyContinue",
+        "Set-Location $dir",
+        "$code = $null",
+        "try {",
+        "  $si = New-Object System.Diagnostics.ProcessStartInfo",
+        "  $si.FileName = \"$dir\\node_modules\\electron\\dist\\electron.exe\"",
+        "  $si.Arguments = '.'",
+        "  $si.WorkingDirectory = $dir",
+        "  $si.UseShellExecute = $false",
+        "  $p = [System.Diagnostics.Process]::Start($si)",
+        "  $p.WaitForExit()",
+        "  $code = $p.ExitCode",
+        "} catch { $code = $null }",
+        "$L = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $E)",
+        "if ($null -ne $code) {",
+        "  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe exited (start=' + $E + ' exit code ' + $code + ' lived=' + $L + 's)') -ErrorAction SilentlyContinue",
+        "} else {",
+        "  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe DID NOT RUN (start=' + $E + ') -- the launcher could not start it, so there is no exit code') -ErrorAction SilentlyContinue",
+        "}",
+    ];
+}
+/** The desktop shell's WATCHDOG: start the shell when none is running, and RECORD WHICH OF
+ *  THE TWO THINGS HAPPENED — in the words a person would search for.
+ *
+ *  Run every 5 minutes by `desktop-pulse.vbs` under the SummriseDesktop task, and once at
+ *  logon. `desktop-pulse.vbs` itself takes no decision and carries no record.
+ *
+ *  WRITTEN FROM ONE BUILDER, BY ALL THREE PATHS THAT WRITE IT — `summrise setup`,
+ *  `summrise desktop` and the update swap — because a second copy of this text is a copy
+ *  that drifts, and the drift would silently revert the record on whichever path was not
+ *  edited (the shape `installer_integrity.rs` already holds the task definition against).
+ *
+ *  THE HEALTHY CASE IS LOGGED, ONCE AN HOUR, AND BOTH HALVES OF THAT ARE DELIBERATE.
+ *
+ *  A line per 5-minute pulse is 288 lines a day of "still fine" in `startup.log`, which is
+ *  the AGENT's boot record and rotates at 1 MB (`main.rs::log_line`). That heartbeat would
+ *  evict the history of a real incident — the opposite of the point — and an operator
+ *  grepping `desktop` after a restart would have to wade through it to find the restart.
+ *
+ *  Writing NOTHING in the healthy case is worse in the other direction: a watchdog that has
+ *  stopped and a watchdog that is fine would look identical, because both are SILENCE — this
+ *  repository's own recorded defect class, where "if nothing was checked, say that" is the
+ *  honest form. So: ONE line an hour (~2 KB a day), deduplicated against the LOG ITSELF
+ *  rather than a state file (the record is the state, so there is nothing to get out of
+ *  sync), and a gap longer than about two hours is the signal that the pulse itself stopped.
+ *
+ *  THE DECISION IS STATED AS THE OBSERVATION, NOT AS THE STEP: "no electron shell is
+ *  running" is what the pulse SAW; the launch it then performs is the consequence. When the
+ *  shell that disappeared left no `exited (start=N …)` line, this says so in words — that is
+ *  the scheduler-kill signature, and it is exactly the case `startDesktopPs` cannot record.
+ *
+ *  ASCII-only (system-locale PS). unit-tested. */
+function ensureDesktopPs(scriptsQ, logsQ) {
+    return [
+        "# written by `summrise setup` / `summrise desktop` / `summrise update` -- the desktop",
+        "# shell's watchdog, run every 5 minutes by desktop-pulse.vbs under SummriseDesktop.",
+        "# Start the shell if none is running, and RECORD WHICH OF THE TWO THINGS HAPPENED:",
+        "# silence is not a status. The builder in src/summrise.ts carries the full reasoning,",
+        "# including why the healthy case is one line an hour and not one per pulse.",
+        `$log = '${logsQ}\\startup.log'`,
+        "New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null",
+        "$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()",
+        "$tail = @(Get-Content -Path $log -Tail 400 -ErrorAction SilentlyContinue)",
+        "$p = @(Get-Process electron -ErrorAction SilentlyContinue)",
+        "if ($p.Count -gt 0) {",
+        "  $h = 'hour=' + (Get-Date -Format 'yyyy-MM-ddTHH')",
+        "  if (-not ($tail -match ('desktop: electron shell alive .*' + $h))) {",
+        "    $up = ($p | Sort-Object StartTime | Select-Object -First 1).StartTime",
+        "    Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron shell alive -- ' + $p.Count + ' process(es), oldest since ' + $up + ' ' + $h) -ErrorAction SilentlyContinue",
+        "  }",
+        "  exit",
+        "}",
+        "$was = 'no earlier launch is recorded in the log tail'",
+        "$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching \\(start=(\\d+)\\)' | Select-Object -Last 1",
+        "if ($prev -and ($prev.Line -match '\\(start=(\\d+)\\)')) {",
+        "  $E = [int]$Matches[1]",
+        "  if ($tail -match ('desktop: electron\\.exe exited \\(start=' + $E + ' ')) { $was = 'the previous shell exited and its code is in the exited (start=' + $E + ') line' }",
+        "  else { $was = 'the previous shell lived ' + ([int]$now - $E) + 's and left NO exit line -- it was KILLED, not exited: a Task Scheduler stop, a taskkill /T or a reboot leaves no exit code (start=' + $E + ')' }",
+        "}",
+        "Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no electron shell is running -- the watchdog is starting it; previous: ' + $was) -ErrorAction SilentlyContinue",
+        `& powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptsQ}\\start-desktop.ps1"`,
     ];
 }
 /** The desktop shell's watchdog pair + its task, as ONE PowerShell script.
@@ -555,14 +715,23 @@ function startDesktopPs(deskDirQ) {
  *  never ran setup can still get a working task by asking for the window. Idempotent:
  *  ensure-desktop.ps1 exits when electron is already alive, so the 5-minute trigger never
  *  steals focus. unit-tested. */
-function desktopTaskPs(installQ) {
+function desktopTaskPs(installQ, logsQ) {
     return [
         "# written by `summrise setup` / `summrise desktop` -- the desktop shell's task + watchdog.",
         "$ErrorActionPreference = 'Stop'",
         `$q = '${installQ}'`,
         `$en = Join-Path $q 'scripts\\ensure-desktop.ps1'`,
         `$vb = Join-Path $q 'scripts\\desktop-pulse.vbs'`,
-        `Set-Content -Path $en -Value ('if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "' + $q + '\\scripts\\start-desktop.ps1"') -Force`,
+        // THE WATCHDOG'S BODY COMES FROM ITS OWN BUILDER, not from a second hand-typed copy of
+        // the same one-liner. Three paths write this file — `summrise setup`, `summrise desktop`
+        // and the update swap — and a copy that drifts is a copy that silently reverts the
+        // shell's record on whichever path was not edited. A single-quoted here-string
+        // (`@'` … `'@`, each alone on its line) carries it byte for byte: nothing in the body is
+        // expanded, and nothing in the body can end it early.
+        `$enBody = @'`,
+        ...ensureDesktopPs(`${installQ}\\scripts`, logsQ),
+        `'@`,
+        `Set-Content -Path $en -Value $enBody -Force`,
         `Set-Content -Path $vb -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + $en + '" & Chr(34), 0, False') -Force`,
         `$da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb + '"') -WorkingDirectory $q`,
         `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
@@ -2292,7 +2461,7 @@ const commands = {
         // repetition is what reborns a dead shell.
         try {
             const reg = path.join(SCRIPTS_DIR, "register-desktop-task.ps1");
-            fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
+            fs.writeFileSync(reg, desktopTaskPs((0, exports.psq)(DIR), (0, exports.psq)(LOGS_DIR)).join("\r\n") + "\r\n");
             // THE STATUS WAS DISCARDED AND THE SUCCESS LINE WAS UNCONDITIONAL, which is the defect the AGENT
             // task's check ten lines below names in its own comment: "audit #7: used to claim success
             // regardless". Worse, the `catch` below could not fire for this — `sh()` RETURNS, it does not
@@ -2323,7 +2492,7 @@ const commands = {
         // SummriseDesktop onlogon task + desktop Summrise.lnk both call it). Was never
         // written before — a real gap that left the shell unlaunchable.
         fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
-        fs.writeFileSync(path.join(SCRIPTS_DIR, "start-desktop.ps1"), startDesktopPs((0, exports.psq)(DESK_DIR)).join("\r\n"), "utf8");
+        fs.writeFileSync(path.join(SCRIPTS_DIR, "start-desktop.ps1"), startDesktopPs((0, exports.psq)(DESK_DIR), (0, exports.psq)(LOGS_DIR)).join("\r\n"), "utf8");
         console.log("setup: scripts\\start-desktop.ps1 written");
         // Register boot-start task (SYSTEM) and kick it once; the agent's own
         // first-run flow registers the device with the console using the key.
@@ -2560,7 +2729,7 @@ const commands = {
         if (!fs.existsSync(reg)) {
             // A machine that never ran setup still gets a working task: the same script setup
             // writes, from the same builder, so the two cannot drift.
-            fs.writeFileSync(reg, desktopTaskPs(DIR).join("\r\n") + "\r\n");
+            fs.writeFileSync(reg, desktopTaskPs((0, exports.psq)(DIR), (0, exports.psq)(LOGS_DIR)).join("\r\n") + "\r\n");
         }
         // THE START SCRIPT GOES IN A FILE, AND ONLY IT DECIDES WHETHER TO REGISTER. Spawning with
         // `shell: true` means cmd.exe, and **cmd splits a command on `&`** — the PowerShell call
@@ -3010,7 +3179,7 @@ const commands = {
         // the swap script's migration, and a headless install simply never
         // calls the launcher (shortcut repair is Test-Path guarded anyway).
         fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
-        fs.writeFileSync(path.join(SCRIPTS_DIR, "start-desktop.ps1"), startDesktopPs((0, exports.psq)(DESK_DIR)).join("\r\n"), "utf8");
+        fs.writeFileSync(path.join(SCRIPTS_DIR, "start-desktop.ps1"), startDesktopPs((0, exports.psq)(DESK_DIR), (0, exports.psq)(LOGS_DIR)).join("\r\n"), "utf8");
         // round-298: record the release version on a PROVABLY successful swap
         // so agent_update (which reads <install>/.summrise-release as its local
         // version) reports up_to_date instead of re-swapping every call.
@@ -3101,7 +3270,15 @@ const commands = {
             //    wscript wrapper runs it with no console flash.
             `$en1 = '${q}\\scripts\\ensure-desktop.ps1'`,
             `$vb1 = '${q}\\scripts\\desktop-pulse.vbs'`,
-            `Set-Content -Path $en1 -Value 'if (Get-Process electron -ErrorAction SilentlyContinue) { exit }; & powershell -NoProfile -ExecutionPolicy Bypass -File "${q}\\scripts\\start-desktop.ps1"' -Force`,
+            // THE SAME BUILDER `setup` USES, and this is the path that matters most: an update is
+            // the ONLY mechanism that reaches a machine already installed, so a watchdog written
+            // here from a second, hand-typed copy would silently overwrite the instrumented one on
+            // every fleet device while `setup` looked correct. `$en1` is assigned above and the
+            // here-string needs no interpolation, so the body travels verbatim.
+            `$enBody = @'`,
+            ...ensureDesktopPs(`${q}\\scripts`, qd),
+            `'@`,
+            `Set-Content -Path $en1 -Value $enBody -Force`,
             `Set-Content -Path $vb1 -Value 'CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "${q}\\scripts\\ensure-desktop.ps1" & Chr(34), 0, False' -Force`,
             `if ($null -ne (Get-ScheduledTask -TaskName 'SummriseDesktop' -ErrorAction SilentlyContinue)) {`,
             `  $da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb1 + '"') -WorkingDirectory '${q}'`,

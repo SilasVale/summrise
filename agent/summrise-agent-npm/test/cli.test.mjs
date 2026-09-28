@@ -41,6 +41,7 @@ const {
   resolveComponent,
   desktopTaskPs,
   desktopStartPs,
+  ensureDesktopPs,
 } = require("../bin/summrise.js");
 
 test("psq: PowerShell single-quote doubling (injection surface for SYSTEM task scripts)", () => {
@@ -258,16 +259,18 @@ test("resolveComponent fetches the url the manifest PUBLISHED — that field now
 });
 
 test("desktopTaskPs / desktopStartPs: asking for the window, and answering with a FACT", () => {
-  const task = desktopTaskPs("C:\\Program Files\\Summrise").join("\n");
+  const LOGS = "C:\\ProgramData\\Summrise\\logs";
+  const task = desktopTaskPs("C:\\Program Files\\Summrise", LOGS).join("\n");
   // The app's own shape, so `summrise desktop` and `summrise setup` cannot drift: logon plus a
   // 5-minute watchdog, launched through a .vbs so no console flashes, with the guard that
   // stops the watchdog stealing focus from whatever the operator is doing.
   assert.match(task, /New-ScheduledTaskTrigger -AtLogOn/);
   assert.match(task, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
-  assert.match(
-    task,
-    /Get-Process electron -ErrorAction SilentlyContinue\) \{ exit \}/,
-  );
+  // THE GUARD IS STILL THE FIRST THING THE WATCHDOG DOES — but it now also RECORDS what it
+  // saw, so the assertion moved to the builder whose body the task carries (below, "the
+  // desktop shell says what it did"). What must not change is that a live shell is detected
+  // and nothing is started.
+  assert.match(task, /Get-Process electron -ErrorAction SilentlyContinue/);
   assert.match(task, /desktop-pulse\.vbs/);
   assert.match(task, /Register-ScheduledTask SummriseDesktop/);
   assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
@@ -618,6 +621,7 @@ test("startDesktopPs: the electron launcher matches the migrated layout", () => 
   const { startDesktopPs } = require("../bin/summrise.js");
   const body = startDesktopPs(
     "D:\\Summrise\\components\\summrise-desktop-electron",
+    "C:\\ProgramData\\Summrise\\logs",
   ).join("\n");
   assert.match(
     body,
@@ -643,6 +647,122 @@ test("startDesktopPs: the electron launcher matches the migrated layout", () => 
   assert.ok(
     ![...body].some((c) => c.charCodeAt(0) > 127),
     "ASCII-only (system-locale PS)",
+  );
+});
+
+test("the desktop shell says what it did — and says what it CANNOT see", () => {
+  // MEASURED on desktop-14rjcr8 (2026-09-28): the shell was killed every ten minutes by the
+  // task's `<ExecutionTimeLimit>PT10M</ExecutionTimeLimit>`, revived five minutes later by the
+  // guarded pulse, and killed again — and `logs\startup.log` held 4,015 lines that answered
+  // ZERO for `desktop`, ZERO for `electron` and ZERO for `ExecutionTimeLimit`. The whole
+  // surface was invisible in the product; the operator said "还一直在重启呢" four times and the
+  // answer had to come out of the Task Scheduler's operational log. These assertions are the
+  // record that fix exists, and the case it is not allowed to pretend about.
+  const LOGS = "C:\\ProgramData\\Summrise\\logs";
+  const SCRIPTS = "D:\\Summrise\\scripts";
+  const DESK = "D:\\Summrise\\components\\summrise-desktop-electron";
+  const ensure = ensureDesktopPs(SCRIPTS, LOGS).join("\n");
+  const start = startDesktopPs(DESK, LOGS).join("\n");
+
+  // THE FILE A PERSON GREPS, under the DataDir the CLI resolved (never a literal ProgramData).
+  assert.ok(
+    ensure.includes(`$log = '${LOGS}\\startup.log'`),
+    "the watchdog must write to the log directory it was built with",
+  );
+  assert.ok(
+    start.includes(`$log = '${LOGS}\\startup.log'`),
+    "and the launcher writes to the same file, not a second one nobody knows to open",
+  );
+
+  // The words TONIGHT'S SEARCH USED. `desktop` is the one that answered zero.
+  for (const [what, body] of [
+    ["the watchdog", ensure],
+    ["the launcher", start],
+  ]) {
+    assert.ok(body.includes("desktop: "), `${what}: every line greppable by \`desktop\``);
+    assert.ok(body.includes("electron"), `${what} names electron, the second word searched`);
+    assert.ok(
+      ![...body].some((c) => c.charCodeAt(0) > 127),
+      "ASCII-only (system-locale PS)",
+    );
+  }
+
+  // THE DECISION IS THE OBSERVATION, NOT THE STEP: what the pulse SAW ("none is running"),
+  // and the start it performs as the consequence. "I started it" without "because none was
+  // running" is a step that succeeded reported as an outcome.
+  assert.ok(
+    ensure.includes("desktop: no electron shell is running"),
+    "the pulse says what it OBSERVED before it acts on it",
+  );
+  assert.ok(
+    /previous shell lived ' \+ \(\[int\]\$now - \$E\)/.test(ensure),
+    "and how long the previous one had lived, when the log can still say",
+  );
+  // THE KILL SIGNATURE: a shell that vanished with no `exited` line was killed, not crashed,
+  // and the pulse says so rather than leaving the gap to be interpreted.
+  assert.ok(
+    ensure.includes("left NO exit line -- it was KILLED, not exited"),
+    "the absent exit code is reported as the kill it is",
+  );
+
+  // THE HEALTHY CASE IS ONE LINE AN HOUR, NOT ONE PER PULSE (288/day would evict the agent's
+  // own boot record from a 1 MB rotating startup.log), AND IT IS NOT SILENT EITHER — a
+  // watchdog that has stopped and one that is fine would otherwise be the same observation.
+  const hb = ensure
+    .split("\n")
+    .find((l) => l.includes("Add-Content") && l.includes("desktop: electron shell alive"));
+  assert.ok(hb, "the healthy case is recorded — one line, written to the log");
+  assert.ok(
+    ensure.includes("$h = 'hour='") && hb.includes("$h"),
+    "and deduplicated by the hour, against the log itself",
+  );
+  assert.ok(
+    /-Tail 400/.test(ensure),
+    "the dedup reads the log tail — the record IS the state, so none can go out of sync",
+  );
+
+  // AND THE ONE CASE THAT CANNOT BE RECORDED IS WRITTEN DOWN WHERE IT HAPPENS. A scheduler
+  // kill takes the logging PowerShell with it: `&` never returns, so there is no exit code to
+  // write, EVER. A log that silently omitted that would omit precisely the death measured here.
+  assert.ok(
+    /CANNOT SEE/.test(start) && /NO exit code/.test(start),
+    "the launcher states the blind spot in its own file",
+  );
+  assert.ok(
+    ensure.includes("leaves no exit code"),
+    "and the watchdog names why it can only report the absence",
+  );
+  assert.match(
+    start,
+    /\$p\.WaitForExit\(\)\n\s*\$code = \$p\.ExitCode/,
+    "the exit code is captured from a process this launcher WAITED for",
+  );
+  assert.ok(
+    start.includes("exit code ' + $code"),
+    "`exit code N` is the line that tells a kill from a crash",
+  );
+  // AND IT MUST NOT GO BACK TO `& electron.exe .` + `$LASTEXITCODE`. MEASURED on
+  // desktop-14rjcr8: electron.exe is a GUI-subsystem binary and Windows PowerShell 5.1 does
+  // NOT set $LASTEXITCODE for one — `& cmd /c 'exit 7'` set it to 7, the next
+  // `& electron.exe --version` left it at 7, unchanged. The first version of this file used
+  // `&` and wrote `exit code ` with the number missing: a field that looks like a value and
+  // is not one, which is the defect class this whole record exists to remove. Judged on the
+  // CODE, not on the comments — the comment block above is where the measurement is recorded.
+  const code = start
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("#"))
+    .join("\n");
+  assert.ok(
+    !/\$LASTEXITCODE/.test(code),
+    "the call operator cannot report a GUI binary's exit code — do not go back to it",
+  );
+  assert.ok(
+    code.includes("UseShellExecute = $false"),
+    "same CreateProcess as `&`: no shell shims, the shell stays this process's child",
+  );
+  assert.ok(
+    start.includes("GUI-subsystem binary"),
+    "and the measurement that forced this shape stays next to the code",
   );
 });
 
