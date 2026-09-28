@@ -198,7 +198,14 @@ echo "── panel: generating the harness from this checkout ──"
 # which `set -e` reads as a failure. The fixture gate asserts exactly that distinction ("exited 1, not 2 — it
 # did not finish"), so the runner has to know it too. Round 213's first CI run died here.
 node agent/scripts/panel-render-audit.mjs >/dev/null || [ $? -eq 2 ]
-cp /tmp/panel-render-audit/panel-harness.html "$TMP/panel-harness.html"
+# THE WHOLE EMITTED DIRECTORY, NOT ONLY THE HTML — and this line is why the panel was still red in CI after the
+# fixture learned to serve the wasm. `wasm/panelLogic.ts` fetches `panel_logic_bg.wasm` from panel.js's own
+# directory, the harness inlines panel.js so that URL resolves to `<document.baseURI>panel_logic_bg.wasm`, and the
+# fixture serves whatever sits BESIDE THE HARNESS. Copying one file moved the harness away from the artifact it
+# needs: locally the two are siblings and the sweep is green, and in CI they were in different directories and
+# every migrated card read "The device did not answer" — 62 findings, on a fixture that answered every call.
+# `cp -a` of the directory rather than a second named file, so the next artifact the bundle fetches travels too.
+cp -a /tmp/panel-render-audit/. "$TMP/"
 grep -o 'summrise-harness-build" content="[^"]*"' "$TMP/panel-harness.html" || true
 
 run_panel() {
