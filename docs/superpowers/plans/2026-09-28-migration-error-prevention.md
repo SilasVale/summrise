@@ -390,3 +390,86 @@
    （**因为它保护的 run 不存在 ✓**）——**而推 `main` 时**绝不用它**✗**。
 
 **怎么验证防法生效**：**说得出那件活**到了哪个 ref**✓——**而不是"我提交了" ✗**。
+
+
+---
+
+## 错误模式 21：**等价证到了结论，而没证到实现**（而它今晚咬了一次 ✗✓）
+
+**证据（2026-09-28，实测 ✓）**：
+
+```
+**① 而我删掉 `scripts/test/wire-field-check.mjs` 之前，**证明了等价**✓✓**：
+  · **"the .mjs still runs, and it says **the same thing** its Rust port does" ✓**——
+    **`node scripts/test/wire-field-check.mjs` → exit 0 ✓ ·
+    "wire-field: **20 field(s) read by 6 panel parser(s)** — every one spoken by the harness
+    or a fixture AND by a producer" ✓✓**
+  · **即**两个版本**说同一句话 ✓**——**而那是**第 2 条原则**要的 ✓**（**"旧的在新版被证明
+    等价之前不删" ✓**）——**而**它**不够 ✗✓✓**
+**② 而删掉之后，`wire_fields`（那个 Rust 版）**红了**✗✓**：
+  · **"wire-field: **2 field(s)** the panel reads and no fixture speaks:
+    `useMonitors.ts: reads "parse_monitors"` ✓ · `… "parse_monitor_change"` ✓"** ✗
+**③ 而那个 `.mjs` 里**还有一条规则**✗✓✓**——**而它**不在输出里 ✗**，**而在**实现里 ✓**：
+  · **它自己的注释** ✓✓：**"AND A FIELD IS READ, WHILE A WASM EXPORT IS **CALLED** (P2, 2026-09-28).
+    … `logic.parse_monitors(j)` — **a CALL on the glue, whose export names are snake_case because
+    Rust is**. This gate matched `parse_monitors` … **which is true and irrelevant: a device sends
+    data, never a function**. The fix is …"** ✓✓
+  · **即**那条规则是 **`(?!\s*\()`** ✓——**而**它**只在那个 `.mjs` 的实现里 ✓**，
+    **而**那个 Rust 版**没有它 ✗**——**而**两者的**输出**在当时**一样 ✓✓**——
+    **因为**那 2 个假阳性**只在**面板的迁移**之后**才出现 ✓（**`useMonitors.ts` 改成
+    `logic.parse_monitors(j)` ✓**）——**即**那个 `.mjs` 在被删时**已经会报那 2 个 ✗**，
+    **而**我没有跑它**对着**当时的树**✗✓✓**。
+```
+
+**防法**：
+1. **"等价"要分成两层 ✓✓**：**结论**（同一输入 → 同一句话 ✓）**与**实现**（同一规则集 ✓）——
+   **而**第 2 条原则**要的是**两个 ✓**，**因为**一条规则**可以**不改变任何输出**✓**，
+   **直到**它的输入**第一次出现 ✗✓**。
+2. **所以删掉旧版之前，要**对着**当时的树**跑它一次 ✓✓**——**而不是**对着
+   **写它时的那棵树**✗**——**因为**中间的那些提交**可能已经**制造了**那条规则的第一个输入 ✓✓**。
+3. **而一个门禁的规则**要**在它的头里**写下来 ✓✓**——**因为**输出**只说明**当时 ✓**，
+   **而**规则**说明**永远 ✓**——**而**那个 `.mjs` **写了 ✓**（**它的注释说了为什么 ✓**），
+   **而那正是**那条规则**能被搬回来**的原因 ✓✓**。
+4. **而**搬一条规则**到一个 Rust 版里**时，**要问**"它还会跳过什么" ✓**——**而不只是**
+   "它现在说什么" ✗**。
+
+**怎么验证防法生效**：**说得出那个新版**跳过了什么**✓（**以及为什么 ✓**）——
+**而不只是**它现在说了什么 ✗**。
+
+---
+
+## 错误模式 21b：**一个等值断言，钉住一个快照**（而它今晚咬了**四次** ✗✓）
+
+**证据（2026-09-28，实测 ✓）**：
+
+```
+**① 而今晚有四个断言**钉住了一个**会随树变**的数**✗✓✓**：
+  · **`one_derivation.rs:403`** ✗：**`assert!(msg.contains("**139** panel module(s) scanned"))`** ✓——
+    **而那个数**是 **141**** ✓（**那个面板的迁移加了 2 个模块 ✓**）
+  · **`wire_fields.rs:441`** ✗：**`"**30** field(s) read by 6 panel parser(s)"`** ✓——**而它是 **20**** ✓
+  · **`wire_fields.rs:452`** ✗：**`"**10** field(s) read across 26 console module(s)"`** ✓
+  · **`wire_fields.rs:461`** ✗：**`"**7 device** field(s) read across 3 gateway module(s)"`** ✓
+**② 而**四个门禁**都自己已经有**地板**✓✓**——**而那正是**它们的**判据**✓**：
+  · **`one_derivation`** ✓：**`if scanned < 60 { … "FAIL scanned only {scanned} panel module(s) —
+    **the tree moved, so this proves nothing**" }`** ✓✓
+  · **`wire_fields`** ✓：**"THE THREE LAYERS, each with its own producer corpus — and
+    **each with its own floor, because a scan that read nothing must not pass**"** ✓✓
+  → **即**那四个等值断言**是**多余的第二层**✗✓**——**而**它们**只会**因为
+    **一个模块被加上**而红 ✗**——**而那**不是一个缺陷 ✓✓**
+**③ 而修法** ✓✓：**把等值改成地板 ✓**——**即**断言**那句话的形状**✓，
+  **而把那个数**留给那个地板 ✓✓**。
+```
+
+**防法**：
+1. **一个断言要么钉住一条**不变式**✓，要么钉住一个**快照**✗**——
+   **而**一个数**如果是**从树上数出来的**✓，**那它**是快照 ✓**——
+   **而**快照**会过期 ✓，**而不变式**不会 ✓**。
+2. **而**每一个这样的门禁**都已经有一个**地板**✓**——**因为**"a scan that read nothing
+   must not pass" ✓**——**所以**那个等值断言**是重复的 ✗**，**而**它的**唯一效果**
+   是**让树长大时变红 ✗✓**。
+3. **而**一个 fixture 的数**是**固定的**✓**（**`panel_like(probe)` 造 60 + 1 = 61 ✓**）——
+   **即**同一个形状**在那里是**对的 ✓✓**——**而**判据是**那个数会不会随树变 ✓**，
+   **而不是**两个断言长得像不像 ✗**。
+
+**怎么验证防法生效**：**说得出那个数**是从树上数的，还是从一个 fixture 来的**✓**——
+**而不只是**它现在等于几 ✗**。
