@@ -21,9 +21,15 @@ export const PAGE = (consoleUrl, installerUrl, setupUrl) => {
   // installer" button would hand a fresh install the old build. The caller passes
   // a URL only when the manifest advertises an installer; the fallback that used
   // to live here would have resurrected the link anyway, so there is none.
+  // THE COST COMES BEFORE THE CLICK. The sentence naming this page's only precondition
+  // (administrator rights and an internet connection) sat BELOW the button, so a reader
+  // was invited to press 52px before being told what pressing needs. Measured on the live
+  // page in the device's browser at 1280x900: the button's top at 183.7, the sentence's at
+  // 235.7. The two blocks are SWAPPED rather than restyled or reworded — they trade y and
+  // nothing else on the page moves.
   const setupBlock = setupUrl
-    ? `<a class="btn-primary" href="${escHtml(safePageUrl(setupUrl, "/summrise-agent/SummriseAgent-Setup.exe"))}">Download Windows installer</a>
-        <span class="hint">Easiest path: one setup.exe (needs admin + internet, no Node.js required). Or the manual channel below.</span>`
+    ? `<span class="hint">Easiest path: one setup.exe (needs admin + internet, no Node.js required). Or the manual channel below.</span>
+        <a class="btn-primary" href="${escHtml(safePageUrl(setupUrl, "/summrise-agent/SummriseAgent-Setup.exe"))}">Download Windows installer</a>`
     : `<span class="hint">No Windows installer is published for this release — use the npm channel below: it installs the same agent and updates itself.</span>`;
   return `<!doctype html>
 <html lang="en">
