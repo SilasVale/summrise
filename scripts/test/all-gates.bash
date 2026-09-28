@@ -67,7 +67,16 @@ mapfile -t gates < <(
 # this file refused to run at all. A floor that a deliberate, verified migration crosses silently stops
 # being a floor and becomes an outage; a floor lowered without a measurement stops being one too. 30
 # leaves room for four more moves and none for a collapse.
-if [ "${#gates[@]}" -lt 30 ]; then
+#
+# AND IT IS 26 AS OF THE NEXT TWO MOVES, because 30 no longer left room for four — it left room for
+# NONE. MEASURED, with the derivation above run against each tree in turn: `main` derives 32, and each
+# of the two gates that landed together takes it down by one — `docs-budget-check.mjs` (31) and
+# `chrome-stillness-check.mjs` (30). Thirty is not a number this file tolerates quietly: the comparison
+# is `-lt 30`, so the tree passes ON the floor and the NEXT single removal takes it to 29, where this
+# file refuses to run at all — the exact outage batch 6 created and this paragraph exists to prevent.
+# 26 is two below the count the two removals leave and four below `main`, which is the same margin the
+# paragraph above describes. The number moved because the tree moved, and the measurement is the reason.
+if [ "${#gates[@]}" -lt 26 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi

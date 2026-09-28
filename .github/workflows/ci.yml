@@ -390,8 +390,13 @@ jobs:
       # animation on both sheets is now declared with one of three purposes and its reason — STATE (motion that
       # describes something still happening), ENTRANCE (a thing arriving, one-shot), ATTENTION ("this changed").
       # A new animation fails until somebody writes down which it is.
-      - name: the chrome is still — every animation is a declared state or acknowledgement
-        run: node scripts/test/chrome-stillness-check.mjs
+      # IT MOVED TO RUST — `agent/tests/chrome_stillness.rs`, which the `agent` job's `cargo test -p summrise-agent`
+      # runs. The step here ran `scripts/test/chrome-stillness-check.mjs`, and that file is DELETED rather than left
+      # beside the new gate: two gates for one rule is two gates. Before the `.mjs` went, both implementations were
+      # run over the same tree (four cases, bodies `cmp`-identical: 120 / 332 / 280 / 476 bytes) AND over four
+      # adversarial fixtures extracted from the Rust file (2083 / 1574 / 1867 bytes, identical), so this is a move
+      # and not a second opinion. Nothing replaced the step, deliberately — a `cargo test` step here would compile
+      # the crate a second time in a job with no Rust cache, and the `agent` job already runs it.
       # AN INSTRUCTION FILE THAT CANNOT BE READ WHOLE IS WORSE THAN A SHORT ONE. `AGENTS.md` reached 65,366 bytes
       # in round 67 and the workspace harness TRUNCATES at 65,536 — it dropped the tail, which is the Release and
       # Agent-layout sections, and nothing failed. The operational sections and the gate table stay in the
