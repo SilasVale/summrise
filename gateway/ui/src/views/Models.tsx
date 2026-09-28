@@ -25,6 +25,7 @@
 // can, but it is an ops tool, not a route, and giving the worker that job means a
 // new outbound-request surface that deserves its own review.
 import { useState, useEffect, useCallback } from "react";
+import { useAck } from "../lib/useAck";
 import { useTranslation } from "../i18n.ts";
 import { useToast } from "../contexts/ToastContext.tsx";
 import { useAuth } from "../contexts/AuthContext.tsx";
@@ -84,6 +85,13 @@ export default function ModelsView() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [routes, setRoutes] = useState<RouteInfo[]>([]);
+
+  // **THE TWO ASYNC CONTROLS ON THIS PAGE, AND WHY ONLY TWO.** The design sweep names three `btn-secondary btn-sm`
+  // buttons here; `openDocument` and `runProbe` await the network and carried only their own `disabled` flags, which the
+  // loader sets — **the same shape as the Devices button that measured 143ms** before it moved to this mechanism. The
+  // third is a synchronous expand/collapse (`setOpen` + `setDraft` in its own click handler), and round 137 established
+  // that a synchronous control cannot be "waiting on the network".
+  const { ack: modelAck, run: runModelAck } = useAck();
   // The PREFIXED catalogue (== /v1/models). Models are rendered from this, never
   // from `routes[].models`, which is bare and would set the wrong channel.
   const [allModels, setAllModels] = useState<string[]>([]);
@@ -581,7 +589,8 @@ export default function ModelsView() {
                 type="button"
                 className="btn btn-secondary btn-sm"
                 disabled={docBusy}
-                onClick={() => void openDocument()}
+                onClick={() => void runModelAck("doc", openDocument)}
+                {...modelAck("doc")}
               >
                 {docBusy ? t("models.documentLoad") : t("models.openDocument")}
               </button>
@@ -861,7 +870,8 @@ export default function ModelsView() {
                         type="button"
                         className="btn btn-secondary btn-sm"
                         disabled={probing !== null}
-                        onClick={() => void runProbe(prefix)}
+                        onClick={() => void runModelAck(`probe:${prefix}`, () => runProbe(prefix))}
+                        {...modelAck(`probe:${prefix}`)}
                       >
                         {probing === prefix ? t("models.probing") : t("models.probe")}
                       </button>
