@@ -11,6 +11,9 @@
 const P = require("./pieces.cjs");
 
 const fs = require("fs");
+// `path` for the fixture's asset lookup below: a requested URL is turned into a file BESIDE THE HARNESS, and a
+// string join would let a `..` in the request walk out of that directory.
+const path = require("path");
 // WHERE IT READS AND WRITES IS OVERRIDABLE, so the same sweep can run on the device (the defaults, exactly
 // as before) or on any machine with a browser — which is what makes a CI job possible at all. Round 204:
 // the design suite has only ever run when the loop remembered to run it, and a measured-and-verified
@@ -151,8 +154,35 @@ const TIMING = P.timing;
   // stamp is unknown only for harnesses generated before round 189, which are stale by definition.
   const harnessStale = harnessBuild !== EXPECTED_HARNESS_BUILD;
   const stamp = Date.now();
-  await page.route('http://summrise.test/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html }));
+  // ── THE FIXTURE SERVES WHAT THE BUNDLE ASKS FOR, NOT ONLY THE DOCUMENT ────────────────────────────────────────
+  //
+  // EVERY ROUTE HERE USED TO ANSWER WITH THE HARNESS HTML, and that was harmless while the panel was ONE file
+  // inlined into one page. P2 of the Rust migration ended that: `wasm/panelLogic.ts` fetches
+  // `panel_logic_bg.wasm` from panel.js's own directory, so the bundle now asks this server for a SECOND file —
+  // and the HTML arrived where wasm was expected. `instantiateStreaming` refuses a `text/html` response, the
+  // glue's `arrayBuffer` fallback compiles the HTML and throws, `panelLogic()` rejects, and every card whose
+  // parse moved to Rust renders "The device did not answer, so its watch list could not be read" — **a FALSE
+  // product defect, manufactured by this fixture.** The design job found it on `d33e5592` and `5bfd5437` and
+  // reported it 40-odd times across both densities; nothing in the panel was wrong.
+  //
+  // THE FILE IS SERVED FROM BESIDE THE HARNESS rather than from the repo, because that is the one location that
+  // is correct in BOTH places this program runs: on the device the sweep is an emitted bundle and the repo is not
+  // there, while `panel-render-audit.mjs` writes the harness AND its artifacts into one directory. A name that
+  // does not exist there is still the harness, so an unknown route behaves exactly as it did before.
+  await page.route('http://summrise.test/**', (route) => {
+    const reqPath = new URL(route.request().url()).pathname;
+    const beside = path.join(path.dirname(HARNESS), path.basename(reqPath));
+    if (reqPath !== '/' && fs.existsSync(beside)) {
+      const ext = path.extname(beside);
+      // `.wasm` MUST BE `application/wasm` — the glue's own `instantiateStreaming` path checks it, and a wrong
+      // label costs a console warning and a slower fallback rather than a failure, which is exactly the kind of
+      // "works but complains" state this repository has learned not to leave standing.
+      const type =
+        ext === '.wasm' ? 'application/wasm' : ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'application/octet-stream';
+      return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body: fs.readFileSync(beside) });
+    }
+    return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'cache-control': 'no-store' }, body: html });
+  });
 
   await diag("start focus,pages pid=" + process.pid);
   const report = {
