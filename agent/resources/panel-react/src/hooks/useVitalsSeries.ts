@@ -6,6 +6,7 @@
 // The device states its cadence in the reply and this hook uses it, rather than hardcoding
 // a number that a future sampler change would silently invalidate.
 import { useDeviceRead } from "./useDeviceRead";
+import { panelLogic } from "../wasm/panelLogic";
 
 interface VitalsSample {
   tsMs: number;
@@ -28,38 +29,26 @@ export const EMPTY_SERIES: VitalsSeries = {
   spanSecs: 0,
 };
 
-const num = (v: unknown): number | null =>
-  typeof v === "number" && Number.isFinite(v) ? v : null;
-
 /** Read `/api/vitals/history`. A body this build cannot use is an EMPTY series — never a
  *  throw — and a sample with no usable stamp is dropped, because it cannot be placed on the
- *  time axis the chip's window and the chart's x-axis both use. */
-export function parseVitalsSeries(j: unknown): VitalsSeries {
-  const body = (j ?? {}) as {
-    samples?: unknown;
-    interval_secs?: unknown;
-    span_secs?: unknown;
-  };
-  const samples: VitalsSample[] = (
-    Array.isArray(body.samples) ? body.samples : []
-  ).flatMap((raw) => {
-    const r = (raw ?? {}) as Record<string, unknown>;
-    const tsMs = num(r.ts_ms);
-    if (tsMs === null) return [];
-    return [
-      {
-        tsMs,
-        cpu: num(r.cpu_pct),
-        mem: num(r.mem_pct),
-        memTotalMb: num(r.mem_total_mb),
-      },
-    ];
-  });
-  return {
-    samples,
-    intervalSecs: num(body.interval_secs) ?? 0,
-    spanSecs: num(body.span_secs) ?? 0,
-  };
+ *  time axis the chip's window and the chart's x-axis both use.
+ *
+ *  ── IT IS RUST NOW (P2, 2026-09-29), and this is the seam it is reached through ──────────────
+ *
+ *  The parse moved to `agent/resources/panel-logic/src/vitals.rs`, transliterated: the same
+ *  `(j ?? {})` guard, the same `Array.isArray`, the same `?? 0` on the envelope, the same
+ *  drop-the-row-with-no-stamp rule. `num` above went with it — the TypeScript copy is GONE, so
+ *  there is no second derivation of a vitals sample left in the panel.
+ *
+ *  WHY IT IS `async`, and it is the same reason `parseMonitors` is: the wasm is fetched at the
+ *  FIRST CALL rather than at page load (criterion ③ — it is in neither the first-load payload nor
+ *  the page's critical path), and a call during RENDER cannot wait for that fetch. This one is a
+ *  `useDeviceRead` fold, and `reduce` is declared `T | Promise<T>`, so it is free. **A call site is
+ *  free if it is not during render** — that is the whole rule, and `EMPTY_SERIES` and the hook
+ *  below stay TypeScript because a constant and a hook are not computations. */
+export async function parseVitalsSeries(j: unknown): Promise<VitalsSeries> {
+  const logic = await panelLogic();
+  return logic.parse_vitals_series(j) as VitalsSeries;
 }
 
 /** The series, refreshed on the device's own cadence (default 30 s, floored at 10 s so a

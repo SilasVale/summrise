@@ -108,6 +108,25 @@ export function parse_monitors(j) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * `parseVitalsSeries(j)` — the series, or the empty one.
+ *
+ * THE OUTPUT KEYS ARE THE TYPESCRIPT'S (`tsMs`, `intervalSecs`, `spanSecs`, `memTotalMb`) and not
+ * the wire's (`ts_ms`, `interval_secs`, `span_secs`, `mem_total_mb`). The wire names are read; the
+ * camelCase names are what the panel's readers destructure, and a port that returned the wire's
+ * spelling would type-check against `VitalsSeries` only if the interface were changed too — which
+ * is a change to the panel, not a migration of it.
+ * @param {any} j
+ * @returns {any}
+ */
+export function parse_vitals_series(j) {
+    const ret = wasm.parse_vitals_series(j);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,

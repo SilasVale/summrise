@@ -27,8 +27,12 @@ const series = (cpu: (number | null)[], mem: (number | null)[] = [], interval = 
 });
 
 describe("parseVitalsSeries", () => {
-  it("reads the device's own cadence and span rather than assuming them", () => {
-    const s = parseVitalsSeries({
+  // `await`, because the parse is RUST NOW (P2, 2026-09-29): the wasm is fetched at the first call
+  // rather than at page load, so the seam is async and every caller awaits it. THE ASSERTIONS ARE
+  // UNCHANGED — this file was found by `tsc --noEmit` rather than by reading the call sites, which is
+  // the whole reason the checker the other end runs is the one to run.
+  it("reads the device's own cadence and span rather than assuming them", async () => {
+    const s = await parseVitalsSeries({
       ok: true,
       interval_secs: 30,
       span_secs: 300,
@@ -39,10 +43,10 @@ describe("parseVitalsSeries", () => {
     expect(s.samples[0]).toEqual({ tsMs: now, cpu: 12.5, mem: 60.1, memTotalMb: 16384 });
   });
 
-  it("drops a sample it cannot place in time and tolerates a body it cannot use", () => {
-    expect(parseVitalsSeries({ samples: [{ cpu_pct: 10 }, { ts_ms: now, cpu_pct: 20 }] }).samples).toHaveLength(1);
-    expect(parseVitalsSeries(null).samples).toEqual([]);
-    expect(parseVitalsSeries({ ok: false }).intervalSecs).toBe(0);
+  it("drops a sample it cannot place in time and tolerates a body it cannot use", async () => {
+    expect((await parseVitalsSeries({ samples: [{ cpu_pct: 10 }, { ts_ms: now, cpu_pct: 20 }] })).samples).toHaveLength(1);
+    expect((await parseVitalsSeries(null)).samples).toEqual([]);
+    expect((await parseVitalsSeries({ ok: false })).intervalSecs).toBe(0);
   });
 });
 

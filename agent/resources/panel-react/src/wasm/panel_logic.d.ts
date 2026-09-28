@@ -61,6 +61,17 @@ export function parse_monitor_change(detail: any): any;
  */
 export function parse_monitors(j: any): any;
 
+/**
+ * `parseVitalsSeries(j)` — the series, or the empty one.
+ *
+ * THE OUTPUT KEYS ARE THE TYPESCRIPT'S (`tsMs`, `intervalSecs`, `spanSecs`, `memTotalMb`) and not
+ * the wire's (`ts_ms`, `interval_secs`, `span_secs`, `mem_total_mb`). The wire names are read; the
+ * camelCase names are what the panel's readers destructure, and a port that returned the wire's
+ * spelling would type-check against `VitalsSeries` only if the interface were changed too — which
+ * is a change to the panel, not a migration of it.
+ */
+export function parse_vitals_series(j: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -71,6 +82,7 @@ export interface InitOutput {
     readonly parse_boot_history: (a: any) => [number, number, number];
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];
+    readonly parse_vitals_series: (a: any) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

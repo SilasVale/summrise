@@ -7,6 +7,10 @@ import { parseVitalsSeries } from "../useVitalsSeries";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+/** The ENVELOPE keys, which are read off the body rather than off a sample — the fixture's `keys`
+ *  list declares the SAMPLE's four, because that is the part a device-side rename would flatten. */
+const ENVELOPE_KEYS = new Set(["samples", "interval_secs", "span_secs"]);
+
 // ── THE VITALS SERIES, from the fixture the device is checked against ────────────────────────────
 //
 // `agent/tests/fixtures/vitals-series.json` is the same file `agent/src/metrics.rs` is checked
@@ -22,8 +26,8 @@ describe("parseVitalsSeries — the shared fixture", () => {
     readFileSync(path.resolve(HERE, "..", "..", "..", "..", "..", "tests", "fixtures", "vitals-series.json"), "utf8"),
   );
 
-  it("keeps the device's order, because the last sample is read as the newest", () => {
-    const series = parseVitalsSeries(fixture.example);
+  it("keeps the device's order, because the last sample is read as the newest", async () => {
+    const series = await parseVitalsSeries(fixture.example);
     expect(series.samples.length).toBe(3);
     const stamps = series.samples.map((s) => s.tsMs);
     expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
@@ -32,13 +36,13 @@ describe("parseVitalsSeries — the shared fixture", () => {
     for (const s of series.samples) expect(s.tsMs).toBeGreaterThan(1_600_000_000_000);
   });
 
-  it("reads the envelope, and keeps a missing reading missing", () => {
-    const series = parseVitalsSeries(fixture.example);
+  it("reads the envelope, and keeps a missing reading missing", async () => {
+    const series = await parseVitalsSeries(fixture.example);
     expect(series.intervalSecs).toBe(30);
     expect(series.spanSecs).toBe(3600);
     // A sample the device could not read carries nulls, not zeros: "0% CPU" and "no reading" are
     // different claims, and the chart draws them differently.
-    const { samples } = parseVitalsSeries({
+    const { samples } = await parseVitalsSeries({
       samples: [{ ts_ms: 1789000000000, cpu_pct: null, mem_pct: 12.5, mem_total_mb: null }],
     });
     expect(samples[0].cpu).toBeNull();
@@ -46,15 +50,30 @@ describe("parseVitalsSeries — the shared fixture", () => {
     expect(samples[0].mem).toBe(12.5);
   });
 
-  it("reads no key outside the fixture, and drops what it cannot place in time", () => {
+  it("reads no key outside the fixture, and drops what it cannot place in time", async () => {
     const carried = new Set(fixture.keys);
-    const source = readFileSync(path.resolve(HERE, "..", "useVitalsSeries.ts"), "utf8");
-    const reads = new Set([...source.matchAll(/\br\.([a-z_]+)/g)].map((m) => m[1]));
-    const unknown = [...reads].filter((k) => !carried.has(k));
+    // ── THE SUBJECT OF THIS CHECK MOVED WITH THE PARSER (P2, 2026-09-29) ─────────────────────────
+    //
+    // It used to read `useVitalsSeries.ts` and match `r.<key>`. The parse is Rust now, so that file
+    // no longer reads any key at all — and a check that kept grepping it would have gone on PASSING
+    // while measuring nothing, which is the vacuity this repository's gates are written against.
+    // The invariant is about the PARSER, so the parser is what it reads: `prop(&raw, "ts_ms")` and
+    // `prop(&j, "interval_secs")` are the two shapes the Rust uses to read a wire key.
+    const source = readFileSync(
+      path.resolve(HERE, "..", "..", "..", "..", "panel-logic", "src", "vitals.rs"),
+      "utf8",
+    );
+    const reads = new Set(
+      [...source.matchAll(/prop\(&(?:raw|j), "([a-z_]+)"\)/g)].map((m) => m[1]),
+    );
+    // A FLOOR, because a rename in the Rust would empty this set and an empty set has no unknown
+    // keys: 4 sample keys + 3 envelope keys are read today, and the fixture declares the 4.
+    expect(reads.size, "the Rust parser reads no wire key this check can see").toBeGreaterThanOrEqual(3);
+    const unknown = [...reads].filter((k) => !carried.has(k) && !ENVELOPE_KEYS.has(k));
     expect(unknown, "the parser reads a key the fixture does not declare").toEqual([]);
     // And a sample with no usable stamp is dropped rather than placed by guesswork — the same rule the
     // boot history and the session archive follow.
-    const { samples } = parseVitalsSeries({
+    const { samples } = await parseVitalsSeries({
       samples: [{ cpu_pct: 5 }, { ts_ms: 1789000000000, cpu_pct: 1.5 }],
     });
     expect(samples.length).toBe(1);
