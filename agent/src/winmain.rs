@@ -104,7 +104,7 @@ pub(crate) fn supervise_tunnel() {
                 // **A TUNNEL THAT CONNECTED PERFECTLY, AS THE WRONG DEVICE.** Measured 2026-09-28 on a machine
                 // reinstalled at 10:00:41: its `tunnel.yml` was dated 2026-09-10 and had been written for `d1`.
                 // cloudflared read it, joined `d1`'s tunnel and served ANOTHER device's hostname for about twelve
-                // minutes — its own log says `Updated to new configuration config="…d1.agent.saisi.online…"` —
+                // minutes — its own log says `Updated to new configuration naming THE OTHER DEVICE` —
                 // while the tunnel provisioned FOR this device reported `status: healthy` with **0 connectors**, so
                 // this machine was unreachable at its own hostname: the relay answered 530 and the console showed it
                 // offline. Nothing above can see this. The existence check asks whether the FILE IS THERE and the
