@@ -66,7 +66,9 @@ both below.
 
 # CDN-publish a release (pack + stage + version.json sha256 + last-5 prune
 # + deploy; then push + tag vX to get the CI-built GitHub release)
-./scripts/publish-release.sh 1.2.N
+./scripts/publish-release.sh 1.2.N --npm   # --npm is OPT-IN: without it the CDN moves and the npm
+                                          # CLI does not, so `npx summrise-agent` keeps serving the old
+                                          # one. The script says so itself, and 1.2.453 deadlocked on it.
 ```
 
 ## License

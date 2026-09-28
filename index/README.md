@@ -19,12 +19,13 @@ Custom domain **agent.saisi.online** is bound in the Cloudflare dashboard
 ## Publishing a release (the ONLY supported path)
 
 ```bash
-./scripts/publish-release.sh 1.2.N
+./scripts/publish-release.sh 1.2.N --npm
 ```
 
 from the repo root. It packs the npm tgz, stages it + the `latest` alias,
 writes `version.json` (with the sha256 agent_update requires), prunes old
-versions to the last 5 (round-309), commits, and deploys this worker. Then
+versions to the last 5 (round-309), and deploys this worker. It does NOT commit: its own
+header ends by handing that to a human, and its tail prints `[1] push the release commit`. Then
 push main and create the GitHub tag `v1.2.N` via the API — release.yml
 builds the GitHub release asset.
 
