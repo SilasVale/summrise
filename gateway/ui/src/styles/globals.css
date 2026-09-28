@@ -1693,11 +1693,21 @@ body[data-theme="dark"] .note.tip {
   .auth-wrap {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* ── ONE GUTTER, NOT THREE ─────────────────────────────────────────────────────────────────────────────────────
+     Measured at 390x844: the brand half's content sat at 28, the card at 20, and the language pill's right edge at
+     390-24 = 366 — three insets on one screen, and the middle one was not chosen for this layout at all (the pill's
+     `right: 24px` also explains the desktop's 640-24-1px border, so it is one rule doing two jobs). The stack takes 20,
+     because 20 is the card's number and the card is the primary object. Measured cost: the tagline grows 334 -> 350 and
+     stays 2 lines, the brand moves 28 -> 20, the pill's right edge moves to 370, and the fields do NOT move (the card
+     and its 32px padding already put them at 53). */
   .auth-aside {
-    padding: 40px 28px 0;
+    padding: 40px 20px 0;
     gap: 20px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
+  }
+  .auth-aside .auth-lang {
+    right: 20px;
   }
   .auth-main {
     padding: 28px 20px 48px;
@@ -1761,8 +1771,17 @@ body[data-theme="dark"] .note.tip {
   gap: 6px;
 }
 
+/* ── ONE SIZE PER FIELD ROW, AND THE LABEL IS THE ONE THAT MOVES ───────────────────────────────────────────────────
+   Measured on the live console at 1280x900 and 390x844: the label rendered 13px and the field it names 14px, 26.14px
+   apart, so the row said the same thing twice in two sizes. The label comes up to the content it names.
+
+   **AND IT IS THE LABEL, NOT THE CONTROLS, BECAUSE 13px IS THIS SHEET'S CONTROL RUNG.** `var(--fs-base)` is used 25
+   times here and `var(--fs-md)` 7, whose own token comment reads "card and list titles". Of the seven, exactly ONE is a
+   control — `.auth-form input` — and the console's other field, `.form-input`, is `var(--fs-base)`, as is `.btn`. So
+   lifting the tab and the submit to 14 as well would leave this door the console's only 14px-control surface; lifting
+   the LABEL (text, not a control) removes the rung inside the row and moves no control at all. */
 .auth-form label span {
-  font-size: var(--fs-base);
+  font-size: var(--fs-md);
   font-weight: var(--fw-medium);
   color: var(--text-secondary);
 }
@@ -1798,7 +1817,14 @@ body[data-theme="dark"] .note.tip {
    `height: 32px`, so a padding override changes the space INSIDE a fixed box and the button stays 32px tall — measured
    after the deploy: `SUBMIT : 330x32 (was 330x32)`. The padding only decides the height once the height stops being
    fixed. */
-.auth-form .btn-block { height: auto; padding: var(--sp-3); }
+/* **AND THE HEIGHT IS NAMED, BECAUSE THE FIELD'S OWN ARITHMETIC DOES NOT CLOSE.** Live at 1280x900 and 390x844, the
+   fields are 330x43 (284x43 at 390) at x=795 and the submit was 330x41 at the same x — the card's only number that does
+   not close, with the tightest seam in the card (14px) directly above it. A field computes
+   11 + 11 + 1 + 1 + 19 = 43; the same box as a button computes 12 + 12 + 18.4 = 42.4 for the 14px line box, and 41 at
+   the 13px one — the 0.6px is the UA rounding a text field's editor box UP to a whole pixel, which a button's line box
+   does not do. So the submit cannot be made to equal the field by type and padding; it takes the field's measured 43.
+   `min-height`, not `height`, so a longer label in another language can still grow the button. */
+.auth-form .btn-block { height: auto; min-height: 43px; padding: var(--sp-3); }
 
 /* The current-route summary. One line and a link — choosing happens on the
    Models page, where the whole catalogue is. */
@@ -1840,7 +1866,11 @@ body[data-theme="dark"] .note.tip {
   border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text-secondary);
-  border-radius: var(--radius-pill);
+  /* `--radius-md` (10), the CONTROL radius — not `--radius-pill`. Measured live: this pill and the submit were the
+     only two elements on the page carrying 999px, and the pill already wears the fields' own border
+     (rgb(212,212,216) = `--border-strong`) and their role. So the radius now encodes one thing per rank —
+     20 = container, 10 = control, 999 = the single primary action — and the submit is the page's only pill. */
+  border-radius: var(--radius-md);
   padding: var(--sp-1) var(--sp-3);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
