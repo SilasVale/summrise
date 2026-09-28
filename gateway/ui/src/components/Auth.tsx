@@ -104,12 +104,29 @@ export default function Auth() {
           </div>
 
           {tab === "login" && (
+            /* NO PLACEHOLDERS ON THIS FORM (2026-09-28). Measured on the live page: the label above
+               each field is a VISIBLE 330x69.1 box whose text renders 26.1px above the input, and
+               the field's accessible name is computed FROM that wrapping label — and `auth.usernamePh`
+               was the SAME STRING as `auth.username`, `auth.passwordPh` the same string as
+               `auth.password`. So the field's name was printed twice: once above the box by the
+               label, once inside it by the placeholder.
+               The test that decided WHICH of the two goes, answered both ways: delete the placeholder
+               and the visible label still names the field (nothing is lost, and the name survives
+               typing); delete the label and the name disappears the moment the user types (everything
+               is lost). Hence this form, and only the two fields whose placeholder was an exact
+               duplicate of its label.
+               THE OTHER TWO TABS KEEP THEIRS, because there the placeholder carries a rule the label
+               does not — `auth.usernamePhReg`, `auth.passwordPhReg`, `auth.newPasswordPh` state a
+               length/charset constraint and `auth.invitePh` states a prerequisite — and a constraint
+               that lives only in a placeholder is lost exactly when the user obeys it. Promoting those
+               into a `.muted` paragraph (the shape `auth.resetHint` already uses on the reset tab) is
+               the follow-up; it costs 54px per form and was left for its own commit.
+               (Quoted by KEY rather than by value: this file may not carry CJK literals.) */
             <form className="auth-form" onSubmit={handleLogin} autoComplete="off">
               <label>
                 <span>{t("auth.username")}</span>
                 <input
                   name="username"
-                  placeholder={t("auth.usernamePh")}
                   required
                   autoComplete="username"
                   value={loginUser}
@@ -121,7 +138,6 @@ export default function Auth() {
                 <input
                   name="password"
                   type="password"
-                  placeholder={t("auth.passwordPh")}
                   required
                   autoComplete="current-password"
                   value={loginPass}
@@ -182,10 +198,17 @@ export default function Auth() {
               <p className="muted">{t("auth.resetHint")}</p>
               <label>
                 <span>{t("auth.adminKey")}</span>
+                {/* THIS FIELD WAS NAMED TWO DIFFERENT THINGS, which is a contradiction rather than a
+                    duplicate: the label above it renders `auth.adminKey` while the placeholder inside
+                    it rendered `auth.adminKeyPh`, and the two dictionary values disagree — the label
+                    and the `auth.resetHint` paragraph above the form say one term, the placeholder
+                    said another. Two claims about one input, and two of the three agreed.
+                    The label wins, because the label is the one that persists. The placeholder is
+                    deleted rather than reworded to match: a reworded one would have left the field's
+                    name printed twice, which is the defect the login form above was just cured of. */}
                 <input
                   name="adminKey"
                   type="password"
-                  placeholder={t("auth.adminKeyPh")}
                   required
                   autoComplete="off"
                   value={resetKey}
