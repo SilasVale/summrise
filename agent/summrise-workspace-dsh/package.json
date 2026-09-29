@@ -2,12 +2,13 @@
   "name": "summrise-workspace-dsh",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH subprocess seam backed by a summrise agent: run a command on a workspace host over SSH, with the argv and the cwd carried out of band so neither passes through the login shell",
+  "description": "DSH's filesystem and subprocess seams backed by a summrise agent: read and search a workspace host over SSH, with the argv, the working directory and the paths carried so that neither a shell nor the DSH host's own disk is involved",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./fs": "./lib/fs.js"
   },
   "scripts": {
     "test": "node --test"
@@ -18,7 +19,11 @@
     "@deepseek-ai/cordis": "~4.0.4"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-subprocess": { "optional": true },
-    "@deepseek-ai/cordis": { "optional": true }
+    "@deepseek-ai/dsh-subprocess": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
   }
 }
