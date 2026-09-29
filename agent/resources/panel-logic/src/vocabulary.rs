@@ -49,3 +49,33 @@ pub const BOOT_KINDS: [&str; 5] = [
 pub fn boot_kind(raw: &str) -> Option<&'static str> {
     BOOT_KINDS.iter().copied().find(|k| *k == raw)
 }
+
+/// The ways a command END that the device names, in the contract's order (`END_REASONS` in
+/// `lib/contract.gen.ts`, generated from `agent/src/vocabulary.rs`).
+///
+/// MOVED HERE 2026-09-29 for `path.rs`'s `stateFromEnd`, which reads these strings to decide a state.
+/// The order and the spellings are the contract's, byte for byte, and `contract_vocabulary.rs` now
+/// pins this list against the source of truth — so a value changed in `agent/src/vocabulary.rs`
+/// without changing it here fails a gate rather than drifting silently. That is the arrangement the
+/// module header PROMISED for `BOOT_KINDS` and did not have; this list carries it, and the promise is
+/// now true because two lists are covered rather than one.
+pub const END_REASONS: [&str; 6] = [
+    "marker",
+    "idle",
+    "timeout",
+    "interrupted",
+    "backgrounded",
+    "closed",
+];
+
+/// The prefix the device puts before a numeric exit (`exited:3`) — `EXITED_PREFIX` in
+/// `lib/contract.gen.ts`, from the same source of truth. `stateFromEnd` checks a reason starts with
+/// it; the number after it is the device's, not this crate's.
+pub const EXITED_PREFIX: &str = "exited:";
+
+/// `END_REASONS.includes(raw)` — a strict membership test, exactly as the TypeScript's
+/// `(END_REASONS as readonly string[]).includes(reason)` is: a reason the device invented is not the
+/// nearest one, it is an ending this build cannot name.
+pub fn end_reason(raw: &str) -> Option<&'static str> {
+    END_REASONS.iter().copied().find(|k| *k == raw)
+}

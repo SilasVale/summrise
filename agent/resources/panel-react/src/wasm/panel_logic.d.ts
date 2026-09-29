@@ -22,12 +22,37 @@ export function any_command_running(sessions: any): boolean;
 export function archive_entries(payload: any): any;
 
 /**
+ * `attentionSteps(steps)` — worth a second look, worst first.
+ *
+ * `bg` ranks with `running`: both are "not finished", and neither is a problem to draw the eye. The
+ * order is `(rank, index)`, and both keys are unique per step, so the comparator is a total order
+ * and the sort does not depend on the engine's stability.
+ */
+export function attention_steps(steps: any): Array<any>;
+
+/**
  * `badgeIcon(count, urgent, baseHref)` — the favicon for this much attention, as a data URL.
  *
  * `count` arrives as a JS number rather than a `usize` because the TypeScript's own tests are the
  * subject: `count <= 0` and `count > 9` are the two tests, and a `-1` or a `2.5` reaches them.
  */
 export function badge_icon(count: number, urgent: boolean, base_href: any): string;
+
+/**
+ * `cardState(card)` — the same derivation, over the command card's own fields. It is a separate
+ * export because two callers hold a card and not the three arguments, and folding it into one means
+ * every call site builds an object to pass three values.
+ */
+export function card_state(card: any): object;
+
+/**
+ * `derivePath(rounds, controlEvents)` — the steps, their summary, and the round id → index map.
+ *
+ * `controlEvents` DEFAULTS to `[]` in the TypeScript, and a `JsValue::UNDEFINED` in is that same
+ * empty list — so a caller that omits it gets a path with every step owned by the agent, which is
+ * what "no handoff" means.
+ */
+export function derive_path(rounds: any, control_events: any): object;
 
 /**
  * `deviceLiveness(input)` — the device as a whole: reachable, holding questions, or busy.
@@ -186,6 +211,22 @@ export function session_liveness(session: any, working_ms: number): string;
 export function session_waiting(session: any): boolean;
 
 /**
+ * `stateFromEnd(ended, exitCode, reason)` — THE ONE DERIVATION OF A COMMAND'S STATE.
+ *
+ * `reason` is the STATUS string the trail carries (`backgrounded`, `closed`, `interrupted`,
+ * `exited:3`), which is why feeding it through unchanged is what makes the views agree.
+ */
+export function state_from_end(ended: any, exit_code: any, reason: any): object;
+
+/**
+ * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
+ *
+ * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
+ * `untimed` counts them and the view says "at least" instead of implying a total it cannot know.
+ */
+export function summarize_path(steps: any): object;
+
+/**
  * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
  *
  * `items.length` IS A NON-NEGATIVE INTEGER BELOW 2^32, which is the one place this file may use
@@ -201,7 +242,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly any_command_running: (a: any) => [number, number, number];
     readonly archive_entries: (a: any) => [number, number, number];
+    readonly attention_steps: (a: any) => any;
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
+    readonly card_state: (a: any) => [number, number, number];
+    readonly derive_path: (a: any, b: any) => [number, number, number];
     readonly device_liveness: (a: any) => [number, number, number, number];
     readonly disambiguate_labels: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
@@ -217,6 +261,8 @@ export interface InitOutput {
     readonly session_failed: (a: any) => [number, number, number];
     readonly session_liveness: (a: any, b: number) => [number, number, number, number];
     readonly session_waiting: (a: any) => [number, number, number];
+    readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];
+    readonly summarize_path: (a: any) => any;
     readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

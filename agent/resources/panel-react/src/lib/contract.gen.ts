@@ -8,10 +8,12 @@ export const FRAMES = ["sessions-changed","term-output","session-evicted","playw
 /** How the run before this one ended (/api/status.last_boot_kind, /api/boots[].kind). */
 export const BOOT_KINDS = ["first-run","clean-exit","replaced","machine-restart","crashed"] as const;
 
-/** Why a command ended. `exited` is a PREFIX: the device writes `exited:<code>`. */
-export const END_REASONS = ["marker","idle","timeout","interrupted","backgrounded","closed"] as const;
-export const EXITED_PREFIX = "exited:";
-
 export type Frame = (typeof FRAMES)[number];
 export type BootKind = (typeof BOOT_KINDS)[number];
-export type EndReason = (typeof END_REASONS)[number];
+
+// `END_REASONS`, `EXITED_PREFIX` and `EndReason` ARE NOT EMITTED ANY MORE, AND THAT IS
+// A MOVE, NOT A RETIREMENT (2026-09-29, P2). `lib/path.ts` stateFromEnd was their only
+// reader and it is `panel-logic/src/path.rs` now, where the list and the table it keys
+// live in ONE crate — and `agent/tests/contract_vocabulary.rs` compares that copy
+// against `contract-vocabulary.json` on every run. The JSON still carries both: it is
+// the contract the gate reads.

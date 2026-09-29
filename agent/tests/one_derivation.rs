@@ -248,15 +248,54 @@ fn word_bounded(body: &str, lit: &str) -> bool {
     false
 }
 
-fn check(gen_src: &str, files: &[(String, String)]) -> Result<String, String> {
-    // The endings, from the generated contract, so this check follows the vocabulary instead of
+/// THE SAME TWO READERS, OVER THE WASM CRATE'S COPY — because the vocabulary MOVED (2026-09-29, P2).
+///
+/// `lib/path.ts`'s `stateFromEnd` was the only reader of `END_REASONS` and `EXITED_PREFIX`, and it is
+/// `panel-logic/src/path.rs` now, so the generator stopped emitting them and `panel-logic/src/
+/// vocabulary.rs` carries the list instead. **A check whose subject moved is not a check that was
+/// broken** — and this gate would otherwise have refused itself with "this check would be scanning
+/// for nothing", which is its own vacuity guard doing the right thing for the wrong reason.
+fn parse_end_reasons_rust(vocab: &str) -> Option<Vec<String>> {
+    const ANCHOR: &str = "pub const END_REASONS";
+    let rest = &vocab[vocab.find(ANCHOR)? + ANCHOR.len()..];
+    // THE TYPE COMES FIRST — `pub const END_REASONS: [&str; 6] = [` — and a reader that took the
+    // first `[` got `[&str; 6]`, which is the bug this function's own first run had. The array is the
+    // bracket that FOLLOWS the `=`.
+    let eq = rest.find('=')?;
+    let open = rest[eq..].find('[')? + eq;
+    let close = rest[open..].find(']')? + open;
+    let mut out = Vec::new();
+    for line in rest[open..=close].lines() {
+        // `"marker",` — the TRAILING COMMA is what the first version forgot, and `strip_suffix('"')`
+        // then refused every line and the reader reported "no END_REASONS" against a file that has
+        // six of them. A reader that finds nothing where the thing demonstrably is should say so.
+        let t = line.trim().trim_end_matches(',');
+        if let Some(inner) = t.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            out.push(inner.to_string());
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// `pub const EXITED_PREFIX: &str = "exited:";`
+fn parse_exited_prefix_rust(vocab: &str) -> Option<String> {
+    const ANCHOR: &str = "EXITED_PREFIX: &str = \"";
+    let rest = &vocab[vocab.find(ANCHOR)? + ANCHOR.len()..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn check(vocab_src: &str, files: &[(String, String)]) -> Result<String, String> {
+    // The endings, from the file the vocabulary now lives in, so this check follows it instead of
     // copying it.
-    let reasons = parse_end_reasons(gen_src).ok_or_else(|| {
-        "FAIL contract.gen.ts has no END_REASONS — this check would be scanning for nothing"
+    let reasons = parse_end_reasons_rust(vocab_src).ok_or_else(|| {
+        "FAIL panel-logic/src/vocabulary.rs has no END_REASONS — this check would be scanning for \
+         nothing"
             .to_string()
     })?;
-    let prefix = parse_exited_prefix(gen_src).ok_or_else(|| {
-        "FAIL contract.gen.ts has no EXITED_PREFIX — this check would be scanning for nothing"
+    let prefix = parse_exited_prefix_rust(vocab_src).ok_or_else(|| {
+        "FAIL panel-logic/src/vocabulary.rs has no EXITED_PREFIX — this check would be scanning for \
+         nothing"
             .to_string()
     })?;
 
@@ -339,35 +378,13 @@ fn check(gen_src: &str, files: &[(String, String)]) -> Result<String, String> {
     ))
 }
 
-/// `export const END_REASONS = (\[[^\]]*\]) as const;` — the array literal, through `serde_json`
-/// exactly as the JS gate puts it through `JSON.parse`. (The parentheses in that JS regex are GROUP
-/// delimiters, not literal characters — reading them as literals is what the first draft of this
-/// function did, and the floor is what caught it.)
-fn parse_end_reasons(gen: &str) -> Option<Vec<String>> {
-    const ANCHOR: &str = "export const END_REASONS = ";
-    let rest = &gen[gen.find(ANCHOR)? + ANCHOR.len()..];
-    let open = rest.find('[')?;
-    let close = rest[open..].find(']')? + open;
-    let json = &rest[open..=close];
-    let v: Vec<String> = serde_json::from_str(json).ok()?;
-    // ` as const;` must follow, or this matched some other array.
-    if !rest[close + 1..].starts_with(" as const;") {
-        return None;
-    }
-    Some(v)
-}
-
-/// `export const EXITED_PREFIX = "([^"]+)";`
-fn parse_exited_prefix(gen: &str) -> Option<String> {
-    const ANCHOR: &str = "export const EXITED_PREFIX = \"";
-    let rest = &gen[gen.find(ANCHOR)? + ANCHOR.len()..];
-    let end = rest.find('"')?;
-    if end == 0 || !rest[end + 1..].starts_with(';') {
-        return None;
-    }
-    Some(rest[..end].to_string())
-}
-
+// THE TWO TYPESCRIPT READERS ARE GONE WITH THE EXPORT THEY READ. `parse_end_reasons` and
+// `parse_exited_prefix` parsed `contract.gen.ts`, and the generator stopped emitting those two
+// constants when the derivation that was their only reader moved into the wasm crate — so they had
+// no caller and `cargo clippy -D warnings` named them, which is the same rule `exports-check` applies
+// to a TypeScript export: an export nothing imports is a promise nobody asked for. The Rust readers
+// above replaced them, and their own two unit cases moved with them.
+//
 fn panel_files() -> Vec<(String, String)> {
     let root = repo().join(PANEL);
     let mut paths = Vec::new();
@@ -395,7 +412,7 @@ fn read(rel: &str) -> String {
 #[test]
 fn lib_path_is_the_only_derivation_of_an_ending() {
     let msg = check(
-        &read("agent/resources/panel-react/src/lib/contract.gen.ts"),
+        &read("agent/resources/panel-logic/src/vocabulary.rs"),
         &panel_files(),
     )
     .unwrap_or_else(|e| panic!("{e}"));
@@ -432,7 +449,7 @@ fn panel_like(probe: &str) -> Vec<(String, String)> {
 fn a_second_derivation_is_reported_with_its_line() {
     let files = panel_like("const a = 1;\nconst b = 2;\nif (st === \"timeout\") { x(); }\n");
     let err = check(
-        &read("agent/resources/panel-react/src/lib/contract.gen.ts"),
+        &read("agent/resources/panel-logic/src/vocabulary.rs"),
         &files,
     )
     .expect_err("a second derivation must fail");
@@ -446,7 +463,7 @@ fn a_second_derivation_is_reported_with_its_line() {
 fn a_comment_quoting_the_pattern_is_not_a_derivation() {
     let files = panel_like("// if (st === \"timeout\") { x(); }\n");
     let msg = check(
-        &read("agent/resources/panel-react/src/lib/contract.gen.ts"),
+        &read("agent/resources/panel-logic/src/vocabulary.rs"),
         &files,
     )
     .expect("a comment is not a derivation, and the floor is cleared");
@@ -458,7 +475,7 @@ fn a_comment_quoting_the_pattern_is_not_a_derivation() {
 fn a_mark_state_spelled_outside_its_home_is_reported() {
     let files = panel_like("return <span className=\"monitor-mark is-flapping\" />;\n");
     let err = check(
-        &read("agent/resources/panel-react/src/lib/contract.gen.ts"),
+        &read("agent/resources/panel-logic/src/vocabulary.rs"),
         &files,
     )
     .expect_err("a mark state outside its home must fail");
@@ -476,7 +493,8 @@ fn a_mark_state_spelled_outside_its_home_is_reported() {
 
 #[test]
 fn a_missing_contract_array_is_not_a_pass() {
-    let err = check("export const OTHER = [];\n", &[]).expect_err("no END_REASONS must fail");
+    let err =
+        check("pub const OTHER: [&str; 0] = [];\n", &[]).expect_err("no END_REASONS must fail");
     assert!(err.contains("no END_REASONS"), "{err}");
 }
 

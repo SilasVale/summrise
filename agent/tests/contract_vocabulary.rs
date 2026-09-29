@@ -55,15 +55,18 @@ const JSON: &str = "agent/contract-vocabulary.json";
 const TS_GEN: &str = "agent/resources/panel-react/src/lib/contract.gen.ts";
 
 /// The three arrays the two artifacts both carry, with the name each has in the generated TS.
-const ARRAYS: [(&str, &str); 3] = [
-    ("frames", "FRAMES"),
-    ("boot_kinds", "BOOT_KINDS"),
-    ("end_reasons", "END_REASONS"),
-];
+/// THE TWO LISTS `contract.gen.ts` STILL EMITS, after 2026-09-29.
+///
+/// `end_reasons` left this table when the derivation that was its only reader moved into
+/// `panel-logic/src/path.rs` — the generator no longer emits `END_REASONS`, and the crate's own copy
+/// is compared against the JSON by `crate_end_reasons` further down. A list nobody imports is a
+/// promise nobody asked for, and `exports-check` refused the emitted one on exactly that ground.
+const ARRAYS: [(&str, &str); 2] = [("frames", "FRAMES"), ("boot_kinds", "BOOT_KINDS")];
 
 /// The readers the panel's clauses are about.
 const BOOT_NOTICE: &str = "agent/resources/panel-react/src/lib/bootNotice.ts";
-const PATH_TS: &str = "agent/resources/panel-react/src/lib/path.ts";
+const PATH_RS: &str = "agent/resources/panel-logic/src/path.rs";
+const CRATE_VOCAB: &str = "agent/resources/panel-logic/src/vocabulary.rs";
 const RUNSTATE: &str = "agent/src/runstate.rs";
 
 /// The interface trees whose sources must READ every declared value.
@@ -261,6 +264,88 @@ fn end_state_table(src: &str) -> Vec<String> {
     out
 }
 
+/// THE SAME READ, OVER THE RUST TABLE — because the table moved there (2026-09-29, P2).
+///
+/// `end_state_table` above reads the TypeScript `Record<EndReason, PathState>`; the derivation it
+/// belonged to is `panel-logic/src/path.rs` now, whose table is `const END_STATE: [(&str, &str); 6]`.
+/// **THE GATE FOLLOWS ITS SUBJECT, WHICH IS THE THIRD TIME IT HAS DONE SO** (the other two: the
+/// `laneClass` families in the console, and this table's own move), and the reason is the one the
+/// header already states: a contract whose subject moved is not a contract that was broken, and a
+/// reader left on the old home would scan nothing and report a clean run.
+fn end_state_table_rust(src: &str) -> Vec<String> {
+    const STATES: [&str; 6] = ["muted", "warn", "bg", "ok", "fail", "running"];
+    let mut out = Vec::new();
+    for line in src.lines() {
+        let t = line.trim();
+        // `("interrupted", "warn"),`
+        let Some(rest) = t.strip_prefix("(\"") else {
+            continue;
+        };
+        let Some((key, rest)) = rest.split_once("\",") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let Some(value) = rest.strip_prefix("\"") else {
+            continue;
+        };
+        for s in STATES {
+            if value.starts_with(s) {
+                out.push(key.to_string());
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// The crate's own `END_REASONS` list, read the same way — the copy the derivation now keys its
+/// table on. It is the list `agent/src/vocabulary.rs` generates into `contract.gen.ts`, and this
+/// assertion is what makes the crate's copy a checked one rather than a fourth unverified spelling.
+fn crate_end_reasons(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in src.lines() {
+        let t = line.trim();
+        if t.starts_with("pub const END_REASONS") {
+            inside = true;
+            continue;
+        }
+        if inside {
+            if t.starts_with(']') {
+                break;
+            }
+            let v = t.trim_end_matches(',').trim();
+            if let Some(inner) = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                out.push(inner.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The crate's `BOOT_KINDS`, read the same way as `crate_end_reasons`.
+fn crate_boot_kinds(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in src.lines() {
+        let t = line.trim();
+        if t.starts_with("pub const BOOT_KINDS") {
+            inside = true;
+            continue;
+        }
+        if inside {
+            if t.starts_with(']') {
+                break;
+            }
+            let v = t.trim_end_matches(',').trim();
+            if let Some(inner) = v.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                out.push(inner.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn check() -> Result<String, String> {
     let json_raw = read(JSON);
     // The artifact carries `//` header lines, which JSON does not allow — the JS strips them by
@@ -303,13 +388,16 @@ fn check() -> Result<String, String> {
             ));
         }
     }
+    // `EXITED_PREFIX` WAS ALSO AN `export const` ONCE, and it left with `END_REASONS`. The JSON still
+    // names it, so the check that keeps it honest now reads the file the derivation reads.
     let prefix = contract["exited_prefix"].as_str().expect("a string");
-    if !ts_gen.contains(&format!(
-        "export const EXITED_PREFIX = {};",
+    let crate_vocab_early = read(CRATE_VOCAB);
+    if !crate_vocab_early.contains(&format!(
+        "EXITED_PREFIX: &str = {}",
         serde_json::to_string(prefix).expect("a string serialises")
     )) {
         o.bad(format!(
-            "contract.gen.ts EXITED_PREFIX is not {}",
+            "panel-logic/src/vocabulary.rs EXITED_PREFIX is not {}",
             serde_json::to_string(prefix).expect("a string serialises")
         ));
     }
@@ -415,39 +503,95 @@ fn check() -> Result<String, String> {
         ));
     }
 
-    let path_ts = read(PATH_TS);
+    // THE DERIVATION'S TABLE, AND IT IS RUST NOW (2026-09-29, P2): `stateFromEnd` and its `END_STATE`
+    // table moved into `panel-logic/src/path.rs` when `lib/path.ts`'s five functions did, so this reads
+    // THAT file. The vocabulary the table is keyed by moved with it — `panel-logic/src/vocabulary.rs`
+    // now carries `END_REASONS` and `EXITED_PREFIX` — and the next check is what pins that copy.
+    let path_rs = read(PATH_RS);
     let reasons: BTreeSet<String> = contract["end_reasons"]
         .as_array()
         .expect("an array")
         .iter()
         .map(|v| v.as_str().expect("a string").to_string())
         .collect();
-    let table = end_state_table(&path_ts);
+    let table = end_state_table_rust(&path_rs);
     if table.is_empty() {
-        o.bad("path.ts has no end-state table — the derivation moved and this scan proves nothing");
+        o.bad("path.rs has no end-state table — the derivation moved and this scan proves nothing");
     } else {
         let named: BTreeSet<&String> = table.iter().collect();
         for r in &reasons {
             if !named.contains(r) {
                 o.bad(format!(
-                    "path.ts's table does not name the end reason \"{r}\" the device writes"
+                    "path.rs's table does not name the end reason \"{r}\" the device writes"
                 ));
             }
         }
         for r in &named {
             if !reasons.contains(*r) {
                 o.bad(format!(
-                    "path.ts's table names \"{r}\", which contract-vocabulary.json does not list"
+                    "path.rs's table names \"{r}\", which contract-vocabulary.json does not list"
                 ));
             }
         }
-        if !path_ts.contains("EXITED_PREFIX") {
-            o.bad("path.ts no longer reads the generated EXITED_PREFIX");
+        if !path_rs.contains("EXITED_PREFIX") {
+            o.bad("path.rs no longer reads the generated EXITED_PREFIX");
         }
         o.ok(format!(
             "{} end reason(s) in the derivation's table, every one in the vocabulary (and the type is generated)",
             table.len()
         ));
+    }
+
+    // ── AND THE WASM CRATE'S COPY OF THE VOCABULARY, WHICH NOBODY WAS CHECKING ──────────────────
+    // `panel-logic/src/vocabulary.rs` has carried a hand-written `BOOT_KINDS` since `boot.rs` moved,
+    // and its own header PROMISED that "the drift is caught by a gate" — while the gate it meant read
+    // `agent/src/vocabulary.rs` and the two generated artifacts, never the crate. **A promise about a
+    // check that does not exist is a claim nobody checked**, so this is the check: both lists the
+    // crate carries are compared against the source of truth, and `END_REASONS` (moved there with
+    // `path.rs`) is in the set.
+    let crate_vocab = read(CRATE_VOCAB);
+    for (label, got, want) in [
+        (
+            "END_REASONS",
+            crate_end_reasons(&crate_vocab),
+            contract["end_reasons"]
+                .as_array()
+                .expect("an array")
+                .iter()
+                .map(|v| v.as_str().expect("a string").to_string())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            "BOOT_KINDS",
+            crate_boot_kinds(&crate_vocab),
+            contract["boot_kinds"]
+                .as_array()
+                .expect("an array")
+                .iter()
+                .map(|v| v.as_str().expect("a string").to_string())
+                .collect::<Vec<_>>(),
+        ),
+    ] {
+        if got.is_empty() {
+            o.bad(format!(
+                "panel-logic/src/vocabulary.rs has no {label} list — the crate's copy is unchecked now"
+            ));
+        } else if got != want {
+            o.bad(format!(
+                "panel-logic/src/vocabulary.rs {label} is {got:?} and contract-vocabulary.json says \
+                 {want:?} — the crate is a hand-written copy, so this is the check that keeps it one"
+            ));
+        } else {
+            o.ok(format!(
+                "{label}: the crate's copy is the vocabulary's, {} value(s)",
+                got.len()
+            ));
+        }
+    }
+    if !crate_vocab.contains("EXITED_PREFIX: &str = \"exited:\"") {
+        o.bad("panel-logic/src/vocabulary.rs no longer carries the EXITED_PREFIX the derivation reads");
+    } else {
+        o.ok("EXITED_PREFIX: the crate's copy is the vocabulary's prefix");
     }
 
     // ── AND EVERY DECLARED VALUE IS ONE THE DEVICE ACTUALLY WRITES (round 156) ─────────────────

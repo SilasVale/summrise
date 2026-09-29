@@ -37,6 +37,20 @@ export function archive_entries(payload) {
 }
 
 /**
+ * `attentionSteps(steps)` — worth a second look, worst first.
+ *
+ * `bg` ranks with `running`: both are "not finished", and neither is a problem to draw the eye. The
+ * order is `(rank, index)`, and both keys are unique per step, so the comparator is a total order
+ * and the sort does not depend on the engine's stability.
+ * @param {any} steps
+ * @returns {Array<any>}
+ */
+export function attention_steps(steps) {
+    const ret = wasm.attention_steps(steps);
+    return ret;
+}
+
+/**
  * `badgeIcon(count, urgent, baseHref)` — the favicon for this much attention, as a data URL.
  *
  * `count` arrives as a JS number rather than a `usize` because the TypeScript's own tests are the
@@ -57,6 +71,39 @@ export function badge_icon(count, urgent, base_href) {
     } finally {
         wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
+}
+
+/**
+ * `cardState(card)` — the same derivation, over the command card's own fields. It is a separate
+ * export because two callers hold a card and not the three arguments, and folding it into one means
+ * every call site builds an object to pass three values.
+ * @param {any} card
+ * @returns {object}
+ */
+export function card_state(card) {
+    const ret = wasm.card_state(card);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `derivePath(rounds, controlEvents)` — the steps, their summary, and the round id → index map.
+ *
+ * `controlEvents` DEFAULTS to `[]` in the TypeScript, and a `JsValue::UNDEFINED` in is that same
+ * empty list — so a caller that omits it gets a path with every step owned by the agent, which is
+ * what "no handoff" means.
+ * @param {any} rounds
+ * @param {any} control_events
+ * @returns {object}
+ */
+export function derive_path(rounds, control_events) {
+    const ret = wasm.derive_path(rounds, control_events);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -372,6 +419,37 @@ export function session_waiting(session) {
 }
 
 /**
+ * `stateFromEnd(ended, exitCode, reason)` — THE ONE DERIVATION OF A COMMAND'S STATE.
+ *
+ * `reason` is the STATUS string the trail carries (`backgrounded`, `closed`, `interrupted`,
+ * `exited:3`), which is why feeding it through unchanged is what makes the views agree.
+ * @param {any} ended
+ * @param {any} exit_code
+ * @param {any} reason
+ * @returns {object}
+ */
+export function state_from_end(ended, exit_code, reason) {
+    const ret = wasm.state_from_end(ended, exit_code, reason);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
+ *
+ * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
+ * `untimed` counts them and the view says "at least" instead of implying a total it cannot know.
+ * @param {any} steps
+ * @returns {object}
+ */
+export function summarize_path(steps) {
+    const ret = wasm.summarize_path(steps);
+    return ret;
+}
+
+/**
  * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
  *
  * `items.length` IS A NON-NEGATIVE INTEGER BELOW 2^32, which is the one place this file may use
@@ -480,6 +558,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_28744009d011f847: function() {
             const ret = new Map();
+            return ret;
+        },
+        __wbg_new_343a093a3c2ffb4e: function(arg0, arg1) {
+            const ret = new Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
         __wbg_new_617a8cdb8bb1130e: function() {

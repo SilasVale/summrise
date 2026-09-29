@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **71,133 raw / 29,877 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **27,987 raw / 7,840 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **91,738 raw / 38,487 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **30,834 raw / 8,617 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -35,7 +35,8 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `runs.rs` (2 exports, the first RENDER-path family) | 23,167 (+8,994) | 4,268 (+665) | **272,375** (**−877**) |
 | the eight families after it, to `attention.rs` | 26,159 | 5,460 | **272,344** (the tree the preload landed on) |
 | `session_labels.rs` (1 export) | 27,967 (+1,808) | 6,141 (+681) | **273,160** (+816) |
-| `liveness.rs` (7 exports) | **29,877** (+1,910) | **7,840** (+1,699) | **273,240** (+120) |
+| `liveness.rs` (7 exports) | 29,877 (+1,910) | 7,840 (+1,699) | **273,240** (+120) |
+| `path.rs` (5 functions + the endings table) | **38,487** (+8,610) | **8,617** (+777) | **272,623** (**−617**) |
 
 **The first-load column is the one the operator pays, and for six of the eight families it went DOWN**
 — the TypeScript a family deletes is larger than the glue it adds. `session_labels.rs` is the
@@ -69,6 +70,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `runs.rs` | `lib/runs.ts`'s `groupOperation` + `operationRows` | 2 |
 | `session_labels.rs` | `lib/sessionLabels.ts`'s `disambiguateLabels` | 1 |
 | `liveness.rs` | `lib/liveness.ts`'s seven predicates (`livenessOf`, `deviceLiveness`, `sessionWaiting`, `sessionActive`, `anyCommandRunning`, `sessionLiveness`, `sessionFailed`) | 7 |
+| `path.rs` | `lib/path.ts`'s `stateFromEnd`, `cardState`, `derivePath`, `summarizePath`, `attentionSteps`, and the `END_STATE`/`END_LABEL` tables | 5 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
