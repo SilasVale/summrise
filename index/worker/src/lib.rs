@@ -298,6 +298,8 @@ fn json_type_of(v: &serde_json::Value) -> String {
     }
 }
 
+use url::Url;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +420,296 @@ mod tests {
             a.body()
         );
         assert!(!a.body().contains("evil.example"), "{}", a.body());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+// THE LANDING PAGE'S URL BOUNDARY — `index/src/page.js`'s three exports
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// WHY THIS IS HERE WHILE `index/src/index.js` IS STILL JAVASCRIPT, and the answer is an ORDERING the
+// dependency graph forces: the JS worker imports `PAGE` from `page.js`, so the TypeScript cannot be
+// deleted until the worker itself is Rust. The rule this migration works by — **"旧的在新版被证明
+// 等价之前不删"** — says the Rust lands FIRST and the TypeScript goes in the same commit that removes
+// the worker's import. So for one step the rule exists in two languages, and the only thing that makes
+// that acceptable is that the two are **proved equal on a corpus** rather than merely coexisting.
+//
+// THE DOCUMENT IS A PARAMETER, NOT AN EMBED. `page(arm, …)` takes the rendered ARM AS TEXT, and that
+// is the shape the product will use (the worker embeds the two arms `index/landing` generates at
+// build time). Embedding them here would be a build-ordering problem — a stale `include_str!` ships a
+// stale landing page — and it is deliberately NOT taken on until the worker is the thing that reads
+// them.
+//
+// ## THE THREE RULES, and each exists because of a way this page was wrong
+//
+//  * **HTTPS ONLY, with loopback as the one exception.** The URLs flow into `href` attributes AND
+//    into inline `<code>` text, and they derive from a per-deployment var and the request's own
+//    origin — so a crafted `CONSOLE_URL` must not be able to put `javascript:` in either place
+//    (stored XSS through an env var).
+//  * **AN UNPARSEABLE VALUE IS THE FALLBACK, NOT AN ERROR.** And note what the JavaScript actually
+//    does with a relative-looking string: `new URL("not a url", "https://placeholder.local")` is
+//    `https://placeholder.local/not%20a%20url`, whose protocol IS https — so `safePageUrl` ACCEPTS it
+//    and returns the original text. Only a non-http(s) scheme is refused. A port that "helpfully"
+//    required an absolute URL would refuse strings this page has always served.
+//  * **ESCAPE `&` FIRST.** `escHtml` replaces `&` before `<`, `>` and `"`, and in that order: the
+//    entities it writes contain `&`, so the reverse order would double-escape every one of them.
+
+/// `safePageUrl(u, fallback)` — the whitelist, returning the value UNCHANGED or the fallback.
+///
+/// The decision is made on the PARSED url and the answer is the ORIGINAL string, so a value that
+/// parses is served exactly as the deployment wrote it.
+pub fn safe_page_url(u: &str, fallback: &str) -> String {
+    const BASE: &str = "https://placeholder.local";
+    let Ok(base) = Url::parse(BASE) else {
+        return fallback.to_string();
+    };
+    let Ok(parsed) = Url::options().base_url(Some(&base)).parse(u) else {
+        return fallback.to_string();
+    };
+    match parsed.scheme() {
+        "https" => return u.to_string(),
+        "http" => {}
+        _ => return fallback.to_string(),
+    }
+    // round-449 dropped the `host === "::1"` disjunct from here: a bare `::1` is not a valid URL
+    // host, the WHATWG parser never yields it, and only `[::1]` can occur. The `url` crate agrees —
+    // `host_str` returns IPv6 hosts in brackets.
+    match parsed.host_str() {
+        Some("localhost") | Some("127.0.0.1") | Some("[::1]") => u.to_string(),
+        _ => fallback.to_string(),
+    }
+}
+
+/// `escHtml(s)` — `&` first, then `<`, `>` and `"`, in that order and for that reason.
+pub fn esc_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// The three slots `index/landing` leaves for the values a request supplies.
+pub const CONSOLE_SLOT: &str = "{{CONSOLE_URL}}";
+pub const INSTALLER_SLOT: &str = "{{INSTALLER_URL}}";
+pub const SETUP_SLOT: &str = "{{SETUP_URL}}";
+
+/// `PAGE(consoleUrl, installerUrl, setupUrl)` — the whole boundary, over the two arms as TEXT.
+///
+/// `setup_arm` and `npm_only_arm` are the two documents `index/landing` generates: the one for a
+/// release that published an installer and the one that did not. **THE ARM IS CHOSEN BY WHETHER
+/// THIS RELEASE ADVERTISED ONE** (round 125) — a tgz-only publish leaves the versionless alias
+/// serving the PREVIOUS release while `/api/version` advertises the new one, so a "Download Windows
+/// installer" button would hand a fresh install the old build.
+///
+/// ## `Option<&str>` IS NOT A JS NULL, AND THE DIFFERENTIAL PROVED IT
+///
+/// The TypeScript tests `setupUrl ? … : …` — TRUTHINESS — while an `Option` tests PRESENCE. So the
+/// first version, handed `Some("")`, chose the SETUP arm and served a page with a Windows installer
+/// button for a release that published none: **the exact round-125 defect, reintroduced by an `Option`**
+/// and invisible to every unit test written against the Rust. `advertised()` below is truthiness, and
+/// it is the only thing that decides the arm.
+pub fn page(
+    setup_arm: &str,
+    npm_only_arm: &str,
+    console_url: &str,
+    installer_url: &str,
+    setup_url: Option<&str>,
+) -> String {
+    let safe_console = esc_html(&safe_page_url(console_url, "/"));
+    let safe_installer = esc_html(&safe_page_url(
+        installer_url,
+        "/summrise-agent/summrise-agent-latest.tgz",
+    ));
+    let advertised = advertised(setup_url);
+    let arm = if advertised { setup_arm } else { npm_only_arm };
+    let mut filled: Vec<(&str, String)> = vec![
+        (CONSOLE_SLOT, safe_console),
+        (INSTALLER_SLOT, safe_installer),
+    ];
+    if let Some(u) = setup_url.filter(|_| advertised) {
+        // THE DOOR GETS ITS OWN ESCAPED, WHITELISTED URL, and the fallback is the alias rather than a
+        // link to a page that does not exist. The `.filter` is the SAME truthiness test: the
+        // TypeScript's `if (setupUrl)` also declines to fill the slot for an empty value.
+        filled.push((
+            SETUP_SLOT,
+            esc_html(&safe_page_url(u, "/summrise-agent/SummriseAgent-Setup.exe")),
+        ));
+    }
+    fill_slots(arm, &filled)
+}
+
+/// JS TRUTHINESS for the setup URL: `null`, `undefined` and `""` all mean "this release published
+/// no installer", and the empty string is the one an `Option` gets wrong.
+fn advertised(setup_url: Option<&str>) -> bool {
+    matches!(setup_url, Some(s) if !s.is_empty())
+}
+
+/// `arm.replace(/\{\{[A-Z_]+\}\}/g, (slot) => filled[slot] ?? slot)`.
+///
+/// **ONE PASS, OVER THE ORIGINAL, WITH A FUNCTION** — and all three halves matter:
+///
+///   * a FUNCTION, because `String.replace` with a STRING pattern reads `$&` and `$1` inside the
+///     replacement as replacement patterns; a value carrying `{{…}}` or `$&` would be expanded or
+///     eaten. Rust's `str::replace` is literal, which is the same guarantee the function gives.
+///   * over the ORIGINAL, because a value that itself contains a slot-shaped string must not be
+///     re-expanded. The scan below never re-reads what it wrote, which is exactly that property.
+///   * `?? slot`, so a slot-shaped token the caller did not supply is LEFT ALONE rather than blanked
+///     — `gen` asserts the three slots survived rendering, and a blank one would be invisible.
+fn fill_slots(arm: &str, filled: &[(&str, String)]) -> String {
+    let lookup = |slot: &str| -> Option<&str> {
+        filled
+            .iter()
+            .find(|(k, _)| *k == slot)
+            .map(|(_, v)| v.as_str())
+    };
+    let b = arm.as_bytes();
+    let mut out = String::with_capacity(arm.len());
+    let mut i = 0usize;
+    while i < b.len() {
+        if b[i] == b'{' && arm[i..].starts_with("{{") {
+            // `\{\{[A-Z_]+\}\}` — the token is UPPERCASE letters and underscores only, so a
+            // `{{lower}}` in the prose is not a slot and is copied through untouched.
+            if let Some(end) = arm[i + 2..].find("}}") {
+                let token = &arm[i + 2..i + 2 + end];
+                if !token.is_empty() && token.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+                    match lookup(&arm[i..i + 4 + end]) {
+                        Some(v) => out.push_str(v),
+                        None => out.push_str(&arm[i..i + 4 + end]),
+                    }
+                    i += 4 + end;
+                    continue;
+                }
+            }
+        }
+        // Copy ONE CHARACTER, so a multi-byte character is never split by the byte scan.
+        let ch_len = arm[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        out.push_str(&arm[i..i + ch_len]);
+        i += ch_len;
+    }
+    out
+}
+
+#[cfg(test)]
+// THE TEST NAMES SHOUT, AND THAT IS WHY THIS ALLOW IS HERE. Three of them assert a behaviour that is
+// the OPPOSITE of what a reader expects — an empty URL is ACCEPTED, a relative-looking one is
+// ACCEPTED, `&` is escaped FIRST — and the shout is the note. Flattening the names to snake_case
+// would make the surprising ones read like ordinary ones, which is the loss the lint was guarding.
+#[allow(non_snake_case)]
+mod page_tests {
+    use super::*;
+
+    const ARM: &str = "<a href=\"{{INSTALLER_URL}}\">install</a> {{CONSOLE_URL}} {{SETUP_SLOT}}";
+    const NO_SETUP: &str = "npm only: <a href=\"{{INSTALLER_URL}}\">{{CONSOLE_URL}}</a>";
+
+    #[test]
+    fn the_whitelist_accepts_https_and_refuses_the_rest() {
+        assert_eq!(
+            safe_page_url("https://ai.saisi.online/x", "FB"),
+            "https://ai.saisi.online/x"
+        );
+        // LOOPBACK IS THE EXCEPTION, and it is the exception for `http` only.
+        assert_eq!(
+            safe_page_url("http://localhost:5173/x", "FB"),
+            "http://localhost:5173/x"
+        );
+        assert_eq!(
+            safe_page_url("http://127.0.0.1:5173/x", "FB"),
+            "http://127.0.0.1:5173/x"
+        );
+        assert_eq!(
+            safe_page_url("http://[::1]:5173/x", "FB"),
+            "http://[::1]:5173/x"
+        );
+        // EVERYTHING ELSE IS THE FALLBACK — the XSS shapes.
+        for hostile in [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///etc/passwd",
+            "ftp://example.com/x",
+            // AN IPv4-MAPPED IPv6 LOOPBACK IS NOT LOOPBACK: `[::ffff:127.0.0.1]` normalises to
+            // `[::ffff:7f00:1]`, which is neither of the three hosts the rule names, so it is the
+            // fallback. Asked of the JavaScript before it was written here, not after.
+            "http://[::ffff:127.0.0.1]/x",
+        ] {
+            assert_eq!(safe_page_url(hostile, "FB"), "FB", "{hostile}");
+        }
+        // THE HOST IS COMPARED LOWERCASE, so an upper-case loopback is loopback.
+        assert_eq!(
+            safe_page_url("http://LOCALHOST:5173/x", "FB"),
+            "http://LOCALHOST:5173/x"
+        );
+    }
+
+    #[test]
+    fn the_empty_string_is_ACCEPTED_because_it_resolves_to_the_placeholder_root() {
+        // `new URL("", base)` is the base, whose protocol is https — so the whitelist returns the
+        // empty string. The first version of these tests asserted the fallback here, and the
+        // JavaScript was asked before the test was changed: **the differential is the authority, and
+        // a test that "fixes" the code to match a wrong expectation is the bug.**
+        assert_eq!(safe_page_url("", "FB"), "");
+    }
+
+    #[test]
+    fn a_relative_looking_value_is_ACCEPTED_because_it_resolves_against_the_placeholder() {
+        // This is the JavaScript's own behaviour and the reason a port must not "helpfully" require an
+        // absolute URL: `new URL("not a url", "https://placeholder.local")` IS https, so the value is
+        // returned unchanged — and a port that refused it would break a page that has always served.
+        assert_eq!(safe_page_url("not a url", "FB"), "not a url");
+        assert_eq!(safe_page_url("/already/a/path", "FB"), "/already/a/path");
+    }
+
+    #[test]
+    fn esc_html_escapes_the_ampersand_FIRST() {
+        // The order is the behaviour: reverse it and every entity written gets its own `&` escaped.
+        assert_eq!(esc_html("a&b"), "a&amp;b");
+        assert_eq!(esc_html("\"<x>&"), "&quot;&lt;x&gt;&amp;");
+        assert_eq!(esc_html("plain"), "plain");
+    }
+
+    #[test]
+    fn the_arm_is_chosen_by_whether_this_release_advertised_an_installer() {
+        // round-125: a tgz-only publish must not offer a door that hands the PREVIOUS build.
+        assert!(page(ARM, NO_SETUP, "https://c", "https://i", None).contains("npm only"));
+        assert!(
+            page(ARM, NO_SETUP, "https://c", "https://i", Some("https://s")).contains("install")
+        );
+        // **AN EMPTY SETUP URL IS NO INSTALLER.** `""` is falsy in the TypeScript, so it must not
+        // choose the setup arm here either — the differential caught this one as 99 of 495 cases.
+        assert!(page(ARM, NO_SETUP, "https://c", "https://i", Some("")).contains("npm only"));
+    }
+
+    #[test]
+    fn a_value_that_looks_like_a_slot_is_not_re_expanded() {
+        // THE ONE-PASS PROPERTY. The scan is over the ORIGINAL arm, so a value carrying a slot-shaped
+        // string cannot pull in a second substitution — the reason the TypeScript uses a FUNCTION
+        // callback rather than a string pattern.
+        let arm = "value: {{CONSOLE_URL}} end";
+        let out = page(arm, arm, "{{INSTALLER_URL}}", "https://i", None);
+        assert_eq!(
+            out, "value: {{INSTALLER_URL}} end",
+            "the value is inserted, not re-scanned"
+        );
+    }
+
+    #[test]
+    fn a_slot_the_caller_did_not_supply_is_left_alone() {
+        // `?? slot`, not a blank. The reachable case is a token the renderer does not know — `{{FOO}}`
+        // — because the setup slot only ever appears in the arm that was chosen BECAUSE a setup URL
+        // was supplied. `gen` asserts the three slots survived rendering, so a blanked one would be
+        // invisible there.
+        let arm = "known: {{CONSOLE_URL}} unknown: {{FOO}} end";
+        let out = page(arm, arm, "https://c", "https://i", None);
+        assert_eq!(out, "known: https://c unknown: {{FOO}} end", "{out}");
+    }
+
+    #[test]
+    fn a_lower_case_token_is_not_a_slot() {
+        // `\{\{[A-Z_]+\}\}` — UPPERCASE letters and underscores only, so prose that happens to
+        // contain `{{lower}}` is copied through rather than swallowed by a substitution that would
+        // find no value and leave it anyway.
+        let arm = "{{CONSOLE_URL}} and {{lower}}";
+        let out = page(arm, arm, "https://c", "https://i", None);
+        assert_eq!(out, "https://c and {{lower}}");
     }
 }
