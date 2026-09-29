@@ -43,6 +43,26 @@ export function badge_icon(count, urgent, base_href) {
 }
 
 /**
+ * `disambiguateLabels(items)` — one label per item, numbered where they collide.
+ *
+ * THE INPUT IS AN `Array` AND A NON-ARRAY IS REFUSED, which is a deliberate narrowing of the
+ * TypeScript rather than an accident: its `for (const item of items)` accepts any ITERABLE, so
+ * `disambiguateLabels("ab")` walks the string's characters there and answers `["1·undefined", …]`.
+ * That is not a shape this panel produces (both call sites pass a `Session[]`), and reproducing it
+ * would mean writing a rule for an input nobody has — so the port throws instead, loudly, in the
+ * one case the TypeScript would have silently invented labels for.
+ * @param {any} items
+ * @returns {Array<any>}
+ */
+export function disambiguate_labels(items) {
+    const ret = wasm.disambiguate_labels(items);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -226,6 +246,10 @@ function __wbg_get_imports() {
             const ret = !arg0;
             return ret;
         },
+        __wbg___wbindgen_is_function_1f9d30630b8b1d3d: function(arg0) {
+            const ret = typeof(arg0) === 'function';
+            return ret;
+        },
         __wbg___wbindgen_is_null_e343b7d08827ba72: function(arg0) {
             const ret = arg0 === null;
             return ret;
@@ -255,6 +279,10 @@ function __wbg_get_imports() {
             const ret = typeof arg0;
             return ret;
         },
+        __wbg_call_187d372bd5fdd4aa: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.call(arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_from_296ca31f8d0f1c52: function(arg0) {
             const ret = Array.from(arg0);
             return ret;
@@ -263,11 +291,19 @@ function __wbg_get_imports() {
             const ret = Reflect.get(arg0, arg1);
             return ret;
         }, arguments); },
+        __wbg_get_464ae6d03ecb8ac7: function(arg0, arg1) {
+            const ret = arg0.get(arg1);
+            return ret;
+        },
         __wbg_get_unchecked_288889d017702237: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
             return ret;
         },
         __wbg_isArray_2b41c29f43a3fb12: function(arg0) {
+            const ret = Array.isArray(arg0);
+            return ret;
+        },
+        __wbg_isArray_e15a2ff68ffdbef2: function(arg0) {
             const ret = Array.isArray(arg0);
             return ret;
         },
@@ -277,6 +313,10 @@ function __wbg_get_imports() {
         },
         __wbg_localeCompare_90de64421aef2322: function(arg0, arg1, arg2, arg3, arg4) {
             const ret = arg0.localeCompare(getStringFromWasm0(arg1, arg2), arg3, arg4);
+            return ret;
+        },
+        __wbg_new_28744009d011f847: function() {
+            const ret = new Map();
             return ret;
         },
         __wbg_new_617a8cdb8bb1130e: function() {
@@ -295,6 +335,26 @@ function __wbg_get_imports() {
             const ret = Reflect.set(arg0, arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_set_6ae97e73113c4f0b: function(arg0, arg1, arg2) {
+            const ret = arg0.set(arg1, arg2);
+            return ret;
+        },
+        __wbg_static_accessor_GLOBAL_266715b9d96ba635: function() {
+            const ret = typeof global === 'undefined' ? null : global;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_GLOBAL_THIS_10fb7dc1ae063179: function() {
+            const ret = typeof globalThis === 'undefined' ? null : globalThis;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_SELF_0b583911f537483a: function() {
+            const ret = typeof self === 'undefined' ? null : self;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_WINDOW_d7f903d1508cbdc4: function() {
+            const ret = typeof window === 'undefined' ? null : window;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
         __wbg_toString_aad181a510c306d8: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.toString(arg1);
             return ret;

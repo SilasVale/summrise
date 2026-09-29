@@ -32,10 +32,12 @@ export interface EvictionNotice {
  *  `d.ev !== "session-evicted"`, the same two accepted causes, the same `!r.id` truthiness that
  *  skips an EMPTY id as well as a missing one, the same "no sessions left ⇒ null".
  *
- *  WHY IT IS `async`: the wasm is fetched at the first call rather than at page load (criterion ③),
- *  and this one is called from an EVENT HANDLER (`useEvictedNotice`'s listener), where nothing is on
- *  the first render's path — so the promise costs nothing. `evictedText` below stays TypeScript
- *  because `EvictedNotice` calls it while RENDERING.
+ *  WHY IT IS `async`: this one is called from an EVENT HANDLER (`useEvictedNotice`'s listener), where
+ *  nothing is on the first render's path — so the promise costs nothing. It HAD to be `async` when it
+ *  moved, because the wasm was fetched at the first call then; **SUPERSEDED 2026-09-29: the module is
+ *  preloaded and awaited before the first render (`wasm/panelLogic.ts`), so a render-path call is
+ *  legal now.** `evictedText` below stays TypeScript because `EvictedNotice` calls it while RENDERING,
+ *  and that is a decision this file has not revisited.
  *
  *  AND `idleMs` IS `typeof … === "number"`, NOT this crate's `num()`. The two differ on `NaN` and
  *  `Infinity`: `num` is for values plotted on an axis, where a non-finite number is not a reading,

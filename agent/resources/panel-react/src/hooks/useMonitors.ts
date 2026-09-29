@@ -10,9 +10,10 @@
 // PARSES, the half of this file that decides what the device said — moved to
 // `agent/resources/panel-logic/src/monitors.rs` and are called from here through
 // `src/wasm/panelLogic.ts` (P0's BOUNDARY class: it computes nothing, it fetches). `fmtSince`,
-// `unstableTargets` and `downTargets` are still TypeScript because they are called during RENDER
-// and the wasm is fetched at the first call rather than at page load — P0's "the hooks are a SPLIT,
-// not a unit", applied: the parse goes to Rust, the `useEffect` stays.
+// `unstableTargets` and `downTargets` are still TypeScript because their boundary has not been
+// reshaped yet — NOT because a render-path call is impossible: since 2026-09-29 the module is
+// preloaded and awaited before the first render (`wasm/panelLogic.ts`). P0's "the hooks are a
+// SPLIT, not a unit", applied: the parse goes to Rust, the `useEffect` stays.
 import { useCallback, useEffect, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import { panelLogic } from "../wasm/panelLogic";
@@ -97,13 +98,13 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
  *  that a truthiness test would have widened. `num` went with it; the TypeScript copy is gone, so
  *  there is no second derivation of a monitor row left in the panel.
  *
- *  WHY IT IS `async` AND THE THREE FUNCTIONS BELOW IT ARE NOT. The wasm is fetched at the first
- *  call rather than at page load — criterion ③ of the migration plan, so it is in neither the
- *  first-load payload nor the page's critical path — and a call during RENDER cannot wait for that
- *  fetch. This one is a `useDeviceRead` fold, so it is free: the fold already may return a promise.
- *  `fmtSince`, `unstableTargets` and `downTargets` below are called while `MonitorAlerts`,
- *  `MonitorsCard` and `MonitorChip` render, so they stay TypeScript until the sync story is
- *  decided; the numbers behind that decision are in the commit message. */
+ *  WHY IT IS `async` AND THE THREE FUNCTIONS BELOW IT ARE NOT. This one is a `useDeviceRead` fold,
+ *  so a promise is free: the fold already may return one. `fmtSince`, `unstableTargets` and
+ *  `downTargets` below are called while `MonitorAlerts`, `MonitorsCard` and `MonitorChip` render, and
+ *  they stay TypeScript because their boundary has not been reshaped — **NOT because a render-path
+ *  call is impossible: SUPERSEDED 2026-09-29, the module is preloaded and awaited before the first
+ *  render (`wasm/panelLogic.ts`), and `panel-logic/src/session_labels.rs` is the first family to make
+ *  one.** */
 export async function parseMonitors(j: unknown): Promise<Monitors> {
   const logic = await panelLogic();
   return logic.parse_monitors(j) as Monitors;

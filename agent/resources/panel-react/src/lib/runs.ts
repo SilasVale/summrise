@@ -44,9 +44,13 @@
 // ── THE SYNC STORY, WHICH IS WHY THIS FAMILY MOVED THE WAY IT DID ────────────
 //
 // This is the first family whose call site is DURING RENDER: `RunStrip` and `ActivityPage` each
-// called one of these inside a `useMemo`. A migrated function cannot be called synchronously
-// during render — the wasm is fetched at the first call, never at page load (criterion ③) — and
-// inlining the bytes costs +18,913 gz on the first-load payload and grows with every family. So
+// called one of these inside a `useMemo`. A migrated function COULD NOT be called synchronously
+// during render then — the wasm was fetched at the first call, never at page load (criterion ③) —
+// and inlining the bytes costs +18,913 gz on the first-load payload and grows with every family.
+// **SUPERSEDED 2026-09-29: the module is preloaded and awaited before the first render, so the
+// boundary below is a CHOICE this family keeps rather than the only road — see
+// `panel-react/src/wasm/panelLogic.ts`, and `session_labels.rs` for the first family with no
+// boundary at all.** So
 // the derivation moved to the DATA BOUNDARY instead: `useOperationRuns`'s `reduce` is where
 // `/api/operation`'s reply becomes this panel's value, it may already return a promise, and the
 // wasm is in hand there. The groups and the rows are computed in that same fold and ride out on

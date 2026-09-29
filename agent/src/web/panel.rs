@@ -33,10 +33,13 @@ pub(crate) fn serve_panel_file(file: &str, content_type: &'static str) -> Respon
     const XTERM_JS: &str = include_str!("../../resources/panel/vendor/xterm.min.js");
     const XTERM_CSS: &str = include_str!("../../resources/panel/vendor/xterm.css");
     const FIT_JS: &str = include_str!("../../resources/panel/vendor/xterm-addon-fit.min.js");
-    // P2 OF THE RUST MIGRATION: the panel's LOGIC, compiled to wasm and fetched by the panel at its
-    // first call (never at page load — criterion ③ of the plan). `include_bytes!` and not
-    // `include_str!`, because a wasm module is not text; it is embedded exactly like the bundle, so
-    // the exe serves the artifact it was built with and no second file has to be deployed.
+    // P2 OF THE RUST MIGRATION: the panel's LOGIC, compiled to wasm and served beside panel.js.
+    // **IT IS FETCHED BY AN INLINE MODULE IN `index.html` AND AWAITED BEFORE THE PANEL'S FIRST
+    // RENDER (2026-09-29)** — not at the panel's first migrated call, which is what criterion ③
+    // asked for until the measurement showed the preload is 12.6 ms FASTER (the alternating A/B is
+    // in `panel-react/src/wasm/panelLogic.ts`). `include_bytes!` and not `include_str!`, because a
+    // wasm module is not text; it is embedded exactly like the bundle, so the exe serves the
+    // artifact it was built with and no second file has to be deployed.
     const WASM: &[u8] = include_bytes!("../../resources/panel/panel_logic_bg.wasm");
     let body: Body = match file {
         "index.html" => Body::from(apply_bundle_hash(HTML)),
@@ -105,8 +108,21 @@ pub(crate) fn panel_bundle_hash() -> &'static str {
 /// bundle rebuild) and must be left untouched.
 pub(crate) fn apply_bundle_hash(html: &str) -> String {
     let ver = panel_bundle_hash();
+    // THE WASM RIDES THE SAME HASH (2026-09-29), and it has to: `index.html`'s inline module fetches
+    // `panel_logic_bg.wasm` by name, and the glue derives its own fallback URL from panel.js's `src`
+    // and appends that query string verbatim (`wasmHref` in panel-react/src/wasm/panelLogic.ts). If
+    // the two disagreed, the two doors would name two cache keys and a rebuild could serve a stale
+    // module to one of them.
+    //
+    // Neither replacement above can touch this line: the file name is `panel_logic_bg.wasm`, which
+    // contains neither `panel.css` nor `panel.js`.
     html.replacen("panel.css", &format!("panel.css?v={ver}"), 1)
         .replacen("panel.js", &format!("panel.js?v={ver}"), 1)
+        .replacen(
+            "panel_logic_bg.wasm",
+            &format!("panel_logic_bg.wasm?v={ver}"),
+            1,
+        )
 }
 
 pub(crate) fn panel_content_type(file: &str) -> &'static str {
@@ -508,11 +524,21 @@ mod panel_tests {
 
     #[test]
     fn bundle_hash_stamps_once_and_leaves_vendor_css() {
-        let html = r#"<link href="panel.css"><script src="panel.js"></script><link href="vendor/xterm.css">"#;
+        let html = r#"<link href="panel.css"><script src="panel.js"></script><link href="vendor/xterm.css"><script type="module">fetch("panel_logic_bg.wasm")</script>"#;
         let out = apply_bundle_hash(html);
         let ver = panel_bundle_hash();
         assert_eq!(out.matches(&format!("panel.css?v={ver}")).count(), 1);
         assert_eq!(out.matches(&format!("panel.js?v={ver}")).count(), 1);
+        // THE MODULE IS STAMPED TOO (2026-09-29), and the assertion is that it is stamped ONCE and
+        // with the SAME hash: the served page names the module in its inline script and the glue
+        // names it again from panel.js's own URL, so two different keys would be two cache entries
+        // for one artifact. MUTATION THAT MUST BREAK THIS: delete the third `replacen` above — the
+        // count goes to 0 and this line names the fix.
+        assert_eq!(
+            out.matches(&format!("panel_logic_bg.wasm?v={ver}")).count(),
+            1,
+            "the wasm's URL must carry the bundle hash: {out}"
+        );
         assert!(
             out.contains("vendor/xterm.css\">"),
             "vendor css untouched: {out}"

@@ -64,3 +64,20 @@ if (typeof window !== "undefined" && !window.matchMedia) {
 // inside a test. It cannot prove the property this polyfill exists for — a frame function surviving TEARDOWN — and the
 // flake does not reproduce locally, so the claim "this ends it" is a construction argument, not a measurement. The
 // next few CI runs are the measurement.
+
+// ── THE PANEL'S RUST IS LOADED BEFORE ANY TEST BODY RUNS (2026-09-29) ────────────────────────────
+//
+// `wasm/panelLogic.ts` now exposes `logic()`, the SYNCHRONOUS door a render-path call site uses, and
+// it THROWS rather than falling back to a JavaScript copy. The browser guarantees the load in
+// `main.tsx`; this is the same guarantee for the suite, in the one place every test file passes
+// through — so a component test needs no `beforeAll`, and a migrated function cannot be tested
+// against a different program than the one the operator's browser runs.
+//
+// THE SAME BYTES, READ THE SAME WAY: `panelLogic()` under vitest reads
+// `agent/resources/panel/panel_logic_bg.wasm` off disk and `initSync`s it (there is no server to
+// fetch from), which is the arrangement the seam has had since the first family moved.
+//
+// A TOP-LEVEL AWAIT IS THE POINT, not a convenience: vitest finishes loading this file before the
+// first test file is imported, so `logic()` cannot be reached before the module is in memory.
+import { panelLogic } from "./wasm/panelLogic";
+await panelLogic();

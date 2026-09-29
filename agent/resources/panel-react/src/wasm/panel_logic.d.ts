@@ -21,6 +21,18 @@ export function archive_entries(payload: any): any;
 export function badge_icon(count: number, urgent: boolean, base_href: any): string;
 
 /**
+ * `disambiguateLabels(items)` — one label per item, numbered where they collide.
+ *
+ * THE INPUT IS AN `Array` AND A NON-ARRAY IS REFUSED, which is a deliberate narrowing of the
+ * TypeScript rather than an accident: its `for (const item of items)` accepts any ITERABLE, so
+ * `disambiguateLabels("ab")` walks the string's characters there and answers `["1·undefined", …]`.
+ * That is not a shape this panel produces (both call sites pass a `Session[]`), and reproducing it
+ * would mean writing a rule for an input nobody has — so the port throws instead, loudly, in the
+ * one case the TypeScript would have silently invented labels for.
+ */
+export function disambiguate_labels(items: any): Array<any>;
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -117,6 +129,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly archive_entries: (a: any) => [number, number, number];
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
+    readonly disambiguate_labels: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];

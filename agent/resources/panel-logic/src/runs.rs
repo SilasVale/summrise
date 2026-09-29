@@ -3,8 +3,11 @@
 //! The fourth family to move (P2), and **the first one that is on the RENDER path**, which is the
 //! whole reason it is the fourth rather than the first. The three before it were free: a
 //! `useDeviceRead` fold (`archiveEntries`, `parseMonitors`, `parseBootHistory`) and an SSE handler
-//! (`parseMonitorChange`) are not renders, and the wasm is fetched at the first call, so a
-//! migrated function may be called there and nowhere else. `groupOperation` and `operationRows`
+//! (`parseMonitorChange`) are not renders, and the wasm WAS fetched at the first call then, so a
+//! migrated function could be called there and nowhere else. **SUPERSEDED 2026-09-29: the module is
+//! preloaded and awaited before the first render, so a render-path call is legal now — see
+//! `panel-react/src/wasm/panelLogic.ts`; `session_labels.rs` is the first family to make one, and
+//! this family's boundary is a choice it keeps rather than the only road.** `groupOperation` and `operationRows`
 //! are called from a `useMemo` INSIDE `RunStrip` and `ActivityPage` — a synchronous call during
 //! render cannot wait for a fetch, and inlining the bytes costs +18,913 gz on the first-load
 //! payload and grows with every family.

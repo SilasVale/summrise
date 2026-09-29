@@ -65,16 +65,25 @@
 // the review named is real, and it is recorded here rather than argued away; what buys it back is the
 // counter LEADING — a reader who mis-parses the mark still sees two different strings, which is the whole
 // of what this function is for.
+// ── RUST SINCE 2026-09-29 (P2), AND THIS IS THE FAMILY THAT PROVED THE SEAM ──────────────────────────
+//
+// The body is `agent/resources/panel-logic/src/session_labels.rs`, transliterated — both passes, the
+// SameValueZero keying, the leading counter, the two shapes of the answer. It is the NINTH family to move
+// and **the first one that is called DURING RENDER**, which is why it is the one that matters: every family
+// before it moved by finding an asynchronous call site, and P2's own record says this one "definitely does
+// not pass" that road because its input is a SUBSET chosen by the call site (`TabBar` numbers `sessions`,
+// `DesktopShell` numbers `openTabs`, and one boundary derivation cannot be both).
+//
+// **The objection is gone rather than worked around.** `index.html` fetches and compiles the module while
+// panel.js is still downloading, and `main.tsx` awaits it before the first render, so `logic()` is a plain
+// synchronous call from inside a component — and the measured cost of that is NEGATIVE: the panel's first
+// frame arrives ~12.6 ms SOONER, because the module's compile no longer competes with React's first render
+// (`wasm/panelLogic.ts` carries the alternating A/B and the samples). Both strips now call this with
+// whatever list they are rendering, exactly as they did before the move.
+//
+// WHAT DID NOT MOVE: nothing. There is no second derivation of a session label left in the panel.
+import { logic } from "../wasm/panelLogic";
+
 export function disambiguateLabels<T extends { label: string }>(items: T[]): string[] {
-  // TWO PASSES, because "does this label collide" is a fact about the WHOLE list that the first pass cannot
-  // know. The one-pass version numbered a repeat by its position in the array, which is why only the repeats
-  // carried a mark at all.
-  const counts = new Map<string, number>();
-  for (const item of items) counts.set(item.label, (counts.get(item.label) ?? 0) + 1);
-  const seen = new Map<string, number>();
-  return items.map((item) => {
-    const n = (seen.get(item.label) ?? 0) + 1;
-    seen.set(item.label, n);
-    return counts.get(item.label) === 1 ? item.label : `${n}·${item.label}`;
-  });
+  return logic().disambiguate_labels(items) as string[];
 }

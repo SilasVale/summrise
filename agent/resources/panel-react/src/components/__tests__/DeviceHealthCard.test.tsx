@@ -27,8 +27,9 @@ const series = (cpu: (number | null)[], mem: (number | null)[] = [], interval = 
 });
 
 describe("parseVitalsSeries", () => {
-  // `await`, because the parse is RUST NOW (P2, 2026-09-29): the wasm is fetched at the first call
-  // rather than at page load, so the seam is async and every caller awaits it. THE ASSERTIONS ARE
+  // `await`, because the parse is RUST NOW (P2, 2026-09-29) and the seam is async — which is a
+  // property of THIS call site (a `useDeviceRead` fold), not of the wasm's load: since 2026-09-29 the
+  // module is preloaded and awaited before the first render. THE ASSERTIONS ARE
   // UNCHANGED — this file was found by `tsc --noEmit` rather than by reading the call sites, which is
   // the whole reason the checker the other end runs is the one to run.
   it("reads the device's own cadence and span rather than assuming them", async () => {

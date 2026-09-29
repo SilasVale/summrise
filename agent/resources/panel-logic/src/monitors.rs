@@ -8,11 +8,12 @@
 //! render's path — and it is worth naming because it widens what "already asynchronous" covers:
 //! **a call site is free if it is not during render**, and an SSE frame is not.
 //!
-//! WHAT STAYS IN TYPESCRIPT, AND WHY IT IS THE SAME REASON AS `lib/archive.ts`'s: `fmtSince`,
-//! `unstableTargets` and `downTargets` are called during RENDER (`MonitorAlerts`, `MonitorsCard`,
-//! `MonitorChip`), and the wasm is fetched at the first call rather than at page load — criterion ③
-//! of the migration plan. `downTargets` cannot even be precomputed at the data boundary, because its
-//! second argument is a ticking clock. They move when the sync story is decided, not before.
+//! WHAT STAYS IN TYPESCRIPT: `fmtSince`, `unstableTargets` and `downTargets` are called during
+//! RENDER (`MonitorAlerts`, `MonitorsCard`, `MonitorChip`), and their boundary has not been reshaped.
+//! **THE REASON THEY WERE STUCK IS GONE (2026-09-29): the module is preloaded and awaited before the
+//! first render, so a render-path call is legal now — see `panel-react/src/wasm/panelLogic.ts` and
+//! `session_labels.rs`, the first family to make one.** `downTargets` still cannot be precomputed at
+//! the data boundary, because its second argument is a ticking clock.
 //!
 //! THE ONE PLACE THIS PORT COULD HAVE LIED, and it is the brief's own trap one step to the side.
 //! `parseMonitorChange` builds `key` as `` `${id}:${atMs}` ``, which is a JS NUMBER → TEXT

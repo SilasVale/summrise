@@ -42,6 +42,7 @@ mod evicted;
 mod js;
 mod monitors;
 mod runs;
+mod session_labels;
 mod vitals;
 mod vocabulary;
 
@@ -52,4 +53,5 @@ pub use boot::parse_boot_history;
 pub use evicted::parse_evicted;
 pub use monitors::{parse_monitor_change, parse_monitors};
 pub use runs::{group_operation, operation_rows};
+pub use session_labels::disambiguate_labels;
 pub use vitals::parse_vitals_series;

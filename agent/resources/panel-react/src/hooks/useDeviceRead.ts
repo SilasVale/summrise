@@ -189,9 +189,10 @@ export interface DeviceReadOptions<T> {
    *  Anything else it does to the caller's own state is the caller's business.
    *
    *  IT MAY RETURN A PROMISE, and it is awaited (P2, 2026-09-28). A fold that parses with the
-   *  panel's Rust cannot answer synchronously: the wasm is fetched at the first call rather than at
-   *  page load — criterion ③ of the migration plan, so that it is in neither the first-load payload
-   *  nor the page's critical path — and `archiveEntries` is the first fold to move
+   *  panel's Rust may answer asynchronously, and `archiveEntries` is the first fold to move. **THE
+   *  WASM'S LOAD NO LONGER FORCES IT (2026-09-29): the module is preloaded and awaited before the
+   *  first render, so a render-path call is legal now — see `panel-react/src/wasm/panelLogic.ts`.
+   *  This fold is unchanged, because it was already a promise**
    *  (`lib/archive.ts`). The two guarantees above are unchanged by it: a REJECTION is caught by the
    *  same catch that already handles a throw (a refused body still reports `"unreadable"` with the
    *  last good value kept), and the fold still runs before the value is written. What the await

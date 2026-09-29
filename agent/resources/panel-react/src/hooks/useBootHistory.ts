@@ -15,11 +15,11 @@
 // ── THE PARSE IS RUST NOW (P2, 2026-09-28) ───────────────────────────────────
 //
 // `parseBootHistory` moved to `agent/resources/panel-logic/src/boot.rs` — the same crate and the
-// same loader as `lib/archive.ts`'s parse, so the pipeline cost was paid once. It is `async` for
-// the reason that file's header records: the wasm is fetched at the first call, never at page load
-// (criterion ③ of the migration plan), so a migrated function cannot answer synchronously during
-// render. This one is a `useDeviceRead` fold — already asynchronous — so the hook's own call site
-// is unchanged (`reduce` may return a promise now, and the module awaits it).
+// same loader as `lib/archive.ts`'s parse, so the pipeline cost was paid once. It is `async`
+// because its call site already was: this is a `useDeviceRead` fold, so the hook's own call site is
+// unchanged (`reduce` may return a promise now, and the module awaits it). **THE WASM'S LOAD NO
+// LONGER FORCES IT (2026-09-29): the module is preloaded and awaited before the first render, so a
+// render-path call is legal now — see `panel-react/src/wasm/panelLogic.ts`.**
 import { useDeviceRead } from "./useDeviceRead";
 import { panelLogic } from "../wasm/panelLogic";
 import type { BootKind } from "./useAgentVitals";
