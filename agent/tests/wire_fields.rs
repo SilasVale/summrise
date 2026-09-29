@@ -43,7 +43,8 @@
 //!     every one spoken by the harness or a fixture AND by a producer (the agent's Rust or the
 //!     gateway), so none of them renders only in a stub"
 //!   * `node scripts/test/console-wire-field-check.mjs` → "console-wire-field: 10 field(s) read
-//!     across 26 console module(s) — every one spoken by the gateway ITSELF"
+//!     across 26 console module(s) — every one spoken by the gateway ITSELF" (27 since 2026-09-29:
+//!     block ③ added the console's wasm seam, `gateway/ui/src/wasm/consoleLogic.ts`)
 //!   * `node scripts/test/gateway-device-field-check.mjs` → "gateway-device-field: 7 device field(s)
 //!     read across 3 gateway module(s), every one spelled by the agent or a fixture"
 //!   * this file → the SAME three sentences with the SAME three counts, character for character.
@@ -554,8 +555,12 @@ fn panel_wire_fields() {
 fn console_wire_fields() {
     let msg = console_check().unwrap_or_else(|e| panic!("{e}"));
     println!("{msg}");
+    // THE DENOMINATOR MOVES WITH THE TREE, AND THAT IS WHAT THE PIN IS FOR: block ③ added
+    // `gateway/ui/src/wasm/consoleLogic.ts` (the seam) in 2026-09-29 and this went 26 -> 27, which is
+    // the change being loud rather than silent. The seam reads no wire field — the count is a
+    // denominator, not a claim about every file in it.
     assert!(
-        msg.contains("field(s) read across 26 console module(s)"),
+        msg.contains("field(s) read across 27 console module(s)"),
         "{msg}"
     );
 }

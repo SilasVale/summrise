@@ -118,7 +118,11 @@ async function load(): Promise<PanelLogic> {
     ready = glue;
     return glue;
   }
-  await glue.default(wasmHref());
+  // THE OBJECT FORM, NOT THE BARE URL: wasm-bindgen 0.2.129 prints "using deprecated parameters
+  // for the initialization function; pass a single object instead" for the positional one, and it
+  // printed it in the console of every page that took this fallback path (measured in the console's
+  // own render smoke). The deprecated form still works; a warning nobody can act on is still noise.
+  await glue.default({ module_or_path: wasmHref() });
   ready = glue;
   return glue;
 }

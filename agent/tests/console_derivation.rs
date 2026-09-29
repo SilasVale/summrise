@@ -24,6 +24,9 @@
 //!     "console-derivation: 26 console module(s) scanned — the prefix rule lives only in lib/lane.ts, and the
 //!     update verdict is compared only in views/DevicesPanel.tsx", newline-terminated; stderr 0 bytes.
 //!   * this file → the SAME line, byte for byte, from the same `git ls-files` list. `cmp`: identical, 162/162.
+//!     **THE LINE NAMES A DIFFERENT HOME SINCE 2026-09-29** — the prefix rule is in the wasm crate now, so
+//!     the sentence says where it went and the .mjs it was compared against is gone. The equivalence above
+//!     is the record of the port, not a claim about today's string.
 //!   * a planted second trailing-slash strip in `lib/format.ts` AND a second version comparison in
 //!     `views/Overview.tsx` → BOTH exit 1 with the FULL body, byte for byte: 479/479 bytes. The body carries
 //!     both `file:line` offenders in `git ls-files` order and the whole two-line fix, not the first line.
@@ -64,7 +67,18 @@ mod common;
 const UI: &str = "gateway/ui/src";
 
 /// The files that own a derivation. Everything else must ask them.
-const HOMES: [(&str, &str); 1] = [("lib/lane.ts", "the bare provider prefix (round 172)")];
+///
+/// **EMPTY SINCE 2026-09-29, AND THE EMPTINESS IS THE POINT.** The one home it named — `lib/lane.ts`,
+/// which stripped a provider prefix's trailing slash — is `gateway/ui-logic/src/lib.rs` now (block ③ of
+/// the migration wired it), i.e. OUTSIDE the tree this scan walks. Nothing under `gateway/ui/src` may
+/// strip a slash by hand, so there is nothing left to exempt, and the non-vacuity probe below follows
+/// the rule to its new home instead of asserting against a file that no longer carries it.
+const HOMES: [(&str, &str); 0] = [];
+
+/// WHERE THE PREFIX RULE LIVES, in the message a reader gets when they write a second copy of it — one
+/// string, so the sentence and the home cannot drift apart.
+const PREFIX_RULE: &str =
+    "the bare provider prefix (round 172) — `gateway/ui-logic/src/lib.rs` since 2026-09-29";
 
 /// The rule-2 home, exempt inline in the JS rather than through `HOMES`, and mirrored that way so a reader
 /// comparing the two finds the exemption in the same shape.
@@ -186,7 +200,7 @@ fn scan() -> Scan {
                 offenders.push(format!(
                     "{short}:{} strips a trailing slash by hand — {}",
                     i + 1,
-                    HOMES[0].1
+                    PREFIX_RULE
                 ));
             }
             if compares_a_version(line) && short != VERDICT_HOME {
@@ -227,8 +241,9 @@ fn report(s: &Scan) -> Streams {
     }
     Streams {
         stdout: format!(
-            "console-derivation: {} console module(s) scanned — the prefix rule lives only in lib/lane.ts, and \
-             the update verdict is compared only in views/DevicesPanel.tsx\n",
+            "console-derivation: {} console module(s) scanned — the prefix rule lives only in \
+             gateway/ui-logic/src/lib.rs, and the update verdict is compared only in \
+             views/DevicesPanel.tsx\n",
             s.scanned
         ),
         stderr: String::new(),
@@ -247,16 +262,29 @@ fn the_consoles_derivations_live_in_one_place_each() {
 
 // ── the unit cases: this gate's own edges, each measured rather than assumed ──────────────────────────
 
-/// THE CASE THAT MUST NOT BITE, and it is this gate's own: the exemptions are LOAD-BEARING, not decorative.
-/// Both homes really do carry the pattern, so a green run is a measured exemption rather than an empty scan —
-/// which is the difference between this gate working and this gate passing because nothing matched.
+/// THE CASE THAT MUST NOT BITE, and it is this gate's own: the rules are LOAD-BEARING, not decorative.
+/// A green run must be a measured scan rather than an empty one, which is the difference between this gate
+/// working and this gate passing because nothing matched.
+///
+/// **THE PROBE FOLLOWS THE RULE (2026-09-29).** It used to assert that `lib/lane.ts` still stripped a
+/// trailing slash, which made the exemption non-vacuous. The strip is in `gateway/ui-logic/src/lib.rs`
+/// now, so THAT is what has to carry it — and `lib/lane.ts` has to be the thin wrapper, because a
+/// `lane.ts` that had grown its own copy back is exactly the tenth derivation this gate exists to catch.
 #[test]
 fn both_homes_really_do_carry_the_pattern_they_are_exempt_from() {
+    // THE RUST SPELLING IS NOT THE JS ONE, and the predicate above is deliberately JS-only: it is what
+    // the SCAN matches, and the scan walks TypeScript. The strip's Rust form is `trim_end_matches('/')`,
+    // which is what this asserts — the rule, in the language it moved to.
+    let rust = common::decomment(&common::read("gateway/ui-logic/src/lib.rs"));
+    assert!(
+        rust.contains("trim_end_matches('/')"),
+        "gateway/ui-logic/src/lib.rs must be where the trailing-slash strip lives (trim_end_matches('/')) \
+         — if it is not, this gate is green for the wrong reason"
+    );
     let lane = common::decomment(&common::read("gateway/ui/src/lib/lane.ts"));
     assert!(
-        lane.split('\n').any(strips_a_trailing_slash),
-        "lib/lane.ts must still be where the trailing-slash strip lives — if it is not, the exemption is \
-         hiding nothing and this gate is green for the wrong reason"
+        !lane.split('\n').any(strips_a_trailing_slash),
+        "lib/lane.ts must be the WRAPPER now — a strip here is a second derivation"
     );
     let panel = common::decomment(&common::read("gateway/ui/src/views/DevicesPanel.tsx"));
     assert!(

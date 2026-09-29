@@ -7,8 +7,18 @@
  * `String(prefix ?? "")` — the JavaScript coerces ANY value (a number, `null`, `undefined`) rather
  * than only accepting a string, so the input stays a `JsValue` and the coercion is the ENGINE's
  * `ToString`, not Rust's formatter. That is this migration's standing rule: ask the engine for a
- * number-or-value's text, never `format!` — a `key` spelled `1e+21` on one side and
+ * value's text, never `format!` — a `key` spelled `1e+21` on one side and
  * `1000000000000000000000` on the other is a different key.
+ *
+ * **AND THIS FUNCTION CLAIMED THAT RULE WHILE BREAKING IT (found 2026-09-29, by the test that wired
+ * it).** The body was `JsString::from(prefix)`, which is an UPCAST and not a coercion: it reinterprets
+ * the value as a string without converting it, so `as_string()` answers `None` for a number, a `null`
+ * and an `undefined`, and every one of them became `""`. The TypeScript's `String(5)` is `"5"`. The
+ * console's `test/lane.test.mjs` pins exactly that case, which is why it was found the moment the
+ * function was reachable rather than the day a caller sent a number.
+ *
+ * The `?? ""` half is `is_null() || is_undefined()`: `String(null)` is `"null"`, and the TypeScript
+ * asked for the empty string.
  */
 export function bare_prefix(prefix: any): string;
 
@@ -25,6 +35,8 @@ export interface InitOutput {
     readonly lane_class: (a: any) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;

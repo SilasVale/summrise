@@ -27,3 +27,12 @@
 # Hashed build output is content-addressed — cache aggressively.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# THE CONSOLE'S RUST REVALIDATES, LIKE THE SHELL AND FOR THE SAME REASON.
+#
+# `ui_logic_bg.wasm` is not content-addressed (unlike `/assets/*`), and it is version-locked to the
+# glue that is minified INTO the hashed bundle: a deploy ships a new bundle immediately — the shell is
+# no-cache — so a module served from a cache would be a module one version behind the glue that calls
+# it. `must-revalidate` costs a 304 on a 17 KB object and removes that pairing entirely.
+/ui_logic_bg.wasm
+  Cache-Control: no-cache, must-revalidate

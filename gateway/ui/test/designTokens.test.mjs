@@ -84,7 +84,7 @@ test("the type scale the console uses is declared, and every token it uses exist
   assert.deepEqual(missing, [], "a font size references a token the sheet never declares");
 });
 
-test("the lane classes the TS can emit are the ones the stylesheet defines", () => {
+test("the lane classes the PRODUCT can emit are the ones the stylesheet defines", () => {
   // A CROSS-LANGUAGE CONTRACT, and the reason this round exists. The stylesheet carries two lane
   // families; `Models.tsx` maps a channel prefix to a class name. If the two lists drift, a channel
   // renders with no colour at all — silently, because a missing class is not an error.
@@ -95,16 +95,22 @@ test("the lane classes the TS can emit are the ones the stylesheet defines", () 
   // screen. They are pruned; this test now checks the family that IS rendered.
   // THE MAPPING MOVED TO `lib/lane.ts` IN ROUND 140 — from eight `if` lines to a TABLE, because a mapping written as control
   // flow hides which prefixes have a lane and that everything else falls to `lane-def`. The subject here is unchanged (the
-  // classes the TS can emit versus the ones the sheet defines), so only the extraction follows it.
+  // classes the product can emit versus the ones the sheet defines), so only the extraction follows it.
+  //
+  // AND IT MOVED AGAIN IN 2026-09-29 (block ③): the table is `gateway/ui-logic/src/lib.rs` now, and the
+  // classes are emitted by a wasm module. THE FILE FOLLOWS THE TABLE, exactly as it followed the table out
+  // of `Models.tsx` in round 140 — a contract whose subject moved is not a contract that was broken, and a
+  // test left reading the old home would assert on the empty string and pass (the failure mode
+  // `console-smoke-check.mjs` was written for).
   const tsx = readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "lane.ts"),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ui-logic", "src", "lib.rs"),
     "utf8",
   );
   // EVERY quoted `lane-…` string, because the fallback is `?? "lane-def"` — no colon in front of it — and a pattern keyed
   // on the table's rows alone reported the base rule as dead CSS. The module's own comments name real lanes, which is
   // harmless here: this set is compared against the sheet in both directions, and both names have rules.
   const emitted = new Set([...tsx.matchAll(/"(lane-[a-z]+)"/g)].map((m) => m[1]));
-  assert.ok(emitted.size >= 8, `expected the channel mapping, found ${emitted.size} classes`);
+  assert.ok(emitted.size >= 8, `expected the channel mapping in the wasm crate, found ${emitted.size} classes`);
   const defined = new Set([...bare.matchAll(/\.prov-lane\.(lane-[a-z]+)/g)].map((m) => m[1]));
   // `lane-def` is emitted BY the mapping and defined BY the base rule, so it is exempt from the
   // per-lane check — and the assertion below proves the base rule is really there, which is what
