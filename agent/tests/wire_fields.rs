@@ -441,7 +441,9 @@ fn console_check() -> Result<String, String> {
     // pinned module count went 26 -> 27 with the message claiming a module that reads nothing. The
     // count is pinned precisely so a change in the denominator is loud, and it was.
     let readers = files_under("gateway/ui/src", &|n| {
-        (n.ends_with(".ts") || n.ends_with(".tsx")) && !n.contains(".test.") && !n.ends_with(".d.ts")
+        (n.ends_with(".ts") || n.ends_with(".tsx"))
+            && !n.contains(".test.")
+            && !n.ends_with(".d.ts")
     });
 
     let mut reads = 0;
