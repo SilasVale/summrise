@@ -17,29 +17,32 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **54,700 raw / 23,167 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched at the panel's first call** |
-| `panel_logic.js` (the `--target web` glue) | **15,136 raw / 4,268 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **66,662 raw / 27,967 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **21,906 raw / 6,141 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
-glue is.** The wasm is fetched at the panel's first migrated call, so it is not in the first-load
-payload at all; the glue is minified into `panel.js`, so it is. Measured per family, with
+glue and `index.html` are.** The wasm is a separate fetch — it is not in the first-load payload — and
+the glue is minified into `panel.js`, so it is. Measured per family, with
 `docs/superpowers/p0/sizes.sh`:
 
-| family | wasm gz (lazy) | glue gz (first-load) | first-load payload gz |
+| family | wasm gz | glue gz (first-load) | first-load payload gz |
 |---|---|---|---|
 | the floor, before anything moved | 10,003 | 3,076 | 271,487 (P0's baseline) |
 | `archive.rs` (1 export) | 10,003 | 3,076 | **273,636** (+2,149, its commit) |
 | `boot.rs` (1 export) | 11,494 (+1,491) | 3,121 (+45) | **273,532** (−104, its commit) |
 | `monitors.rs` (2 exports) | 14,173 (+2,679) | 3,603 (+482) | **273,252** (HEAD re-measured with the same instrument: 273,523 → **−271**) |
 | `runs.rs` (2 exports, the first RENDER-path family) | 23,167 (+8,994) | 4,268 (+665) | **272,375** (**−877**) |
+| the eight families after it, to `attention.rs` | 26,159 | 5,460 | **272,344** (the tree the preload landed on) |
+| `session_labels.rs` (1 export) | **27,967** (+1,808) | **6,141** (+681) | **273,160** (+816) |
 
-**The first-load column is the one the operator pays, and it goes DOWN with every family** — the
-TypeScript a family deletes is larger than the glue it adds. The lazy column is what a page that uses
-the family pays, once, on first use, and `runs.rs` is by far the most expensive one: it is the largest
-family so far (~350 lines of `lib/runs.ts`), it carries the panel's first `String.prototype.localeCompare`
-and its first UTF-16-aware slice, and its fold allocates a JS object per row of an 18-field shape. It
-is also the family the payload SHRANK most on.
+**The first-load column is the one the operator pays, and for six of the eight families it went DOWN**
+— the TypeScript a family deletes is larger than the glue it adds. `session_labels.rs` is the
+exception and the reason is not the family: **the inline module in `index.html` costs +482 gz of the
++816**, and it is a ONE-TIME cost that every later family benefits from. The wasm column is what a
+page pays once, separately, and `runs.rs` remains by far the most expensive family (~350 lines of
+`lib/runs.ts`, the panel's first `String.prototype.localeCompare`, its first UTF-16-aware slice, and
+a fold that allocates a JS object per row of an 18-field shape).
 
 **All three artifacts are committed.** A checkout has no `wasm-pack`, and both CI jobs (`panel`,
 `agent`) build from the committed artifact — the same arrangement `resources/panel/panel.js` has
@@ -59,39 +62,47 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `boot.rs` | `hooks/useBootHistory.ts`'s `parseBootHistory` | 1 |
 | `monitors.rs` | `hooks/useMonitors.ts`'s `parseMonitors` + `parseMonitorChange` | 2 |
 | `runs.rs` | `lib/runs.ts`'s `groupOperation` + `operationRows` | 2 |
+| `session_labels.rs` | `lib/sessionLabels.ts`'s `disambiguateLabels` | 1 |
 
-## THE SYNC STORY, which is what unblocks the render-path majority
+## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
-**A migrated function cannot be called synchronously during render**, because the wasm is fetched at
-the first call rather than at page load (criterion ③), and that is the constraint the rest of the
-migration turns on. The first three families were free by accident — a `useDeviceRead` fold
-(`archiveEntries`, `parseMonitors`, `parseBootHistory`) and an SSE handler (`parseMonitorChange`) are
-not renders — and the fourth (`runs.rs`) is the first one that WAS: `groupOperation` and
-`operationRows` were called from a `useMemo` inside `RunStrip` and `ActivityPage`.
-
-**The two ways out were priced, and one of them loses.** Inlining the wasm bytes costs **+18,913 gz
-on the first-load payload today** (6.9% of it) and grows with every family, so it cannot be the answer
-for a majority. **Deriving at the DATA BOUNDARY instead costs 0 gz**, and it is the plan's own "the
-parse goes to Rust, the `useEffect` stays" one level down:
+**A migrated function CAN be called synchronously during render.** That was false for the whole of P2
+up to this point, and it was the constraint every remaining family was classified against: with the
+module fetched at the first call, React's synchronous render could not wait for a fetch, so a family
+moved only if its derivation could be re-derived at the DATA BOUNDARY. `runs.rs` is the worked example
+of that road and it is still the right shape for the families that took it:
 
 ```
 before   fetch → {events, boundaries} → render → useMemo(groupOperation) → useMemo(operationRows)
 after    fetch → {events, boundaries, groups, rows} → render reads `groups` / `rows`
 ```
 
-**The boundary is the fold that already owns the data** — `useOperationRuns`'s `reduce`, which may
-return a promise (`useDeviceRead` awaits it), where the wire becomes the panel's value and where the
-wasm is already in hand. The two derived fields are computed in the SAME state update that produces
-their input, so the render that first sees new events is also the render that sees their grouping. An
-effect that derived after the render would be the alternative, and it is the wrong one: it shows one
-frame of new events under an old grouping, which is the tearing this panel spends its comments
-preventing.
+**WHAT CHANGED IS THE LOAD, NOT THE ROAD.** `index.html` now carries an inline module that fetches and
+`WebAssembly.compileStreaming`s the artifact while panel.js is still downloading, and `main.tsx` awaits
+it before it mounts anything. The compile is the part that mattered: a `<link rel="preload">` starts
+the fetch at the same moment but leaves the compile to the glue, i.e. to the first render, and it cost
+**+11 ms** (11 runs each, median 133.8 → 145.0). Started in the inline module, it overlaps the bundle's
+own download, and the alternating A/B (10 pairs, one browser, `/tmp/ab/ab.mjs`) answers the other way:
 
-**THE RULE THAT COMES WITH IT, and it is what keeps this from being an exemption: a function that
-reads the DERIVED value is not a second derivation.** `groupCount`, `runStateNote`, `RUN_STATE_LABEL`
-and `ActivityPage`'s `extent` all read the grouped result — the very array the views map over — so
-they cannot disagree with it, and they stay TypeScript where they are read. What moves is everything
-that reads the WIRE.
+```
+lazy (first call)     median 141.4 ms   mean 142.4
+inline + await        median 128.6 ms   mean 126.7
+paired difference     median −12.6 ms   mean −15.6   negative in 10 of 10 pairs
+```
+
+**So the eager load is 12.6 ms FASTER, which is not the answer the plan expected** — and the number is
+the first child of `#root`, not FCP, because `main.tsx` starts the decorative particle field before
+React mounts and FCP is the canvas (measured: FCP 88 ms while the module was still in flight).
+
+**THE THREE PRECONDITIONS ARE THEREFORE NO LONGER A FILTER.** The boundary road is still available and
+still right where a family's derivation belongs with its data, but a family that fails all three —
+`disambiguateLabels` was the plan's own example, because its input is a SUBSET chosen by the call site
+(`TabBar` numbers `sessions`, `DesktopShell` numbers `openTabs`) — now moves as a plain synchronous
+call. `session_labels.rs` is that family, and both strips call it with whatever list they render.
+
+**AND THE RULE THAT CAME WITH THE BOUNDARY ROAD STILL HOLDS: a function that reads the DERIVED value is
+not a second derivation.** `groupCount`, `runStateNote`, `RUN_STATE_LABEL` and `ActivityPage`'s `extent`
+read the grouped result, so they cannot disagree with it. What moves is everything that reads the WIRE.
 
 **AND THE ONE CONSTANT THAT HAS TO EXIST IS CHECKED.** A reader starts from an empty value before the
 first reply lands, so `EMPTY_GROUPS` (`lib/runs.ts`) spells what `groupOperation([], [])` answers — and
@@ -99,14 +110,11 @@ the panel's own suite asserts that the wasm's answer for the empty input IS that
 nobody checked is a lie the reader believes; this one is checked, and the check carries a non-vacuous
 probe beside it.
 
-**WHAT IS STILL RENDER-PATH, AND WHAT EACH ONE WILL COST.** The same refactor applies to each of
-them, and none of them is free: `lib/path.ts`'s `derivePath` + `attentionSteps` (a `useMemo` in
-`PathView`, whose input is `useTrajectory`'s `groupRounds` — three functions and TWO components),
-`lib/liveness.ts`'s five predicates (per-row, called in a `.map()` in several surfaces, so the
-boundary has to produce a map rather than a value), `disambiguateLabels`, and `cardState`/`stateFromEnd`
-(the one derivation of how a command ended, called during render by the command card, the details
-panel, the activity page and the trajectory's dot — it is inside `derivePath`, so the two move
-together or not at all).
+**WHAT IS STILL RENDER-PATH, AND WHAT EACH ONE COSTS NOW.** `lib/path.ts`'s `derivePath` +
+`attentionSteps`, `lib/liveness.ts`'s five predicates, `cardState`/`stateFromEnd`, and `fmtSince` /
+`unstableTargets` / `downTargets` in `useMonitors.ts` are all still TypeScript. **None of them is
+blocked any more** — each is a move that has not been made, and the only question left per family is
+whether its derivation belongs at the data boundary or in the component.
 
 ## The numbers this crate was chosen by, measured before it was written
 
@@ -133,24 +141,31 @@ differently for the shapes the panel actually receives (`{state:{}}` is an ABSEN
 ## How it is loaded, and what that decides
 
 `panel-react/src/wasm/panelLogic.ts` is the seam (P0 classifies such an export as **BOUNDARY** — it
-computes nothing, it talks to the platform). It loads the artifact **at the first call, never at page
-load**, which is criterion ③ of the plan: the wasm is in neither the first-load payload nor the
-page's critical path.
+computes nothing, it talks to the platform). It exposes two doors: `panelLogic()`, the promise the
+loader has always been, and **`logic()`, the SYNCHRONOUS one a render-path call site uses.**
 
-**THE CONSEQUENCE IS THE MIGRATION'S REAL CONSTRAINT, so it is stated here rather than discovered
-per file: a migrated function cannot be called synchronously during render.** A move is free exactly
-where the call site is already asynchronous — a `useDeviceRead` fold (`archiveEntries`,
-`parseMonitors`, `parseBootHistory`) or an SSE/event handler (`parseMonitorChange`) — and **a
-render-path function moves by moving its DERIVATION to the data boundary** (see THE SYNC STORY
-above, and `runs.rs` for the worked example). `newestFirst`/`pageOf`/`lastEventWords` (an
-`ArchivePage` render path) and `fmtSince`/`unstableTargets`/`downTargets` (a `MonitorChip` render
-path) are still TypeScript because their boundaries have not been reshaped yet, not because there is
-no way to reshape them.
+**`index.html` fetches and compiles the artifact while panel.js is still downloading, and `main.tsx`
+awaits it before the first render** — so `logic()` is legal from inside a component, and it THROWS
+rather than falling back to a JavaScript copy when it is reached before the load (a silent second
+implementation is the thing this migration exists to delete). Under vitest, `src/test-setup.ts`
+awaits the same bytes off disk before any test body runs, so a component test needs no `beforeAll`.
+
+**THE MEASUREMENT IS IN THE SYNC STORY ABOVE, and it is the reason the load changed**: the inline
+module is **12.6 ms faster** to the panel's first frame than fetching at the first call, because the
+module's compile stops competing with React's first render. `wasm/panelLogic.ts`'s header carries the
+samples and the `<link rel=preload>` variant that lost (+11 ms).
+
+**THE CONSEQUENCE IS THAT THE MIGRATION'S OLD CONSTRAINT IS GONE.** A move is no longer restricted to
+call sites that were already asynchronous: `newestFirst`/`pageOf`/`lastEventWords` (an `ArchivePage`
+render path), `fmtSince`/`unstableTargets`/`downTargets` (a `MonitorChip` render path), `derivePath`
+and `livenessOf` are all still TypeScript because their move has not been made, not because there is
+no way to make it.
 
 **vitest and the browser load THE SAME BYTES FROM THE SAME FILE**, by the two doors each has:
-`readFileSync` + `initSync` under vitest (there is no server to fetch from), `fetch` of
-`panel.js`'s own directory in the browser. That is deliberate: a test that loaded a *different*
-artifact than the operator's browser would be a test of a different program.
+`readFileSync` + `initSync` under vitest (there is no server to fetch from), and in the browser the
+inline module's `fetch` + `WebAssembly.compileStreaming`, whose URL carries panel.js's own content
+hash. That is deliberate: a test that loaded a *different* artifact than the operator's browser would
+be a test of a different program.
 
 ## Where the artifact is served
 

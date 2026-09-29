@@ -129,9 +129,10 @@ export function RunGroupHead({ group }: { group: RunGroup }) {
 }
 
 export function RunStrip({ pollMs }: { pollMs?: number }) {
-  // THE GROUPING IS THE HOOK'S NOW (P2): `useOperationRuns` derives it in the fold that produces
-  // the events, because the wasm is fetched at the first call and a `useMemo` here runs during
-  // render. This component reads a field — see `lib/runs.ts`'s header for the sync story.
+  // THE GROUPING IS THE HOOK'S NOW (P2): `useOperationRuns` derives it in the fold that produces the
+  // events — a choice made when a render-path call was impossible, which it no longer is (2026-09-29:
+  // the module is preloaded and awaited before the first render; `wasm/panelLogic.ts`). This component
+  // reads a field — see `lib/runs.ts`'s header for the sync story.
   const { groups } = useOperationRuns(pollMs);
   const [open, setOpen] = useState(true);
 

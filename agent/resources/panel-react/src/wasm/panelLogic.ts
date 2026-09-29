@@ -5,25 +5,54 @@
 // vitest). `docs/superpowers/p0/README.md`: an export that only talks to a browser or network API
 // "can never move to Rust; it is the seam the wasm sits behind".
 //
-// ── WHAT IT LOADS, AND WHY IT IS A SEPARATE FILE ─────────────────────────────
+// ── WHAT IT LOADS, AND WHEN ──────────────────────────────────────────────────
 //
 // The wasm is `agent/resources/panel/panel_logic_bg.wasm` — the panel's own served directory,
-// beside panel.js — and it is fetched at the FIRST CALL, not at page load. That is criterion ③ of
-// the migration plan: the wasm is not in the first-load payload and it does not block the page.
-// The price of that is stated plainly here because it is the constraint the whole migration turns
-// on: **a migrated function cannot be called synchronously during render** until something is
-// loaded, so a move is only free where the call site is already asynchronous — the data boundary
-// (`useDeviceRead`'s fold, an SSE handler, an event handler). `lib/archive.ts`'s header records
-// what that leaves behind and why.
+// beside panel.js. **`index.html` FETCHES AND COMPILES IT WHILE panel.js IS STILL DOWNLOADING, AND
+// `main.tsx` AWAITS IT BEFORE THE FIRST RENDER (2026-09-29)**, which replaced "fetched at the first
+// call" for a measured reason.
+//
+// THE OLD MODEL WAS THE CONSTRAINT THE WHOLE MIGRATION TURNED ON. With the module fetched at the
+// first call, a migrated function could not be called DURING RENDER: React's render is synchronous
+// and the fetch is not. P2's own record is what that cost — the async seam was exhausted, the
+// remaining families were classified by whether they could be re-derived at the data boundary
+// instead, and `disambiguateLabels` was written off as unable to pass (`TabBar` numbers `sessions`,
+// `DesktopShell` numbers `openTabs`, so no single boundary derivation can serve both).
+//
+// ── THE MEASUREMENT, AND IT POINTED THE OTHER WAY ────────────────────────────
+//
+// Three builds of the same tree, the repository's own harness, and — because the panel's first frame
+// drifts ~10 ms between sessions on this box, which is the size of the effect — an ALTERNATING A/B
+// inside one browser (10 pairs, `/tmp/ab/ab.mjs`). The number is the first child of `#root`, NOT
+// first-contentful-paint: `main.tsx` starts the decorative particle field before React mounts, so
+// FCP is the canvas and it fires whether or not a component has rendered (measured: FCP 88 ms while
+// the module was still in flight).
+//
+//     lazy (first call), same session   median 141.4 ms   mean 142.4   n=10
+//     inline + await before render      median 128.6 ms   mean 126.7   n=10
+//     paired difference (inline − lazy) median −12.6 ms   mean −15.6  — negative in 10 of 10 pairs
+//
+// **THE EAGER LOAD IS FASTER, WHICH IS NOT THE OBVIOUS ANSWER.** A `<link rel="preload">` alone was
+// measured too and cost +11 ms (11 runs each, median 133.8 → 145.0): it starts the fetch at the same
+// moment but leaves `WebAssembly.compileStreaming` to the glue, i.e. to the moment `main.tsx` runs,
+// where a 62 KB module's compile competes with React's first render. The inline module in
+// `index.html` compiles it during the bundle's own download instead. Both variants fetch the module
+// EXACTLY ONCE (the request count is 1 in every run of both).
+//
+// `logic()` below is the door a render-path call site uses, and it THROWS rather than falling back
+// to a JavaScript copy: a silent second implementation is the thing this migration exists to delete.
+// Under vitest `src/test-setup.ts` awaits the same bytes off disk and `initSync`s them, so a
+// component test needs no `beforeAll` and cannot measure a different program than the operator runs.
 //
 // ── THE TWO ENVIRONMENTS, ONE ARTIFACT ───────────────────────────────────────
 //
 // vitest and the browser load THE SAME BYTES from THE SAME FILE, by the two doors each one has:
 //
-//   browser  `fetch(<panel.js's own directory>/panel_logic_bg.wasm)` — the URL is derived from the
-//            bundle's script element, so `/panel/` and `/desktop/` both work, and the agent's
-//            content hash (`?v=…`, which `web/panel.rs` stamps on panel.js) rides along so a panel
-//            rebuild cannot leave a stale wasm in a browser cache.
+//   browser  `index.html`'s inline module fetches `<panel.js's own directory>/panel_logic_bg.wasm`
+//            and compiles it; the glue's own `fetch` of the same URL is the fallback for a page that
+//            does not carry the inline module (a harness), and it is what the `?v=…` content hash —
+//            stamped by `web/panel.rs` on panel.js AND on the inline module's URL — protects against
+//            a stale module in a browser cache.
 //   vitest   `readFileSync` of the same path, and `initSync` — vitest has no server to fetch from,
 //            and a test that could not load the artifact would be a test of a DIFFERENT program
 //            than the one the operator runs. That is the failure this branch exists to avoid.
@@ -39,6 +68,7 @@ import * as glue from "./panel_logic.js";
 type PanelLogic = typeof glue;
 
 let loading: Promise<PanelLogic> | null = null;
+let ready: PanelLogic | null = null;
 
 /**
  * The panel's Rust, loading it if this is the first call.
@@ -52,16 +82,51 @@ export function panelLogic(): Promise<PanelLogic> {
   return loading;
 }
 
+/**
+ * The panel's Rust, SYNCHRONOUSLY — for a call site that runs during render.
+ *
+ * LEGAL BECAUSE THE MODULE IS ALREADY LOADED: `index.html` preloads the artifact and `main.tsx`
+ * awaits `panelLogic()` before it mounts anything, and `src/test-setup.ts` awaits it before any test
+ * body runs. A caller that renders outside both paths gets a THROW — never a JavaScript fallback,
+ * which would be a second implementation of the same rule and the exact drift this migration exists
+ * to delete.
+ */
+export function logic(): PanelLogic {
+  if (ready) return ready;
+  throw new Error(
+    "panel logic was called before it loaded — main.tsx (and test-setup.ts) await panelLogic() first",
+  );
+}
+
 async function load(): Promise<PanelLogic> {
   const bytes = await fileBytes();
   if (bytes) {
     // `initSync` rather than the async initializer: the bytes are already in hand, and a test that
     // had to await a load would make every migrated call site asynchronous in the tests too.
     glue.initSync({ module: bytes });
+    ready = glue;
+    return glue;
+  }
+  // THE SERVED PAGE HANDS US A MODULE THAT IS ALREADY COMPILED — `index.html`'s inline module
+  // fetches and `WebAssembly.compileStreaming`s the artifact while panel.js is still downloading, so
+  // what is awaited here has been in flight since before this bundle executed. `initSync` accepts a
+  // compiled `WebAssembly.Module` and skips the compile, which is the whole point: the compile is
+  // main-thread work and it must not land on the first render.
+  const precompiled = precompiledModule();
+  if (precompiled) {
+    glue.initSync({ module: await precompiled });
+    ready = glue;
     return glue;
   }
   await glue.default(wasmHref());
+  ready = glue;
   return glue;
+}
+
+/** `index.html`'s inline module, when this is the served page rather than a test. */
+function precompiledModule(): Promise<WebAssembly.Module> | null {
+  const holder = globalThis as { __panelLogicModule?: Promise<WebAssembly.Module> };
+  return holder.__panelLogicModule ?? null;
 }
 
 /**

@@ -90,12 +90,13 @@ export const ARCHIVE_PAGE = 50;
  * and loaded through `src/wasm/panelLogic.ts` — the seam, which P0 classifies as
  * BOUNDARY because it computes nothing.
  *
- * WHY IT IS `async` AND THE OTHERS BELOW ARE NOT. The wasm is fetched at the
- * first call rather than at page load, which is criterion ③ of the migration
- * plan: it is not in the first-load payload and it does not block the page. A
- * synchronous call during render cannot wait for that fetch, so a move is free
- * exactly where the call site is already asynchronous — and this one is: it is a
- * `useDeviceRead` fold, running after `callApi` resolved. `newestFirst`,
+ * WHY IT IS `async` AND THE OTHERS BELOW ARE NOT. It is a `useDeviceRead` fold,
+ * running after `callApi` resolved, so a promise costs nothing here. **IT HAD TO
+ * BE WHEN IT MOVED: the wasm was fetched at the first call then (criterion ③),
+ * and a synchronous call during render could not wait for that fetch. SUPERSEDED
+ * 2026-09-29 — the module is preloaded and awaited before the first render, so a
+ * render-path call is legal now; `wasm/panelLogic.ts` carries the measurement.**
+ * `newestFirst`,
  * `pageOf`, `lastEventWords` and `archiveClock` below are called during RENDER
  * of `ArchivePage`, so they stay here until the sync story is decided; the
  * numbers behind that decision are in this change's commit message.

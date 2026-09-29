@@ -6,6 +6,19 @@
   <title>Summrise Agent</title>
   <link rel="stylesheet" href="vendor/xterm.css">
   <link rel="stylesheet" href="panel.css">
+  <!-- THE PANEL'S RUST IS FETCHED AND COMPILED WHILE panel.js IS STILL DOWNLOADING (2026-09-29).
+       `wasm/panelLogic.ts` awaits this before React mounts, which is what makes a migrated function
+       callable DURING RENDER; it is an inline module rather than a `<link rel=preload>` because the
+       COMPILE is main-thread work and a preload leaves it to the first render (+11 ms measured). The
+       full record — the alternating A/B, the samples, why `logic()` throws rather than falling back
+       to a JavaScript copy — is in that module's header. `apply_bundle_hash` stamps this URL with
+       panel.js's own content hash. -->
+  <script type="module">
+    window.__panelLogicModule = fetch("panel_logic_bg.wasm").then(function (r) {
+      if (!r.ok) throw new Error("panel_logic_bg.wasm: " + r.status);
+      return WebAssembly.compileStreaming(r);
+    });
+  </script>
 </head>
 <body>
   <!-- React mounts here (panel-react/src/main.tsx renders <App /> into #root).

@@ -87,6 +87,42 @@ pub fn put(obj: &Object, key: &str, value: &JsValue) -> Result<(), JsValue> {
     Reflect::set(obj.as_ref(), &JsValue::from_str(key), value).map(|_| ())
 }
 
+/// JS `String(n)` — the ENGINE's own number → text, so this crate never links Rust's float formatter.
+///
+/// WHY IT MATTERS, measured: `format!("{}", 1e21_f64)` writes `1000000000000000000000` where
+/// `String(1e21)` writes `1e+21`, and a key spelled two ways is two keys. The brief's own warning is
+/// the same class of cost from the other direction — one `format!("{:.3}")` on an `f64` pulled the
+/// whole float formatter into the landing page's wasm and cost 8,879 gz.
+///
+/// IT LIVES HERE NOW (2026-09-29). `monitors.rs` and `runs.rs` each grew their own copy of this
+/// function, which is the duplication this module exists to remove — `js.rs`'s header already lists
+/// what is still duplicated and why, and this was not on that list.
+pub fn number_text(n: f64) -> String {
+    js_sys::Number::from(n)
+        .to_string_with_radix(10)
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+/// JS `String(v)` for a value whose type is not known — **the ENGINE's coercion, not a cast**.
+///
+/// THIS IS NOT `JsString::from(v)`, and the difference is a bug this crate shipped for one build.
+/// `JsString::from(JsValue)` is an UPCAST: it reinterprets the value as a string without coercing
+/// it, so a number, `null` and `undefined` all answer `None` from `as_string()` and every one of
+/// them became `""`. The TypeScript's template literal coerces all three — `` `${null}` `` is
+/// `"null"` — and the differential for `session_labels.rs` caught it on 21 of its 31 cases.
+///
+/// The mechanism is the global `String` function called as a function, which IS the abstract
+/// operation a template literal's interpolation performs.
+pub fn text(v: &JsValue) -> String {
+    Reflect::get(&js_sys::global(), &JsValue::from_str("String"))
+        .ok()
+        .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+        .and_then(|s| s.as_string())
+        .unwrap_or_default()
+}
+
 /// A `number | null` field, which is what the TypeScript's `number | null` becomes across the FFI.
 /// `null` and not `undefined`: the panel's readers test `=== null` in places, and the two are
 /// different values to a `JSON.stringify` a caller might do.
