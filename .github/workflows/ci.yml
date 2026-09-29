@@ -794,8 +794,16 @@ jobs:
 
   # index worker unit tests — pure node:test, zero deps, no lockfile, so
   # NO install step (like the npm CLI tests above). Well under 2 min.
+  #
+  # AND THE RUST HALF OF THIS WORKER (2026-09-29, block ④ of the migration). `index/worker/` is the
+  # release-manifest derivation — the route every device's updater calls — and it is a SEPARATE crate
+  # outside the agent's workspace (its cdylib must never be built for windows-msvc, the same reason
+  # `panel-logic` and `ui-logic` are), so NOTHING in the agent job runs it. **A crate that no job
+  # runs is how `chrome_stillness` rotted in this repository** — 690 lines written, committed and
+  # never compiled, with seven clippy errors nobody saw. A STEP in the existing index job, not a new
+  # job, and `all-gates.bash` DERIVES it from this line, so it runs locally too.
   index:
-    name: index (node --test)
+    name: index (node --test + cargo test)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -806,6 +814,8 @@ jobs:
       - name: Tests
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: index
+      - name: Release manifest (Rust)
+        run: cargo test --manifest-path index/worker/Cargo.toml
 
   # satellite proxy behavior suites (CORS/gates/BYOK/protocol conversion)
   # + wrangler dry-run per worker + the api-relay syntax gate below.

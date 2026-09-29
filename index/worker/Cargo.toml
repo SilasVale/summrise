@@ -1,0 +1,27 @@
+[package]
+name = "summrise-dist"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# THE RELEASE CHANNEL, NOT THE CRATE'S — the npm version rides the release, and the crate version
+# is frozen (the panel's `agent/Cargo.toml` says why in the same words). `index/package.json` is
+# the artifact the release flow reads.
+[lib]
+name = "summrise_dist"
+path = "src/lib.rs"
+
+[workspace]
+
+[dependencies]
+# The ONE dependency, and it is the one the brief asked for: `serde_json` replaces the hand-written
+# parsing a JS manifest reader gets for free, and it is what makes "the same bytes" a question this
+# crate can answer — a byte-comparable differential needs a parser that agrees with `JSON.parse`
+# about escapes, numbers and key order, and a regex is not that.
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
