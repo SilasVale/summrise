@@ -716,3 +716,37 @@ round 134 找到的那个缺陷** ✓——**只比正文的话，这个移植�
 （**而这正是防错第 6 条** ✓）。**第一版更糟的是用正则把 `if` 链从文件里"提"出来** ✗——
 **它编不出 JavaScript**，**因为一个改动了它所测试的东西的仪器，测的是别的东西** ✓。
 **现在 JS 那一侧跑的是发货的那份文件本身**，路由由**谁回答了**来认 ✓✓。
+
+
+### ④ 的 CDN worker **能构建了**：I/O 层 · 两份文档 · 一个只为 wasm32 存在的入口 ✓
+
+`worker-build --release` 产出 **`index.js` 28 KB ＋ `index_bg.wasm` 552 KB** ✓✓，而它只 import 两样东西：
+**`cloudflare:workers` 和它自己的 wasm** ✓——**正是 gateway 那个 harness 已经打桩的那两样** ✓。
+
+**入口是 wasm32-ONLY 的，而这**不是**可移植性妥协 ✓✓**：`#[event(fetch)]` 在 host 上**展开成空并 panic**
+（那里没有 Worker 运行时可注册）✗。**所以 `src/worker.rs` 是 `#[cfg(target_arch = "wasm32")]`** ✓，
+**而三个纯函数、全部测试、两个差分在 host 上照常构建和运行，一个 wasm 工具链都不需要** ✓✓。
+**另一条路是给 host 写个 shim**——**那等于多一份没有任何测试跑过的 dispatch 副本** ✗，
+**而这正是本仓库吃过亏的形状** ✓。
+
+**两份文档是 `include_str!` 进来的，不是抄一份** ✓：`index/landing/build.sh` 生成
+`index/src/landing/{setup,npm-only}.js` ✓，**JS worker import 同样的两个文件** ✓，
+**外加一个 `build.rs` 在任一个变化时重跑 cargo** ✓✓。**另一条路是一份可以被提交成陈旧版本的
+生成 `.rs`** ✗——**那正是 `contract.gen.ts` 和它的门禁存在的原因** ✓——**而一个陈旧的落地页比一个
+陈旧的生成文件更糟** ✓。**而那条测试又纠正了我一次**：第一版断言 setup 那份含
+`SummriseAgent-Setup.exe` ✓，**它不含** ✗——**门是那个 SLOT** ✓，**那个字符串只出现在白名单的兜底里** ✓。
+
+**已证 / 未证，分两张单子写清楚** ✓：
+**已按字节对上游 JS 证过**：清单推导（38）✓ · 页面边界（644，含 495 次**拿真实文档**的整页渲染）✓ ·
+路由表（52，含全部近似路径）✓。
+**已构建**：模块只 import 那两样 ✓。
+**尚未**：**这个模块还没有被执行过** ✗。**`verify.mjs` 是下一步，而它需要的绑定现在是量出来的而不是猜的** ✓✓：
+`EnvBinding::get` 按构造函数名 duck-type ✓，**所以 env 桩就是 `class Fetcher` 和 `class R2Bucket`**
+（worker-0.8.7 `env.rs:148` ✓）——**gateway 自己的 `verify.mjs` 已经是这么给 Durable Object 打桩的** ✓。
+
+**而编译器替我抓到的三个 API 错误值得记下来** ✓：`resp.ok()` 在这个版本里是**关联函数**
+（该用 `status_code()`）✗；`Headers::get` 答的是 `Option<String>`，**不是带 `to_str` 的 HeaderValue** ✗；
+**`Bucket::get()` 返回的是 builder 不是 Future** ✗——**该调 `.execute().await`** ✓，
+**而第一版 await 的是那个 builder** ✗。**三个都是凭记忆猜的 API，而凭记忆猜的 API 是一次迁移会反复犯的一类错** ✓✓。
+**`Fetch::Request(req).send()` 才是那个全局 fetch** ✓——**`Fetcher` 是给别的 worker 的 handler 用的，
+而且根本没有公共构造器** ✗。
