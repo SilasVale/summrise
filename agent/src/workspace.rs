@@ -167,6 +167,220 @@ fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+// ── the filesystem half ─────────────────────────────────────────────────────────────────────────
+//
+// The subprocess seam carries SEARCH (glob and grep spawn ripgrep on the host). These carry READING,
+// and they are what stops a workspace from being the split-brained thing where a search finds a file
+// the harness then cannot open — because `ctx.fs` still points at the machine the DSH runs on.
+
+/// What kind of thing a path names, in the vocabulary the seam branches on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+impl FsKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Directory => "directory",
+            Self::Symlink => "symlink",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// What the host reports about one path. Metadata only, never content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FsInfo {
+    pub kind: FsKind,
+    pub size: u64,
+    pub mtime: u64,
+    /// The POSIX permission bits, or 0 when the server did not report them.
+    pub mode: u32,
+}
+
+/// One file's text and the version a later write must present to replace it.
+#[derive(Debug)]
+pub struct FsText {
+    pub text: String,
+    pub info: FsInfo,
+    /// `sha256:<hex>` over the BYTES that were decoded. A version over the decoded text would miss a
+    /// change that only moved the encoding, and would move for a change that did not touch the file.
+    pub version: String,
+}
+
+fn fs_kind(metadata: &russh_sftp::protocol::FileAttributes) -> FsKind {
+    // `is_*` lives on the FileType the attributes report, not on the attributes themselves.
+    let kind = metadata.file_type();
+    if kind.is_dir() {
+        FsKind::Directory
+    } else if kind.is_symlink() {
+        FsKind::Symlink
+    } else if kind.is_file() {
+        FsKind::File
+    } else {
+        FsKind::Other
+    }
+}
+
+fn fs_info(metadata: &russh_sftp::protocol::FileAttributes) -> FsInfo {
+    FsInfo {
+        kind: fs_kind(metadata),
+        size: metadata.size.unwrap_or(0),
+        mtime: metadata.mtime.unwrap_or(0) as u64,
+        mode: metadata.permissions.unwrap_or(0),
+    }
+}
+
+/// Stat one path.
+///
+/// `follow` chooses `stat` from `lstat`, and the distinction is the seam's: `resolve` follows symlinks
+/// to reach a stable identity, while `lstat` exists so a caller can reject the PATH itself before that
+/// follow happens. A host that answers neither — because the path is not there — gives `Ok(None)`,
+/// which is a fact about the path rather than a failure of the call.
+pub async fn fs_stat(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    follow: bool,
+) -> Result<Option<FsInfo>, DeviceError> {
+    let answer = if follow {
+        sftp.metadata(path).await
+    } else {
+        sftp.symlink_metadata(path).await
+    };
+    match answer {
+        Ok(metadata) => Ok(Some(fs_info(&metadata))),
+        // SFTP reports a missing path as an error, and there is no portable "no such file" code to
+        // match on across servers — so `try_exists` is what separates "absent" from "unreachable".
+        Err(e) => match sftp.try_exists(path).await {
+            Ok(false) => Ok(None),
+            _ => Err(DeviceError::Internal {
+                message: format!("workspace fs stat {path}: {e}"),
+            }),
+        },
+    }
+}
+
+/// Read one whole text file, up to `max_bytes`.
+///
+/// TWO REFUSALS, and both are the seam's own vocabulary rather than this module's invention: a file
+/// larger than the cap is `too_large`, and one that is not valid UTF-8 is `not_text`. The cap is
+/// checked from the SIZE before the bytes are fetched, because reading a gigabyte to discover it is
+/// too big is the failure the cap exists to prevent.
+pub async fn fs_read_text(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    max_bytes: usize,
+) -> Result<FsText, DeviceError> {
+    let info = fs_stat(sftp, path, true)
+        .await?
+        .ok_or_else(|| DeviceError::Internal {
+            message: format!("workspace fs read {path}: no such file"),
+        })?;
+    if info.kind == FsKind::Directory {
+        return Err(DeviceError::Internal {
+            message: format!("workspace fs read {path}: that is a directory"),
+        });
+    }
+    if info.size > max_bytes as u64 {
+        return Err(DeviceError::Internal {
+            message: format!(
+                "workspace fs read {path}: {} bytes is over the {max_bytes}-byte cap",
+                info.size
+            ),
+        });
+    }
+
+    let bytes = sftp.read(path).await.map_err(|e| DeviceError::Internal {
+        message: format!("workspace fs read {path}: {e}"),
+    })?;
+    // The size the server reported and the bytes that arrived must agree; a mismatch means the file
+    // changed under us, and decoding a torn read would hand back text that was never in the file.
+    if bytes.len() as u64 != info.size {
+        return Err(DeviceError::Internal {
+            message: format!(
+                "workspace fs read {path}: the file changed while it was read ({} bytes reported, {} arrived)",
+                info.size,
+                bytes.len()
+            ),
+        });
+    }
+
+    let version = format!("sha256:{}", sha256_hex(&bytes));
+    let text = String::from_utf8(bytes).map_err(|_| DeviceError::Internal {
+        message: format!("workspace fs read {path}: the file is not valid UTF-8"),
+    })?;
+    Ok(FsText {
+        text,
+        info,
+        version,
+    })
+}
+
+/// Read a byte window of one file, without materialising the rest of it.
+pub async fn fs_read_bytes(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    offset: u64,
+    length: usize,
+) -> Result<Vec<u8>, DeviceError> {
+    use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
+
+    let mut file = sftp.open(path).await.map_err(|e| DeviceError::Internal {
+        message: format!("workspace fs read {path}: {e}"),
+    })?;
+    if offset > 0 {
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|e| DeviceError::Internal {
+                message: format!("workspace fs seek {path} to {offset}: {e}"),
+            })?;
+    }
+    // Pre-sized and read exactly: the window is the bound, so a file larger than `length` never has
+    // more than `length` bytes of it in memory here.
+    let mut window = vec![0u8; length];
+    let mut filled = 0usize;
+    while filled < length {
+        match file.read(&mut window[filled..]).await {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) => {
+                return Err(DeviceError::Internal {
+                    message: format!("workspace fs read {path}: {e}"),
+                })
+            }
+        }
+    }
+    window.truncate(filled);
+    Ok(window)
+}
+
+/// List one directory level: name and metadata, never content, in a stable order.
+///
+/// The sort is this side's, not the server's: `read_dir` yields entries in whatever order the host's
+/// filesystem happens to hand them over, and a listing whose order changes between calls is a listing
+/// a caller cannot diff.
+pub async fn fs_list_dir(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+) -> Result<Vec<(String, FsInfo)>, DeviceError> {
+    let entries = sftp
+        .read_dir(path)
+        .await
+        .map_err(|e| DeviceError::Internal {
+            message: format!("workspace fs list {path}: {e}"),
+        })?;
+    let mut out: Vec<(String, FsInfo)> = entries
+        .map(|entry| (entry.file_name(), fs_info(&entry.metadata())))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
 /// One command to run on a workspace host.
 pub struct ExecRequest<'a> {
     /// The argv, `argv[0]` first. It never passes through a shell.
@@ -276,6 +490,122 @@ pub async fn exec_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The filesystem half against a REAL sshd, for the same reason as its neighbour: an SFTP server
+    /// is where the difference between `stat` and `lstat`, the shape of a directory listing and the
+    /// behaviour of a missing path actually show up.
+    ///
+    /// Its subject is this file, which exists on the host it is pointed at. Run it with the same
+    /// environment as `stage_and_exec_against_a_real_host`.
+    #[tokio::test]
+    #[ignore = "needs a reachable sshd and a key; run by hand with SUMMRISE_TEST_SSH set"]
+    async fn fs_reads_a_real_host() {
+        let target = std::env::var("SUMMRISE_TEST_SSH").expect("SUMMRISE_TEST_SSH=user@host:port");
+        let key =
+            std::env::var("SUMMRISE_TEST_SSH_KEY").expect("SUMMRISE_TEST_SSH_KEY=/path/to/key");
+        let (user, rest) = target.split_once('@').expect("user@host:port");
+        let (host, port) = rest.split_once(':').expect("user@host:port");
+        let port: u16 = port.parse().expect("a numeric port");
+
+        let session = SshSession::connect(host, port, user, None, Some(&key))
+            .await
+            .expect("the test host accepts the key");
+        let sftp = session.sftp_session().await.expect("an sftp subsystem");
+        let subject = std::env::var("SUMMRISE_TEST_FS_SUBJECT")
+            .unwrap_or_else(|_| format!("{}/src/workspace.rs", env!("CARGO_MANIFEST_DIR")));
+        let directory = subject.rsplit_once('/').expect("an absolute path").0;
+
+        // ── a file that is there ──
+        let info = fs_stat(&sftp, &subject, true)
+            .await
+            .expect("stat answers")
+            .expect("the subject exists");
+        assert_eq!(info.kind, FsKind::File, "{subject}");
+        assert!(info.size > 0, "a source file is not empty");
+        assert_ne!(
+            info.mode, 0,
+            "the mode must come back, it is what lstat is partly for"
+        );
+
+        let read = fs_read_text(&sftp, &subject, 4 << 20)
+            .await
+            .expect("the read works");
+        assert_eq!(
+            read.info, info,
+            "the read and the stat must agree about the file"
+        );
+        assert!(
+            read.text
+                .contains("the argv and the working directory travel out of band")
+                || read.text.contains("fn fs_read_text"),
+            "the text must be the file's own contents"
+        );
+        assert!(
+            read.version.starts_with("sha256:") && read.version.len() == 7 + 64,
+            "the version is a sha256 over the bytes: {}",
+            read.version
+        );
+
+        // ── a range is the same bytes as the whole read's ──
+        let window = fs_read_bytes(&sftp, &subject, 10, 32)
+            .await
+            .expect("a window reads");
+        assert_eq!(
+            String::from_utf8_lossy(&window),
+            &read.text[10..42],
+            "a window must be the file's own bytes at that offset"
+        );
+        // …and an offset past the end is empty, not an error.
+        assert!(fs_read_bytes(&sftp, &subject, info.size + 10, 32)
+            .await
+            .expect("past the end is not a failure")
+            .is_empty());
+
+        // ── a path that is not there is a FACT, not a failure ──
+        assert_eq!(
+            fs_stat(&sftp, &format!("{subject}.does-not-exist"), true)
+                .await
+                .expect("a missing path is not an error"),
+            None
+        );
+
+        // ── a directory lists one level, in a stable order ──
+        let entries = fs_list_dir(&sftp, directory)
+            .await
+            .expect("the listing works");
+        assert!(
+            entries
+                .iter()
+                .any(|(name, info)| name == "workspace.rs" && info.kind == FsKind::File),
+            "the subject's own directory must list it: {:?}",
+            entries.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+        );
+        let mut sorted = entries.clone();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            entries, sorted,
+            "the order is this side's, so it must be sorted"
+        );
+        assert!(
+            entries.iter().all(|(name, _)| !name.contains('/')),
+            "a listing is ONE level, never a path"
+        );
+
+        // ── a file over the cap is refused BY NAME, before its bytes are fetched ──
+        let refused = fs_read_text(&sftp, &subject, 16).await;
+        let message = format!("{:?}", refused.expect_err("16 bytes cannot hold this file"));
+        assert!(
+            message.contains("over the") && message.contains("cap"),
+            "the refusal must say which cap was exceeded: {message}"
+        );
+
+        // ── a directory is not a file ──
+        let refused = fs_read_text(&sftp, directory, 4 << 20).await;
+        assert!(
+            format!("{:?}", refused.expect_err("a directory has no text")).contains("directory"),
+            "reading a directory must say so rather than fail obscurely"
+        );
+    }
 
     /// The whole path against a REAL sshd: stage the helper, then run a command through it.
     ///
