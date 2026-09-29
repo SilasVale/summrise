@@ -1,0 +1,24 @@
+[package]
+name = "summrise-zen-us"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Rust half of the zen-us satellite worker (workers-rs). FIRST HALF: the origin policy and the secret redaction."
+
+# BOTH crate types, for the same reason the CDN worker's crate lists both: `cdylib` is what
+# `worker-build` produces for Cloudflare and `rlib` is what `cargo test` links on the host — so the
+# pure half is testable with no wasm toolchain at all.
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "summrise_zen_us"
+path = "src/lib.rs"
+
+[dependencies]
+# A host and a fallback: the port is about the POLICY, not about the deployment, and no `worker`
+# dependency is taken until the entry point is ported — which keeps `cargo test` a plain host build.
+url = "2"
+serde_json = "1"
+
+# NO [profile.release] OVERRIDES ON PURPOSE, the same reason as the CDN worker: the deployed module
+# is what `worker-build --release` produces with the default profile, so the size is the number a
+# naive migration gets, not a tuned best case.
