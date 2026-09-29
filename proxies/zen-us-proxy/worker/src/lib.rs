@@ -30,6 +30,12 @@
 //!   refactor, and nothing here is evidence for which is intended. It is recorded instead, which is
 //!   the honest state: two workers, two loopback rules, one of them unexplained.
 
+/// `VERIFY_PATH` — the native Anthropic pass-through's path suffix, matched with `endsWith`.
+pub const VERIFY_PATH: &str = "/v1/messages";
+
+/// `RESPONSES_PATH` — the OpenAI Responses API BYOK pass-through's path suffix, same matching.
+pub const RESPONSES_PATH: &str = "/v1/responses";
+
 /// The two production origins this worker reflects. A `Set` in the JavaScript, so membership is
 /// EXACT — no prefix, no suffix, no case folding. (The origin header is compared as the browser sent
 /// it, and a browser lowercases the host and scheme, so this set is already in the form one arrives.)
@@ -162,6 +168,188 @@ fn json_string(s: &str) -> String {
     serde_json::Value::String(s.to_string()).to_string()
 }
 
+// ───────────────────────────── the entry point's pure half ────────────────────────────────────────
+//
+// Everything above is a rule about a REQUEST. What follows is a rule about WHICH rule applies — the
+// dispatch, the two gates, and the header pick — and it is here for the same reason the manifest and
+// the CDN route table were: **the decision is portable, the I/O is not, and a decision is what a
+// transliteration gets wrong.**
+
+/// Which of this worker's four answers a request is for.
+///
+/// **THE ORDER IS THE ROUTING**, and three of the four rules are not what a reader would guess:
+///
+///  * `OPTIONS` IS ITS OWN ANSWER AND IT COMES FIRST**, before any path is looked at, so a preflight
+///    never reaches a gate and never needs a credential.
+///  * **THE TWO GATED ROUTES ARE `endsWith`, NOT EQUALS.** `/v1/messages` matches a path that ENDS
+///    with it, so a deployment that mounts the worker under a prefix keeps working. The `/v1/models`
+///    arm is looser still — it is `endsWith("/models")` on its own.
+///  * **EVERYTHING ELSE IS A 404, AND THE 404 IS REACHED BEFORE THE KEY IS READ.** The worker is
+///    default-closed twice over: an unknown path is refused, and a known path with no
+///    `CLIENT_KEY` configured is refused rather than falling through to the paid upstream key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// `OPTIONS *` — the CORS preflight, answered before anything else.
+    Preflight,
+    /// `GET …/models` — the model list, gated on `x-api-key`.
+    Models,
+    /// `POST …/v1/responses` — the BYOK pass-through, gated on the CALLER's own `Bearer` key.
+    Responses,
+    /// `POST …/v1/messages` — the native Anthropic pass-through, gated on `x-api-key`.
+    Messages,
+    /// Anything else.
+    NotFound,
+}
+
+/// `route(method, pathname)` — the whole table, in the worker's own order.
+pub fn route(method: &str, pathname: &str) -> Route {
+    if method == "OPTIONS" {
+        return Route::Preflight;
+    }
+    if method == "GET" && pathname.ends_with("/models") {
+        return Route::Models;
+    }
+    if method == "POST" && pathname.ends_with(RESPONSES_PATH) {
+        return Route::Responses;
+    }
+    // The LAST arm is the `/v1/messages` one, and it is written as a NEGATION in the JavaScript —
+    // `if (!(POST && endsWith(VERIFY_PATH))) return 404` — which means a request that is NOT a
+    // messages POST is a 404 and a request that IS one continues. The same decision, phrased as the
+    // table's final arm, because a positive arm reads as a list and a negation reads as a trap.
+    if !(method == "POST" && pathname.ends_with(VERIFY_PATH)) {
+        return Route::NotFound;
+    }
+    Route::Messages
+}
+
+impl Route {
+    /// The path this route answers, for the tests that read the table rather than the branches.
+    pub fn path(self) -> &'static str {
+        match self {
+            Route::Preflight => "OPTIONS *",
+            Route::Models => "GET …/models",
+            Route::Responses => "POST …/v1/responses",
+            Route::Messages => "POST …/v1/messages",
+            Route::NotFound => "(everything else)",
+        }
+    }
+}
+
+/// `route()` as the STATUS it answers with when the body is empty, which is only the preflight.
+///
+/// A preflight is `new Response(null, { headers })` — **status 200 with NO body**, and not 204: a
+/// browser accepts both, and the deployed worker sends 200 because that is what `new Response(null)`
+/// does by default. The port states the number instead of leaving it to a constructor's default,
+/// because a default is a thing a reader cannot see.
+pub fn preflight_status() -> u16 {
+    200
+}
+
+/// The four caller headers this worker forwards as `x-opencode-session`, **in preference order**.
+///
+/// The first one that is present AND non-blank wins, and the value is TRIMMED before it is sent — so a
+/// header of three spaces is treated as absent rather than forwarded as a session id of nothing.
+pub const SESSION_SOURCE_HEADERS: [&str; 4] = [
+    "x-opencode-session",
+    "x-client-request-id",
+    "session_id",
+    "x-session-id",
+];
+
+/// `sessionHeader(request)` — which caller's header becomes `x-opencode-session`, if any.
+///
+/// **THIS IS AN ORDER, AND THE ORDER IS THE FEATURE**: the loop returns the FIRST non-blank value, so
+/// a request carrying all four forwards the first and drops the rest. The test that matters is one
+/// where two are present and the later one is the more specific — the first still wins.
+pub fn session_header(present: &[(&str, &str)]) -> Option<(&'static str, String)> {
+    for name in SESSION_SOURCE_HEADERS {
+        // The lookup is by HEADER NAME, case-insensitively, because HTTP header names are
+        // case-insensitive and a JavaScript `Headers.get` is too — so a caller sending
+        // `X-OpenCode-Session` is found by the first entry.
+        let value = present
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.trim())
+            .unwrap_or_default();
+        if !value.is_empty() {
+            return Some(("x-opencode-session", value.to_string()));
+        }
+    }
+    None
+}
+
+/// The `x-api-key` gate, as a DECISION over the three things it reads.
+///
+/// **DEFAULT-CLOSED, AND THAT IS THE WHOLE RULE.** `!env.CLIENT_KEY || !(await safeEq(...))` refuses
+/// when the secret is UNSET as well as when it does not match — so a worker deployed without its secret
+/// refuses everything rather than falling through to the paid `OPENCODE_GO_API_KEY`. The refusal is
+/// also the same for both cases, so a caller cannot tell "no key configured" from "wrong key", which is
+/// the point: a 401 that distinguishes them tells a prober which half of the pair it got right.
+///
+/// The comparison itself is [`safe_eq`], and it is CONSTANT-TIME for the reason the comment there
+/// gives — so this function is a decision about a boolean, not about a string.
+pub fn x_api_key_allows(configured: Option<&str>, presented: &str) -> bool {
+    match configured {
+        None => false,
+        Some(expected) => {
+            // AN EMPTY CONFIGURED KEY IS NOT A KEY. `!env.CLIENT_KEY` is a truthiness test, so a secret
+            // that was set to "" refuses everything — and this is a case a `Some("")` would wave
+            // through if the emptiness were checked with `== ""` and not with truthiness.
+            if expected.is_empty() {
+                return false;
+            }
+            safe_eq(presented, expected)
+        }
+    }
+}
+
+/// The `/v1/responses` gate: the CALLER's own key, out of a `Bearer` header.
+///
+/// **THE PREFIX IS EXACT AND THE SLICE IS FIXED.** `auth.startsWith("Bearer ")` then
+/// `auth.slice(7).trim()` — a header of `bearer x` (lower-case) is NOT a Bearer header, because
+/// `startsWith` is case-sensitive, so it is refused; and the slice is seven characters, so
+/// `Bearer  x` (two spaces) leaves one leading space that the trim removes.
+///
+/// **THERE IS NO `CLIENT_KEY` ON THIS ROUTE AND THAT IS DELIBERATE**: the caller carries its own zen
+/// key, this worker never substitutes its paid one, so a blank key is a 401 and nothing else.
+pub fn bearer_key_allows(authorization: &str) -> bool {
+    let auth = authorization.trim();
+    match auth.strip_prefix("Bearer ") {
+        // `slice(7).trim()` — the rest, trimmed. A header of exactly `Bearer ` leaves an empty
+        // string, which is a refusal.
+        Some(rest) => !rest.trim().is_empty(),
+        None => false,
+    }
+}
+
+/// The key `/v1/responses` forwards, which is the SAME parse with the value rather than the verdict.
+pub fn bearer_key(authorization: &str) -> Option<String> {
+    let auth = authorization.trim();
+    auth.strip_prefix("Bearer ")
+        .map(|rest| rest.trim().to_string())
+        .filter(|k| !k.is_empty())
+}
+
+/// `safeEq(a, b)` — SHA-256 both sides, then fold the XOR across every byte WITHOUT short-circuiting.
+///
+/// **TWO RULES, AND BOTH ARE TIMING RULES.** No length early-exit (the digests are always 32 bytes,
+/// so there is no length to leak), and the fold accumulates `diff |= a[i] ^ b[i]` over all 32 bytes
+/// rather than returning at the first difference. A port that wrote `if a[i] != b[i] { return false }`
+/// would be a correct function with a leak, and the leak is the point of the function.
+///
+/// Two digests of different inputs are compared for EQUALITY, so the answer is the same as `==`; the
+/// constant time is the property, and `==` does not have it.
+pub fn safe_eq(a: &str, b: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    let da = Sha256::digest(a.as_bytes());
+    let db = Sha256::digest(b.as_bytes());
+    let mut diff: u8 = 0;
+    for i in 0..32 {
+        diff |= da[i] ^ db[i];
+    }
+    diff == 0
+}
+
 #[cfg(test)]
 // THE NAMES SHOUT WHERE THE BEHAVIOUR IS THE OPPOSITE OF WHAT A READER EXPECTS — the two loopback
 // rules, and the length sort. The capitals are the note; see the other crates' tests for the same.
@@ -251,6 +439,116 @@ mod tests {
         assert!(!is_loopback_host("::1"));
         assert!(!is_loopback_host("localhost.evil.com"));
         assert!(!is_loopback_host(""));
+    }
+
+    #[test]
+    fn the_ROUTE_TABLE_is_the_workers_own_order_and_a_path_that_ALMOST_matches_is_a_404() {
+        assert_eq!(
+            route("OPTIONS", "/anything/at/all"),
+            Route::Preflight,
+            "a preflight is asked before any path is"
+        );
+        assert_eq!(route("GET", "/v1/models"), Route::Models);
+        assert_eq!(route("POST", "/v1/responses"), Route::Responses);
+        assert_eq!(route("POST", "/v1/messages"), Route::Messages);
+        // **`endsWith`, NOT EQUALS** — a deployment that mounts the worker under a prefix keeps
+        // working, which is why every arm is a suffix test and not a path equality.
+        assert_eq!(route("POST", "/gw/proxy/v1/messages"), Route::Messages);
+        assert_eq!(route("GET", "/some/other/models"), Route::Models);
+        // AND THE NEAR MISSES ARE 404s, NOT THE PAGE OR A GATE.
+        for (method, path) in [
+            ("GET", "/v1/messages"), // the right path, the wrong method
+            ("POST", "/v1/models"),  // ditto
+            ("PUT", "/v1/messages"),
+            ("DELETE", "/v1/responses"),
+            ("POST", "/v1/response"), // one character short
+            ("POST", "/v1/messages2"),
+            ("GET", "/"),
+            ("POST", "/v1/"),
+            ("get", "/v1/models"), // **METHODS ARE CASE-SENSITIVE** here, and that is the
+                                   // JavaScript's `===`; a lower-case `get` is a 404.
+        ] {
+            assert_eq!(route(method, path), Route::NotFound, "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn the_X_API_KEY_gate_is_DEFAULT_CLOSED_and_an_EMPTY_secret_refuses_EVERYthing() {
+        // **NO CONFIGURED SECRET IS A REFUSAL, NOT AN OPEN DOOR.** `!env.CLIENT_KEY || !(await safeEq)`
+        // means a worker deployed without its secret answers 401 to everything rather than falling
+        // through to the paid upstream key — and the same 401 for both failures, so a caller cannot
+        // tell "not configured" from "wrong key".
+        assert!(!x_api_key_allows(None, "anything"));
+        // AN EMPTY CONFIGURED KEY IS NOT A KEY: `!env.CLIENT_KEY` is truthiness, so `Some("")` must
+        // refuse too, and a `== ""` check would have waved it through.
+        assert!(!x_api_key_allows(Some(""), "anything"));
+        assert!(x_api_key_allows(Some("k-12345678"), "k-12345678"));
+        assert!(!x_api_key_allows(Some("k-12345678"), "k-12345679"));
+        assert!(!x_api_key_allows(Some("k-12345678"), ""));
+    }
+
+    #[test]
+    fn the_BEARER_prefix_is_CASE_SENSITIVE_and_the_slice_is_seven_characters() {
+        // **`startsWith("Bearer ")` IS CASE-SENSITIVE**, so a lower-case `bearer` is not a Bearer
+        // header and is refused — a port that lowercased the comparison would accept one.
+        assert!(bearer_key_allows("Bearer sk-123"));
+        assert!(!bearer_key_allows("bearer sk-123"));
+        assert!(!bearer_key_allows("BEARER sk-123"));
+        // `slice(7).trim()` — two spaces leave one, and the trim takes it.
+        assert_eq!(bearer_key("Bearer  sk-123").as_deref(), Some("sk-123"));
+        assert_eq!(bearer_key("  Bearer sk-123  ").as_deref(), Some("sk-123"));
+        // A header of exactly `Bearer ` leaves nothing, which is a refusal.
+        assert!(!bearer_key_allows("Bearer "));
+        assert!(!bearer_key_allows("Bearer"));
+        assert!(!bearer_key_allows(""));
+        assert!(!bearer_key_allows("Basic sk-123"));
+    }
+
+    #[test]
+    fn the_SESSION_header_is_an_ORDER_and_the_FIRST_non_blank_wins() {
+        // **THE FIRST PRESENT WINS, NOT THE MOST SPECIFIC** — the order is the feature, and a request
+        // carrying all four forwards the first and drops the rest.
+        let all: &[(&str, &str)] = &[
+            ("x-opencode-session", "one"),
+            ("x-client-request-id", "two"),
+            ("session_id", "three"),
+            ("x-session-id", "four"),
+        ];
+        assert_eq!(
+            session_header(all),
+            Some(("x-opencode-session", "one".into()))
+        );
+        // A BLANK FIRST HEADER IS TREATED AS ABSENT, so the second wins — the value is TRIMMED before
+        // the emptiness test, which is why three spaces do not forward as a session id of nothing.
+        let blank_first: &[(&str, &str)] = &[("x-opencode-session", "   "), ("session_id", "real")];
+        assert_eq!(
+            session_header(blank_first),
+            Some(("x-opencode-session", "real".into())),
+            "the forwarded VALUE is the caller's own, under the first name that had one"
+        );
+        // **HEADER NAMES ARE CASE-INSENSITIVE**, so `X-OpenCode-Session` is found by the first entry.
+        let shouty: &[(&str, &str)] = &[("X-OpenCode-Session", "s")];
+        assert_eq!(
+            session_header(shouty),
+            Some(("x-opencode-session", "s".into()))
+        );
+        // AND NONE OF THEM PRESENT IS NO HEADER AT ALL, which is what makes the spread add nothing.
+        assert_eq!(session_header(&[]), None);
+        assert_eq!(session_header(&[("x-request-id", "x")]), None);
+    }
+
+    #[test]
+    fn safe_eq_is_a_COMPARISON_of_DIGESTS_and_the_answer_agrees_with_equality() {
+        assert!(safe_eq("same", "same"));
+        assert!(!safe_eq("a", "b"));
+        assert!(!safe_eq("", "x"));
+        assert!(safe_eq("", ""));
+        // A DIFFERENT LENGTH IS STILL COMPARED BY DIGEST, so a prefix of the key is not a match — the
+        // no-early-exit rule means there is no length to leak, and this is the consequence.
+        assert!(!safe_eq("k-12345678", "k-12345678-extra"));
+        // A UNICODE KEY COMPARES BY ITS BYTES, which is what `TextEncoder` does in the JavaScript.
+        assert!(safe_eq("键-12345678", "键-12345678"));
+        assert!(!safe_eq("键-12345678", "键-12345679"));
     }
 
     #[test]

@@ -18,6 +18,11 @@ path = "src/lib.rs"
 # dependency is taken until the entry point is ported — which keeps `cargo test` a plain host build.
 url = "2"
 serde_json = "1"
+# SHA-256 FOR `safe_eq`, and the reason it is a dependency and not 64 hand-rolled lines is in the
+# function's own doc comment: this crate already took `url` and `serde_json` for the same reason, and
+# the repo has a receipt for the other kind of decision (the `regex` line in the CDN worker, with its
+# number in the commit that added it).
+sha2 = "0.10"
 
 # NO [profile.release] OVERRIDES ON PURPOSE, the same reason as the CDN worker: the deployed module
 # is what `worker-build --release` produces with the default profile, so the size is the number a
