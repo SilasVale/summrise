@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDeviceRead } from "./useDeviceRead";
-import { stripAnsi } from "../lib/ansi";
 import type { ReadState } from "../lib/readState";
 
 // Command event stream for one session (round-admin-ui Task 4): polls
@@ -68,10 +67,11 @@ export interface CommandCard {
 // chunk at 4 KiB but not the total while the session is open. Keep the card's
 // memory bounded; the TAIL wins (the newest output is what the operator
 // needs to see; the audit file on disk still holds the head).
-const MAX_OUTPUT_CHARS = 1_000_000;
+// `MAX_OUTPUT_CHARS` AND `TRUNC_MARK` MOVED WITH `finishCard` (P2, 2026-09-29): both are the output
+// cap, and it is now applied in `panel-logic/src/events.rs` where the text is joined and stripped. A
+// second copy of the mark here would be a string the crate cannot see.
 // round-128: tail cap for the raw event array (see the fold below).
 const MAX_RAW_EVENTS = 20_000;
-const TRUNC_MARK = "\n…[output truncated — older lines dropped]…\n";
 /** The value before the first read of a subject. ONE object, held here rather than built per render:
  *  the module hands this exact identity back on a `resetKey` change, and that is how the fold below
  *  recognises the first reply of a NEW session (see `reduce`). */
@@ -80,80 +80,29 @@ const NO_EVENTS: CommandEvent[] = [];
 /** Map a status event's value to a command end, or null if session-level.
  *  Exported for the trajectory view (useTrajectory) — the round state uses
  *  the same round-99/100 terminal markers. */
+// ── RUST SINCE 2026-09-29 (P2): `terminalStatus` and `groupEvents` are `panel-logic/src/events.rs` ──
+//
+// P2's own turning-point section wrote `terminalStatus` off with this sentence: it "is called inside a
+// SYNCHRONOUS FOLD, so awaiting it means making the whole fold async". **That objection was an
+// artifact of the lazy seam.** The module is loaded before the first render, so the fold is a plain
+// synchronous loop over a synchronous call — see `wasm/panelLogic.ts` for the measurement that
+// removed the constraint.
+//
+// The signatures did not change, so `useCommandEvents.test.ts` (56 assertions) runs unchanged.
+import { logic } from "../wasm/panelLogic";
+
 export function terminalStatus(st: string): { exitCode: number | null; reason: string } | null {
-  if (st === "backgrounded" || st === "closed") return { exitCode: null, reason: st };
-  if (st.startsWith("exited:")) {
-    const code = Number(st.slice("exited:".length));
-    return { exitCode: Number.isFinite(code) ? code : null, reason: st };
-  }
-  return null;
+  return logic().terminal_status(st) as { exitCode: number | null; reason: string } | null;
 }
 
-function finishCard(start: CommandEvent, outputs: string[], ended: boolean, exitCode: number | null, reason: string | null, durationMs: number | null): CommandCard {
-  // Raw SSE bytes carry ANSI/OSC control sequences — strip for text cards.
-  let output = stripAnsi(outputs.join(""));
-  if (output.length > MAX_OUTPUT_CHARS) output = TRUNC_MARK + output.slice(-MAX_OUTPUT_CHARS);
-  return {
-    id: `c-${start.seq}`,
-    seq: start.seq,
-    command: start.command ?? "",
-    output,
-    startedAt: start.ts,
-    ended,
-    exitCode,
-    reason,
-    durationMs,
-  };
-}
+// `finishCard` MOVED WITH `groupEvents` (P2, 2026-09-29). It is the half of the card that is not
+// grouping — the ANSI strip, the tail cap and the `c-<seq>` id — and all three of those are
+// `panel-logic/src/events.rs` now. It is a private helper, so there is no import left behind and no
+// second copy of the truncation mark or the million-unit cap in the panel.
 
 /** Group a session's raw audit events (in seq order) into command cards. */
 export function groupEvents(events: CommandEvent[]): CommandCard[] {
-  const cards: CommandCard[] = [];
-  let start: CommandEvent | null = null;
-  let outputs: string[] = [];
-
-  for (const ev of events) {
-    switch (ev.kind) {
-      case "command/start": {
-        // A new start while the previous command never ended — close it as
-        // interrupted so it can't stay "running" forever (recovery appends
-        // interrupted server-side, but a mid-stream start must not orphan
-        // the prior card).
-        if (start) cards.push(finishCard(start, outputs, true, null, "interrupted", null));
-        start = ev;
-        outputs = [];
-        break;
-      }
-      case "output": {
-        if (start && ev.text) outputs.push(ev.text);
-        break;
-      }
-      case "command/end": {
-        if (start) {
-          cards.push(finishCard(start, outputs, true, ev.exit_code ?? null, ev.reason ?? null, ev.duration_ms ?? null));
-          start = null;
-          outputs = [];
-        }
-        break;
-      }
-      case "status": {
-        if (!start || !ev.status) break;
-        const term = terminalStatus(ev.status);
-        if (term) {
-          // Status ends carry no duration_ms — derive it from the event ts
-          // (round-58 unit: ms).
-          cards.push(finishCard(start, outputs, true, term.exitCode, term.reason, (ev.ts - start.ts) * 1000));
-          start = null;
-          outputs = [];
-        }
-        break;
-      }
-    }
-  }
-  // A trailing start with no end: still running (or the agent died before
-  // recovery appended interrupted) — surface it as a LIVE card.
-  if (start) cards.push(finishCard(start, outputs, false, null, null, null));
-  return cards;
+  return logic().group_events(events) as CommandCard[];
 }
 
 /**

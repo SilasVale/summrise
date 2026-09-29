@@ -155,6 +155,22 @@ export function disambiguate_labels(items) {
 }
 
 /**
+ * `groupEvents(events)` — the live trail's CARDS.
+ *
+ * A `command/start` while the previous command never ended closes it as `interrupted`, so a
+ * mid-stream start cannot orphan a card that would otherwise read "running" forever.
+ * @param {any} events
+ * @returns {Array<any>}
+ */
+export function group_events(events) {
+    const ret = wasm.group_events(events);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -171,6 +187,23 @@ export function disambiguate_labels(items) {
  */
 export function group_operation(events, boundaries) {
     const ret = wasm.group_operation(events, boundaries);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `groupRounds(events)` — the trajectory's ROUNDS, which are `derivePath`'s input.
+ *
+ * A round is ENDED by a `command/end` OR by a terminal status, and **the LAST marker in the round
+ * wins** — a backgrounded command can later log `closed`. A superseded round is sealed AS-IS (the
+ * raw view: what the log says), which is where this deliberately disagrees with `groupEvents`.
+ * @param {any} events
+ * @returns {Array<any>}
+ */
+export function group_rounds(events) {
+    const ret = wasm.group_rounds(events);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -437,6 +470,33 @@ export function state_from_end(ended, exit_code, reason) {
 }
 
 /**
+ * `stripAnsi(s)` — the four escape rules, then a sweep for any ESC that survived.
+ *
+ * THE SCAN, IN THE ORDER THE REGEX ALTERNATION READS:
+ *
+ *   1. `CSI`     ESC `[` [0-9;?]* [ -/]* [@-~]   — SGR colours, cursor moves, `\x1b[2J`
+ *   2. `OSC`     ESC `]` [^BEL ESC]* (BEL | ESC `\` | end-of-input) — titles, `]133;D;`
+ *   3. `DCS`     ESC `[P^_] … ESC `\`  — device-control strings
+ *   4. `SINGLE`  ESC [ `=` `>` 7 8 6 M N O c ]  — the one-byte escapes
+ *
+ * and then every remaining ESC is dropped, so a control byte can never reach the DOM as text.
+ * @param {any} input
+ * @returns {string}
+ */
+export function strip_ansi(input) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.strip_ansi(input);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
  *
  * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
@@ -446,6 +506,21 @@ export function state_from_end(ended, exit_code, reason) {
  */
 export function summarize_path(steps) {
     const ret = wasm.summarize_path(steps);
+    return ret;
+}
+
+/**
+ * `terminalStatus(st)` — the marker rule, or nothing for a status that ends nothing.
+ *
+ * `exited:<n>` is the one that carries a code, and the code is the DEVICE's: a non-numeric tail is
+ * `NaN`, `Number.isFinite` says no, and the answer is a reason with no exit code.
+ * @param {string} status
+ * @returns {object | undefined}
+ */
+export function terminal_status(status) {
+    const ptr0 = passStringToWasm0(status, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.terminal_status(ptr0, len0);
     return ret;
 }
 
