@@ -40,6 +40,7 @@ mod attention;
 mod boot;
 mod evicted;
 mod js;
+mod liveness;
 mod monitors;
 mod runs;
 mod session_labels;
@@ -51,6 +52,10 @@ pub use archive::archive_entries;
 pub use attention::{badge_icon, title_for};
 pub use boot::parse_boot_history;
 pub use evicted::parse_evicted;
+pub use liveness::{
+    any_command_running, device_liveness, liveness_of, session_active, session_failed,
+    session_liveness, session_waiting,
+};
 pub use monitors::{parse_monitor_change, parse_monitors};
 pub use runs::{group_operation, operation_rows};
 pub use session_labels::disambiguate_labels;

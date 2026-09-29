@@ -2,6 +2,15 @@
 /* eslint-disable */
 
 /**
+ * `anyCommandRunning(sessions)` — is ANY session holding a command in flight, for the DEVICE mark.
+ *
+ * `!!sessions?.some(…)`: an absent or null list is `false`, and anything that is NOT a list is a
+ * throw in the JavaScript (`{}.some` is not a function) — so it is an error here too rather than a
+ * silent `false`, which would turn a caller's mistake into "nothing is running".
+ */
+export function any_command_running(sessions: any): boolean;
+
+/**
  * `archiveEntries(payload)` — `GET /api/sessions` → entries, or a THROW.
  *
  * The throw is the point and it is why this function returns `Result`: `[]` from a body the panel
@@ -19,6 +28,15 @@ export function archive_entries(payload: any): any;
  * subject: `count <= 0` and `count > 9` are the two tests, and a `-1` or a `2.5` reaches them.
  */
 export function badge_icon(count: number, urgent: boolean, base_href: any): string;
+
+/**
+ * `deviceLiveness(input)` — the device as a whole: reachable, holding questions, or busy.
+ *
+ * NO `failed` HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION: a device-level failure would
+ * have to pick WHICH session's last command to blame and say nothing about which, and the rail is
+ * the one mark that is always on screen — a light that is on most of the time means nothing.
+ */
+export function device_liveness(input: any): string;
 
 /**
  * `disambiguateLabels(items)` — one label per item, numbered where they collide.
@@ -45,6 +63,21 @@ export function disambiguate_labels(items: any): Array<any>;
  * list preserves what it had), so that is what happens here.
  */
 export function group_operation(events: any, boundaries: any): any;
+
+/**
+ * `livenessOf(input)` — THE PRECEDENCE, in one place.
+ *
+ * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
+ * answered even if a question is outstanding, so it is `off` and the mark must not claim otherwise.
+ * `waiting` outranks `working` because a question DECAYS if it is not seen while work continues;
+ * `failed` sits between activity and quiet because it is a fact about what ALREADY HAPPENED.
+ *
+ * EVERY TEST IS THE JAVASCRIPT'S TRUTHINESS — `!input.reachable`, `input.pending`, `input.active`,
+ * `input.failed` — and not `=== true`, which is why the fields are read as `JsValue` and asked with
+ * `is_truthy`. A `1`, a `"no"` and an object are all the JavaScript's answers, and a port that
+ * compared to `true` would answer differently for every one of them.
+ */
+export function liveness_of(input: any): string;
 
 /**
  * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
@@ -114,6 +147,45 @@ export function parse_monitors(j: any): any;
 export function parse_vitals_series(j: any): any;
 
 /**
+ * `sessionActive(session, workingMs)` — is the SESSION working, not "is the device busy".
+ *
+ * THE DEVICE'S ANSWER FIRST: `command_running` is the manager's own busy flag, so it is true for the
+ * WHOLE life of a command, including the silent minutes that output recency cannot see. Recency is
+ * the second signal, for work that is not a command through this path — and it is `typeof idleMs ===
+ * "number"`, a TYPE test, so a session whose `idle_ms` arrived as a string is not a reading.
+ */
+export function session_active(session: any, working_ms: number): boolean;
+
+/**
+ * `sessionFailed(session)` — DID THIS SESSION'S LAST COMMAND FAIL, the device's own exit code.
+ *
+ * ABSENT IS NOT FAILURE and not success: `lastExitCode` is `null` when the device observed no code
+ * at all, which is a third state a mark must not turn into either answer. NON-ZERO IS A FAILURE,
+ * with no judgement about which codes deserve it — the command cards have called every non-zero exit
+ * "Failed (exit N)" since they existed.
+ */
+export function session_failed(session: any): boolean;
+
+/**
+ * `sessionLiveness(session, workingMs)` — ONE DERIVATION FOR EVERY SURFACE.
+ *
+ * Nothing about a session's own mark needs the device: connectivity is the RAIL's fact, so a
+ * disconnected device does not make every session `off` — which is what a CLOSED session means.
+ */
+export function session_liveness(session: any, working_ms: number): string;
+
+/**
+ * `sessionWaiting(session)` — CAN THIS SESSION STILL ANSWER, the ONE predicate the mark, the tab's
+ * title and its aria-label all read.
+ *
+ * A CLOSED session's row keeps its data — the tombstone is the same record — so a question that
+ * expired with the session it belonged to survives in `pendingApproval`. Without the `closed` half,
+ * the desktop tab's title says "waiting for your approval" about a tab that cannot be answered at
+ * all, which is the disagreement between the two densities this model exists to stop.
+ */
+export function session_waiting(session: any): boolean;
+
+/**
  * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
  *
  * `items.length` IS A NON-NEGATIVE INTEGER BELOW 2^32, which is the one place this file may use
@@ -127,10 +199,13 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly any_command_running: (a: any) => [number, number, number];
     readonly archive_entries: (a: any) => [number, number, number];
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
+    readonly device_liveness: (a: any) => [number, number, number, number];
     readonly disambiguate_labels: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
+    readonly liveness_of: (a: any) => [number, number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
     readonly parse_evicted: (a: any) => [number, number, number];
@@ -138,6 +213,10 @@ export interface InitOutput {
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly session_active: (a: any, b: number) => [number, number, number];
+    readonly session_failed: (a: any) => [number, number, number];
+    readonly session_liveness: (a: any, b: number) => [number, number, number, number];
+    readonly session_waiting: (a: any) => [number, number, number];
     readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
