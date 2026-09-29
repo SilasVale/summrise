@@ -1,0 +1,51 @@
+{
+  // THE RUST WORKER'S CANARY, and this file is why a cutover is a one-line change instead of a
+  // decision made in a hurry.
+  //
+  // `wrangler.jsonc` names `src/index.js` and deploys the JavaScript. This one names
+  // `worker/build/index.js` — the module `worker-build --release` produced, the one
+  // `worker/verify.mjs` runs against the shipping JavaScript on thirteen cases — and binds THE SAME
+  // assets directory and the SAME R2 bucket under a DIFFERENT worker name, so the two can be smoke
+  // side by side and neither one is a guess about the other.
+  //
+  // WHY A CANARY AND NOT A CUTOVER: the harness proves the bytes, and the bytes are the thing that
+  // was uncertain. What the harness CANNOT prove is the two bindings' real behaviour — `R2Object`
+  // answers `size`/`httpEtag` as properties on a real object, and the ASSETS pass-through preserves
+  // range and conditional headers the stub never saw. A deploy that answers the same bytes under the
+  // real bindings is the last unknown removed, and it is removed somewhere that is not the URL every
+  // device's `setup` installs from.
+  //
+  // `workers_dev: true` and no custom domain, deliberately: the production name carries a domain
+  // that Cloudflare ignores in this config, so the canary is reachable only on its workers.dev URL.
+  //
+  // ── AND MEASURED 2026-09-29: `*.workers.dev` IS NOT REACHABLE FROM EITHER MACHINE THIS LOOP RUNS
+  // ON, so the canary is deployed but not yet SMOKED, and the two facts are separate:
+  //
+  //   THIS BOX (the Linux dev box):  `TLSv1.3 handshake … Connection reset by peer` — the same reset
+  //                                 `scripts/build.sh` records for `wrangler tail`, and the same
+  //                                 boundary the git mirror works around.
+  //   THE DEVICE (d1, OpenWrt):     `CANARY 000 0` while `https://agent.saisi.online` answers 200
+  //                                 from the same shell in the same second.
+  //
+  // **WHAT THE DEPLOY DID PROVE, from `wrangler deploy`'s own output:** the module is accepted, the
+  // 14 assets upload against the same directory production serves, BOTH bindings bind (ASSETS and the
+  // `summrise-temp-files` R2 bucket), and the worker starts in **3 ms**.
+  //
+  // **WHAT IS STILL UNMEASURED: the runtime's answers** — a real `R2Object`'s `size`/`httpEtag` as
+  // properties, and the ASSETS pass-through preserving the range and conditional headers the stub in
+  // `worker/verify.mjs` never saw. That is the last unknown before a cutover, and it needs a network
+  // that can see a workers.dev host — or a zone route on a name that is reachable, which is a
+  // decision with a DNS consequence and is therefore not taken here.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "summrise-dist-rust",
+  "main": "worker/build/index.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // THE SAME ASSETS DIRECTORY AS PRODUCTION, and that is what makes the comparison mean anything:
+  // the canary serves the real release artifacts, the real version.json and the real landing page,
+  // so a byte difference between the two workers cannot be an artifact difference.
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "summrise-temp-files" }],
+  "observability": { "enabled": false }
+}

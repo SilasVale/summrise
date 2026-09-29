@@ -792,3 +792,37 @@ round 134 找到的那个缺陷** ✓——**只比正文的话，这个移植�
 **另外十一条照样绿** ✓✓——**失败是关于一条路由的发现，不是一个坏了的仪器** ✓。
 
 产物：`index.js` 24,964 B（6,528 gz）＋ `index_bg.wasm` 565,504 B（185,004 gz）✓。
+
+
+### ④ 的 CDN worker **已经部署到一个 canary 名** ✓，而 **canary 本身在这两台机器上都够不着** ✓
+
+`index/wrangler.rust.jsonc`：`name: summrise-dist-rust` · `main: worker/build/index.js` ·
+**同一份 `./public` 资产 ＋ 同一个 `summrise-temp-files` R2 桶** ✓✓。
+`wrangler deploy` 的输出就是**部署证明了什么**的记录 ✓：
+
+    Uploaded 14 of 14 assets   （2 already uploaded）
+    Worker Startup Time: 3 ms
+    env.TEMP_FILES (summrise-temp-files)   R2 Bucket
+    env.ASSETS                             Assets
+    https://summrise-dist-rust.zhengsaisi.workers.dev
+    Current Version ID: d66001a6-c71b-4278-aba0-7416b2a85c46
+
+**所以：模块被接受 ✓、资产按生产同一目录上传 ✓、两个绑定都绑上 ✓、启动 3 ms ✓。**
+
+**而"运行时答什么"还没量 ✓，因为 `*.workers.dev` 在这个循环用到的两台机器上都够不着** ✓✓：
+
+| 机器 | canary | 生产 |
+|---|---|---|
+| **这台 Linux 开发机** | `TLSv1.3 handshake … Connection reset by peer` ✗ | 200 ✓ |
+| **设备 d1（OpenWrt）** | `CANARY 000 0` ✗ | **同一个 shell 同一秒 200** ✓ |
+
+**这和 `wrangler tail` 是同一条网络边界** ✓（`scripts/build.sh` 早就记着 tail 是 TLS-reset ✓），
+**而两台机器上生产都是 200，所以它不是部署的错** ✓。
+
+**于是"还差什么"是可指名的 ✓**：一个真的 `R2Object` 的 `size`/`httpEtag` 作为**属性**返回 ✓，
+以及 ASSETS 直通**保留 range 与条件头**（`verify.mjs` 的桩从没见过它们）✓。
+**这是切流前最后一个未知项 ✓，而它需要一个能看见 workers.dev 的网络** ✓✓——
+**或者一条挂在一个可达域名上的 zone route ✓，那是一个带 DNS 后果的决定，因此这里不取** ✗。
+
+**而 canary 留着不删 ✓**，理由是**删除本身是第二个不可逆动作** ✗，**而留着能让一个网络可达的人立刻
+smoke 它** ✓✓——**它带着版本 ID 写在上面的注释里** ✓。
