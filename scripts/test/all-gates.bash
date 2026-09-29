@@ -124,7 +124,23 @@ mapfile -t cargo_gates < <(
   # (`cargo test -p summrise-agent([^ ]*)`) cannot span the space before `--features`, so it
   # silently derives the BARE command and drops the flag — a pattern that truncates its subject is
   # the defect this suite exists to catch, and it would have been committed here.
-  grep -oE 'cargo test -p summrise-agent(-core)?( --features [a-z,]+)?' "$WORKFLOW" | sort -u | sed 's/^/cargo:/'
+  #
+  # AND IT NOW COVERS `clippy` AND `fmt`, WHICH IT DID NOT UNTIL 2026-09-29 — MEASURED, AND IT COST A
+  # RED `main`. The pattern was `cargo test …` alone, so this runner answered `25 ok, 0 failed` on a
+  # tree whose `cargo fmt --all -- --check` FAILED, and CI's `agent` job found it: a targeted edit to
+  # `agent/tests/wire_fields.rs` was made after the last `cargo fmt --all`, rustfmt reformats that
+  # closure, and the format check was the one command the local runner did not run. **The runner's
+  # blind spot was exactly the command the change could break** — this repository's own rule, "run the
+  # command the other end runs", with this file as the other end.
+  #
+  # THE ANCHOR IS `^` AND NOT A BARE `cargo …` SEARCH, and the reason is the job's own `name:` line:
+  # `name: agent (cargo test + clippy + fmt)` contains all three verbs, so an unanchored pattern
+  # derives the sentence `cargo test + clippy + fmt)` and tries to run it. Anchoring on the line start
+  # with an optional `run: ` is what separates an INVOCATION from prose about one.
+  grep -oE '^[[:space:]]*(run: )?cargo (test|clippy|fmt) [^"]*$' "$WORKFLOW" |
+    sed -E 's/^[[:space:]]*(run: )?//; s/[[:space:]]+$//' |
+    sort -u |
+    sed 's/^/cargo:/'
 )
 gates+=("${cargo_gates[@]}")
 
@@ -143,6 +159,19 @@ for cmd in "${gates[@]}"; do
     # the convention this suite reads. So empty output is a FAILURE, not a pass, and it is labelled so
     # the reader knows it was not the gate s verdict that failed but the gate s silence.
     0)
+      # ONE NAMED EXCEPTION, AND IT IS NAMED RATHER THAN PATTERN-MATCHED SO A SECOND ONE CANNOT RIDE
+      # ALONG UNNOTICED. `cargo fmt --all -- --check` is a CHECKER whose silence IS its pass: rustfmt
+      # prints nothing when everything is formatted, and it exits 0. Every other command here reports,
+      # which is the convention the rule below reads — so this one is written out, with the reason, and
+      # the rule is left intact for everything else. Found by widening this runner to the clippy/fmt
+      # steps (2026-09-29): the first run called a perfectly formatted tree a vacuous gate.
+      case "$cmd" in
+        "cargo:cargo fmt --all -- --check")
+          ok=$((ok + 1))
+          printf '  ok    %s (silent by design: rustfmt prints nothing when the tree is formatted)\n' "$cmd"
+          continue
+          ;;
+      esac
       if [ -z "$out" ]; then
         fail=$((fail + 1))
         printf '  FAIL  %s (exited 0 having printed NOTHING — a gate that says nothing has proved nothing)\n' "$cmd"
