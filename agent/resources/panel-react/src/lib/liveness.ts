@@ -1,5 +1,23 @@
 import { WORKING_MS } from "../hooks/useDeviceActivity";
+import { logic } from "../wasm/panelLogic";
 // liveness.ts — ONE state per entity, and ONE SHAPE per state.
+//
+// ── THE PREDICATES ARE RUST SINCE 2026-09-29 (P2), AND THEY ARE THE LARGEST FAMILY SO FAR ─────────
+//
+// The seven functions below are `agent/resources/panel-logic/src/liveness.rs`, transliterated — the
+// same truthiness tests, the same `typeof idleMs === "number"`, the same composition, and the same
+// two refusals the differential found (`null` raises there as it raises here, and `pendingCount > 0`
+// coerces through the engine's ToNumber). **THEIR SIGNATURES DID NOT CHANGE**, which is what let the
+// family move at all: every one of them is called DURING RENDER, and until the module was preloaded
+// and awaited before the first render a synchronous call from a component was impossible. The panel's
+// own `liveness.test.ts` runs UNCHANGED against the crate — that is the parity evidence.
+//
+// WHAT DID NOT MOVE: `URGENCY`, `SILHOUETTE` and `MOVES` below, and the reason is measured rather
+// than assumed — **no product code reads them.** They are the shape vocabulary that the test pins
+// ("no two states share a silhouette", "only `working` moves", the urgency order), and a table only a
+// test reads would be bytes every operator downloads to answer a question no operator asks.
+// `WORKING_MS` also stays: it belongs to `useDeviceActivity`, and it is PASSED INTO the crate rather
+// than restated there, so the window still has exactly one definition.
 //
 // WHY THIS EXISTS. The panel said "how is this thing doing" in four places, each with its own
 // vocabulary and its own arithmetic:
@@ -90,11 +108,12 @@ export function livenessOf(input: {
   active: boolean;
   failed?: boolean;
 }): Liveness {
-  if (!input.reachable) return "off";
-  if (input.pending) return "waiting";
-  if (input.active) return "working";
-  if (input.failed) return "failed";
-  return "idle";
+  // RUST SINCE 2026-09-29 (P2): `panel-logic/src/liveness.rs`. THE SIGNATURE IS UNCHANGED, which is
+  // what let this family move at all — every one of these is called DURING RENDER, and until the
+  // module was preloaded and awaited before the first render (`wasm/panelLogic.ts`) a synchronous
+  // call from a component was impossible. The body is one call; there is no second copy of the
+  // precedence left in the panel.
+  return logic().liveness_of(input) as Liveness;
 }
 
 /** The device as a whole: reachable, holding questions, or busy.
@@ -111,11 +130,9 @@ export function deviceLiveness(input: {
   pendingCount: number;
   working: boolean;
 }): Liveness {
-  return livenessOf({
-    reachable: input.connected,
-    pending: input.pendingCount > 0,
-    active: input.working,
-  });
+  // RUST SINCE 2026-09-29: `device_liveness` composes `liveness_of` in the crate, so the two cannot
+  // disagree about the precedence. `NO failed HERE` above is the decision; it is unchanged.
+  return logic().device_liveness(input) as Liveness;
 }
 
 /** A session. `reachable` follows the device because a session lives on it; a CLOSED session is not
@@ -139,7 +156,7 @@ export function sessionWaiting(session: {
   closed?: boolean;
   commandRunning?: boolean;
 }): boolean {
-  return !session.closed && !!session.pendingApproval;
+  return logic().session_waiting(session);
 }
 
 /**
@@ -162,12 +179,10 @@ export function sessionActive(session: {
   idleMs?: number;
   commandRunning?: boolean;
 }): boolean {
-  // THE DEVICE'S ANSWER FIRST. `command_running` is the manager's own busy flag — the execute wait-loop sets it
-  // around the command it is waiting for — so it is true for the WHOLE life of a command, including the silent
-  // minutes that output recency cannot see (a flash, a long probe, a serial command that prints one final line).
-  // Recency stays as the second signal, for work that is not a command through this path.
-  if (session.commandRunning) return true;
-  return typeof session.idleMs === "number" && session.idleMs < WORKING_MS;
+  // THE WINDOW IS PASSED IN, not restated: it belongs to `useDeviceActivity` (the device-wide
+  // recency signal), and a constant copied into the crate would be the second copy that file's own
+  // comment exists to prevent. The RULE that reads it is `session_active` in `liveness.rs`.
+  return logic().session_active(session, WORKING_MS);
 }
 
 /**
@@ -181,7 +196,9 @@ export function sessionActive(session: {
 export function anyCommandRunning(
   sessions: Array<{ commandRunning?: boolean }> | undefined,
 ): boolean {
-  return !!sessions?.some((s) => s.commandRunning);
+  // `!!sessions?.some(…)` is the Rust's own optional-chaining arm: an absent list is `false`, and
+  // anything that is not a list is a THROW there as it is here (`{}.some` is not a function).
+  return logic().any_command_running(sessions);
 }
 
 /**
@@ -197,12 +214,9 @@ export function sessionLiveness(session: {
   commandRunning?: boolean;
   lastExitCode?: number | null;
 }): Liveness {
-  return livenessOf({
-    reachable: !session.closed,
-    pending: sessionWaiting(session),
-    active: sessionActive(session),
-    failed: sessionFailed(session),
-  });
+  // ONE CALL, and the four inputs are composed in the crate: a caller cannot re-derive one of them
+  // here and disagree with the mark.
+  return logic().session_liveness(session, WORKING_MS) as Liveness;
 }
 
 /** DID THIS SESSION'S LAST COMMAND FAIL — the device's own exit code, and nothing else (round 97).
@@ -220,5 +234,5 @@ export function sessionLiveness(session: {
 export function sessionFailed(session: {
   lastExitCode?: number | null;
 }): boolean {
-  return typeof session.lastExitCode === "number" && session.lastExitCode !== 0;
+  return logic().session_failed(session);
 }

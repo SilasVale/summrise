@@ -1,6 +1,23 @@
 /* @ts-self-types="./panel_logic.d.ts" */
 
 /**
+ * `anyCommandRunning(sessions)` — is ANY session holding a command in flight, for the DEVICE mark.
+ *
+ * `!!sessions?.some(…)`: an absent or null list is `false`, and anything that is NOT a list is a
+ * throw in the JavaScript (`{}.some` is not a function) — so it is an error here too rather than a
+ * silent `false`, which would turn a caller's mistake into "nothing is running".
+ * @param {any} sessions
+ * @returns {boolean}
+ */
+export function any_command_running(sessions) {
+    const ret = wasm.any_command_running(sessions);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
  * `archiveEntries(payload)` — `GET /api/sessions` → entries, or a THROW.
  *
  * The throw is the point and it is why this function returns `Result`: `[]` from a body the panel
@@ -39,6 +56,34 @@ export function badge_icon(count, urgent, base_href) {
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
         wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * `deviceLiveness(input)` — the device as a whole: reachable, holding questions, or busy.
+ *
+ * NO `failed` HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION: a device-level failure would
+ * have to pick WHICH session's last command to blame and say nothing about which, and the rail is
+ * the one mark that is always on screen — a light that is on most of the time means nothing.
+ * @param {any} input
+ * @returns {string}
+ */
+export function device_liveness(input) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.device_liveness(input);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
 }
 
@@ -83,6 +128,40 @@ export function group_operation(events, boundaries) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `livenessOf(input)` — THE PRECEDENCE, in one place.
+ *
+ * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
+ * answered even if a question is outstanding, so it is `off` and the mark must not claim otherwise.
+ * `waiting` outranks `working` because a question DECAYS if it is not seen while work continues;
+ * `failed` sits between activity and quiet because it is a fact about what ALREADY HAPPENED.
+ *
+ * EVERY TEST IS THE JAVASCRIPT'S TRUTHINESS — `!input.reachable`, `input.pending`, `input.active`,
+ * `input.failed` — and not `=== true`, which is why the fields are read as `JsValue` and asked with
+ * `is_truthy`. A `1`, a `"no"` and an object are all the JavaScript's answers, and a port that
+ * compared to `true` would answer differently for every one of them.
+ * @param {any} input
+ * @returns {string}
+ */
+export function liveness_of(input) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.liveness_of(input);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
 }
 
 /**
@@ -206,6 +285,90 @@ export function parse_vitals_series(j) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `sessionActive(session, workingMs)` — is the SESSION working, not "is the device busy".
+ *
+ * THE DEVICE'S ANSWER FIRST: `command_running` is the manager's own busy flag, so it is true for the
+ * WHOLE life of a command, including the silent minutes that output recency cannot see. Recency is
+ * the second signal, for work that is not a command through this path — and it is `typeof idleMs ===
+ * "number"`, a TYPE test, so a session whose `idle_ms` arrived as a string is not a reading.
+ * @param {any} session
+ * @param {number} working_ms
+ * @returns {boolean}
+ */
+export function session_active(session, working_ms) {
+    const ret = wasm.session_active(session, working_ms);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
+ * `sessionFailed(session)` — DID THIS SESSION'S LAST COMMAND FAIL, the device's own exit code.
+ *
+ * ABSENT IS NOT FAILURE and not success: `lastExitCode` is `null` when the device observed no code
+ * at all, which is a third state a mark must not turn into either answer. NON-ZERO IS A FAILURE,
+ * with no judgement about which codes deserve it — the command cards have called every non-zero exit
+ * "Failed (exit N)" since they existed.
+ * @param {any} session
+ * @returns {boolean}
+ */
+export function session_failed(session) {
+    const ret = wasm.session_failed(session);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
+ * `sessionLiveness(session, workingMs)` — ONE DERIVATION FOR EVERY SURFACE.
+ *
+ * Nothing about a session's own mark needs the device: connectivity is the RAIL's fact, so a
+ * disconnected device does not make every session `off` — which is what a CLOSED session means.
+ * @param {any} session
+ * @param {number} working_ms
+ * @returns {string}
+ */
+export function session_liveness(session, working_ms) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.session_liveness(session, working_ms);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * `sessionWaiting(session)` — CAN THIS SESSION STILL ANSWER, the ONE predicate the mark, the tab's
+ * title and its aria-label all read.
+ *
+ * A CLOSED session's row keeps its data — the tombstone is the same record — so a question that
+ * expired with the session it belonged to survives in `pendingApproval`. Without the `closed` half,
+ * the desktop tab's title says "waiting for your approval" about a tab that cannot be answered at
+ * all, which is the disagreement between the two densities this model exists to stop.
+ * @param {any} session
+ * @returns {boolean}
+ */
+export function session_waiting(session) {
+    const ret = wasm.session_waiting(session);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
 }
 
 /**

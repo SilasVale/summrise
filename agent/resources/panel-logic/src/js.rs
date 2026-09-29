@@ -132,3 +132,37 @@ pub fn opt_num(n: Option<f64>) -> JsValue {
         None => JsValue::NULL,
     }
 }
+
+/// JS `Number(v)` — the ENGINE's ToNumber, for a comparison the JavaScript writes with `>`.
+///
+/// WHY THIS EXISTS AND NOT `as_f64()`: JavaScript's relational operators COERCE. `"5" > 0` is true,
+/// `[5] > 0` is true, `null > 0` is false, `undefined > 0` is false — and `as_f64()` answers `None`
+/// for every one of the four, so a port that read the property as a number would be right about two
+/// of them and wrong about two, which is the shape of a divergence nobody notices. The differential
+/// for `liveness.rs` caught exactly this on `deviceLiveness({pendingCount: "5"})`.
+pub fn to_number(v: &JsValue) -> f64 {
+    Reflect::get(&js_sys::global(), &JsValue::from_str("Number"))
+        .ok()
+        .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+        .and_then(|n| n.as_f64())
+        .unwrap_or(f64::NAN)
+}
+
+/// THE INPUT GUARD THE PREDICATES SHARE: `null` and `undefined` are what JavaScript RAISES on.
+///
+/// `null.reachable` is a TypeError, and so is `undefined.reachable` — while `42 .reachable`,
+/// `"x".reachable` and `[].reachable` are all `undefined`, because JavaScript AUTO-BOXES a primitive
+/// and only the two nullish values have nothing to box. `prop` in this module tolerates all of them
+/// (it is the `(j ?? {})` guard, which is right for a PARSER), and that tolerance is wrong here: a
+/// predicate that answered `idle` for a null session would paint a quiet dot about nothing where the
+/// TypeScript crashed loudly. A mark that is silently wrong is worse than a component that is
+/// visibly broken.
+pub fn require_present(v: &JsValue, what: &str) -> Result<(), JsValue> {
+    if v.is_null() || v.is_undefined() {
+        return Err(JsValue::from_str(&format!(
+            "{what}: the input is null or undefined, which the TypeScript raises on"
+        )));
+    }
+    Ok(())
+}

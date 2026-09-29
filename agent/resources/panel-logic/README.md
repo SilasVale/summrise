@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **66,662 raw / 27,967 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **21,906 raw / 6,141 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **71,133 raw / 29,877 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **27,987 raw / 7,840 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -34,12 +34,17 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `monitors.rs` (2 exports) | 14,173 (+2,679) | 3,603 (+482) | **273,252** (HEAD re-measured with the same instrument: 273,523 → **−271**) |
 | `runs.rs` (2 exports, the first RENDER-path family) | 23,167 (+8,994) | 4,268 (+665) | **272,375** (**−877**) |
 | the eight families after it, to `attention.rs` | 26,159 | 5,460 | **272,344** (the tree the preload landed on) |
-| `session_labels.rs` (1 export) | **27,967** (+1,808) | **6,141** (+681) | **273,160** (+816) |
+| `session_labels.rs` (1 export) | 27,967 (+1,808) | 6,141 (+681) | **273,160** (+816) |
+| `liveness.rs` (7 exports) | **29,877** (+1,910) | **7,840** (+1,699) | **273,240** (+120) |
 
 **The first-load column is the one the operator pays, and for six of the eight families it went DOWN**
 — the TypeScript a family deletes is larger than the glue it adds. `session_labels.rs` is the
 exception and the reason is not the family: **the inline module in `index.html` costs +482 gz of the
-+816**, and it is a ONE-TIME cost that every later family benefits from. The wasm column is what a
++816**, and it is a ONE-TIME cost that every later family benefits from. **`liveness.rs` is the other
+exception and it is the honest shape of a seven-export family: +1,699 gz of glue for ~1,580 gz of
+deleted TypeScript, i.e. +120 gz on the payload — the widest family so far costs about a tenth of a
+percent of it.** The glue's raw growth (6,081 bytes) is much larger than its minified share, which is
+why the column is measured on `panel.js` and not on the glue file. The wasm column is what a
 page pays once, separately, and `runs.rs` remains by far the most expensive family (~350 lines of
 `lib/runs.ts`, the panel's first `String.prototype.localeCompare`, its first UTF-16-aware slice, and
 a fold that allocates a JS object per row of an 18-field shape).
@@ -63,6 +68,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `monitors.rs` | `hooks/useMonitors.ts`'s `parseMonitors` + `parseMonitorChange` | 2 |
 | `runs.rs` | `lib/runs.ts`'s `groupOperation` + `operationRows` | 2 |
 | `session_labels.rs` | `lib/sessionLabels.ts`'s `disambiguateLabels` | 1 |
+| `liveness.rs` | `lib/liveness.ts`'s seven predicates (`livenessOf`, `deviceLiveness`, `sessionWaiting`, `sessionActive`, `anyCommandRunning`, `sessionLiveness`, `sessionFailed`) | 7 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
@@ -111,10 +117,12 @@ nobody checked is a lie the reader believes; this one is checked, and the check 
 probe beside it.
 
 **WHAT IS STILL RENDER-PATH, AND WHAT EACH ONE COSTS NOW.** `lib/path.ts`'s `derivePath` +
-`attentionSteps`, `lib/liveness.ts`'s five predicates, `cardState`/`stateFromEnd`, and `fmtSince` /
-`unstableTargets` / `downTargets` in `useMonitors.ts` are all still TypeScript. **None of them is
-blocked any more** — each is a move that has not been made, and the only question left per family is
-whether its derivation belongs at the data boundary or in the component.
+`attentionSteps`, `cardState`/`stateFromEnd`, and `fmtSince` / `unstableTargets` / `downTargets` in
+`useMonitors.ts` are all still TypeScript — **and `liveness.rs` is the proof that the road is open**:
+seven predicates, every one of them called during render, moved with their signatures unchanged and
+the panel's own test file untouched. **None of the rest is blocked either** — each is a move that has
+not been made, and the only question left per family is whether its derivation belongs at the data
+boundary or in the component.
 
 ## The numbers this crate was chosen by, measured before it was written
 
