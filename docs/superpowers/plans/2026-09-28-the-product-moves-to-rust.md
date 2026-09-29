@@ -856,3 +856,34 @@ canary 挂上了 zone route `agent-rust.saisi.online` ＋ 一条 CNAME（**两�
 **而"控制组"这一手也是必要的**：**生产在这条链路上也会截断** ✓（一次只到 18.3 MB ✓），
 **所以"慢就断"是这个环境的性质** ✓，**而 canary 三次都拿满、生产三次都拿满** ✓——
 **差别是速度，不是正确性** ✓。
+
+
+### ④ 切流了：**`index` 的生产域名现在由 Rust worker 服务** ✓✓
+
+`index/wrangler.jsonc` 的 `main` 指向 `worker/build/index.js` ✓——**这是整个迁移里的第一次切流** ✓，
+而且是**每一个设备的 `setup` 都用的那个域名** ✗✗。
+
+**而 `src/index.js` 没有删** ✓✓：`index/test/*.mjs` 还在 import 它 ✓，
+**而"旧的在新版被证明等价之前不删"在"证明等价"有两个来源之后才真正被考验** ✓：
+① `verify.mjs` 13 个用例对着**发货的那份 JS** 逐字节 ✓；
+② **canary 用同一份资产、同一个 R2 桶，对着这个域名，八条路由逐字节** ✓✓（主机名归一化后）。
+**回去的路是一行** ✓：`"main": "src/index.js"` ＋ 重新部署 ✓。
+
+**而构建是部署的一部分** ✓：**`worker-build` 的输出整个是 gitignored 的** ✓，
+**所以没跑过它的 checkout 根本没有 `main` 可部署** ✗，**而 wrangler 的报错是一个路径错误，
+一个字都不提构建** ✗。**`deploy_worker` 现在先跑 `worker-build --release` ✓，跑不出来就拒绝部署** ✓，
+**并把 `cargo install worker-build` 那行打出来** ✓——**因为缺工具和缺模块看起来一模一样** ✓。
+
+**切流后在真机（生产域名）上量到的** ✓✓：
+
+    wrangler deploy exit 0 · version a5c0d508-8f7f-4d7d-b107-993a0d73c4f8
+    deployment 5028711b · Worker Startup Time: 2 ms · 两个绑定都绑上
+    post-deploy smoke: 「no installer advertised for v1.2.495, and the SummriseAgent-Setup.exe alias is
+                      absent (consistent)」←✓ **round 125 那条规则被既有门禁当场验了** ✓
+    post-deploy smoke: 「/api/version smoke passed (v1.2.495, versioned + latest binary sha verified)」
+    **那条曾经坏掉的路由：115,028,145 字节，两次** ✓✓（82.7 s / 59.2 s，生产自己早先是 52.5 s）
+
+**而落地页和清单的字节和切换前一样** ✓——**这正是"已证明等价"该有的意思** ✓。
+
+**所以 block ④ 的 `index` 这一块完成了** ✓✓：**纯函数逐字节证过 ✓ · 能构建 ✓ · 跑起来对拍过 ✓ ·
+canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓。**
