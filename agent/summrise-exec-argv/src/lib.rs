@@ -31,7 +31,7 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 use std::fmt;
-use std::io::Read;
+use std::io::{Read, Write};
 
 /// Largest argv this helper will accept. A frame claiming more is refused before allocating for it,
 /// so a hostile or corrupt stream cannot ask for an unbounded vector.
@@ -40,7 +40,9 @@ pub const MAX_ARGS: u32 = 4096;
 /// Largest single argv element, for the same reason.
 pub const MAX_ARG_LEN: u32 = 1 << 20;
 
-/// A malformed frame. Every variant is a statement about the bytes actually read.
+/// A frame that could not be read or written. Every variant is a statement about the bytes actually
+/// transferred, and the read and write sides share it deliberately: a writer that could produce a
+/// frame the reader refuses is a drift this type is here to make impossible.
 #[derive(Debug, PartialEq, Eq)]
 pub enum FrameError {
     /// The stream ended before the element count could be read.
@@ -55,6 +57,8 @@ pub enum FrameError {
     ArgTooLong { index: u32, len: u32 },
     /// The stream ended inside an element.
     TruncatedArg { index: u32, declared: u32, got: u32 },
+    /// The underlying stream failed while a frame was being written.
+    Io { message: String },
 }
 
 impl fmt::Display for FrameError {
@@ -88,6 +92,7 @@ impl fmt::Display for FrameError {
                     "element {index} declares {declared} bytes but only {got} arrived"
                 )
             }
+            Self::Io { message } => write!(f, "frame stream failed: {message}"),
         }
     }
 }
@@ -150,6 +155,49 @@ pub fn read_frame<R: Read>(r: &mut R) -> Result<Vec<Vec<u8>>, FrameError> {
         argv.push(element);
     }
     Ok(argv)
+}
+
+/// Write one argv frame to `w`.
+///
+/// This is the caller's half of the same contract [`read_frame`] implements, and it lives here
+/// rather than in the caller so the two cannot drift: a writer in another crate would be free to
+/// emit a count or a length the reader refuses, and nothing would notice until a spawn failed on a
+/// machine nobody was watching. The limits are therefore enforced on this side too.
+///
+/// The frame is written in one pass with no separator between it and whatever the caller writes
+/// next — anything written afterwards becomes the target process's stdin, which is the property
+/// [`read_frame`]'s no-over-read rule exists to preserve.
+pub fn write_frame<W: Write, A: AsRef<[u8]>>(w: &mut W, argv: &[A]) -> Result<(), FrameError> {
+    let count = argv.len() as u32;
+    if argv.is_empty() {
+        return Err(FrameError::EmptyArgv { count });
+    }
+    if count > MAX_ARGS {
+        return Err(FrameError::TooManyArgs { count });
+    }
+    // Checked before a single byte is written, so a refused frame never leaves a partial one on the
+    // stream for the far side to misread as the start of an argv.
+    for (index, element) in argv.iter().enumerate() {
+        let len = element.as_ref().len() as u32;
+        if len > MAX_ARG_LEN {
+            return Err(FrameError::ArgTooLong {
+                index: index as u32,
+                len,
+            });
+        }
+    }
+
+    let io = |e: std::io::Error| FrameError::Io {
+        message: e.to_string(),
+    };
+    w.write_all(&count.to_be_bytes()).map_err(io)?;
+    for element in argv {
+        let element = element.as_ref();
+        w.write_all(&(element.len() as u32).to_be_bytes())
+            .map_err(io)?;
+        w.write_all(element).map_err(io)?;
+    }
+    w.flush().map_err(io)
 }
 
 #[cfg(test)]
@@ -287,6 +335,96 @@ mod tests {
                 index: 0,
                 len: MAX_ARG_LEN + 1
             })
+        );
+    }
+
+    // ── the writer, which is the half a caller actually uses ────────────────────────────────────
+
+    #[test]
+    fn what_the_writer_produces_is_what_the_reader_accepts() {
+        let argv: [&[u8]; 4] = [b"/usr/bin/rg", b"--no-config", b"two words", b"$(id)"];
+        let mut bytes = Vec::new();
+        write_frame(&mut bytes, &argv).expect("writes");
+
+        let mut cursor: &[u8] = &bytes;
+        let read = read_frame(&mut cursor).expect("reads back");
+        assert_eq!(
+            read,
+            vec![
+                b"/usr/bin/rg".to_vec(),
+                b"--no-config".to_vec(),
+                b"two words".to_vec(),
+                b"$(id)".to_vec()
+            ]
+        );
+        assert!(
+            cursor.is_empty(),
+            "the reader did not consume the whole frame"
+        );
+    }
+
+    #[test]
+    fn an_empty_element_round_trips_through_both_halves() {
+        let argv: [&[u8]; 3] = [b"prog", b"", b"tail"];
+        let mut bytes = Vec::new();
+        write_frame(&mut bytes, &argv).expect("writes");
+        let mut cursor: &[u8] = &bytes;
+        assert_eq!(
+            read_frame(&mut cursor).expect("reads back"),
+            vec![b"prog".to_vec(), Vec::new(), b"tail".to_vec()]
+        );
+    }
+
+    #[test]
+    fn the_writer_refuses_an_empty_argv() {
+        let argv: [&[u8]; 0] = [];
+        let mut bytes = Vec::new();
+        assert_eq!(
+            write_frame(&mut bytes, &argv),
+            Err(FrameError::EmptyArgv { count: 0 })
+        );
+    }
+
+    #[test]
+    fn the_writer_refuses_a_count_the_reader_would_refuse() {
+        // The drift this type exists to prevent: a writer free to emit a count above the limit would
+        // produce frames that only fail on the far machine.
+        let argv: Vec<&[u8]> = vec![b"x"; MAX_ARGS as usize + 1];
+        let mut bytes = Vec::new();
+        assert_eq!(
+            write_frame(&mut bytes, &argv),
+            Err(FrameError::TooManyArgs {
+                count: MAX_ARGS + 1
+            })
+        );
+    }
+
+    #[test]
+    fn the_writer_refuses_an_element_the_reader_would_refuse() {
+        let big = vec![b'x'; MAX_ARG_LEN as usize + 1];
+        let argv: [&[u8]; 1] = [&big];
+        let mut bytes = Vec::new();
+        assert_eq!(
+            write_frame(&mut bytes, &argv),
+            Err(FrameError::ArgTooLong {
+                index: 0,
+                len: MAX_ARG_LEN + 1
+            })
+        );
+    }
+
+    #[test]
+    fn a_refused_frame_leaves_nothing_on_the_stream() {
+        // A partial frame would be read by the far side as the beginning of an argv, so the limits
+        // are checked before the first byte is written rather than as each element goes out.
+        let big = vec![b'x'; MAX_ARG_LEN as usize + 1];
+        let argv: [&[u8]; 2] = [b"fine", &big];
+        let mut bytes = Vec::new();
+        assert!(write_frame(&mut bytes, &argv).is_err());
+        assert!(
+            bytes.is_empty(),
+            "a refused frame wrote {} bytes",
+            bytes.len()
         );
     }
 }
