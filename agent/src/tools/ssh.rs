@@ -545,7 +545,12 @@ impl SshSession {
                         message: error_message,
                     };
                 }
-                ChannelMsg::Eof | ChannelMsg::Close => break,
+                // DRAIN TO THE END, and do NOT break on `Eof`. A real sshd sends `eof` and the exit
+                // status as SEPARATE events, and the status can arrive after the eof — measured
+                // against this box's own sshd, which is how a command that exited 0 was reported as
+                // `Unknown`. `Eof` means "no more data on this stream"; it is not the end of the
+                // channel, and treating it as one threw away the only fact the caller wanted.
+                ChannelMsg::Close => break,
                 _ => {}
             }
         }

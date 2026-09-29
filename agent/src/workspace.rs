@@ -34,6 +34,139 @@ use crate::tools::ssh::{ExecOutcome, SshSession};
 /// string is a literal we chose — see [`helper_is_shell_safe`].
 pub const HELPER_DEFAULT: &str = "~/.summrise/bin/summrise-exec-argv";
 
+/// The directory [`ensure_helper`] creates under the login user's home.
+const HELPER_DIR: &str = ".summrise/bin";
+
+/// The helper's file name there.
+const HELPER_NAME: &str = "summrise-exec-argv";
+
+/// Its mode: runnable by anyone who can reach it, writable only by its owner. The agent uploads as
+/// the login user, so the owner bit is the only one it needs.
+const HELPER_MODE: u32 = 0o755;
+
+/// Put the helper on `sftp`'s host, and return the ABSOLUTE path it now lives at.
+///
+/// # Why this exists, and why it returns an absolute path
+///
+/// The route's exec string names the helper, so the helper has to be there. Staging it over the
+/// connection the command will use means a workspace host needs no package manager, no network and no
+/// toolchain — the agent carries the bytes and puts them where it will run them.
+///
+/// The absolute path matters beyond tidiness: with it the exec string contains **no `~` and no
+/// expansion at all**, so the one value that reaches the login shell is a plain path and nothing
+/// else. Discovering the home directory happens HERE, over a channel that has no shell on it.
+///
+/// # The upload is skipped when it would be a no-op
+///
+/// A workspace host is connected to repeatedly. Re-uploading a half-megabyte binary on every command
+/// would be a cost with no benefit, so the remote file's size and then its bytes are compared — and
+/// the bytes are what decide, because a size that matches is not a file that matches.
+pub async fn ensure_helper(
+    sftp: &russh_sftp::client::SftpSession,
+    bytes: &[u8],
+) -> Result<String, DeviceError> {
+    use tokio::io::AsyncWriteExt as _;
+
+    let internal = |message: String| DeviceError::Internal { message };
+
+    let home = sftp.canonicalize(".").await.map_err(|e| {
+        internal(format!(
+            "workspace: cannot resolve the remote home directory: {e}"
+        ))
+    })?;
+
+    // ONE LEVEL AT A TIME, because SFTP's `mkdir` makes one level and no more — a single call for
+    // `~/.summrise/bin` fails when `~/.summrise` does not exist yet, which is the state of every
+    // host the first time. That failure was measured, not imagined: it is what a real sshd answered.
+    //
+    // The call's own result is not the answer either: it fails when the directory is ALREADY there,
+    // which is the ordinary case on every run after the first. What decides is whether the directory
+    // exists afterwards.
+    let mut directory = home.trim_end_matches('/').to_string();
+    for component in HELPER_DIR.split('/') {
+        directory.push('/');
+        directory.push_str(component);
+        let _ = sftp.create_dir(&directory).await;
+        if sftp.metadata(&directory).await.is_err() {
+            return Err(internal(format!(
+                "workspace: could not create {directory} on the workspace host"
+            )));
+        }
+    }
+    let path = format!("{directory}/{HELPER_NAME}");
+
+    let wanted = sha256_hex(bytes);
+
+    // THE SKIP IS SOUND RATHER THAN CHEAP, and the measurement says that is the right trade here.
+    // Reading the file back to hash it costs about what uploading it costs — 1.09 s against 1.03 s
+    // for a 4.8 MB helper on a LAN — so a skip that fetched the bytes saves almost nothing, and one
+    // that trusted the SIZE would skip a rebuilt binary whose size happened to match. What this buys
+    // is that a workspace host never receives a second copy of bytes it already has.
+    //
+    // WHAT THE NUMBER ACTUALLY ARGUES FOR is not a cheaper skip but FEWER OF THEM: staging belongs
+    // once per connection, not once per command. A release helper is also an order of magnitude
+    // smaller than the debug build measured, which moves the whole question.
+    if let Ok(existing) = sftp.read(&path).await {
+        if existing.len() == bytes.len() && sha256_hex(&existing) == wanted {
+            // Already the right bytes. Nothing to do, and nothing to report as done.
+            return Ok(path);
+        }
+    }
+
+    {
+        // `create` opens with CREATE|TRUNCATE|WRITE; the high-level `write` uses WRITE only and
+        // fails with NoSuchFile on a fresh remote path.
+        let mut file = sftp
+            .create(&path)
+            .await
+            .map_err(|e| internal(format!("workspace: cannot create {path}: {e}")))?;
+        file.write_all(bytes)
+            .await
+            .map_err(|e| internal(format!("workspace: cannot write {path}: {e}")))?;
+        file.flush()
+            .await
+            .map_err(|e| internal(format!("workspace: cannot flush {path}: {e}")))?;
+    }
+
+    sftp.set_metadata(
+        &path,
+        russh_sftp::protocol::FileAttributes {
+            permissions: Some(HELPER_MODE),
+            ..Default::default()
+        },
+    )
+    .await
+    .map_err(|e| internal(format!("workspace: cannot chmod {path}: {e}")))?;
+
+    // READ BACK AND HASH. An upload that reported success and landed half a binary would surface
+    // later as an exec error nobody can place, on a machine nobody is watching — and staging over the
+    // same connection is what makes this check cost one round trip.
+    let landed = sftp
+        .read(&path)
+        .await
+        .map_err(|e| internal(format!("workspace: cannot read back {path}: {e}")))?;
+    if landed.len() != bytes.len() || sha256_hex(&landed) != wanted {
+        return Err(internal(format!(
+            "workspace: {path} did not land intact ({} bytes sent, {} read back)",
+            bytes.len(),
+            landed.len()
+        )));
+    }
+
+    Ok(path)
+}
+
+/// The lowercase hex SHA-256 of `bytes`.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 /// One command to run on a workspace host.
 pub struct ExecRequest<'a> {
     /// The argv, `argv[0]` first. It never passes through a shell.
@@ -143,6 +276,112 @@ pub async fn exec_on(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole path against a REAL sshd: stage the helper, then run a command through it.
+    ///
+    /// `#[ignore]`d because it needs a reachable host and a key, which CI has neither of — and a test
+    /// that silently skipped itself would be the vacuity this repository keeps finding. The in-process
+    /// harness in `tools::ssh` covers the transport; this covers the one thing that harness cannot:
+    /// a real SFTP upload landing on a real filesystem, and a real `execve` consuming the frame.
+    ///
+    /// Run it by hand:
+    ///
+    /// ```text
+    /// SUMMRISE_TEST_SSH=user@host:22122 \
+    /// SUMMRISE_TEST_SSH_KEY=/home/me/.ssh/id_ed25519 \
+    /// SUMMRISE_TEST_HELPER=target/debug/summrise-exec-argv \
+    ///   cargo test -p summrise-agent --features terminal,keyring \
+    ///     stage_and_exec_against_a_real_host -- --ignored --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a reachable sshd and a key; run by hand with SUMMRISE_TEST_SSH set"]
+    async fn stage_and_exec_against_a_real_host() {
+        let target = std::env::var("SUMMRISE_TEST_SSH").expect("SUMMRISE_TEST_SSH=user@host:port");
+        let key =
+            std::env::var("SUMMRISE_TEST_SSH_KEY").expect("SUMMRISE_TEST_SSH_KEY=/path/to/key");
+        let helper_path = std::env::var("SUMMRISE_TEST_HELPER")
+            .unwrap_or_else(|_| "target/debug/summrise-exec-argv".to_string());
+        let helper_bytes =
+            std::fs::read(&helper_path).unwrap_or_else(|e| panic!("read {helper_path}: {e}"));
+
+        let (user, rest) = target.split_once('@').expect("user@host:port");
+        let (host, port) = rest.split_once(':').expect("user@host:port");
+        let port: u16 = port.parse().expect("a numeric port");
+
+        let session = SshSession::connect(host, port, user, None, Some(&key))
+            .await
+            .expect("the test host accepts the key");
+
+        // ── staging ──
+        let sftp = session.sftp_session().await.expect("an sftp subsystem");
+        let started = std::time::Instant::now();
+        let staged = ensure_helper(&sftp, &helper_bytes)
+            .await
+            .expect("the helper lands");
+        let first_upload = started.elapsed();
+        println!("staged at {staged}");
+        println!(
+            "MEASURE first staging ({:.0} KiB): {:?}",
+            helper_bytes.len() as f64 / 1024.0,
+            first_upload
+        );
+        assert!(
+            staged.starts_with('/'),
+            "the exec string must carry an absolute path, got {staged:?}"
+        );
+        assert!(helper_is_shell_safe(&staged), "and a plain one: {staged:?}");
+
+        // A second run must be a no-op rather than an upload — checked by outcome, not by timing:
+        // the same path comes back and the bytes are still right.
+        let started = std::time::Instant::now();
+        let again = ensure_helper(&sftp, &helper_bytes)
+            .await
+            .expect("staging is idempotent");
+        println!(
+            "MEASURE second staging (already right): {:?}",
+            started.elapsed()
+        );
+        assert_eq!(again, staged);
+        drop(sftp);
+
+        // ── and the command runs through it ──
+        let argv = vec![
+            b"/bin/echo".to_vec(),
+            b"two words".to_vec(),
+            b"$(id)".to_vec(),
+        ];
+        let mut exec_times = Vec::new();
+        let mut outcome = None;
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let one = exec_on(
+                &session,
+                &staged,
+                ExecRequest {
+                    argv: &argv,
+                    cwd: Some(b"/tmp"),
+                    stdout_cap: 64 * 1024,
+                    stderr_cap: 4096,
+                },
+            )
+            .await
+            .expect("the command runs");
+            exec_times.push(started.elapsed());
+            outcome = Some(one);
+        }
+        let outcome = outcome.expect("at least one run");
+        println!("MEASURE one command over the open session: {exec_times:?}");
+
+        println!("stdout: {:?}", String::from_utf8_lossy(&outcome.stdout));
+        assert_eq!(
+            String::from_utf8_lossy(&outcome.stdout).trim_end(),
+            "two words $(id)",
+            "the argv must arrive as three elements with `$(id)` NOT substituted — this is the \
+             whole reason the argv travels beside the command instead of inside it"
+        );
+        assert_eq!(outcome.status, crate::tools::ssh::ExecStatus::Exited(0));
+        assert!(!outcome.stdout_overflow);
+    }
 
     #[test]
     fn a_windows_program_path_becomes_the_targets_own_name() {
