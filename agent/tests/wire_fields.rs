@@ -431,9 +431,17 @@ fn console_check() -> Result<String, String> {
     // the `prov-dot`/`verdict:` class this gate exists for.
     let producers = decommented_corpus(&files_under("gateway/src", &|n| n.ends_with(".ts")));
 
-    // The console's readers, excluding its own tests (they assert, they do not parse the wire).
+    // The console's readers, excluding its own tests (they assert, they do not parse the wire) and
+    // its GENERATED wasm declarations.
+    //
+    // `.d.ts` IS EXCLUDED, AND IT IS NOT AN EXEMPTION — a declaration file has no expressions, so it
+    // cannot read a wire field at all; the gate would be counting a file class that cannot contain the
+    // thing it looks for. Found by this gate REFUSING: block ③ added `gateway/ui/src/wasm/ui_logic.d.ts`
+    // (wasm-pack's own output, committed beside the glue), `n.ends_with(".ts")` matched it, and the
+    // pinned module count went 26 -> 27 with the message claiming a module that reads nothing. The
+    // count is pinned precisely so a change in the denominator is loud, and it was.
     let readers = files_under("gateway/ui/src", &|n| {
-        (n.ends_with(".ts") || n.ends_with(".tsx")) && !n.contains(".test.")
+        (n.ends_with(".ts") || n.ends_with(".tsx")) && !n.contains(".test.") && !n.ends_with(".d.ts")
     });
 
     let mut reads = 0;
