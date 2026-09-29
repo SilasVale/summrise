@@ -8,16 +8,17 @@
 // WHAT IT DOES NOT DO: decide which prefixes exist. That is the gateway's payload (`or/` and the rest arrive from
 // `/api/admin/public`), so an unknown prefix lands on `lane-def` on purpose — the table just makes that visible, and the
 // sheet's rules are the other half of the same list (see the follow-up recorded in the ledger: a clause that compares them).
-const LANE_CLASSES: Record<string, string> = {
-  og: "lane-og",
-  ds: "lane-ds",
-  or: "lane-or",
-  qw: "lane-qw",
-  nv: "lane-nv",
-  gmi: "lane-gmi",
-  cm: "lane-cm",
-  amd: "lane-amd",
-};
+//
+// ── RUST SINCE 2026-09-29 (block ③), AND IT IS THE CONSOLE'S FIRST WIRED MODULE ──────────────────
+//
+// Both functions are `gateway/ui-logic/src/lib.rs`, transliterated — the same table, the same wider
+// trailing-slash rule, the same `lane-def` fallback for a prefix the gateway's payload does not name.
+// **THE SIGNATURES DID NOT CHANGE**, which is what let them move: `Models.tsx` calls both DURING
+// RENDER, and until the module was fetched-and-compiled while the bundle downloads and awaited before
+// the first render (`wasm/consoleLogic.ts`) a synchronous call from a component was impossible. The
+// table that used to sit here is GONE — there is no second copy of it, or of either rule, left in
+// this console.
+import { logic } from "../wasm/consoleLogic.ts";
 
 /** THE BARE PREFIX (`or/` and `or` are one channel) — ONE definition, eight call sites (round 172).
  *
@@ -28,10 +29,10 @@ const LANE_CLASSES: Record<string, string> = {
  *  It strips ALL trailing slashes, which is the wider of the two behaviours and the one a name wants — a prefix is a name and
  *  `/` is the separator, so `or//` and `or/` and `or` are the same channel. */
 export function barePrefix(prefix: string): string {
-  return String(prefix ?? "").replace(/\/+$/, "");
+  return logic().bare_prefix(prefix);
 }
 
 /** The lane class for a channel prefix, with its trailing slash ignored (`or/` and `or` are one channel). */
 export function laneClass(prefix: string): string {
-  return LANE_CLASSES[barePrefix(prefix)] ?? "lane-def";
+  return logic().lane_class(prefix);
 }

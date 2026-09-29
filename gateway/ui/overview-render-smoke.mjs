@@ -38,6 +38,17 @@ async function mount(routes) {
     pretendToBeVisual: true,
   });
   const { window } = dom;
+  // THE CONSOLE'S RUST, COMPILED FROM THE SERVED FILE. jsdom has no server to fetch
+  // `/ui_logic_bg.wasm` from, and since 2026-09-29 the migrated functions are called DURING RENDER —
+  // so without this the smoke renders a page whose marks throw. It is the SAME artifact the browser
+  // gets (`../public/ui_logic_bg.wasm`, the file vite copies out of `ui/public/`), compiled here
+  // instead of streamed, which is the seam's own "two environments, one artifact" rule.
+    // AND JSDOM HAS NO `WebAssembly` AT ALL, which is why the shim beside it is not decoration: without
+  // it `initSync`'s `module instanceof WebAssembly.Module` throws inside the seam, the load promise
+  // rejects, and the page renders with `logic()` throwing on its first call. The browser has it; the
+  // harness must say the same thing about the environment it is standing in for.
+  window.WebAssembly = WebAssembly;
+  window.__consoleLogicModule = WebAssembly.compile(readFileSync("../public/ui_logic_bg.wasm"));
   const unmocked = new Set();
   window.fetch = async (input) => {
     const path = new URL(String(input), "https://ai.saisi.online").pathname;

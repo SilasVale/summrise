@@ -49,7 +49,15 @@ describe("the stylesheet", () => {
   it("has nothing left that no component can render, in the CONSOLE too", () => {
     const out = execFileSync(
       "python3",
-      [path.join(ROOT, "scripts", "prune-dead-css.py"), "--root", path.join(ROOT, "..", "..", "..", "gateway", "ui"), "--json"],
+      [
+        path.join(ROOT, "scripts", "prune-dead-css.py"),
+        "--root", path.join(ROOT, "..", "..", "..", "gateway", "ui"),
+        // AND THE CONSOLE'S CLASS NAMES CAN COME FROM RUST NOW (2026-09-29, block ③): its lane
+        // classes moved into `gateway/ui-logic/src/lib.rs`, and without this root the tool calls all
+        // eight of them dead — correctly, by its own rule, because nothing told it where they went.
+        "--also", path.join(ROOT, "..", "..", "..", "gateway", "ui-logic", "src"),
+        "--json",
+      ],
       { cwd: ROOT, encoding: "utf8" },
     );
     const line = out.split("\n").reverse().find((l) => l.trim().startsWith("{"));
@@ -59,7 +67,7 @@ describe("the stylesheet", () => {
     // deliberately does not touch — so the ratchet is on what it CAN remove, and on that number not growing.
     expect(
       report.wouldRemove,
-      `dead CSS in the console — run: python3 agent/resources/panel-react/scripts/prune-dead-css.py --root gateway/ui --write`,
+      `dead CSS in the console — run: python3 agent/resources/panel-react/scripts/prune-dead-css.py --root gateway/ui --also gateway/ui-logic/src --write`,
     ).toEqual([]);
     expect(report.rules).toBe(0);
     expect(report.left.length, `console classes in shared rules grew to ${report.left.length}: ${report.left.join(", ")}`)

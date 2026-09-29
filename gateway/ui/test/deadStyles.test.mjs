@@ -22,16 +22,25 @@ import { fileURLToPath } from "node:url";
 
 const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TOOL = path.resolve(UI, "..", "..", "agent", "resources", "panel-react", "scripts", "prune-dead-css.py");
+// ── AND THE CLASS NAMES CAN COME FROM RUST NOW (2026-09-29, block ③) ─────────────────────────────
+//
+// The lane classes moved into `gateway/ui-logic/src/lib.rs`, and this test called all eight of them
+// dead the moment they left the TypeScript — CORRECTLY, by its own rule, because nothing had told it
+// where they went. `--also` is the answer, and it is the honest one: the question "can anything
+// render this class?" is not a question about TypeScript, it is a question about the product, and the
+// product now emits those names from a wasm crate.
+const ALSO = path.resolve(UI, "..", "ui-logic", "src");
+const PRUNE = (extra) => ["python3", [TOOL, "--json", "--root", UI, "--also", ALSO, ...extra], { cwd: UI, encoding: "utf8" }];
 
 test("the console stylesheet has nothing left that no component can render", () => {
-  const out = execFileSync("python3", [TOOL, "--json", "--root", UI], { cwd: UI, encoding: "utf8" });
+  const out = execFileSync(...PRUNE([]));
   const line = out.split("\n").reverse().find((l) => l.trim().startsWith("{"));
   assert.ok(line, `no JSON from the pruner:\n${out}`);
   const report = JSON.parse(line);
   assert.deepEqual(
     report.wouldRemove,
     [],
-    `dead CSS — run: python3 agent/resources/panel-react/scripts/prune-dead-css.py --write --root gateway/ui`,
+    `dead CSS — run: python3 agent/resources/panel-react/scripts/prune-dead-css.py --write --root gateway/ui --also gateway/ui-logic/src`,
   );
   assert.equal(report.rules, 0);
 });
@@ -40,7 +49,7 @@ test("the pruner is looking at the console, and finds its stylesheet", () => {
   // A caller that silently pruned the WRONG root would report zero dead classes forever. This is the
   // same failure the spec snapshot's cross-check exists for: prove the instrument is pointed at the
   // thing you think it is.
-  const out = execFileSync("python3", [TOOL, "--json", "--root", UI], { cwd: UI, encoding: "utf8" });
+  const out = execFileSync(...PRUNE([]));
   assert.match(out, /declared classes: \d+/);
   const declared = Number(/declared classes: (\d+)/.exec(out)[1]);
   assert.ok(declared > 50, `expected the console's stylesheet to declare many classes, saw ${declared}`);

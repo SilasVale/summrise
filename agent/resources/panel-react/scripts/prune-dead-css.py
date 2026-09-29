@@ -52,13 +52,21 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 STYLES = ROOT / "src" / "styles"
 SRC = ROOT / "src"
+# EXTRA SOURCE ROOTS, AND THEY ARE NOT A CONVENIENCE (2026-09-29). A class name can be emitted from
+# RUST now: the console's lane classes moved into `gateway/ui-logic/src/lib.rs` under block ③, and
+# this tool called all eight of them dead the moment they left the TypeScript — correctly, by its own
+# rule, because it had never been told where they went. `--also <dir>` scans `*.rs` there with the
+# same identifier regex. A class the product can render must be visible to the question "can anything
+# render this?", whichever language emits it.
+ALSO = []  # no annotation: this box runs Python 3.8, which evaluates one at runtime
 
 
 def point_at(root: pathlib.Path) -> None:
-    global ROOT, STYLES, SRC
+    global ROOT, STYLES, SRC, ALSO
     ROOT = root.resolve()
     STYLES = ROOT / "src" / "styles"
     SRC = ROOT / "src"
+    ALSO = []
 
 
 def referenced_names():
@@ -79,6 +87,11 @@ def referenced_names():
     for pattern in ("*.tsx", "*.ts"):
         for p in SRC.rglob(pattern):
             if "node_modules" in str(p):
+                continue
+            text += p.read_text()
+    for root in ALSO:
+        for p in root.rglob("*.rs"):
+            if "target" in str(p):
                 continue
             text += p.read_text()
     names = set(re.findall(r"[A-Za-z][\w-]*", text))
@@ -203,9 +216,17 @@ def main() -> int:
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--json", action="store_true", help="machine-readable summary (the ratchet test)")
     ap.add_argument("--root", default=None, help="the UI to inspect (default: this panel)")
+    ap.add_argument(
+        "--also",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="an extra source root whose *.rs files also emit class names (e.g. a wasm crate)",
+    )
     args = ap.parse_args()
     if args.root:
         point_at(ROOT.parent.parent.parent.parent / args.root if False else pathlib.Path(args.root))
+    ALSO.extend(pathlib.Path(d) for d in args.also)
 
     names, prefixes = referenced_names()
     declared = set()
