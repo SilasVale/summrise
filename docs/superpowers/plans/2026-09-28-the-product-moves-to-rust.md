@@ -669,3 +669,31 @@ round 134 找到的那个缺陷** ✓——**只比正文的话，这个移植�
 **而 `all-gates` 自己也得学一个路径 ✓✓**：它原来把每条 cargo 都 `cd agent` ✓，于是
 `--manifest-path index/worker/…` 从那里跑会答"could not read Cargo.toml" ✓——**对的地方跑了错的命令**，
 **看起来像一个红的 crate，而它什么也不是** ✓✓。
+
+
+### ⑤ 的 URL 边界也在 Rust 了，**而 `index/src/index.js` 还在 JS**——**这是依赖图强制的顺序** ✓
+
+**`page.js` 的三个导出**（`safePageUrl` · `escHtml` · `PAGE`）现在是 `index/worker/src/lib.rs` ✓，
+**644 个语料、0 处不同** ✓（132 个白名单 × 4 个 fallback ✓ · 17 个转义 ✓ · 495 次**拿真实的
+`setup.js` / `npm-only.html` 渲染整页** ✓✓）。
+
+**而 TypeScript 没有被删 ✓**，因为 `index/src/index.js` 还在 import `PAGE` ✓——**这就是计划里
+"旧的在新版被证明等价之前不删" 的用法** ✓：**同一段规则在两种语言里存在一个步骤** ✓，
+**而唯一让这可接受的东西，是它们在一个语料上被证明相等，而不是仅仅并存** ✓✓。
+**它们会在删掉那个 import 的同一个提交里一起消失** ✓。
+
+**两份文档是参数，不是 embed ✓✓**：`page(arm, …)` 收**文本**，**而这正是产品将来的用法**
+（worker embed `index/landing` 在构建时生成的两份）✓。**在这里 embed 它们是一个构建顺序问题**——
+**一个陈旧的 `include_str!` 会发布一个陈旧的落地页** ✓——**所以在 worker 真的去读它们之前，这件事
+刻意不做** ✓。
+
+**差分抓到的那一处，是这一类里最贵的一种** ✓：**`Option<&str>` 不是 JS 的 `null`** ✗——
+**TypeScript 测的是真值（truthiness），`Option` 测的是存在** ✓。**于是 `Some("")` 选了 setup 那一份**，
+**给一个没有发布安装包的 release 发了一个带"下载 Windows 安装包"按钮的页面** ✗✗——
+**正是 round 125 那个缺陷，被一个 `Option` 重新引入了一遍** ✓，**而对着 Rust 写的每一个单元测试都看不见它** ✓✓。
+**同一个 harness 还在两轮之前抓到过一次同一类**（空的 tarball 名）✓。
+
+**而这一轮我还改了两个自己的测试期望，因为它们对 JavaScript 的理解是错的** ✓：
+**`""` 是被接受的** ✓（`new URL("", base)` 就是 base，协议是 https ✓），
+**`http://LOCALHOST` 是 loopback** ✓（hostname 会被转小写 ✓）——
+**差分才是权威，一个把代码"修"成符合错误期望的测试才是那个 bug** ✓✓。
