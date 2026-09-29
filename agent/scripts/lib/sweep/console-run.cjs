@@ -269,7 +269,13 @@ const fail = { api: false };
     const full = path.join(ROOT, file);
     const body = fs.existsSync(full) ? fs.readFileSync(full) : fs.readFileSync(path.join(ROOT, 'index.html'));
     const ext = path.extname(full);
-    const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : 'text/html; charset=utf-8';
+    // `application/wasm` IS NOT OPTIONAL (2026-09-29, block ③). The console's Rust is served beside its
+    // bundle and `index.html` fetches it at PARSE time; without this arm the sweep served the module as
+    // `text/html`, `WebAssembly.compileStreaming` refused it, and the Models page — which calls the Rust
+    // during RENDER — threw and unmounted. What the sweep reported was 20 findings of the same shape
+    // ("0 h1 / 0 main landmark / 0 nav landmark", "focus landed on nothing in 16 Tab presses") on ONE
+    // page: a blank pane read as a design defect, and a blank pane is what the page was.
+    const type = ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : ext === '.svg' ? 'image/svg+xml' : ext === '.wasm' ? 'application/wasm' : 'text/html; charset=utf-8';
     return route.fulfill({ status: 200, contentType: type, headers: { 'cache-control': 'no-store' }, body });
   });
   await diag("start console pid=" + process.pid);
