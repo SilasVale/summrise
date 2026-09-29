@@ -61,12 +61,21 @@ This spec is cheap because six of the mechanisms it needs are already in the tre
 | The `ctx.fs` seam | `@deepseek-ai/dsh-fs` 0.2.0-rc.1 | *"Mounting any backend populates `ctx.fs`; swapping backends changes nothing for the policy plugin, the tools, or the tool schemas."* |
 | **Discovery tools that bypass `ctx.fs`** | `@deepseek-ai/dsh-tool-fs-search` 0.2.0-rc.1 | `glob`/`grep` *"execute as ordinary foreground spawns through `ctx.subprocess`"*, against a packaged ripgrep — so the workspace's correctness depends on the **subprocess** seam as much as on `ctx.fs` (§6.6) |
 
-**And one thing does not exist.** The agent's HTTP layer is `axum 0.8` + `tower 0.5` + `hyper 1`
-(`features = ["http1", "server"]`), its browser streaming is **SSE only** (`web/sse.rs`), and a grep for
-`websocket|upgrade` across `agent/src` returns only *software*-upgrade matches. DSH's web client talks to its server
-over **WebSocket** (the operator's own profile carries `websocketHeartbeatIntervalMs` for `typert-gateway`, and
-`dsh-client-connection` is that link). So serving DSH's UI from the agent's address requires a capability the agent
-has never had. That is §5.4, and it is the single largest new piece in deliverable A.
+**And one thing does not exist — though the manifest says otherwise.** The agent's HTTP layer is `axum 0.8` +
+`tower 0.5` + `hyper 1` (`features = ["http1", "server"]`), and its browser streaming is **SSE only**
+(`web/sse.rs`). There is **no WebSocket anywhere in the crate**: no `Sec-WebSocket-*` handling, no `/ws` route, and
+`hyper` and `sha1` are declared as **direct dependencies with no reference in any `.rs` file of the crate**.
+
+**The trap is the comment sitting above them**, which reads: *"round-137 Plan C: the hand-rolled WebSocket upgrade
+for `/api/browser/ws` needs to compute `Sec-WebSocket-Accept` (SHA-1); hyper is explicitly introduced to use
+`upgrade::on` and get the raw IO after the upgrade"*. Measured 2026-09-29: `/api/browser/ws` is **not** in the route
+table (the browser routes are — sixteen of them), `browser/ws` never appears in this repository's git history, and
+neither `hyper` nor `sha1` is referenced by any Rust source. **An implementer who reads that comment will believe the
+mechanism already exists.** It does not.
+
+DSH's web client talks to its server over **WebSocket** (the operator's own profile carries
+`websocketHeartbeatIntervalMs` for `typert-gateway`, and `dsh-client-connection` is that link), so serving DSH's UI
+from the agent's address means building it. That is §5.4, and it is the single largest new piece in deliverable A.
 
 ## 4 · Decomposition
 
@@ -114,11 +123,17 @@ coupling with a 0.2.0-rc.1.
 The agent already serves `/panel/` and `/desktop/`. A new `/dsh/` prefix proxies to the local DSH port, so the UI is
 reachable at the agent's own address — locally and, through the existing tunnel, remotely.
 
-**The new capability is WebSocket passthrough.** The agent's HTTP stack is http1-only with no `ws` feature, and its
-streaming is SSE. Proxying DSH requires bridging `Upgrade: websocket` in both directions, plus three smaller
-obligations: DSH's SPA must be served under a base path, SSE must not be buffered, and **DSH's own browser auth must
-be satisfied by the proxy** — this deployment disables it because Cloudflare Access stands in front
+**The new capability is WebSocket passthrough.** The agent's HTTP stack is http1-only with no `ws` feature, its
+streaming is SSE, and — per §3 — the crate contains no WebSocket code at all, despite a manifest comment claiming
+otherwise. Proxying DSH requires bridging `Upgrade: websocket` in both directions, plus three smaller obligations:
+DSH's SPA must be served under a base path, SSE must not be buffered, and **DSH's own browser auth must be satisfied
+by the proxy** — this deployment disables it because Cloudflare Access stands in front
 (`enableBrowserAuth: false`), and a Windows machine has no Cloudflare Access, so the agent holds the token.
+
+Two ways to build it, and the choice belongs to the plan, not here: enable axum's `ws` feature (a new dependency
+edge on a hand-rolled dispatcher), or take the path the stale comment intended and drive `hyper`'s upgrade directly.
+The second reuses two dependencies already declared and currently referenced by nothing, which is worth weighing
+against the first's convenience.
 
 **Why not an iframe pointing at `127.0.0.1:<port>`:** inside a page viewed **remotely**, `127.0.0.1` is the
 *viewer's* loopback, not the device's. It fails silently and in the wrong direction. Same-origin `/dsh/` is the only
