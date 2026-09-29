@@ -123,7 +123,17 @@ export function normalizePath(path, base) {
   if (typeof path !== 'string' || path.length === 0) {
     throw new WorkspaceFsError('a path is required', 'FS_IO_ERROR');
   }
-  const absolute = path.startsWith('/') ? path : `${base ?? '/'}/${path}`;
+  // A WINDOWS-SPELLED ABSOLUTE PATH NAMES THE SAME FILE, and this backend has to read it that way.
+  // The DSH that drives this provider is on Windows while the workspace is POSIX, so the host's own
+  // layers — and the model, which is told the platform — write an absolute path as
+  // `D:\home\zhengsaisi\summrise`. Measured 2026-09-30 in a live session on desktop-14rjcr8: every
+  // `resolve()` arrived in that spelling, so a backend that insisted on the leading slash answered
+  // `/D:\home\...`, which is not a path on any machine. Stripping the drive and flipping the
+  // separators is the whole translation: the drive letter carries no information here, because the
+  // workspace root is on the far side of the seam and only one filesystem is addressable.
+  const windowsAbsolute = /^[A-Za-z]:[\\/]/.test(path);
+  const corrected = windowsAbsolute ? path.slice(2).replace(/\\/g, '/') : path;
+  const absolute = corrected.startsWith('/') ? corrected : `${base ?? '/'}/${corrected}`;
   const out = [];
   for (const segment of absolute.split('/')) {
     if (segment === '' || segment === '.') continue;

@@ -52,6 +52,18 @@ test('a relative path resolves against the base, and a root stays a root', () =>
   assert.equal(normalizePath('b', '/'), '/b');
 });
 
+test('a Windows-spelled path names the SAME file, because the DSH host is Windows', () => {
+  // Measured 2026-09-30 on desktop-14rjcr8: with the seam wired and a live session attached to a
+  // POSIX workspace, EVERY resolve() arrived as `D:\home\zhengsaisi\summrise\...`. A backend that
+  // only knew the leading slash answered `/D:\home\...`, which is a path on no machine. The drive
+  // letter carries no information before the seam — one filesystem is addressable — so it goes.
+  assert.equal(normalizePath('D:\\home\\zhengsaisi\\summrise', '/'), '/home/zhengsaisi/summrise');
+  assert.equal(normalizePath('d:/home/zhengsaisi\\summrise\\.git', '/'), '/home/zhengsaisi/summrise/.git');
+  assert.equal(normalizePath('D:\\..\\..', '/'), '/');
+  // …and it is still ONE spelling: both forms answer the same key, which is what the seam requires.
+  assert.equal(normalizePath('D:\\home\\a\\..\\b', '/'), normalizePath('/home/b', '/'));
+});
+
 test('climbing above the root lands ON the root, which is what the host does', () => {
   // POSIX: `/..` is `/`. Keeping the `..` would make resolve('/..') answer a key that READING '/..'
   // does not open — the target key would name a file it is not, and the seam requires the same file
