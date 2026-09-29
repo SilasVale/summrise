@@ -35,6 +35,84 @@ export function bare_prefix(prefix) {
 }
 
 /**
+ * The words for that signal, given the provider's reason when it has one.
+ *
+ * `c.ok ? t("overview.healthOk") : c.reason || t("overview.healthDown")` — the `reason` wins over the
+ * generic line, because a provider that says WHY is more useful than a label that says WHAT. The
+ * `||` is a TRUTHINESS test on the reason as well: an empty string is no reason, and the TypeScript
+ * falls through to the generic line for it.
+ *
+ * **AND IT RETURNS THE REASON AS IT ARRIVED, WHICH IS NOT A STRING AND IS THE TYPESCRIPT'S OWN
+ * BEHAVIOUR.** `c.reason || t(…)` returns the VALUE: the first version of this port stringified it
+ * through the engine and answered `"[object Object]"` where the JavaScript answers `{}`. The return
+ * type has always said `string` while the body could hand back anything truthy, and the differential
+ * is what turned that into a fact — so the port is faithful and the cast stays in the wrapper.
+ * @param {any} channel
+ * @param {Function} t
+ * @returns {any}
+ */
+export function channel_label(channel, t) {
+    const ret = wasm.channel_label(channel, t);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The signal for a channel: `ok` is the provider's own answer, anything else is a failure with a
+ * reason the row shows.
+ *
+ * **TRUTHINESS, NOT `=== true`** — the TypeScript is `ok ? "ok" : "err"`, so a `1` is `ok` there and
+ * `false` here would be a divergence on the same input.
+ * @param {any} ok
+ * @returns {string}
+ */
+export function channel_signal(ok) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.channel_signal(ok);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * A DIAL'S TONE, from "how many of N are well" — the same question the channels tile and the devices
+ * tile both ask, and they used to answer it differently.
+ *
+ * `known` is separate from `total` because "we have not asked yet" is not "none are healthy" — the
+ * same distinction `deviceState.ts` records for a probe has not answered.
+ *
+ * **BOTH COUNTS ARRIVE AS VALUES, NOT NUMBERS, AND THAT IS THE SECOND DIVERGENCE THE DIFFERENTIAL
+ * FOUND.** `ok === total` is JavaScript's STRICT equality and `ok > 0` is a RELATIONAL comparison,
+ * and they disagree on everything that is not a number: for `ok = true, total = 1` the first is
+ * `false` and the second is `true`, so the TypeScript answers `warn` — and a port that took two
+ * `f64` parameters turned that into `1 === 1` and answered `ok`. Reading the two through the
+ * operators the TypeScript actually wrote is the whole fix; see `strictly_equals` and `to_number`.
+ * @param {any} known
+ * @param {any} ok
+ * @param {any} total
+ * @returns {string}
+ */
+export function health_tone(known, ok, total) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.health_tone(known, ok, total);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * The lane class for a channel prefix, with its trailing slash ignored.
  * @param {any} prefix
  * @returns {string}
@@ -54,6 +132,10 @@ export function lane_class(prefix) {
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
+        __wbg___wbindgen_is_falsy_16bd49b68658263e: function(arg0) {
+            const ret = !arg0;
+            return ret;
+        },
         __wbg___wbindgen_is_function_1f9d30630b8b1d3d: function(arg0) {
             const ret = typeof(arg0) === 'function';
             return ret;
@@ -66,6 +148,12 @@ function __wbg_get_imports() {
             const ret = arg0 === undefined;
             return ret;
         },
+        __wbg___wbindgen_number_get_2e0e7dee9f701a71: function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+        },
         __wbg___wbindgen_string_get_0380ccaa2f57f0d9: function(arg0, arg1) {
             const obj = arg1;
             const ret = typeof(obj) === 'string' ? obj : undefined;
@@ -76,6 +164,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_throw_41e9ee4f547fc59a: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbg___wbindgen_typeof_e777a26e115d416b: function(arg0) {
+            const ret = typeof arg0;
+            return ret;
         },
         __wbg_call_187d372bd5fdd4aa: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.call(arg1, arg2);
@@ -101,7 +193,12 @@ function __wbg_get_imports() {
             const ret = typeof window === 'undefined' ? null : window;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
-        __wbindgen_generic_0000000000000001: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_generic_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;
@@ -196,6 +293,12 @@ function passStringToWasm0(arg, malloc, realloc) {
 
     WASM_VECTOR_LEN = offset;
     return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
