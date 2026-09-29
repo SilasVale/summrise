@@ -13,18 +13,19 @@
 Two problems, discovered together, and the second is the reason the first matters.
 
 **The Linux development box lost its international egress.** Measured 2026-09-29 from `10.10.61.83`: TLS to
-**every** `*.saisi.online` host, `cloudflare.com` and `github.com` dies *inside the handshake* — the transcript is
-`TLSv1.3 (OUT), TLS handshake, Client hello (1)` followed immediately by `OpenSSL SSL_connect: SSL_ERROR_SYSCALL`,
-with no ServerHello — while TCP connects fine (`connect=0.0037s` to `api.saisi.online:443`) and `api.deepseek.com`
-answers normally. The same Cloudflare edge IP with a different SNI (`example.com`) fails identically, so the
-interference is **not** SNI-specific; it is the Cloudflare edge IPs on 443. Consequences measured the same day:
-`git push`, `npm`, `wrangler` and `web_fetch` are all dead from that box, and the **summrise gateway MCP was down**
-(`terminal_open` answered `fetch failed`) — the operator's own DSH had lost its terminal/browser/device surface.
+**every** host in this deployment's own zone, to `cloudflare.com` and to `github.com` dies *inside the handshake* — the
+transcript is `TLSv1.3 (OUT), TLS handshake, Client hello (1)` followed immediately by
+`OpenSSL SSL_connect: SSL_ERROR_SYSCALL`, with no ServerHello — while TCP connects fine (`connect=0.0037s` to the API
+host on 443) and `api.deepseek.com` answers normally. The same Cloudflare edge IP with a different SNI
+(`example.com`) fails identically, so the interference is **not** SNI-specific; it is the Cloudflare edge IPs on 443.
+Consequences measured the same day: `git push`, `npm`, `wrangler` and `web_fetch` are all dead from that box, and the
+**summrise gateway MCP was down** (`terminal_open` answered `fetch failed`) — the operator's own DSH had lost its
+terminal/browser/device surface.
 
-**The operator's Windows machine has clean egress and is already a summrise device.** Measured from
-`desktop-14rjcr8` on the same day: `api.saisi.online` **200**, `ai.saisi.online/mcp` **302**, `github.com` **200**,
-`cloudflare.com` **301**, `api.deepseek.com` **401**. It runs the summrise agent, the desktop shell, and — measured by
-`ipconfig` — is `172.16.0.177` on the office LAN plus `192.168.1.100` on the device network.
+**The operator's Windows machine has clean egress and is already a summrise device.** Measured from that device on the
+same day: the API host **200**, the gateway MCP **302**, `github.com` **200**, `cloudflare.com` **301**,
+`api.deepseek.com` **401**. It runs the summrise agent and the desktop shell, and — measured by `ipconfig` — is
+`172.16.0.177` on the office LAN plus `192.168.1.100` on the device network.
 
 **The operator's requirement, in their words:** *"windows 安装 summrise agent 就可以使用 dsh remote 功能"* — install
 the agent on Windows and the DSH remote-workspace capability is simply there, with the **Linux box's working
@@ -375,8 +376,8 @@ whenever the panel is viewed remotely.
 
 ## 11 · Out of scope
 
-- Changing what `dsh.saisi.online` serves, or migrating that deployment. This spec makes the capability available on
-  a Windows machine; where the operator points their public hostname afterwards is a separate decision.
+- Changing what the public deployment serves, or migrating it. This spec makes the capability available on a Windows
+  machine; where the operator points their public hostname afterwards is a separate decision.
 - Any change to the agent's client-agnostic position: DSH stays one client among several (§5.3).
 - Binary-safe mutations, delete/rename/copy, and recursive listing — out of contract in `ctx.fs` itself (§6.3).
 - Replacing `dsh-remote` for the operator's immediate use. It should be installed first, in parallel, to unblock the
