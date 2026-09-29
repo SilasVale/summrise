@@ -9,7 +9,10 @@ description = "The Rust half of the Summrise Gate worker (workers-rs). FIRST ROU
 # was never used for a Worker on this repository and whose binaryen hang (14 min,
 # measured) does not apply to this path (worker-build: 5.5 s, P3.0).
 [lib]
-crate-type = ["cdylib"]
+# BOTH crate types: `cdylib` is what `worker-build` produces for Cloudflare and `rlib` is what
+# `cargo test` and the differentials link on the host — so the translation is testable with no wasm
+# toolchain at all.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 worker = "0.8.7"
@@ -17,7 +20,10 @@ serde = { version = "1", features = ["derive"] }
 # `worker` already links serde_json (its own dependency), so this line adds no
 # second copy of it to the module — the size measurement in the commit message is
 # the check on that claim, not this comment.
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+# `preserve_order` IS NOT OPTIONAL FOR THE TRANSLATION: serde_json's default `Map` is a BTreeMap,
+# which SORTS KEYS ALPHABETICALLY, and the translated document is compared BYTES — the key order is
+# the wire order.
 
 # NO [profile.release] OVERRIDES ON PURPOSE — same reason as P3.0's spike: the
 # deployed module is what `worker-build --release` produces with the default
