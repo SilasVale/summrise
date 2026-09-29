@@ -149,6 +149,13 @@ notrun=0
 ok=0
 for cmd in "${gates[@]}"; do
   case $cmd in
+    # A CARGO COMMAND THAT NAMES ITS OWN MANIFEST RUNS FROM THE REPO ROOT (2026-09-29). Every cargo
+    # line here meant the agent's own crate, so the runner hardcoded `cd agent` — and a crate OUTSIDE
+    # that workspace (`index/worker/`, block ④ of the migration) has a path that only resolves from
+    # the root. Run from `agent/` it failed with "could not read Cargo.toml", which reads exactly like
+    # a red crate and is nothing of the kind: it is the right command in the wrong place, which is the
+    # shape `docs/superpowers/plans/2026-09-28-migration-error-prevention.md` names.
+    cargo:*--manifest-path*) out=$( (${cmd#cargo:}) 2>&1) ;;
     cargo:*) out=$( (cd agent && ${cmd#cargo:}) 2>&1) ;;
     *)       out=$($cmd 2>&1) ;;
   esac
