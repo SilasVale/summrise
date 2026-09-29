@@ -85,9 +85,10 @@ A is useful with no workspace at all.
 | | deliverable | what it buys | new work |
 |---|---|---|---|
 | **A** | **DSH as a staged component** — install, pin, supervise, serve | one install; a version summrise chooses; a UI inside summrise | a component entry, a scheduled task, and the **WebSocket passthrough** |
-| **B** | **The remote workspace** — a Rust fs/shell backend in the agent, plus a generated TS shim in DSH | the workspace *is* the remote machine | the RPC contract, the `ctx.fs` semantics, the generator |
+| **B** | **The remote workspace** — a Rust fs/subprocess backend in the agent, plus a generated TS shim in DSH | the workspace *is* the remote machine | an exec-and-capture primitive over SSH (none exists), a staged argv-transparent helper on the target (§6.6), the `ctx.fs` semantics, the generator |
 
-Each gets its own plan. They may land in either order.
+Each gets its own plan. They may land in either order. **B's first step is the subprocess seam, not `ctx.fs`** — §7
+measured why.
 
 ## 5 · A · DSH as a staged component
 
@@ -241,9 +242,26 @@ target side** — a staged, sha256-verified `rg` (the component mechanism of §5
 host's own — and substitute it while leaving every other argv element untouched. The tool's own hardening
 (`--no-config` is prepended precisely because the spawn is unconfined) must survive the substitution.
 
-The agent already holds persistent remote sessions (the `terminal_execute` machinery), so the execution half is
-wiring rather than new machinery — but it is not deferrable, and it is now the **first** thing B needs, not the
-second.
+**Where the substitution happens is not where it looks like it should.** The seam has a `resolveExecutable(command)`
+method, and the obvious design is to implement it on the target. Measured 2026-09-29: **`dsh-tool-fs-search` never
+calls it** (`grep -c resolveExecutable` → 0). It calls the package's own `resolveRgPath()` and puts the result
+straight into `argv[0]`. Its callers are `dsh-api-terminal-controller`, `dsh-host-open-in-app`,
+`dsh-ptc-runtime-node` and `dsh-workspace-changes` — not the search tools. So the backend must do the substitution
+**inside `spawn`, on `argv[0]`, when it is a host-absolute path**, and cannot delegate it to `resolveExecutable`.
+
+**And `spawn` cannot be forwarded over SSH as an argv vector — SSH's `exec` request takes a string.** The seam is
+explicit that no shell layer exists (*"every model value an unquoted argv element; no shell layer exists"*), so
+quoting an argv into a command line would reintroduce exactly the hazard the seam was built to remove, on values the
+model chose. The correct shape is an **argv-transparent transport**: the agent stages a small helper on the target
+(a NUL-separated argv on stdin, `execve` on the far side) and the SSH `exec` string carries only that helper's path
+and its fixed arguments. This is a **new artifact on the target**, staged and sha256-verified by the same component
+mechanism as §5.1 — not a re-use of existing machinery.
+
+**This also corrects an earlier assumption in this spec.** The agent's `SshSession` exposes `connect`,
+`sftp_session` and `open_shell` — **there is no exec-and-capture primitive**, because the agent's SSH exists for
+interactive terminals, not for one-shot commands with a collected exit status. So the execution half is genuinely new
+work: a session channel, separated stdout/stderr, an exit status, cancellation, and the helper above. It remains the
+**first** thing B needs — it just is not wiring.
 
 ### 6.7 `watch`, honestly degraded
 
