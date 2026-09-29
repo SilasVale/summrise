@@ -836,6 +836,14 @@ jobs:
       - name: Test zen-us
         run: node --test
         working-directory: proxies/zen-us-proxy
+      # THE zen-us POLICY IS IN RUST NOW (block ④, 2026-09-29): the origin allowlist, the loopback
+      # rule and the secret redaction live in `proxies/zen-us-proxy/worker`, and the node suite above
+      # is what the differential compares them against — so both halves run, and the node tests are
+      # the JavaScript that is about to stop being the implementation and stays as the oracle.
+      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job, and this job
+      # already carries both languages for this worker.
+      - name: Test zen-us policy (Rust)
+        run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
       - name: Install wrangler (pinned)
         # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
         # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
