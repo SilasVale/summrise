@@ -7437,6 +7437,11 @@ mod tests {
         logger.log_status(&known, "opened");
         logger.log_status(&anon, "opened");
         logger.flush_all();
+        // From here on the two files are removed whatever happens — see `SessionFiles` below.
+        let _planted = SessionFiles(vec![
+            dir.join(format!("{known}.jsonl")),
+            dir.join(format!("{anon}.jsonl")),
+        ]);
 
         let v = json_body(handle_request(req("GET", "/api/sessions"), st.clone()).await).await;
         let rows = v["sessions"].as_array().expect("sessions array");
@@ -7461,9 +7466,26 @@ mod tests {
              'the device does not know' from a real value: {a}"
         );
 
-        let _ = std::fs::remove_file(dir.join(format!("{known}.jsonl")));
-        let _ = std::fs::remove_file(dir.join(format!("{anon}.jsonl")));
         let _ = std::fs::remove_dir_all(cfg_path.parent().unwrap());
+    }
+
+    /// THE CLEANUP IS A GUARD, AND IT IS ONE BECAUSE A PANICKING ASSERT NEVER REACHED THE DELETE.
+    ///
+    /// This test plants two session logs in the LIVE data dir and deleted them at the end of its
+    /// body — so a run that FAILED kept them, and the failure was itself partly a function of how
+    /// many had accumulated: `/api/sessions` reads the whole dir and `json_body` refuses a body over
+    /// 1 MiB, so the debris grew until every run tripped the limit and each of those runs leaked two
+    /// more files. **Measured 2026-09-29: 8,977 files / 36 MB in `target/debug/deps/sessions`**, and
+    /// the test that had been green for a week was red in isolation. A `Drop` impl runs on the panic
+    /// path, which is the only path that needed it.
+    struct SessionFiles(Vec<std::path::PathBuf>);
+
+    impl Drop for SessionFiles {
+        fn drop(&mut self) {
+            for p in &self.0 {
+                let _ = std::fs::remove_file(p);
+            }
+        }
     }
 
     #[tokio::test]

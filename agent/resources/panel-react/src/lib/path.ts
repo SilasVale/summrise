@@ -29,10 +29,31 @@
 import type { CommandCard as CardData } from "../hooks/useCommandEvents";
 import type { CommandEvent } from "../hooks/useCommandEvents";
 import type { TrajRound } from "../hooks/useTrajectory";
-import { END_REASONS, EXITED_PREFIX, type EndReason } from "./contract.gen";
+import { logic } from "../wasm/panelLogic";
 
+// ── RUST SINCE 2026-09-29 (P2), AND THIS FAMILY COULD NOT HAVE MOVED A DAY EARLIER ────────────────
+//
+// The five functions below are `agent/resources/panel-logic/src/path.rs`, transliterated: the same
+// precedence in `stateFromEnd`, the same `exited:` prefix arm, the same ownership fold, the same
+// `commandMs` FLOOR that `untimed` makes explicit, and the same `bg`-ranks-with-`running` rule in
+// `attentionSteps`. **THEIR SIGNATURES DID NOT CHANGE**, which is the whole reason they could move
+// without a reshape: `PathView.tsx` calls `derivePath` and `attentionSteps` inside a `useMemo`, and
+// the old "fetched at the first call" seam made a render-path call impossible — the boundary road
+// the plan priced for this family (derive at the data boundary) is no longer needed. The crate's
+// header is the specification: the five things a reader would otherwise have to take on trust (UTF-16
+// output length, the loose `durationMs == null` test, the at-or-before ownership fold, the total-order
+// sort, and the vocabulary that now lives in `panel-logic/src/vocabulary.rs` beside the table).
+//
+// WHAT IS GONE: the whole body of each function, including the `END_STATE`/`END_LABEL` tables — the
+// endings vocabulary moved into the crate with them, and `agent/tests/contract_vocabulary.rs` reads
+// THAT table now. **NO SECOND DERIVATION IS LEFT IN THE PANEL.**
 /** The five-state vocabulary, re-exported so the path view and the command
- *  cards cannot drift apart on what a state is called. */
+ *  cards cannot drift apart on what a state is called. The STATES are the
+ *  crate's now; this list is the type they are spelled with. */
+/** What `stateFromEnd` and `cardState` answer — named here because the glue's own types are the
+ *  wasm module's (`{}` for an object return), and a cast needs a target. */
+type StateRow = { state: PathState; label: string; compact: string };
+
 export const PATH_STATES = ["running", "ok", "fail", "warn", "bg", "muted"] as const;
 
 export type PathState = (typeof PATH_STATES)[number];
@@ -54,49 +75,12 @@ export function stateFromEnd(
   exitCode: number | null,
   reason: string | null,
 ): { state: PathState; label: string; compact: string } {
-  if (!ended) return { state: "running", label: "Running", compact: "running" };
-  if (exitCode !== null) {
-    return exitCode === 0
-      ? { state: "ok", label: "Success (exit 0)", compact: "0" }
-      : { state: "fail", label: `Failed (exit ${exitCode})`, compact: `exit ${exitCode}` };
-  }
-  // THE ENDINGS THE DEVICE CAN REPORT, AS A TABLE KEYED BY THE GENERATED VOCABULARY (round 52). The cases were
-  // literals here and the same literals in `agent/src/vocabulary.rs`, which is the two-copies-of-one-fact shape this
-  // objective exists to remove; `END_REASONS` is generated from that file, so a reason the device adds and this table
-  // does not name is a COMPILE ERROR rather than a state that silently renders as `muted`.
-  //
-  // ITS OWN STATE, NOT `warn`: `warn` is the path summary's word for a step that ended badly, and folding a
-  // BACKGROUNDED command into it made the operator-facing line read "3 interrupted" for three commands that were still
-  // legitimately RUNNING — and lit the session's "bad" marker for work nothing had gone wrong with.
-  const END_STATE: Record<EndReason, PathState> = {
-    marker: "muted",
-    idle: "muted",
-    timeout: "muted",
-    interrupted: "warn",
-    backgrounded: "bg",
-    closed: "muted",
-  };
-  const END_LABEL: Record<EndReason, string> = {
-    marker: "Ended",
-    idle: "Idle",
-    timeout: "Timed out",
-    interrupted: "Interrupted",
-    backgrounded: "Backgrounded",
-    closed: "Closed",
-  };
-  const named = reason && (END_REASONS as readonly string[]).includes(reason) ? (reason as EndReason) : null;
-  if (named) {
-    return { state: END_STATE[named], label: END_LABEL[named], compact: named };
-  }
-  // `exited:3` and anything a newer device invents: the prefix is the vocabulary's, the number is the device's, and an
-  // ending this build cannot name is `muted` with its own words rather than a guess.
-  const known = reason?.startsWith(EXITED_PREFIX) ? reason : null;
-  return { state: "muted", label: known || reason || "Ended", compact: known || reason || "ended" };
+  return logic().state_from_end(ended, exitCode, reason) as StateRow;
 }
 
 /** A command card's state — the same derivation, over the card's fields. */
 export function cardState(card: CardData): { state: PathState; label: string; compact: string } {
-  return stateFromEnd(card.ended, card.exitCode, card.reason);
+  return logic().card_state(card) as StateRow;
 }
 type Owner = "ai" | "human";
 
@@ -171,134 +155,25 @@ export interface SessionPath {
 
 /** A session-level status before any command (e.g. "opened") forms the
  *  preamble round; it is context, not a step along the path. */
-const PREAMBLE_ID = "r-pre";
-
-/**
- * Who was driving at a given moment, from the session's `control` events.
- *
- * The fold is deliberately "most recent event at or before `ts`", not "any
- * event in the window": a step belongs to whoever held the keyboard when it
- * STARTED. A handoff mid-command therefore does not retroactively reassign the
- * command that was already running, which is the honest reading — the agent
- * issued it.
- *
- * Before the first control event the answer is "ai", because that is what the
- * trail means: the header documents the audit as the record of device control,
- * and a session with no handoff was the agent's throughout.
- */
-function ownershipTimeline(
-  events: CommandEvent[],
-): Array<{ ts: number; holder: Owner }> {
-  return events
-    .filter((e) => e.kind === "control" && (e.status === "human" || e.status === "ai"))
-    .map((e) => ({ ts: e.ts, holder: e.status as Owner }))
-    .sort((a, b) => a.ts - b.ts);
-}
-
-/** The holder in effect at `ts`; "ai" before any handoff. */
-function ownerAt(timeline: Array<{ ts: number; holder: Owner }>, ts: number): Owner {
-  let holder: Owner = "ai";
-  for (const t of timeline) {
-    if (t.ts > ts) break;
-    holder = t.holder;
-  }
-  return holder;
-}
+// ── THE THREE HELPERS BELOW MOVED WITH THEIR CALLER ───────────────────────────────────────────────
+// `PREAMBLE_ID`, `ownershipTimeline` and `ownerAt` were the path's private helpers and they are in
+// the crate now, transcribed, with their own comments. They are not duplicated here: a second
+// ownership fold is exactly what `lib/path.ts` was written to end (round 167/170), and the crate's
+// header is where a reader looks for the rule now.
 
 export function derivePath(rounds: TrajRound[], controlEvents: CommandEvent[] = []): SessionPath {
-  const timeline = ownershipTimeline(controlEvents);
-  const steps: PathStep[] = [];
-  const indexOf: Record<string, number> = {};
-
-  for (const r of rounds) {
-    if (r.id === PREAMBLE_ID || r.startSeq === null) continue;
-    // Same derivation the command cards use, so a state means one thing
-    // everywhere. cardState takes the card shape; only these fields matter.
-    const asCard: CardData = {
-      id: r.id,
-      seq: r.startSeq,
-      command: r.command,
-      output: "",
-      startedAt: r.startTs,
-      ended: r.ended,
-      exitCode: r.exitCode,
-      reason: r.reason,
-      durationMs: r.durationMs,
-    };
-    const st = cardState(asCard);
-    // The reasoning rides the round's own command/start event, so it needs no
-    // new plumbing — a step and its reason arrive together or not at all.
-    const start = r.events.find((e) => e.kind === "command/start");
-    indexOf[r.id] = steps.length;
-    steps.push({
-      id: r.id,
-      index: steps.length + 1,
-      command: r.command,
-      owner: ownerAt(timeline, r.startTs),
-      state: st.state,
-      stateLabel: st.compact,
-      startedAt: r.startTs,
-      durationMs: r.durationMs,
-      exitCode: r.exitCode,
-      reason: r.reason,
-      outputChars: r.events.reduce((n, e) => n + (e.kind === "output" ? (e.text?.length ?? 0) : 0), 0),
-      intent: start?.intent ?? null,
-      considered: Array.isArray(start?.considered) ? start!.considered! : [],
-      planStep:
-        typeof start?.plan_step === "number" && start.plan_step > 0
-          ? start.plan_step
-          : null,
-      // Blank is ABSENT, not a run named "" — the same rule the device applies
-      // when it writes the field (a blank id is omitted from the JSONL rather
-      // than stored).
-      runId: typeof start?.run_id === "string" && start.run_id.trim() !== "" ? start.run_id : null,
-    });
-  }
-
-  return { steps, summary: summarizePath(steps), indexOf };
+  return logic().derive_path(rounds, controlEvents) as SessionPath;
 }
 
 /** Fold the steps into the numbers a person actually wants: how much work, how
  *  much of it failed, and how long it took. */
 export function summarizePath(steps: PathStep[]): PathSummary {
-  const counts: Record<PathState, number> = { running: 0, ok: 0, fail: 0, warn: 0, bg: 0, muted: 0 };
-  let humanSteps = 0;
-  let commandMs = 0;
-  let untimed = 0;
-  let firstStart = Infinity;
-  let lastEnd = -Infinity;
-
-  for (const s of steps) {
-    counts[s.state] += 1;
-    if (s.owner === "human") humanSteps += 1;
-    if (s.durationMs == null) {
-      untimed += 1;
-    } else {
-      commandMs += s.durationMs;
-      lastEnd = Math.max(lastEnd, s.startedAt * 1000 + s.durationMs);
-    }
-    firstStart = Math.min(firstStart, s.startedAt * 1000);
-  }
-
-  return {
-    steps: steps.length,
-    counts,
-    commandMs,
-    untimed,
-    humanSteps,
-    spanMs: lastEnd > -Infinity && firstStart < Infinity ? lastEnd - firstStart : null,
-    live: counts.running > 0,
-  };
+  return logic().summarize_path(steps) as unknown as PathSummary;
 }
 
 /** Steps worth a second look, worst first: a failure or interruption is what an
  *  operator returning to a session is looking for. Ordered by position within a
  *  severity band so the list reads along the path. */
 export function attentionSteps(steps: PathStep[]): PathStep[] {
-  // `bg` ranks with `running`: both are "not finished", and neither is a problem
-  // to draw the operator's eye.
-  const rank: Record<PathState, number> = { fail: 0, warn: 1, running: 2, bg: 2, muted: 3, ok: 4 };
-  return steps
-    .filter((s) => s.state === "fail" || s.state === "warn" || s.state === "running")
-    .sort((a, b) => rank[a.state] - rank[b.state] || a.index - b.index);
+  return logic().attention_steps(steps) as PathStep[];
 }

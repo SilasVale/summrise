@@ -131,16 +131,16 @@ mod tests {
              export const FRAMES = {frames} as const;\n\n\
              /** How the run before this one ended (/api/status.last_boot_kind, /api/boots[].kind). */\n\
              export const BOOT_KINDS = {boots} as const;\n\n\
-             /** Why a command ended. `exited` is a PREFIX: the device writes `exited:<code>`. */\n\
-             export const END_REASONS = {reasons} as const;\n\
-             export const EXITED_PREFIX = {prefix};\n\n\
              export type Frame = (typeof FRAMES)[number];\n\
-             export type BootKind = (typeof BOOT_KINDS)[number];\n\
-             export type EndReason = (typeof END_REASONS)[number];\n",
+             export type BootKind = (typeof BOOT_KINDS)[number];\n\n\
+             // `END_REASONS`, `EXITED_PREFIX` and `EndReason` ARE NOT EMITTED ANY MORE, AND THAT IS\n\
+             // A MOVE, NOT A RETIREMENT (2026-09-29, P2). `lib/path.ts` stateFromEnd was their only\n\
+             // reader and it is `panel-logic/src/path.rs` now, where the list and the table it keys\n\
+             // live in ONE crate — and `agent/tests/contract_vocabulary.rs` compares that copy\n\
+             // against `contract-vocabulary.json` on every run. The JSON still carries both: it is\n\
+             // the contract the gate reads.\n",
             frames = serde_json::to_string(FRAMES).unwrap(),
             boots = serde_json::to_string(BOOT_KINDS).unwrap(),
-            reasons = serde_json::to_string(END_REASONS).unwrap(),
-            prefix = serde_json::to_string(EXITED_PREFIX).unwrap(),
         );
 
         let refresh = std::env::var("SUMMRISE_REFRESH_CONTRACT").is_ok_and(|v| !v.is_empty());
