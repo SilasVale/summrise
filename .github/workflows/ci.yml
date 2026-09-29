@@ -53,6 +53,7 @@ jobs:
         working-directory: gateway
       - name: Format
         run: npm run format:check
+        working-directory: gateway
       # THE GATEWAY'S RUST HALF, WHICH NO JOB RAN UNTIL NOW (2026-09-29, block ④). `gateway/wasm` holds
       # the `/api/health` route and the non-streaming translation — 9 unit tests and a `verify.mjs`
       # that runs the BUILT module against the shipping TypeScript — and a crate whose tests no job
