@@ -72,21 +72,21 @@ function resolveConfig(config) {
 
 export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
   /** @type {ReturnType<typeof resolveConfig>} */
-  #config;
+  __config;
 
   constructor(ctx, config = {}) {
     super(ctx);
-    this.#config = resolveConfig(config ?? {});
+    this.__config = resolveConfig(config ?? {});
   }
 
   /** The connection facts, for a diagnostic that must not print the password. */
   describe() {
-    const { endpoint, host, user, port } = this.#config;
+    const { endpoint, host, user, port } = this.__config;
     return { endpoint, host, user, port };
   }
 
-  #requireHost() {
-    const { host, user } = this.#config;
+  __requireHost() {
+    const { host, user } = this.__config;
     if (!host || !user) {
       throw new Error(
         'summrise-workspace has no workspace host: set `host` and `user` in the profile entry\'s config, or SUMMRISE_WORKSPACE_HOST / SUMMRISE_WORKSPACE_USER',
@@ -94,18 +94,18 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     }
   }
 
-  #request(argv, cwd, stdoutCap, stderrCap, signal) {
-    this.#requireHost();
+  __request(argv, cwd, stdoutCap, stderrCap, signal) {
+    this.__requireHost();
     return execOnAgent({
-      endpoint: this.#config.endpoint,
-      token: this.#config.token,
-      host: this.#config.host,
-      user: this.#config.user,
-      port: this.#config.port,
-      password: this.#config.password,
-      keyPath: this.#config.keyPath,
-      helper: this.#config.helper,
-      timeoutMs: this.#config.timeoutMs,
+      endpoint: this.__config.endpoint,
+      token: this.__config.token,
+      host: this.__config.host,
+      user: this.__config.user,
+      port: this.__config.port,
+      password: this.__config.password,
+      keyPath: this.__config.keyPath,
+      helper: this.__config.helper,
+      timeoutMs: this.__config.timeoutMs,
       argv,
       cwd,
       stdoutCap,
@@ -132,7 +132,7 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     }
     let answer;
     try {
-      answer = await this.#request(
+      answer = await this.__request(
         ['/bin/sh', '-c', 'command -v -- "$1"', 'sh', command],
         undefined,
         4096,
@@ -184,7 +184,7 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     const collected = {};
     const done = (async () => {
       try {
-        const answer = await this.#request(
+        const answer = await this.__request(
           [...spec.argv],
           spec.cwd,
           spec.stdio.stdout.maxBytes,

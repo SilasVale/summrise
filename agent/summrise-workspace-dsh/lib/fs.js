@@ -75,21 +75,21 @@ function asFsError(cause) {
 }
 
 export default class SummriseWorkspaceFileSystem extends FileSystem {
-  #config;
+  __config;
 
   constructor(ctx, config = {}) {
     super(ctx);
-    this.#config = resolveConfig(config ?? {});
+    this.__config = resolveConfig(config ?? {});
   }
 
   /** The connection facts, for a diagnostic that must not print the password. */
   describe() {
-    const { endpoint, host, user, port, root } = this.#config;
+    const { endpoint, host, user, port, root } = this.__config;
     return { endpoint, host, user, port, root };
   }
 
-  #requireHost() {
-    const { host, user } = this.#config;
+  __requireHost() {
+    const { host, user } = this.__config;
     if (!host || !user) {
       throw new FsError(
         'summrise-workspace-fs has no workspace host: set `host` and `user` in the profile entry\'s config, or SUMMRISE_WORKSPACE_HOST / SUMMRISE_WORKSPACE_USER',
@@ -99,23 +99,23 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   }
 
   /** The path a target names. The key IS the path — see `targetFor`. */
-  #pathOf(target) {
-    if (typeof target === 'string') return normalizePath(target, this.#config.root);
+  __pathOf(target) {
+    if (typeof target === 'string') return normalizePath(target, this.__config.root);
     if (target && typeof target.targetKey === 'string') return target.targetKey;
     throw new FsError('a resolved target is required', 'FS_IO_ERROR');
   }
 
-  async #ask(op, path, extra) {
-    this.#requireHost();
+  async __ask(op, path, extra) {
+    this.__requireHost();
     try {
       return await fsOnAgent({
-        endpoint: this.#config.endpoint,
-        token: this.#config.token,
-        host: this.#config.host,
-        user: this.#config.user,
-        port: this.#config.port,
-        password: this.#config.password,
-        keyPath: this.#config.keyPath,
+        endpoint: this.__config.endpoint,
+        token: this.__config.token,
+        host: this.__config.host,
+        user: this.__config.user,
+        port: this.__config.port,
+        password: this.__config.password,
+        keyPath: this.__config.keyPath,
         op,
         path,
         ...extra,
@@ -126,7 +126,7 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   }
 
   /** The seam's type vocabulary, from the host's. `symlink` belongs to `lstat` alone. */
-  static #seamType(kind) {
+  static __seamType(kind) {
     if (kind === 'file') return 'file';
     if (kind === 'directory') return 'directory';
     return 'other';
@@ -140,27 +140,27 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
    * guard should use: a rebuild that lands the same size inside the same second would pass it. The
    * content version the agent computes on a read is `sha256:…`.
    */
-  static #metadataVersion(info) {
+  static __metadataVersion(info) {
     return makeVersion(`stat:${info?.size ?? 0}:${info?.mtime ?? 0}`);
   }
 
   // ── the pure operations: no round trip, which is what keeps every other call to one ──────────
 
   async resolve(path, opts) {
-    const target = targetFor(path, opts?.cwd ?? this.#config.root);
+    const target = targetFor(path, opts?.cwd ?? this.__config.root);
     return { targetKey: FsTargetKey(target.targetKey), displayPath: target.displayPath };
   }
 
   processPath(target) {
-    return this.#pathOf(target);
+    return this.__pathOf(target);
   }
 
   fileUrl(target) {
-    return fileUrlFor(this.#pathOf(target));
+    return fileUrlFor(this.__pathOf(target));
   }
 
   contains(parent, child) {
-    return pathContains(this.#pathOf(parent), this.#pathOf(child));
+    return pathContains(this.__pathOf(parent), this.__pathOf(child));
   }
 
   /**
@@ -174,33 +174,33 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   // ── one round trip each ──────────────────────────────────────────────────────────────────────
 
   async stat(target, signal) {
-    const answer = await this.#ask('stat', this.#pathOf(target), { signal });
+    const answer = await this.__ask('stat', this.__pathOf(target), { signal });
     if (answer.info === null || answer.info === undefined) return undefined;
     const info = answer.info;
     return {
-      version: SummriseWorkspaceFileSystem.#metadataVersion(info),
-      type: SummriseWorkspaceFileSystem.#seamType(info.kind),
+      version: SummriseWorkspaceFileSystem.__metadataVersion(info),
+      type: SummriseWorkspaceFileSystem.__seamType(info.kind),
       size: info.kind === 'file' ? info.size : undefined,
     };
   }
 
   async lstat(path, opts, signal) {
-    const answer = await this.#ask('lstat', normalizePath(path, opts?.cwd ?? this.#config.root), {
+    const answer = await this.__ask('lstat', normalizePath(path, opts?.cwd ?? this.__config.root), {
       signal,
     });
     if (answer.info === null || answer.info === undefined) return undefined;
     const info = answer.info;
     return {
-      version: SummriseWorkspaceFileSystem.#metadataVersion(info),
+      version: SummriseWorkspaceFileSystem.__metadataVersion(info),
       // `symlink` is what lstat exists to report: a consumer with a trust-boundary rule rejects the
       // PATH before `resolve` follows it.
-      type: info.kind === 'symlink' ? 'symlink' : SummriseWorkspaceFileSystem.#seamType(info.kind),
+      type: info.kind === 'symlink' ? 'symlink' : SummriseWorkspaceFileSystem.__seamType(info.kind),
       size: info.kind === 'file' ? info.size : undefined,
     };
   }
 
   async readText(target, signal) {
-    const answer = await this.#ask('readText', this.#pathOf(target), {
+    const answer = await this.__ask('readText', this.__pathOf(target), {
       signal,
       max_bytes: DEFAULT_READ_CAP,
     });
@@ -208,7 +208,7 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   }
 
   async readBytes(target, signal, maxBytes) {
-    const answer = await this.#ask('readBytes', this.#pathOf(target), {
+    const answer = await this.__ask('readBytes', this.__pathOf(target), {
       signal,
       offset: 0,
       length: maxBytes,
@@ -217,7 +217,7 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   }
 
   async readByteRange(target, range, signal) {
-    const answer = await this.#ask('readBytes', this.#pathOf(target), {
+    const answer = await this.__ask('readBytes', this.__pathOf(target), {
       signal,
       offset: range.offset,
       length: range.length,
@@ -233,10 +233,10 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
    * asked for, which is what end-of-file looks like from here.
    */
   async *streamText(target, signal) {
-    const path = this.#pathOf(target);
+    const path = this.__pathOf(target);
     let offset = 0;
     for (;;) {
-      const answer = await this.#ask('readBytes', path, {
+      const answer = await this.__ask('readBytes', path, {
         signal,
         offset,
         length: STREAM_CHUNK,
@@ -253,16 +253,16 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
   }
 
   async listDir(target, signal) {
-    const path = this.#pathOf(target);
-    const answer = await this.#ask('listDir', path, { signal });
+    const path = this.__pathOf(target);
+    const answer = await this.__ask('listDir', path, { signal });
     const entries = Array.isArray(answer.entries) ? answer.entries : [];
     return entries.map((entry) => {
       const child = normalizePath(`${path}/${entry.name}`, '/');
       return {
         name: entry.name,
-        type: SummriseWorkspaceFileSystem.#seamType(entry.kind),
+        type: SummriseWorkspaceFileSystem.__seamType(entry.kind),
         target: { targetKey: FsTargetKey(child), displayPath: child },
-        version: SummriseWorkspaceFileSystem.#metadataVersion(entry),
+        version: SummriseWorkspaceFileSystem.__metadataVersion(entry),
         size: entry.kind === 'file' ? entry.size : undefined,
       };
     });
