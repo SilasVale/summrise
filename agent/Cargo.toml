@@ -1,5 +1,8 @@
 [workspace]
-members = [".", "summrise-command-core"]
+# `summrise-exec-argv` is a member so `cargo fmt --all` and the workspace's lockfile see it, but it is
+# deliberately NOT a default member: it is a POSIX execve shim staged onto a *target* machine, and the
+# Windows agent build must not try to produce it. It is built for the target triple on its own.
+members = [".", "summrise-command-core", "summrise-exec-argv"]
 default-members = ["."]
 resolver = "2"
 

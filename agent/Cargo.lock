@@ -3547,6 +3547,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-exec-argv"
+version = "1.0.145"
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
