@@ -1,6 +1,26 @@
 /* @ts-self-types="./ui_logic.d.ts" */
 
 /**
+ * `agentSignal(status, t)` — the agent's row: what it is called, which of the three states, and the
+ * word for it.
+ *
+ * `signalOf(status?.agent_up, …)`: an ABSENT status makes the field `undefined`, which is the
+ * `off` / "not checked" arm. The field's TYPE is `boolean | undefined`, so the JS test is
+ * `value === undefined` — distinct from `false`, which is `err`. `js_sys::JsValue` has no
+ * "is undefined" in the loose sense, so the test is `is_undefined()` here.
+ * @param {any} status
+ * @param {Function} t
+ * @returns {object}
+ */
+export function agent_signal(status, t) {
+    const ret = wasm.agent_signal(status, t);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * THE BARE PREFIX (`or/` and `or` are one channel).
  *
  * `String(prefix ?? "")` — the JavaScript coerces ANY value (a number, `null`, `undefined`) rather
@@ -82,6 +102,33 @@ export function channel_signal(ok) {
 }
 
 /**
+ * `deviceIsUp(status)` — `!!status?.agent_up`, i.e. TRUTHINESS on the optional chain. A caller that
+ * needs "offline" rather than "not checked" reads the signal below instead.
+ * @param {any} status
+ * @returns {boolean}
+ */
+export function device_is_up(status) {
+    const ret = wasm.device_is_up(status);
+    return ret !== 0;
+}
+
+/**
+ * `deviceTally(devices, statuses)` — THE COUNTS, IN ONE PLACE.
+ *
+ * Two surfaces used to compute "N devices online" from the same fact with their own
+ * `filter(…).length`, which is how the per-device mark disagreed with the count. A count cannot show
+ * ambiguity per device, so BOTH numbers are returned: `online` is what is known, `unchecked` is what
+ * is not yet known. `devices ?? []` — a nullish list is an EMPTY list, not a throw.
+ * @param {any} devices
+ * @param {any} statuses
+ * @returns {object}
+ */
+export function device_tally(devices, statuses) {
+    const ret = wasm.device_tally(devices, statuses);
+    return ret;
+}
+
+/**
  * A DIAL'S TONE, from "how many of N are well" — the same question the channels tile and the devices
  * tile both ask, and they used to answer it differently.
  *
@@ -129,6 +176,35 @@ export function lane_class(prefix) {
         wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
+
+/**
+ * `tunnelKnownDown(status)` — THE TRI-STATE RULE, IN ONE PLACE.
+ *
+ * `status?.tunnel_up === false` — STRICT equality against `false`, so an absent flag and an absent
+ * status are both `false` here: "not known down" is not "known up". That distinction is the whole
+ * point of the module; the differential carries `tunnel_up` missing, `true`, `false` and `null`.
+ * @param {any} status
+ * @returns {boolean}
+ */
+export function tunnel_known_down(status) {
+    const ret = wasm.tunnel_known_down(status);
+    return ret !== 0;
+}
+
+/**
+ * `tunnelSignal(status, t)` — the same three states for the tunnel, because the gateway may not
+ * have probed it either.
+ * @param {any} status
+ * @param {Function} t
+ * @returns {object}
+ */
+export function tunnel_signal(status, t) {
+    const ret = wasm.tunnel_signal(status, t);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -173,8 +249,32 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_from_296ca31f8d0f1c52: function(arg0) {
+            const ret = Array.from(arg0);
+            return ret;
+        },
         __wbg_get_31af05bd4842a84f: function() { return handleError(function (arg0, arg1) {
             const ret = Reflect.get(arg0, arg1);
+            return ret;
+        }, arguments); },
+        __wbg_get_unchecked_288889d017702237: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
+            return ret;
+        },
+        __wbg_isArray_2b41c29f43a3fb12: function(arg0) {
+            const ret = Array.isArray(arg0);
+            return ret;
+        },
+        __wbg_length_d4bdea10311bd9cf: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
+        __wbg_new_617a8cdb8bb1130e: function() {
+            const ret = new Object();
+            return ret;
+        },
+        __wbg_set_145a351398b48c65: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = Reflect.set(arg0, arg1, arg2);
             return ret;
         }, arguments); },
         __wbg_static_accessor_GLOBAL_266715b9d96ba635: function() {

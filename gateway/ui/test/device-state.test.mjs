@@ -11,6 +11,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentSignal, deviceIsUp, deviceTally, tunnelSignal } from "../src/lib/deviceState.ts";
 
+// THE CONSOLE'S RUST IS LOADED BEFORE THE ASSERTIONS (block ③). Every function below goes through
+// `wasm/consoleLogic.ts`, and that seam is asynchronous under `node --test` — it reads
+// `ui/public/ui_logic_bg.wasm` off disk and `initSync`s it. The browser awaits it in `main.tsx`; a test
+// file awaits it here, which is the arrangement `test/lane.test.mjs` established.
+import { consoleLogic } from "../src/wasm/consoleLogic.ts";
+await consoleLogic();
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The dictionary, stubbed: these tests are about which KEY is chosen, not what it says. */

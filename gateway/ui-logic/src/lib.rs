@@ -93,6 +93,17 @@ fn js_text(v: &JsValue) -> String {
         .unwrap_or_default()
 }
 
+/// A property read that ANSWERS `undefined` for a nullish target — the console's optional-chaining
+/// shape, and the one rule every function below needs: a null or undefined OBJECT has no properties,
+/// which is why `deviceTally` can read `statuses[name]` and then `st.agent_up` without a guard at
+/// each step.
+fn prop(target: &JsValue, key: &str) -> JsValue {
+    if target.is_null() || target.is_undefined() {
+        return JsValue::UNDEFINED;
+    }
+    js_sys::Reflect::get(target, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+}
+
 /// The lane class for a channel prefix, with its trailing slash ignored.
 #[wasm_bindgen]
 pub fn lane_class(prefix: JsValue) -> String {
@@ -216,3 +227,180 @@ fn prop_truthy(v: &JsValue, key: &str) -> bool {
 fn call_translator(t: &js_sys::Function, key: &str) -> Result<JsValue, JsValue> {
     t.call1(&JsValue::UNDEFINED, &JsValue::from_str(key))
 }
+
+// ── `lib/deviceState.ts` — IS THIS DEVICE'S AGENT ANSWERING? ──────────────────────────────────────
+//
+// The console's second grouping module, and the one that fixes the truth/answering the two device
+// facts. Like `channelState`, `agentSignal`/`tunnelSignal` take the console's `t` and the crate decides
+// WHICH of the three states applies — the words stay in the console's dictionary.
+//
+// THE TRI-STATE IS THE POINT. An ABSENT status is `off` ("not checked"), a `false` is `err`
+// ("offline"), and a `true` is `ok` — three outcomes, not two. Collapsing them is what made a row
+// paint a red dot for a device nobody had asked about, and this module is where that collapse is
+// written down once.
+
+/// `tunnelKnownDown(status)` — THE TRI-STATE RULE, IN ONE PLACE.
+///
+/// `status?.tunnel_up === false` — STRICT equality against `false`, so an absent flag and an absent
+/// status are both `false` here: "not known down" is not "known up". That distinction is the whole
+/// point of the module; the differential carries `tunnel_up` missing, `true`, `false` and `null`.
+#[wasm_bindgen]
+pub fn tunnel_known_down(status: JsValue) -> bool {
+    // `=== false` — a boolean, and false. `!v` would also answer true for `0` and `""`, and
+    // `tunnel_up` is a wire boolean; a numeric 0 is not the same claim as a checked-and-down flag.
+    let v = prop(&status, "tunnel_up");
+    v.js_typeof().as_string().as_deref() == Some("boolean") && !v.is_truthy()
+}
+
+/// `deviceIsUp(status)` — `!!status?.agent_up`, i.e. TRUTHINESS on the optional chain. A caller that
+/// needs "offline" rather than "not checked" reads the signal below instead.
+#[wasm_bindgen]
+pub fn device_is_up(status: JsValue) -> bool {
+    optional(&status, "agent_up").is_truthy()
+}
+
+/// `agentSignal(status, t)` — the agent's row: what it is called, which of the three states, and the
+/// word for it.
+///
+/// `signalOf(status?.agent_up, …)`: an ABSENT status makes the field `undefined`, which is the
+/// `off` / "not checked" arm. The field's TYPE is `boolean | undefined`, so the JS test is
+/// `value === undefined` — distinct from `false`, which is `err`. `js_sys::JsValue` has no
+/// "is undefined" in the loose sense, so the test is `is_undefined()` here.
+#[wasm_bindgen]
+pub fn agent_signal(status: JsValue, t: &js_sys::Function) -> Result<js_sys::Object, JsValue> {
+    let value = optional(&status, "agent_up");
+    let row = signal_of(&value, t, "devices.online", "devices.offline")?;
+    // The spread `{ label, ...signalOf }` puts `label` FIRST, and this module's own comment records
+    // that the KEY ORDER is the wire format — so the row is rebuilt in the TypeScript's order.
+    let out = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(
+        &out,
+        &JsValue::from_str("label"),
+        &t.call1(&JsValue::UNDEFINED, &JsValue::from_str("devices.statusAgent"))?,
+    );
+    for k in ["signal", "ok", "err", "state"] {
+        let v = js_sys::Reflect::get(&row, &JsValue::from_str(k)).unwrap_or(JsValue::UNDEFINED);
+        let _ = js_sys::Reflect::set(&out, &JsValue::from_str(k), &v);
+    }
+    Ok(out)
+}
+
+/// `tunnelSignal(status, t)` — the same three states for the tunnel, because the gateway may not
+/// have probed it either.
+#[wasm_bindgen]
+pub fn tunnel_signal(status: JsValue, t: &js_sys::Function) -> Result<js_sys::Object, JsValue> {
+    let value = optional(&status, "tunnel_up");
+    let row = signal_of(&value, t, "devices.tunnelUp", "devices.tunnelDown")?;
+    let out = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(
+        &out,
+        &JsValue::from_str("label"),
+        &t.call1(&JsValue::UNDEFINED, &JsValue::from_str("devices.statusTunnel"))?,
+    );
+    for k in ["signal", "ok", "err", "state"] {
+        let v = js_sys::Reflect::get(&row, &JsValue::from_str(k)).unwrap_or(JsValue::UNDEFINED);
+        let _ = js_sys::Reflect::set(&out, &JsValue::from_str(k), &v);
+    }
+    Ok(out)
+}
+
+/// `signalOf(value, t, yes, no)` — THE THREE OUTCOMES.
+///
+/// An `undefined` value is the `off` / not-checked arm and is BOTH flags false; a truthy value is `ok`
+/// and a falsy (present) one is `err`. `value === undefined` is the JS's test, and it is why the
+/// absent case is separated from the false case all the way down.
+fn signal_of(
+    value: &JsValue,
+    t: &js_sys::Function,
+    yes: &str,
+    no: &str,
+) -> Result<js_sys::Object, JsValue> {
+    let o = js_sys::Object::new();
+    if value.is_undefined() {
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("signal"), &JsValue::from_str("off"));
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("ok"), &JsValue::FALSE);
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("err"), &JsValue::FALSE);
+        let _ = js_sys::Reflect::set(
+            &o,
+            &JsValue::from_str("state"),
+            &t.call1(&JsValue::UNDEFINED, &JsValue::from_str("devices.notChecked"))?,
+        );
+    } else if value.is_truthy() {
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("signal"), &JsValue::from_str("ok"));
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("ok"), &JsValue::TRUE);
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("err"), &JsValue::FALSE);
+        let _ = js_sys::Reflect::set(
+            &o,
+            &JsValue::from_str("state"),
+            &t.call1(&JsValue::UNDEFINED, &JsValue::from_str(yes))?,
+        );
+    } else {
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("signal"), &JsValue::from_str("err"));
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("ok"), &JsValue::FALSE);
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("err"), &JsValue::TRUE);
+        let _ = js_sys::Reflect::set(
+            &o,
+            &JsValue::from_str("state"),
+            &t.call1(&JsValue::UNDEFINED, &JsValue::from_str(no))?,
+        );
+    }
+    Ok(o)
+}
+
+/// `status?.agent_up` — OPTIONAL CHAINING, so a null or undefined STATUS is `undefined` here and the
+/// `off` arm below fires, rather than reading a property off nullish.
+fn optional(status: &JsValue, key: &str) -> JsValue {
+    if status.is_null() || status.is_undefined() {
+        return JsValue::UNDEFINED;
+    }
+    js_sys::Reflect::get(status, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+}
+
+/// `deviceTally(devices, statuses)` — THE COUNTS, IN ONE PLACE.
+///
+/// Two surfaces used to compute "N devices online" from the same fact with their own
+/// `filter(…).length`, which is how the per-device mark disagreed with the count. A count cannot show
+/// ambiguity per device, so BOTH numbers are returned: `online` is what is known, `unchecked` is what
+/// is not yet known. `devices ?? []` — a nullish list is an EMPTY list, not a throw.
+#[wasm_bindgen]
+pub fn device_tally(devices: JsValue, statuses: JsValue) -> js_sys::Object {
+    let list: Vec<JsValue> = if devices.is_null() || devices.is_undefined() {
+        Vec::new()
+    } else if devices.is_array() {
+        js_sys::Array::from(&devices).iter().collect()
+    } else {
+        Vec::new()
+    };
+    let mut online = 0f64;
+    let mut tunnels = 0f64;
+    let mut unchecked = 0f64;
+    for d in &list {
+        let name = js_sys::Reflect::get(d, &JsValue::from_str("name")).unwrap_or(JsValue::UNDEFINED);
+        let st = js_sys::Reflect::get(&statuses, &JsValue::from_str(&js_text(&name))).unwrap_or(JsValue::UNDEFINED);
+        // `statuses[d.name]` is `undefined` for a name the map does not carry, and THAT is the
+        // unchecked test (`st === undefined`), not a missing `agent_up` inside a present entry.
+        if st.is_undefined() {
+            unchecked += 1.0;
+        }
+        if optional(&st, "agent_up").is_truthy() {
+            online += 1.0;
+        }
+        if optional(&st, "tunnel_up").is_truthy() {
+            tunnels += 1.0;
+        }
+    }
+    let o = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&o, &JsValue::from_str("online"), &JsValue::from_f64(online));
+    let _ = js_sys::Reflect::set(&o, &JsValue::from_str("tunnels"), &JsValue::from_f64(tunnels));
+    let _ = js_sys::Reflect::set(&o, &JsValue::from_str("unchecked"), &JsValue::from_f64(unchecked));
+    let _ = js_sys::Reflect::set(&o, &JsValue::from_str("total"), &JsValue::from_f64(list.len() as f64));
+    o
+}
+
+// `CONSOLE_POLL_MS` IS NOT HERE, AND THE REASON IS THE SAME ONE THAT KEPT `WORKING_MS` IN THE PANEL.
+// It is the CONSOLE'S OWN POLLING CADENCE, read by two views' intervals; no function in this crate
+// consults it — so moving it would move a number the logic never looks at, and leave the module-level
+// `export const CONSOLE_POLL_MS = logic().console_poll_ms()` evaluating BEFORE any caller can await
+// `consoleLogic()`, which is what the first version did and what `test/device-state.test.mjs` caught
+// by throwing `console logic was called before it loaded` on import. A surface's own number stays with
+// the surface; the panel reached the same call on `liveness.rs`'s `WORKING_MS`.
