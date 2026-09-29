@@ -838,6 +838,7 @@ pub(crate) enum RouteId {
     PlaywrightStart,
     PlaywrightStop,
     ToolCall,
+    WorkspaceExec,
     // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
     EventsStream,
     TermStream,
@@ -1089,6 +1090,15 @@ pub(crate) fn routes() -> &'static [Route] {
             method: "POST",
             pattern: Pattern::Prefix("/api/tools/"),
             id: RouteId::ToolCall,
+            stage: Stage::DispatchGated,
+        },
+        // The workspace's one door. Behind the unconditional auth gate like every other
+        // `DispatchGated` row, and that is not a formality: this route RUNS A COMMAND as a remote
+        // account. An exact pattern, so the narrower rows above keep their precedence.
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/exec"),
+            id: RouteId::WorkspaceExec,
             stage: Stage::DispatchGated,
         },
         // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
@@ -1652,6 +1662,10 @@ async fn dispatch(
             let tool_name = path.strip_prefix("/api/tools/").unwrap_or("");
             api_call_tool(state, tool_name, body_str).await
         }
+        // `200 + {ok:false,code}` on a bad body, like the monitor and tool routes above rather than
+        // like the parsing routes — see the note below, which is the reason this is a choice and not
+        // an oversight.
+        Some(RouteId::WorkspaceExec) => api_workspace_exec(body_str).await,
         // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
         // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
         // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
@@ -2283,6 +2297,174 @@ fn api_monitor_remove(body: &str) -> serde_json::Value {
     // HONEST ABOUT WHAT HAPPENED: removing something that was not watched is reported as such
     // rather than as a success (the panel then refreshes to the truth either way).
     serde_json::json!({"ok": true, "removed": crate::monitor::remove_target(&crate::paths::data_dir(), id)})
+}
+
+/// Without the `terminal` feature there is no SSH client, so this build cannot run a command
+/// anywhere — and it says so rather than answering as though it had. The route and its row stay
+/// unconditional, which is this file's convention: a surface that quietly disappears with a feature
+/// is a surface a caller discovers by getting nothing.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_exec(_body: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "this build has no SSH client (the `terminal` feature is off), so it cannot run a \
+                  command on a workspace host",
+        "code": "internal"
+    })
+}
+
+/// Run one command on a workspace host, and bring back its streams and its status.
+///
+/// THE ONE VALUE THAT CROSSES AS TEXT IS THE HELPER'S PATH, and `workspace::exec_on` refuses
+/// anything but a plain one. Everything else — the argv a model chose, the directory it runs in —
+/// travels in a frame on the channel's stdin, because the exec string is handed to the LOGIN SHELL
+/// by `sshd` and quoting an argv into it is the hazard the transport exists to remove.
+///
+/// `stdout_b64` / `stderr_b64` are BASE64 rather than text: a subprocess seam carries bytes, and a
+/// search result or a build log that happens to be non-UTF-8 must not lose the bytes that are not.
+///
+/// The connect is bounded at 30 s, matching `terminal_sftp`'s ceiling and for the same reason —
+/// russh's inactivity timer resets on ANY byte, so a dribbling tarpit can stretch an auth hang
+/// indefinitely without one.
+#[cfg(feature = "terminal")]
+async fn api_workspace_exec(body: &str) -> serde_json::Value {
+    use base64::Engine as _;
+
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+
+    let Some(host) = v.get("host").and_then(|x| x.as_str()) else {
+        return bad("a host is required");
+    };
+    let Some(user) = v.get("user").and_then(|x| x.as_str()) else {
+        return bad("a user is required");
+    };
+    let Some(argv) = v.get("argv").and_then(|x| x.as_array()) else {
+        return bad("an argv array is required");
+    };
+    if argv.is_empty() {
+        return bad("an argv needs at least one element (argv[0])");
+    }
+    let mut argv_bytes: Vec<Vec<u8>> = Vec::with_capacity(argv.len());
+    for element in argv {
+        let Some(text) = element.as_str() else {
+            return bad("every argv element must be a string");
+        };
+        argv_bytes.push(text.as_bytes().to_vec());
+    }
+
+    let port = v.get("port").and_then(|x| x.as_u64()).unwrap_or(22) as u16;
+    let password = v.get("password").and_then(|x| x.as_str()).unwrap_or("");
+    let key_path = v.get("key_path").and_then(|x| x.as_str()).unwrap_or("");
+    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.as_bytes());
+    let stdout_cap = v
+        .get("stdout_cap")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(1 << 20) as usize;
+    let stderr_cap = v
+        .get("stderr_cap")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(64 << 10) as usize;
+    let helper = v
+        .get("helper")
+        .and_then(|x| x.as_str())
+        .unwrap_or(crate::workspace::HELPER_DEFAULT);
+    let timeout_ms = v
+        .get("timeout_ms")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(120_000)
+        .min(600_000);
+
+    let session = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        crate::tools::ssh::SshSession::connect(
+            host,
+            port,
+            user,
+            if password.is_empty() {
+                None
+            } else {
+                Some(password)
+            },
+            if key_path.is_empty() {
+                None
+            } else {
+                Some(key_path)
+            },
+        ),
+    )
+    .await
+    {
+        Ok(Ok(session)) => session,
+        Ok(Err(e)) => {
+            return serde_json::json!({"ok": false, "error": format!("connect failed: {e}"), "code": "connect_failed"})
+        }
+        Err(_) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("connecting to {user}@{host}:{port} did not complete within 30s"),
+                "code": "connect_timeout"
+            })
+        }
+    };
+
+    let request = crate::workspace::ExecRequest {
+        argv: &argv_bytes,
+        cwd,
+        stdout_cap,
+        stderr_cap,
+    };
+    let outcome = match tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        crate::workspace::exec_on(&session, helper, request),
+    )
+    .await
+    {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(e)) => {
+            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "exec_failed"})
+        }
+        Err(_) => {
+            // Dropping the future drops the channel, which closes it, which is what makes the
+            // far side terminate. The status is therefore UNKNOWN, not "killed by us" — this
+            // caller cannot see what the target did on its way out.
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the command did not finish within {timeout_ms} ms"),
+                "code": "exec_timeout"
+            });
+        }
+    };
+
+    let status = match &outcome.status {
+        crate::tools::ssh::ExecStatus::Exited(code) => {
+            serde_json::json!({"kind": "exited", "code": code})
+        }
+        crate::tools::ssh::ExecStatus::Signalled {
+            name,
+            core_dumped,
+            message,
+        } => serde_json::json!({
+            "kind": "signalled",
+            "name": name,
+            "core_dumped": core_dumped,
+            "message": message
+        }),
+        // A real outcome, not a placeholder: a channel can close without the server ever sending a
+        // status, and a caller that read that as success would report a command that never ran.
+        crate::tools::ssh::ExecStatus::Unknown => serde_json::json!({"kind": "unknown"}),
+    };
+
+    let engine = base64::engine::general_purpose::STANDARD;
+    serde_json::json!({
+        "ok": true,
+        "stdout_b64": engine.encode(&outcome.stdout),
+        "stderr_b64": engine.encode(&outcome.stderr),
+        "status": status,
+        "stdout_overflow": outcome.stdout_overflow,
+        "stderr_overflow": outcome.stderr_overflow,
+    })
 }
 
 async fn api_monitor_probe(body: &str) -> serde_json::Value {
@@ -5036,10 +5218,72 @@ mod tests {
             Some(RouteId::PanelPreflight)
         );
 
+        // ── the workspace door ──
+        assert_eq!(
+            route_of("POST", "/api/workspace/exec"),
+            Some(RouteId::WorkspaceExec)
+        );
+        // GET is not a second door: the row is a POST, so the method has to match as well as the
+        // path, and a GET falls through to the not-found answer rather than into a handler.
+        assert_eq!(route_of("GET", "/api/workspace/exec"), None);
+
         // ── an unknown path is not found ──
         assert_eq!(route_of("GET", "/api/nope"), None);
         assert_eq!(route_of("POST", "/"), None);
         assert_eq!(route_of("DELETE", "/api/sessions"), None);
+    }
+
+    /// The workspace door's refusals — every one of them decided BEFORE a connection is attempted,
+    /// which is why this test needs no machine.
+    ///
+    /// WHY IT IS WORTH WRITING: the route runs a command as a remote account, so the shape of what it
+    /// accepts is security-relevant rather than cosmetic. An argv that arrives empty, or with an
+    /// element that is not a string, is a caller mistake that has to be NAMED — not a panic, and not
+    /// a silently different command.
+    /// GATED ON THE FEATURE, like the operation route's neighbour: without the SSH client this
+    /// handler answers Internal before it looks at the body, so these assertions describe a build
+    /// that has one.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_refuses_a_malformed_request_before_it_connects() {
+        for (body, expected) in [
+            (r#"{}"#, "a host is required"),
+            (r#"{"host":"h"}"#, "a user is required"),
+            (r#"{"host":"h","user":"u"}"#, "an argv array is required"),
+            (
+                r#"{"host":"h","user":"u","argv":[]}"#,
+                "an argv needs at least one element (argv[0])",
+            ),
+            (
+                r#"{"host":"h","user":"u","argv":["rg",7]}"#,
+                "every argv element must be a string",
+            ),
+        ] {
+            let answer = api_workspace_exec(body).await;
+            assert_eq!(answer["ok"], serde_json::json!(false), "body: {body}");
+            assert_eq!(
+                answer["code"],
+                serde_json::json!("invalid_params"),
+                "body: {body}"
+            );
+            assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
+        }
+    }
+
+    /// A body that is not JSON at all is treated as the empty object, not as a panic — the
+    /// `200 + {ok:false,code}` convention this file's monitor and tool routes already follow.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_survives_a_body_that_is_not_json() {
+        for body in ["", "not json", "{"] {
+            let answer = api_workspace_exec(body).await;
+            assert_eq!(answer["ok"], serde_json::json!(false), "body: {body:?}");
+            assert_eq!(
+                answer["error"],
+                serde_json::json!("a host is required"),
+                "body: {body:?}"
+            );
+        }
     }
 
     /// The table's floorS (one per stage), and its method vocabulary.
