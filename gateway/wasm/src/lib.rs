@@ -67,7 +67,10 @@ const HEALTH_PRIORITY: [&str; 4] = ["cm", "qw", "og", "or"];
 /// The static headers `jsonOk` puts on every JSON response (`http.ts`'s `CORS_HEADERS`). The
 /// per-request ACAO is NOT here — see the module header.
 const CORS_HEADERS: [(&str, &str); 2] = [
-    ("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT"),
+    (
+        "Access-Control-Allow-Methods",
+        "GET,POST,OPTIONS,DELETE,PUT",
+    ),
     ("Access-Control-Allow-Headers", "*"),
 ];
 
@@ -183,7 +186,9 @@ async fn read_breaker(env: &Env) -> Result<bool> {
 /// A JSON response with the headers `jsonOk` sets (`http.ts`).
 fn json(body: String, status: u16) -> Result<Response> {
     let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
-    response.headers_mut().set("Content-Type", "application/json")?;
+    response
+        .headers_mut()
+        .set("Content-Type", "application/json")?;
     for (name, value) in CORS_HEADERS {
         response.headers_mut().set(name, value)?;
     }
@@ -217,3 +222,5 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
     not_found()
 }
+
+pub mod translate;
