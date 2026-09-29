@@ -181,7 +181,32 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
       else spec.signal.addEventListener('abort', forwardAbort, { once: true });
     }
 
-    const collected = {};
+    // THE READERS EXIST BEFORE THE COMMAND DOES, and that is not a nicety: a consumer takes
+    // `handle.collected` the moment `spawn` returns — `dsh-bash-local` reads `collected.stdout`
+    // straight into the `observed` streams it hands its caller — and a handle whose
+    // `collected.stdout` is `undefined` is reported as *the implementation dropped a requested
+    // collect stream*. Measured 2026-09-30 on desktop-14rjcr8: that sentence is what EVERY `bash`
+    // call answered, because the first version of this file filled `collected` only after `done`
+    // settled. The bytes do arrive later; the READER is here now, and it answers empty until they do.
+    const buffers = {
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      stdoutOverflow: false,
+      stderrOverflow: false,
+    };
+    const readerOver = (bytes, overflow) => ({
+      readFrom: (fromByte) => makeCollectedReader(bytes(), overflow()).readFrom(fromByte),
+    });
+    const collected = {
+      stdout: readerOver(
+        () => buffers.stdout,
+        () => buffers.stdoutOverflow,
+      ),
+      stderr: readerOver(
+        () => buffers.stderr,
+        () => buffers.stderrOverflow,
+      ),
+    };
     const done = (async () => {
       try {
         const answer = await this.__request(
@@ -191,10 +216,10 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
           spec.stdio.stderr.maxBytes,
           controller.signal,
         );
-        // Populated BEFORE this promise settles: the seam lets a caller read `collected` after
-        // `await done`, so the readers have to exist by then.
-        collected.stdout = makeCollectedReader(answer.stdout, answer.stdoutOverflow);
-        collected.stderr = makeCollectedReader(answer.stderr, answer.stderrOverflow);
+        buffers.stdout = answer.stdout;
+        buffers.stderr = answer.stderr;
+        buffers.stdoutOverflow = answer.stdoutOverflow;
+        buffers.stderrOverflow = answer.stderrOverflow;
         return normalizeOutcome(answer.status);
       } finally {
         spec.signal?.removeEventListener?.('abort', forwardAbort);
