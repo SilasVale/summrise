@@ -1,7 +1,29 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "summrise-dist",
-  "main": "src/index.js",
+  // THE RUST WORKER SERVES THIS NAME NOW (2026-09-29, block ④ of the migration).
+  //
+  // `src/index.js` is the JavaScript this replaced, and it is NOT deleted: `index/test/*.mjs` still
+  // imports it, and the rule is that the old one stays until the new one is proved equivalent — which
+  // is two proofs, not one:
+  //
+  //   1. `index/worker/verify.mjs` — thirteen cases, the SHIPPING JavaScript and the module
+  //      `worker-build --release` produced, byte for byte including the two 503 failure bodies.
+  //   2. THE CANARY, on its own name `agent-rust.saisi.online` with the same assets and the same R2
+  //      bucket, compared against THIS HOST over eight routes: the landing page on both paths, the
+  //      manifest, the 404s, the tarball, cloudflared, and both R2 artifacts at full size — all
+  //      byte-identical once the host is normalised, which is the one difference the worker is
+  //      SUPPOSED to have (every URL is rebuilt against the request's own origin).
+  //
+  // **AND THE CANARY IS WHAT FOUND THE ONE DEFECT NOTHING ELSE COULD:** `ObjectBody::stream()` pulls
+  // the R2 object through the isolate, and on the 115 MB electron runtime the body arrived SHORT on
+  // every fetch while a 32 MB object completed either way. `response_body()` — what
+  // `new Response(obj.body, …)` does in the JavaScript — fixed it. A 32 MB object is what every
+  // harness has, so the harness was green throughout.
+  //
+  // THE WAY BACK IS ONE LINE: `"main": "src/index.js"`, redeploy. The Rust module is built by
+  // `scripts/build.sh index` (the build is part of the deploy, because its output is gitignored).
+  "main": "worker/build/index.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
   // Static assets served first (run_worker_first defaults to false), so
