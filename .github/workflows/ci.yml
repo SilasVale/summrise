@@ -61,7 +61,6 @@ jobs:
       # plan's standing rule; this job already carries the gateway's other languages.
       - name: Rust (translation + health route)
         run: cargo test --manifest-path gateway/wasm/Cargo.toml
-        working-directory: gateway
 
   ui:
     name: ui (tsc + build + test + render smoke)
