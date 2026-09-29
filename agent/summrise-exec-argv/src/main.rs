@@ -29,14 +29,30 @@ fn main() {
     // `read_frame` stops exactly at the frame's last byte.
     let mut stdin = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(0) });
 
-    let argv = match summrise_exec_argv::read_frame(&mut *stdin) {
-        Ok(argv) => argv,
+    let frame = match summrise_exec_argv::read_frame(&mut *stdin) {
+        Ok(frame) => frame,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "summrise-exec-argv: {e}");
             std::process::exit(125);
         }
     };
 
+    // The working directory is entered here rather than carried in the exec string, because the exec
+    // string passes through the login shell and a workspace path is caller-supplied. A failure is a
+    // helper-level failure — the command did not run, and reporting it as if it had would be worse
+    // than not running it at all.
+    if let Some(directory) = &frame.cwd {
+        let path = OsStr::from_bytes(directory);
+        if let Err(e) = std::env::set_current_dir(path) {
+            let _ = writeln!(
+                std::io::stderr(),
+                "summrise-exec-argv: cannot enter working directory {path:?}: {e}"
+            );
+            std::process::exit(126);
+        }
+    }
+
+    let argv = frame.argv;
     let program = OsStr::from_bytes(&argv[0]);
     let mut command = Command::new(program);
     for element in &argv[1..] {

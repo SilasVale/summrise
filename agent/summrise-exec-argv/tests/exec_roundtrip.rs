@@ -19,6 +19,11 @@ const HELPER: &str = env!("CARGO_BIN_EXE_summrise-exec-argv");
 /// Run the helper with `argv` in a frame, plus `child_stdin` written after the frame, and return
 /// (stdout, exit code).
 fn run(argv: &[&[u8]], child_stdin: &[u8]) -> (Vec<u8>, i32) {
+    run_in(None, argv, child_stdin)
+}
+
+/// The same, entering `cwd` before the exec.
+fn run_in(cwd: Option<&[u8]>, argv: &[&[u8]], child_stdin: &[u8]) -> (Vec<u8>, i32) {
     let mut child = Command::new(HELPER)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -29,7 +34,7 @@ fn run(argv: &[&[u8]], child_stdin: &[u8]) -> (Vec<u8>, i32) {
     {
         let stdin = child.stdin.as_mut().expect("stdin is piped");
         let mut frame = Vec::new();
-        summrise_exec_argv::write_frame(&mut frame, argv).expect("the frame is writable");
+        summrise_exec_argv::write_frame(&mut frame, cwd, argv).expect("the frame is writable");
         stdin.write_all(&frame).expect("the frame is written");
         // Everything after the frame is the target's own stdin, which is exactly what the helper
         // must leave untouched.
@@ -92,4 +97,48 @@ fn the_targets_exit_status_is_the_helpers_exit_status() {
 fn a_program_that_is_not_there_exits_127() {
     let (_, code) = run(&[b"/nonexistent/summrise-test-program"], b"");
     assert_eq!(code, 127);
+}
+
+#[test]
+fn the_working_directory_is_entered_before_the_exec() {
+    // `pwd` prints the directory the process is IN, so this is the difference between the frame's cwd
+    // being honoured and the target silently inheriting the login shell's directory.
+    let (stdout, code) = run_in(Some(b"/tmp"), &[b"/bin/pwd"], b"");
+    assert_eq!(code, 0);
+    let printed = String::from_utf8_lossy(&stdout).trim_end().to_string();
+    assert!(
+        printed == "/tmp" || printed == "/private/tmp",
+        "pwd answered {printed:?}"
+    );
+}
+
+#[test]
+fn a_working_directory_that_would_need_quoting_is_entered_verbatim() {
+    // The reason the cwd is in the frame and not in the exec string: this path goes through no shell,
+    // so its space, its `$(id)` and its quote are characters in a directory name.
+    let dir = std::env::temp_dir().join("summrise exec $(id) it's a dir");
+    std::fs::create_dir_all(&dir).expect("the awkward directory is creatable");
+    let expected = std::fs::canonicalize(&dir).expect("it canonicalizes");
+
+    let (stdout, code) = run_in(
+        Some(expected.as_os_str().as_encoded_bytes()),
+        &[b"/bin/pwd"],
+        b"",
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&stdout).trim_end(),
+        expected.to_string_lossy(),
+        "the directory arrived mangled, which is what a shell layer would have done to it"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_working_directory_that_does_not_exist_exits_126() {
+    // A helper-level failure, not the target's: the command never ran, and the caller has to be able
+    // to tell that apart from a command that ran and failed.
+    let (_, code) = run_in(Some(b"/nonexistent/summrise-test-dir"), &[b"/bin/pwd"], b"");
+    assert_eq!(code, 126);
 }
