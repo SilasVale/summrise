@@ -612,3 +612,28 @@ median 133.8 → 145.0 ✗）。**inline module 在 panel.js 还在下载时就�
 
 **而它同时废掉了 12 个文件里的一句**现在已经不成立的话**✓**（"the wasm is fetched at the first call" ✓）——
 **逐个改成历史时态并指向 seam ✓**，因为**一个读者相信的、没人再核过的前提，就是这一夜一直在付的那种账 ✓。**
+
+
+### P3 的**目标运行时**不是三种，而是一种**加一种**（2026-09-29 实测 ✓）
+
+**而这一条是"测量本身是错的"那一条，犯在计划自己身上 ✓**：P3 写的是"**三个 Worker**：
+`gateway/src/` · `index/` · `proxies/`"，**而 `proxies/` 里只有两个是 Cloudflare Worker** ✓✓。
+
+| 目录 | 是什么 | 证据（不是推断） |
+|---|---|---|
+| `proxies/zen-go-proxy/` | **Cloudflare Worker**（`opencode-go-proxy`）✓ | `wrangler.jsonc` ✓ · 403 行 ✓ |
+| `proxies/zen-us-proxy/` | **Cloudflare Worker** ✓ | `wrangler.jsonc`（zone route）✓ · 339 行 ✓ |
+| `proxies/api-relay/` | **VPS 上的 Node 进程**（vrelay @ Oracle）✗ | `build.sh` 的 `deploy_api_relay` 是 `scp` + `ssh` ✓ · 仓库自己的 `proxies/README.md:48` 写着"**it ships to the VPS, not to Cloudflare**" ✓ |
+| `proxies/summrise-relay/` | **自己机器上跑的 Node 进程** ✗ | 目录里**没有 `wrangler.jsonc`** ✓ · `node relay.mjs --listen 127.0.0.1:18990` ✓ |
+
+**所以 P3 的"全部搬成 wasm"这句话，对一半的代码是错的** ✓：**`api-relay` 就是本仓库自己的 git 远端**
+（就是本仓库的 `origin` 指向的那个 `/api/git` 路径，AGENTS.md 记着 ✓✓）——**而它要变成的是一个 Rust 二进制跑在盒子上，
+不是一个 Workers 模块** ✗。**两套目标运行时，两套构建，两种证明** ✓：
+workers-rs ＋ `worker-build`（`gateway/wasm` 已经把这条路走通了 ✓）对 `zen-*` / `index` / `gateway` ✓，
+而 `api-relay` / `summrise-relay` 是 **axum/hyper ＋ 一个静态链接的二进制**，**它的"smoke"是
+`proxies/api-relay/api/test/*.test.mjs`** ✓。
+
+**而 P3 的顺序（`proxies` → `index` → `gateway`）本身仍然成立** ✓——**因为它选的是爆炸半径，不是运行时** ✓。
+**而搬第一个之前要先说的是搬哪个运行时** ✗：**`zen-us-proxy` 一周 1 个请求** ✓（P3.1 实测），
+**`api-relay` 是本仓库自己的 push 路径** ✓——**把 git 远端换成一个没部署过的 Rust 二进制，
+是这个计划里风险最高的一步** ✗，**它值得第一个做，也值得最小心地做** ✓。

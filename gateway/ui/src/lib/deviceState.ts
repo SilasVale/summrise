@@ -30,6 +30,17 @@
 // fourth "stale" state is needed. A test in `test/device-state.test.mjs` reads the mirror and fails if the TTL this
 // note cites stops matching the source.
 
+import { logic } from "../wasm/consoleLogic.ts";
+
+// ── RUST SINCE 2026-09-29 (block ③), the console's biggest remaining module ──────────────────────
+//
+// The five functions below are `gateway/ui-logic/src/lib.rs` now, transliterated: the same tri-state
+// (an ABSENT status is "not checked", `false` is "offline", `true` is "online"), the same
+// `tunnel_up === false` strictness, the same `devices ?? []`, and the same four fields on each
+// signal row in the TypeScript's key order. The translator `t` still crosses the boundary as a
+// callback — the WORD for a state belongs to the console's dictionary, so the crate decides WHICH
+// state and the dictionary says the word — and `test/device-state.test.mjs` (27 assertions) runs
+// unchanged against it.
 type Signal = "ok" | "err" | "off";
 
 /** The shape both components hold: whatever the gateway's status endpoint answered for one device. */
@@ -49,11 +60,11 @@ interface DeviceStatusLike {
  *  that can become `!st.tunnel_up` and start refusing devices nobody has checked. The rule belongs here, next to the signal
  *  that renders it. */
 export function tunnelKnownDown(status?: { tunnel_up?: boolean } | null): boolean {
-  return status?.tunnel_up === false;
+  return logic().tunnel_known_down(status);
 }
 
 export function deviceIsUp(status: DeviceStatusLike | undefined): boolean {
-  return !!status?.agent_up;
+  return logic().device_is_up(status);
 }
 
 /** A status row: what it is called, which of the three states it is in, and the word for it. */
@@ -83,25 +94,19 @@ type DeviceKey =
   | "devices.notChecked";
 type Translate = (key: DeviceKey) => string;
 
-function signalOf(value: boolean | undefined, t: Translate, yes: DeviceKey, no: DeviceKey): {
-  // THE ROW'S TWO FLAGS COME FROM HERE TOO (round 133). The view built them at the call site —
-  // `{ ...agent, ok: agent.signal === "ok", err: agent.signal === "err" }` — twice, which is the signal re-derived one
-  // step after it was derived, and a place where a fourth signal value would be silently absent from both flags.
- signal: Signal; ok: boolean; err: boolean; state: string } {
-  if (value === undefined) return { signal: "off", ok: false, err: false, state: t("devices.notChecked") };
-  return value
-    ? { signal: "ok", ok: true, err: false, state: t(yes) }
-    : { signal: "err", ok: false, err: true, state: t(no) };
-}
+// `signalOf` MOVED WITH ITS TWO CALLERS (block ③, 2026-09-29): the three-outcome rule is
+// `signal_of` in the crate, and `agentSignal`/`tunnelSignal` above are the two places that use it. It
+// is a private helper, so nothing imports it and the two `ok`/`err` flags the views spread straight
+// into a list now come from one object the crate builds.
 
 /** The agent row. */
 export function agentSignal(status: DeviceStatusLike | undefined, t: Translate): DeviceSignal {
-  return { label: t("devices.statusAgent"), ...signalOf(status?.agent_up, t, "devices.online", "devices.offline") };
+  return logic().agent_signal(status, t as unknown as () => string) as unknown as DeviceSignal;
 }
 
 /** The tunnel row — the same three states, because the gateway may not have probed it either. */
 export function tunnelSignal(status: DeviceStatusLike | undefined, t: Translate): DeviceSignal {
-  return { label: t("devices.statusTunnel"), ...signalOf(status?.tunnel_up, t, "devices.tunnelUp", "devices.tunnelDown") };
+  return logic().tunnel_signal(status, t as unknown as () => string) as unknown as DeviceSignal;
 }
 
 /** How many devices are known to be up, and how many have not been asked yet. */
@@ -123,15 +128,7 @@ interface DeviceTally {
  * another shows the unchecked count beside it.
  */
 function deviceTally(devices: { name: string }[] | null | undefined, statuses: Record<string, DeviceStatusLike | undefined>): DeviceTally {
-  const list = devices ?? [];
-  let online = 0, tunnels = 0, unchecked = 0;
-  for (const d of list) {
-    const st = statuses[d.name];
-    if (st === undefined) unchecked++;
-    if (st?.agent_up) online++;
-    if (st?.tunnel_up) tunnels++;
-  }
-  return { online, tunnels, unchecked, total: list.length };
+  return logic().device_tally(devices, statuses) as unknown as DeviceTally;
 }
 
 export { deviceTally };
@@ -156,4 +153,7 @@ export type { Signal };
  * request), which is the fact a reader needs before changing the number. Whether this constant should live
  * somewhere both crates read is a placement decision, still open, still the operator's.
  */
+// IT STAYS HERE, DELIBERATELY: it is the console's own polling cadence and no crate function reads
+// it, and a module-level `logic()` call would evaluate before any test could await the module — which
+// is exactly what the first version of this move did.
 export const CONSOLE_POLL_MS = 60_000;
