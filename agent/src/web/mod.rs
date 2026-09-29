@@ -2450,7 +2450,11 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
         }
     };
 
-    let internal = |e: summrise_agent_core::DeviceError| serde_json::json!({"ok": false, "error": format!("{e}"), "code": "fs_failed"});
+    // THE CODE TRAVELS AS THE CODE. `dsh-fs` requires callers to branch on it and never on message
+    // text, so a filesystem failure here answers with the seam's OWN token — `FS_TOO_LARGE`,
+    // `FS_NOT_TEXT`, `FS_NOT_FOUND` — rather than one code a consumer would have to parse prose to
+    // tell apart. The message is for a person, and nothing branches on it.
+    let fs_failed = |e: crate::workspace::FsError| serde_json::json!({"ok": false, "error": e.message, "code": e.code});
     let info_json = |info: &crate::workspace::FsInfo| {
         serde_json::json!({
             "kind": info.kind.as_str(),
@@ -2467,7 +2471,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
             // empty directory.
             Ok(None) => serde_json::json!({"ok": true, "info": serde_json::Value::Null}),
             Ok(Some(info)) => serde_json::json!({"ok": true, "info": info_json(&info)}),
-            Err(e) => internal(e),
+            Err(e) => fs_failed(e),
         },
         "readText" => {
             let cap = v
@@ -2481,7 +2485,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
                     "info": info_json(&read.info),
                     "version": read.version,
                 }),
-                Err(e) => internal(e),
+                Err(e) => fs_failed(e),
             }
         }
         "readBytes" => {
@@ -2493,7 +2497,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
                     "bytes_b64": base64::engine::general_purpose::STANDARD.encode(&bytes),
                     "length": bytes.len(),
                 }),
-                Err(e) => internal(e),
+                Err(e) => fs_failed(e),
             }
         }
         "listDir" => match crate::workspace::fs_list_dir(&sftp, path).await {
@@ -2508,7 +2512,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
                     .collect();
                 serde_json::json!({"ok": true, "entries": entries})
             }
-            Err(e) => internal(e),
+            Err(e) => fs_failed(e),
         },
         other => bad(&format!(
             "unknown op {other:?}; this route reads only (stat, lstat, readText, readBytes, listDir)"

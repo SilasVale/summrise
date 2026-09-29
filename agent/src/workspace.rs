@@ -173,6 +173,36 @@ fn sha256_hex(bytes: &[u8]) -> String {
 // and they are what stops a workspace from being the split-brained thing where a search finds a file
 // the harness then cannot open — because `ctx.fs` still points at the machine the DSH runs on.
 
+/// A filesystem failure, in the vocabulary the seam's callers branch on.
+///
+/// THE STRING IS THE POINT, not the struct. `dsh-fs` states the rule plainly — callers branch on the
+/// code and **never on message text** — so an agent that answered every filesystem failure with one
+/// code would force its consumer to parse prose to tell "that file is too big" from "that host is
+/// down". These are the SEAM'S OWN codes, so an `FS_TOO_LARGE` raised here is the same token a caller
+/// already handles.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FsError {
+    /// One of `dsh-fs`'s `FsErrorCode` strings.
+    pub code: &'static str,
+    /// The human-readable detail, which nobody is allowed to branch on.
+    pub message: String,
+}
+
+impl FsError {
+    fn new(code: &'static str, message: String) -> Self {
+        Self { code, message }
+    }
+    fn io(path: &str, what: &str, e: impl std::fmt::Display) -> Self {
+        Self::new("FS_IO_ERROR", format!("{what} {path}: {e}"))
+    }
+}
+
+impl std::fmt::Display for FsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code, self.message)
+    }
+}
+
 /// What kind of thing a path names, in the vocabulary the seam branches on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FsKind {
@@ -246,7 +276,7 @@ pub async fn fs_stat(
     sftp: &russh_sftp::client::SftpSession,
     path: &str,
     follow: bool,
-) -> Result<Option<FsInfo>, DeviceError> {
+) -> Result<Option<FsInfo>, FsError> {
     let answer = if follow {
         sftp.metadata(path).await
     } else {
@@ -258,9 +288,7 @@ pub async fn fs_stat(
         // match on across servers — so `try_exists` is what separates "absent" from "unreachable".
         Err(e) => match sftp.try_exists(path).await {
             Ok(false) => Ok(None),
-            _ => Err(DeviceError::Internal {
-                message: format!("workspace fs stat {path}: {e}"),
-            }),
+            _ => Err(FsError::io(path, "stat", e)),
         },
     }
 }
@@ -275,45 +303,46 @@ pub async fn fs_read_text(
     sftp: &russh_sftp::client::SftpSession,
     path: &str,
     max_bytes: usize,
-) -> Result<FsText, DeviceError> {
+) -> Result<FsText, FsError> {
     let info = fs_stat(sftp, path, true)
         .await?
-        .ok_or_else(|| DeviceError::Internal {
-            message: format!("workspace fs read {path}: no such file"),
-        })?;
+        .ok_or_else(|| FsError::new("FS_NOT_FOUND", format!("{path} is not there")))?;
     if info.kind == FsKind::Directory {
-        return Err(DeviceError::Internal {
-            message: format!("workspace fs read {path}: that is a directory"),
-        });
+        return Err(FsError::new(
+            "FS_NOT_REGULAR_FILE",
+            format!("{path} is a directory"),
+        ));
     }
     if info.size > max_bytes as u64 {
-        return Err(DeviceError::Internal {
-            message: format!(
-                "workspace fs read {path}: {} bytes is over the {max_bytes}-byte cap",
+        return Err(FsError::new(
+            "FS_TOO_LARGE",
+            format!(
+                "{path} is {} bytes, over the {max_bytes}-byte cap",
                 info.size
             ),
-        });
+        ));
     }
 
-    let bytes = sftp.read(path).await.map_err(|e| DeviceError::Internal {
-        message: format!("workspace fs read {path}: {e}"),
-    })?;
+    let bytes = sftp
+        .read(path)
+        .await
+        .map_err(|e| FsError::io(path, "read", e))?;
     // The size the server reported and the bytes that arrived must agree; a mismatch means the file
     // changed under us, and decoding a torn read would hand back text that was never in the file.
     if bytes.len() as u64 != info.size {
-        return Err(DeviceError::Internal {
-            message: format!(
-                "workspace fs read {path}: the file changed while it was read ({} bytes reported, {} arrived)",
+        return Err(FsError::new(
+            "FS_IO_ERROR",
+            format!(
+                "{path} changed while it was read ({} bytes reported, {} arrived)",
                 info.size,
                 bytes.len()
             ),
-        });
+        ));
     }
 
     let version = format!("sha256:{}", sha256_hex(&bytes));
-    let text = String::from_utf8(bytes).map_err(|_| DeviceError::Internal {
-        message: format!("workspace fs read {path}: the file is not valid UTF-8"),
-    })?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| FsError::new("FS_NOT_TEXT", format!("{path} is not valid UTF-8")))?;
     Ok(FsText {
         text,
         info,
@@ -327,18 +356,17 @@ pub async fn fs_read_bytes(
     path: &str,
     offset: u64,
     length: usize,
-) -> Result<Vec<u8>, DeviceError> {
+) -> Result<Vec<u8>, FsError> {
     use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
-    let mut file = sftp.open(path).await.map_err(|e| DeviceError::Internal {
-        message: format!("workspace fs read {path}: {e}"),
-    })?;
+    let mut file = sftp
+        .open(path)
+        .await
+        .map_err(|e| FsError::io(path, "open", e))?;
     if offset > 0 {
         file.seek(std::io::SeekFrom::Start(offset))
             .await
-            .map_err(|e| DeviceError::Internal {
-                message: format!("workspace fs seek {path} to {offset}: {e}"),
-            })?;
+            .map_err(|e| FsError::io(path, "seek", e))?;
     }
     // Pre-sized and read exactly: the window is the bound, so a file larger than `length` never has
     // more than `length` bytes of it in memory here.
@@ -348,11 +376,7 @@ pub async fn fs_read_bytes(
         match file.read(&mut window[filled..]).await {
             Ok(0) => break,
             Ok(n) => filled += n,
-            Err(e) => {
-                return Err(DeviceError::Internal {
-                    message: format!("workspace fs read {path}: {e}"),
-                })
-            }
+            Err(e) => return Err(FsError::io(path, "read", e)),
         }
     }
     window.truncate(filled);
@@ -367,13 +391,11 @@ pub async fn fs_read_bytes(
 pub async fn fs_list_dir(
     sftp: &russh_sftp::client::SftpSession,
     path: &str,
-) -> Result<Vec<(String, FsInfo)>, DeviceError> {
+) -> Result<Vec<(String, FsInfo)>, FsError> {
     let entries = sftp
         .read_dir(path)
         .await
-        .map_err(|e| DeviceError::Internal {
-            message: format!("workspace fs list {path}: {e}"),
-        })?;
+        .map_err(|e| FsError::io(path, "list", e))?;
     let mut out: Vec<(String, FsInfo)> = entries
         .map(|entry| (entry.file_name(), fs_info(&entry.metadata())))
         .collect();
@@ -591,20 +613,25 @@ mod tests {
             "a listing is ONE level, never a path"
         );
 
-        // ── a file over the cap is refused BY NAME, before its bytes are fetched ──
-        let refused = fs_read_text(&sftp, &subject, 16).await;
-        let message = format!("{:?}", refused.expect_err("16 bytes cannot hold this file"));
-        assert!(
-            message.contains("over the") && message.contains("cap"),
-            "the refusal must say which cap was exceeded: {message}"
-        );
+        // ── THE REFUSALS ARE CODES, NOT PROSE ──
+        //
+        // This is what the seam requires of a backend: callers branch on the CODE and never on
+        // message text. Asserting the code is therefore the assertion that matters — a consumer that
+        // had to read a sentence to tell "too big" from "not text" would be parsing English.
+        let too_big = fs_read_text(&sftp, &subject, 16)
+            .await
+            .expect_err("16 bytes cannot hold this file");
+        assert_eq!(too_big.code, "FS_TOO_LARGE", "{too_big}");
 
-        // ── a directory is not a file ──
-        let refused = fs_read_text(&sftp, directory, 4 << 20).await;
-        assert!(
-            format!("{:?}", refused.expect_err("a directory has no text")).contains("directory"),
-            "reading a directory must say so rather than fail obscurely"
-        );
+        let a_directory = fs_read_text(&sftp, directory, 4 << 20)
+            .await
+            .expect_err("a directory has no text");
+        assert_eq!(a_directory.code, "FS_NOT_REGULAR_FILE", "{a_directory}");
+
+        let absent = fs_read_text(&sftp, &format!("{subject}.does-not-exist"), 4 << 20)
+            .await
+            .expect_err("a missing file has no text");
+        assert_eq!(absent.code, "FS_NOT_FOUND", "{absent}");
     }
 
     /// The whole path against a REAL sshd: stage the helper, then run a command through it.
@@ -748,6 +775,21 @@ mod tests {
         // A POSIX file may legitimately be called `rg.exe`, and a bare name carries no evidence of
         // which platform spelled it. Stated here rather than guessed at in the matcher.
         assert_eq!(target_program(b"rg.exe"), b"rg.exe");
+    }
+
+    /// A failure carries BOTH, and they are for different readers: the code is what a caller
+    /// branches on, the message is what a person reads. A `Display` that lost the code would make the
+    /// thing a caller acts on invisible in a log.
+    #[test]
+    fn a_filesystem_failure_says_its_code_and_its_detail() {
+        let e = FsError::new(
+            "FS_TOO_LARGE",
+            "/work/big.bin is 9000000 bytes, over the 16-byte cap".into(),
+        );
+        assert_eq!(e.code, "FS_TOO_LARGE");
+        let shown = format!("{e}");
+        assert!(shown.contains("FS_TOO_LARGE"), "{shown}");
+        assert!(shown.contains("/work/big.bin"), "{shown}");
     }
 
     #[test]
