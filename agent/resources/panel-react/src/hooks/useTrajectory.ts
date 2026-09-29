@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { terminalStatus } from "./useCommandEvents";
 import type { CommandEvent } from "./useCommandEvents";
 
 // Trajectory (round-admin-ui Task 5): the RAW audit event timeline for a
@@ -28,71 +27,21 @@ export interface TrajRound {
   durationMs: number | null;
 }
 
-/**
- * Group the raw audit events into rounds — a command/start opens a round, the
- * next command/start opens the next. A round is ENDED by a command/end OR by
- * a terminal status (backgrounded / closed / exited:N — the same round-99/100
- * markers as groupEvents); the LAST marker in the round wins (a backgrounded
- * command can later log closed). A trailing round with no marker stays live.
- * Unlike groupEvents, a superseded round is sealed as-is (raw view: what the
- * log says) — in a well-formed log the prior command always ended before the
- * next start, and recovery appends `interrupted` after a crash.
- */
+// ── RUST SINCE 2026-09-29 (P2) ──────────────────────────────────────────────────────────────────────
+//
+// `groupRounds` is `panel-logic/src/events.rs` now, and `derivePath` — which reads these rounds — is
+// `panel-logic/src/path.rs`, so the session's timeline is ONE derivation in ONE language: events in,
+// rounds and a path out, with no JavaScript object in the middle. The function is `sync` because the
+// module is loaded before the first render; see `wasm/panelLogic.ts` for the measurement.
+//
+// THE RULE IS UNCHANGED AND IS THE POINT: a `command/start` opens a round, the next one opens the
+// next; a round is ENDED by a `command/end` OR by a terminal status, and THE LAST MARKER WINS — a
+// backgrounded command can later log `closed`. A superseded round is sealed AS-IS (the raw view:
+// what the log says), which is where this deliberately disagrees with `groupEvents` below's cards.
+import { logic } from "../wasm/panelLogic";
+
 export function groupRounds(events: CommandEvent[]): TrajRound[] {
-  const rounds: TrajRound[] = [];
-  let pre: CommandEvent[] = []; // events before the first command/start
-  let cur: CommandEvent[] | null = null;
-
-  const seal = (evs: CommandEvent[]) => {
-    const first = evs[0];
-    const isCmd = first.kind === "command/start";
-    let ended = false;
-    let exitCode: number | null = null;
-    let reason: string | null = null;
-    let durationMs: number | null = null;
-    let endTs: number | null = null;
-    for (const ev of evs) {
-      if (ev.kind === "command/end") {
-        ended = true;
-        exitCode = ev.exit_code ?? null;
-        reason = ev.reason ?? null;
-        durationMs = ev.duration_ms != null ? ev.duration_ms : null;
-        endTs = ev.ts;
-      } else if (ev.kind === "status" && ev.status) {
-        const term = terminalStatus(ev.status);
-        if (term) { ended = true; exitCode = term.exitCode; reason = term.reason; endTs = ev.ts; }
-      }
-    }
-    // Status-ended rounds carry no duration_ms — derive it from the marker
-    // ts − round start ts (same derivation as groupEvents, round-58 unit: ms).
-    if (ended && durationMs == null && endTs != null) durationMs = (endTs - first.ts) * 1000;
-    rounds.push({
-      id: isCmd ? `r-${first.seq}` : "r-pre",
-      startSeq: isCmd ? first.seq : null,
-      command: isCmd ? first.command ?? "" : "(session)",
-      startTs: first.ts,
-      events: evs,
-      ended,
-      exitCode,
-      reason,
-      durationMs,
-    });
-  };
-
-  for (const ev of events) {
-    if (ev.kind === "command/start") {
-      if (cur) { seal(cur); cur = null; }
-      else if (pre.length) { seal(pre); pre = []; }
-      cur = [ev];
-    } else if (cur) {
-      cur.push(ev);
-    } else {
-      pre.push(ev);
-    }
-  }
-  if (cur) seal(cur);
-  else if (pre.length) seal(pre);
-  return rounds;
+  return logic().group_rounds(events) as TrajRound[];
 }
 
 /** Group raw audit events into trajectory rounds. round-128: the caller

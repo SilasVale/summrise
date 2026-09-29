@@ -76,6 +76,14 @@ export function device_liveness(input: any): string;
 export function disambiguate_labels(items: any): Array<any>;
 
 /**
+ * `groupEvents(events)` — the live trail's CARDS.
+ *
+ * A `command/start` while the previous command never ended closes it as `interrupted`, so a
+ * mid-stream start cannot orphan a card that would otherwise read "running" forever.
+ */
+export function group_events(events: any): Array<any>;
+
+/**
  * `groupOperation(events, boundaries)` — the timeline's events and its run boundaries folded into
  * one group per run, plus the unattributed bucket.
  *
@@ -88,6 +96,15 @@ export function disambiguate_labels(items: any): Array<any>;
  * list preserves what it had), so that is what happens here.
  */
 export function group_operation(events: any, boundaries: any): any;
+
+/**
+ * `groupRounds(events)` — the trajectory's ROUNDS, which are `derivePath`'s input.
+ *
+ * A round is ENDED by a `command/end` OR by a terminal status, and **the LAST marker in the round
+ * wins** — a backgrounded command can later log `closed`. A superseded round is sealed AS-IS (the
+ * raw view: what the log says), which is where this deliberately disagrees with `groupEvents`.
+ */
+export function group_rounds(events: any): Array<any>;
 
 /**
  * `livenessOf(input)` — THE PRECEDENCE, in one place.
@@ -219,12 +236,34 @@ export function session_waiting(session: any): boolean;
 export function state_from_end(ended: any, exit_code: any, reason: any): object;
 
 /**
+ * `stripAnsi(s)` — the four escape rules, then a sweep for any ESC that survived.
+ *
+ * THE SCAN, IN THE ORDER THE REGEX ALTERNATION READS:
+ *
+ *   1. `CSI`     ESC `[` [0-9;?]* [ -/]* [@-~]   — SGR colours, cursor moves, `\x1b[2J`
+ *   2. `OSC`     ESC `]` [^BEL ESC]* (BEL | ESC `\` | end-of-input) — titles, `]133;D;`
+ *   3. `DCS`     ESC `[P^_] … ESC `\`  — device-control strings
+ *   4. `SINGLE`  ESC [ `=` `>` 7 8 6 M N O c ]  — the one-byte escapes
+ *
+ * and then every remaining ESC is dropped, so a control byte can never reach the DOM as text.
+ */
+export function strip_ansi(input: any): string;
+
+/**
  * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
  *
  * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
  * `untimed` counts them and the view says "at least" instead of implying a total it cannot know.
  */
 export function summarize_path(steps: any): object;
+
+/**
+ * `terminalStatus(st)` — the marker rule, or nothing for a status that ends nothing.
+ *
+ * `exited:<n>` is the one that carries a code, and the code is the DEVICE's: a non-numeric tail is
+ * `NaN`, `Number.isFinite` says no, and the answer is a reason with no exit code.
+ */
+export function terminal_status(status: string): object | undefined;
 
 /**
  * `titleFor(items, base, tab)` — the tab title, or the base when there is nothing to say.
@@ -248,7 +287,9 @@ export interface InitOutput {
     readonly derive_path: (a: any, b: any) => [number, number, number];
     readonly device_liveness: (a: any) => [number, number, number, number];
     readonly disambiguate_labels: (a: any) => [number, number, number];
+    readonly group_events: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
+    readonly group_rounds: (a: any) => [number, number, number];
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_boot_history: (a: any) => [number, number, number];
@@ -262,7 +303,9 @@ export interface InitOutput {
     readonly session_liveness: (a: any, b: number) => [number, number, number, number];
     readonly session_waiting: (a: any) => [number, number, number];
     readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];
+    readonly strip_ansi: (a: any) => [number, number];
     readonly summarize_path: (a: any) => any;
+    readonly terminal_status: (a: number, b: number) => any;
     readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

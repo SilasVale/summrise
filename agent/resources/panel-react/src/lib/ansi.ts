@@ -3,16 +3,16 @@
 // cards) must not print them raw — raw bytes rendered as text showed cursor
 // moves ([2J[H), SGR color runs ([93m), OSC titles and semantic-prompt
 // markers (]133;D;) as visible garbage (round-134).
-const CSI = "\\x1b\\[[0-9;?]*[ -/]*[@-~]";
-// OSC terminated by BEL or ST — OR running to end of input (streams often
-// end mid-sequence; an unterminated ]133;D; otherwise leaks as text).
-const OSC = "\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\|$)";
-const DCS = "\\x1b[P^_].*?\\x1b\\\\";
-const SINGLE = "\\x1b[=>786MNOc]";
-const ANSI_RE = new RegExp(`${CSI}|${OSC}|${DCS}|${SINGLE}`, "g");
+// THE FOUR PATTERNS MOVED WITH THE FUNCTION. They are quoted here because they are the RULE, and a
+// reader comparing this file to `events.rs`'s scanner wants to see that the Rust arm for arm is the
+// same four — CSI (`ESC [` params final), OSC (to BEL, to ST, or to end of input), DCS (ESC [ P^_ …
+// ST) and SINGLE (ESC [ =>78 6MNOc]) — and that the DCS rule SHARES its `[` with CSI, so the
+// alternation backtracks between them.
 
 /** Remove ANSI escapes; any stray ESC that survived pattern matching is
  *  dropped too, so control bytes can never reach the DOM as text. */
+import { logic } from "../wasm/panelLogic";
+
 export function stripAnsi(s: string | undefined): string {
-  return (s ?? "").replace(ANSI_RE, "").replace(/\x1b/g, "");
+  return logic().strip_ansi(s);
 }

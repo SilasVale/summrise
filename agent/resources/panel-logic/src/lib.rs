@@ -38,6 +38,7 @@ mod agent_vitals;
 mod archive;
 mod attention;
 mod boot;
+mod events;
 mod evicted;
 mod js;
 mod liveness;
@@ -52,6 +53,7 @@ pub use agent_vitals::parse_last_boot;
 pub use archive::archive_entries;
 pub use attention::{badge_icon, title_for};
 pub use boot::parse_boot_history;
+pub use events::{group_events, group_rounds, strip_ansi, terminal_status};
 pub use evicted::parse_evicted;
 pub use liveness::{
     any_command_running, device_liveness, liveness_of, session_active, session_failed,
