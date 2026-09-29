@@ -2366,15 +2366,42 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
         .get("stderr_cap")
         .and_then(|x| x.as_u64())
         .unwrap_or(64 << 10) as usize;
-    let helper = v
-        .get("helper")
-        .and_then(|x| x.as_str())
-        .unwrap_or(crate::workspace::HELPER_DEFAULT);
+    // THE HELPER'S PATH IS NOT A PARAMETER, and that is deliberate: the exec string is the one value
+    // that reaches the LOGIN SHELL, so leaving the last word on it to the caller would hand back the
+    // hazard this whole transport exists to remove. The path is discovered on the target by
+    // `ensure_helper` and is ours from end to end.
     let timeout_ms = v
         .get("timeout_ms")
         .and_then(|x| x.as_u64())
         .unwrap_or(120_000)
         .min(600_000);
+
+    // ── the component, BEFORE a connection is opened ──
+    //
+    // THE HELPER IS A LINUX BINARY, which is why it is named for its target: this device runs the
+    // agent, and the workspace host runs the helper. Its absence is reported by NAME rather than as a
+    // spawn that failed on a machine nobody is watching — and it is checked FIRST, because opening a
+    // connection to a host we cannot stage onto would be work done only to be thrown away.
+    let helper_bytes = match std::fs::read(crate::paths::workspace_helper_bin()) {
+        Ok(bytes) if !bytes.is_empty() => bytes,
+        Ok(_) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the staged component {} is empty", crate::paths::workspace_helper_bin().display()),
+                "code": "helper_missing"
+            })
+        }
+        Err(e) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!(
+                    "the workspace helper component is not staged on this device ({}): {e}",
+                    crate::paths::workspace_helper_bin().display()
+                ),
+                "code": "helper_missing"
+            })
+        }
+    };
 
     let session = match tokio::time::timeout(
         std::time::Duration::from_secs(30),
@@ -2409,6 +2436,24 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
         }
     };
 
+    let sftp = match session.sftp_session().await {
+        Ok(sftp) => sftp,
+        Err(e) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the workspace host has no sftp subsystem, so the helper cannot be staged: {e}"),
+                "code": "sftp_unavailable"
+            })
+        }
+    };
+    let staged = match crate::workspace::ensure_helper(&sftp, &helper_bytes).await {
+        Ok(path) => path,
+        Err(e) => {
+            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "staging_failed"})
+        }
+    };
+    drop(sftp);
+
     let request = crate::workspace::ExecRequest {
         argv: &argv_bytes,
         cwd,
@@ -2417,7 +2462,7 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
     };
     let outcome = match tokio::time::timeout(
         std::time::Duration::from_millis(timeout_ms),
-        crate::workspace::exec_on(&session, helper, request),
+        crate::workspace::exec_on(&session, &staged, request),
     )
     .await
     {
@@ -5233,6 +5278,36 @@ mod tests {
         assert_eq!(route_of("DELETE", "/api/sessions"), None);
     }
 
+    /// A device with no helper component SAYS SO, by name, before it opens a connection.
+    ///
+    /// The order is the point: a device that cannot stage onto a host has nothing to do with that
+    /// host, and a route that connected first would spend a connect timeout discovering it. This is
+    /// also what makes the failure testable without a machine at all.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_names_a_missing_helper_component_before_it_connects() {
+        assert!(
+            std::fs::read(crate::paths::workspace_helper_bin()).is_err(),
+            "this test needs a device with NO staged helper; one is present at {}",
+            crate::paths::workspace_helper_bin().display()
+        );
+        // 192.0.2.1 is TEST-NET-1: unroutable by definition, so a route that reached the connect
+        // would spend the full 30 s ceiling — which is what the assertion below rules out.
+        let answer = api_workspace_exec(r#"{"host":"192.0.2.1","user":"u","argv":["rg"]}"#).await;
+        assert_eq!(answer["ok"], serde_json::json!(false));
+        assert_eq!(
+            answer["code"],
+            serde_json::json!("helper_missing"),
+            "the answer must name the missing component: {answer}"
+        );
+        assert!(
+            answer["error"]
+                .as_str()
+                .is_some_and(|m| m.contains("workspace helper component is not staged")),
+            "and it must say WHICH component and where it was looked for: {answer}"
+        );
+    }
+
     /// The workspace door's refusals — every one of them decided BEFORE a connection is attempted,
     /// which is why this test needs no machine.
     ///
@@ -5240,6 +5315,7 @@ mod tests {
     /// accepts is security-relevant rather than cosmetic. An argv that arrives empty, or with an
     /// element that is not a string, is a caller mistake that has to be NAMED — not a panic, and not
     /// a silently different command.
+    ///
     /// GATED ON THE FEATURE, like the operation route's neighbour: without the SSH client this
     /// handler answers Internal before it looks at the body, so these assertions describe a build
     /// that has one.
