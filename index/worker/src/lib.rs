@@ -300,6 +300,8 @@ fn json_type_of(v: &serde_json::Value) -> String {
 
 use url::Url;
 
+pub mod routes;
+
 #[cfg(test)]
 mod tests {
     use super::*;
