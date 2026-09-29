@@ -244,6 +244,11 @@ pub(crate) mod transfer;
 pub mod tunnel;
 pub mod vocabulary;
 pub mod web;
+/// Run a command on a workspace host over SSH, with the argv and the working directory carried
+/// OUT OF BAND so neither passes through the login shell. Gated with the SSH client it needs: the
+/// staged helper it drives is a POSIX `execve` shim, so this is a terminal-feature surface.
+#[cfg(feature = "terminal")]
+pub mod workspace;
 
 /// Default config.yaml embedded at compile time.
 pub const DEFAULT_CONFIG_YAML: &str = include_str!("../config.yaml");

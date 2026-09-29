@@ -871,4 +871,78 @@ mod tests {
         assert_eq!(outcome.status, ExecStatus::Exited(0));
         unisolate(&dir);
     }
+
+    /// `workspace::exec_on` end to end, against a server that **decodes the frame it received**.
+    ///
+    /// It lives here rather than beside `exec_on` because the harness that makes it possible is
+    /// here, and one harness is better than two. What it checks is precisely `exec_on`'s job — that
+    /// the argv and the working directory leave in the frame and that the exec string carries only
+    /// the helper's path — because the helper's own behaviour is covered by its own package's tests.
+    #[tokio::test]
+    async fn exec_on_carries_the_argv_and_the_cwd_out_of_band_and_the_helper_alone_in_the_string() {
+        let dir = isolated("exec-on-frame");
+        let script = exec_server::Script {
+            stdout: b"from the target".to_vec(),
+            stderr: Vec::new(),
+            exit: 3,
+            ..Default::default()
+        };
+        let received = script.received.clone();
+        let command = script.command.clone();
+
+        let addr = exec_server::start(script).await;
+        let session = SshSession::connect("127.0.0.1", addr.port(), "tester", Some("pw"), None)
+            .await
+            .expect("the test server accepts the connection");
+
+        let argv = vec![
+            // A Windows DSH host's own ripgrep path — the value the search tools put in argv[0]
+            // without ever calling resolveExecutable.
+            br"C:\Users\x\node_modules\@vscode\ripgrep\bin\rg.exe".to_vec(),
+            b"--no-config".to_vec(),
+            b"two words".to_vec(),
+        ];
+        let outcome = crate::workspace::exec_on(
+            &session,
+            crate::workspace::HELPER_DEFAULT,
+            crate::workspace::ExecRequest {
+                argv: &argv,
+                cwd: Some(b"/home/someone/a dir"),
+                stdout_cap: 4096,
+                stderr_cap: 4096,
+            },
+        )
+        .await
+        .expect("the command runs to completion");
+
+        // What came back is the server's reply, so the call really went end to end.
+        assert_eq!(outcome.stdout, b"from the target");
+        assert_eq!(outcome.status, ExecStatus::Exited(3));
+
+        // The exec string is the helper and NOTHING else: this is the string sshd hands the login
+        // shell, so anything else in it would be shell input.
+        assert_eq!(
+            &*command.lock().unwrap(),
+            crate::workspace::HELPER_DEFAULT,
+            "the exec string must carry only the helper's path"
+        );
+
+        // Everything the caller supplied is in the frame, byte-exact.
+        let frame = received.lock().unwrap().clone();
+        let mut cursor: &[u8] = &frame;
+        let parsed = summrise_exec_argv::read_frame(&mut cursor)
+            .expect("the frame the agent built is one the staged helper accepts");
+        assert_eq!(parsed.cwd.as_deref(), Some(&b"/home/someone/a dir"[..]));
+        assert_eq!(
+            parsed.argv[0], b"rg",
+            "a Windows-spelled program path must reach a POSIX target as its own name"
+        );
+        assert_eq!(parsed.argv[1], b"--no-config");
+        assert_eq!(
+            parsed.argv[2], b"two words",
+            "an element needing quotes must arrive whole, which is the reason for the frame"
+        );
+
+        unisolate(&dir);
+    }
 }
