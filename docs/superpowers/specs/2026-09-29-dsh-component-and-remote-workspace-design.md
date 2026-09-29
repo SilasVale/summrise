@@ -254,9 +254,16 @@ straight into `argv[0]`. Its callers are `dsh-api-terminal-controller`, `dsh-hos
 explicit that no shell layer exists (*"every model value an unquoted argv element; no shell layer exists"*), so
 quoting an argv into a command line would reintroduce exactly the hazard the seam was built to remove, on values the
 model chose. The correct shape is an **argv-transparent transport**: the agent stages a small helper on the target
-(a NUL-separated argv on stdin, `execve` on the far side) and the SSH `exec` string carries only that helper's path
-and its fixed arguments. This is a **new artifact on the target**, staged and sha256-verified by the same component
-mechanism as §5.1 — not a re-use of existing machinery.
+(length-prefixed fields on stdin, `execve` on the far side) and the SSH `exec` string carries only that helper's path.
+This is a **new artifact on the target**, staged and sha256-verified by the same component mechanism as §5.1 — not a
+re-use of existing machinery.
+
+**The working directory is one of those fields, and it is easy to miss.** `spawn` carries a `cwd`, and it is as
+caller-supplied as the argv: a workspace path may hold a space, a quote or a `$(…)`. There is nowhere else to put it —
+the exec string is handed to the login shell, so a `cd` there is the same hazard wearing a different hat — which is why
+the helper `chdir`s and exits `126` when it cannot, distinctly from the target's own status. **"The command never ran"
+and "the command ran and failed" are different answers**, and a caller that cannot tell them apart reports the first as
+the second. Implemented and verified in `9d7e4655`.
 
 **This also corrects an earlier assumption in this spec.** The agent's `SshSession` exposes `connect`,
 `sftp_session` and `open_shell` — **there is no exec-and-capture primitive**, because the agent's SSH exists for
