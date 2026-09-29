@@ -8,12 +8,23 @@ publish = false
 # is frozen (the panel's `agent/Cargo.toml` says why in the same words). `index/package.json` is
 # the artifact the release flow reads.
 [lib]
+# BOTH crate types, and the reason is two different things need this source: `cdylib` is what
+# `worker-build` produces for Cloudflare, and `rlib` is what `cargo test` and the differentials link
+# on the host. A crate-type list is the whole trick — the pure halves are testable WITHOUT a wasm
+# toolchain, and the wasm build is what the deployment uses.
+crate-type = ["cdylib", "rlib"]
 name = "summrise_dist"
+# `build.rs` is found by CONVENTION — the manifest key for it is `build`, and cargo 1.98
+# warns about an unused one, which it was. The `rerun-if-changed` lines inside it are what matter.
 path = "src/lib.rs"
 
 [workspace]
 
 [dependencies]
+# The Worker runtime. ONLY the `worker.rs` module needs it, and it is the same version
+# `gateway/wasm` pins, so both Workers in this repository are built by the same toolchain and the
+# same `worker-build` (P3.0 measured: 5.5 s, and NOT wasm-pack, whose binaryen fetch hangs).
+worker = "0.8.7"
 # The ONE dependency, and it is the one the brief asked for: `serde_json` replaces the hand-written
 # parsing a JS manifest reader gets for free, and it is what makes "the same bytes" a question this
 # crate can answer — a byte-comparable differential needs a parser that agrees with `JSON.parse`
@@ -24,6 +35,10 @@ serde_json = "1"
 # dependency count at zero would be re-implementing a browser to decide whether a string starts with
 # https:, and the ONE rule that matters is the parse.
 url = "2"
+# The landing's ETag is a SHA-256 of the RENDERED BODY — and a hand-rolled SHA-256 is exactly the
+# kind of "it is only 64 lines" that the `regex` line in `url` and the `str::find` line in
+# `attention.rs` both came from, with the numbers in those files as the receipts.
+sha2 = "0.10"
 
 [profile.release]
 opt-level = "z"

@@ -300,7 +300,15 @@ fn json_type_of(v: &serde_json::Value) -> String {
 
 use url::Url;
 
+pub mod arms;
 pub mod routes;
+// THE ENTRY POINT IS wasm32-ONLY, and that is not a portability compromise: `#[event(fetch)]`
+// EXPANDS TO NOTHING on the host and PANICS there, because there is no Worker runtime to register
+// with. So the pure halves — the manifest, the page boundary, the route table, and every test — build
+// and run on the host with no wasm toolchain at all, and the I/O half is compiled only for the target
+// it serves. The alternative (a host shim) would mean a second copy of the dispatch that no test runs.
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
 
 #[cfg(test)]
 mod tests {
