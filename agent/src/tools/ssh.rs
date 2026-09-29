@@ -535,7 +535,12 @@ impl SshSession {
                     ..
                 } => {
                     outcome.status = ExecStatus::Signalled {
-                        name: format!("{signal_name:?}"),
+                        // SPELLED THE WAY THE CONSUMER'S VOCABULARY DOES. russh's `Sig` renders as
+                        // `KILL`, and the seam this feeds types a terminating signal as
+                        // `NodeJS.Signals` — `SIGKILL`. One of the two had to move, and a wire name
+                        // is a contract: `signal_name` is a real PowerShell/OpenSSH name here, and
+                        // `SIG` is the prefix every consumer of it already expects.
+                        name: format!("SIG{signal_name:?}"),
                         core_dumped,
                         message: error_message,
                     };
