@@ -142,6 +142,23 @@ build_agent() {
   # landing shows no Setup.exe button — a publication state, not a retirement.
 }
 
+# THE INDEX WORKER IS A RUST cdylib NOW (2026-09-29, block ④), and `worker-build`'s output is
+# GIT-IGNORED — so a checkout that has not run it has no `main` to deploy, and wrangler would fail with
+# a path error that says nothing about the build. **The build is therefore part of the deploy, loudly.**
+build_index_worker() {
+  local label="$1"
+  echo "=== [build] $label: the CDN worker's Rust module (worker-build --release) ==="
+  if ! command -v worker-build >/dev/null 2>&1; then
+    echo "  !! worker-build not found — install it: cargo install worker-build" >&2
+    echo "     (the module is gitignored, so a checkout without this build has no main to deploy)" >&2
+    return 1
+  fi
+  ( cd "$ROOT/index/worker" && worker-build --release ) || {
+    echo "  !! the Rust worker did not build — refusing to deploy" >&2
+    return 1
+  }
+}
+
 deploy_worker() {
   local dir="$1" name="$2"
   require_cf_token "$name" || return 1
@@ -149,6 +166,9 @@ deploy_worker() {
   # P0-2: format gate before the deploy (runs only where the script exists —
   # gateway/prettier runs, index skips with a note).
   maybe_format_check "$dir" "$name"
+  # THE INDEX WORKER'S MODULE IS BUILT, NOT COMMITTED (its whole output dir is gitignored), so this
+  # arm is where the Rust half gets built — before wrangler looks for a `main` that would not be there.
+  [[ "$dir" == "index" ]] && { build_index_worker "$name" || return 1; }
   # round-324: the gateway's public /code/ viewer mirrors gateway/src —
   # (build-installer.sh no longer syncs it — that job moved here).
   # Sync before deploy so the served sources never drift from live.
