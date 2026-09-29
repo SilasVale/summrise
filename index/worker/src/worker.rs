@@ -39,11 +39,13 @@ const CLOUDFLARED_VERSION: &str = "2026.8.3";
 /// `503` with no `content-type` and no `CACHE-CONTROL` — and a 503 with no directives MAY BE STORED by
 /// a shared cache, so `/api/version` could keep answering a failure long after the manifest was fixed.
 fn proxy_failure(what: &str, detail: &str, status: u16) -> Response {
-    let body = format!(
-        r#"{{"error":{}:{}}}"#,
-        json_string(what),
-        json_string(detail)
-    );
+    // THE BODY IS ONE STRING, NOT TWO KEYS: the JavaScript's helper is
+    // `JSON.stringify({ error: `${what}: ${detail}` })` — the two are JOINED BY A COLON inside one
+    // value. The first version built `{"error":"…":"…"}`, which is not JSON, and the verify caught it
+    // as a one-byte difference on the two failure routes. A failure body that will not parse is the
+    // worst possible answer from the route a device's updater polls.
+    let body = json_string(&format!("{what}: {detail}"));
+    let body = format!("{{\"error\":{body}}}");
     let h = Headers::new();
     h.set("content-type", "application/json").ok();
     h.set("cache-control", "no-store").ok();
@@ -76,7 +78,20 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         Route::Cloudflared => cloudflared(req, &env).await,
         Route::Electron | Route::Playwright => r2_object(req, &env, pathname).await,
         Route::Landing => landing(req, env, &url).await,
-        Route::NotFound => Ok(Response::from_bytes(b"Not Found".to_vec())?.with_status(404)),
+        // `new Response("Not Found", { status: 404 })` SETS `text/plain;charset=UTF-8` because a
+        // string body gets a text type. The first version answered it from the same byte path as the
+        // artifacts and said `application/octet-stream`, and the verify caught the header on two
+        // routes: a 404 that claims to be a binary is a wrong claim, not a cosmetic one.
+        Route::NotFound => {
+            // SET EXPLICITLY, because `from_bytes` sets no type at all: the JavaScript's
+            // `new Response("Not Found", …)` gets `text/plain;charset=UTF-8` from the string body,
+            // and an EMPTY header map here replaced the inferred type with none.
+            let h = Headers::new();
+            h.set("content-type", "text/plain;charset=UTF-8").ok();
+            Ok(Response::from_bytes(b"Not Found".to_vec())?
+                .with_status(404)
+                .with_headers(h))
+        }
     }
 }
 
@@ -223,13 +238,15 @@ async fn r2_object(req: Request, env: &Env, pathname: &str) -> Result<Response> 
     } else {
         "application/octet-stream"
     };
-    // `ObjectBody::stream()` RETURNS THE BYTESTREAM, and the body is an Option because a head-only
-    // read has none.
-    let stream = body
+    // THE BODY IS STREAMED, AND THE BINDING HANDS IT OVER AS A `Response`: `Object::body()` is
+    // `Option<ObjectBody>` and `ObjectBody::stream()` reads that response's body. The first version
+    // reached for a `ResponseBody` the value never was, and the artifact came back as the SOURCE of
+    // the function — which the verify reported as a 58-byte body, and which a device would have
+    // written to disk.
+    let object_body = body
         .body()
-        .ok_or_else(|| worker::Error::RustError("no body".into()))?
-        .stream()?;
-    let mut out = Response::from_stream(stream)?.with_status(200);
+        .ok_or_else(|| worker::Error::RustError("the R2 object carries no body".into()))?;
+    let mut out = Response::from_stream(object_body.stream()?)?.with_status(200);
     let h = Headers::new();
     h.set("content-type", content_type).ok();
     h.set(
@@ -238,6 +255,13 @@ async fn r2_object(req: Request, env: &Env, pathname: &str) -> Result<Response> 
     )
     .ok();
     h.set("cache-control", "public, no-cache").ok();
+    // ONLY THE PLAYWRIGHT ROUTE CARRIES A LENGTH, and the JavaScript is not symmetrical about it: the
+    // electron route omits it and the playwright one writes `content-length: String(obj.size)`. The
+    // verify caught the missing header on exactly one of the two, which is the answer to "should both
+    // have it" — no, and matching means reading the source rather than the principle.
+    if key == "summrise-playwright.zip" {
+        h.set("content-length", &body.size().to_string()).ok();
+    }
     if let Some(tag) = &etag {
         h.set("etag", tag).ok();
     }
