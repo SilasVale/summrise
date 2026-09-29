@@ -18,30 +18,46 @@
   // `workers_dev: true` and no custom domain, deliberately: the production name carries a domain
   // that Cloudflare ignores in this config, so the canary is reachable only on its workers.dev URL.
   //
-  // ── AND MEASURED 2026-09-29: `*.workers.dev` IS NOT REACHABLE FROM EITHER MACHINE THIS LOOP RUNS
-  // ON, so the canary is deployed but not yet SMOKED, and the two facts are separate:
+  // ── THE SMOKE RAN, AND IT FOUND A DEFECT NO HARNESS COULD SEE ─────────────────────────────────
   //
-  //   THIS BOX (the Linux dev box):  `TLSv1.3 handshake … Connection reset by peer` — the same reset
-  //                                 `scripts/build.sh` records for `wrangler tail`, and the same
-  //                                 boundary the git mirror works around.
-  //   THE DEVICE (d1, OpenWrt):     `CANARY 000 0` while `https://agent.saisi.online` answers 200
-  //                                 from the same shell in the same second.
+  // `*.workers.dev` is unreachable from both machines this loop runs on (this box: a TLS reset, the
+  // same one `scripts/build.sh` records for `wrangler tail`; the device: `CANARY 000 0` while
+  // `agent.saisi.online` answers 200 from the same shell in the same second) — hence the zone route
+  // and the `agent-rust` CNAME, both of which are REMOVABLE: delete the record and the route.
   //
-  // **WHAT THE DEPLOY DID PROVE, from `wrangler deploy`'s own output:** the module is accepted, the
-  // 14 assets upload against the same directory production serves, BOTH bindings bind (ASSETS and the
-  // `summrise-temp-files` R2 bucket), and the worker starts in **3 ms**.
+  // **WHAT THE CANARY PROVED, on 2026-09-29, against `agent.saisi.online` itself:** all eight routes
+  // byte-identical once the host is normalised — the landing page on both paths, the manifest, the
+  // 404s, the tarball, cloudflared, and BOTH R2 artifacts at their full size. The host is the one
+  // difference, and it is the difference the worker is SUPPOSED to have: every URL is rebuilt against
+  // the request's own origin, so a manifest cannot point a device at another host.
   //
-  // **WHAT IS STILL UNMEASURED: the runtime's answers** — a real `R2Object`'s `size`/`httpEtag` as
-  // properties, and the ASSETS pass-through preserving the range and conditional headers the stub in
-  // `worker/verify.mjs` never saw. That is the last unknown before a cutover, and it needs a network
-  // that can see a workers.dev host — or a zone route on a name that is reachable, which is a
-  // decision with a DNS consequence and is therefore not taken here.
+  // **AND THE ONE DEFECT THAT ONLY THE LIVE RUN COULD FIND.** `ObjectBody::stream()` reads the R2
+  // object THROUGH THE ISOLATE; `ObjectBody::response_body()` hands the raw stream to the runtime,
+  // which is what `new Response(obj.body, …)` does in the JavaScript. On the 115 MB electron runtime
+  // the first one arrived SHORT on every fetch (21.6 / 71.8 / 76.5 / 80.6 MB of 115,028,145) and the
+  // second delivered the full object in 34–54 s — production's own figure is 52.5 s. **A 32 MB object
+  // completed either way, so the 13 verify cases, the eight-byte stub, and every local measurement were
+  // all green while a 115 MB download was quietly broken.** That is the argument for deploying to a
+  // name before a name everyone installs from.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "summrise-dist-rust",
   "main": "worker/build/index.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  // AND A NAME ON THE ZONE, BECAUSE `*.workers.dev` IS UNREACHABLE FROM BOTH MACHINES (measured
+  // above, and the file says so twice because it is the reason this block exists).
+  //
+  // `agent-rust.saisi.online` is a NEW hostname that answers nothing today, on the same zone the
+  // production download host is on — so the canary becomes reachable from this box and from the
+  // device, and a byte comparison against `agent.saisi.online` is possible at last. **The production
+  // name is NOT in this file and is not touched by this deploy**: the route is additive, and removing
+  // it is a second one-line change. (The token carries Workers Routes write — the repo's own
+  // `zen-us` worker deploys the same way — and if that stops being true the deploy fails loudly here
+  // rather than silently leaving the canary unreachable.)
+  "routes": [
+    { "pattern": "agent-rust.saisi.online/*", "zone_id": "79860b60a8681147d0ce38294d404ead" }
+  ],
   // THE SAME ASSETS DIRECTORY AS PRODUCTION, and that is what makes the comparison mean anything:
   // the canary serves the real release artifacts, the real version.json and the real landing page,
   // so a byte difference between the two workers cannot be an artifact difference.

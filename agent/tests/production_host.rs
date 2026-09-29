@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 41] = [
+const ALLOWED: [(&str, &str); 42] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -137,6 +137,13 @@ const ALLOWED: [(&str, &str); 41] = [
     ("gateway/test/registry.test.mjs", "face 2 — the DEFAULTS of usProxyBase/museResponsesExit; moving them is a design change, not a fixture one"),
     ("gateway/test/summrise-cli.test.mjs", "face 2 — the gateway base the CLI defaults to (SUMMRISE_GATEWAY), which the test asserts"),
     ("agent/resources/panel-react/src", "panel fixtures and tests that render device rows"),
+    // ── the migration plan, which NAMES THE CANARY (2026-09-29) ──────────────────────────────────
+    // The CDN worker's Rust canary is deployed on its own name so it can be smoked BEFORE the name every
+    // device installs from is switched, and that hostname is the whole point of it. The plan records
+    // that name and the smoke that used it; without the entry the file could not be read, which is the
+    // ratchet working as intended and costing one constant — raised visibly, with the reason, in the
+    // same commit as the sentence that needs it.
+    ("docs/superpowers/plans/2026-09-28-the-product-moves-to-rust.md", "the migration plan, which names the CDN worker's canary host and the smoke that used it"),
 ];
 
 /// THE LIST MAY ONLY SHRINK, AND THAT SENTENCE HAD NO GATE (round 155). It was written twice in the JS
@@ -145,7 +152,11 @@ const ALLOWED: [(&str, &str); 41] = [
 /// entry leaves, and UP only in a commit that says why. The "UP never" the old comment said was
 /// stronger than the code it described: the growth branch exists and prints its own condition, and a
 /// rule a reader cannot follow is worse than no rule.
-const MAX_ALLOWED: usize = 41;
+// 41 -> 42 ON 2026-09-29, for ONE file and the reason written beside the entry: the migration plan names
+// the CDN worker's canary host, which is the thing the canary is FOR. This is the growth branch the
+// comment above describes, taken visibly rather than by widening a prefix — which is how a gate stops
+// meaning anything.
+const MAX_ALLOWED: usize = 42;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -337,7 +348,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 41"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 42"),
         "{}",
         ok.stdout
     );

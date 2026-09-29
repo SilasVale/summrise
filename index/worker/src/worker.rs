@@ -238,15 +238,31 @@ async fn r2_object(req: Request, env: &Env, pathname: &str) -> Result<Response> 
     } else {
         "application/octet-stream"
     };
-    // THE BODY IS STREAMED, AND THE BINDING HANDS IT OVER AS A `Response`: `Object::body()` is
-    // `Option<ObjectBody>` and `ObjectBody::stream()` reads that response's body. The first version
-    // reached for a `ResponseBody` the value never was, and the artifact came back as the SOURCE of
-    // the function — which the verify reported as a 58-byte body, and which a device would have
-    // written to disk.
+    // ── `response_body()`, NOT `stream()`, AND ONLY THE LIVE SMOKE COULD FIND THIS ────────────────
+    //
+    // The two look interchangeable and they are not. `ObjectBody::stream()` READS THE OBJECT THROUGH
+    // THE ISOLATE and hands back a `ByteStream`; `ObjectBody::response_body()` HANDS THE RAW STREAM
+    // TO THE RUNTIME, which is what `new Response(obj.body, …)` does in the JavaScript — and the
+    // crate's own doc says of the second: "ensures that the worker does not consume CPU time while the
+    // streaming occurs, which can be significant".
+    //
+    // **MEASURED ON THE CANARY, 2026-09-29, 115 MB of electron runtime:**
+    //
+    //   with `stream()`        the body ARRIVED SHORT — 21.6 MB, 71.8 MB, 76.5 MB, 80.6 MB on four
+    //                          fetches, never the full 115,028,145.
+    //   the 32 MB playwright  IDENTICAL, byte for byte — which is why the stub harness, the 13
+    //     bundle          verify cases and every local measurement were all green: **a 32 MB stream
+    //                          completes, and the defect only shows on an object big enough to matter.**
+    //   production          also truncates on this link (18.3 MB on one fetch), so the link is part
+    //                          of it — but production completes, and the canary never did.
+    //
+    // **THE HARNESS COULD NOT HAVE CAUGHT IT**: `verify.mjs` stubs the object with eight bytes.
+    // That is the argument for the canary, and it is why this worker was deployed to a name rather
+    // than shipped.
     let object_body = body
         .body()
         .ok_or_else(|| worker::Error::RustError("the R2 object carries no body".into()))?;
-    let mut out = Response::from_stream(object_body.stream()?)?.with_status(200);
+    let mut out = Response::from_body(object_body.response_body()?)?.with_status(200);
     let h = Headers::new();
     h.set("content-type", content_type).ok();
     h.set(
