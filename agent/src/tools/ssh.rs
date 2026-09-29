@@ -192,19 +192,39 @@ pub enum ExecStatus {
     Unknown,
 }
 
-/// Append `bytes` to `sink` without letting it exceed `cap`, recording whether anything was dropped.
+/// Append `bytes` to `sink`, keeping the **TAIL** when the cap is reached, and record that
+/// something was dropped.
+///
+/// WHY THE TAIL AND NOT THE HEAD: the seam this feeds defines its collected text as *"the TAIL of the
+/// stream when truncated"*, and the reason is practical — a build log's error and a language server's
+/// diagnostic are at the END of the stream. A head-truncated result is a different answer under the
+/// same name, which is worse than a truncated one.
 ///
 /// The dropping is what the cap is for; the *continuing* is what the loop around it is for. A reader
 /// that stopped at the cap would leave the target blocked writing into a full pipe, so an overflowing
 /// command would hang instead of returning a truncated result.
 fn collect_capped(sink: &mut Vec<u8>, bytes: &[u8], cap: usize, overflow: &mut bool) {
-    let room = cap.saturating_sub(sink.len());
-    if bytes.len() > room {
-        sink.extend_from_slice(&bytes[..room]);
-        *overflow = true;
-    } else {
-        sink.extend_from_slice(bytes);
+    if cap == 0 {
+        *overflow |= !bytes.is_empty();
+        return;
     }
+    // Decided from the SIZES, before anything moves: the flag describes bytes dropped, and taking a
+    // particular branch is not what makes something dropped. (A chunk exactly filling the cap drops
+    // nothing when the sink is empty — which is the case the first version of this got wrong.)
+    *overflow |= sink.len() + bytes.len() > cap;
+
+    if bytes.len() >= cap {
+        // This chunk alone fills the cap, so whatever was already held is superseded and only the
+        // chunk's own tail survives.
+        sink.clear();
+        sink.extend_from_slice(&bytes[bytes.len() - cap..]);
+        return;
+    }
+    let excess = (sink.len() + bytes.len()).saturating_sub(cap);
+    if excess > 0 {
+        sink.drain(..excess);
+    }
+    sink.extend_from_slice(bytes);
 }
 
 /// A single SSH connection with an interactive PTY shell.
@@ -631,6 +651,55 @@ mod tests {
     fn unisolate(dir: &std::path::Path) {
         TEST_DIR.with(|d| *d.borrow_mut() = None);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // ── the collector keeps the TAIL, which is a contract, not a preference ─────────────────────
+
+    #[test]
+    fn a_chunk_larger_than_the_cap_keeps_its_own_tail() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"0123456789", 4, &mut overflow);
+        assert_eq!(sink, b"6789", "the newest bytes are the ones worth keeping");
+        assert!(overflow);
+    }
+
+    #[test]
+    fn an_over_cap_stream_slides_instead_of_stopping_at_the_head() {
+        // The whole point: three chunks that fit only two of, and what survives is the END.
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"aaaa", 6, &mut overflow);
+        collect_capped(&mut sink, b"bbbb", 6, &mut overflow);
+        collect_capped(&mut sink, b"cccc", 6, &mut overflow);
+        assert_eq!(sink, b"bbcccc");
+        assert!(overflow);
+    }
+
+    #[test]
+    fn an_exactly_cap_sized_stream_is_not_called_truncated() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"abc", 3, &mut overflow);
+        collect_capped(&mut sink, b"def", 6, &mut overflow);
+        assert_eq!(sink, b"abcdef");
+        assert!(
+            !overflow,
+            "nothing was dropped, so nothing may be reported as dropped"
+        );
+    }
+
+    #[test]
+    fn a_zero_cap_keeps_nothing_and_still_reports() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"anything", 0, &mut overflow);
+        assert!(sink.is_empty());
+        assert!(overflow);
+        // And silence into a zero cap is not an overflow: nothing was dropped.
+        let mut quiet = false;
+        collect_capped(&mut sink, b"", 0, &mut quiet);
+        assert!(!quiet);
     }
 
     /// The migrated site's posture, measured: `BestEffort`. An unavailable ACL
