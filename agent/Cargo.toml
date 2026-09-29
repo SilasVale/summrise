@@ -1,5 +1,8 @@
 [workspace]
-members = [".", "summrise-command-core"]
+# `summrise-exec-argv` is a member so `cargo fmt --all` and the workspace's lockfile see it, but it is
+# deliberately NOT a default member: it is a POSIX execve shim staged onto a *target* machine, and the
+# Windows agent build must not try to produce it. It is built for the target triple on its own.
+members = [".", "summrise-command-core", "summrise-exec-argv"]
 default-members = ["."]
 resolver = "2"
 
@@ -43,6 +46,12 @@ russh-sftp = { version = "2.3", optional = true }
 portable-pty = { version = "0.8", optional = true }
 keyring = { version = "2", optional = true }
 
+# The argv frame, shared with the helper that is staged onto a workspace host. It is a dependency
+# rather than a copy so the writer here and the reader there cannot drift: a writer free to emit a
+# count or a length the reader refuses would only fail on a machine nobody is watching. The crate
+# has no dependencies of its own, and this one is gated with the SSH client that drives it.
+summrise-exec-argv = { path = "summrise-exec-argv", optional = true }
+
 serde_yaml = "0.9"
 
 # HTTP client for the update plugin (agent_update MCP tool). rustls-tls keeps the
@@ -75,12 +84,17 @@ windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 rmcp = { version = "2", features = ["client", "transport-streamable-http-client-reqwest"] }
+# `exec_capture`'s transport is verified against an in-process SSH server, and a server needs a host
+# key. Generated per test run rather than committed: a private key in the tree is a private key in
+# every clone, and a scanner cannot tell a test key from a real one. Test-only, so it costs the
+# shipped binary nothing.
+rand = "0.8"
 
 
 [features]
 default = []
 # Real terminal backends (PTY/SSH/Serial).
-terminal = ["dep:portable-pty", "dep:russh", "dep:russh-sftp"]
+terminal = ["dep:portable-pty", "dep:russh", "dep:russh-sftp", "dep:summrise-exec-argv"]
 # OS keychain secrets for SSH passwords.
 keyring = ["dep:keyring"]
 

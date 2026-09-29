@@ -1,0 +1,20 @@
+[package]
+name = "summrise-exec-argv"
+version.workspace = true
+edition = "2021"
+description = "Execute an argv that arrived out of band, so a remote subprocess seam can keep its no-shell-layer promise over SSH"
+license = "Apache-2.0"
+publish = false
+
+# No dependencies, deliberately: this binary is staged onto a machine that may have no
+# toolchain, no package manager and no network, so it must be a single static artifact
+# whose behaviour is readable in one sitting.
+[dependencies]
+
+[[bin]]
+name = "summrise-exec-argv"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_exec_argv"
+path = "src/lib.rs"

@@ -838,6 +838,8 @@ pub(crate) enum RouteId {
     PlaywrightStart,
     PlaywrightStop,
     ToolCall,
+    WorkspaceExec,
+    WorkspaceFs,
     // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
     EventsStream,
     TermStream,
@@ -1089,6 +1091,24 @@ pub(crate) fn routes() -> &'static [Route] {
             method: "POST",
             pattern: Pattern::Prefix("/api/tools/"),
             id: RouteId::ToolCall,
+            stage: Stage::DispatchGated,
+        },
+        // The workspace's one door. Behind the unconditional auth gate like every other
+        // `DispatchGated` row, and that is not a formality: this route RUNS A COMMAND as a remote
+        // account. An exact pattern, so the narrower rows above keep their precedence.
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/exec"),
+            id: RouteId::WorkspaceExec,
+            stage: Stage::DispatchGated,
+        },
+        // The workspace's OTHER door, and it reads only. One row with an `op` rather than five,
+        // which is `terminal_sftp`'s shape: the operations share every connection field, and five
+        // rows would be five chances for their validation to drift apart.
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/fs"),
+            id: RouteId::WorkspaceFs,
             stage: Stage::DispatchGated,
         },
         // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
@@ -1652,6 +1672,11 @@ async fn dispatch(
             let tool_name = path.strip_prefix("/api/tools/").unwrap_or("");
             api_call_tool(state, tool_name, body_str).await
         }
+        // `200 + {ok:false,code}` on a bad body, like the monitor and tool routes above rather than
+        // like the parsing routes — see the note below, which is the reason this is a choice and not
+        // an oversight.
+        Some(RouteId::WorkspaceExec) => api_workspace_exec(body_str).await,
+        Some(RouteId::WorkspaceFs) => api_workspace_fs(body_str).await,
         // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
         // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
         // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
@@ -2283,6 +2308,408 @@ fn api_monitor_remove(body: &str) -> serde_json::Value {
     // HONEST ABOUT WHAT HAPPENED: removing something that was not watched is reported as such
     // rather than as a success (the panel then refreshes to the truth either way).
     serde_json::json!({"ok": true, "removed": crate::monitor::remove_target(&crate::paths::data_dir(), id)})
+}
+
+/// The connection a workspace request names.
+///
+/// ONE PLACE, because two routes need it and their failure vocabulary must not drift: a caller that
+/// got `connect_timeout` from one door and `connect_failed` from the other for the same condition
+/// would have to branch on which route it happened to call.
+#[cfg(feature = "terminal")]
+struct WorkspaceTarget {
+    host: String,
+    user: String,
+    port: u16,
+    password: String,
+    key_path: String,
+}
+
+#[cfg(feature = "terminal")]
+impl WorkspaceTarget {
+    fn from_request(v: &serde_json::Value) -> Result<Self, serde_json::Value> {
+        let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+        let Some(host) = v.get("host").and_then(|x| x.as_str()) else {
+            return Err(bad("a host is required"));
+        };
+        let Some(user) = v.get("user").and_then(|x| x.as_str()) else {
+            return Err(bad("a user is required"));
+        };
+        Ok(Self {
+            host: host.to_string(),
+            user: user.to_string(),
+            port: v.get("port").and_then(|x| x.as_u64()).unwrap_or(22) as u16,
+            password: v
+                .get("password")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            key_path: v
+                .get("key_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+        })
+    }
+
+    /// Connect, bounded at 30 s — matching `terminal_sftp`'s ceiling and for the same measured
+    /// reason: russh's inactivity timer resets on ANY byte, so a dribbling tarpit can stretch an
+    /// auth hang indefinitely without one.
+    async fn connect(&self) -> Result<crate::tools::ssh::SshSession, serde_json::Value> {
+        let password = self.password.as_str();
+        let key_path = self.key_path.as_str();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            crate::tools::ssh::SshSession::connect(
+                &self.host,
+                self.port,
+                &self.user,
+                if password.is_empty() {
+                    None
+                } else {
+                    Some(password)
+                },
+                if key_path.is_empty() {
+                    None
+                } else {
+                    Some(key_path)
+                },
+            ),
+        )
+        .await
+        {
+            Ok(Ok(session)) => Ok(session),
+            Ok(Err(e)) => Err(serde_json::json!({
+                "ok": false,
+                "error": format!("connect failed: {e}"),
+                "code": "connect_failed"
+            })),
+            Err(_) => Err(serde_json::json!({
+                "ok": false,
+                "error": format!(
+                    "connecting to {}@{}:{} did not complete within 30s",
+                    self.user, self.host, self.port
+                ),
+                "code": "connect_timeout"
+            })),
+        }
+    }
+}
+
+/// The filesystem half's door: one route, several operations.
+///
+/// ONE ROUTE WITH AN `op` RATHER THAN FIVE ROUTES, which is `terminal_sftp`'s shape and for its
+/// reason — the operations share every connection field, and five rows would be five chances for
+/// their validation to drift apart.
+///
+/// THE OPERATIONS ARE READS ONLY. A write is a different thing to get right (the version guard, the
+/// atomic publish, and the per-path serialization that keeps the guard from being decoration), and a
+/// route offering a write it had not built that carefully would be worse than one that offers none.
+#[cfg(feature = "terminal")]
+async fn api_workspace_fs(body: &str) -> serde_json::Value {
+    use base64::Engine as _;
+
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+
+    let Some(op) = v.get("op").and_then(|x| x.as_str()) else {
+        return bad("an op is required (stat, lstat, readText, readBytes, listDir)");
+    };
+    // THE OP IS CHECKED BEFORE THE CONNECTION, which a test caught: validating it in the `match`
+    // below meant a caller who mistyped the verb learned it only after a 30 s connect attempt to a
+    // host that may not even exist. A name this door does not have is answerable without a network.
+    const OPS: [&str; 5] = ["stat", "lstat", "readText", "readBytes", "listDir"];
+    if !OPS.contains(&op) {
+        return bad(&format!(
+            "unknown op {op:?}; this route reads only (stat, lstat, readText, readBytes, listDir)"
+        ));
+    }
+    let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
+        return bad("a path is required");
+    };
+    if path.is_empty() {
+        return bad("a path is required");
+    }
+
+    let target = match WorkspaceTarget::from_request(&v) {
+        Ok(target) => target,
+        Err(answer) => return answer,
+    };
+    let session = match target.connect().await {
+        Ok(session) => session,
+        Err(answer) => return answer,
+    };
+    let sftp = match session.sftp_session().await {
+        Ok(sftp) => sftp,
+        Err(e) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the workspace host has no sftp subsystem: {e}"),
+                "code": "sftp_unavailable"
+            })
+        }
+    };
+
+    // THE CODE TRAVELS AS THE CODE. `dsh-fs` requires callers to branch on it and never on message
+    // text, so a filesystem failure here answers with the seam's OWN token — `FS_TOO_LARGE`,
+    // `FS_NOT_TEXT`, `FS_NOT_FOUND` — rather than one code a consumer would have to parse prose to
+    // tell apart. The message is for a person, and nothing branches on it.
+    let fs_failed = |e: crate::workspace::FsError| serde_json::json!({"ok": false, "error": e.message, "code": e.code});
+    let info_json = |info: &crate::workspace::FsInfo| {
+        serde_json::json!({
+            "kind": info.kind.as_str(),
+            "size": info.size,
+            "mtime": info.mtime,
+            "mode": info.mode,
+        })
+    };
+
+    match op {
+        "stat" | "lstat" => match crate::workspace::fs_stat(&sftp, path, op == "stat").await {
+            // An absent path is `info: null` rather than an error, because it is a FACT about the
+            // path: a caller forced to read an error to learn it would report a broken host as an
+            // empty directory.
+            Ok(None) => serde_json::json!({"ok": true, "info": serde_json::Value::Null}),
+            Ok(Some(info)) => serde_json::json!({"ok": true, "info": info_json(&info)}),
+            Err(e) => fs_failed(e),
+        },
+        "readText" => {
+            let cap = v
+                .get("max_bytes")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(4 << 20) as usize;
+            match crate::workspace::fs_read_text(&sftp, path, cap).await {
+                Ok(read) => serde_json::json!({
+                    "ok": true,
+                    "text": read.text,
+                    "info": info_json(&read.info),
+                    "version": read.version,
+                }),
+                Err(e) => fs_failed(e),
+            }
+        }
+        "readBytes" => {
+            let offset = v.get("offset").and_then(|x| x.as_u64()).unwrap_or(0);
+            let length = v.get("length").and_then(|x| x.as_u64()).unwrap_or(64 << 10) as usize;
+            match crate::workspace::fs_read_bytes(&sftp, path, offset, length).await {
+                Ok(bytes) => serde_json::json!({
+                    "ok": true,
+                    "bytes_b64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "length": bytes.len(),
+                }),
+                Err(e) => fs_failed(e),
+            }
+        }
+        "listDir" => match crate::workspace::fs_list_dir(&sftp, path).await {
+            Ok(entries) => {
+                let entries: Vec<serde_json::Value> = entries
+                    .iter()
+                    .map(|(name, info)| {
+                        let mut entry = info_json(info);
+                        entry["name"] = serde_json::json!(name);
+                        entry
+                    })
+                    .collect();
+                serde_json::json!({"ok": true, "entries": entries})
+            }
+            Err(e) => fs_failed(e),
+        },
+        other => bad(&format!(
+            "unknown op {other:?}; this route reads only (stat, lstat, readText, readBytes, listDir)"
+        )),
+    }
+}
+
+/// Without the `terminal` feature there is no SSH client, so this build cannot read a workspace host
+/// — and it says so rather than answering as though it had.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_fs(_body: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "this build has no SSH client (the `terminal` feature is off), so it cannot read a \
+                  workspace host",
+        "code": "internal"
+    })
+}
+
+/// Without the `terminal` feature there is no SSH client, so this build cannot run a command
+/// anywhere — and it says so rather than answering as though it had. The route and its row stay
+/// unconditional, which is this file's convention: a surface that quietly disappears with a feature
+/// is a surface a caller discovers by getting nothing.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_exec(_body: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": "this build has no SSH client (the `terminal` feature is off), so it cannot run a \
+                  command on a workspace host",
+        "code": "internal"
+    })
+}
+
+/// Run one command on a workspace host, and bring back its streams and its status.
+///
+/// THE ONE VALUE THAT CROSSES AS TEXT IS THE HELPER'S PATH, and `workspace::exec_on` refuses
+/// anything but a plain one. Everything else — the argv a model chose, the directory it runs in —
+/// travels in a frame on the channel's stdin, because the exec string is handed to the LOGIN SHELL
+/// by `sshd` and quoting an argv into it is the hazard the transport exists to remove.
+///
+/// `stdout_b64` / `stderr_b64` are BASE64 rather than text: a subprocess seam carries bytes, and a
+/// search result or a build log that happens to be non-UTF-8 must not lose the bytes that are not.
+///
+/// The connect is bounded at 30 s, matching `terminal_sftp`'s ceiling and for the same reason —
+/// russh's inactivity timer resets on ANY byte, so a dribbling tarpit can stretch an auth hang
+/// indefinitely without one.
+#[cfg(feature = "terminal")]
+async fn api_workspace_exec(body: &str) -> serde_json::Value {
+    use base64::Engine as _;
+
+    let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+
+    let target = match WorkspaceTarget::from_request(&v) {
+        Ok(target) => target,
+        Err(answer) => return answer,
+    };
+    let Some(argv) = v.get("argv").and_then(|x| x.as_array()) else {
+        return bad("an argv array is required");
+    };
+    if argv.is_empty() {
+        return bad("an argv needs at least one element (argv[0])");
+    }
+    let mut argv_bytes: Vec<Vec<u8>> = Vec::with_capacity(argv.len());
+    for element in argv {
+        let Some(text) = element.as_str() else {
+            return bad("every argv element must be a string");
+        };
+        argv_bytes.push(text.as_bytes().to_vec());
+    }
+
+    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.as_bytes());
+    let stdout_cap = v
+        .get("stdout_cap")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(1 << 20) as usize;
+    let stderr_cap = v
+        .get("stderr_cap")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(64 << 10) as usize;
+    // THE HELPER'S PATH IS NOT A PARAMETER, and that is deliberate: the exec string is the one value
+    // that reaches the LOGIN SHELL, so leaving the last word on it to the caller would hand back the
+    // hazard this whole transport exists to remove. The path is discovered on the target by
+    // `ensure_helper` and is ours from end to end.
+    let timeout_ms = v
+        .get("timeout_ms")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(120_000)
+        .min(600_000);
+
+    // ── the component, BEFORE a connection is opened ──
+    //
+    // THE HELPER IS A LINUX BINARY, which is why it is named for its target: this device runs the
+    // agent, and the workspace host runs the helper. Its absence is reported by NAME rather than as a
+    // spawn that failed on a machine nobody is watching — and it is checked FIRST, because opening a
+    // connection to a host we cannot stage onto would be work done only to be thrown away.
+    let helper_bytes = match std::fs::read(crate::paths::workspace_helper_bin()) {
+        Ok(bytes) if !bytes.is_empty() => bytes,
+        Ok(_) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the staged component {} is empty", crate::paths::workspace_helper_bin().display()),
+                "code": "helper_missing"
+            })
+        }
+        Err(e) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!(
+                    "the workspace helper component is not staged on this device ({}): {e}",
+                    crate::paths::workspace_helper_bin().display()
+                ),
+                "code": "helper_missing"
+            })
+        }
+    };
+
+    let session = match target.connect().await {
+        Ok(session) => session,
+        Err(answer) => return answer,
+    };
+
+    let sftp = match session.sftp_session().await {
+        Ok(sftp) => sftp,
+        Err(e) => {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the workspace host has no sftp subsystem, so the helper cannot be staged: {e}"),
+                "code": "sftp_unavailable"
+            })
+        }
+    };
+    let staged = match crate::workspace::ensure_helper(&sftp, &helper_bytes).await {
+        Ok(path) => path,
+        Err(e) => {
+            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "staging_failed"})
+        }
+    };
+    drop(sftp);
+
+    let request = crate::workspace::ExecRequest {
+        argv: &argv_bytes,
+        cwd,
+        stdout_cap,
+        stderr_cap,
+    };
+    let outcome = match tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms),
+        crate::workspace::exec_on(&session, &staged, request),
+    )
+    .await
+    {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(e)) => {
+            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "exec_failed"})
+        }
+        Err(_) => {
+            // Dropping the future drops the channel, which closes it, which is what makes the
+            // far side terminate. The status is therefore UNKNOWN, not "killed by us" — this
+            // caller cannot see what the target did on its way out.
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("the command did not finish within {timeout_ms} ms"),
+                "code": "exec_timeout"
+            });
+        }
+    };
+
+    let status = match &outcome.status {
+        crate::tools::ssh::ExecStatus::Exited(code) => {
+            serde_json::json!({"kind": "exited", "code": code})
+        }
+        crate::tools::ssh::ExecStatus::Signalled {
+            name,
+            core_dumped,
+            message,
+        } => serde_json::json!({
+            "kind": "signalled",
+            "name": name,
+            "core_dumped": core_dumped,
+            "message": message
+        }),
+        // A real outcome, not a placeholder: a channel can close without the server ever sending a
+        // status, and a caller that read that as success would report a command that never ran.
+        crate::tools::ssh::ExecStatus::Unknown => serde_json::json!({"kind": "unknown"}),
+    };
+
+    let engine = base64::engine::general_purpose::STANDARD;
+    serde_json::json!({
+        "ok": true,
+        "stdout_b64": engine.encode(&outcome.stdout),
+        "stderr_b64": engine.encode(&outcome.stderr),
+        "status": status,
+        "stdout_overflow": outcome.stdout_overflow,
+        "stderr_overflow": outcome.stderr_overflow,
+    })
 }
 
 async fn api_monitor_probe(body: &str) -> serde_json::Value {
@@ -5036,10 +5463,157 @@ mod tests {
             Some(RouteId::PanelPreflight)
         );
 
+        // ── the workspace doors ──
+        assert_eq!(
+            route_of("POST", "/api/workspace/exec"),
+            Some(RouteId::WorkspaceExec)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/fs"),
+            Some(RouteId::WorkspaceFs)
+        );
+        assert_eq!(
+            route_of("GET", "/api/workspace/fs"),
+            None,
+            "the read door is a POST like its neighbour; a GET is not a second way in"
+        );
+        // GET is not a second door: the row is a POST, so the method has to match as well as the
+        // path, and a GET falls through to the not-found answer rather than into a handler.
+        assert_eq!(route_of("GET", "/api/workspace/exec"), None);
+
         // ── an unknown path is not found ──
         assert_eq!(route_of("GET", "/api/nope"), None);
         assert_eq!(route_of("POST", "/"), None);
         assert_eq!(route_of("DELETE", "/api/sessions"), None);
+    }
+
+    /// A device with no helper component SAYS SO, by name, before it opens a connection.
+    ///
+    /// The order is the point: a device that cannot stage onto a host has nothing to do with that
+    /// host, and a route that connected first would spend a connect timeout discovering it. This is
+    /// also what makes the failure testable without a machine at all.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_names_a_missing_helper_component_before_it_connects() {
+        assert!(
+            std::fs::read(crate::paths::workspace_helper_bin()).is_err(),
+            "this test needs a device with NO staged helper; one is present at {}",
+            crate::paths::workspace_helper_bin().display()
+        );
+        // 192.0.2.1 is TEST-NET-1: unroutable by definition, so a route that reached the connect
+        // would spend the full 30 s ceiling — which is what the assertion below rules out.
+        let answer = api_workspace_exec(r#"{"host":"192.0.2.1","user":"u","argv":["rg"]}"#).await;
+        assert_eq!(answer["ok"], serde_json::json!(false));
+        assert_eq!(
+            answer["code"],
+            serde_json::json!("helper_missing"),
+            "the answer must name the missing component: {answer}"
+        );
+        assert!(
+            answer["error"]
+                .as_str()
+                .is_some_and(|m| m.contains("workspace helper component is not staged")),
+            "and it must say WHICH component and where it was looked for: {answer}"
+        );
+    }
+
+    /// The read door's refusals, all decided before a connection is attempted — which is why this
+    /// needs no machine.
+    ///
+    /// THE OP LIST IS THE ASSERTION THAT MATTERS MOST: a route that reads only must say so when it is
+    /// asked to write, rather than answering an unknown verb with a generic failure a caller cannot
+    /// act on.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_fs_refuses_a_malformed_request_before_it_connects() {
+        for (body, expected) in [
+            (
+                r#"{}"#,
+                "an op is required (stat, lstat, readText, readBytes, listDir)",
+            ),
+            (r#"{"op":"stat"}"#, "a path is required"),
+            (r#"{"op":"stat","path":""}"#, "a path is required"),
+            (r#"{"op":"stat","path":"/x"}"#, "a host is required"),
+            (
+                r#"{"op":"stat","path":"/x","host":"h"}"#,
+                "a user is required",
+            ),
+        ] {
+            let answer = api_workspace_fs(body).await;
+            assert_eq!(answer["ok"], serde_json::json!(false), "body: {body}");
+            assert_eq!(
+                answer["code"],
+                serde_json::json!("invalid_params"),
+                "body: {body}"
+            );
+            assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
+        }
+
+        // A WRITE IS NAMED AS UNSUPPORTED, with the operations this door does have. `writeText` is
+        // the obvious thing for a caller to try next, and it has to learn why it cannot.
+        let answer =
+            api_workspace_fs(r#"{"op":"writeText","path":"/x","host":"h","user":"u"}"#).await;
+        assert_eq!(answer["ok"], serde_json::json!(false));
+        assert_eq!(answer["code"], serde_json::json!("invalid_params"));
+        let message = answer["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("reads only") && message.contains("readText"),
+            "the refusal must name what IS available: {message}"
+        );
+    }
+
+    /// The workspace door's refusals — every one of them decided BEFORE a connection is attempted,
+    /// which is why this test needs no machine.
+    ///
+    /// WHY IT IS WORTH WRITING: the route runs a command as a remote account, so the shape of what it
+    /// accepts is security-relevant rather than cosmetic. An argv that arrives empty, or with an
+    /// element that is not a string, is a caller mistake that has to be NAMED — not a panic, and not
+    /// a silently different command.
+    ///
+    /// GATED ON THE FEATURE, like the operation route's neighbour: without the SSH client this
+    /// handler answers Internal before it looks at the body, so these assertions describe a build
+    /// that has one.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_refuses_a_malformed_request_before_it_connects() {
+        for (body, expected) in [
+            (r#"{}"#, "a host is required"),
+            (r#"{"host":"h"}"#, "a user is required"),
+            (r#"{"host":"h","user":"u"}"#, "an argv array is required"),
+            (
+                r#"{"host":"h","user":"u","argv":[]}"#,
+                "an argv needs at least one element (argv[0])",
+            ),
+            (
+                r#"{"host":"h","user":"u","argv":["rg",7]}"#,
+                "every argv element must be a string",
+            ),
+        ] {
+            let answer = api_workspace_exec(body).await;
+            assert_eq!(answer["ok"], serde_json::json!(false), "body: {body}");
+            assert_eq!(
+                answer["code"],
+                serde_json::json!("invalid_params"),
+                "body: {body}"
+            );
+            assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
+        }
+    }
+
+    /// A body that is not JSON at all is treated as the empty object, not as a panic — the
+    /// `200 + {ok:false,code}` convention this file's monitor and tool routes already follow.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn workspace_exec_survives_a_body_that_is_not_json() {
+        for body in ["", "not json", "{"] {
+            let answer = api_workspace_exec(body).await;
+            assert_eq!(answer["ok"], serde_json::json!(false), "body: {body:?}");
+            assert_eq!(
+                answer["error"],
+                serde_json::json!("a host is required"),
+                "body: {body:?}"
+            );
+        }
     }
 
     /// The table's floorS (one per stage), and its method vocabulary.

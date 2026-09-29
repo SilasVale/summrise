@@ -3511,6 +3511,7 @@ dependencies = [
  "keyring",
  "portable-pty",
  "process-wrap",
+ "rand 0.8.7",
  "reqwest 0.12.28",
  "rmcp",
  "russh",
@@ -3522,6 +3523,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "summrise-agent-core",
+ "summrise-exec-argv",
  "tokio",
  "tokio-util",
  "tower",
@@ -3545,6 +3547,10 @@ dependencies = [
  "tokio",
  "tokio-util",
 ]
+
+[[package]]
+name = "summrise-exec-argv"
+version = "1.0.145"
 
 [[package]]
 name = "syn"

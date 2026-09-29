@@ -273,6 +273,16 @@ pub fn playwright_dir() -> PathBuf {
 pub fn desktop_shell_dir() -> PathBuf {
     components_dir().join("summrise-desktop-electron")
 }
+/// The argv helper this device stages onto a WORKSPACE HOST.
+///
+/// IT IS NOT A BINARY THIS DEVICE RUNS, which is why its name carries the target: the agent is a
+/// Windows service and the helper is a POSIX `execve` shim, so the two are different artifacts of
+/// the same release. It is a component like cloudflared or the desktop shell — fetched, pinned by
+/// sha256 in `index/components.json`, and staged under `components\` — and the ONLY thing that
+/// differs is which machine ends up executing it.
+pub fn workspace_helper_bin() -> PathBuf {
+    components_dir().join("summrise-exec-argv-linux-x86_64")
+}
 pub fn agent_log_file() -> PathBuf {
     logs_dir().join("agent.log")
 }
@@ -788,6 +798,12 @@ mod resolution_tests {
         assert_eq!(
             desktop_shell_dir(),
             components_dir().join("summrise-desktop-electron")
+        );
+        assert_eq!(
+            workspace_helper_bin(),
+            components_dir().join("summrise-exec-argv-linux-x86_64"),
+            "the workspace helper's name must carry its TARGET: this device is Windows and the \
+             helper is a POSIX binary, so a name that did not would stage the wrong artifact"
         );
         assert_eq!(agent_log_file(), logs_dir().join("agent.log"));
         assert_eq!(startup_log_file(), logs_dir().join("startup.log"));

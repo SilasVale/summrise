@@ -152,6 +152,81 @@ impl client::Handler for SshHandler {
 
 // ── Core SSH Session ─────────────────────────────────────────
 
+/// What one [`SshSession::exec_capture`] produced.
+#[derive(Debug)]
+pub struct ExecOutcome {
+    /// The target's stdout, up to the caller's cap.
+    pub stdout: Vec<u8>,
+    /// The target's stderr (SSH extended data type 1), up to the caller's cap.
+    pub stderr: Vec<u8>,
+    /// The target wrote more stdout than the cap allowed. The surplus was **drained and discarded**,
+    /// not left in the pipe — see the note on `exec_capture`.
+    pub stdout_overflow: bool,
+    /// The same, for stderr.
+    pub stderr_overflow: bool,
+    /// How the target ended, as far as the channel reported.
+    pub status: ExecStatus,
+}
+
+/// How a remote command ended.
+///
+/// `Unknown` is a real outcome and not a placeholder: a channel can close without the server ever
+/// sending an exit status (a killed `sshd`, a dropped connection), and a caller that treated that as
+/// success would report a command that never ran. The subprocess seam's own contract distinguishes
+/// "exited with a code" from "killed by a signal", and this type keeps that distinction rather than
+/// flattening both into a number.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ExecStatus {
+    /// The target exited normally with this status.
+    Exited(u32),
+    /// The target was killed by a signal.
+    Signalled {
+        /// The signal's name as the far side spelled it.
+        name: String,
+        /// Whether the far side reported a core dump.
+        core_dumped: bool,
+        /// The far side's own message, which is often empty.
+        message: String,
+    },
+    /// The channel closed with no exit status and no signal.
+    Unknown,
+}
+
+/// Append `bytes` to `sink`, keeping the **TAIL** when the cap is reached, and record that
+/// something was dropped.
+///
+/// WHY THE TAIL AND NOT THE HEAD: the seam this feeds defines its collected text as *"the TAIL of the
+/// stream when truncated"*, and the reason is practical — a build log's error and a language server's
+/// diagnostic are at the END of the stream. A head-truncated result is a different answer under the
+/// same name, which is worse than a truncated one.
+///
+/// The dropping is what the cap is for; the *continuing* is what the loop around it is for. A reader
+/// that stopped at the cap would leave the target blocked writing into a full pipe, so an overflowing
+/// command would hang instead of returning a truncated result.
+fn collect_capped(sink: &mut Vec<u8>, bytes: &[u8], cap: usize, overflow: &mut bool) {
+    if cap == 0 {
+        *overflow |= !bytes.is_empty();
+        return;
+    }
+    // Decided from the SIZES, before anything moves: the flag describes bytes dropped, and taking a
+    // particular branch is not what makes something dropped. (A chunk exactly filling the cap drops
+    // nothing when the sink is empty — which is the case the first version of this got wrong.)
+    *overflow |= sink.len() + bytes.len() > cap;
+
+    if bytes.len() >= cap {
+        // This chunk alone fills the cap, so whatever was already held is superseded and only the
+        // chunk's own tail survives.
+        sink.clear();
+        sink.extend_from_slice(&bytes[bytes.len() - cap..]);
+        return;
+    }
+    let excess = (sink.len() + bytes.len()).saturating_sub(cap);
+    if excess > 0 {
+        sink.drain(..excess);
+    }
+    sink.extend_from_slice(bytes);
+}
+
 /// A single SSH connection with an interactive PTY shell.
 pub struct SshSession {
     pub host: String,
@@ -368,6 +443,121 @@ impl SshSession {
         Ok(sftp)
     }
 
+    /// Run one command to completion and collect its output.
+    ///
+    /// This is the transport the remote subprocess seam needs and that `open_shell` cannot provide:
+    /// a one-shot command with a **separate** stdout and stderr, a real exit status, and no PTY.
+    /// `command` is the exec string; `stdin` is written and then closed, which is how an argv frame
+    /// reaches the staged helper (see `summrise-exec-argv`).
+    ///
+    /// **The caps do not stop the read.** Once a stream reaches its cap the bytes are dropped rather
+    /// than accumulated, but the channel is still drained to EOF: the target writes into a pipe whose
+    /// far end is this loop, and a reader that stopped would block the target forever instead of
+    /// returning an overflow. `*_overflow` is how the caller learns the output is not the whole story.
+    ///
+    /// Cancellation is by drop: aborting the caller's task drops the channel, which closes it, which
+    /// is what makes the far side terminate. A caller wanting a deadline wraps this in
+    /// `tokio::time::timeout`.
+    #[cfg(feature = "terminal")]
+    pub async fn exec_capture(
+        &self,
+        command: &str,
+        stdin: &[u8],
+        stdout_cap: usize,
+        stderr_cap: usize,
+    ) -> Result<ExecOutcome, DeviceError> {
+        let mut channel =
+            self.handle
+                .channel_open_session()
+                .await
+                .map_err(|e| DeviceError::Internal {
+                    message: format!("exec open channel: {e}"),
+                })?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| DeviceError::Internal {
+                message: format!("exec request: {e}"),
+            })?;
+
+        // SSH carries a data message in bounded pieces; a frame larger than one piece is split here
+        // rather than left to the transport to reject.
+        const CHUNK: usize = 32 * 1024;
+        for piece in stdin.chunks(CHUNK) {
+            channel
+                .data(piece)
+                .await
+                .map_err(|e| DeviceError::Internal {
+                    message: format!("exec stdin: {e}"),
+                })?;
+        }
+        channel.eof().await.map_err(|e| DeviceError::Internal {
+            message: format!("exec stdin close: {e}"),
+        })?;
+
+        let mut outcome = ExecOutcome {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            stdout_overflow: false,
+            stderr_overflow: false,
+            status: ExecStatus::Unknown,
+        };
+
+        // `None` means the channel is finished; `Eof`/`Close` arrive before it and are also terminal.
+        while let Some(message) = channel.wait().await {
+            match message {
+                ChannelMsg::Data { data } => {
+                    collect_capped(
+                        &mut outcome.stdout,
+                        &data,
+                        stdout_cap,
+                        &mut outcome.stdout_overflow,
+                    );
+                }
+                // Extended data type 1 is stderr; every other type is not part of the seam's contract
+                // and is deliberately not folded into either stream.
+                ChannelMsg::ExtendedData { data, ext: 1 } => {
+                    collect_capped(
+                        &mut outcome.stderr,
+                        &data,
+                        stderr_cap,
+                        &mut outcome.stderr_overflow,
+                    );
+                }
+                ChannelMsg::ExitStatus { exit_status } => {
+                    outcome.status = ExecStatus::Exited(exit_status);
+                }
+                ChannelMsg::ExitSignal {
+                    signal_name,
+                    core_dumped,
+                    error_message,
+                    ..
+                } => {
+                    outcome.status = ExecStatus::Signalled {
+                        // SPELLED THE WAY THE CONSUMER'S VOCABULARY DOES. russh's `Sig` renders as
+                        // `KILL`, and the seam this feeds types a terminating signal as
+                        // `NodeJS.Signals` — `SIGKILL`. One of the two had to move, and a wire name
+                        // is a contract: `signal_name` is a real PowerShell/OpenSSH name here, and
+                        // `SIG` is the prefix every consumer of it already expects.
+                        name: format!("SIG{signal_name:?}"),
+                        core_dumped,
+                        message: error_message,
+                    };
+                }
+                // DRAIN TO THE END, and do NOT break on `Eof`. A real sshd sends `eof` and the exit
+                // status as SEPARATE events, and the status can arrive after the eof — measured
+                // against this box's own sshd, which is how a command that exited 0 was reported as
+                // `Unknown`. `Eof` means "no more data on this stream"; it is not the end of the
+                // channel, and treating it as one threw away the only fact the caller wanted.
+                ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        Ok(outcome)
+    }
+
     /// Open an interactive PTY shell on this connection.
     /// Returns (output_rx, write_tx, resize_tx).
     /// A background task multiplexes read/write/resize on the channel.
@@ -473,6 +663,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    // ── the collector keeps the TAIL, which is a contract, not a preference ─────────────────────
+
+    #[test]
+    fn a_chunk_larger_than_the_cap_keeps_its_own_tail() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"0123456789", 4, &mut overflow);
+        assert_eq!(sink, b"6789", "the newest bytes are the ones worth keeping");
+        assert!(overflow);
+    }
+
+    #[test]
+    fn an_over_cap_stream_slides_instead_of_stopping_at_the_head() {
+        // The whole point: three chunks that fit only two of, and what survives is the END.
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"aaaa", 6, &mut overflow);
+        collect_capped(&mut sink, b"bbbb", 6, &mut overflow);
+        collect_capped(&mut sink, b"cccc", 6, &mut overflow);
+        assert_eq!(sink, b"bbcccc");
+        assert!(overflow);
+    }
+
+    #[test]
+    fn an_exactly_cap_sized_stream_is_not_called_truncated() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"abc", 3, &mut overflow);
+        collect_capped(&mut sink, b"def", 6, &mut overflow);
+        assert_eq!(sink, b"abcdef");
+        assert!(
+            !overflow,
+            "nothing was dropped, so nothing may be reported as dropped"
+        );
+    }
+
+    #[test]
+    fn a_zero_cap_keeps_nothing_and_still_reports() {
+        let mut sink = Vec::new();
+        let mut overflow = false;
+        collect_capped(&mut sink, b"anything", 0, &mut overflow);
+        assert!(sink.is_empty());
+        assert!(overflow);
+        // And silence into a zero cap is not an overflow: nothing was dropped.
+        let mut quiet = false;
+        collect_capped(&mut sink, b"", 0, &mut quiet);
+        assert!(!quiet);
+    }
+
     /// The migrated site's posture, measured: `BestEffort`. An unavailable ACL
     /// must NOT cost SSH its trust table (a failed save re-TOFUs the host next
     /// connection, which is the round-57 trade), the save must still be
@@ -499,6 +738,290 @@ mod tests {
             !crate::atomic::temp_path(&known_hosts_path()).exists(),
             "a completed save leaves no temp beside the trust table"
         );
+        unisolate(&dir);
+    }
+
+    // ── exec_capture, against an in-process SSH server ──────────────────────────────────────────
+    //
+    // The transport is the part that cannot be reasoned about: it is a channel, a stream split, a
+    // flow-controlled window and an exit-status message. A real sshd would need credentials and a
+    // machine that is not this one, so the server lives in the test — and it is a *real* SSH server,
+    // not a mock of one, so the client code under test is the same code that talks to a device.
+    mod exec_server {
+        use russh::server::{Auth, Msg, Server, Session};
+        use russh::{Channel, ChannelId};
+        use std::sync::{Arc, Mutex};
+
+        /// What the server should reply with, and what it saw.
+        #[derive(Clone, Default)]
+        pub struct Script {
+            pub stdout: Vec<u8>,
+            pub stderr: Vec<u8>,
+            pub exit: u32,
+            /// Everything the client wrote to the channel — the argv frame, for a real caller.
+            pub received: Arc<Mutex<Vec<u8>>>,
+            /// The exec string the client asked for.
+            pub command: Arc<Mutex<String>>,
+        }
+
+        pub struct TestServer(pub Script);
+
+        impl Server for TestServer {
+            type Handler = Script;
+            fn new_client(&mut self, _peer: Option<std::net::SocketAddr>) -> Script {
+                self.0.clone()
+            }
+        }
+
+        impl russh::server::Handler for Script {
+            type Error = russh::Error;
+
+            async fn auth_password(
+                &mut self,
+                _user: &str,
+                _password: &str,
+            ) -> Result<Auth, Self::Error> {
+                Ok(Auth::Accept)
+            }
+
+            async fn channel_open_session(
+                &mut self,
+                _channel: Channel<Msg>,
+                _session: &mut Session,
+            ) -> Result<bool, Self::Error> {
+                Ok(true)
+            }
+
+            async fn exec_request(
+                &mut self,
+                channel: ChannelId,
+                data: &[u8],
+                session: &mut Session,
+            ) -> Result<(), Self::Error> {
+                *self.command.lock().unwrap() = String::from_utf8_lossy(data).into_owned();
+                session.channel_success(channel)?;
+                Ok(())
+            }
+
+            async fn data(
+                &mut self,
+                _channel: ChannelId,
+                data: &[u8],
+                _session: &mut Session,
+            ) -> Result<(), Self::Error> {
+                self.received.lock().unwrap().extend_from_slice(data);
+                Ok(())
+            }
+
+            /// The client sends EOF once its frame is written, so this is the moment to answer —
+            /// which is what lets the assertions compare the reply against everything that was sent.
+            async fn channel_eof(
+                &mut self,
+                channel: ChannelId,
+                session: &mut Session,
+            ) -> Result<(), Self::Error> {
+                if !self.stdout.is_empty() {
+                    session.data(channel, russh::CryptoVec::from_slice(&self.stdout))?;
+                }
+                if !self.stderr.is_empty() {
+                    session.extended_data(
+                        channel,
+                        1,
+                        russh::CryptoVec::from_slice(&self.stderr),
+                    )?;
+                }
+                session.exit_status_request(channel, self.exit)?;
+                session.eof(channel)?;
+                session.close(channel)?;
+                Ok(())
+            }
+        }
+
+        /// Start a server on a loopback port and return its address.
+        ///
+        /// The listener is bound *inside* the spawned task so the task is `'static`: `run_on_socket`
+        /// borrows the listener, and a borrowed server cannot be spawned alongside the client that
+        /// has to talk to it.
+        pub async fn start(script: Script) -> std::net::SocketAddr {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                    .await
+                    .expect("the test server binds a loopback port");
+                let addr = listener.local_addr().expect("the listener has an address");
+                let _ = tx.send(addr);
+
+                let config = russh::server::Config {
+                    inactivity_timeout: Some(std::time::Duration::from_secs(30)),
+                    keys: vec![russh::keys::PrivateKey::random(
+                        &mut rand::rngs::OsRng,
+                        russh::keys::Algorithm::Ed25519,
+                    )
+                    .expect("a host key is generated per run")],
+                    ..Default::default()
+                };
+                let mut server = TestServer(script);
+                let running = server.run_on_socket(Arc::new(config), &listener);
+                let _ = running.await;
+            });
+            rx.await.expect("the test server reports its address")
+        }
+    }
+
+    /// Connect to the test server and run one command through `exec_capture`.
+    ///
+    /// Callers keep their own clone of the script's shared handles (`received`, `command`) before
+    /// handing it over, because the server moves it into a spawned task.
+    async fn exec_against(
+        script: exec_server::Script,
+        stdin: &[u8],
+        stdout_cap: usize,
+        stderr_cap: usize,
+    ) -> ExecOutcome {
+        let addr = exec_server::start(script).await;
+        let session = SshSession::connect("127.0.0.1", addr.port(), "tester", Some("pw"), None)
+            .await
+            .expect("the test server accepts the connection");
+        session
+            .exec_capture("summrise-exec-argv", stdin, stdout_cap, stderr_cap)
+            .await
+            .expect("the command runs to completion")
+    }
+
+    #[tokio::test]
+    async fn exec_capture_separates_the_streams_and_reads_the_exit_status() {
+        let dir = isolated("exec-capture-basic");
+        let script = exec_server::Script {
+            stdout: b"the target's stdout".to_vec(),
+            stderr: b"the target's stderr".to_vec(),
+            exit: 7,
+            ..Default::default()
+        };
+        let received = script.received.clone();
+        let command = script.command.clone();
+
+        let outcome = exec_against(script, b"an argv frame", 4096, 4096).await;
+
+        assert_eq!(outcome.stdout, b"the target's stdout");
+        assert_eq!(
+            outcome.stderr, b"the target's stderr",
+            "extended data type 1 is stderr and must not be folded into stdout"
+        );
+        assert_eq!(outcome.status, ExecStatus::Exited(7));
+        assert!(!outcome.stdout_overflow && !outcome.stderr_overflow);
+        assert_eq!(
+            &*received.lock().unwrap(),
+            b"an argv frame",
+            "the frame must arrive byte-identical, which is the whole point of the helper"
+        );
+        assert_eq!(
+            &*command.lock().unwrap(),
+            "summrise-exec-argv",
+            "the exec string carries only the helper's path — never the model's argv"
+        );
+        unisolate(&dir);
+    }
+
+    #[tokio::test]
+    async fn exec_capture_caps_a_stream_without_blocking_the_target() {
+        // The behaviour a cap is worthless without. The target writes three times what the caller
+        // will keep; if the reader stopped at the cap, the target would block on a full pipe and the
+        // call would hang instead of returning a truncated result. So this test passing at all is
+        // the assertion that the drain continues — the flag and the length are the visible evidence.
+        let dir = isolated("exec-capture-cap");
+        let script = exec_server::Script {
+            stdout: vec![b'x'; 3000],
+            stderr: Vec::new(),
+            exit: 0,
+            ..Default::default()
+        };
+
+        let outcome = exec_against(script, b"", 1000, 1000).await;
+
+        assert_eq!(
+            outcome.stdout.len(),
+            1000,
+            "the cap is what the caller keeps"
+        );
+        assert!(
+            outcome.stdout_overflow,
+            "the caller must be told the output is not the whole story"
+        );
+        assert_eq!(outcome.status, ExecStatus::Exited(0));
+        unisolate(&dir);
+    }
+
+    /// `workspace::exec_on` end to end, against a server that **decodes the frame it received**.
+    ///
+    /// It lives here rather than beside `exec_on` because the harness that makes it possible is
+    /// here, and one harness is better than two. What it checks is precisely `exec_on`'s job — that
+    /// the argv and the working directory leave in the frame and that the exec string carries only
+    /// the helper's path — because the helper's own behaviour is covered by its own package's tests.
+    #[tokio::test]
+    async fn exec_on_carries_the_argv_and_the_cwd_out_of_band_and_the_helper_alone_in_the_string() {
+        let dir = isolated("exec-on-frame");
+        let script = exec_server::Script {
+            stdout: b"from the target".to_vec(),
+            stderr: Vec::new(),
+            exit: 3,
+            ..Default::default()
+        };
+        let received = script.received.clone();
+        let command = script.command.clone();
+
+        let addr = exec_server::start(script).await;
+        let session = SshSession::connect("127.0.0.1", addr.port(), "tester", Some("pw"), None)
+            .await
+            .expect("the test server accepts the connection");
+
+        let argv = vec![
+            // A Windows DSH host's own ripgrep path — the value the search tools put in argv[0]
+            // without ever calling resolveExecutable.
+            br"C:\Users\x\node_modules\@vscode\ripgrep\bin\rg.exe".to_vec(),
+            b"--no-config".to_vec(),
+            b"two words".to_vec(),
+        ];
+        let outcome = crate::workspace::exec_on(
+            &session,
+            crate::workspace::HELPER_DEFAULT,
+            crate::workspace::ExecRequest {
+                argv: &argv,
+                cwd: Some(b"/home/someone/a dir"),
+                stdout_cap: 4096,
+                stderr_cap: 4096,
+            },
+        )
+        .await
+        .expect("the command runs to completion");
+
+        // What came back is the server's reply, so the call really went end to end.
+        assert_eq!(outcome.stdout, b"from the target");
+        assert_eq!(outcome.status, ExecStatus::Exited(3));
+
+        // The exec string is the helper and NOTHING else: this is the string sshd hands the login
+        // shell, so anything else in it would be shell input.
+        assert_eq!(
+            &*command.lock().unwrap(),
+            crate::workspace::HELPER_DEFAULT,
+            "the exec string must carry only the helper's path"
+        );
+
+        // Everything the caller supplied is in the frame, byte-exact.
+        let frame = received.lock().unwrap().clone();
+        let mut cursor: &[u8] = &frame;
+        let parsed = summrise_exec_argv::read_frame(&mut cursor)
+            .expect("the frame the agent built is one the staged helper accepts");
+        assert_eq!(parsed.cwd.as_deref(), Some(&b"/home/someone/a dir"[..]));
+        assert_eq!(
+            parsed.argv[0], b"rg",
+            "a Windows-spelled program path must reach a POSIX target as its own name"
+        );
+        assert_eq!(parsed.argv[1], b"--no-config");
+        assert_eq!(
+            parsed.argv[2], b"two words",
+            "an element needing quotes must arrive whole, which is the reason for the frame"
+        );
+
         unisolate(&dir);
     }
 }
