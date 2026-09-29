@@ -53,6 +53,13 @@ jobs:
         working-directory: gateway
       - name: Format
         run: npm run format:check
+      # THE GATEWAY'S RUST HALF, WHICH NO JOB RAN UNTIL NOW (2026-09-29, block ④). `gateway/wasm` holds
+      # the `/api/health` route and the non-streaming translation — 9 unit tests and a `verify.mjs`
+      # that runs the BUILT module against the shipping TypeScript — and a crate whose tests no job
+      # invokes is a crate whose tests are decoration. **A STEP IN THIS JOB AND NOT A NEW ONE**, the
+      # plan's standing rule; this job already carries the gateway's other languages.
+      - name: Rust (translation + health route)
+        run: cargo test --manifest-path gateway/wasm/Cargo.toml
         working-directory: gateway
 
   ui:
