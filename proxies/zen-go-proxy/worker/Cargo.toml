@@ -1,0 +1,28 @@
+[package]
+name = "summrise-zen-go"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Rust half of the zen-go satellite worker (workers-rs). FIRST HALF: the Anthropic<->OpenAI translation and the SSE encoder."
+
+[lib]
+# Both crate types, the same reason as the other two worker crates: `cdylib` is what `worker-build`
+# produces for Cloudflare and `rlib` is what `cargo test` links on the host.
+crate-type = ["cdylib", "rlib"]
+name = "summrise_zen_go"
+path = "src/lib.rs"
+
+[dependencies]
+# A PATH DEPENDENCY ON THE SIBLING WORKER'S CRATE, and it is the one thing here that is a design
+# decision rather than a port: `zen-go`'s policy functions are BYTE-IDENTICAL to `zen-us`'s in the
+# JavaScript, and a rule that exists twice in one language is how the two satellites drift — which
+# they already have, in the `[::1]` case `summrise-zen-us`'s header documents. ADR 0003 keeps the
+# satellite workers AUTONOMOUS (no shared npm package); a shared RUST crate is not a shared
+# deployment and does not couple their releases.
+summrise-zen-us = { path = "../../zen-us-proxy/worker" }
+serde = { version = "1", features = ["derive"] }
+# **`preserve_order` IS NOT OPTIONAL HERE.** serde_json's default Map is a BTreeMap, which SORTS KEYS
+# ALPHABETICALLY — so the ported objects would come back in a different order than the JavaScript's
+# object literals, and the response is compared BYTES. The feature makes Map an insertion-ordered
+# map, which is what "the same document" means for a transliteration.
+serde_json = { version = "1", features = ["preserve_order"] }

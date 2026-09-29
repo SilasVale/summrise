@@ -844,6 +844,11 @@ jobs:
       # already carries both languages for this worker.
       - name: Test zen-us policy (Rust)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
+      # AND zen-go's TRANSLATION, which is the half of the satellite that converts a request and
+      # encodes a response. A STEP IN THIS JOB, for the same reason as the one above: the plan's
+      # standing rule is no new CI job, and this job already carries both languages for these workers.
+      - name: Test zen-go translation (Rust)
+        run: cargo test --manifest-path proxies/zen-go-proxy/worker/Cargo.toml
       - name: Install wrangler (pinned)
         # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
         # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
