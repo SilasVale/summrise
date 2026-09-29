@@ -12,11 +12,22 @@
 //
 // WHAT IT DOES NOT DECIDE: how the row lays out, when the section renders at all, or the roll-up count (channels healthy /
 // channels total), which is a different question the view asks on its own.
+// ── RUST SINCE 2026-09-29 (block ③), THE SECOND MODULE THROUGH THE CONSOLE'S SEAM ──────────────────
+//
+// All three are `gateway/ui-logic/src/lib.rs`, transliterated: the same truthiness tests, the same
+// `reason ||` fall-through, the same `total === 0` arm. **THE SIGNATURES DID NOT CHANGE**, which is
+// what let them move — all three are called DURING RENDER (`Overview.tsx`).
+//
+// AND `channelLabel` STILL TAKES THE CONSOLE'S TRANSLATOR, because the WORD for a state belongs to the
+// console's dictionary: Rust decides WHICH of the three answers applies and the dictionary resolves it.
+// Moving a dictionary into a crate no operator can read would have been the wrong seam.
+import { logic } from "../wasm/consoleLogic.ts";
+
 type ChannelSignal = "ok" | "err";
 
 /** The signal for a channel. `ok` is the provider's own answer; anything else is a failure with a reason the row shows. */
 export function channelSignal(ok: boolean): ChannelSignal {
-  return ok ? "ok" : "err";
+  return logic().channel_signal(ok) as ChannelSignal;
 }
 
 /** The words for that signal, given the provider's reason when it has one. The `reason` wins over the generic line because a
@@ -25,7 +36,7 @@ export function channelLabel(
   c: { ok: boolean; reason?: string },
   t: (key: "overview.healthOk" | "overview.healthDown") => string,
 ): string {
-  return c.ok ? t("overview.healthOk") : c.reason || t("overview.healthDown");
+  return logic().channel_label(c, t as unknown as () => string);
 }
 
 /** A DIAL'S TONE, from "how many of N are well" — the same question the channels tile and the devices tile both ask (round
@@ -38,6 +49,5 @@ export function channelLabel(
 type DialTone = "ok" | "warn" | "off";
 
 export function healthTone(known: boolean, ok: number, total: number): DialTone {
-  if (!known || total === 0) return "off";
-  return ok === total ? "ok" : ok > 0 ? "warn" : "off";
+  return logic().health_tone(known, ok, total) as DialTone;
 }
