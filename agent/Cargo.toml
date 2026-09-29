@@ -78,6 +78,11 @@ windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 rmcp = { version = "2", features = ["client", "transport-streamable-http-client-reqwest"] }
+# `exec_capture`'s transport is verified against an in-process SSH server, and a server needs a host
+# key. Generated per test run rather than committed: a private key in the tree is a private key in
+# every clone, and a scanner cannot tell a test key from a real one. Test-only, so it costs the
+# shipped binary nothing.
+rand = "0.8"
 
 
 [features]
