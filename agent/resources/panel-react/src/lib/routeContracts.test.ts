@@ -21,6 +21,15 @@ const REPO = path.resolve(HERE, "..", "..", "..", "..", "..");
 
 /** Routes whose shape is pinned by a fixture or test read from BOTH ends, with that file named. */
 const COVERED: Record<string, string> = {
+  // THE WORKSPACE REGISTRY (the Workspaces page). Its four shapes are pinned in Rust, where the endpoints live:
+  // `agent/src/web/mod.rs`'s `workspace_registry_tests` asserts `ok` plus `connections[].id`,
+  // `mappings[].path`/`connection_id`, the `removed` flag, and the two named refusals
+  // (`workspace/unknown-path`, `workspace/unknown-connection`) — which is the part a fixture could not pin,
+  // because it is the part that says WHY a call was refused.
+  "/api/workspace/connections": "agent/src/web/mod.rs workspace_registry_tests (the seeded connection comes back)",
+  "/api/workspace/mappings": "agent/src/web/mod.rs workspace_registry_tests (the registered path comes back)",
+  "/api/workspace/register": "agent/src/web/mod.rs workspace_registry_tests (ok, and unknown-connection by name)",
+  "/api/workspace/unregister": "agent/src/web/mod.rs workspace_registry_tests (removed true/false is a fact)",
   "/api/boots": "agent/tests/fixtures/boot-history.json (runstate.rs + useBootHistory.test.ts)",
   "/api/vitals/history": "agent/tests/fixtures/vitals-series.json (metrics.rs + useVitalsSeries.fixture.test.ts)",
   "/api/sessions": "agent/src/session_log.rs + useSessionArchive's own tests (parse + failure states)",
@@ -48,6 +57,16 @@ const UNPINNED: Record<string, string> = {
   "/api/monitors/remove": "a POST; same",
   "/api/tools/agent_update": "a POST through the tool route; the tool contract is the spec snapshot's",
   "/api/tools/terminal_saved_connections": "a POST through the tool route; same",
+  // ADDING A MACHINE goes through the tool route, and for a reason worth naming: a successful `terminal_open`
+  // is what SAVES a connection, and connecting is the only thing that proves the credentials work before a
+  // workspace depends on them. The tool contracts themselves are the spec snapshot's business.
+  "/api/tools/terminal_open": "a POST through the tool route; the tool contract is the spec snapshot's",
+  "/api/tools/terminal_close": "a POST through the tool route; it only ends the session the add opened",
+  // THE WORKSPACES PAGE reads the fs door to BROWSE a machine, and what is pinned there is the REFUSALS (the
+  // door's own tests name every op it will not do). The entry shape a listing returns is not pinned by anything —
+  // the page reads only `name` and `kind`, and a rename of either would show as an empty browser rather than as a
+  // failure, which is exactly the kind of silence this list exists to name.
+  "/api/workspace/fs": "refusals are pinned by the door's tests; the listing's entry shape is NOT — the page reads name/kind only",
   "/api/plugins/playwright/${which}": "a POST through a parameterised route",
   "/api/sessions/${encodeURIComponent(sid)}":
     "a session's audit trail; the EVENTS inside it are the trajectory contract and the session row is pinned by session-row.json",

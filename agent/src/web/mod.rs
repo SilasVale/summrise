@@ -840,6 +840,11 @@ pub(crate) enum RouteId {
     ToolCall,
     WorkspaceExec,
     WorkspaceFs,
+    /// The registry: what the form calls to add a workspace, and what it reads to offer the agent's connections.
+    WorkspaceConnections,
+    WorkspaceMappings,
+    WorkspaceRegister,
+    WorkspaceUnregister,
     // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
     EventsStream,
     TermStream,
@@ -1109,6 +1114,33 @@ pub(crate) fn routes() -> &'static [Route] {
             method: "POST",
             pattern: Pattern::Exact("/api/workspace/fs"),
             id: RouteId::WorkspaceFs,
+            stage: Stage::DispatchGated,
+        },
+        // THE REGISTRY, and it is not a door: these four decide WHICH connection a path belongs to, and they
+        // never open one. Behind the same unconditional auth gate as the doors — a mapping names a saved
+        // connection, and the list of those is not public.
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/workspace/connections"),
+            id: RouteId::WorkspaceConnections,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/workspace/mappings"),
+            id: RouteId::WorkspaceMappings,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/register"),
+            id: RouteId::WorkspaceRegister,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/unregister"),
+            id: RouteId::WorkspaceUnregister,
             stage: Stage::DispatchGated,
         },
         // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
@@ -1677,6 +1709,10 @@ async fn dispatch(
         // an oversight.
         Some(RouteId::WorkspaceExec) => api_workspace_exec(body_str).await,
         Some(RouteId::WorkspaceFs) => api_workspace_fs(body_str).await,
+        Some(RouteId::WorkspaceConnections) => api_workspace_connections().await,
+        Some(RouteId::WorkspaceMappings) => api_workspace_mappings().await,
+        Some(RouteId::WorkspaceRegister) => api_workspace_register(body_str).await,
+        Some(RouteId::WorkspaceUnregister) => api_workspace_unregister(body_str).await,
         // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
         // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
         // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
@@ -2324,12 +2360,107 @@ struct WorkspaceTarget {
     key_path: String,
 }
 
+/// A UNIQUE mapping-store directory for one test. `store_path()` reads this one cell, so without it a test's
+/// `register()` writes the REAL `<DataDir>\summrise-workspace-mappings.json` — a test mutating the machine it runs
+/// on. Unique per test, not per process: `resolve()`/`list()` read a FILE, and two tests sharing a path see each
+/// other's entries (the defect Task 1's own tests hit).
+#[cfg(all(test, feature = "terminal"))]
+fn isolated_mapping_dir() -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NTH: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "sm-web-mappings-{}-{}",
+        std::process::id(),
+        NTH.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    crate::workspace_mappings::TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
+    // AND THE CONNECTIONS STORE, for the tests that seed one: the registry refuses a mapping to a connection it
+    // cannot find, so without this the answer depends on what the operator's machine happens to have saved.
+    #[cfg(feature = "terminal")]
+    crate::tools::terminal::TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
+    dir
+}
+
+/// WHICH CREDENTIAL A RESOLVED CONNECTION USES, with the keychain INJECTED so the decision is testable without
+/// one — the same reason the providers keep their logic in the transports.
+///
+/// A key wins outright and the password is left empty: sending both would poison the key load (the rule
+/// `SshBackend::connect` states at its own fallback). An inline password wins over the keychain, because a caller
+/// that typed one means it. Only when neither is present is the keychain asked — by the connection's TARGET, which
+/// is the key the terminal's own `secret_set`/`secret_get` pair uses.
+/// Gated with its only caller (`from_saved`, inside the terminal feature): in a build without the SSH client this
+/// decision has no user, and the default-feature clippy run is what says so.
+#[cfg(feature = "terminal")]
+fn credential_for(
+    key_path: &str,
+    password: &str,
+    target: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> (String, String) {
+    if !key_path.is_empty() {
+        return (String::new(), key_path.to_string());
+    }
+    if !password.is_empty() {
+        return (password.to_string(), String::new());
+    }
+    (lookup(target).unwrap_or_default(), String::new())
+}
+
 #[cfg(feature = "terminal")]
 impl WorkspaceTarget {
+    /// THE PATH DECIDES FIRST, AND THE INLINE PARAMETERS ARE THE FALLBACK — which is what spec §6 says and what
+    /// this did NOT do: it consulted the store only when the request carried no host, so a profile that still had
+    /// host/user in its config silently ignored the registry. The device acceptance only passed because step 2
+    /// removed the host from the profile by hand; a caller that passes both now gets the registry's answer, which
+    /// is the whole point of having one.
     fn from_request(v: &serde_json::Value) -> Result<Self, serde_json::Value> {
         let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
-        let Some(host) = v.get("host").and_then(|x| x.as_str()) else {
-            return Err(bad("a host is required"));
+        let named = |code: &str, message: String| serde_json::json!({"ok": false, "error": message, "code": code});
+
+        // `cwd` for exec, `path` for fs — the only fields that name a place.
+        let path = v
+            .get("cwd")
+            .or_else(|| v.get("path"))
+            .and_then(|x| x.as_str())
+            .filter(|p| !p.is_empty());
+        if let Some(path) = path {
+            if let Some(entry) = crate::workspace_mappings::resolve(path) {
+                let saved = crate::tools::terminal::conn_find(&entry.connection_id).ok_or_else(|| {
+                    named(
+                        "workspace/unknown-connection",
+                        format!(
+                            "workspace {:?} is registered to connection {:?}, which is no longer saved",
+                            entry.path, entry.connection_id
+                        ),
+                    )
+                })?;
+                return Self::from_saved(&saved);
+            }
+            // A path with NO mapping falls through to the inline parameters below — and only if there are none
+            // is it refused, by the path's name rather than by a missing host's.
+            if v.get("host")
+                .and_then(|x| x.as_str())
+                .filter(|h| !h.is_empty())
+                .is_none()
+            {
+                return Err(named(
+                    "workspace/unknown-path",
+                    format!("no workspace is registered for {path:?}; add one, or pass host and user inline"),
+                ));
+            }
+        }
+
+        let inline = v
+            .get("host")
+            .and_then(|x| x.as_str())
+            .filter(|h| !h.is_empty());
+        let Some(host) = inline else {
+            return Err(named(
+                "workspace/unknown-path",
+                "no connection was given and this request names no path to look one up by"
+                    .to_string(),
+            ));
         };
         let Some(user) = v.get("user").and_then(|x| x.as_str()) else {
             return Err(bad("a user is required"));
@@ -2348,6 +2479,67 @@ impl WorkspaceTarget {
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string(),
+        })
+    }
+
+    /// A saved connection's original open params, as a target. The entry's shape is the one
+    /// `terminal_connect_saved` replays — `{"id": …, "params": {host, user, port, key_path, password?}}` — and the
+    /// password is NOT in that file when it is a secret (the store's own comment records why it belongs in the
+    /// keychain). An empty password keeps the meaning it already has at the connect site: use the key.
+    fn from_saved(saved: &serde_json::Value) -> Result<Self, serde_json::Value> {
+        let named = |code: &str, message: String| serde_json::json!({"ok": false, "error": message, "code": code});
+        let params = saved
+            .get("params")
+            .and_then(|p| p.as_object())
+            .cloned()
+            .unwrap_or_default();
+        let text = |key: &str| {
+            params
+                .get(key)
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        // THE TARGET IS WHERE A REAL SAVED CONNECTION KEEPS user/host/port — measured, after reading `params.host`
+        // refused a connection that was right there. `parse_ssh_target` is the terminal's own parser (it handles
+        // bracket and bare IPv6, and defaults the user to `root` exactly as `terminal_open` does); hand-rolling it
+        // here produced a second answer to the same question.
+        let target = saved
+            .get("target")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default();
+        let (user, host, port) = crate::tools::terminal::parse_ssh_target(target);
+        if host.is_empty() {
+            return Err(named(
+                "workspace/unknown-connection",
+                format!(
+                    "the saved connection {} has no host to connect with",
+                    saved.get("id").and_then(|x| x.as_str()).unwrap_or("?")
+                ),
+            ));
+        }
+
+        // AND THE CREDENTIAL, which is where this was WRONG in a way the device could see: a connection whose only
+        // credential is a keychain password could never work, because the password was hardcoded empty and only
+        // `params.key_path` was read. Measured on desktop-14rjcr8: 4 of the 5 saved ssh connections carry no
+        // key_path, and `secret_get("stc@192.168.1.1:22")` returns "1234" — the credential was there and this
+        // function never asked. `SshSession::connect` has no keychain fallback of its own; `SshBackend::connect`
+        // does, and this is that same lookup, by the connection's TARGET.
+        let (password, key_path) =
+            credential_for(&text("key_path"), &text("password"), target, |t| {
+                crate::tools::terminal::secret_get(t).ok().flatten()
+            });
+        Ok(Self {
+            host,
+            user,
+            port: params
+                .get("port")
+                .and_then(|x| x.as_u64())
+                .and_then(|p| u16::try_from(p).ok())
+                .unwrap_or(port),
+            password,
+            key_path,
         })
     }
 
@@ -2404,6 +2596,72 @@ impl WorkspaceTarget {
 /// THE OPERATIONS ARE READS ONLY. A write is a different thing to get right (the version guard, the
 /// atomic publish, and the per-path serialization that keeps the guard from being decoration), and a
 /// route offering a write it had not built that carefully would be worse than one that offers none.
+/// The agent's saved connections, so a form can OFFER them instead of asking for a host and a user.
+///
+/// It carries what `terminal_saved_connections` carries — id, kind, target, label, the open params minus the
+/// password (the store scrubs it on read; the secret lives in the keychain).
+#[cfg(feature = "terminal")]
+async fn api_workspace_connections() -> serde_json::Value {
+    serde_json::json!({"ok": true, "connections": crate::tools::terminal::conn_list()})
+}
+
+/// The path → connection table, so an operator can see what is registered without reading a file.
+#[cfg(feature = "terminal")]
+async fn api_workspace_mappings() -> serde_json::Value {
+    serde_json::json!({"ok": true, "mappings": crate::workspace_mappings::list()})
+}
+
+/// Registering is IDEMPOTENT, and an unknown connection is refused BY NAME: a mapping to a connection that does
+/// not exist is a workspace that fails much later, somewhere else, with nothing pointing back here.
+#[cfg(feature = "terminal")]
+async fn api_workspace_register(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => {
+            return serde_json::json!({"ok": false, "error": format!("bad json: {e}"), "code": "invalid_params"})
+        }
+    };
+    let (Some(path), Some(connection_id)) = (
+        v.get("path").and_then(|x| x.as_str()),
+        v.get("connection_id").and_then(|x| x.as_str()),
+    ) else {
+        return serde_json::json!({
+            "ok": false,
+            "error": "path and connection_id are required",
+            "code": "invalid_params",
+        });
+    };
+    if crate::tools::terminal::conn_find(connection_id).is_none() {
+        return serde_json::json!({
+            "ok": false,
+            "error": format!("no saved connection {connection_id:?}"),
+            "code": "workspace/unknown-connection",
+        });
+    }
+    match crate::workspace_mappings::register(path, connection_id) {
+        Ok(()) => serde_json::json!({"ok": true}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
+/// `removed` is the answer, and `false` is a FACT rather than an error: removing a mapping that is not there
+/// leaves the operator exactly where they wanted to be.
+#[cfg(feature = "terminal")]
+async fn api_workspace_unregister(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+    };
+    match crate::workspace_mappings::unregister(path) {
+        Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
 #[cfg(feature = "terminal")]
 async fn api_workspace_fs(body: &str) -> serde_json::Value {
     use base64::Engine as _;
@@ -2522,6 +2780,35 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
 
 /// Without the `terminal` feature there is no SSH client, so this build cannot read a workspace host
 /// — and it says so rather than answering as though it had.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_connections() -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_mappings() -> serde_json::Value {
+    serde_json::json!({"ok": true, "mappings": crate::workspace_mappings::list()})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_register(_body: &str) -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_unregister(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+    };
+    match crate::workspace_mappings::unregister(path) {
+        Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
 #[cfg(not(feature = "terminal"))]
 async fn api_workspace_fs(_body: &str) -> serde_json::Value {
     serde_json::json!({
@@ -5526,26 +5813,37 @@ mod tests {
     #[cfg(feature = "terminal")]
     #[tokio::test]
     async fn workspace_fs_refuses_a_malformed_request_before_it_connects() {
-        for (body, expected) in [
+        // The CODE is a column now, not a constant: the mapping store's arrival changed which refusal is the
+        // accurate one for a request that names a path and no host. The property this test guards — every one of
+        // these is refused BEFORE a connection is attempted — is unchanged, and the row below is the only one
+        // whose answer moved.
+        let _dir = isolated_mapping_dir();
+        for (body, code, expected) in [
             (
                 r#"{}"#,
+                "invalid_params",
                 "an op is required (stat, lstat, readText, readBytes, listDir)",
             ),
-            (r#"{"op":"stat"}"#, "a path is required"),
-            (r#"{"op":"stat","path":""}"#, "a path is required"),
-            (r#"{"op":"stat","path":"/x"}"#, "a host is required"),
+            (r#"{"op":"stat"}"#, "invalid_params", "a path is required"),
+            (
+                r#"{"op":"stat","path":""}"#,
+                "invalid_params",
+                "a path is required",
+            ),
+            (
+                r#"{"op":"stat","path":"/x"}"#,
+                "workspace/unknown-path",
+                r#"no workspace is registered for "/x"; add one, or pass host and user inline"#,
+            ),
             (
                 r#"{"op":"stat","path":"/x","host":"h"}"#,
+                "invalid_params",
                 "a user is required",
             ),
         ] {
             let answer = api_workspace_fs(body).await;
             assert_eq!(answer["ok"], serde_json::json!(false), "body: {body}");
-            assert_eq!(
-                answer["code"],
-                serde_json::json!("invalid_params"),
-                "body: {body}"
-            );
+            assert_eq!(answer["code"], serde_json::json!(code), "body: {body}");
             assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
         }
 
@@ -5576,26 +5874,35 @@ mod tests {
     #[cfg(feature = "terminal")]
     #[tokio::test]
     async fn workspace_exec_refuses_a_malformed_request_before_it_connects() {
-        for (body, expected) in [
-            (r#"{}"#, "a host is required"),
-            (r#"{"host":"h"}"#, "a user is required"),
-            (r#"{"host":"h","user":"u"}"#, "an argv array is required"),
+        // The CODE is a column now: a body with neither a connection nor a path is refused by the PATH's name.
+        // "a host is required" is still the answer when a host IS given and the user is missing — the row below.
+        let _dir = isolated_mapping_dir();
+        for (body, code, expected) in [
+            (
+                r#"{}"#,
+                "workspace/unknown-path",
+                "no connection was given and this request names no path to look one up by",
+            ),
+            (r#"{"host":"h"}"#, "invalid_params", "a user is required"),
+            (
+                r#"{"host":"h","user":"u"}"#,
+                "invalid_params",
+                "an argv array is required",
+            ),
             (
                 r#"{"host":"h","user":"u","argv":[]}"#,
+                "invalid_params",
                 "an argv needs at least one element (argv[0])",
             ),
             (
                 r#"{"host":"h","user":"u","argv":["rg",7]}"#,
+                "invalid_params",
                 "every argv element must be a string",
             ),
         ] {
             let answer = api_workspace_exec(body).await;
             assert_eq!(answer["ok"], serde_json::json!(false), "body: {body}");
-            assert_eq!(
-                answer["code"],
-                serde_json::json!("invalid_params"),
-                "body: {body}"
-            );
+            assert_eq!(answer["code"], serde_json::json!(code), "body: {body}");
             assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
         }
     }
@@ -5605,12 +5912,15 @@ mod tests {
     #[cfg(feature = "terminal")]
     #[tokio::test]
     async fn workspace_exec_survives_a_body_that_is_not_json() {
+        let _dir = isolated_mapping_dir();
         for body in ["", "not json", "{"] {
             let answer = api_workspace_exec(body).await;
             assert_eq!(answer["ok"], serde_json::json!(false), "body: {body:?}");
             assert_eq!(
                 answer["error"],
-                serde_json::json!("a host is required"),
+                serde_json::json!(
+                    "no connection was given and this request names no path to look one up by"
+                ),
                 "body: {body:?}"
             );
         }
@@ -8934,5 +9244,266 @@ mod tests {
             "an in-range value passes through — the clamp is not a constant"
         );
         let _ = std::fs::remove_dir_all(cfg_path.parent().unwrap());
+    }
+}
+
+/// THE MAPPING STORE'S DOOR: what a request gets when it names a PATH instead of carrying a connection.
+///
+/// The store is pointed at a temp dir first — `register()` below must never touch the real
+/// `<DataDir>\summrise-workspace-mappings.json`, and `TEST_DIR` is the one cell `store_path()` reads.
+#[cfg(all(test, feature = "terminal"))]
+mod workspace_registry_tests {
+    use super::*;
+
+    /// A path with no mapping and no inline connection is refused BY NAME, not by a connect timeout.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn an_exec_with_neither_a_mapping_nor_a_host_is_refused_by_name() {
+        let _dir = isolated_mapping_dir();
+        let answer = api_workspace_exec(r#"{"cwd":"/nowhere/at/all","argv":["true"]}"#).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "workspace/unknown-path", "got: {answer}");
+    }
+
+    /// A mapping whose connection has been forgotten is refused BY NAME — never connected with something else.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn a_mapping_whose_connection_is_gone_is_refused_by_name() {
+        let _dir = isolated_mapping_dir();
+        crate::workspace_mappings::register("/gone/soon", "ssh:192.0.2.9:22").unwrap();
+        let answer = api_workspace_exec(r#"{"cwd":"/gone/soon/x","argv":["true"]}"#).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(
+            answer["code"], "workspace/unknown-connection",
+            "got: {answer}"
+        );
+    }
+
+    /// An exec with NO cwd has no path to match: it must use the inline connection it was given.
+    /// This one cannot connect in a test, so it asserts the REFUSAL IT DOES NOT GET.
+    #[cfg(feature = "terminal")]
+    #[tokio::test]
+    async fn an_exec_without_a_cwd_uses_its_inline_connection_and_not_a_guess() {
+        let _dir = isolated_mapping_dir();
+        let answer = api_workspace_exec(r#"{"host":"192.0.2.1","user":"u","argv":["true"]}"#).await;
+        assert_ne!(answer["code"], "workspace/unknown-path", "got: {answer}");
+        assert_ne!(
+            answer["code"], "workspace/unknown-connection",
+            "got: {answer}"
+        );
+    }
+
+    /// A mapping to a connection that is not saved is refused BY NAME: a workspace that fails much later, in
+    /// another subsystem, is a defect nobody can trace back to this call.
+    #[tokio::test]
+    async fn registering_a_mapping_names_an_unknown_connection() {
+        let _dir = isolated_mapping_dir();
+        let answer =
+            api_workspace_register(r#"{"path":"/srv/x","connection_id":"ssh:192.0.2.9:22"}"#).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(
+            answer["code"], "workspace/unknown-connection",
+            "got: {answer}"
+        );
+    }
+
+    /// Removing nothing is a FACT, not an error — and the answer says which one happened.
+    #[tokio::test]
+    async fn unregistering_nothing_is_a_fact_not_an_error() {
+        let _dir = isolated_mapping_dir();
+        let answer = api_workspace_unregister(r#"{"path":"/never/registered"}"#).await;
+        assert_eq!(answer["ok"], true, "got: {answer}");
+        assert_eq!(answer["removed"], false);
+    }
+
+    /// The whole round trip, through the endpoints the form will call: seed a saved connection, register a path
+    /// against it, read the table back, remove it.
+    #[tokio::test]
+    async fn a_registered_mapping_comes_back_from_the_mappings_endpoint() {
+        let _dir = isolated_mapping_dir();
+        let mut params = serde_json::Map::new();
+        params.insert("host".into(), serde_json::json!("192.0.2.7"));
+        params.insert("user".into(), serde_json::json!("u"));
+        params.insert("port".into(), serde_json::json!(22));
+        crate::tools::terminal::conn_remember("ssh", "192.0.2.7:22", "test", &params).unwrap();
+
+        let connections = api_workspace_connections().await;
+        assert_eq!(connections["ok"], true, "got: {connections}");
+        assert!(
+            connections["connections"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|c| c["id"] == "ssh:192.0.2.7:22")),
+            "the form's own list must contain the seeded connection: {connections}"
+        );
+
+        let registered =
+            api_workspace_register(r#"{"path":"/srv/y","connection_id":"ssh:192.0.2.7:22"}"#).await;
+        assert_eq!(registered["ok"], true, "got: {registered}");
+
+        let listed = api_workspace_mappings().await;
+        assert!(
+            listed["mappings"].as_array().is_some_and(|a| a
+                .iter()
+                .any(|m| m["path"] == "/srv/y" && m["connection_id"] == "ssh:192.0.2.7:22")),
+            "got: {listed}"
+        );
+
+        let removed = api_workspace_unregister(r#"{"path":"/srv/y"}"#).await;
+        assert_eq!(removed["removed"], true, "got: {removed}");
+    }
+
+    /// The four endpoints are IN the table, with the methods they were designed for.
+    #[test]
+    fn the_registry_endpoints_are_routed() {
+        assert_eq!(
+            route_of("GET", "/api/workspace/connections"),
+            Some(RouteId::WorkspaceConnections)
+        );
+        assert_eq!(
+            route_of("GET", "/api/workspace/mappings"),
+            Some(RouteId::WorkspaceMappings)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/register"),
+            Some(RouteId::WorkspaceRegister)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/unregister"),
+            Some(RouteId::WorkspaceUnregister)
+        );
+    }
+
+    /// THE SHAPE A REAL SAVED SSH CONNECTION HAS, measured on the device rather than assumed:
+    /// `{id:"ssh:zhengsaisi@10.10.61.83:22122", kind:"ssh", target:"zhengsaisi@10.10.61.83:22122",
+    /// params:{kind,target,rows,cols}}` — the user, host and port live in `target`, and `params` carries no
+    /// `host`/`user` fields at all. Reading `params.host` found nothing and refused a connection that was right
+    /// there, which is how this test came to exist: the device's own acceptance caught it, by name.
+    #[test]
+    fn a_saved_ssh_connection_is_read_from_its_target() {
+        let saved = serde_json::json!({
+            "id": "ssh:zhengsaisi@10.10.61.83:22122",
+            "kind": "ssh",
+            "target": "zhengsaisi@10.10.61.83:22122",
+            "params": {"kind": "ssh", "target": "zhengsaisi@10.10.61.83:22122", "rows": 24, "cols": 80}
+        });
+        let t =
+            WorkspaceTarget::from_saved(&saved).expect("a real saved connection must be readable");
+        assert_eq!(t.host, "10.10.61.83");
+        assert_eq!(t.user, "zhengsaisi");
+        assert_eq!(
+            t.port, 22122,
+            "the port is part of the target, not a default"
+        );
+    }
+
+    /// A TARGET WITH NO USER RESOLVES AS `root`, because that is what the terminal's own parser does — the
+    /// reviewer's finding 4 was that this function gave a SECOND answer to a question `parse_ssh_target` already
+    /// answers. What is still refused is a target with no HOST: that is not a connection at all.
+    #[test]
+    fn a_saved_connection_follows_the_terminals_own_target_parsing() {
+        let no_user = serde_json::json!({
+            "id": "ssh:h:22", "kind": "ssh", "target": "h:22", "params": {"kind": "ssh", "target": "h:22"}
+        });
+        let t = WorkspaceTarget::from_saved(&no_user)
+            .expect("the terminal parses this, so this must too");
+        assert_eq!(
+            t.user, "root",
+            "terminal_open defaults a userless target to root"
+        );
+        assert_eq!(t.host, "h");
+
+        let no_host = serde_json::json!({
+            "id": "ssh::22", "kind": "ssh", "target": ":22", "params": {"kind": "ssh", "target": ":22"}
+        });
+        let err = match WorkspaceTarget::from_saved(&no_host) {
+            Ok(_) => panic!("a target with no host is not a connection, but it was accepted"),
+            Err(e) => e,
+        };
+        assert_eq!(err["code"], "workspace/unknown-connection", "got: {err}");
+    }
+
+    /// THE CREDENTIAL DECISION, which is where the reviewer's CRITICAL finding lives: a saved connection whose
+    /// only credential is a keychain password could never work, because `from_saved` hardcoded an empty password
+    /// and read only `params.key_path`. Measured on the device: 4 of the 5 saved ssh connections carry no
+    /// `key_path`, and `secret_get("stc@192.168.1.1:22")` returns "1234" — the credential was there and the door
+    /// never asked. The lookup is INJECTED so this decision is testable without a keychain.
+    #[test]
+    fn a_key_wins_and_the_password_is_not_also_sent() {
+        let (password, key) =
+            credential_for("/k", "secret", "u@h:22", |_| Some("from-keychain".into()));
+        assert_eq!(key, "/k");
+        assert_eq!(
+            password, "",
+            "a key and a password together would poison the key load"
+        );
+    }
+
+    #[test]
+    fn an_inline_password_wins_over_the_keychain() {
+        let (password, key) = credential_for("", "typed", "u@h:22", |_| Some("stored".into()));
+        assert_eq!(password, "typed");
+        assert_eq!(key, "");
+    }
+
+    #[test]
+    fn a_connection_with_neither_asks_the_keychain_by_its_target() {
+        // `credential_for` takes an `Fn`, so the key it was asked for is recorded through a cell rather than by
+        // mutating a captured local — which is what the first version of this test tried and could not compile.
+        let asked = std::cell::RefCell::new(String::new());
+        let (password, key) = credential_for("", "", "stc@192.168.1.1:22", |t| {
+            *asked.borrow_mut() = t.to_string();
+            Some("1234".into())
+        });
+        assert_eq!(
+            asked.borrow().as_str(),
+            "stc@192.168.1.1:22",
+            "the keychain key is the connection's target, not its id"
+        );
+        assert_eq!(password, "1234");
+        assert_eq!(key, "");
+    }
+
+    #[test]
+    fn a_keychain_that_has_nothing_leaves_both_empty_rather_than_inventing_one() {
+        let (password, key) = credential_for("", "", "u@h:22", |_| None);
+        assert_eq!(password, "");
+        assert_eq!(key, "");
+    }
+
+    /// THE PATH DECIDES FIRST, as spec §6 says and as this code did NOT do: it consulted the store only when the
+    /// request carried no host, so a profile that still had host/user in its config silently ignored the registry —
+    /// which is why the device acceptance had to remove the host from the profile by hand. Inline parameters are
+    /// the FALLBACK, not the first answer.
+    #[tokio::test]
+    async fn a_registered_path_wins_over_inline_parameters() {
+        let _dir = isolated_mapping_dir();
+        let mut params = serde_json::Map::new();
+        params.insert("kind".into(), serde_json::json!("ssh"));
+        params.insert("target".into(), serde_json::json!("u@192.0.2.9:22"));
+        crate::tools::terminal::conn_remember("ssh", "u@192.0.2.9:22", "test", &params).unwrap();
+        crate::workspace_mappings::register("/srv/mapped", "ssh:u@192.0.2.9:22").unwrap();
+
+        // The request carries a DIFFERENT inline host: the mapped one must be what the door resolves to.
+        let target = WorkspaceTarget::from_request(&serde_json::json!({
+            "cwd": "/srv/mapped/x",
+            "host": "inline.example",
+            "user": "someone",
+        }))
+        .expect("the mapped connection must be readable");
+        assert_eq!(
+            target.host, "192.0.2.9",
+            "the registry, not the inline host, decides a registered path"
+        );
+        assert_eq!(target.user, "u");
+
+        // …and a path with NO mapping still uses the inline parameters, which is the fallback.
+        let fallback = WorkspaceTarget::from_request(&serde_json::json!({
+            "cwd": "/nowhere/at/all",
+            "host": "inline.example",
+            "user": "someone",
+        }))
+        .expect("the inline fallback must still work");
+        assert_eq!(fallback.host, "inline.example");
+        assert_eq!(fallback.user, "someone");
     }
 }

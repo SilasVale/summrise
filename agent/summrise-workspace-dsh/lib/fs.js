@@ -42,6 +42,10 @@ import {
   targetFor,
 } from './fs-transport.js';
 
+// THE CONNECTION RULE HAS ONE DEFINITION, in the exec transport: two copies would be two chances for
+// the two doors to disagree about what "half a connection" means.
+import { connectionFields } from './transport.js';
+
 /** How a DSH deployment names this provider in a profile. */
 export const name = 'summrise-workspace-fs';
 
@@ -88,13 +92,15 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
     return { endpoint, host, user, port, root };
   }
 
+  /**
+   * The same rule as the exec provider, and the same reason it no longer refuses a host-less config:
+   * the agent's mapping store resolves the path. A HALF-written connection still fails here.
+   */
   __requireHost() {
-    const { host, user } = this.__config;
-    if (!host || !user) {
-      throw new FsError(
-        'summrise-workspace-fs has no workspace host: set `host` and `user` in the profile entry\'s config, or SUMMRISE_WORKSPACE_HOST / SUMMRISE_WORKSPACE_USER',
-        'FS_IO_ERROR',
-      );
+    try {
+      connectionFields(this.__config);
+    } catch (e) {
+      throw new FsError(e.message, 'FS_IO_ERROR');
     }
   }
 

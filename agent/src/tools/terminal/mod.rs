@@ -41,7 +41,9 @@ mod ssh;
 mod stub;
 
 #[cfg(feature = "terminal")]
-pub use connections::{forget as conn_forget, list as conn_list, remember as conn_remember};
+pub use connections::{
+    find as conn_find, forget as conn_forget, list as conn_list, remember as conn_remember,
+};
 // Test-only store isolation (round-359): plugin-layer tool tests seed the
 // saved-connection file through this thread-local, mirroring the
 // secrets.rs harness. cfg(test) keeps it out of every shipped build.

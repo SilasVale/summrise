@@ -35,6 +35,7 @@ import {
   DEFAULT_HELPER,
   UnsupportedStdioError,
   assertSupportedStdio,
+  connectionFields,
   execOnAgent,
   makeCollectedReader,
   normalizeOutcome,
@@ -66,6 +67,12 @@ function resolveConfig(config) {
     password: config.password ?? env.SUMMRISE_WORKSPACE_PASSWORD,
     keyPath: config.keyPath ?? config.key_path ?? env.SUMMRISE_WORKSPACE_KEY_PATH,
     helper: config.helper ?? env.SUMMRISE_WORKSPACE_HELPER ?? DEFAULT_HELPER,
+    // THE ROOT A LOOKUP RUNS IN. On a delegated provider (no host configured) the agent resolves a request's
+    // PATH against its mapping store, so a request that carries no path at all is refused
+    // `workspace/unknown-path` — which is what every executable lookup did, because `resolveExecutable` passed
+    // `undefined` as its cwd. `/` is the honest default: it is what "add this machine" registers, and a provider
+    // pinned to a subtree should say so here.
+    root: config.root ?? env.SUMMRISE_WORKSPACE_ROOT ?? '/',
     timeoutMs: config.timeoutMs ?? config.timeout_ms,
   };
 }
@@ -85,13 +92,13 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     return { endpoint, host, user, port };
   }
 
+  /**
+   * THE SAME RULE THE TRANSPORT APPLIES, asked here so a misconfiguration fails before a request is
+   * built. NO host at all is not a misconfiguration any more: it delegates the choice to the agent's
+   * mapping store, which is what lets one provider serve workspaces on several hosts.
+   */
   __requireHost() {
-    const { host, user } = this.__config;
-    if (!host || !user) {
-      throw new Error(
-        'summrise-workspace has no workspace host: set `host` and `user` in the profile entry\'s config, or SUMMRISE_WORKSPACE_HOST / SUMMRISE_WORKSPACE_USER',
-      );
-    }
+    connectionFields(this.__config);
   }
 
   __request(argv, cwd, stdoutCap, stderrCap, signal) {
@@ -134,7 +141,9 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     try {
       answer = await this.__request(
         ['/bin/sh', '-c', 'command -v -- "$1"', 'sh', command],
-        undefined,
+        // THE LOOKUP NEEDS A PATH OF ITS OWN (see `root` above): without one, a delegated provider refuses every
+        // lookup before the shell is ever reached.
+        this.__config.root,
         4096,
         4096,
         signal,

@@ -2718,10 +2718,108 @@
 }
 .browser-page .browser-pane { flex: 1 1 0; min-height: 0; }
 
+/* ---------- workspaces page (add a workspace on a remote host) ----------
+   The page that turns the registry into something a person can use: pick a saved ssh connection, type a path,
+   press Add. Every value here comes from the design tokens, and the measurements that shaped the page live in
+   the commit message rather than in this comment (the spacing ratchet counts pixel literals in comments too). */
+.workspaces-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  overflow-y: auto;
+}
+.workspaces-lede {
+  margin: 0;
+  max-width: 66ch;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.workspaces-unreachable {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+.workspaces-note { font-size: var(--fs-sm); color: var(--muted); }
+.workspaces-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+.workspaces-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-0-5);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  min-width: 0;
+}
+.workspaces-outcome { margin: 0; font-size: var(--fs-sm); }
+/* `.error`, not `.bad`: this IS a status surface (the thing the state is about), which is a purpose
+   state_colour's own list already carries — naming it for what it is beats adding an exemption for a word. */
+.workspaces-outcome.error { color: var(--danger-on-soft); }
+.workspaces-heading {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-display);
+}
+
+.workspaces-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.workspaces-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.workspaces-machines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.workspaces-machine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.workspaces-machine-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.workspaces-machine-name { flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); }
+.workspaces-machine-state { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--muted); }
+.workspaces-paths { list-style: none; margin: 0; padding: 0 0 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
+.workspaces-browse-note { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+.workspaces-browser { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.workspaces-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.workspaces-entries { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.workspaces-entry-dir {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  padding: var(--sp-0-5) var(--sp-1);
+}
+.workspaces-entry-dir:hover { background: var(--chrome-hover); }
+/* A HOVER THAT ANSWERS AND A PRESS THAT DOES NOT is the feedback gap the crate's own gate refuses — it caught
+   this rule the first time it ran. The tokens are the rail's, so the two controls answer a press the same way. */
+.workspaces-entry-dir:active { background: var(--chrome-active-bg); }
+
+
 /* ---------- harness page (the DSH view, embedded by the desktop shell) ----------
    The slot is EMPTY BY CONSTRUCTION: the main process composites a native WebContentsView over
    this rectangle, so the stylesheet's whole job here is to give it a size and to keep the toolbar
    above it. Everything else (the harness's own pixels) is not ours to paint. */
+/* The machines/workspaces toggle above the embedded harness: a bar, not a page — the harness keeps the height. */
+.dsh-machines { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line); }
 .dsh-page {
   flex: 1 1 0;
   min-height: 0;
