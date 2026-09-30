@@ -25,6 +25,13 @@ import {
   rememberUpdateAttempt,
   updateControl,
 } from "../src/lib/deviceUpdate.ts";
+// THE CONSOLE'S RUST IS LOADED BEFORE THE ASSERTIONS (block ③). `updateControl` and the window
+// `rememberedUpdateAttempt` filters by are `gateway/ui-logic/src/lib.rs` now, and that seam is
+// asynchronous under `node --test` — it reads `ui/public/ui_logic_bg.wasm` off disk and `initSync`s it.
+// The browser awaits it in `main.tsx`; a test file awaits it here, which is the arrangement
+// `test/lane.test.mjs` established and every migrated module's test now carries.
+import { consoleLogic } from "../src/wasm/consoleLogic.ts";
+await consoleLogic();
 
 /** THE TWO HOURS, RESTATED HERE AS A LITERAL ON PURPOSE. Importing the constant would make the test that pins the
  *  window agree with whatever the source happens to say — the one thing a test must not do. If the window moves,
