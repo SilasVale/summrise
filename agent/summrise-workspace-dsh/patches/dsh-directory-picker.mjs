@@ -32,6 +32,14 @@
  *
  * The plugin is DSH's, and this is a deployment: the same reason `patch-dsh-workspace-registry.mjs` exists. The
  * anchors are exact strings from the published package, and the script REFUSES rather than half-applying.
+ *
+ * # How it survives a DSH upgrade
+ *
+ * A DSH upgrade replaces the package, so `start-dsh.ps1` (in the install dir's `scripts/`) re-applies BOTH
+ * patches before every launch and logs one line each. It is idempotent BY MARKER — `ctx.fs.listDir`, which only
+ * this patch writes — so a restart says `already patched` and a package whose shape changed REFUSES loudly
+ * instead of half-applying. Measured on desktop-14rjcr8: two `dsh-patch: … -> already patched` lines, then
+ * `directoryPicker/list {path: "/home/zhengsaisi"}` answering `ok: true` with 161 real directories.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -43,6 +51,15 @@ if (!TARGET) {
 
 const original = readFileSync(TARGET, 'utf8');
 let text = original;
+
+/** The change this patch makes, as a string that only the patched file contains. */
+const MARKER = 'ctx.fs.listDir';
+if (original.includes(MARKER)) {
+  // IDEMPOTENT, like `patch-dsh-workspace-registry.mjs`: a start script re-applies these on every launch, and a
+  // patch that refuses its own work would be a failure line in the log on every restart.
+  console.log('already patched');
+  process.exit(0);
+}
 
 /** Replace one exact block, or refuse — a patch that half-applies is worse than one that does not. */
 function replaceOnce(label, from, to) {
