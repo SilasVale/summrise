@@ -581,6 +581,7 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
           <textarea
             className="workspaces-editor-text"
             aria-label="File contents"
+            rows={14}
             value={editing.text}
             onChange={(e) => setEditing({ ...editing, text: e.target.value })}
             spellCheck={false}
