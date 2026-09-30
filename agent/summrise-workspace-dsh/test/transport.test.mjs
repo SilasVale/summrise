@@ -14,8 +14,10 @@ import {
   assertSupportedStdio,
   connectionFields,
   execOnAgent,
+  machineRootMapping,
   makeCollectedReader,
   normalizeOutcome,
+  registerMachineRoot,
 } from '../lib/transport.js';
 
 /** A fetch that records the request and answers with `body`. */
@@ -227,4 +229,53 @@ test('half a connection is still a mistake, and it is named here rather than at 
   });
   assert.deepEqual(connectionFields({}), {}, 'neither set is a delegation, not an error');
   assert.deepEqual(connectionFields(), {}, 'and a missing options object is the same delegation');
+});
+
+// ── "ADD THE MACHINE ONCE" NEEDS A MOMENT AT WHICH IT HAPPENS ─────────────────────────────────────
+//
+// A mapping is what makes a path resolvable, and the picker browses through the fs seam — so without a mapping
+// the dialog refuses every path. The panel used to be that moment; it is gone (the operator: "不是另外加个
+// workspace"), so the moment is the CONFIG: a provider that was told a host IS that machine, and it registers the
+// machine's root once. A delegated provider (no host) registers nothing and reads the registry, which is what the
+// registry is for.
+
+test('a provider with a host names the machine root it would register', () => {
+  assert.deepEqual(machineRootMapping({ host: '10.10.61.83', user: 'zhengsaisi', port: 22122 }), {
+    path: '/',
+    connection_id: 'ssh:zhengsaisi@10.10.61.83:22122',
+  });
+  assert.equal(machineRootMapping({}), null, 'a delegated provider has no machine of its own to register');
+  assert.equal(machineRootMapping({ host: 'h' }), null, 'half a connection is not a machine either');
+});
+
+test('registering the machine root posts the mapping the doors resolve by', async () => {
+  let seen = null;
+  await registerMachineRoot({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    host: '10.10.61.83',
+    user: 'zhengsaisi',
+    port: 22122,
+    fetchImpl: async (url, init) => {
+      seen = { url: String(url), body: JSON.parse(init.body), method: init.method };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  assert.equal(seen.url, 'http://127.0.0.1:18080/api/workspace/register');
+  assert.equal(seen.method, 'POST');
+  assert.deepEqual(seen.body, { path: '/', connection_id: 'ssh:zhengsaisi@10.10.61.83:22122' });
+});
+
+test('a delegated provider registers nothing at all', async () => {
+  let called = false;
+  const answer = await registerMachineRoot({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    fetchImpl: async () => {
+      called = true;
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  assert.equal(called, false, 'no host means no machine of its own: the registry decides');
+  assert.equal(answer, null);
 });

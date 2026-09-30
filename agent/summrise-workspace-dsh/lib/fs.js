@@ -44,7 +44,7 @@ import {
 
 // THE CONNECTION RULE HAS ONE DEFINITION, in the exec transport: two copies would be two chances for
 // the two doors to disagree about what "half a connection" means.
-import { connectionFields } from './transport.js';
+import { connectionFields, registerMachineRoot } from './transport.js';
 
 /** How a DSH deployment names this provider in a profile. */
 export const name = 'summrise-workspace-fs';
@@ -111,8 +111,26 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
     throw new FsError('a resolved target is required', 'FS_IO_ERROR');
   }
 
+  /**
+   * THE MOMENT "THE MACHINE" IS ADDED, once per provider instance (see `machineRootMapping`): a provider that was
+   * configured with a host registers that machine's root, so the paths a picker browses resolve. A delegated
+   * provider registers nothing, and the registry decides — which is what a registry is for.
+   */
+  async __ensureMachineRoot() {
+    if (this.__rootDone) return;
+    this.__rootDone = true;
+    await registerMachineRoot({
+      endpoint: this.__config.endpoint,
+      token: this.__config.token,
+      host: this.__config.host,
+      user: this.__config.user,
+      port: this.__config.port,
+    });
+  }
+
   async __ask(op, path, extra) {
     this.__requireHost();
+    await this.__ensureMachineRoot();
     try {
       return await fsOnAgent({
         endpoint: this.__config.endpoint,

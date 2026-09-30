@@ -37,6 +37,7 @@ import {
   assertSupportedStdio,
   connectionFields,
   execOnAgent,
+  registerMachineRoot,
   makeCollectedReader,
   normalizeOutcome,
 } from './transport.js';
@@ -101,8 +102,26 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     connectionFields(this.__config);
   }
 
-  __request(argv, cwd, stdoutCap, stderrCap, signal) {
+  /**
+   * THE MOMENT "THE MACHINE" IS ADDED, once per provider instance (see `machineRootMapping`): a provider that was
+   * configured with a host registers that machine's root, so the paths a picker browses resolve. A delegated
+   * provider registers nothing, and the registry decides — which is what a registry is for.
+   */
+  async __ensureMachineRoot() {
+    if (this.__rootDone) return;
+    this.__rootDone = true;
+    await registerMachineRoot({
+      endpoint: this.__config.endpoint,
+      token: this.__config.token,
+      host: this.__config.host,
+      user: this.__config.user,
+      port: this.__config.port,
+    });
+  }
+
+  async __request(argv, cwd, stdoutCap, stderrCap, signal) {
     this.__requireHost();
+    await this.__ensureMachineRoot();
     return execOnAgent({
       endpoint: this.__config.endpoint,
       token: this.__config.token,
