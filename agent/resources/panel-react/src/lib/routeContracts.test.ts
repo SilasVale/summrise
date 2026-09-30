@@ -66,6 +66,12 @@ const UNPINNED: Record<string, string> = {
   // `src/plugins/terminal/tools/tests.rs` asserts that an unknown id is `invalid_params` NAMING the bad
   // id and listing the known ones ("connect_saved_unknown_id_is_invalid_params_with_known_list"), which
   // is what a reader needs to fix it. The success shape is the same session id `terminal_open` returns.
+  // WHERE A HOST'S HARNESS IS. The panel's hosts column reads this and the main process reads it at
+  // boot for the list of loopback doors, and the shape that matters is that it never claims health it
+  // did not check: `probe` records the SENTENCE it ran plus a millisecond stamp, and
+  // `workspace_harnesses.rs` pins the re-point case (a changed port forgets the old answer) and the
+  // probe-for-nothing case (a measurement is not a configuration).
+  "/api/workspace/harnesses": "agent/src/workspace_harnesses.rs (a re-point forgets the last probe; a probe never creates a row)",
   "/api/tools/terminal_connect_saved": "src/plugins/terminal/tools/tests.rs (an unknown id is invalid_params naming it and the known list)",
   "/api/tools/terminal_close": "a POST through the tool route; it only ends the session the add opened",
   // THE WORKSPACES PAGE reads the fs door to BROWSE a machine, and what is pinned there is the REFUSALS (the

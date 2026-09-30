@@ -4943,13 +4943,21 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
   padding: var(--sp-1) 0 var(--sp-2);
   border-bottom: 1px solid var(--line);
 }
+/* NO BORDER ON THE CHIP, and the design sweep is why. A 1px `--line` measures 1.2:1 on the row
+   background and 1.25:1 in dark, and a boundary that cannot be seen is not a boundary — the sweep
+   reads a border as a graphic that DELIMITES the shape and holds it to 3:1. `--line-strong` is no
+   better (1.35:1), because this sheet's lines are hairlines by design and the fix is not a darker
+   hairline. The chip is delimited by SPACING and by the selected one's fill, and the name carries the
+   affordance, which is the same arrangement `.approval-grant` records: a 1.19 outline set aside
+   because the text beside it reads at 5.53. */
 .workspaces-chip {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--chrome-hover);
 }
+.workspaces-chip-name { border-radius: var(--radius-sm); }
 .workspaces-chip[data-opened="yes"] { background: var(--chrome-active-bg); }
 .workspaces-chip-name {
   appearance: none;
