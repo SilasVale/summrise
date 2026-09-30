@@ -59,7 +59,7 @@ export function WorkspacesPanel() {
   // The open file: the VERSION is what a save must present, so it is state and not a local.
   const [editing, setEditing] = useState<{ path: string; version: string; text: string; original: string } | null>(null);
   const [command, setCommand] = useState("");
-  const [ran, setRan] = useState<string | null>(null);
+  const [ran, setRan] = useState<{ text: string; status: string; failed: boolean; cut: boolean } | null>(null);
   const [host, setHost] = useState("");
   const [user, setUser] = useState("");
   const [port, setPort] = useState("22");
@@ -207,9 +207,32 @@ export function WorkspacesPanel() {
           method: "POST",
           body: JSON.stringify({ path: opened?.path ?? MACHINE_ROOT, connection_id: connectionId, argv }),
         });
+        if (!j?.ok) {
+          setRan({ text: j?.error || j?.code || "the agent refused without saying why", status: "", failed: true, cut: false });
+          return;
+        }
         const out = j?.stdout_b64 ? atob(String(j.stdout_b64)) : String(j?.stdout ?? "");
         const err = j?.stderr_b64 ? atob(String(j.stderr_b64)) : String(j?.stderr ?? "");
-        setRan(j?.ok ? `${out}${err}`.trim() || "(no output)" : j?.error || j?.code || "the agent refused");
+        // THE DOOR ANSWERS `ok` FOR THE CALL AND `status` FOR THE COMMAND, and they are different facts:
+        // `ok:true` with `{kind:'exited', code:2}` is a call that worked reporting a command that did not.
+        // Reading only `ok` printed a failed command's output as though it had succeeded.
+        const status = j?.status ?? {};
+        const code = Number.isInteger(status.code) ? status.code : null;
+        const failed = status.kind === "signalled" || (status.kind === "exited" && code !== 0) || status.kind === "unknown";
+        const how =
+          status.kind === "exited"
+            ? `exit ${code ?? "?"}`
+            : status.kind === "signalled"
+              ? `signalled ${status.name ?? "?"}`
+              : "the host did not say how it ended";
+        setRan({
+          text: `${out}${err}`.trim() || "(no output)",
+          status: how,
+          failed,
+          // A TRUNCATED STREAM IS REPORTED LOSSY: the door says so with a flag, and a page that dropped it
+          // would show a cut stream as the whole answer.
+          cut: Boolean(j?.stdout_overflow || j?.stderr_overflow),
+        });
       }),
     [command, opened, run],
   );
@@ -555,7 +578,15 @@ export function WorkspacesPanel() {
           Run
         </button>
       </div>
-      {ran !== null ? <pre className="workspaces-run-output">{ran}</pre> : null}
+      {ran !== null ? (
+        <>
+          <p className={ran.failed ? "workspaces-run-status failed" : "workspaces-run-status"} role="status">
+            {ran.failed ? "the command FAILED" : "the command exited"} — {ran.status}
+            {ran.cut ? " · the output was CUT at the door's cap, so this is not all of it" : ""}
+          </p>
+          <pre className="workspaces-run-output">{ran.text}</pre>
+        </>
+      ) : null}
     </div>
   );
 }

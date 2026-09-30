@@ -4928,3 +4928,8 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* No colour of its own: this sheet's tokens are the only colours, and inventing one (`--ink-2`) is
+   exactly what `build-css` refuses. The FAILURE case has a token, and that is the one that must shout. */
+.workspaces-run-status { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); }
+.workspaces-run-status.failed { color: var(--badge-err-ink); }

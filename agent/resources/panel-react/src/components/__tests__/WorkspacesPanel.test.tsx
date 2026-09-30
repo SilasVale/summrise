@@ -30,7 +30,12 @@ function reads({ connections = [], mappings = [] }: { connections?: unknown[]; m
     if (path === "/api/tools/terminal_open") return Promise.resolve({ ok: true, result: "term-abc-0" });
     // THE HOME, asked through the exec door: the prefix is DERIVED, and this is where it comes from.
     if (path === "/api/workspace/exec")
-      return Promise.resolve({ ok: true, code: 0, stdout_b64: btoa("/home/zhengsaisi\n") });
+      return Promise.resolve({
+        ok: true,
+        stdout_b64: btoa("/home/zhengsaisi\n"),
+        stderr_b64: "",
+        status: { kind: "exited", code: 0 },
+      });
     return Promise.resolve({ ok: true });
   });
 }
@@ -191,7 +196,13 @@ describe("WorkspacesPanel", () => {
       if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [] });
       if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [] });
       if (path === "/api/tools/terminal_open") return Promise.resolve({ ok: true, result: "term-abc-0" });
-      if (path === "/api/workspace/exec") return Promise.resolve({ ok: true, stdout_b64: btoa("/home/zhengsaisi\n"), code: 0 });
+      if (path === "/api/workspace/exec")
+        return Promise.resolve({
+          ok: true,
+          stdout_b64: btoa("/home/zhengsaisi\n"),
+          stderr_b64: "",
+          status: { kind: "exited", code: 0 },
+        });
       if (path === "/api/workspace/register") return Promise.resolve({ ok: true });
       return Promise.resolve({ ok: true });
     });
@@ -262,5 +273,68 @@ describe("WorkspacesPanel", () => {
     });
     // the refusal is the agent's own sentence, not a paraphrase
     expect(await screen.findByText(/not the content this write expected/)).toBeTruthy();
+  });
+
+  // ── THE SURFACE MUST NOT CALL A FAILURE A SUCCESS ───────────────────────────────────────────────
+  //
+  // The exec door answers `{ok, stdout_b64, stderr_b64, status, stdout_overflow, stderr_overflow}`:
+  // `ok` says the CALL worked, `status` says what the COMMAND did, and the overflow flags say whether
+  // what came back is all of it. The first version of this page read none of the three — it printed the
+  // output of a command that exited 3 as if it had succeeded, and showed a truncated stream as complete.
+  // This repository's own rule is the reason these are pinned: a surface that reports a state must name
+  // the thing that was observed.
+
+  it("says a command FAILED, with its exit code, instead of printing its output as success", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings")
+        return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") return Promise.resolve({ ok: true, entries: [] });
+      if (path === "/api/workspace/exec")
+        return Promise.resolve({
+          ok: true,
+          stdout_b64: btoa(""),
+          stderr_b64: btoa("grep: nope: No such file or directory\n"),
+          status: { kind: "exited", code: 2 },
+          stdout_overflow: false,
+          stderr_overflow: false,
+        });
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.change(await screen.findByLabelText("Command"), { target: { value: "grep nope /etc/hosts" } });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+    // THE CODE IS THE FACT: "exit 2" is what tells the reader this did not work.
+    expect(await screen.findByText(/exit 2/)).toBeTruthy();
+    expect(screen.getByText(/No such file or directory/)).toBeTruthy();
+  });
+
+  it("says a SIGNALLED command was signalled, and says when the output was CUT", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings")
+        return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") return Promise.resolve({ ok: true, entries: [] });
+      if (path === "/api/workspace/exec")
+        return Promise.resolve({
+          ok: true,
+          stdout_b64: btoa("partial output"),
+          stderr_b64: btoa(""),
+          status: { kind: "signalled", name: "KILL" },
+          stdout_overflow: true,
+          stderr_overflow: false,
+        });
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.change(await screen.findByLabelText("Command"), { target: { value: "sleep 999" } });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+    // A TRUNCATED STREAM IS REPORTED LOSSY — the seam's own rule, and the reason the door sends the flag.
+    expect(await screen.findByText(/KILL/)).toBeTruthy();
+    expect(screen.getByText(/cut|truncat/i)).toBeTruthy();
   });
 });
