@@ -102,6 +102,19 @@ export function channel_signal(ok) {
 }
 
 /**
+ * `UPDATE_DARK_WINDOW_MS`, for the one caller that needs the NUMBER rather than the rule:
+ * `rememberedUpdateAttempt`'s store filter, which asks here so that the console keeps ONE definition
+ * of the window. A FUNCTION and not a module-level constant, because a module-level `logic()` call
+ * evaluates before any test can await the seam — the mistake the note below records for
+ * `CONSOLE_POLL_MS`.
+ * @returns {number}
+ */
+export function dark_window_ms() {
+    const ret = wasm.dark_window_ms();
+    return ret;
+}
+
+/**
  * `deviceIsUp(status)` — `!!status?.agent_up`, i.e. TRUTHINESS on the optional chain. A caller that
  * needs "offline" rather than "not checked" reads the signal below instead.
  * @param {any} status
@@ -205,6 +218,37 @@ export function tunnel_signal(status, t) {
     }
     return takeFromExternrefTable0(ret[0]);
 }
+
+/**
+ * `updateControl({ update, agentSignal, remembered, now })` — the one function every render of this
+ * control goes through.
+ *
+ * THE ARMS, IN THE ORDER THE TYPESCRIPT TESTS THEM, because that order is the module:
+ *
+ *   update truthy   `busy`               -> inflight, dated by `datableStart`, source `device`
+ *                   available + `latest` -> action (a non-empty STRING `latest`, not just a truthy one)
+ *                   `error` (non-empty)  -> unchecked — it OUTRANKS the pin, because "we could not
+ *                                           ask" is not "it is held": a pin claim needs a channel
+ *                   `pinned_to`          -> held
+ *                   otherwise            -> current
+ *   update absent   `agentSignal === "err"` AND this console's own record, still inside the window
+ *                                        -> inflight, source `console`
+ *                   otherwise            -> none, which is the absence of a sentence
+ *
+ * `agentSignal === "err"` IS NOT `!agentUp`, and that is the defect this module exists to remove: a
+ * device nobody has asked about yet is ALSO falsy, so a boolean test would speak about every row of a
+ * console before its first poll answered. `now` defaults with `?? Date.now()`, so `null` and `absent`
+ * both mean "the engine's clock" and a `0` is a real (and unusable) instant.
+ * @param {any} update
+ * @param {any} agent_signal
+ * @param {any} remembered
+ * @param {any} now
+ * @returns {any}
+ */
+export function update_control(update, agent_signal, remembered, now) {
+    const ret = wasm.update_control(update, agent_signal, remembered, now);
+    return ret;
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -271,6 +315,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_617a8cdb8bb1130e: function() {
             const ret = new Object();
+            return ret;
+        },
+        __wbg_now_aa4ccb83129e9e55: function() {
+            const ret = Date.now();
             return ret;
         },
         __wbg_set_145a351398b48c65: function() { return handleError(function (arg0, arg1, arg2) {
