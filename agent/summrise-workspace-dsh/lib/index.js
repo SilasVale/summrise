@@ -35,6 +35,7 @@ import {
   DEFAULT_HELPER,
   UnsupportedStdioError,
   assertSupportedStdio,
+  connectionFields,
   execOnAgent,
   makeCollectedReader,
   normalizeOutcome,
@@ -85,13 +86,13 @@ export default class SummriseWorkspaceRuntime extends SubprocessRuntime {
     return { endpoint, host, user, port };
   }
 
+  /**
+   * THE SAME RULE THE TRANSPORT APPLIES, asked here so a misconfiguration fails before a request is
+   * built. NO host at all is not a misconfiguration any more: it delegates the choice to the agent's
+   * mapping store, which is what lets one provider serve workspaces on several hosts.
+   */
   __requireHost() {
-    const { host, user } = this.__config;
-    if (!host || !user) {
-      throw new Error(
-        'summrise-workspace has no workspace host: set `host` and `user` in the profile entry\'s config, or SUMMRISE_WORKSPACE_HOST / SUMMRISE_WORKSPACE_USER',
-      );
-    }
+    connectionFields(this.__config);
   }
 
   __request(argv, cwd, stdoutCap, stderrCap, signal) {

@@ -12,6 +12,7 @@ import {
   UnsupportedStdioError,
   WorkspaceExecError,
   assertSupportedStdio,
+  connectionFields,
   execOnAgent,
   makeCollectedReader,
   normalizeOutcome,
@@ -186,4 +187,44 @@ test('a caller cancellation stays a cancellation instead of becoming a provider 
     () => execOnAgent({ host: 'h', user: 'u', argv: ['rg'], signal: controller.signal, fetchImpl }),
     (e) => e === reason,
   );
+});
+
+// ── THE CONNECTION RULE (the workspace registry) ─────────────────────────────────────────────────
+//
+// A provider with NO host is a legitimate configuration now: the agent resolves the request's path
+// against its mapping store and uses the connection registered for it. That is the whole point of
+// the registry, and it is why the rule is a pure function here rather than a guard inside
+// `lib/index.js` — that class imports `@deepseek-ai/dsh-subprocess` and cannot be loaded without
+// DSH, so a rule living there would have no test at all.
+//
+// WHAT THESE TESTS DO NOT COVER, said plainly: the provider's own refusal (the `__requireHost`
+// call site) is in that unloadable class, so the change there is measured on a device, not here.
+
+test('a connection with no host is DELEGATED, and the path is what travels', async () => {
+  let seen = null;
+  await execOnAgent({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    argv: ['uname', '-a'],
+    cwd: '/home/zhengsaisi/summrise',
+    fetchImpl: async (_url, init) => {
+      seen = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ ok: true, stdout: 'Linux', stderr: '', exit_code: 0 }) };
+    },
+  });
+  assert.equal('host' in seen, false, 'no host must be sent when none is configured');
+  assert.equal('user' in seen, false);
+  assert.equal(seen.cwd, '/home/zhengsaisi/summrise', 'the path is what the agent resolves');
+});
+
+test('half a connection is still a mistake, and it is named here rather than at the far end', () => {
+  assert.throws(() => connectionFields({ host: '10.0.0.1' }), /needs a user/);
+  assert.throws(() => connectionFields({ user: 'root' }), /needs a host/);
+  assert.deepEqual(connectionFields({ host: '10.0.0.1', user: 'root', port: 22122 }), {
+    host: '10.0.0.1',
+    user: 'root',
+    port: 22122,
+  });
+  assert.deepEqual(connectionFields({}), {}, 'neither set is a delegation, not an error');
+  assert.deepEqual(connectionFields(), {}, 'and a missing options object is the same delegation');
 });

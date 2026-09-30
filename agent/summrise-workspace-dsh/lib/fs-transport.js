@@ -12,7 +12,7 @@
  * translation layer that re-read the prose would undo the thing the agent was changed to guarantee.
  */
 
-import { DEFAULT_ENDPOINT } from './transport.js';
+import { DEFAULT_ENDPOINT, connectionFields } from './transport.js';
 
 /** Raised when the agent refuses a filesystem operation. `code` is a `dsh-fs` `FsErrorCode`. */
 export class WorkspaceFsError extends Error {
@@ -45,7 +45,7 @@ export async function fsOnAgent(options) {
     ...rest
   } = options;
 
-  const body = { op, path, host, user, port };
+  const body = { op, path, ...connectionFields({ host, user, port }) };
   if (password) body.password = password;
   if (keyPath) body.key_path = keyPath;
   // Whatever else the op needs (`max_bytes`, `offset`, `length`) rides along verbatim: this layer

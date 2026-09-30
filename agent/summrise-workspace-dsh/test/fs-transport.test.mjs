@@ -190,3 +190,35 @@ test('a caller cancellation stays a cancellation', async () => {
     (e) => e === reason,
   );
 });
+
+// ── THE SAME CONNECTION RULE, for the fs door ────────────────────────────────────────────────────
+
+test('the fs body carries a path and no host when the connection is delegated', async () => {
+  let seen = null;
+  await fsOnAgent({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    op: 'stat',
+    path: '/home/zhengsaisi/summrise',
+    fetchImpl: async (_url, init) => {
+      seen = JSON.parse(init.body);
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {} }) };
+    },
+  });
+  assert.equal(seen.path, '/home/zhengsaisi/summrise');
+  assert.equal('host' in seen, false);
+  assert.equal('user' in seen, false);
+});
+
+test('the fs transport uses the SAME connection rule as the exec transport', async () => {
+  // Imported from transport.js, not re-defined here: two definitions of "half a connection is a mistake"
+  // would be two chances for the two doors to disagree about it.
+  const { connectionFields } = await import('../lib/transport.js');
+  assert.throws(() => connectionFields({ host: '10.0.0.1' }), /needs a user/);
+  assert.throws(() => connectionFields({ user: 'root' }), /needs a host/);
+  assert.deepEqual(
+    connectionFields({ host: 'h', user: 'u' }),
+    { host: 'h', user: 'u', port: 22 },
+    'a real connection carries the default port',
+  );
+});

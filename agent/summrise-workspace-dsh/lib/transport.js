@@ -17,6 +17,25 @@
 /** The agent's default loopback address. */
 export const DEFAULT_ENDPOINT = 'http://127.0.0.1:18080';
 
+/**
+ * The connection fields to send with a request — the ONE definition of the rule, imported by the fs
+ * transport rather than repeated there.
+ *
+ * NO HOST IS A LEGITIMATE CONFIGURATION: the agent resolves the request's path against its mapping
+ * store and uses the connection registered for it (the workspace registry). That is why a provider
+ * can be configured with nothing but an endpoint and a token.
+ *
+ * HALF A CONNECTION IS STILL A MISTAKE, and it is named HERE rather than at the far end: a host
+ * without a user is a half-written config, not a delegation, and the failure belongs where the
+ * mistake was made — not as an SSH auth error thirty seconds later.
+ */
+export function connectionFields({ host, user, port = 22 } = {}) {
+  if (!host && !user) return {};
+  if (!host) throw new Error('summrise-workspace: a connection needs a host as well as a user');
+  if (!user) throw new Error('summrise-workspace: a connection needs a user as well as a host');
+  return { host, user, port };
+}
+
 /** Where the staged argv helper lives on a workspace host. Mirrors the agent's own default. */
 export const DEFAULT_HELPER = '~/.summrise/bin/summrise-exec-argv';
 
@@ -159,7 +178,7 @@ export async function execOnAgent(options) {
     fetchImpl = globalThis.fetch,
   } = options;
 
-  const body = { host, user, port, argv };
+  const body = { ...connectionFields({ host, user, port }), argv };
   if (password) body.password = password;
   if (keyPath) body.key_path = keyPath;
   if (typeof cwd === 'string' && cwd.length > 0) body.cwd = cwd;
