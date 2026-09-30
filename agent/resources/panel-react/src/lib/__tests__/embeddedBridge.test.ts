@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BROWSER_MEMBERS, DESKTOP_MEMBERS, EMBEDDED_MEMBERS } from "../embeddedBridge";
+import { BROWSER_MEMBERS, DESKTOP_MEMBERS, DSH_MEMBERS, EMBEDDED_MEMBERS } from "../embeddedBridge";
 
 describe("the Electron bridge", () => {
   it("exposes exactly the members the preload exposes", () => {
@@ -29,6 +29,10 @@ describe("the Electron bridge", () => {
     expect([...EMBEDDED_MEMBERS].sort()).toEqual([...fixture.bridges.summriseEmbedded].sort());
     expect([...BROWSER_MEMBERS].sort()).toEqual([...fixture.bridges.summriseBrowser].sort());
     expect([...DESKTOP_MEMBERS].sort()).toEqual([...fixture.bridges.summriseDesktop].sort());
-    expect(Object.keys(fixture.bridges).sort()).toEqual(["summriseBrowser", "summriseDesktop", "summriseEmbedded"]);
+    // THE FOURTH BRIDGE. It is the same shape of risk as the other three and the same blind spot
+    // (behind a `window.*` a plain-browser harness does not have), so it is pinned the same way —
+    // and this line is what makes a fifth bridge an explicit decision rather than an omission.
+    expect([...DSH_MEMBERS].sort()).toEqual([...fixture.bridges.summriseDsh].sort());
+    expect(Object.keys(fixture.bridges).sort()).toEqual(["summriseBrowser", "summriseDesktop", "summriseDsh", "summriseEmbedded"]);
   });
 });

@@ -25,9 +25,16 @@ export type IconName =
   | "arrow-down"
   | "sun"
   | "moon"
-  | "help";
+  | "help"
+  // The DSH page's glyph. The harness is not a terminal, not a browser and not a plugin list —
+  // it is the AI client itself — so it gets its own mark rather than borrowing one that would
+  // tell the reader something false about what the page holds.
+  | "harness";
 
 const PATHS: Record<IconName, ReactNode> = {
+  // A four-point spark: the harness's own "explore the unknown" mark, drawn from the same
+  // 24-grid and stroke weight as every other glyph here so it sits beside them.
+  harness: <path d="M12 3.2l1.9 5.1 5.1 1.9-5.1 1.9L12 17.2l-1.9-5.1L5 10.2l5.1-1.9L12 3.2z" />,
   sun: (
     <>
       <circle cx="12" cy="12" r="4.5" />

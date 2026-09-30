@@ -144,3 +144,31 @@ test("controlOriginOk: the loopback control API's origin veto", async () => {
   // A value the policy cannot READ must never be treated as one it recognises.
   assert.equal(controlOriginOk("not a url"), false);
 });
+
+// THE DSH VIEW'S DOOR (round 4 of the standing goal). The desktop shell's second embedded view
+// shows the harness's OWN UI, which runs on this machine's loopback — so this door is narrow on
+// purpose: one origin, and nothing else. It is deliberately a SEPARATE predicate from
+// sanitizeBrowserUrl (the browser view's internet-wide door): a door that is wide for one view
+// must not become wide for the other, and the DSH view has no address bar and no AI driving it,
+// so there is no reason for it to reach anything but its own port.
+test("isDshUrl: the DSH view reaches its own loopback port and nothing else", () => {
+  const { isDshUrl, dshBase, setDshPort, getDshPort } = require("../src/url-policy.js");
+  assert.equal(getDshPort(), 18081, "the default is the port the component listens on");
+  assert.equal(dshBase(), "http://127.0.0.1:18081");
+  assert.equal(isDshUrl("http://127.0.0.1:18081/"), true);
+  assert.equal(isDshUrl("http://127.0.0.1:18081/api/remote.mux"), true);
+  // The agent's own port is a DIFFERENT origin: the DSH view must not be able to load the panel.
+  assert.equal(isDshUrl("http://127.0.0.1:18080/panel/"), false, "the agent port is not the DSH port");
+  // The lookalikes this module exists to kill, applied to this door.
+  assert.equal(isDshUrl("http://127.0.0.1:18081@evil.com/"), false, "userinfo trick");
+  assert.equal(isDshUrl("http://127.0.0.1.evil.com:18081/"), false, "sibling-host lookalike");
+  assert.equal(isDshUrl("https://127.0.0.1:18081/"), false, "scheme matters: the DSH is plain http on loopback");
+  assert.equal(isDshUrl("http://evil.com/"), false);
+  assert.equal(isDshUrl("not a url"), false);
+  assert.equal(isDshUrl(""), false);
+  // A configured port is followed, and the default comes back (no state leaks between tests).
+  setDshPort(19999);
+  assert.equal(isDshUrl("http://127.0.0.1:19999/"), true);
+  assert.equal(isDshUrl("http://127.0.0.1:18081/"), false);
+  setDshPort(18081);
+});

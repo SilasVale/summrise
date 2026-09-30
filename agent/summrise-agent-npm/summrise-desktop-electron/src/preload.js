@@ -56,6 +56,32 @@ electron_1.contextBridge.exposeInMainWorld("summriseEmbedded", {
         return () => electron_1.ipcRenderer.removeListener("embedded-browser:gone", listener);
     },
 });
+// THE DSH VIEW (the shell's second embedded view). The harness's own UI runs on THIS
+// machine's loopback, so the panel never learns its port: `open()` asks the MAIN process to
+// navigate the view to its configured base, and the door that decides what that view may load
+// (url-policy.isDshUrl) has exactly one origin to check. Same placeholder-bounds handshake as
+// the browser view above, because it is the same problem: a native view overlays an empty slot
+// the SPA positions.
+electron_1.contextBridge.exposeInMainWorld("summriseDsh", {
+    open: () => electron_1.ipcRenderer.invoke("embedded-dsh:open"),
+    place: (bounds) => electron_1.ipcRenderer.invoke("embedded-dsh:place", bounds),
+    state: () => electron_1.ipcRenderer.invoke("embedded-dsh:state"),
+    reload: () => electron_1.ipcRenderer.invoke("embedded-dsh:reload"),
+    // Recovery after a renderer crash: the main process force-re-creates the view.
+    recover: () => electron_1.ipcRenderer.invoke("embedded-dsh:recover"),
+    // The view's renderer crashed (reason + exitCode) — without this the pane would show
+    // "starting…" forever over a view that will never paint. Returns an unsubscribe fn.
+    onGone: (handler) => {
+        const listener = (_e, d) => {
+            try {
+                handler(d);
+            }
+            catch { /* SPA-side */ }
+        };
+        electron_1.ipcRenderer.on("embedded-dsh:gone", listener);
+        return () => electron_1.ipcRenderer.removeListener("embedded-dsh:gone", listener);
+    },
+});
 // Desktop-app settings + menu bridge (Electron-specific — hidden when running
 // in a plain browser; the SPA detects the bridge and shows the card only when
 // present).
