@@ -88,22 +88,37 @@ const METHODS = `	/**
 		const resolved = await fs.resolve(path);
 		return resolved.displayPath ?? resolved.targetKey;
 	}
-	/** Whether the seam (or, without one, the host) reports a directory at this canonical path. */
+	/**
+	* Whether the seam (or, without one, the host) reports a directory at this canonical path.
+	*
+	* THE SEAM'S \`stat\` TAKES THE TARGET \`resolve\` RETURNED, NOT A PATH — its own types say a consumer
+	* "never manufactures a key, it receives one from resolve()", and passing the string instead answers
+	* \`invalid_type: expected object, received string\` at path \`target\` (measured). So the resolve happens
+	* here too; it is a pure operation on both backends.
+	*/
 	async isDirectoryPath(path) {
 		const fs = this.ctx.fs;
 		if (fs === void 0) return (await stat(path)).isDirectory();
-		return (await fs.stat(path))?.type === "directory";
+		const target = await fs.resolve(path);
+		return (await fs.stat(target))?.type === "directory";
 	}
 `;
 
+/**
+ * `from` is rewritten to `to`. An entry may carry `ownedBy`: a marker proving some OTHER patch already
+ * rerouted that site through the seam, in which case an absent anchor is not a changed package but a
+ * finished one. Without that field an absent anchor is a refusal, because half a canon is worse than none.
+ */
 const EDITS = [
   // the two call shapes the registry uses for canonicalization
-  ['await realpathNormalize(path)', 'await this.canonicalizePath(path)'],
-  ['await realpathNormalize(header.cwd)', 'await this.canonicalizePath(header.cwd)'],
+  { from: 'await realpathNormalize(path)', to: 'await this.canonicalizePath(path)' },
+  { from: 'await realpathNormalize(header.cwd)', to: 'await this.canonicalizePath(header.cwd)' },
   // and the three directory checks
-  ['if (!(await stat(canonical)).isDirectory())', 'if (!(await this.isDirectoryPath(canonical)))'],
-  ['if (!(await stat(cwd)).isDirectory())', 'if (!(await this.isDirectoryPath(cwd)))'],
-  ['if (!(await stat(path)).isDirectory()) {', 'if (!(await this.isDirectoryPath(path))) {'],
+  { from: 'if (!(await stat(canonical)).isDirectory())', to: 'if (!(await this.isDirectoryPath(canonical)))' },
+  // `dsh-workspace-registry.mjs` already guards the attach path with its own `viaSeam` flag, so this site is
+  // finished when that flag is present and the bare anchor is gone.
+  { from: 'if (!(await stat(cwd)).isDirectory())', to: 'if (!(await this.isDirectoryPath(cwd)))', ownedBy: 'viaSeam' },
+  { from: 'if (!(await stat(path)).isDirectory()) {', to: 'if (!(await this.isDirectoryPath(path))) {' },
 ];
 
 const INSERT_AT = '\tasync create(path, title) {';
@@ -114,8 +129,13 @@ const INSERT_AT = '\tasync create(path, title) {';
 // rerouted sites is what caught that, which is why it counts instead of merely checking for a substring.
 let patched = original;
 const counts = {};
-for (const [from, to] of EDITS) {
+const skipped = [];
+for (const { from, to, ownedBy } of EDITS) {
   const before = patched.split(from).length - 1;
+  if (before === 0 && ownedBy !== undefined && patched.includes(ownedBy)) {
+    skipped.push(`${from} (already rerouted by a patch carrying ${JSON.stringify(ownedBy)})`);
+    continue;
+  }
   counts[from] = before;
   if (before === 0) {
     console.error(`REFUSED: no occurrence of ${JSON.stringify(from)} — nothing was written.`);
@@ -134,4 +154,5 @@ writeFileSync(TARGET, patched, 'utf8');
 console.log(`patched: ${TARGET}`);
 console.log(`  ${MARKER}'s: ${Object.values(counts).reduce((a, b) => a + b, 0)} call site(s) rerouted`);
 for (const [from, n] of Object.entries(counts)) console.log(`    ${n}x ${from}`);
+for (const s of skipped) console.log(`    skipped ${s}`);
 console.log(`  bytes: ${original.length} -> ${patched.length}`);

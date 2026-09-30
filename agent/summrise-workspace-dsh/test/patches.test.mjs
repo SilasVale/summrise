@@ -78,7 +78,8 @@ test('applies to the published shape and reports every call site it rerouted', (
     // the seam is what the registry asks now
     assert.match(patched, /const fs = this\.ctx\.fs;/);
     assert.match(patched, /fs\.resolve\(path\)/);
-    assert.match(patched, /fs\.stat\(path\)\)\?\.type === "directory"/);
+    assert.match(patched, /const target = await fs\.resolve\(path\);/);
+    assert.match(patched, /fs\.stat\(target\)\)\?\.type === "directory"/);
     assert.match(patched, /PATCHED: the workspace canon is the fs seam/);
   });
 });
@@ -109,6 +110,24 @@ test('is idempotent: a second run changes nothing', () => {
   });
 });
 
+test('an anchor another patch already owns is SKIPPED, not refused', () => {
+  withFixture((file) => {
+    // exactly what `dsh-workspace-registry.mjs` leaves behind on the attach path
+    const withRegistryPatch = readFileSync(file, 'utf8').replace(
+      'if (!(await stat(cwd)).isDirectory())',
+      'if (!viaSeam && !(await stat(cwd)).isDirectory())',
+    );
+    writeFileSync(file, withRegistryPatch, 'utf8');
+    const { code, out } = runPatch(file);
+    assert.equal(code, 0, out);
+    assert.match(out, /skipped if \(!\(await stat\(cwd\)\)\.isDirectory\(\)\) \(already rerouted by a patch carrying "viaSeam"\)/);
+    assert.match(out, /6 call site\(s\) rerouted/);
+    const patched = readFileSync(file, 'utf8');
+    assert.match(patched, /viaSeam && !\(await stat\(cwd\)\)\.isDirectory\(\)/);
+    assert.equal(patched.split('await this.isDirectoryPath(').length - 1, 2);
+  });
+});
+
 test('refuses — and writes nothing — when the package changed shape', () => {
   withFixture((file) => {
     writeFileSync(file, 'export const somethingElse = 1;\n', 'utf8');
@@ -124,4 +143,56 @@ test('the patched file still parses', () => {
     assert.equal(runPatch(file).code, 0);
     execFileSync(process.execPath, ['--check', file]);
   });
+});
+
+const SESSION_PATCH = new URL('../patches/dsh-session-cwd.mjs', import.meta.url).pathname;
+
+/** The session controller's ensure, exactly as `@deepseek-ai/dsh-api-session-controller@0.2.0-rc.1` spells it. */
+const SESSION_FIXTURE = `import { mkdir } from "node:fs/promises";
+class SessionController {
+	async create(cwd, presetId) {
+		try {
+			await mkdir(cwd, { recursive: true });
+		} catch (error) {
+			throw new Error(\`failed to ensure project directory "\${cwd}": \${String(error)}\`, { cause: error });
+		}
+	}
+}
+`;
+
+function runSessionPatch(file) {
+  try {
+    return { code: 0, out: execFileSync(process.execPath, [SESSION_PATCH, file], { encoding: 'utf8' }) };
+  } catch (error) {
+    return { code: error.status ?? 1, out: String(error.stdout ?? '') + String(error.stderr ?? '') };
+  }
+}
+
+test('the session cwd is ensured through the seam, and the host mkdir survives for the local case', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-session-test-'));
+  const file = join(dir, 'index.js');
+  try {
+    writeFileSync(file, SESSION_FIXTURE, 'utf8');
+    const first = runSessionPatch(file);
+    assert.equal(first.code, 0, first.out);
+    const patched = readFileSync(file, 'utf8');
+    // the seam is asked BEFORE the host mkdir, and the mkdir is still reachable
+    assert.ok(patched.indexOf('seamFs.stat') < patched.indexOf('if (!cwdIsDirectory) await mkdir(cwd'));
+    assert.match(patched, /if \(!cwdIsDirectory\) await mkdir\(cwd, \{ recursive: true \}\);/);
+    assert.match(patched, /PATCHED: the cwd is ensured through the fs seam/);
+    // idempotent
+    const second = runSessionPatch(file);
+    assert.equal(second.code, 0);
+    assert.match(second.out, /already patched/);
+    // refuses on a changed shape, writing nothing
+    const other = join(dir, 'other.js');
+    writeFileSync(other, 'export const x = 1;\n', 'utf8');
+    const refused = runSessionPatch(other);
+    assert.notEqual(refused.code, 0);
+    assert.match(refused.out, /REFUSED/);
+    assert.equal(readFileSync(other, 'utf8'), 'export const x = 1;\n');
+    execFileSync(process.execPath, ['--check', file]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * The transport half of the workspace subprocess seam: talk to a summrise agent, and shape what
  * comes back into the two things the seam reads — offset-based output readers and an outcome.
@@ -81,6 +82,111 @@ export async function registerMachineRoot({
   } catch {
     return null;
   }
+}
+
+/**
+ * THE MACHINES THIS DEPLOYMENT CAN WORK ON — the registry's mappings, in the shape a picker needs: one row
+ * per machine, named readably, with the path that routes to it.
+ *
+ * WHY THE REGISTRY IS THE HOST LIST. A deployment's machines are exactly what the agent has been told about:
+ * a saved connection plus a mapping from a path prefix to it (`/home/zhengsaisi` -> one host, `/srv/onu` ->
+ * another). That is the same list the doors resolve by, so a picker that shows it cannot disagree with the
+ * routing it feeds — which is the failure a second, hand-kept list would produce.
+ *
+ * AN UNREACHABLE REGISTRY IS AN EMPTY LIST, NOT A THROW. The caller is a directory dialog: a deployment whose
+ * agent is down must still OPEN, and say it has no machines, rather than fail to render at all. The path that
+ * produced the emptiness is reported by the caller, not swallowed here.
+ */
+export async function listMachines({ endpoint = DEFAULT_ENDPOINT, token, fetchImpl = globalThis.fetch } = {}) {
+  try {
+    const res = await fetchImpl(`${endpoint}/api/workspace/mappings`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res || !res.ok) return [];
+    const body = await res.json();
+    const mappings = Array.isArray(body?.mappings) ? body.mappings : [];
+    return mappings
+      .filter((m) => m && typeof m.path === 'string' && typeof m.connection_id === 'string')
+      .map((m) => ({ path: m.path, name: nameOfConnection(m.connection_id), connectionId: m.connection_id }));
+  } catch {
+    return [];
+  }
+}
+
+/** `ssh:user@host:port` -> `user@host`. Anything else is passed through: a display name is not worth a throw. */
+function nameOfConnection(connectionId) {
+  const match = /^ssh:([^@]+)@([^:]+)(?::\d+)?$/.exec(connectionId);
+  return match ? `${match[1]}@${match[2]}` : connectionId;
+}
+
+/**
+ * THE SEAM'S WRITE INTENT, TRANSLATED INTO THE DOOR'S `expect_version`.
+ *
+ * The interface declares `FsWriteIntent = {kind:'createIfAbsent'} | {kind:'replaceIfVersion', version}`,
+ * and its comment says an OMITTED intent means unconditional create-or-overwrite. THIS PROVIDER NARROWS
+ * THAT DELIBERATELY: a write with no guard is refused by name, because every write here goes through one
+ * and a caller that forgot must learn it rather than discover it as a clobbered file. The narrowing is
+ * this module's, not the seam's, which is why it is stated where the translation happens.
+ *
+ * `createIfAbsent` becomes the hash of NO BYTES — the same value the door computes when the target is
+ * missing, which is what makes "only if nothing is there" and the door's guard agree instead of merely
+ * looking alike.
+ */
+export function writeIntentFields(intent) {
+  if (intent === undefined || intent === null || typeof intent !== 'object') {
+    throw new Error('a writeText requires an intent: {kind:"createIfAbsent"} or {kind:"replaceIfVersion", version} — this provider refuses an unguarded write');
+  }
+  if (intent.kind === 'createIfAbsent') return { expect_version: emptyContentVersion() };
+  if (intent.kind === 'replaceIfVersion') {
+    if (typeof intent.version !== 'string' || intent.version.length === 0) {
+      throw new Error('a replaceIfVersion intent requires the version the read returned');
+    }
+    return { expect_version: intent.version };
+  }
+  throw new Error(`unknown write intent ${JSON.stringify(intent.kind)}: expected createIfAbsent or replaceIfVersion`);
+}
+
+/** `sha256:<hex>` of no bytes — what the door calls the version of a file that is not there. */
+function emptyContentVersion() {
+  return `sha256:${createHash('sha256').update('').digest('hex')}`;
+}
+
+/**
+ * One guarded write through the fs door.
+ *
+ * THE DOOR'S REFUSALS BECOME THE SEAM'S, and the two codes are not interchangeable: a stale version is
+ * `FS_STALE_VERSION`, while `createIfAbsent` meeting an existing file is `FS_NOT_OBSERVED` — the seam's
+ * own word for "something was already there". Both arrive from the door as `FS_VERSION_CONFLICT`,
+ * because the door has one guard; which intent was sent is what tells them apart.
+ */
+export async function writeTextOnAgent({
+  endpoint = DEFAULT_ENDPOINT,
+  token,
+  path,
+  text,
+  intent,
+  host,
+  user,
+  port,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const guard = writeIntentFields(intent);
+  const res = await fetchImpl(`${endpoint}/api/workspace/fs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ op: 'writeText', path, text, ...guard, ...connectionFields({ host, user, port }) }),
+  });
+  const answer = await res.json();
+  if (answer && answer.ok) return { version: answer.version, info: answer.info };
+  const error = new Error(answer?.error || answer?.code || 'the agent refused the write without saying why');
+  error.code =
+    answer?.code === 'FS_VERSION_CONFLICT'
+      ? intent.kind === 'createIfAbsent'
+        ? 'FS_NOT_OBSERVED'
+        : 'FS_STALE_VERSION'
+      : answer?.code || 'FS_IO_ERROR';
+  throw error;
 }
 
 /** Where the staged argv helper lives on a workspace host. Mirrors the agent's own default. */

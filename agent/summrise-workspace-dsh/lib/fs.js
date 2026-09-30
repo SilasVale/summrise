@@ -44,7 +44,7 @@ import {
 
 // THE CONNECTION RULE HAS ONE DEFINITION, in the exec transport: two copies would be two chances for
 // the two doors to disagree about what "half a connection" means.
-import { connectionFields, registerMachineRoot } from './transport.js';
+import { connectionFields, listMachines, registerMachineRoot } from './transport.js';
 
 /** How a DSH deployment names this provider in a profile. */
 export const name = 'summrise-workspace-fs';
@@ -278,6 +278,28 @@ export default class SummriseWorkspaceFileSystem extends FileSystem {
 
   async listDir(target, signal) {
     const path = this.__pathOf(target);
+
+    // AT THE ROOT, THE LISTING IS THE MACHINES. This deployment's machines ARE the registry's mappings (a path
+    // prefix -> a saved connection), so showing them is what turns "add a workspace" into a host picker rather
+    // than a walk through one filesystem. Each row's path is that machine's registered prefix, so entering it
+    // routes through the same registry every door uses — a second, hand-kept host list could disagree with the
+    // routing it feeds, and this one cannot.
+    //
+    // A deployment with NO mappings falls through to the ordinary listing: a single-machine deployment must
+    // still browse, and an unreachable registry is an empty list rather than a throw (see listMachines).
+    if (path === this.__config.root) {
+      const machines = await listMachines({ endpoint: this.__config.endpoint, token: this.__config.token });
+      if (machines.length > 0) {
+        return machines.map((machine) => ({
+          name: `${machine.name}  ·  ${machine.path}`,
+          type: 'directory',
+          target: { targetKey: FsTargetKey(machine.path), displayPath: machine.path },
+          version: makeVersion(`machine:${machine.connectionId}`),
+          size: undefined,
+        }));
+      }
+    }
+
     const answer = await this.__ask('listDir', path, { signal });
     const entries = Array.isArray(answer.entries) ? answer.entries : [];
     return entries.map((entry) => {

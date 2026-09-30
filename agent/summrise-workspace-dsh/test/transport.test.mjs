@@ -14,6 +14,9 @@ import {
   assertSupportedStdio,
   connectionFields,
   execOnAgent,
+  listMachines,
+  writeIntentFields,
+  writeTextOnAgent,
   machineRootMapping,
   makeCollectedReader,
   normalizeOutcome,
@@ -278,4 +281,108 @@ test('a delegated provider registers nothing at all', async () => {
   });
   assert.equal(called, false, 'no host means no machine of its own: the registry decides');
   assert.equal(answer, null);
+});
+
+// ── the machine list: what a picker shows as "which machines can I work on" ──────────────────────
+
+test('listMachines reads the registry and names each machine readably', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return {
+      ok: true,
+      json: async () => ({
+        mappings: [
+          { path: '/home/zhengsaisi', connection_id: 'ssh:zhengsaisi@10.10.61.83:22122' },
+          { path: '/srv/onu', connection_id: 'ssh:stc@192.168.1.1:22' },
+        ],
+      }),
+    };
+  };
+  const machines = await listMachines({ endpoint: 'http://127.0.0.1:18080', token: 't', fetchImpl });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/workspace\/mappings$/);
+  assert.equal(calls[0].init.headers.authorization, 'Bearer t');
+  assert.deepEqual(machines, [
+    { path: '/home/zhengsaisi', name: 'zhengsaisi@10.10.61.83', connectionId: 'ssh:zhengsaisi@10.10.61.83:22122' },
+    { path: '/srv/onu', name: 'stc@192.168.1.1', connectionId: 'ssh:stc@192.168.1.1:22' },
+  ]);
+});
+
+test('an unreachable registry is an EMPTY list, not a throw: a picker with no machines still opens', async () => {
+  const machines = await listMachines({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    fetchImpl: async () => { throw new Error('ECONNREFUSED'); },
+  });
+  assert.deepEqual(machines, []);
+});
+
+test('a registry that answers without mappings yields nothing rather than a crash', async () => {
+  const machines = await listMachines({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+  });
+  assert.deepEqual(machines, []);
+});
+
+// ── the guarded write: the seam's intent, translated into the door's expect_version ──────────────
+
+const EMPTY_SHA = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+test('an intent becomes the expect_version the door requires', () => {
+  // createIfAbsent means "only if nothing is there", and the door spells absence as the hash of no
+  // bytes — the same value its own read of a missing file produces, which is what makes the two agree.
+  assert.deepEqual(writeIntentFields({ kind: 'createIfAbsent' }), { expect_version: EMPTY_SHA });
+  assert.deepEqual(writeIntentFields({ kind: 'replaceIfVersion', version: 'sha256:abc' }), {
+    expect_version: 'sha256:abc',
+  });
+});
+
+test('an OMITTED intent is refused BY NAME: this provider narrows the seam deliberately', () => {
+  // The interface allows an unconditional write ("omitting the intent means unconditional
+  // create-or-overwrite"). This provider does not: every write here goes through a guard, and a caller
+  // that forgot one must learn that rather than discover it as a clobbered file.
+  assert.throws(() => writeIntentFields(undefined), /intent/i);
+  assert.throws(() => writeIntentFields({ kind: 'replaceIfVersion' }), /version/i);
+  assert.throws(() => writeIntentFields({ kind: 'nonsense' }), /intent/i);
+});
+
+test('the write goes to the door with its op, its text and its guard', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) });
+    return { ok: true, json: async () => ({ ok: true, version: 'sha256:new' }) };
+  };
+  const out = await writeTextOnAgent({
+    endpoint: 'http://127.0.0.1:18080',
+    token: 't',
+    path: '/home/z/x',
+    text: 'hello',
+    intent: { kind: 'replaceIfVersion', version: 'sha256:abc' },
+    fetchImpl,
+  });
+  assert.equal(calls[0].url, 'http://127.0.0.1:18080/api/workspace/fs');
+  assert.deepEqual(calls[0].body, {
+    op: 'writeText',
+    path: '/home/z/x',
+    text: 'hello',
+    expect_version: 'sha256:abc',
+  });
+  assert.equal(out.version, 'sha256:new');
+});
+
+test('the door\'s refusals are translated into the SEAM\'s vocabulary', async () => {
+  const refusal = (code) => async () => ({ ok: true, json: async () => ({ ok: false, code, error: 'x' }) });
+  await assert.rejects(
+    () => writeTextOnAgent({ endpoint: 'e', token: 't', path: '/p', text: 'x', intent: { kind: 'replaceIfVersion', version: 'v' }, fetchImpl: refusal('FS_VERSION_CONFLICT') }),
+    (e) => e.code === 'FS_STALE_VERSION',
+  );
+  // createIfAbsent meeting an existing file is NOT a stale version — it is "something was already
+  // observed there", which is the seam's own word for it.
+  await assert.rejects(
+    () => writeTextOnAgent({ endpoint: 'e', token: 't', path: '/p', text: 'x', intent: { kind: 'createIfAbsent' }, fetchImpl: refusal('FS_VERSION_CONFLICT') }),
+    (e) => e.code === 'FS_NOT_OBSERVED',
+  );
 });
