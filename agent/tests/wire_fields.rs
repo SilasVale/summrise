@@ -60,6 +60,19 @@
 //!           `const x = probe.no_such_field_anywhere;` to `gateway/src/device-fetch.ts`.
 //! RESULT:   fails, printing the file, the field name, and the sentence that says which corpus is
 //!           missing it — "the agent's sources and fixtures never spell" for the gateway layer.
+//!
+//! MUTATION: the console layer's NEW HALF, run when the scan learned to read the crate (2026-09-30) —
+//!           add `let _planted = field(&update, "no_such_field_anywhere");` to
+//!           `gateway/ui-logic/src/lib.rs`.
+//! RESULT:   fails, naming the CRATE rather than a TypeScript module: `console-wire-field: 1 field(s)
+//!           the console reads and nothing produces: gateway/ui-logic/src/lib.rs: reads
+//!           "no_such_field_anywhere", which neither the gateway nor any console fixture carries`.
+//!           Reverted after the run; the tree it left is this file's own diff.
+//!
+//! AND THE FLOOR'S PROOF IS THE FAILURE THAT PRODUCED THIS CHANGE: with the crate out of the scan the
+//! same tree read 4 against a floor of 5, and CI's `agent` job failed with "FAIL read only 4 wire
+//! field(s) from the console — the tree moved, so this proves nothing". A gate that cannot notice its
+//! own coverage leaving is the gate this repository keeps re-learning not to trust.
 
 mod common;
 
@@ -285,18 +298,30 @@ const PANEL_LOGIC: [&str; 7] = [
 /// gave it — and THE FIELD RULE IS THE SAME ONE (`is_field_name`: at least one `_`, lowercase and
 /// digits only), so `prop(&detail, "ev")` and `prop(&j, "targets")` are not wire fields here either,
 /// for the same reason they are not in the TypeScript.
-fn prop_reads(text: &str) -> Vec<String> {
+///
+/// THE HELPER'S NAME IS AN ARGUMENT, BECAUSE IT IS NOT THE INVARIANT — THE KEY IS (2026-09-30).
+/// This scanner knew one name (`prop`), and the console's crate reads its keys through two others:
+/// `field(&update, "update_available")` (block ③'s update control) and
+/// `optional(&status, "agent_up")` (the device facts, moved a round earlier). A scanner that only
+/// recognises one spelling stops seeing a surface the moment a family moves into a crate that spells
+/// it differently — which is what the console's floor caught, and it caught it as "the tree moved,
+/// so this proves nothing" rather than as silence, which is the whole reason the floor exists.
+fn key_reads(text: &str, helpers: &[&str]) -> Vec<String> {
     let s: Vec<char> = text.chars().collect();
     let mut out: Vec<String> = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut i = 0;
     while i < s.len() {
-        // `prop(`, and then the FIRST string literal before the call closes — that literal is the key.
-        if !(i + 5 <= s.len() && s[i..i + 5].iter().collect::<String>() == "prop(") {
+        // `helper(`, and then the FIRST string literal before the call closes — that literal is the key.
+        let hit = helpers.iter().find(|h| {
+            let h: Vec<char> = h.chars().collect();
+            i + h.len() < s.len() && s[i..i + h.len()] == h[..] && s[i + h.len()] == '('
+        });
+        let Some(helper) = hit else {
             i += 1;
             continue;
-        }
-        let mut j = i + 5;
+        };
+        let mut j = i + helper.chars().count() + 1;
         while j < s.len() && s[j] != ')' && s[j] != '"' {
             j += 1;
         }
@@ -320,6 +345,16 @@ fn prop_reads(text: &str) -> Vec<String> {
         i = k + 1;
     }
     out
+}
+
+/// The panel's migrated families: one helper name.
+fn prop_reads(text: &str) -> Vec<String> {
+    key_reads(text, &["prop"])
+}
+
+/// The console's migrated families: three, because that crate grew its helpers one family at a time.
+fn console_key_reads(text: &str) -> Vec<String> {
+    key_reads(text, &["field", "optional", "prop"])
 }
 
 /// THE HARNESS'S FIELDS NOW COME FROM TWO FILES (round 270). The emitter builds the page; the stubbed
@@ -425,6 +460,12 @@ fn panel_check() -> Result<String, String> {
 
 // ── LAYER 2: the console's own readers ──────────────────────────────────────────────────────────
 
+/// THE CONSOLE'S RUST — the crate the moved families went into (block ③ of the migration). Named as a
+/// list rather than walked, for the reason the panel's list gives: this gate asks a NARROW question
+/// ("does the gateway spell this name?") and a broad file walk answers a wider one, which round 123
+/// measured on the gateway side and rejected.
+const CONSOLE_LOGIC: [&str; 1] = ["gateway/ui-logic/src/lib.rs"];
+
 fn console_check() -> Result<String, String> {
     // WHAT THE GATEWAY ITSELF SENDS — the producer, and the only source that counts (round 122). The
     // first version also accepted the render smokes and the console sweep, which are FIXTURES: a field
@@ -463,10 +504,45 @@ fn console_check() -> Result<String, String> {
             }
         }
     }
+    // AND THE RUST THAT HAS TAKEN OVER (2026-09-30, block ③) — the same two questions, asked of the
+    // crate this scan could not see. The panel's layer has had this half since its first family moved;
+    // the console's did not, so every read that moved into `gateway/ui-logic` left the count — and the
+    // FLOOR is what said so: "FAIL read only 4 wire field(s) from the console — the tree moved, so
+    // this proves nothing". A floor that refuses when coverage moves is doing its job; the answer is
+    // to follow the code, not to lower the number.
+    //
+    // THE DEVICE FACTS WERE ALREADY OUT OF SIGHT BEFORE THIS: `agent_up` and `tunnel_up` moved with
+    // `deviceState.ts` and this gate stopped counting them the same day, which nothing noticed because
+    // the TypeScript that remained still cleared the floor. Two families later it did not.
+    for rel in CONSOLE_LOGIC {
+        let text = decomment(&read(rel));
+        for field in console_key_reads(&text) {
+            reads += 1;
+            if !spoken(&producers, &field) {
+                missing.push(format!(
+                    "{rel}: reads \"{field}\", which neither the gateway nor any console fixture carries"
+                ));
+            }
+        }
+    }
 
     // A LOWER FLOOR THAN THE PANEL'S, and the reason is a fact about the console: it maps a device
     // answer to camelCase earlier (`deviceState.ts`), so far fewer snake_case reads reach its views.
-    if reads < 5 {
+    //
+    // RE-DERIVED WHEN THE SCAN LEARNED TO SEE THE CRATE (2026-09-30), by this file's own rule rather
+    // than by a convenient number: the count the widened scan produces MINUS the four that round 170
+    // leaves for one deliberate deletion. MEASURED at the commit that widened it — **11**, so the
+    // floor is 7. The halves, measured rather than guessed:
+    //
+    //     TypeScript   4   checked_at · last_boot · last_boot_kind · update_available
+    //     the crate    7   agent_up · at_ms · checked_at · last_attempt · pinned_to · tunnel_up ·
+    //                      update_available
+    //
+    // `checked_at` and `update_available` are in BOTH halves and are counted twice, deliberately: the
+    // scanner de-duplicates per FILE, and the question it asks is per file — "does anything this file
+    // reads go unspelled?" — so a name read in two languages is two reads, not one. Before the
+    // widening the same tree produced 4 from the TypeScript alone, and 4 is what refused.
+    if reads < 7 {
         return Err(format!(
             "FAIL read only {reads} wire field(s) from the console — the tree moved, so this proves nothing"
         ));
@@ -479,9 +555,10 @@ fn console_check() -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "console-wire-field: {reads} field(s) read across {} console module(s) — every one spoken by the gateway ITSELF, \
-         so none of them renders only in a smoke or a sweep fixture",
-        readers.len()
+        "console-wire-field: {reads} field(s) read across {} console module(s) and {} Rust crate file(s) — every one \
+         spoken by the gateway ITSELF, so none of them renders only in a smoke or a sweep fixture",
+        readers.len(),
+        CONSOLE_LOGIC.len()
     ))
 }
 
