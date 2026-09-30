@@ -845,6 +845,9 @@ pub(crate) enum RouteId {
     WorkspaceMappings,
     WorkspaceRegister,
     WorkspaceUnregister,
+    /// WHERE EACH HOST'S HARNESS IS, and whether it answered. The panel's two-pane harness page reads
+    /// this; without it a saved connection says nothing about whether a harness runs on the far side.
+    WorkspaceHarnesses,
     // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
     EventsStream,
     TermStream,
@@ -1141,6 +1144,16 @@ pub(crate) fn routes() -> &'static [Route] {
             method: "POST",
             pattern: Pattern::Exact("/api/workspace/unregister"),
             id: RouteId::WorkspaceUnregister,
+            stage: Stage::DispatchGated,
+        },
+        // One route, three actions, because they are three verbs on ONE table: `probe` fills in what a
+        // measurement found, `configure` points a host at a forward, `forget` drops it. Splitting them into
+        // three paths would mean three route entries and three places for the auth gate to be forgotten,
+        // for a store that holds fewer than a dozen rows.
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/harnesses"),
+            id: RouteId::WorkspaceHarnesses,
             stage: Stage::DispatchGated,
         },
         // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
@@ -1713,6 +1726,7 @@ async fn dispatch(
         Some(RouteId::WorkspaceMappings) => api_workspace_mappings().await,
         Some(RouteId::WorkspaceRegister) => api_workspace_register(body_str).await,
         Some(RouteId::WorkspaceUnregister) => api_workspace_unregister(body_str).await,
+        Some(RouteId::WorkspaceHarnesses) => api_workspace_harnesses(body_str).await,
         // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
         // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
         // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
@@ -2662,6 +2676,119 @@ async fn api_workspace_unregister(body: &str) -> serde_json::Value {
     }
 }
 
+/// WHERE A HOST'S HARNESS IS. `GET` reads the table; `POST` does one of `probe` / `configure` / `forget`.
+///
+/// WHY ONE ROUTE FOR THREE VERBS: the table holds fewer than a dozen rows, and three paths would mean three
+/// entries in the route table and three places for the auth gate to be forgotten. The action is a field, so
+/// an unknown one is refused BY NAME rather than ignored.
+#[cfg(feature = "terminal")]
+async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let action = v.get("action").and_then(|x| x.as_str()).unwrap_or("list");
+    match action {
+        "list" => {
+            let rows: Vec<serde_json::Value> = crate::workspace_harnesses::list()
+                .iter()
+                .map(|h| {
+                    let mut j = serde_json::to_value(h).unwrap_or(serde_json::Value::Null);
+                    if let Some(obj) = j.as_object_mut() {
+                        obj.insert(
+                            "url".into(),
+                            serde_json::json!(crate::workspace_harnesses::url_for(h)),
+                        );
+                    }
+                    j
+                })
+                .collect();
+            serde_json::json!({"ok": true, "harnesses": rows})
+        }
+        "configure" => {
+            let (Some(id), Some(local), Some(remote)) = (
+                v.get("connection_id").and_then(|x| x.as_str()),
+                v.get("local_port").and_then(|x| x.as_u64()),
+                v.get("remote_port").and_then(|x| x.as_u64()),
+            ) else {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": "connection_id, local_port and remote_port are all required",
+                    "code": "invalid_params",
+                });
+            };
+            match crate::workspace_harnesses::configure(id, local as u16, remote as u16) {
+                Ok(()) => serde_json::json!({"ok": true}),
+                Err(e) => {
+                    serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+                }
+            }
+        }
+        "forget" => {
+            let Some(id) = v.get("connection_id").and_then(|x| x.as_str()) else {
+                return serde_json::json!({"ok": false, "error": "connection_id is required", "code": "invalid_params"});
+            };
+            match crate::workspace_harnesses::forget(id) {
+                Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
+                Err(e) => {
+                    serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+                }
+            }
+        }
+        // A PROBE IS NOT A CONFIGURATION. It fills in what a measurement found about a row that already
+        // exists, and the result it records is the SENTENCE the probe ran, so the panel can show what was
+        // observed rather than a verdict. Refusing an unknown action by name is what keeps a typo from
+        // quietly reading as "no harnesses".
+        "probe" => {
+            let Some(id) = v.get("connection_id").and_then(|x| x.as_str()) else {
+                return serde_json::json!({"ok": false, "error": "connection_id is required", "code": "invalid_params"});
+            };
+            let Some(h) = crate::workspace_harnesses::get(id) else {
+                return serde_json::json!({
+                    "ok": false,
+                    "error": format!("no harness is configured for {id}"),
+                    "code": "invalid_params",
+                });
+            };
+            let url = crate::workspace_harnesses::url_for(&h);
+            let client = match reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(4))
+                .build()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    return serde_json::json!({"ok": false, "error": format!("client: {e}"), "code": "internal"})
+                }
+            };
+            let (state, sentence) = match client.get(&url).send().await {
+                // ANY status is a page, and that is the whole point: a harness behind a proxy answers 302
+                // at its front door, and refusing that would report a working harness as a broken one.
+                Ok(r) => {
+                    let code = r.status().as_u16();
+                    let kind = crate::workspace_harnesses::HarnessState::Answering;
+                    (kind, format!("GET {url} -> {code}"))
+                }
+                Err(e) => (
+                    crate::workspace_harnesses::HarnessState::NotAnswering,
+                    format!("GET {url} -> {e}"),
+                ),
+            };
+            crate::workspace_harnesses::record_probe(id, state.clone(), &sentence);
+            serde_json::json!({
+                "ok": true,
+                "state": state.as_str(),
+                "probe": sentence,
+                "checked_ms": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            })
+        }
+        other => serde_json::json!({
+            "ok": false,
+            "error": format!("unknown action {other:?} — expected list, configure, probe or forget"),
+            "code": "invalid_params",
+        }),
+    }
+}
+
 #[cfg(feature = "terminal")]
 async fn api_workspace_fs(body: &str) -> serde_json::Value {
     use base64::Engine as _;
@@ -2814,6 +2941,41 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
 
 /// Without the `terminal` feature there is no SSH client, so this build cannot read a workspace host
 /// — and it says so rather than answering as though it had.
+/// Without the `terminal` feature there is no saved connection to hang a harness on, so this build cannot
+/// have any — and it says so rather than answering with an empty list that reads like "none are up".
+/// Without the `terminal` feature this build has no saved connection for a harness to hang on, so it has
+/// none to configure and none to probe. READING the table still works, and deliberately: it is a local
+/// file of ports and ids, it holds no credential, and `api_workspace_mappings` reads its own table the
+/// same way in this build. Only the verbs that would need a host refuse.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    if v.get("action").and_then(|x| x.as_str()).unwrap_or("list") == "list" {
+        // The REAL list, not a hardcoded empty one: `api_workspace_mappings` reads its own table in this
+        // build for the same reason, and a build that answered `[]` would be claiming there are no hosts
+        // when the file says otherwise.
+        let rows: Vec<serde_json::Value> = crate::workspace_harnesses::list()
+            .iter()
+            .map(|h| {
+                let mut j = serde_json::to_value(h).unwrap_or(serde_json::Value::Null);
+                if let Some(obj) = j.as_object_mut() {
+                    obj.insert(
+                        "url".into(),
+                        serde_json::json!(crate::workspace_harnesses::url_for(h)),
+                    );
+                }
+                j
+            })
+            .collect();
+        return serde_json::json!({"ok": true, "harnesses": rows});
+    }
+    serde_json::json!({
+        "ok": false,
+        "error": "the terminal feature is disabled, so there is no host to point at a harness",
+        "code": "internal",
+    })
+}
+
 #[cfg(not(feature = "terminal"))]
 async fn api_workspace_connections() -> serde_json::Value {
     serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
@@ -2825,8 +2987,23 @@ async fn api_workspace_mappings() -> serde_json::Value {
 }
 
 #[cfg(not(feature = "terminal"))]
-async fn api_workspace_register(_body: &str) -> serde_json::Value {
-    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+async fn api_workspace_register(body: &str) -> serde_json::Value {
+    // It STORES, and that is the point: the table is a local file of paths and connection ids, so a build
+    // with no SSH client can still be told where a path lives. Refusing here would answer a question this
+    // build CAN answer, and `api_workspace_unregister`'s twin below already stores for that reason.
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let (Some(path), Some(connection_id)) = (
+        v.get("path").and_then(|x| x.as_str()),
+        v.get("connection_id").and_then(|x| x.as_str()),
+    ) else {
+        return serde_json::json!({"ok": false, "error": "path and connection_id are required", "code": "invalid_params"});
+    };
+    match crate::workspace_mappings::register(path, connection_id) {
+        Ok(()) => serde_json::json!({"ok": true}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
 }
 
 #[cfg(not(feature = "terminal"))]
@@ -2858,7 +3035,29 @@ async fn api_workspace_fs(_body: &str) -> serde_json::Value {
 /// unconditional, which is this file's convention: a surface that quietly disappears with a feature
 /// is a surface a caller discovers by getting nothing.
 #[cfg(not(feature = "terminal"))]
-async fn api_workspace_exec(_body: &str) -> serde_json::Value {
+async fn api_workspace_exec(body: &str) -> serde_json::Value {
+    // TWO SENTENCES, and the first is the specific one. Every build that has a path table can say WHERE
+    // that path is claimed to live — `resolve` and `contains` are how a prefix is matched — and saying so
+    // turns "this build cannot run a command" into a statement about THIS request. The general sentence
+    // follows for the case where the caller named no path at all, because then there is nothing to check.
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    if let Some(path) = v
+        .get("cwd")
+        .and_then(|x| x.as_str())
+        .filter(|p| !p.is_empty())
+    {
+        if let Some(entry) = crate::workspace_mappings::resolve(path) {
+            return serde_json::json!({
+                "ok": false,
+                "error": format!(
+                    "{} is registered to {}, but this build has no SSH client (the `terminal` feature is \
+                     off), so it cannot run a command there",
+                    entry.path, entry.connection_id
+                ),
+                "code": "internal",
+            });
+        }
+    }
     serde_json::json!({
         "ok": false,
         "error": "this build has no SSH client (the `terminal` feature is off), so it cannot run a \
@@ -9359,6 +9558,127 @@ mod workspace_registry_tests {
     }
 
     /// Removing nothing is a FACT, not an error — and the answer says which one happened.
+    /// The harness store needs its own directory PER TEST, for the reason the mapping tests record: the
+    /// store is one file, `list()` counts what is in it, and these tests run in PARALLEL — a shared
+    /// directory makes one test see another's rows, which is how `a_missing_port_is_refused…` saw a row
+    /// it had not written. Removing the file is not isolation; a distinct path is.
+    fn isolated_harness_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("summrise-harness-door-{}", std::process::id()))
+            .join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    /// One name per test, and the store follows it.
+    fn harness_store_here(name: &str) -> std::path::PathBuf {
+        let dir = isolated_harness_dir(name);
+        crate::workspace_harnesses::use_store_dir(dir.clone());
+        dir.join("summrise-workspace-harnesses.json")
+    }
+
+    /// MUTATION: make `probe` answer `Answering` whatever the request did, and this test sees
+    /// `answering` for a host nothing is listening on — the exact claim the panel read as "tunnel: ok"
+    /// while a remote client got 530.
+    #[tokio::test]
+    async fn a_probe_of_a_dead_forward_says_it_did_not_answer_and_records_the_reason() {
+        let _store = harness_store_here("dead-forward");
+        // Port 1 on loopback: nothing listens there, and the probe's own error is the sentence it records.
+        let j = api_workspace_harnesses(
+            r#"{"action":"configure","connection_id":"ssh:a@b:22","local_port":1,"remote_port":7738}"#,
+        )
+        .await;
+        assert_eq!(j["ok"], true, "got: {j}");
+
+        let probed =
+            api_workspace_harnesses(r#"{"action":"probe","connection_id":"ssh:a@b:22"}"#).await;
+        assert_eq!(probed["ok"], true, "got: {probed}");
+        assert_eq!(
+            probed["state"], "not answering",
+            "a refused connection is not a harness: got {probed}"
+        );
+        let sentence = probed["probe"].as_str().unwrap_or("");
+        assert!(
+            sentence.contains("http://127.0.0.1:1"),
+            "the recorded sentence names what was asked: {sentence:?}"
+        );
+        assert!(probed["checked_ms"]
+            .as_u64()
+            .is_some_and(|ms| ms > 1_600_000_000_000));
+
+        // and the LIST reflects it, so the panel is not reading a different table than the one just written
+        let listed = api_workspace_harnesses(r#"{"action":"list"}"#).await;
+        let row = &listed["harnesses"][0];
+        assert_eq!(row["state"], "not answering");
+        assert_eq!(row["url"], "http://127.0.0.1:1");
+    }
+
+    /// MUTATION: drop the `state` field from the `probe` answer and this test fails — the stamp is what lets
+    /// a reader say HOW OLD the claim is instead of presenting it as current.
+    #[tokio::test]
+    async fn a_freshly_configured_host_is_never_probed_rather_than_assumed_up() {
+        let _store = harness_store_here("re-point");
+        api_workspace_harnesses(
+            r#"{"action":"configure","connection_id":"ssh:a@b:22","local_port":7801,"remote_port":7738}"#,
+        )
+        .await;
+        let listed = api_workspace_harnesses(r#"{"action":"list"}"#).await;
+        let row = &listed["harnesses"][0];
+        assert_eq!(
+            row["state"], "never probed",
+            "configured is not running: got {row}"
+        );
+        assert!(
+            row["checked_ms"].is_null(),
+            "nothing was checked, so nothing is stamped"
+        );
+    }
+
+    /// MUTATION: let `probe` create a row for an unconfigured host and this test sees a host appear that
+    /// nobody pointed anywhere — "we could not reach this" is not a configuration.
+    #[tokio::test]
+    async fn probing_a_host_with_no_forward_is_refused_by_name() {
+        let _store = harness_store_here("never-probed");
+        let j = api_workspace_harnesses(
+            r#"{"action":"probe","connection_id":"ssh:nobody@nowhere:22"}"#,
+        )
+        .await;
+        assert_eq!(j["ok"], false, "got: {j}");
+        let err = j["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("ssh:nobody@nowhere:22"),
+            "the refusal names the host: {err:?}"
+        );
+    }
+
+    /// MUTATION: treat an unknown action as `list` and this test fails — a typo would read as a device with
+    /// no harnesses, which is a thing an operator would go and debug on the host.
+    #[tokio::test]
+    async fn an_unknown_action_is_refused_by_name() {
+        let _store = harness_store_here("no-forward");
+        let j = api_workspace_harnesses(r#"{"action":"probe-all"}"#).await;
+        assert_eq!(j["ok"], false, "got: {j}");
+        assert!(j["error"].as_str().unwrap_or("").contains("probe-all"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_port_is_refused_before_anything_is_written() {
+        let _store = harness_store_here("unknown-action");
+        let j = api_workspace_harnesses(
+            r#"{"action":"configure","connection_id":"ssh:a@b:22","local_port":7801}"#,
+        )
+        .await;
+        assert_eq!(j["ok"], false, "got: {j}");
+        assert!(j["error"].as_str().unwrap_or("").contains("remote_port"));
+        let listed = api_workspace_harnesses(r#"{"action":"list"}"#).await;
+        assert_eq!(
+            listed["harnesses"].as_array().map(|a| a.len()),
+            Some(0),
+            "nothing half-written"
+        );
+    }
+
     #[tokio::test]
     async fn unregistering_nothing_is_a_fact_not_an_error() {
         let _dir = isolated_mapping_dir();
@@ -9421,6 +9741,10 @@ mod workspace_registry_tests {
         assert_eq!(
             route_of("POST", "/api/workspace/unregister"),
             Some(RouteId::WorkspaceUnregister)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/harnesses"),
+            Some(RouteId::WorkspaceHarnesses)
         );
     }
 

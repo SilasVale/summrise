@@ -67,6 +67,12 @@ interface SummriseDesktopBridge {
  *  what address this view may load. */
 interface SummriseDshBridge {
   open: () => Promise<unknown>;
+  /**
+   * SELECT A HOST. The URL must be one of the doors the agent configured (`/api/workspace/harnesses`),
+   * and the main process checks it against that list — so a pane cannot point the view at an address of
+   * its own choosing, and a refusal comes back as `about:blank` rather than as a silent success.
+   */
+  go: (url: string) => Promise<{ ok: boolean; url: string }>;
   place: (bounds: { x: number; y: number; width: number; height: number } | null) => Promise<unknown>;
   state: () => Promise<{ ok: boolean; url?: string; title?: string; visible?: boolean }>;
   reload: () => Promise<unknown>;
@@ -107,7 +113,7 @@ const _desktopComplete: MissingDesktop extends never ? true : never = true;
 void _desktopComplete;
 
 /** The DSH view's manifest, with the same two-way type check. */
-export const DSH_MEMBERS = ["open", "place", "state", "reload", "recover", "onGone"] as const satisfies readonly (keyof SummriseDshBridge)[];
+export const DSH_MEMBERS = ["open", "go", "place", "state", "reload", "recover", "onGone"] as const satisfies readonly (keyof SummriseDshBridge)[];
 type MissingDsh = Exclude<keyof SummriseDshBridge, (typeof DSH_MEMBERS)[number]>;
 const _dshComplete: MissingDsh extends never ? true : never = true;
 void _dshComplete;

@@ -252,7 +252,8 @@ pub mod workspace;
 
 /// Which host a path lives on: the mapping store the workspace doors resolve a request's path against.
 /// NOT feature-gated — it is pure file I/O over one JSON store, and the doors' stub build answers for it too.
-pub mod workspace_mappings;
+pub mod workspace_harnesses;
+mod workspace_mappings;
 
 /// Default config.yaml embedded at compile time.
 pub const DEFAULT_CONFIG_YAML: &str = include_str!("../config.yaml");

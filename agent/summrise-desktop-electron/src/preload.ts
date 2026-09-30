@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld("summriseDsh", {
   open: () => ipcRenderer.invoke("embedded-dsh:open"),
   place: (bounds: { x: number; y: number; width: number; height: number } | null) =>
     ipcRenderer.invoke("embedded-dsh:place", bounds),
+  // SELECTING A HOST: the URL is one of the agent's configured harness doors, and the main process
+  // checks it against that list — the pane cannot point the view at an address of its own choosing.
+  go: (url: string) => ipcRenderer.invoke("embedded-dsh:go", url),
   state: () => ipcRenderer.invoke("embedded-dsh:state"),
   reload: () => ipcRenderer.invoke("embedded-dsh:reload"),
   // Recovery after a renderer crash: the main process force-re-creates the view.
