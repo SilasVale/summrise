@@ -24,6 +24,9 @@ exports.sanitizeBrowserUrl = sanitizeBrowserUrl;
 exports.setDshPort = setDshPort;
 exports.getDshPort = getDshPort;
 exports.dshBase = dshBase;
+exports.addDshPort = addDshPort;
+exports.clearExtraDshPorts = clearExtraDshPorts;
+exports.dshOrigins = dshOrigins;
 exports.isDshUrl = isDshUrl;
 exports.BASE = "http://127.0.0.1:18080";
 exports.BASE_ORIGIN = new URL(exports.BASE).origin;
@@ -228,9 +231,38 @@ function getDshPort() {
 function dshBase() {
     return `http://127.0.0.1:${getDshPort()}`;
 }
+// ── ONE DOOR PER HOST ────────────────────────────────────────────────────────────────────────────────
+// The harness page is two panes: hosts on the left, the SELECTED host's own harness on the right, and
+// each host is reached through its OWN forward on this machine's loopback. So the allow-list is a SET of
+// loopback origins rather than one — and a set of LOOPBACK origins, because a second harness changes
+// which port, never who is allowed. Everything the single-port rule refuses stays refused on every door:
+// a userinfo trick, a sibling-host lookalike, https, and any port nobody added.
+//
+// The agent owns the list (`/api/workspace/harnesses`), so a door exists because a host's forward is
+// configured. The shell does not guess a port and never widens the rule on its own.
+const extraDshPorts = new Set();
+/** The same port range `setDshPort` applies, as a refusal the caller can print rather than a silent skip. */
+function validDshPort(port) {
+    if (!Number.isInteger(port) || port <= 0 || port >= 65536)
+        throw new Error(`not a port: ${port}`);
+}
+function addDshPort(port) {
+    validDshPort(port);
+    extraDshPorts.add(port);
+}
+function clearExtraDshPorts() {
+    extraDshPorts.clear();
+}
+/** Every origin the harness view may load, the primary door first. */
+function dshOrigins() {
+    const ports = new Set([getDshPort()]);
+    for (const port of extraDshPorts)
+        ports.add(port);
+    return [...ports].map((port) => `http://127.0.0.1:${port}`);
+}
 function isDshUrl(url) {
     try {
-        return new URL(url).origin === new URL(dshBase()).origin;
+        return dshOrigins().includes(new URL(url).origin);
     }
     catch {
         return false;
