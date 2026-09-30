@@ -45,6 +45,7 @@ from"** — a question nothing in the system currently answers.
 | **The agent's saved connections** | `agent/src/tools/terminal/connections.rs` — `remember` / `list` / `forget`, stored at `<DataDir>\summrise-connections.json` | id is `kind:target`; the file **does not hold passwords** (its own comment records why: they belong in the keychain, which `agent/src/tools/terminal/secrets.rs` owns) |
 | DSH's workspace API | `@deepseek-ai/dsh-api-workspace-controller` registers `create`, `rename`, `delete`, `createDirectory`, `insertBefore`, … | so a workspace record can be created through DSH's own surface, not by writing `workspace.json` |
 | **A third-party plugin can ship UI** | `@deepseek-ai/dsh-client-modules` resolves `exports["./client"]` for **any** package (`clientExportOf(pkgName, exportsField)`) | so the form can live in DSH's UI without forking DSH |
+| **And there is a named place to put it** | `@deepseek-ai/dsh-client-ui-slots` — `ctx.slots.register(options, component)` and `ctx.slots.inject(name, …)`, which `dsh-client-ui-workspace` itself uses to inject into `sidebar.workspaces` | the workspace flow's extension point is **`sidebar.workspaces.directoryFlow`**, and the `workspace.add` action (Ctrl+Alt+O) *renders whatever is registered there* — it answers `shortcut.noPicker` when the slot is empty. So the form is a slot entry, not a bespoke page |
 | The attach validation reaches the seam | `bf2438af` — the workspace registry patch (`agent/summrise-workspace-dsh/patches/dsh-workspace-registry.mjs`) | a POSIX workspace attaches on a Windows DSH only because of it |
 
 ## 4 · The boundary
@@ -117,7 +118,12 @@ their transports — a *provider*, with no user surface at all):
 | half | what it does |
 |---|---|
 | host (`lib/workspace-registry.js`) | calls the agent on `127.0.0.1:18080` (the endpoint it already knows, from its own config) and exposes three operations to the client half over DSH's RPC: `listConnections()`, `register(path, connectionId)`, `unregister(path)` |
-| client (`client.js`, exported as `exports["./client"]`) | the form: a `<select>` of the agent's connections, a path input, Add/Remove, and the outcome said plainly (registered / refused by name / the agent is down) |
+| client (`client.js`, exported as `exports["./client"]`) | **registers a component into `sidebar.workspaces.directoryFlow`** — the slot the `workspace.add` action renders — so "添加工作区" offers this beside DSH's own local picker. The component is the form: a `<select>` of the agent's connections, a path input, Add/Remove, and the outcome said plainly (registered / refused by name / the agent is down) |
+
+**Registering into that slot, rather than somewhere of our own**, is what makes this "a remote SSH workspace you can
+add to the workspace list" in the operator's sense: the button they already press is the one that grows the new
+option, and on a session-0 service — where the native picker cannot open a dialog at all — it is the only option
+that works.
 
 **Creating the DSH workspace record** is the third call, and it belongs to the client half: it is DSH's own
 `workspace/create`, and the plugin is already inside DSH.
