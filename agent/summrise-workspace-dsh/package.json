@@ -25,5 +25,10 @@
     "@deepseek-ai/cordis": {
       "optional": true
     }
-  }
+  },
+  "files": [
+    "lib/",
+    "patches/",
+    "README.md"
+  ]
 }
