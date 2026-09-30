@@ -243,6 +243,121 @@ pub struct FsText {
     pub version: String,
 }
 
+/// One file's text after a successful write, and the version that write produced.
+#[derive(Debug)]
+pub struct FsWrite {
+    pub info: FsInfo,
+    /// `sha256:<hex>` over the bytes WRITTEN — the token a later write must present.
+    pub version: String,
+}
+
+/// The per-path write locks. One process owns every write that goes through this agent, so an
+/// in-process lock is sufficient — and it is REQUIRED rather than nice: the guard is
+/// read-version-then-write, and two writers interleaving there would each see the version they
+/// expected and one of them would lose its edit silently.
+fn write_locks() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
+> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// The lock for one path, created on first use.
+fn lock_for(path: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut map = write_locks().lock().unwrap_or_else(|e| e.into_inner());
+    map.entry(path.to_string())
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+/// Write one whole text file, but only if it is still what the caller read.
+///
+/// THE GUARD IS THE FEATURE. `expect_version` is the `sha256:` token `fs_read_text` returned; a
+/// mismatch is `workspace/version-conflict` carrying the version that IS there, so a caller can
+/// re-read and retry instead of discovering later that it overwrote somebody's edit. The read, the
+/// compare and the publish happen under a per-path lock, which is what closes the window between
+/// them.
+///
+/// THE PUBLISH IS A RENAME, NOT A TRUNCATE. Writing the target in place leaves a half-written file
+/// if anything fails mid-transfer; this writes a sibling temp and renames over the target. SFTP's
+/// own `rename` is specified to FAIL when the target exists, so the ATOMIC replace is OpenSSH's
+/// `posix-rename@openssh.com` extension; a server without it gets remove-then-rename, which has a
+/// window and says so in the error it would raise.
+pub async fn fs_write_text(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    text: &str,
+    expect_version: &str,
+) -> Result<FsWrite, FsError> {
+    let _guard = lock_for(path).lock_owned().await;
+
+    // What is there NOW, as bytes: the version is over the bytes, so the compare is over the bytes.
+    let current = match sftp.read(path).await {
+        Ok(bytes) => format!("sha256:{}", sha256_hex(&bytes)),
+        // A file that is not there yet can only be created by a caller that SAID so — presenting the
+        // empty-content version, which is what a read of an absent file would have produced.
+        Err(_) => format!("sha256:{}", sha256_hex(&[])),
+    };
+    if current != expect_version {
+        return Err(FsError::new(
+            "FS_VERSION_CONFLICT",
+            format!("{path} is not the content this write expected (it is {current})"),
+        ));
+    }
+
+    let tmp = format!("{path}.summrise-write-{}", std::process::id());
+    let mut file = sftp
+        .create(&tmp)
+        .await
+        .map_err(|e| FsError::io(&tmp, "create", e))?;
+    use tokio::io::AsyncWriteExt as _;
+    file.write_all(text.as_bytes())
+        .await
+        .map_err(|e| FsError::io(&tmp, "write", e))?;
+    file.shutdown()
+        .await
+        .map_err(|e| FsError::io(&tmp, "close", e))?;
+
+    // THE REPLACE, WITHOUT posix-rename — WHICH THIS CRATE CANNOT REACH. OpenSSH's `SSH_FXP_RENAME`
+    // REFUSES when the target exists (that refusal is why `posix-rename@openssh.com` exists), and the
+    // high-level `SftpSession` exposes only that one: the raw session that carries `extended` is a
+    // private field with no accessor. So the replace is three renames rather than one:
+    //
+    //   target -> backup      (the content is now in the backup, never gone)
+    //   tmp    -> target      (the new content is in place)
+    //   backup -> removed
+    //
+    // WHAT THIS COSTS, said rather than implied: between the first and the second rename the target
+    // does not exist, so a reader in that instant sees "no such file" rather than old-or-new content.
+    // It is not a torn file and nothing is LOST — if the process dies mid-way, the content is in the
+    // backup beside the target. A host whose server offers posix-rename would close even that gap;
+    // reaching it needs a raw session this crate does not hand out.
+    let backup = format!("{path}.summrise-old-{}", std::process::id());
+    let _ = sftp.remove_file(&backup).await;
+    let had_target = sftp.rename(path, &backup).await.is_ok();
+    if let Err(e) = sftp.rename(&tmp, path).await {
+        // PUT IT BACK. A failed publish must not leave the caller's file missing.
+        if had_target {
+            let _ = sftp.rename(&backup, path).await;
+        }
+        let _ = sftp.remove_file(&tmp).await;
+        return Err(FsError::io(path, "rename into place", e));
+    }
+    if had_target {
+        let _ = sftp.remove_file(&backup).await;
+    }
+
+    let info = fs_stat(sftp, path, true)
+        .await?
+        .ok_or_else(|| FsError::new("FS_IO_ERROR", format!("{path} is gone after the write")))?;
+    Ok(FsWrite {
+        info,
+        version: format!("sha256:{}", sha256_hex(text.as_bytes())),
+    })
+}
+
 fn fs_kind(metadata: &russh_sftp::protocol::FileAttributes) -> FsKind {
     // `is_*` lives on the FileType the attributes report, not on the attributes themselves.
     let kind = metadata.file_type();
