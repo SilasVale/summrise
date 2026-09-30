@@ -342,6 +342,14 @@
      that needs 140 — and the canvas keeps the full 320 for a top bar whose own minimum is 189. Nothing is unreachable,
      nothing is drawn over anything, and no new control has to exist for a keyboard or touch user to find. */
   #shell-main { flex-direction: column; }
-  #icon-rail { flex: 0 0 auto; flex-direction: row; justify-content: flex-start; }
+  /* …AND THE STRIP NEEDS THE SCROLLER BACK (the harness page, round 4 of the standing goal). Round 35 made the
+     shrunken rail a scroller "so nothing spilled"; round 39 replaced it with this full-width strip because the
+     rail's 140px of content fitted the 320 available — measured then, and true then. A SEVENTH PAGE makes it
+     356, so the strip spills 36px past its own box and the document scrolls sideways: `reflow @320px: content is
+     spilling out of its own box — nav 320<356`, caught by CI's design job and reproduced locally with the sweep's
+     own reflow pass (`320:SCROLLS/1sc/0over/1sp/0cl`). `overflow-x: auto` is the round-35 cure and the judge
+     already tolerates a side-scroller (its panel baseline reads `320:ok/2sc/0over/0sp/0cl`); `#context-rail` below
+     has carried both axes since round 39, so this only makes the two rails agree. */
+  #icon-rail { flex: 0 0 auto; flex-direction: row; justify-content: flex-start; overflow-x: auto; }
   #context-rail { flex: 0 0 auto; width: 100%; max-height: 40vh; overflow-y: auto; overflow-x: auto; }
 }
