@@ -57,6 +57,16 @@ const UNPINNED: Record<string, string> = {
   "/api/monitors/remove": "a POST; same",
   "/api/tools/agent_update": "a POST through the tool route; the tool contract is the spec snapshot's",
   "/api/tools/terminal_saved_connections": "a POST through the tool route; same",
+  // ADDING A MACHINE goes through the tool route, and for a reason worth naming: a successful `terminal_open`
+  // is what SAVES a connection, and connecting is the only thing that proves the credentials work before a
+  // workspace depends on them. The tool contracts themselves are the spec snapshot's business.
+  "/api/tools/terminal_open": "a POST through the tool route; the tool contract is the spec snapshot's",
+  "/api/tools/terminal_close": "a POST through the tool route; it only ends the session the add opened",
+  // THE WORKSPACES PAGE reads the fs door to BROWSE a machine, and what is pinned there is the REFUSALS (the
+  // door's own tests name every op it will not do). The entry shape a listing returns is not pinned by anything —
+  // the page reads only `name` and `kind`, and a rename of either would show as an empty browser rather than as a
+  // failure, which is exactly the kind of silence this list exists to name.
+  "/api/workspace/fs": "refusals are pinned by the door's tests; the listing's entry shape is NOT — the page reads name/kind only",
   "/api/plugins/playwright/${which}": "a POST through a parameterised route",
   "/api/sessions/${encodeURIComponent(sid)}":
     "a session's audit trail; the EVENTS inside it are the trajectory contract and the session row is pinned by session-row.json",

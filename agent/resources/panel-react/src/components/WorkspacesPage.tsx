@@ -1,18 +1,22 @@
-// WorkspacesPage — ADD A WORKSPACE ON A REMOTE HOST, from the UI.
+// WorkspacesPage — ADD A LINUX MACHINE, then every path on it is a workspace.
 //
-// WHY IT IS HERE AND NOT IN DSH. The first design put this form in DSH's own UI, in the
-// `sidebar.workspaces.directoryFlow` slot the "add workspace" action renders. That route is blocked by a
-// measured wall: a third-party package CAN ship a DSH client half, but the client-to-host channel is typert,
-// whose method discovery reads a COMPILER-INJECTED prototype descriptor — hand-written JS would have to write
-// that descriptor itself, and no plugin-facing route seam on DSH's HTTP server was found either.
+// THE OPERATOR'S OWN MODEL, twice over. First: "工作区不能添加linux主机啊" — the page could only pick from
+// connections the agent had ALREADY saved, so a host nobody had opened a terminal to could not be added at all.
+// Now the page takes a host, a user and a credential, connects ONCE (a successful `terminal_open` is what saves a
+// connection), closes that session, and registers the machine.
 //
-// The panel has none of those problems and one advantage: it is served by the agent, so it is the SAME ORIGIN
-// as the registry. Adding a workspace is one authenticated call, and this page is that call with a form on it.
+// Second: "添加linux机器后里面的工作区可以任意添加" — and the store already works that way. A mapping is a PATH
+// PREFIX and the longest matching prefix wins, so registering `/` against a connection makes EVERY path on that
+// host resolvable. Measured on the device: after registering `/`, `/tmp`, `/etc` and
+// `/home/zhengsaisi/summrise/agent` all ran, none of them registered individually.
 //
-// THE THREE STATES THAT MATTER, and none of them is an empty list pretending to be an answer:
-//   * loading            — nobody has checked yet
-//   * the agent refused  — its own words, verbatim: a refusal is the most useful thing on this page
-//   * the agent is down  — SAID, because "no connections" and "nobody asked" are different facts
+// WHY THE PANEL AND NOT DSH'S OWN UI: DSH's client half reaches its host half through typert, whose method
+// discovery reads a compiler-injected prototype descriptor, and no plugin-facing route seam on DSH's HTTP server
+// was found. The panel is served BY the agent, so it is the same origin as the registry.
+//
+// AND THE HONEST LIMIT, said on the page rather than implied: this page decides WHICH HOST a path lives on. The
+// workspace list inside DSH is DSH's own — its picker is switched to the in-app browser variant on this device, so
+// "add workspace" there works, and the paths below are what it can offer.
 import { useCallback, useEffect, useState } from "react";
 import { callApi } from "../lib/api";
 import { useAck } from "../lib/useAck";
@@ -29,16 +33,27 @@ interface Mapping {
   connection_id: string;
 }
 
+interface Entry {
+  name: string;
+  kind?: string;
+}
+
+/** A machine's registered root: the prefix that makes everything under it resolvable. */
+const MACHINE_ROOT = "/";
+
 export function WorkspacesPage() {
-  const [connections, setConnections] = useState<Connection[] | null>(null);
+  const [machines, setMachines] = useState<Connection[] | null>(null);
   const [mappings, setMappings] = useState<Mapping[] | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
-  const [connectionId, setConnectionId] = useState("");
-  const [path, setPath] = useState("");
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
-  // THE PANEL'S OWN ACKNOWLEDGEMENT MECHANISM, not a hand-kept flag: `run` paints `data-busy` on the control
-  // while the call is in flight, which is the only reason the design sweep can SEE that a press was
-  // acknowledged. A private boolean would work and be invisible.
+  const [browsing, setBrowsing] = useState<{ connectionId: string; path: string; entries: Entry[] } | null>(null);
+  const [host, setHost] = useState("");
+  const [user, setUser] = useState("");
+  const [port, setPort] = useState("22");
+  const [keyPath, setKeyPath] = useState("");
+  const [password, setPassword] = useState("");
+  // THE PANEL'S OWN ACKNOWLEDGEMENT MECHANISM, not a hand-kept flag: `run`/`ack` paint `data-busy` while a call
+  // is in flight, which is the only reason the design sweep can SEE that a press was acknowledged.
   const { busy, ack, run } = useAck();
 
   const load = useCallback(async () => {
@@ -47,14 +62,13 @@ export function WorkspacesPage() {
         callApi("/api/workspace/connections"),
         callApi("/api/workspace/mappings"),
       ]);
-      // A WORKSPACE IS A POSIX HOST: a pty or a serial line cannot be one, so offering them would be
-      // offering a choice that cannot work.
-      setConnections(((c?.connections ?? []) as Connection[]).filter((x) => x.kind === "ssh"));
+      // A WORKSPACE IS A POSIX HOST: a pty or a serial line cannot be one.
+      setMachines(((c?.connections ?? []) as Connection[]).filter((x) => x.kind === "ssh"));
       setMappings((m?.mappings ?? []) as Mapping[]);
       setUnreachable(null);
     } catch (e) {
       setUnreachable(e instanceof Error ? e.message : String(e));
-      setConnections(null);
+      setMachines(null);
       setMappings(null);
     }
   }, []);
@@ -63,112 +77,140 @@ export function WorkspacesPage() {
     void load();
   }, [load]);
 
-  const add = useCallback(async () => {
-    if (!connectionId || !path.trim()) return;
-    setOutcome(null);
-    await run("add", async () => {
-      try {
+  const register = useCallback(
+    async (key: string, connectionId: string, path: string, what: string) => {
+      await run(key, async () => {
         const j = await callApi("/api/workspace/register", {
           method: "POST",
-          body: JSON.stringify({ path: path.trim(), connection_id: connectionId }),
+          body: JSON.stringify({ path, connection_id: connectionId }),
         });
-        // THE AGENT'S OWN WORDS, verbatim. `workspace/unknown-connection` and its message are the whole reason
-        // this form is usable: they say WHICH connection is missing, and a generic failure would not.
+        // THE AGENT'S OWN WORDS, verbatim: `workspace/unknown-connection` says WHICH connection is missing.
         setOutcome(
           j?.ok
-            ? { ok: true, text: `registered ${path.trim()}` }
+            ? { ok: true, text: `${what} — ${path}` }
             : { ok: false, text: j?.error || j?.code || "the agent refused without saying why" },
         );
         await load();
-      } catch (e) {
-        setOutcome({ ok: false, text: e instanceof Error ? e.message : String(e) });
-      }
-    });
-  }, [connectionId, path, load, run]);
-
-  const remove = useCallback(
-    async (p: string) => {
-      setOutcome(null);
-      await run(`remove:${p}`, async () => {
-        try {
-          const j = await callApi("/api/workspace/unregister", {
-            method: "POST",
-            body: JSON.stringify({ path: p }),
-          });
-          setOutcome(
-            j?.ok
-              ? { ok: true, text: j.removed ? `removed ${p}` : `${p} was not registered` }
-              : { ok: false, text: j?.error || j?.code || "the agent refused without saying why" },
-          );
-          await load();
-        } catch (e) {
-          setOutcome({ ok: false, text: e instanceof Error ? e.message : String(e) });
-        }
       });
     },
     [load, run],
   );
 
+  const unregister = useCallback(
+    async (path: string) => {
+      await run(`remove:${path}`, async () => {
+        const j = await callApi("/api/workspace/unregister", {
+          method: "POST",
+          body: JSON.stringify({ path }),
+        });
+        setOutcome(
+          j?.ok
+            ? { ok: true, text: j.removed ? `removed ${path}` : `${path} was not registered` }
+            : { ok: false, text: j?.error || j?.code || "the agent refused without saying why" },
+        );
+        await load();
+      });
+    },
+    [load, run],
+  );
+
+  const listDir = useCallback(
+    async (connectionId: string, path: string) => {
+      await run(`browse:${path}`, async () => {
+        const j = await callApi("/api/workspace/fs", {
+          method: "POST",
+          body: JSON.stringify({ op: "listDir", path }),
+        });
+        if (j?.ok) setBrowsing({ connectionId, path, entries: (j.entries ?? []) as Entry[] });
+        else setOutcome({ ok: false, text: j?.error || j?.code || "the agent refused without saying why" });
+      });
+    },
+    [run],
+  );
+
+  /**
+   * ADD A MACHINE. A successful `terminal_open` is what SAVES a connection, so this connects once with the
+   * credentials given, closes that session again, and registers the machine. The connect is not a formality: it
+   * is the only thing that proves the credentials work before a workspace depends on them.
+   */
+  const addMachine = useCallback(async () => {
+    const h = host.trim();
+    const u = user.trim();
+    const p = port.trim() || "22";
+    if (!h || !u) return;
+    await run("add-machine", async () => {
+      const target = `${u}@${h}:${p}`;
+      try {
+        // THE LITERAL TOOL ROUTE, which is how this panel already calls tools (ConnModal, UpdateCard) and the
+        // only form the route-coverage gate can see. A successful open is what SAVES the connection.
+        const opened = await callApi("/api/tools/terminal_open", {
+          method: "POST",
+          body: JSON.stringify({
+            kind: "ssh",
+            target,
+            ...(keyPath.trim() ? { key_path: keyPath.trim() } : {}),
+            ...(password ? { password } : {}),
+            rows: 24,
+            cols: 80,
+          }),
+        });
+        if (opened && opened.ok === false) {
+          setOutcome({ ok: false, text: opened.error || "the agent refused the connection" });
+          return;
+        }
+        const res = opened?.result ?? opened;
+        const sid = typeof res === "string" ? res : res?.session_id || res?.sessionId || res?.id || null;
+        if (sid) {
+          try {
+            await callApi("/api/tools/terminal_close", {
+              method: "POST",
+              body: JSON.stringify({ session_id: sid }),
+            });
+          } catch {
+            /* a session left open is not a reason to fail the add */
+          }
+        }
+        const id = `ssh:${target}`;
+        const j = await callApi("/api/workspace/register", {
+          method: "POST",
+          body: JSON.stringify({ path: MACHINE_ROOT, connection_id: id }),
+        });
+        setOutcome(
+          j?.ok
+            ? { ok: true, text: `added ${target} — every path on it is a workspace now` }
+            : { ok: false, text: j?.error || j?.code || "connected, but the registry refused it" },
+        );
+        setPassword("");
+        await load();
+      } catch (e) {
+        // The agent's own words: an auth failure or an unreachable host says what it was.
+        setOutcome({ ok: false, text: e instanceof Error ? e.message : String(e) });
+      }
+    });
+  }, [host, user, port, keyPath, password, load, run]);
+
+  /** The mapping that makes a machine's whole filesystem resolvable, if it is registered. */
+  const rootOf = (id: string) => (mappings ?? []).find((m) => m.connection_id === id && m.path === MACHINE_ROOT);
+  const pathsOf = (id: string) =>
+    (mappings ?? []).filter((m) => m.connection_id === id && m.path !== MACHINE_ROOT).map((m) => m.path);
+
   return (
     <div className="workspaces-page">
       <h1 className="sr-only">Workspaces</h1>
       <p className="workspaces-lede">
-        A workspace is a path on a host this device can reach. Files and commands for that path go to
-        that host — the connection is one the agent already saved, and its credentials never leave the
-        agent.
+        Add a Linux machine once — every path on it is a workspace after that. The connection is saved by the
+        agent (the same store its terminals use), and the credentials never leave it.
       </p>
 
       {unreachable ? (
         <div className="workspaces-unreachable" role="status">
           <strong>The agent did not answer</strong>
           <span className="workspaces-note">
-            {unreachable} — so this page cannot say which connections exist. That is not the same fact as
+            {unreachable} — so this page cannot say which machines exist. That is not the same fact as
             &ldquo;there are none&rdquo;.
           </span>
         </div>
       ) : null}
-
-      <div className="workspaces-form">
-        <label className="workspaces-field">
-          <span>Connection</span>
-          <select
-            value={connectionId}
-            onChange={(e) => setConnectionId(e.target.value)}
-            aria-label="Connection"
-          >
-            <option value="">
-              {connections === null
-                ? "…"
-                : connections.length === 0
-                  ? "no saved ssh connection yet"
-                  : "pick a saved ssh connection"}
-            </option>
-            {(connections ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label || c.target || c.id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="workspaces-field">
-          <span>Path on that host</span>
-          <input
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="/home/you/project"
-            aria-label="Path on that host"
-            spellCheck={false}
-          />
-        </label>
-        <button
-          className="btn btn-primary btn-mini"
-          onClick={() => void add()}
-          disabled={busy || !connectionId || !path.trim()}
-          {...ack("add")}
-        >
-          Add workspace
-        </button>
-      </div>
 
       {outcome ? (
         <p className={outcome.ok ? "workspaces-outcome" : "workspaces-outcome error"} role="status">
@@ -176,28 +218,156 @@ export function WorkspacesPage() {
         </p>
       ) : null}
 
-      <h2 className="workspaces-heading">Registered</h2>
-      {mappings === null ? (
+      <h2 className="workspaces-heading">Add a machine</h2>
+      <div className="workspaces-form">
+        <label className="workspaces-field">
+          <span>Host</span>
+          <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.10.61.83" aria-label="Host" spellCheck={false} />
+        </label>
+        <label className="workspaces-field">
+          <span>User</span>
+          <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="root" aria-label="User" spellCheck={false} />
+        </label>
+        <label className="workspaces-field">
+          <span>Port</span>
+          <input value={port} onChange={(e) => setPort(e.target.value)} aria-label="Port" inputMode="numeric" />
+        </label>
+        <label className="workspaces-field">
+          <span>Private key path on THIS device</span>
+          <input value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="C:\\ProgramData\\Summrise\\key" aria-label="Private key path on THIS device" spellCheck={false} />
+        </label>
+        <label className="workspaces-field">
+          <span>…or a password</span>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="…or a password" />
+        </label>
+        <button
+          className="btn btn-primary btn-mini"
+          onClick={() => void addMachine()}
+          disabled={busy || !host.trim() || !user.trim()}
+          {...ack("add-machine")}
+        >
+          Connect and add
+        </button>
+      </div>
+
+      <h2 className="workspaces-heading">Machines</h2>
+      {machines === null ? (
         <p className="workspaces-note">{unreachable ? "not read" : "reading…"}</p>
-      ) : mappings.length === 0 ? (
-        <p className="workspaces-note">None yet.</p>
+      ) : machines.length === 0 ? (
+        <p className="workspaces-note">None yet — add one above.</p>
       ) : (
-        <ul className="workspaces-list">
-          {mappings.map((m) => (
-            <li key={m.path} className="workspaces-row">
-              <code className="workspaces-path">{m.path}</code>
-              <span className="workspaces-conn">{m.connection_id}</span>
-              <button
-                className="btn btn-mini"
-                onClick={() => void remove(m.path)}
-                disabled={busy}
-                aria-label={`Remove ${m.path}`}
-                {...ack(`remove:${m.path}`)}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
+        <ul className="workspaces-machines">
+          {machines.map((m) => {
+            const root = rootOf(m.id);
+            const paths = pathsOf(m.id);
+            return (
+              <li key={m.id} className="workspaces-machine">
+                <div className="workspaces-machine-head">
+                  <code className="workspaces-machine-name">{m.label || m.target || m.id}</code>
+                  {root ? (
+                    <span className="workspaces-machine-state">
+                      added — every path on it works
+                      <button
+                        className="btn btn-mini"
+                        onClick={() => void unregister(MACHINE_ROOT)}
+                        disabled={busy}
+                        aria-label={`Remove ${m.id}`}
+                        {...ack(`remove:${MACHINE_ROOT}`)}
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      className="btn btn-primary btn-mini"
+                      onClick={() => void register(`add:${m.id}`, m.id, MACHINE_ROOT, "added this machine")}
+                      disabled={busy}
+                      aria-label={`Add ${m.id}`}
+                      {...ack(`add:${m.id}`)}
+                    >
+                      Add this machine
+                    </button>
+                  )}
+                </div>
+
+                {root ? (
+                  <>
+                    {paths.length > 0 ? (
+                      <ul className="workspaces-paths">
+                        {paths.map((p) => (
+                          <li key={p} className="workspaces-row">
+                            <code className="workspaces-path">{p}</code>
+                            <button
+                              className="btn btn-mini"
+                              onClick={() => void unregister(p)}
+                              disabled={busy}
+                              aria-label={`Remove ${p}`}
+                              {...ack(`remove:${p}`)}
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <button
+                      className="btn btn-mini"
+                      onClick={() => void listDir(m.id, browsing?.connectionId === m.id ? browsing.path : "/")}
+                      disabled={busy}
+                      aria-label={`Browse ${m.id}`}
+                    >
+                      {browsing?.connectionId === m.id ? "Reload this folder" : "Browse…"}
+                    </button>
+                  </>
+                ) : (
+                  <p className="workspaces-browse-note">
+                    Add the machine first — browsing it needs the path to resolve, and that is what adding it does.
+                  </p>
+                )}
+
+                {browsing && browsing.connectionId === m.id ? (
+                  <div className="workspaces-browser">
+                    <div className="workspaces-crumbs">
+                      <code className="workspaces-path">{browsing.path}</code>
+                      <button
+                        className="btn btn-mini"
+                        onClick={() => void register(`pin:${browsing.path}`, m.id, browsing.path, "pinned")}
+                        disabled={busy}
+                        aria-label={`Use ${browsing.path}`}
+                        {...ack(`pin:${browsing.path}`)}
+                      >
+                        Use this folder
+                      </button>
+                      {browsing.path !== "/" ? (
+                        <button
+                          className="btn btn-mini"
+                          onClick={() => void listDir(m.id, browsing.path.replace(/\/[^/]+\/?$/, "") || "/")}
+                          disabled={busy}
+                        >
+                          Up
+                        </button>
+                      ) : null}
+                    </div>
+                    <ul className="workspaces-entries">
+                      {browsing.entries
+                        .filter((e) => e.kind === "dir")
+                        .map((e) => (
+                          <li key={e.name}>
+                            <button
+                              className="workspaces-entry-dir"
+                              onClick={() => void listDir(m.id, `${browsing.path.replace(/\/$/, "")}/${e.name}`)}
+                              disabled={busy}
+                            >
+                              {e.name}/
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

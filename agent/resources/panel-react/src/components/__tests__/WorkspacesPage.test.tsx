@@ -1,10 +1,12 @@
-// WorkspacesPage pins — the page that turns the registry into something a person can use.
+// WorkspacesPage pins — ADD A MACHINE, then every path on it is a workspace.
 //
-// WHAT IT PINS: the states that matter (loading, the agent's own refusal VERBATIM, the agent not answering at
-// all), that only SSH connections are offered, and that Add/Remove call the endpoints the registry exposes.
+// WHAT IT PINS: that adding a machine CONNECTS ONCE (a successful `terminal_open` is what saves a connection,
+// and it is the only thing that proves the credentials work before a workspace depends on them), that the session
+// is closed again, that the machine's root is registered, that browsing lists DIRECTORIES, and the three states
+// that are not each other — loading, the agent's refusal verbatim, and the agent not answering at all.
 //
-// WHAT IT CANNOT PIN: the layout — jsdom has no layout, so this is behaviour only. The rendered page is a
-// device's to see.
+// WHAT IT CANNOT PIN: the layout (jsdom has none) and the real connect (no sshd here) — the device is where that
+// was measured.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { callApi } from "../../lib/api";
@@ -14,91 +16,126 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   callApi: vi.fn(),
 }));
-const mockCallApi = callApi as unknown as ReturnType<typeof vi.fn>;
+const mockApi = callApi as unknown as ReturnType<typeof vi.fn>;
+
+const SSH = { id: "ssh:zhengsaisi@10.10.61.83:22122", kind: "ssh", label: "10.10.61.83" };
 
 /** The two GETs the page opens with, plus whatever the test adds. */
-function apiWith({ connections, mappings }: { connections: unknown[]; mappings: unknown[] }) {
-  mockCallApi.mockImplementation((path: string) => {
+function reads({ connections = [], mappings = [] }: { connections?: unknown[]; mappings?: unknown[] }) {
+  mockApi.mockImplementation((path: string) => {
     if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections });
     if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings });
+    // A tool route answers `{ok, result}`; the open's result IS the session id, and without one the page
+    // correctly skips the close — which a mock returning a bare `{ok:true}` used to hide.
+    if (path === "/api/tools/terminal_open") return Promise.resolve({ ok: true, result: "term-abc-0" });
     return Promise.resolve({ ok: true });
   });
 }
 
 describe("WorkspacesPage", () => {
   beforeEach(() => {
-    mockCallApi.mockReset();
+    mockApi.mockReset();
   });
 
-  it("offers only SSH connections, because a pty or a serial line cannot be a workspace", async () => {
-    apiWith({
-      connections: [
-        { id: "pty:powershell", kind: "pty", label: "powershell" },
-        { id: "ssh:zhengsaisi@10.10.61.83:22122", kind: "ssh", label: "10.10.61.83" },
-      ],
-      mappings: [],
+  it("adds a machine by CONNECTING once, closing that session, and registering its root", async () => {
+    reads({ connections: [], mappings: [] });
+    render(<WorkspacesPage />);
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "10.10.61.83" } });
+    fireEvent.change(screen.getByLabelText("User"), { target: { value: "zhengsaisi" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "22122" } });
+    fireEvent.change(screen.getByLabelText("Private key path on THIS device"), {
+      target: { value: "C:\\ProgramData\\Summrise\\ws-key" },
     });
-    render(<WorkspacesPage />);
-    await waitFor(() => expect(screen.getByLabelText("Connection")).toBeTruthy());
-    const options = Array.from(screen.getByLabelText("Connection").querySelectorAll("option")).map(
-      (o) => o.getAttribute("value"),
-    );
-    expect(options).toContain("ssh:zhengsaisi@10.10.61.83:22122");
-    expect(options).not.toContain("pty:powershell");
-  });
+    fireEvent.click(screen.getByRole("button", { name: "Connect and add" }));
 
-  it("shows the agent's refusal VERBATIM — a named refusal is the most useful thing on the page", async () => {
-    apiWith({ connections: [{ id: "ssh:a@h:22", kind: "ssh" }], mappings: [] });
-    mockCallApi.mockImplementation((path: string) => {
-      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [{ id: "ssh:a@h:22", kind: "ssh" }] });
-      if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [] });
-      return Promise.resolve({
-        ok: false,
-        code: "workspace/unknown-connection",
-        error: 'no saved connection "ssh:a@h:22"',
-      });
-    });
-    render(<WorkspacesPage />);
-    await waitFor(() => expect(screen.getByLabelText("Path on that host")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "ssh:a@h:22" } });
-    fireEvent.change(screen.getByLabelText("Path on that host"), { target: { value: "/srv/x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add workspace" }));
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain('no saved connection "ssh:a@h:22"'),
-    );
-  });
-
-  it("says the agent did not answer instead of drawing an empty list as 'there are none'", async () => {
-    mockCallApi.mockRejectedValue(new Error("unauthorized"));
-    render(<WorkspacesPage />);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("did not answer"));
-    expect(screen.queryByText("None yet.")).toBeNull();
-  });
-
-  it("Add registers the path against the chosen connection", async () => {
-    apiWith({ connections: [{ id: "ssh:a@h:22", kind: "ssh" }], mappings: [] });
-    render(<WorkspacesPage />);
-    await waitFor(() => expect(screen.getByLabelText("Path on that host")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "ssh:a@h:22" } });
-    fireEvent.change(screen.getByLabelText("Path on that host"), { target: { value: "/srv/x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add workspace" }));
-    await waitFor(() =>
-      expect(mockCallApi).toHaveBeenCalledWith("/api/workspace/register", {
+      expect(mockApi).toHaveBeenCalledWith("/api/tools/terminal_open", {
         method: "POST",
-        body: JSON.stringify({ path: "/srv/x", connection_id: "ssh:a@h:22" }),
+        body: JSON.stringify({
+          kind: "ssh",
+          target: "zhengsaisi@10.10.61.83:22122",
+          key_path: "C:\\ProgramData\\Summrise\\ws-key",
+          rows: 24,
+          cols: 80,
+        }),
+      }),
+    );
+    // the session it opened is closed again: adding a machine is not leaving a terminal behind
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith("/api/tools/terminal_close", {
+        method: "POST",
+        body: JSON.stringify({ session_id: "term-abc-0" }),
+      }),
+    );
+    // and the ROOT is what gets registered — that is what makes every path on the machine resolvable
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith("/api/workspace/register", {
+        method: "POST",
+        body: JSON.stringify({ path: "/", connection_id: "ssh:zhengsaisi@10.10.61.83:22122" }),
       }),
     );
   });
 
-  it("Remove unregisters the path it names", async () => {
-    apiWith({ connections: [], mappings: [{ path: "/srv/x", connection_id: "ssh:a@h:22" }] });
+  it("says a machine is added once its root is registered, and offers Add before that", async () => {
+    reads({ connections: [SSH], mappings: [] });
+    const first = render(<WorkspacesPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
+    first.unmount();
+
+    reads({ connections: [SSH], mappings: [{ path: "/", connection_id: SSH.id }] });
     render(<WorkspacesPage />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove /srv/x" })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Remove /srv/x" }));
+    await waitFor(() => expect(screen.getByText(/every path on it works/)).toBeTruthy());
+  });
+
+  it("shows the agent's refusal VERBATIM", async () => {
+    reads({ connections: [SSH], mappings: [] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [] });
+      return Promise.resolve({ ok: false, error: 'no saved connection "ssh:x@y:22"' });
+    });
+    render(<WorkspacesPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: `Add ${SSH.id}` }));
     await waitFor(() =>
-      expect(mockCallApi).toHaveBeenCalledWith("/api/workspace/unregister", {
+      expect(screen.getByRole("status").textContent).toContain('no saved connection "ssh:x@y:22"'),
+    );
+  });
+
+  it("says the agent did not answer instead of drawing an empty list as 'there are none'", async () => {
+    mockApi.mockRejectedValue(new Error("unauthorized"));
+    render(<WorkspacesPage />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("did not answer"));
+    expect(screen.queryByText("None yet — add one above.")).toBeNull();
+  });
+
+  it("browses directories only, and 'Use this folder' pins the path it is looking at", async () => {
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings")
+        return Promise.resolve({ ok: true, mappings: [{ path: "/", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs")
+        return Promise.resolve({
+          ok: true,
+          entries: [
+            { name: "etc", kind: "dir" },
+            { name: "vmlinuz", kind: "file" },
+          ],
+        });
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPage />);
+    await waitFor(() => expect(screen.getByRole("button", { name: `Browse ${SSH.id}` })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: `Browse ${SSH.id}` }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "etc/" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "vmlinuz/" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use /" }));
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith("/api/workspace/register", {
         method: "POST",
-        body: JSON.stringify({ path: "/srv/x" }),
+        body: JSON.stringify({ path: "/", connection_id: SSH.id }),
       }),
     );
   });
