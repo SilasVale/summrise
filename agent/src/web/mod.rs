@@ -2468,7 +2468,35 @@ impl WorkspaceTarget {
                 .unwrap_or_default()
                 .to_string()
         };
-        let (host, user) = (text("host"), text("user"));
+        // THE USER, HOST AND PORT LIVE IN `target` FOR A REAL SAVED CONNECTION — measured on the device, where the
+        // entry is `{id:"ssh:zhengsaisi@10.10.61.83:22122", target:"zhengsaisi@10.10.61.83:22122",
+        // params:{kind,target,rows,cols}}`. Reading `params.host` found nothing and refused a connection that was
+        // right there, which is how this comment came to exist. An entry that DOES carry explicit params fields
+        // wins, so nothing that worked before this line stops working.
+        let target = saved
+            .get("target")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default();
+        let (user_in_target, host_port) = match target.split_once('@') {
+            Some((u, rest)) => (u, rest),
+            None => ("", target),
+        };
+        let (host_in_target, port_in_target) = match host_port.rsplit_once(':') {
+            Some((h, p)) => (h, p.parse::<u16>().ok()),
+            None => (host_port, None),
+        };
+        let explicit_host = text("host");
+        let explicit_user = text("user");
+        let host = if explicit_host.is_empty() {
+            host_in_target.to_string()
+        } else {
+            explicit_host
+        };
+        let user = if explicit_user.is_empty() {
+            user_in_target.to_string()
+        } else {
+            explicit_user
+        };
         if host.is_empty() || user.is_empty() {
             return Err(named(
                 "workspace/unknown-connection",
@@ -2486,7 +2514,12 @@ impl WorkspaceTarget {
         Ok(Self {
             host,
             user,
-            port: params.get("port").and_then(|x| x.as_u64()).unwrap_or(22) as u16,
+            port: params
+                .get("port")
+                .and_then(|x| x.as_u64())
+                .map(|p| p as u16)
+                .or(port_in_target)
+                .unwrap_or(22),
             password: String::new(),
             key_path: text("key_path"),
         })
@@ -9320,5 +9353,44 @@ mod workspace_registry_tests {
             route_of("POST", "/api/workspace/unregister"),
             Some(RouteId::WorkspaceUnregister)
         );
+    }
+
+    /// THE SHAPE A REAL SAVED SSH CONNECTION HAS, measured on the device rather than assumed:
+    /// `{id:"ssh:zhengsaisi@10.10.61.83:22122", kind:"ssh", target:"zhengsaisi@10.10.61.83:22122",
+    /// params:{kind,target,rows,cols}}` — the user, host and port live in `target`, and `params` carries no
+    /// `host`/`user` fields at all. Reading `params.host` found nothing and refused a connection that was right
+    /// there, which is how this test came to exist: the device's own acceptance caught it, by name.
+    #[test]
+    fn a_saved_ssh_connection_is_read_from_its_target() {
+        let saved = serde_json::json!({
+            "id": "ssh:zhengsaisi@10.10.61.83:22122",
+            "kind": "ssh",
+            "target": "zhengsaisi@10.10.61.83:22122",
+            "params": {"kind": "ssh", "target": "zhengsaisi@10.10.61.83:22122", "rows": 24, "cols": 80}
+        });
+        let t =
+            WorkspaceTarget::from_saved(&saved).expect("a real saved connection must be readable");
+        assert_eq!(t.host, "10.10.61.83");
+        assert_eq!(t.user, "zhengsaisi");
+        assert_eq!(
+            t.port, 22122,
+            "the port is part of the target, not a default"
+        );
+    }
+
+    /// A target with no user is not a connection, and it says so by name rather than connecting as nobody.
+    #[test]
+    fn a_saved_connection_with_no_user_is_refused_by_name() {
+        let saved = serde_json::json!({
+            "id": "ssh:h:22",
+            "kind": "ssh",
+            "target": "h:22",
+            "params": {"kind": "ssh", "target": "h:22"}
+        });
+        let err = match WorkspaceTarget::from_saved(&saved) {
+            Ok(_) => panic!("a target with no user is not a connection, but it was accepted"),
+            Err(e) => e,
+        };
+        assert_eq!(err["code"], "workspace/unknown-connection", "got: {err}");
     }
 }
