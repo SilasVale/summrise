@@ -13,7 +13,7 @@ describe("Shell page contract", () => {
       "terminal",
       "history",
       "browser",
-      "dsh",
+      "harness",
       "memory",
       "plugins",
       "settings",

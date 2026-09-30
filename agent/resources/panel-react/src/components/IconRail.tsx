@@ -27,7 +27,7 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   history: "archive",
   browser: "browser",
   // The harness's own mark (see ui/Icon): it is not a terminal, a browser or a plugin list.
-  dsh: "harness",
+  harness: "harness",
   memory: "memory",
   plugins: "plugins",
   settings: "settings",

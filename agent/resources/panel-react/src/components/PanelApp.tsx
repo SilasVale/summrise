@@ -253,7 +253,7 @@ export function PanelApp(props: Props) {
             <MonitorAlerts alerts={monitorAlerts} />
             {page === "history" && <HistoryPage sessions={props.sessions} />}
             {page === "browser" && <BrowserPage token={props.token} />}
-              {page === "dsh" && <DshPage />}
+              {page === "harness" && <DshPage />}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}
             {page === "settings" && (
