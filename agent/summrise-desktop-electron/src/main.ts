@@ -26,7 +26,7 @@ import * as net from "net";
 
 // url-policy.ts (shipped alongside, staged by summrise update): pure
 // origin/URL predicates, unit-tested in test/url-policy.test.mjs.
-import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort } from "./url-policy";
+import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort, setDshPort, dshBase, isDshUrl } from "./url-policy";
 // IPC audit #3: /api/status is TOKEN-GATED (same fact the watchdog fix cites);
 // credential-less fetches got 401 -> version title + tray vitals were DEAD on
 // every configured device. The shell runs as the interactive admin, and the
@@ -608,6 +608,130 @@ ipcHandle("embedded-browser:place", (bounds: { x: number; y: number; width: numb
 });
 ipcHandle("embedded-browser:state", () => embeddedState());
 
+// ── THE DSH VIEW: the harness's own UI, embedded in summrise ────────────────────────────────
+//
+// WHY LOOPBACK AND NOT THE PUBLIC HOSTNAME. The DSH runs on THIS machine (127.0.0.1:18081), and
+// this view is a window ON this machine — so loopback is the correct address, not the remote
+// one. Going out to the tunnel hostname instead would mean: a Cloudflare round trip for every
+// asset, an Access login inside the shell, and a certificate story — for a service that is
+// already here. (The spec's warning about loopback applies to the OTHER direction: a page viewed
+// REMOTELY resolves 127.0.0.1 to the viewer's machine, which is why the panel's /dsh/ proxy was
+// proposed. A native view on the device has no such problem.)
+//
+// A SECOND view, not a re-use of the browser one: the browser view is a single-tab internet
+// browser an AI drives over CDP, and navigating it to the DSH would throw that session away.
+let dshView: WebContentsView | null = null;
+let dshVisible = false;
+let dshBounds: Electron.Rectangle | null = null;
+/** The DSH's port. Env first (a deployment may move it), else the component's default. */
+function resolveDshPort(): number {
+  const fromEnv = Number(process.env.SUMMRISE_DSH_PORT);
+  return Number.isInteger(fromEnv) && fromEnv > 0 && fromEnv < 65536 ? fromEnv : 18081;
+}
+/** The ONE load door for this view: its own origin, or nothing. */
+function dshTarget(raw: string): string {
+  return isDshUrl(raw) ? new URL(raw).toString() : "about:blank";
+}
+function dshViewEnsure(): WebContentsView {
+  if (dshView && !dshView.webContents.isDestroyed()) return dshView;
+  const view = new WebContentsView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      // No preload: the DSH SPA needs no Node surface, and a view that cannot reach one cannot
+      // be talked into using one.
+    },
+  });
+  view.setVisible(false);
+  dshVisible = false;
+  // The DSH opens links (docs, the operator's own pages) with target=_blank. Deny the POPUP but
+  // keep the click meaningful where the door allows it — and the door allows one origin, so in
+  // practice an external link is simply dropped rather than silently navigating this view away
+  // from the harness.
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    const target = dshTarget(url);
+    if (target !== "about:blank") dshNavigate(target);
+    return { action: "deny" };
+  });
+  view.webContents.on("render-process-gone", (_e, details) => {
+    try { view.setVisible(false); } catch { /* already gone */ }
+    dshVisible = false;
+    // The SAME signal the browser view sends, for the same reason (round-256 there): without it
+    // the pane shows "starting…" forever over a view that will never paint, and the operator has
+    // no way to tell a slow load from a dead renderer.
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("embedded-dsh:gone", { reason: details.reason, exitCode: details.exitCode });
+    }
+  });
+  dshView = view;
+  if (win) win.contentView.addChildView(view);
+  return view;
+}
+function dshNavigate(url: string): { ok: boolean; url: string } {
+  const target = dshTarget(url);
+  const view = dshViewEnsure();
+  view.webContents.loadURL(target).catch(() => { /* did-fail-load surfaces in state() */ });
+  return { ok: true, url: target };
+}
+/** Open (or re-focus) the DSH at its configured address. Idempotent. */
+function dshOpen(): { ok: boolean; url: string } {
+  return dshNavigate(dshBase() + "/");
+}
+/** Place the view over the SPA's slot. Empty bounds hide it (the same contract as the browser). */
+function dshPlace(bounds: { x: number; y: number; width: number; height: number } | null): void {
+  const view = dshViewEnsure();
+  if (!win) return;
+  if (!bounds || bounds.width < 50 || bounds.height < 50) {
+    view.setVisible(false);
+    dshVisible = false;
+    return;
+  }
+  dshBounds = bounds;
+  view.setBounds(bounds);
+  view.setVisible(true);
+  dshVisible = true;
+  win.contentView.addChildView(view);
+}
+function dshReload(): { ok: boolean } {
+  const view = dshView;
+  if (!view || view.webContents.isDestroyed()) return { ok: false };
+  try { view.webContents.reload(); return { ok: true }; } catch { return { ok: false }; }
+}
+/** Recover after a renderer crash: a dead webContents never recovers, so re-create the view. */
+function dshRecover(): { ok: boolean } {
+  try {
+    if (dshView && !dshView.webContents.isDestroyed()) dshView.webContents.close({ waitForBeforeUnload: false });
+    if (dshView) {
+      try { win?.contentView.removeChildView(dshView); } catch { /* already gone */ }
+      dshView = null;
+    }
+  } catch { /* fall through to ensure() */ }
+  const view = dshViewEnsure();
+  if (!view || view.webContents.isDestroyed()) return { ok: false };
+  view.webContents.loadURL(dshBase() + "/").catch(() => { /* did-fail-load surfaces */ });
+  if (dshVisible && win && dshBounds) {
+    view.setBounds(dshBounds);
+    view.setVisible(true);
+    win.contentView.addChildView(view);
+  }
+  return { ok: true };
+}
+function dshState(): { ok: true; url: string; title: string; visible: boolean } {
+  const view = dshView;
+  const wc = view && !view.webContents.isDestroyed() ? view.webContents : null;
+  return { ok: true, url: wc ? wc.getURL() : "", title: wc ? wc.getTitle() : "", visible: dshVisible && !!wc };
+}
+ipcHandle("embedded-dsh:open", () => dshOpen());
+ipcHandle("embedded-dsh:place", (bounds: { x: number; y: number; width: number; height: number } | null) => {
+  dshPlace(bounds);
+  return { ok: true };
+});
+ipcHandle("embedded-dsh:state", () => dshState());
+ipcHandle("embedded-dsh:reload", () => dshReload());
+ipcHandle("embedded-dsh:recover", () => dshRecover());
+
+
 // Desktop-app settings (auto-launch) — the Settings page toggles this. We
 // manage a per-user scheduled task ("SummriseDesktop", onlogon) instead of
 // Electron's setLoginItemSettings: in dev mode (electron .) the login-item
@@ -829,6 +953,9 @@ if (gotTheLock) {
     // Custom-port installs: pin every origin predicate + probe/load URL to
     // the agent's actual bind port BEFORE any window or probe exists.
     setAgentPort(resolveAgentPort());
+    // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
+    // before this line would check a port nothing is listening on.
+    setDshPort(resolveDshPort());
     // review #7: with no handler Electron AUTO-GRANTS every permission
     // request (media/geolocation/clipboard) — deny by default for all
     // windows, esp. the remote-browser ones loading arbitrary pages.

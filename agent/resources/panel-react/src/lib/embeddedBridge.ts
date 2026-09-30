@@ -59,6 +59,21 @@ interface SummriseDesktopBridge {
   onCommand: (handler: (cmd: string) => void) => () => void;
 }
 
+/** THE DSH VIEW: the harness's own UI, embedded in the desktop shell.
+ *
+ *  `open()` takes no URL on purpose. The harness runs on THIS machine's loopback and its port
+ *  belongs to the MAIN process (it resolves it, and `url-policy.isDshUrl` checks the view's door
+ *  against it) — so the SPA never learns the port, and there is exactly one place that decides
+ *  what address this view may load. */
+interface SummriseDshBridge {
+  open: () => Promise<unknown>;
+  place: (bounds: { x: number; y: number; width: number; height: number } | null) => Promise<unknown>;
+  state: () => Promise<{ ok: boolean; url?: string; title?: string; visible?: boolean }>;
+  reload: () => Promise<unknown>;
+  recover: () => Promise<unknown>;
+  onGone: (handler: (d: { reason: string; exitCode: number }) => void) => () => void;
+}
+
 /** THE RUNTIME MANIFEST of the embedded bridge — the list of members above, checkable at run time
  *  and type-checked against the interface in both directions. */
 export const EMBEDDED_MEMBERS = [
@@ -91,6 +106,12 @@ type MissingDesktop = Exclude<keyof SummriseDesktopBridge, (typeof DESKTOP_MEMBE
 const _desktopComplete: MissingDesktop extends never ? true : never = true;
 void _desktopComplete;
 
+/** The DSH view's manifest, with the same two-way type check. */
+export const DSH_MEMBERS = ["open", "place", "state", "reload", "recover", "onGone"] as const satisfies readonly (keyof SummriseDshBridge)[];
+type MissingDsh = Exclude<keyof SummriseDshBridge, (typeof DSH_MEMBERS)[number]>;
+const _dshComplete: MissingDsh extends never ? true : never = true;
+void _dshComplete;
+
 /** The bridge, or null in a plain browser. */
 export function embeddedBridge(): EmbeddedBridge | null {
   return ((window as unknown as { summriseEmbedded?: EmbeddedBridge }).summriseEmbedded ?? null) as EmbeddedBridge | null;
@@ -110,4 +131,13 @@ export function browserBridge(): SummriseBrowserBridge | null {
 /** The desktop bridge (auto-launch + menu commands), or null in a plain browser. */
 export function desktopBridge(): SummriseDesktopBridge | null {
   return ((window as unknown as { summriseDesktop?: SummriseDesktopBridge }).summriseDesktop ?? null) as SummriseDesktopBridge | null;
+}
+
+/** The DSH view, or null in a plain browser.
+ *
+ *  NULL IS THE NORMAL CASE OUTSIDE THE DESKTOP APP, and the page says so rather than rendering a
+ *  dead slot: the harness is embedded by the shell, so a page served to a plain browser has
+ *  nothing to show. */
+export function dshBridge(): SummriseDshBridge | null {
+  return ((window as unknown as { summriseDsh?: SummriseDshBridge }).summriseDsh ?? null) as SummriseDshBridge | null;
 }

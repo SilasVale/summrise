@@ -21,6 +21,10 @@ exports.isDesktopSpaUrl = isDesktopSpaUrl;
 exports.isPrivateHost = isPrivateHost;
 exports.certBypassAllowed = certBypassAllowed;
 exports.sanitizeBrowserUrl = sanitizeBrowserUrl;
+exports.setDshPort = setDshPort;
+exports.getDshPort = getDshPort;
+exports.dshBase = dshBase;
+exports.isDshUrl = isDshUrl;
 exports.BASE = "http://127.0.0.1:18080";
 exports.BASE_ORIGIN = new URL(exports.BASE).origin;
 // Configurable agent port (custom-port installs): the shell follows the
@@ -202,4 +206,33 @@ function sanitizeBrowserUrl(url) {
     }
     catch { /* fall through */ }
     return "about:blank";
+}
+// THE DSH VIEW'S DOOR. The shell's SECOND embedded view shows the harness's own UI, which
+// runs on THIS machine's loopback — so this door is one origin and nothing else, and it is a
+// SEPARATE predicate from sanitizeBrowserUrl on purpose: the browser view's door is the open
+// internet (an AI drives it), this one is a single port, and a door that is wide for one view
+// must not quietly become wide for the other. The DSH view has no address bar and nothing
+// drives it but the operator, so there is nothing here to widen it for.
+//
+// The port is the DSH's own (default 18081 — main.ts resolves SUMMRISE_DSH_PORT first), and
+// it is deliberately NOT the agent's port: the agent's origin is where the panel lives, and a
+// view that could load the panel could also load /api/* with the panel's own authority.
+let dshPort = null;
+function setDshPort(port) {
+    if (Number.isInteger(port) && port > 0 && port < 65536)
+        dshPort = port;
+}
+function getDshPort() {
+    return dshPort ?? 18081;
+}
+function dshBase() {
+    return `http://127.0.0.1:${getDshPort()}`;
+}
+function isDshUrl(url) {
+    try {
+        return new URL(url).origin === new URL(dshBase()).origin;
+    }
+    catch {
+        return false;
+    }
 }

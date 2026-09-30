@@ -2718,6 +2718,52 @@
 }
 .browser-page .browser-pane { flex: 1 1 0; min-height: 0; }
 
+/* ---------- harness page (the DSH view, embedded by the desktop shell) ----------
+   The slot is EMPTY BY CONSTRUCTION: the main process composites a native WebContentsView over
+   this rectangle, so the stylesheet's whole job here is to give it a size and to keep the toolbar
+   above it. Everything else (the harness's own pixels) is not ours to paint. */
+.dsh-page {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dsh-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dsh-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.dsh-toolbar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.dsh-slot {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.dsh-gone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+.dsh-gone p { margin: 0; }
+
 
 
 

@@ -37,6 +37,7 @@ import { IconRail, PAGE_ICONS } from "./IconRail";
 import { Shell, type Page } from "./Shell";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { BrowserPage } from "./BrowserPage";
+import { DshPage } from "./DshPage";
 import { HistoryPage } from "./HistoryPage";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
@@ -116,6 +117,7 @@ const PAGE_TITLES: Record<Page, string> = {
   terminal: "Terminal",
   history: "History",
   browser: "Browser",
+  dsh: "Harness",
   memory: "Memory",
   plugins: "Plugins",
   settings: "Settings",
@@ -504,6 +506,7 @@ export function DesktopShell({
               <MonitorAlerts alerts={monitorAlerts} />
               {page === "history" && <HistoryPage sessions={sessions} />}
               {page === "browser" && <BrowserPage token={token} />}
+              {page === "dsh" && <DshPage />}
               {page === "memory" && <MemoryPage />}
               {page === "plugins" && <PluginsPage plugins={plugins} />}
               {page === "settings" && (

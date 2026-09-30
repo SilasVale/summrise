@@ -35,6 +35,7 @@ const NAMES = Object.keys({
   sun: true,
   moon: true,
   help: true,
+  harness: true,
 } satisfies Record<IconName, true>) as IconName[];
 
 describe("Icon", () => {

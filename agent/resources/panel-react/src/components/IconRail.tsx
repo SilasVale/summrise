@@ -26,6 +26,8 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   // is not a spare part, it is a thing to keep in sync by hand.
   history: "archive",
   browser: "browser",
+  // The harness's own mark (see ui/Icon): it is not a terminal, a browser or a plugin list.
+  dsh: "harness",
   memory: "memory",
   plugins: "plugins",
   settings: "settings",
