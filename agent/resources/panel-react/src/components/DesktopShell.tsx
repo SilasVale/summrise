@@ -509,7 +509,7 @@ export function DesktopShell({
               {page === "history" && <HistoryPage sessions={sessions} />}
               {page === "browser" && <BrowserPage token={token} />}
               {page === "harness" && <DshPage />}
-              {page === "workspaces" && <WorkspacesPanel />}
+              {page === "workspaces" && <WorkspacesPanel onOpenTerminal={() => setPage("terminal")} />}
               {page === "memory" && <MemoryPage />}
               {page === "plugins" && <PluginsPage plugins={plugins} />}
               {page === "settings" && (

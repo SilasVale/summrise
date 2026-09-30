@@ -61,6 +61,12 @@ const UNPINNED: Record<string, string> = {
   // is what SAVES a connection, and connecting is the only thing that proves the credentials work before a
   // workspace depends on them. The tool contracts themselves are the spec snapshot's business.
   "/api/tools/terminal_open": "a POST through the tool route; the tool contract is the spec snapshot's",
+  // OPENING A TERMINAL ON A WORKSPACES MACHINE. The page holds the connection id the agent saved, and
+  // this route reconnects it — so the shape that matters is the REFUSAL, and it is pinned in Rust:
+  // `src/plugins/terminal/tools/tests.rs` asserts that an unknown id is `invalid_params` NAMING the bad
+  // id and listing the known ones ("connect_saved_unknown_id_is_invalid_params_with_known_list"), which
+  // is what a reader needs to fix it. The success shape is the same session id `terminal_open` returns.
+  "/api/tools/terminal_connect_saved": "src/plugins/terminal/tools/tests.rs (an unknown id is invalid_params naming it and the known list)",
   "/api/tools/terminal_close": "a POST through the tool route; it only ends the session the add opened",
   // THE WORKSPACES PAGE reads the fs door to BROWSE a machine, and what is pinned there is the REFUSALS (the
   // door's own tests name every op it will not do). The entry shape a listing returns is not pinned by anything —
