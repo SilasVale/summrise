@@ -36,7 +36,20 @@
 //                 control does not offer the update, and it never sends `force` — on the device `force` DELETES
 //                 `.rollback-pin`, so the override is not something this surface may do silently.
 
+// ── RUST SINCE 2026-09-30 (block ③), THE THIRD MODULE THROUGH THE CONSOLE'S SEAM ──────────────────
+//
+// `updateControl` and the two-hour window that dates it are `gateway/ui-logic/src/lib.rs` now,
+// transliterated: the same truthiness tests, the same `typeof latest === "string"` (a NON-EMPTY string
+// rather than a truthy one), the same `error`-outranks-`pinned_to` precedence, the same `?? Date.now()`
+// arm, and the same key order on every result. The differential is 147,600 corpus cases with 0
+// divergences and every arm of the state machine reached; `test/device-update.test.mjs` runs UNCHANGED.
+//
+// WHAT STAYS HERE, AND IT IS P0's THIRD CLASS RATHER THAN AN OMISSION: the localStorage half. It talks
+// to the platform, and the crate has no localStorage. `rememberedUpdateAttempt` asks the crate for the
+// window (`dark_window_ms`) instead of keeping a second copy of the number — the one thing on this side
+// that did change.
 import type { Signal } from "./deviceState.ts";
+import { logic } from "../wasm/consoleLogic.ts";
 
 /** The device's own answer at `/api/update`, as far as the gateway forwards it (`DeviceUpdate` in
  *  `gateway/src/plugins/mcp.ts` owns the field-by-field justification). Everything optional here is optional
@@ -74,16 +87,10 @@ type UpdateControl =
 
 /** HOW LONG A DEVICE MAY STAY DARK AFTER AN UPDATE BEFORE THIS CONSOLE STOPS CALLING IT "IN FLIGHT".
  *
- *  TWO HOURS, and it is this repository's own measurement rather than a round number: on 2026-09-28 a device took
- *  `summrise update`, answered 502 and then 530 / error 1033 for roughly two hours, and `startup.log` showed the
- *  agent starting normally at 00:13 with the release marker already moved — THE SWAP HAD SUCCEEDED, SLOWLY.
- *
- *  THE TWO SENTENCES THIS MUST NOT REPEAT, and both are in the tree: the DEVICE's own tool description promises
- *  "MCP reconnects in ~1 minute", and the PANEL tells the operator "within about a minute". Both describe the
- *  retry backoff — 12x800ms for the exe, 3x8x500ms for the desktop sources, about 25 seconds in total — and
- *  neither describes the TUNNEL, which is what actually goes dark. A window that is a fraction of the observed
- *  outage is worse than no window, because it is the number an operator would plan around. */
-const UPDATE_DARK_WINDOW_MS = 2 * 60 * 60 * 1000;
+ *  THE NUMBER IS `UPDATE_DARK_WINDOW_MS` IN `gateway/ui-logic/src/lib.rs` NOW, with the measurement
+ *  that justifies it (two hours, from a device that took `summrise update` and answered 502 / 530 /
+ *  1033 for roughly two hours while `startup.log` showed the agent starting normally — THE SWAP HAD
+ *  SUCCEEDED, SLOWLY). It is asked for here rather than copied: `logic().dark_window_ms()`. */
 
 /* ── THE CONSOLE'S OWN MEMORY OF AN ATTEMPT ────────────────────────────────────────────────────────────────
  *
@@ -154,11 +161,17 @@ export function forgetUpdateAttempt(name: string): void {
   writeAll(all);
 }
 
-/** This console's record for one device, or null when it never asked or the record is older than the window. */
+/** This console's record for one device, or null when it never asked or the record is older than the window.
+ *
+ *  THE STORE'S OWN GUARD STAYS EXACTLY AS IT WAS — `typeof hit.at !== "number" || hit.at <= 0` — and it is
+ *  deliberately NOT the crate's `positive()`: the two differ on `Infinity`, where this guard accepts the
+ *  record and the derivation then rejects it. The module's own note below records why both exist: the store's
+ *  filter is an OPTIMISATION, and the rule belongs to the derivation. Only the WINDOW moved, and it is asked
+ *  for rather than copied. */
 export function rememberedUpdateAttempt(name: string, now = Date.now()): Attempt | null {
   const hit = readAll()[name];
   if (!hit || typeof hit.at !== "number" || hit.at <= 0) return null;
-  return now - hit.at < UPDATE_DARK_WINDOW_MS ? hit : null;
+  return now - hit.at < logic().dark_window_ms() ? hit : null;
 }
 
 /* ── THE DERIVATION ──────────────────────────────────────────────────────────────────────────────────────── */
@@ -177,66 +190,24 @@ interface UpdateInputs {
   now?: number;
 }
 
-/** The one function every render of this control goes through. */
+/** The one function every render of this control goes through.
+ *
+ *  THE ARMS AND THEIR ORDER ARE THE CRATE'S NOW (`update_control` in `gateway/ui-logic/src/lib.rs`,
+ *  where each one carries the reason it is tested where it is). What is worth repeating here is the
+ *  half a reader of THIS file needs: a device that did not answer has no `st.update` at all — the
+ *  gateway sets it only inside `if (res.ok)` — and the sentence about it comes from `agent.signal ===
+ *  "err"` (the tri-state "asked, and it is not answering"), never from `!agentUp`, which is ALSO true
+ *  for a device nobody has asked about yet.
+ *
+ *  THE WINDOW IS APPLIED IN BOTH PLACES, on purpose: here in the derivation, and in
+ *  `rememberedUpdateAttempt`'s store filter as an optimisation. A caller handing this function a record
+ *  it read some other way must not be able to resurrect a sentence about a swap that finished
+ *  yesterday. */
 export function updateControl(input: UpdateInputs): UpdateControl {
-  const now = input.now ?? Date.now();
-  const u = input.update;
-
-  if (u) {
-    // THE DEVICE ANSWERED. Everything below is its fact; this end contributes a timestamp at most.
-    if (u.busy) {
-      return { kind: "inflight", since: datableStart(u, input.remembered, now), source: "device" };
-    }
-    if (u.update_available && typeof u.latest === "string" && u.latest) {
-      return { kind: "action", to: u.latest };
-    }
-    const checkedAt = positive(u.checked_at);
-    if (typeof u.error === "string" && u.error) {
-      return { kind: "unchecked", error: u.error, checkedAt };
-    }
-    if (typeof u.pinned_to === "string" && u.pinned_to) {
-      return { kind: "held", pinnedTo: u.pinned_to, checkedAt };
-    }
-    return { kind: "current", checkedAt };
-  }
-
-  // NO ANSWER — `st.update` is only set inside the gateway's `if (res.ok)`, so this is a device that never
-  // reported its own update state: dark, or older than the route. `agent.signal === "err"` is the tri-state
-  // "asked, and it is not answering"; `!agentUp` would ALSO be true before the first poll answers, and this
-  // branch would then speak about every row of a console nobody has asked anything of yet.
-  //
-  // THE WINDOW IS APPLIED HERE TOO, and not only in `rememberedUpdateAttempt`. The store's filter is an
-  // optimisation; the rule belongs to the derivation, or a caller handing this function a record it read some
-  // other way resurrects a sentence about a swap that finished yesterday. `datableStart` already applies the
-  // same bound to the device's own record — this is the other half of one rule, in one file.
-  if (input.agentSignal === "err" && input.remembered) {
-    const at = positive(input.remembered.at);
-    if (at !== null && now - at < UPDATE_DARK_WINDOW_MS) {
-      return { kind: "inflight", since: at, source: "console" };
-    }
-  }
-  return { kind: "none" };
-}
-
-/** WHEN THIS ATTEMPT STARTED, from the two records that can say so — the device's own, then this console's.
- *
- *  THE NEWEST WINS, because both describe the same launch: the device writes `last_attempt` at the WMI handoff
- *  and this console writes its record before the request leaves, so on a console that pressed the button they
- *  agree to within a round trip.
- *
- *  AND A RECORD OLDER THAN THE WINDOW IS NOT USED AS A START. `last_attempt` is NOT cleared when a new attempt
- *  begins (`record_update_attempt` overwrites it only at the handoff, and the marker is acquired before the
- *  download), so a device busy RIGHT NOW can be carrying a record from an update that finished hours ago.
- *  Dated with that, the sentence would claim an outage far longer than the one being observed. `null` is the
- *  honest answer, and the view says so in words rather than inventing a time. */
-function datableStart(u: DeviceUpdateWire, remembered: Attempt | null, now: number): number | null {
-  const device = u.last_attempt && typeof u.last_attempt === "object" ? positive(u.last_attempt.at_ms) : null;
-  const candidates = [device, remembered ? positive(remembered.at) : null].filter(
-    (t): t is number => t !== null && now - t < UPDATE_DARK_WINDOW_MS,
-  );
-  return candidates.length ? Math.max(...candidates) : null;
-}
-
-function positive(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+  return logic().update_control(
+    input.update,
+    input.agentSignal,
+    input.remembered,
+    input.now,
+  ) as UpdateControl;
 }
