@@ -52,6 +52,14 @@ export function WorkspacesPanel() {
   const [unreachable, setUnreachable] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<{ ok: boolean; text: string } | null>(null);
   const [browsing, setBrowsing] = useState<{ connectionId: string; path: string; entries: Entry[] } | null>(null);
+  // WHICH VIEW: the machines, or ONE machine opened. A page that scrolls from a form into a listing makes
+  // the reader hunt; a view makes "which machine am I in" a fact of the page, not of the scroll position.
+  const [opened, setOpened] = useState<{ id: string; path: string } | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  // The open file: the VERSION is what a save must present, so it is state and not a local.
+  const [editing, setEditing] = useState<{ path: string; version: string; text: string; original: string } | null>(null);
+  const [command, setCommand] = useState("");
+  const [ran, setRan] = useState<string | null>(null);
   const [host, setHost] = useState("");
   const [user, setUser] = useState("");
   const [port, setPort] = useState("22");
@@ -142,6 +150,70 @@ export function WorkspacesPanel() {
     [run],
   );
 
+  /** Open one file: the READ is what produces the version a save must carry. */
+  const openFile = useCallback(
+    (connectionId: string, path: string) =>
+      run(`open:${path}`, async () => {
+        const j = await callApi("/api/workspace/fs", {
+          method: "POST",
+          body: JSON.stringify({ op: "readText", path, connection_id: connectionId }),
+        });
+        if (!j?.ok) {
+          setOutcome({ ok: false, text: j?.error || j?.code || "the agent refused without saying why" });
+          return;
+        }
+        setEditing({ path, version: String(j.version ?? ""), text: String(j.text ?? ""), original: String(j.text ?? "") });
+      }),
+    [run],
+  );
+
+  /**
+   * SAVE. `expect_version` is the whole guard: a write that cannot say what it is replacing is the silent
+   * loss the door refuses, so the page carries the version the READ returned. A conflict is the agent's
+   * own sentence, shown as it wrote it — and the editor KEEPS the text, because the reader's work is not
+   * the thing that was stale.
+   */
+  const saveFile = useCallback(
+    (connectionId: string) =>
+      run(`save:${editing?.path ?? ""}`, async () => {
+        if (!editing) return;
+        const j = await callApi("/api/workspace/fs", {
+          method: "POST",
+          body: JSON.stringify({
+            op: "writeText",
+            path: editing.path,
+            text: editing.text,
+            expect_version: editing.version,
+            connection_id: connectionId,
+          }),
+        });
+        if (!j?.ok) {
+          setOutcome({ ok: false, text: j?.error || j?.code || "the agent refused without saying why" });
+          return;
+        }
+        setEditing({ ...editing, version: String(j.version ?? ""), original: editing.text });
+        setOutcome({ ok: true, text: `saved ${editing.path}` });
+      }),
+    [editing, run],
+  );
+
+  /** Run one command ON the machine, through the exec door. An argv, never a shell string. */
+  const runCommand = useCallback(
+    (connectionId: string) =>
+      run("command", async () => {
+        const argv = command.trim().split(/\s+/).filter(Boolean);
+        if (argv.length === 0) return;
+        const j = await callApi("/api/workspace/exec", {
+          method: "POST",
+          body: JSON.stringify({ path: opened?.path ?? MACHINE_ROOT, connection_id: connectionId, argv }),
+        });
+        const out = j?.stdout_b64 ? atob(String(j.stdout_b64)) : String(j?.stdout ?? "");
+        const err = j?.stderr_b64 ? atob(String(j.stderr_b64)) : String(j?.stderr ?? "");
+        setRan(j?.ok ? `${out}${err}`.trim() || "(no output)" : j?.error || j?.code || "the agent refused");
+      }),
+    [command, opened, run],
+  );
+
   /**
    * ADD A MACHINE. A successful `terminal_open` is what SAVES a connection, so this connects once with the
    * credentials given, closes that session again, and registers the machine. The connect is not a formality: it
@@ -185,9 +257,25 @@ export function WorkspacesPanel() {
           }
         }
         const id = `ssh:${target}`;
+        // THE PREFIX IS DERIVED, NOT ASKED FOR. A machine's home is where its work is — and it
+        // steps around a real collision: a path-keyed registry can give "/" to only ONE machine,
+        // which this loop measured the hard way. `printenv` rather than a shell, because the exec
+        // door takes an argv and never a shell string.
+        let prefix = MACHINE_ROOT;
+        try {
+          const home = await callApi("/api/workspace/exec", {
+            method: "POST",
+            body: JSON.stringify({ path: MACHINE_ROOT, connection_id: id, argv: ["printenv", "HOME"] }),
+          });
+          const text = home?.stdout_b64 ? atob(String(home.stdout_b64)).trim() : String(home?.stdout ?? "").trim();
+          if (home?.ok && text.startsWith("/")) prefix = text;
+        } catch {
+          // A machine that will not say where its home is still gets its root: broader than precise
+          // is worse than precise and better than none.
+        }
         const j = await callApi("/api/workspace/register", {
           method: "POST",
-          body: JSON.stringify({ path: MACHINE_ROOT, connection_id: id }),
+          body: JSON.stringify({ path: prefix, connection_id: id }),
         });
         setOutcome(
           j?.ok
@@ -204,26 +292,160 @@ export function WorkspacesPanel() {
   }, [host, user, port, keyPath, password, load, run]);
 
   /** The mapping that makes a machine's whole filesystem resolvable, if it is registered. */
-  const rootOf = (id: string) => (mappings ?? []).find((m) => m.connection_id === id && m.path === MACHINE_ROOT);
-  const pathsOf = (id: string) =>
-    (mappings ?? []).filter((m) => m.connection_id === id && m.path !== MACHINE_ROOT).map((m) => m.path);
+  /**
+   * THE MACHINE'S OWN PREFIX — the LONGEST path registered against its connection, whatever it is.
+   * Looking for "/" specifically was a bug the rewrite would have shipped: the prefix is now DERIVED
+   * (a machine's home, see addMachine), so a lookup keyed on the old constant would never match and
+   * every machine would read as "not added" with its Open button disabled.
+   */
+  const rootOf = (id: string) =>
+    (mappings ?? [])
+      .filter((m) => m.connection_id === id)
+      .sort((a, b) => b.path.length - a.path.length)[0];
 
+  // ── THE MACHINES VIEW: the list is the page, the form is behind a button ─────────────────────────
+  if (opened === null) {
+    return (
+      <div className="workspaces-panel">
+        <p className="workspaces-lede">
+          A workspace host is a machine this device can work on. Add one once — the agent keeps the
+          connection and the credentials, and every path on it becomes a workspace after that.
+        </p>
+
+        {unreachable ? (
+          <div className="workspaces-unreachable" role="status">
+            <strong>The agent did not answer</strong>
+            <span className="workspaces-note">
+              {unreachable} — so this page cannot say which machines exist. That is not the same fact as
+              &ldquo;there are none&rdquo;.
+            </span>
+          </div>
+        ) : null}
+
+        {outcome ? (
+          <p className={outcome.ok ? "workspaces-outcome" : "workspaces-outcome error"} role="status">
+            {outcome.text}
+          </p>
+        ) : null}
+
+        <div className="workspaces-view-head">
+          <h2 className="workspaces-heading">Machines</h2>
+          <button
+            className="btn btn-primary btn-mini"
+            onClick={() => setShowAdd((v) => !v)}
+            aria-expanded={showAdd}
+            {...ack("toggle-add")}
+          >
+            {showAdd ? "Cancel" : "Add a host"}
+          </button>
+        </div>
+
+        {showAdd ? (
+          <div className="workspaces-form">
+            <label className="workspaces-field">
+              <span>Host</span>
+              <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.10.61.83" aria-label="Host" spellCheck={false} />
+            </label>
+            <label className="workspaces-field">
+              <span>User</span>
+              <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="root" aria-label="User" spellCheck={false} />
+            </label>
+            <label className="workspaces-field">
+              <span>Port</span>
+              <input value={port} onChange={(e) => setPort(e.target.value)} aria-label="Port" inputMode="numeric" />
+            </label>
+            <label className="workspaces-field">
+              <span>Private key path on THIS device</span>
+              <input value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="C:\\ProgramData\\Summrise\\key" aria-label="Private key path on THIS device" spellCheck={false} />
+            </label>
+            <label className="workspaces-field">
+              <span>…or a password</span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="…or a password" />
+            </label>
+            <button
+              className="btn btn-primary btn-mini"
+              onClick={() => void addMachine()}
+              disabled={busy || !host.trim() || !user.trim()}
+              {...ack("add-machine")}
+            >
+              Connect and add
+            </button>
+          </div>
+        ) : null}
+
+        {machines === null ? (
+          <p className="workspaces-note">{unreachable ? "not read" : "reading…"}</p>
+        ) : machines.length === 0 ? (
+          <p className="workspaces-note">No machine yet — add one.</p>
+        ) : (
+          <ul className="workspaces-machines">
+            {machines.map((m) => {
+              const root = rootOf(m.id);
+              return (
+                <li key={m.id} className="workspaces-machine">
+                  <div className="workspaces-machine-head">
+                    <code className="workspaces-machine-name">{m.label || m.target || m.id}</code>
+                    {root ? (
+                      <span className="workspaces-machine-state">ready</span>
+                    ) : (
+                      <span className="workspaces-machine-state">not added</span>
+                    )}
+                    <button
+                      className="btn btn-primary btn-mini"
+                      onClick={() => {
+                        setOpened({ id: m.id, path: root?.path ?? MACHINE_ROOT });
+                        setEditing(null);
+                        setRan(null);
+                        void listDir(m.id, root?.path ?? MACHINE_ROOT);
+                      }}
+                      disabled={busy || !root}
+                      {...ack(`open:${m.id}`)}
+                    >
+                      Open
+                    </button>
+                    {root ? (
+                      <button
+                        className="btn btn-mini"
+                        onClick={() => void unregister(root.path)}
+                        disabled={busy}
+                        aria-label={`Remove ${m.id}`}
+                        {...ack(`remove:${root.path}`)}
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-mini"
+                        onClick={() => void register(`add:${m.id}`, m.id, MACHINE_ROOT, "added this machine")}
+                        disabled={busy}
+                        aria-label={`Add ${m.id}`}
+                        {...ack(`add:${m.id}`)}
+                      >
+                        Add this machine
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  // ── ONE MACHINE OPENED: its files, the open file, and a command line ─────────────────────────────
+  const machine = (machines ?? []).find((m) => m.id === opened.id);
+  const name = machine?.label || machine?.target || opened.id;
   return (
     <div className="workspaces-panel">
-      <p className="workspaces-lede">
-        Add a workspace host once — every path on it is a workspace after that. The connection is saved by the
-        agent (the same store its terminals use), and the credentials never leave it.
-      </p>
-
-      {unreachable ? (
-        <div className="workspaces-unreachable" role="status">
-          <strong>The agent did not answer</strong>
-          <span className="workspaces-note">
-            {unreachable} — so this page cannot say which machines exist. That is not the same fact as
-            &ldquo;there are none&rdquo;.
-          </span>
-        </div>
-      ) : null}
+      <div className="workspaces-view-head">
+        <button className="btn btn-mini" onClick={() => setOpened(null)} {...ack("back")}>
+          Back to machines
+        </button>
+        <h2 className="workspaces-heading">{name}</h2>
+        <code className="workspaces-path">{opened.path}</code>
+      </div>
 
       {outcome ? (
         <p className={outcome.ok ? "workspaces-outcome" : "workspaces-outcome error"} role="status">
@@ -231,158 +453,109 @@ export function WorkspacesPanel() {
         </p>
       ) : null}
 
-      <h2 className="workspaces-heading">Add a workspace host</h2>
-      <div className="workspaces-form">
-        <label className="workspaces-field">
-          <span>Host</span>
-          <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.10.61.83" aria-label="Host" spellCheck={false} />
-        </label>
-        <label className="workspaces-field">
-          <span>User</span>
-          <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="root" aria-label="User" spellCheck={false} />
-        </label>
-        <label className="workspaces-field">
-          <span>Port</span>
-          <input value={port} onChange={(e) => setPort(e.target.value)} aria-label="Port" inputMode="numeric" />
-        </label>
-        <label className="workspaces-field">
-          <span>Private key path on THIS device</span>
-          <input value={keyPath} onChange={(e) => setKeyPath(e.target.value)} placeholder="C:\\ProgramData\\Summrise\\key" aria-label="Private key path on THIS device" spellCheck={false} />
-        </label>
-        <label className="workspaces-field">
-          <span>…or a password</span>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} aria-label="…or a password" />
-        </label>
-        <button
-          className="btn btn-primary btn-mini"
-          onClick={() => void addMachine()}
-          disabled={busy || !host.trim() || !user.trim()}
-          {...ack("add-machine")}
-        >
-          Connect and add
-        </button>
+      <div className="workspaces-browser">
+        <div className="workspaces-crumbs">
+          <button
+            className="btn btn-mini"
+            onClick={() => void listDir(opened.id, opened.path.replace(/\/[^/]+\/?$/, "") || "/")}
+            disabled={busy || opened.path === "/"}
+          >
+            Up
+          </button>
+          <button
+            className="btn btn-mini"
+            onClick={() => void register(`pin:${opened.path}`, opened.id, opened.path, "pinned")}
+            disabled={busy}
+            aria-label={`Use ${opened.path}`}
+            {...ack(`pin:${opened.path}`)}
+          >
+            Use this folder
+          </button>
+        </div>
+        <ul className="workspaces-entries">
+          {browsing && browsing.connectionId === opened.id
+            ? browsing.entries
+                .filter((e) => e.kind === "dir")
+                .map((e) => (
+                  <li key={e.name}>
+                    <button
+                      className="workspaces-entry-dir"
+                      onClick={() => void listDir(opened.id, `${opened.path.replace(/\/$/, "")}/${e.name}`)}
+                      disabled={busy}
+                    >
+                      {e.name}/
+                    </button>
+                  </li>
+                ))
+            : null}
+          {browsing && browsing.connectionId === opened.id
+            ? browsing.entries
+                .filter((e) => e.kind !== "dir")
+                .map((e) => (
+                  <li key={e.name}>
+                    <button
+                      className="workspaces-entry-file"
+                      onClick={() => void openFile(opened.id, `${opened.path.replace(/\/$/, "")}/${e.name}`)}
+                      disabled={busy}
+                    >
+                      {e.name}
+                    </button>
+                  </li>
+                ))
+            : null}
+        </ul>
       </div>
 
-      <h2 className="workspaces-heading">Workspace hosts</h2>
-      {machines === null ? (
-        <p className="workspaces-note">{unreachable ? "not read" : "reading…"}</p>
-      ) : machines.length === 0 ? (
-        <p className="workspaces-note">No workspace host yet — add one above.</p>
-      ) : (
-        <ul className="workspaces-machines">
-          {machines.map((m) => {
-            const root = rootOf(m.id);
-            const paths = pathsOf(m.id);
-            return (
-              <li key={m.id} className="workspaces-machine">
-                <div className="workspaces-machine-head">
-                  <code className="workspaces-machine-name">{m.label || m.target || m.id}</code>
-                  {root ? (
-                    <span className="workspaces-machine-state">
-                      added — every path on it works
-                      <button
-                        className="btn btn-mini"
-                        onClick={() => void unregister(MACHINE_ROOT)}
-                        disabled={busy}
-                        aria-label={`Remove ${m.id}`}
-                        {...ack(`remove:${MACHINE_ROOT}`)}
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      className="btn btn-primary btn-mini"
-                      onClick={() => void register(`add:${m.id}`, m.id, MACHINE_ROOT, "added this machine")}
-                      disabled={busy}
-                      aria-label={`Add ${m.id}`}
-                      {...ack(`add:${m.id}`)}
-                    >
-                      Add this machine
-                    </button>
-                  )}
-                </div>
+      {editing ? (
+        <div className="workspaces-editor">
+          <div className="workspaces-view-head">
+            <code className="workspaces-path">{editing.path}</code>
+            {editing.text !== editing.original ? (
+              <span className="workspaces-note">edited</span>
+            ) : null}
+            <button
+              className="btn btn-primary btn-mini"
+              onClick={() => void saveFile(opened.id)}
+              disabled={busy || editing.text === editing.original}
+              {...ack("save")}
+            >
+              Save
+            </button>
+          </div>
+          <textarea
+            className="workspaces-editor-text"
+            aria-label="File contents"
+            value={editing.text}
+            onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+            spellCheck={false}
+          />
+        </div>
+      ) : null}
 
-                {root ? (
-                  <>
-                    {paths.length > 0 ? (
-                      <ul className="workspaces-paths">
-                        {paths.map((p) => (
-                          <li key={p} className="workspaces-row">
-                            <code className="workspaces-path">{p}</code>
-                            <button
-                              className="btn btn-mini"
-                              onClick={() => void unregister(p)}
-                              disabled={busy}
-                              aria-label={`Remove ${p}`}
-                              {...ack(`remove:${p}`)}
-                            >
-                              Remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <button
-                      className="btn btn-mini"
-                      onClick={() => void listDir(m.id, browsing?.connectionId === m.id ? browsing.path : "/")}
-                      disabled={busy}
-                      aria-label={`Browse ${m.id}`}
-                    >
-                      {browsing?.connectionId === m.id ? "Reload this folder" : "Browse…"}
-                    </button>
-                  </>
-                ) : (
-                  <p className="workspaces-browse-note">
-                    Add the machine first — browsing it needs the path to resolve, and that is what adding it does.
-                  </p>
-                )}
-
-                {browsing && browsing.connectionId === m.id ? (
-                  <div className="workspaces-browser">
-                    <div className="workspaces-crumbs">
-                      <code className="workspaces-path">{browsing.path}</code>
-                      <button
-                        className="btn btn-mini"
-                        onClick={() => void register(`pin:${browsing.path}`, m.id, browsing.path, "pinned")}
-                        disabled={busy}
-                        aria-label={`Use ${browsing.path}`}
-                        {...ack(`pin:${browsing.path}`)}
-                      >
-                        Use this folder
-                      </button>
-                      {browsing.path !== "/" ? (
-                        <button
-                          className="btn btn-mini"
-                          onClick={() => void listDir(m.id, browsing.path.replace(/\/[^/]+\/?$/, "") || "/")}
-                          disabled={busy}
-                        >
-                          Up
-                        </button>
-                      ) : null}
-                    </div>
-                    <ul className="workspaces-entries">
-                      {browsing.entries
-                        .filter((e) => e.kind === "dir")
-                        .map((e) => (
-                          <li key={e.name}>
-                            <button
-                              className="workspaces-entry-dir"
-                              onClick={() => void listDir(m.id, `${browsing.path.replace(/\/$/, "")}/${e.name}`)}
-                              disabled={busy}
-                            >
-                              {e.name}/
-                            </button>
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <div className="workspaces-command">
+        <label className="workspaces-field">
+          <span>Run a command on this machine</span>
+          <input
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="uname -a"
+            aria-label="Command"
+            spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runCommand(opened.id);
+            }}
+          />
+        </label>
+        <button
+          className="btn btn-mini"
+          onClick={() => void runCommand(opened.id)}
+          disabled={busy || !command.trim()}
+          {...ack("run")}
+        >
+          Run
+        </button>
+      </div>
+      {ran !== null ? <pre className="workspaces-run-output">{ran}</pre> : null}
     </div>
   );
 }

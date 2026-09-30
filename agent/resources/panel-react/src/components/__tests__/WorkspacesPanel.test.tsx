@@ -28,6 +28,9 @@ function reads({ connections = [], mappings = [] }: { connections?: unknown[]; m
     // A tool route answers `{ok, result}`; the open's result IS the session id, and without one the page
     // correctly skips the close — which a mock returning a bare `{ok:true}` used to hide.
     if (path === "/api/tools/terminal_open") return Promise.resolve({ ok: true, result: "term-abc-0" });
+    // THE HOME, asked through the exec door: the prefix is DERIVED, and this is where it comes from.
+    if (path === "/api/workspace/exec")
+      return Promise.resolve({ ok: true, code: 0, stdout_b64: btoa("/home/zhengsaisi\n") });
     return Promise.resolve({ ok: true });
   });
 }
@@ -40,6 +43,8 @@ describe("WorkspacesPanel", () => {
   it("adds a machine by CONNECTING once, closing that session, and registering its root", async () => {
     reads({ connections: [], mappings: [] });
     render(<WorkspacesPanel />);
+    // THE MACHINES COME FIRST: the form is behind a button, so a test that wants it must ask for it.
+    fireEvent.click(screen.getByRole("button", { name: /add a host/i }));
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "10.10.61.83" } });
     fireEvent.change(screen.getByLabelText("User"), { target: { value: "zhengsaisi" } });
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "22122" } });
@@ -67,11 +72,12 @@ describe("WorkspacesPanel", () => {
         body: JSON.stringify({ session_id: "term-abc-0" }),
       }),
     );
-    // and the ROOT is what gets registered — that is what makes every path on the machine resolvable
+    // and the machine's HOME is what gets registered — derived, not asked for. A path-keyed registry
+    // can give "/" to only ONE machine, which is the collision this page must not walk into.
     await waitFor(() =>
       expect(mockApi).toHaveBeenCalledWith("/api/workspace/register", {
         method: "POST",
-        body: JSON.stringify({ path: "/", connection_id: "ssh:zhengsaisi@10.10.61.83:22122" }),
+        body: JSON.stringify({ path: "/home/zhengsaisi", connection_id: "ssh:zhengsaisi@10.10.61.83:22122" }),
       }),
     );
   });
@@ -82,9 +88,12 @@ describe("WorkspacesPanel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
     first.unmount();
 
-    reads({ connections: [SSH], mappings: [{ path: "/", connection_id: SSH.id }] });
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
     render(<WorkspacesPanel />);
-    await waitFor(() => expect(screen.getByText(/every path on it works/)).toBeTruthy());
+    // ADDED: the machine can be opened, and the offer to add it is gone. The prefix is whatever that
+    // machine registered — the page looks for the connection's own mapping, not for a fixed "/".
+    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: `Add ${SSH.id}` })).toBeNull();
   });
 
   it("shows the agent's refusal VERBATIM", async () => {
@@ -140,8 +149,10 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    await waitFor(() => expect(screen.getByRole("button", { name: `Browse ${SSH.id}` })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: `Browse ${SSH.id}` }));
+    // OPENING the machine is what lists its files: the browse affordance is the machine's own Open,
+    // and the listing lives in that view rather than under the row.
+    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "etc/" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "vmlinuz/" })).toBeNull();
@@ -209,9 +220,14 @@ describe("WorkspacesPanel", () => {
     });
     render(<WorkspacesPanel />);
     fireEvent.click(await screen.findByRole("button", { name: /open/i }));
-    await waitFor(() => expect(screen.getByText("summrise")).toBeTruthy());
+    // A DIRECTORY IS SPELLED WITH ITS SLASH (the same shape the browse test asserts with "etc/"):
+    // the trailing slash is what tells the reader it can be entered, and a file does not get one.
+    await waitFor(() => expect(screen.getByText("summrise/")).toBeTruthy());
     expect(screen.getByText("notes.txt")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /command/i })).toBeTruthy();
+    // A WAY TO RUN A COMMAND: the field is what makes it a command line (an argv, never a shell
+    // string), and Run is what sends it.
+    expect(screen.getByLabelText("Command")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^run$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /back|machines/i })).toBeTruthy();
   });
 
