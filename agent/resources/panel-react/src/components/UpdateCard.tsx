@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { callApi, deviceRefused } from "../lib/api";
 import { useDeviceRead } from "../hooks/useDeviceRead";
+import { logic } from "../wasm/panelLogic";
 
 export interface UpdateStatus {
   current: string;
@@ -63,28 +64,21 @@ const str = (v: unknown): string | null =>
   typeof v === "string" && v ? v : null;
 
 /** Read `/api/update`. Never throws; a body this build cannot use is the empty state, which
- *  renders as "unknown" rather than as "current". */
+ *  renders as "unknown" rather than as "current".
+ *
+ *  ── RUST SINCE 2026-09-30 (block ②), WITH `lib/updateDiagnosis.ts` ────────────────────────────
+ *
+ *  This and the three readers below are `agent/resources/panel-logic/src/update.rs` now — one family,
+ *  because they are the two ends of one question: the log says what HAPPENED, this answer says what is
+ *  TRUE NOW. The differential is 422 cases with 0 divergences (values, KEY ORDER, and whether each side
+ *  raised), and `components/__tests__/UpdateCard.test.tsx` runs UNCHANGED against it.
+ *
+ *  THE FIELD RULES MOVED WITH IT, and each one is the reason a naive port would have diverged: `str()`
+ *  is a NON-EMPTY string, `update_available`/`busy` are `=== true` (so `"true"` and `1` are not
+ *  claims), `checked_at` is a finite number ABOVE ZERO ("absent, never zero"), and `Math.round` rounds
+ *  half toward +INFINITY where Rust's rounds half away from zero. */
 export function parseUpdateStatus(j: unknown): UpdateStatus {
-  const b = (j ?? {}) as Record<string, unknown>;
-  return {
-    current: str(b.current) ?? "",
-    channel: str(b.channel),
-    latest: str(b.latest),
-    updateAvailable: b.update_available === true,
-    pinnedTo: str(b.pinned_to),
-    busy: b.busy === true,
-    error: str(b.error),
-    // A NUMBER, NOT A STRING: the wire sends epoch ms, and `0` is not a time anyone can weigh (it reads as 1970),
-    // so a non-positive or non-finite value is null — the same "absent, never zero" rule the vitals and boot
-    // records follow.
-    checkedAt:
-      typeof b.checked_at === "number" &&
-      Number.isFinite(b.checked_at) &&
-      b.checked_at > 0
-        ? b.checked_at
-        : null,
-    lastAttempt: parseAttempt(b.last_attempt),
-  };
+  return logic().parse_update_status(j) as UpdateStatus;
 }
 
 /** The launch record, or null. A record without a POSITIVE time, a `from` and a `to` is not one — the device
@@ -93,15 +87,7 @@ export function parseUpdateStatus(j: unknown): UpdateStatus {
 export function parseAttempt(
   v: unknown,
 ): { atMs: number; from: string; to: string } | null {
-  if (!v || typeof v !== "object") return null;
-  const a = v as Record<string, unknown>;
-  const atMs = a.at_ms;
-  if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs <= 0)
-    return null;
-  const from = typeof a.from === "string" ? a.from : "";
-  const to = typeof a.to === "string" ? a.to : "";
-  if (!from && !to) return null;
-  return { atMs, from, to };
+  return logic().parse_attempt(v) as { atMs: number; from: string; to: string } | null;
 }
 
 /** "checked 12s ago" — the age of the device's answer, in the panel's own vocabulary.
@@ -113,24 +99,14 @@ export function parseAttempt(
  *  around it already says what happened ("the swap was handed over 2m ago"), and repeating "checked" there would
  *  describe the wrong event. */
 export function attemptAge(atMs: number | null, nowMs: number): string {
-  const age = checkedAge(atMs, nowMs);
-  return age ? age.replace(/^checked /, "") : "at an unknown time";
+  return logic().attempt_age(atMs, nowMs);
 }
 
 export function checkedAge(
   checkedAt: number | null,
   nowMs: number,
 ): string | null {
-  // ZERO IS NOT A TIME. The mapper already refuses non-positive values, and this refuses them again because the
-  // formatter is the last place before the screen: `epoch 0` renders as "checked 497204h ago", which is a claim
-  // about a device that simply has not answered that question.
-  if (checkedAt === null || !Number.isFinite(checkedAt) || checkedAt <= 0)
-    return null;
-  const secs = Math.max(0, Math.round((nowMs - checkedAt) / 1000));
-  if (secs < 90) return `checked ${secs}s ago`;
-  const mins = Math.round(secs / 60);
-  if (mins < 90) return `checked ${mins}m ago`;
-  return `checked ${Math.round(mins / 60)}h ago`;
+  return logic().checked_age(checkedAt, nowMs) as string | null;
 }
 
 /** The update state, re-read on an interval (the release channel is cached device-side, so

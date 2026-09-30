@@ -133,7 +133,7 @@ const EXITED_PREFIX: &str = "exited:";
 #[wasm_bindgen]
 pub fn group_events(events: JsValue) -> Result<Array, JsValue> {
     let list = events_array(&events, "groupEvents")?;
-    let mut cards = Array::new();
+    let cards = Array::new();
     let mut start = JsValue::UNDEFINED;
     let mut outputs: Vec<String> = Vec::new();
 
@@ -228,7 +228,7 @@ pub fn group_events(events: JsValue) -> Result<Array, JsValue> {
 #[wasm_bindgen]
 pub fn group_rounds(events: JsValue) -> Result<Array, JsValue> {
     let list = events_array(&events, "groupRounds")?;
-    let mut rounds = Array::new();
+    let rounds = Array::new();
     let mut pre: Vec<JsValue> = Vec::new();
     let mut cur: Option<Vec<JsValue>> = None;
 
@@ -387,9 +387,9 @@ fn finish_card(
     let _ = crate::js::put(&card, "output", &JsValue::from_str(&output));
     let _ = crate::js::put(&card, "startedAt", &prop(start, "ts"));
     let _ = crate::js::put(&card, "ended", &JsValue::from_bool(ended));
-    let _ = crate::js::put(&card, "exitCode", &exit_code);
-    let _ = crate::js::put(&card, "reason", &reason);
-    let _ = crate::js::put(&card, "durationMs", &duration_ms);
+    let _ = crate::js::put(&card, "exitCode", exit_code);
+    let _ = crate::js::put(&card, "reason", reason);
+    let _ = crate::js::put(&card, "durationMs", duration_ms);
     card
 }
 

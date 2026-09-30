@@ -46,6 +46,7 @@ mod monitors;
 mod path;
 mod runs;
 mod session_labels;
+mod update;
 mod vitals;
 mod vocabulary;
 
@@ -63,4 +64,5 @@ pub use monitors::{parse_monitor_change, parse_monitors};
 pub use path::{attention_steps, card_state, derive_path, state_from_end, summarize_path};
 pub use runs::{group_operation, operation_rows};
 pub use session_labels::disambiguate_labels;
+pub use update::{attempt_age, checked_age, diagnose_update, parse_attempt, parse_update_status};
 pub use vitals::parse_vitals_series;
