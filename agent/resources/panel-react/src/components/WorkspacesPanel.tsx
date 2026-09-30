@@ -1,4 +1,9 @@
-// WorkspacesPage — ADD A LINUX MACHINE, then every path on it is a workspace.
+// WorkspacesPanel — ADD A LINUX MACHINE, then every path on it is a workspace.
+//
+// IT LIVES INSIDE THE HARNESS PAGE, not on a rail entry of its own: the operator said it plainly ("那个 WorkSpaces
+// 一定要吗，不能都放在 harness 面板里面吗"), and they are right — a workspace is what the harness works IN, so
+// managing one belongs where the harness is. The panel is collapsed by default so the embedded harness keeps the
+// page's height, and expanding it shrinks the slot, which the pane re-reports on its own.
 //
 // THE OPERATOR'S OWN MODEL, twice over. First: "工作区不能添加linux主机啊" — the page could only pick from
 // connections the agent had ALREADY saved, so a host nobody had opened a terminal to could not be added at all.
@@ -41,7 +46,7 @@ interface Entry {
 /** A machine's registered root: the prefix that makes everything under it resolvable. */
 const MACHINE_ROOT = "/";
 
-export function WorkspacesPage() {
+export function WorkspacesPanel() {
   const [machines, setMachines] = useState<Connection[] | null>(null);
   const [mappings, setMappings] = useState<Mapping[] | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
@@ -204,8 +209,7 @@ export function WorkspacesPage() {
     (mappings ?? []).filter((m) => m.connection_id === id && m.path !== MACHINE_ROOT).map((m) => m.path);
 
   return (
-    <div className="workspaces-page">
-      <h1 className="sr-only">Workspaces</h1>
+    <div className="workspaces-panel">
       <p className="workspaces-lede">
         Add a Linux machine once — every path on it is a workspace after that. The connection is saved by the
         agent (the same store its terminals use), and the credentials never leave it.

@@ -28,8 +28,6 @@ export const PAGE_ICONS: Record<Page, IconName> = {
   browser: "browser",
   // The harness's own mark (see ui/Icon): it is not a terminal, a browser or a plugin list.
   harness: "harness",
-  // The ssh glyph, because a workspace IS a remote host — and it is an existing mark rather than a new one.
-  workspaces: "ssh",
   memory: "memory",
   plugins: "plugins",
   settings: "settings",

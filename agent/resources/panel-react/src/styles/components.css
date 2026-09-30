@@ -2722,7 +2722,7 @@
    The page that turns the registry into something a person can use: pick a saved ssh connection, type a path,
    press Add. Every value here comes from the design tokens, and the measurements that shaped the page live in
    the commit message rather than in this comment (the spacing ratchet counts pixel literals in comments too). */
-.workspaces-page {
+.workspaces-panel {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
@@ -2818,6 +2818,8 @@
    The slot is EMPTY BY CONSTRUCTION: the main process composites a native WebContentsView over
    this rectangle, so the stylesheet's whole job here is to give it a size and to keep the toolbar
    above it. Everything else (the harness's own pixels) is not ours to paint. */
+/* The machines/workspaces toggle above the embedded harness: a bar, not a page — the harness keeps the height. */
+.dsh-machines { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--line); }
 .dsh-page {
   flex: 1 1 0;
   min-height: 0;

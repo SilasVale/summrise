@@ -1,4 +1,4 @@
-// WorkspacesPage pins — ADD A MACHINE, then every path on it is a workspace.
+// WorkspacesPanel pins — ADD A MACHINE, then every path on it is a workspace.
 //
 // WHAT IT PINS: that adding a machine CONNECTS ONCE (a successful `terminal_open` is what saves a connection,
 // and it is the only thing that proves the credentials work before a workspace depends on them), that the session
@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { callApi } from "../../lib/api";
-import { WorkspacesPage } from "../WorkspacesPage";
+import { WorkspacesPanel } from "../WorkspacesPanel";
 
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
@@ -32,14 +32,14 @@ function reads({ connections = [], mappings = [] }: { connections?: unknown[]; m
   });
 }
 
-describe("WorkspacesPage", () => {
+describe("WorkspacesPanel", () => {
   beforeEach(() => {
     mockApi.mockReset();
   });
 
   it("adds a machine by CONNECTING once, closing that session, and registering its root", async () => {
     reads({ connections: [], mappings: [] });
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "10.10.61.83" } });
     fireEvent.change(screen.getByLabelText("User"), { target: { value: "zhengsaisi" } });
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "22122" } });
@@ -78,12 +78,12 @@ describe("WorkspacesPage", () => {
 
   it("says a machine is added once its root is registered, and offers Add before that", async () => {
     reads({ connections: [SSH], mappings: [] });
-    const first = render(<WorkspacesPage />);
+    const first = render(<WorkspacesPanel />);
     await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
     first.unmount();
 
     reads({ connections: [SSH], mappings: [{ path: "/", connection_id: SSH.id }] });
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     await waitFor(() => expect(screen.getByText(/every path on it works/)).toBeTruthy());
   });
 
@@ -94,7 +94,7 @@ describe("WorkspacesPage", () => {
       if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [] });
       return Promise.resolve({ ok: false, error: 'no saved connection "ssh:x@y:22"' });
     });
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: `Add ${SSH.id}` }));
     await waitFor(() =>
@@ -110,7 +110,7 @@ describe("WorkspacesPage", () => {
         return Promise.resolve({ ok: false, code: "internal", error: "the terminal feature is disabled" });
       return Promise.resolve({ ok: true, mappings: [] });
     });
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain("the terminal feature is disabled"),
     );
@@ -119,7 +119,7 @@ describe("WorkspacesPage", () => {
 
   it("says the agent did not answer instead of drawing an empty list as 'there are none'", async () => {
     mockApi.mockRejectedValue(new Error("unauthorized"));
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("did not answer"));
     expect(screen.queryByText("None yet — add one above.")).toBeNull();
   });
@@ -139,7 +139,7 @@ describe("WorkspacesPage", () => {
         });
       return Promise.resolve({ ok: true });
     });
-    render(<WorkspacesPage />);
+    render(<WorkspacesPanel />);
     await waitFor(() => expect(screen.getByRole("button", { name: `Browse ${SSH.id}` })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: `Browse ${SSH.id}` }));
 
