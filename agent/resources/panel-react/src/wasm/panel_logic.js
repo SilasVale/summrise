@@ -37,6 +37,26 @@ export function archive_entries(payload) {
 }
 
 /**
+ * `attemptAge(atMs, nowMs)` — the age of an ACT, where `checkedAge` is the age of a READING. Same
+ * units, no verb: the sentence around it already says what happened.
+ * @param {any} at_ms
+ * @param {any} now_ms
+ * @returns {string}
+ */
+export function attempt_age(at_ms, now_ms) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.attempt_age(at_ms, now_ms);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * `attentionSteps(steps)` — worth a second look, worst first.
  *
  * `bg` ranks with `running`: both are "not finished", and neither is a problem to draw the eye. The
@@ -89,6 +109,20 @@ export function card_state(card) {
 }
 
 /**
+ * `checkedAge(checkedAt, nowMs)` — "checked 12s ago", or null when there is no time to weigh.
+ *
+ * ZERO IS NOT A TIME, and the formatter is the last place before the screen: `epoch 0` renders as
+ * "checked 497204h ago", which is a claim about a device that simply has not answered.
+ * @param {any} checked_at
+ * @param {any} now_ms
+ * @returns {any}
+ */
+export function checked_age(checked_at, now_ms) {
+    const ret = wasm.checked_age(checked_at, now_ms);
+    return ret;
+}
+
+/**
  * `derivePath(rounds, controlEvents)` — the steps, their summary, and the round id → index map.
  *
  * `controlEvents` DEFAULTS to `[]` in the TypeScript, and a `JsValue::UNDEFINED` in is that same
@@ -132,6 +166,24 @@ export function device_liveness(input) {
     } finally {
         wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
+}
+
+/**
+ * `diagnoseUpdate(log)` — the four-way verdict over `summrise-update.log`.
+ *
+ * PRESENCE IS DECIDED PER KIND, not by position: a receipt and a start can be interleaved over
+ * several updates, and the question is only whether each kind appears at all. Ordering by line index
+ * would answer a different question ("was the LAST thing a receipt?") and would report `cli-only` for
+ * a device whose most recent update succeeded.
+ * @param {any} log
+ * @returns {object}
+ */
+export function diagnose_update(log) {
+    const ret = wasm.diagnose_update(log);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -265,6 +317,17 @@ export function operation_rows(groups) {
 }
 
 /**
+ * `parseAttempt(v)` — the launch record, or null. A record without a POSITIVE time, a `from` and a
+ * `to` is not one: half a record would render as "updated from to at Invalid Date".
+ * @param {any} v
+ * @returns {any}
+ */
+export function parse_attempt(v) {
+    const ret = wasm.parse_attempt(v);
+    return ret;
+}
+
+/**
  * `parseBootHistory(j)` — never throws, and never invents a value.
  * @param {any} j
  * @returns {any}
@@ -346,6 +409,17 @@ export function parse_monitors(j) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `parseUpdateStatus(j)` — read `/api/update`. Never throws; a body this build cannot use is the
+ * empty state, which renders as "unknown" rather than as "current".
+ * @param {any} j
+ * @returns {object}
+ */
+export function parse_update_status(j) {
+    const ret = wasm.parse_update_status(j);
+    return ret;
 }
 
 /**
@@ -599,6 +673,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_call_6137034ef55c9d0f: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.call(arg1);
+            return ret;
+        }, arguments); },
         __wbg_from_296ca31f8d0f1c52: function(arg0) {
             const ret = Array.from(arg0);
             return ret;
@@ -633,6 +711,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_28744009d011f847: function() {
             const ret = new Map();
+            return ret;
+        },
+        __wbg_new_2f0c455872a7873c: function(arg0, arg1, arg2, arg3) {
+            const ret = new RegExp(getStringFromWasm0(arg0, arg1), getStringFromWasm0(arg2, arg3));
             return ret;
         },
         __wbg_new_343a093a3c2ffb4e: function(arg0, arg1) {

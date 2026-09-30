@@ -99,10 +99,7 @@ pub fn title_for(items: JsValue, base: String, tab: bool) -> String {
 #[wasm_bindgen]
 pub fn badge_icon(count: f64, urgent: bool, base_href: JsValue) -> String {
     // `baseHref ?? ""` — null AND undefined both become the empty string.
-    let base = match base_href.as_string() {
-        Some(s) => s,
-        None => String::new(),
-    };
+    let base = base_href.as_string().unwrap_or_default();
     if count <= 0.0 || base.is_empty() {
         return base;
     }

@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **129,296 raw / 62,553 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **33,492 raw / 9,382 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **142,205 raw / 68,025 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **36,282 raw / 10,092 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -38,6 +38,13 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `liveness.rs` (7 exports) | 29,877 (+1,910) | 7,840 (+1,699) | **273,240** (+120) |
 | `path.rs` (5 functions + the endings table) | 38,487 (+8,610) | 8,617 (+777) | **272,623** (**−617**) |
 | `events.rs` (4 functions: the two groupings, the marker rule, ANSI) | **62,553** (+24,066) | **9,382** (+765) | **271,904** (**−719**) |
+| `update.rs` (5 functions: the four-way log verdict, the update readers, two age formatters) | **68,025** (+5,472) | **10,092** (+710) | **279,038** (**−607**) |
+
+**AND THE PAYLOAD COLUMN IS MEASURED AGAINST THE TREE THE FAMILY LANDED ON, not against the row above
+it** — the panel gains product features between families, so `update.rs`'s before is 279,645 gz at
+`445a4eca` and its after is 279,038: the family is worth **−607 gz** even though the number is larger
+than `events.rs`'s 271,904. A column read as a sequence would say the panel grew by 7 KB in one
+family, which is the opposite of what happened.
 
 **The first-load column is the one the operator pays, and for six of the eight families it went DOWN**
 — the TypeScript a family deletes is larger than the glue it adds. `session_labels.rs` is the
@@ -73,6 +80,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `liveness.rs` | `lib/liveness.ts`'s seven predicates (`livenessOf`, `deviceLiveness`, `sessionWaiting`, `sessionActive`, `anyCommandRunning`, `sessionLiveness`, `sessionFailed`) | 7 |
 | `path.rs` | `lib/path.ts`'s `stateFromEnd`, `cardState`, `derivePath`, `summarizePath`, `attentionSteps`, and the `END_STATE`/`END_LABEL` tables | 5 |
 | `events.rs` | `useCommandEvents.ts`'s `terminalStatus` + `groupEvents`, `useTrajectory.ts`'s `groupRounds`, `lib/ansi.ts`'s `stripAnsi` | 4 |
+| `update.rs` | `lib/updateDiagnosis.ts`'s `diagnoseUpdate`, `components/UpdateCard.tsx`'s `parseUpdateStatus`, `parseAttempt`, `checkedAge`, `attemptAge` | 5 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
