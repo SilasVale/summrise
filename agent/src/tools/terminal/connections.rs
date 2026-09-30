@@ -129,6 +129,24 @@ pub fn list() -> Vec<serde_json::Value> {
     v
 }
 
+/// The saved entry for `id`, or `None` when it was forgotten. `terminal_saved_connections` lists them; this is the
+/// same map read by id, so a workspace can say WHICH connection it lost rather than failing vaguely later.
+///
+/// IT SCRUBS LIKE `list()` DOES, for the same reason (credential audit round LOW-6): a pre-R92 entry persisted its
+/// params verbatim, password included, and a reader that skipped the scrub would hand that password to whatever
+/// asked. Two readers of one store share one shape, or the scrub is only as good as its narrowest caller.
+pub fn find(id: &str) -> Option<serde_json::Value> {
+    let _g = recover_guard(&STORE_LOCK);
+    let mut entry = read_all().get(id).cloned()?;
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert("id".into(), serde_json::Value::String(id.to_string()));
+        if let Some(p) = obj.get_mut("params").and_then(|p| p.as_object_mut()) {
+            p.remove("password");
+        }
+    }
+    Some(entry)
+}
+
 /// Forget a saved connection by its `kind:target` id.
 pub fn forget(id: &str) -> Result<bool, DeviceError> {
     let _g = recover_guard(&STORE_LOCK);
