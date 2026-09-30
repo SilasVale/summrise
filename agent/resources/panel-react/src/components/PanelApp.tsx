@@ -34,6 +34,7 @@ import { MonitorAlerts } from "./MonitorAlerts";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { BrowserPage } from "./BrowserPage";
 import { DshPage } from "./DshPage";
+import { WorkspacesPage } from "./WorkspacesPage";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
 import { SettingsPage } from "./SettingsPage";
@@ -254,6 +255,7 @@ export function PanelApp(props: Props) {
             {page === "history" && <HistoryPage sessions={props.sessions} />}
             {page === "browser" && <BrowserPage token={props.token} />}
               {page === "harness" && <DshPage />}
+            {page === "workspaces" && <WorkspacesPage />}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}
             {page === "settings" && (

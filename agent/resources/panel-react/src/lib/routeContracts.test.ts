@@ -21,6 +21,15 @@ const REPO = path.resolve(HERE, "..", "..", "..", "..", "..");
 
 /** Routes whose shape is pinned by a fixture or test read from BOTH ends, with that file named. */
 const COVERED: Record<string, string> = {
+  // THE WORKSPACE REGISTRY (the Workspaces page). Its four shapes are pinned in Rust, where the endpoints live:
+  // `agent/src/web/mod.rs`'s `workspace_registry_tests` asserts `ok` plus `connections[].id`,
+  // `mappings[].path`/`connection_id`, the `removed` flag, and the two named refusals
+  // (`workspace/unknown-path`, `workspace/unknown-connection`) — which is the part a fixture could not pin,
+  // because it is the part that says WHY a call was refused.
+  "/api/workspace/connections": "agent/src/web/mod.rs workspace_registry_tests (the seeded connection comes back)",
+  "/api/workspace/mappings": "agent/src/web/mod.rs workspace_registry_tests (the registered path comes back)",
+  "/api/workspace/register": "agent/src/web/mod.rs workspace_registry_tests (ok, and unknown-connection by name)",
+  "/api/workspace/unregister": "agent/src/web/mod.rs workspace_registry_tests (removed true/false is a fact)",
   "/api/boots": "agent/tests/fixtures/boot-history.json (runstate.rs + useBootHistory.test.ts)",
   "/api/vitals/history": "agent/tests/fixtures/vitals-series.json (metrics.rs + useVitalsSeries.fixture.test.ts)",
   "/api/sessions": "agent/src/session_log.rs + useSessionArchive's own tests (parse + failure states)",
