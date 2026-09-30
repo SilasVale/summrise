@@ -62,6 +62,15 @@ export function WorkspacesPage() {
         callApi("/api/workspace/connections"),
         callApi("/api/workspace/mappings"),
       ]);
+      // A 200 WITH `ok:false` IS A REFUSAL, NOT AN EMPTY LIST. A build without the terminal feature answers
+      // exactly that (`internal`), and drawing it as "no saved ssh connection yet" is the status-lie this
+      // repository's own rule names: an empty list is a claim that nobody checked.
+      if (c?.ok === false || m?.ok === false) {
+        setUnreachable(c?.error || m?.error || c?.code || m?.code || "the agent refused without saying why");
+        setMachines(null);
+        setMappings(null);
+        return;
+      }
       // A WORKSPACE IS A POSIX HOST: a pty or a serial line cannot be one.
       setMachines(((c?.connections ?? []) as Connection[]).filter((x) => x.kind === "ssh"));
       setMappings((m?.mappings ?? []) as Mapping[]);

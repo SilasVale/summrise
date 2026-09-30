@@ -93,25 +93,17 @@ fn write_all(entries: &[Entry]) -> Result<(), DeviceError> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let tmp = path.with_extension("json.tmp");
-    // temp + rename: a crash mid-write must not leave a torn store an operator cannot tell from a real one.
-    {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| DeviceError::Internal {
-            message: format!("write {}: {e}", tmp.display()),
-        })?;
-        f.write_all(
-            serde_json::to_string(entries)
-                .map_err(|e| DeviceError::Internal {
-                    message: format!("encode mappings: {e}"),
-                })?
-                .as_bytes(),
-        )
-        .map_err(|e| DeviceError::Internal {
-            message: format!("write {}: {e}", tmp.display()),
-        })?;
-    }
-    std::fs::rename(&tmp, &path).map_err(|e| DeviceError::Internal {
-        message: format!("rename to {}: {e}", path.display()),
+    let encoded = serde_json::to_string(entries).map_err(|e| DeviceError::Internal {
+        message: format!("encode mappings: {e}"),
+    })?;
+    // THE CRATE'S ONE ATOMIC REPLACE, not another hand-rolled temp+rename: `atomic.rs` exists because that dance
+    // had SEVEN spellings and three of them never called `sync_all`, so a power cut after the rename could leave
+    // the replaced file empty. It also removes the temp on ANY failure, which a hand-rolled version forgets.
+    crate::atomic::replace(&path, crate::atomic::Hardening::None, |out| {
+        out.write_all(encoded.as_bytes())
+    })
+    .map_err(|e| DeviceError::Internal {
+        message: format!("write {}: {e}", path.display()),
     })
 }
 

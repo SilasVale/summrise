@@ -102,6 +102,21 @@ describe("WorkspacesPage", () => {
     );
   });
 
+  it("treats a 200 with ok:false as a REFUSAL, not as an empty list", async () => {
+    // Reachable today: a build without the terminal feature answers `internal` to both reads, and drawing that as
+    // "no saved ssh connection yet" is a claim nobody checked.
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections")
+        return Promise.resolve({ ok: false, code: "internal", error: "the terminal feature is disabled" });
+      return Promise.resolve({ ok: true, mappings: [] });
+    });
+    render(<WorkspacesPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("the terminal feature is disabled"),
+    );
+    expect(screen.queryByText(/No saved ssh connection yet/)).toBeNull();
+  });
+
   it("says the agent did not answer instead of drawing an empty list as 'there are none'", async () => {
     mockApi.mockRejectedValue(new Error("unauthorized"));
     render(<WorkspacesPage />);

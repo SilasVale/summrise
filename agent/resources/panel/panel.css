@@ -3427,6 +3427,9 @@ h3 { font-size: var(--fs-base); }
   padding: var(--sp-0-5) var(--sp-1);
 }
 .workspaces-entry-dir:hover { background: var(--chrome-hover); }
+/* A HOVER THAT ANSWERS AND A PRESS THAT DOES NOT is the feedback gap the crate's own gate refuses — it caught
+   this rule the first time it ran. The tokens are the rail's, so the two controls answer a press the same way. */
+.workspaces-entry-dir:active { background: var(--chrome-active-bg); }
 
 
 /* ---------- harness page (the DSH view, embedded by the desktop shell) ----------

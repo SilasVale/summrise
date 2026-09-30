@@ -2382,54 +2382,86 @@ fn isolated_mapping_dir() -> std::path::PathBuf {
     dir
 }
 
+/// WHICH CREDENTIAL A RESOLVED CONNECTION USES, with the keychain INJECTED so the decision is testable without
+/// one — the same reason the providers keep their logic in the transports.
+///
+/// A key wins outright and the password is left empty: sending both would poison the key load (the rule
+/// `SshBackend::connect` states at its own fallback). An inline password wins over the keychain, because a caller
+/// that typed one means it. Only when neither is present is the keychain asked — by the connection's TARGET, which
+/// is the key the terminal's own `secret_set`/`secret_get` pair uses.
+/// Gated with its only caller (`from_saved`, inside the terminal feature): in a build without the SSH client this
+/// decision has no user, and the default-feature clippy run is what says so.
+#[cfg(feature = "terminal")]
+fn credential_for(
+    key_path: &str,
+    password: &str,
+    target: &str,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> (String, String) {
+    if !key_path.is_empty() {
+        return (String::new(), key_path.to_string());
+    }
+    if !password.is_empty() {
+        return (password.to_string(), String::new());
+    }
+    (lookup(target).unwrap_or_default(), String::new())
+}
+
 #[cfg(feature = "terminal")]
 impl WorkspaceTarget {
-    /// THE PATH DECIDES FIRST, AND ONLY WHEN NO CONNECTION WAS GIVEN. A request may carry its connection inline
-    /// (today's shape, unchanged — that is what keeps every existing caller working) or name a path the mapping
-    /// store knows. When neither holds it is refused, and refused BY NAME: a timeout is not something an operator
-    /// can act on.
+    /// THE PATH DECIDES FIRST, AND THE INLINE PARAMETERS ARE THE FALLBACK — which is what spec §6 says and what
+    /// this did NOT do: it consulted the store only when the request carried no host, so a profile that still had
+    /// host/user in its config silently ignored the registry. The device acceptance only passed because step 2
+    /// removed the host from the profile by hand; a caller that passes both now gets the registry's answer, which
+    /// is the whole point of having one.
     fn from_request(v: &serde_json::Value) -> Result<Self, serde_json::Value> {
         let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
         let named = |code: &str, message: String| serde_json::json!({"ok": false, "error": message, "code": code});
+
+        // `cwd` for exec, `path` for fs — the only fields that name a place.
+        let path = v
+            .get("cwd")
+            .or_else(|| v.get("path"))
+            .and_then(|x| x.as_str())
+            .filter(|p| !p.is_empty());
+        if let Some(path) = path {
+            if let Some(entry) = crate::workspace_mappings::resolve(path) {
+                let saved = crate::tools::terminal::conn_find(&entry.connection_id).ok_or_else(|| {
+                    named(
+                        "workspace/unknown-connection",
+                        format!(
+                            "workspace {:?} is registered to connection {:?}, which is no longer saved",
+                            entry.path, entry.connection_id
+                        ),
+                    )
+                })?;
+                return Self::from_saved(&saved);
+            }
+            // A path with NO mapping falls through to the inline parameters below — and only if there are none
+            // is it refused, by the path's name rather than by a missing host's.
+            if v.get("host")
+                .and_then(|x| x.as_str())
+                .filter(|h| !h.is_empty())
+                .is_none()
+            {
+                return Err(named(
+                    "workspace/unknown-path",
+                    format!("no workspace is registered for {path:?}; add one, or pass host and user inline"),
+                ));
+            }
+        }
 
         let inline = v
             .get("host")
             .and_then(|x| x.as_str())
             .filter(|h| !h.is_empty());
         let Some(host) = inline else {
-            // `cwd` for exec, `path` for fs — the only fields that name a place. An exec with NO cwd therefore has
-            // nothing to look up, and says so rather than guessing a workspace it was never told about.
-            let path = v
-                .get("cwd")
-                .or_else(|| v.get("path"))
-                .and_then(|x| x.as_str())
-                .filter(|p| !p.is_empty());
-            let Some(path) = path else {
-                return Err(named(
-                    "workspace/unknown-path",
-                    "no connection was given and this request names no path to look one up by"
-                        .to_string(),
-                ));
-            };
-            let Some(entry) = crate::workspace_mappings::resolve(path) else {
-                return Err(named(
-                    "workspace/unknown-path",
-                    format!("no workspace is registered for {path:?}; add one, or pass host and user inline"),
-                ));
-            };
-            let saved =
-                crate::tools::terminal::conn_find(&entry.connection_id).ok_or_else(|| {
-                    named(
-                        "workspace/unknown-connection",
-                        format!(
-                        "workspace {:?} is registered to connection {:?}, which is no longer saved",
-                        entry.path, entry.connection_id
-                    ),
-                    )
-                })?;
-            return Self::from_saved(&saved);
+            return Err(named(
+                "workspace/unknown-path",
+                "no connection was given and this request names no path to look one up by"
+                    .to_string(),
+            ));
         };
-
         let Some(user) = v.get("user").and_then(|x| x.as_str()) else {
             return Err(bad("a user is required"));
         };
@@ -2468,60 +2500,46 @@ impl WorkspaceTarget {
                 .unwrap_or_default()
                 .to_string()
         };
-        // THE USER, HOST AND PORT LIVE IN `target` FOR A REAL SAVED CONNECTION — measured on the device, where the
-        // entry is `{id:"ssh:zhengsaisi@10.10.61.83:22122", target:"zhengsaisi@10.10.61.83:22122",
-        // params:{kind,target,rows,cols}}`. Reading `params.host` found nothing and refused a connection that was
-        // right there, which is how this comment came to exist. An entry that DOES carry explicit params fields
-        // wins, so nothing that worked before this line stops working.
+
+        // THE TARGET IS WHERE A REAL SAVED CONNECTION KEEPS user/host/port — measured, after reading `params.host`
+        // refused a connection that was right there. `parse_ssh_target` is the terminal's own parser (it handles
+        // bracket and bare IPv6, and defaults the user to `root` exactly as `terminal_open` does); hand-rolling it
+        // here produced a second answer to the same question.
         let target = saved
             .get("target")
             .and_then(|x| x.as_str())
             .unwrap_or_default();
-        let (user_in_target, host_port) = match target.split_once('@') {
-            Some((u, rest)) => (u, rest),
-            None => ("", target),
-        };
-        let (host_in_target, port_in_target) = match host_port.rsplit_once(':') {
-            Some((h, p)) => (h, p.parse::<u16>().ok()),
-            None => (host_port, None),
-        };
-        let explicit_host = text("host");
-        let explicit_user = text("user");
-        let host = if explicit_host.is_empty() {
-            host_in_target.to_string()
-        } else {
-            explicit_host
-        };
-        let user = if explicit_user.is_empty() {
-            user_in_target.to_string()
-        } else {
-            explicit_user
-        };
-        if host.is_empty() || user.is_empty() {
+        let (user, host, port) = crate::tools::terminal::parse_ssh_target(target);
+        if host.is_empty() {
             return Err(named(
                 "workspace/unknown-connection",
                 format!(
-                    "the saved connection {} carries no host/user to connect with",
+                    "the saved connection {} has no host to connect with",
                     saved.get("id").and_then(|x| x.as_str()).unwrap_or("?")
                 ),
             ));
         }
-        // THE PASSWORD IS NOT HERE, AND THAT IS NOT AN OMISSION. The store scrubs it on read (see `find`), so a
-        // saved connection authenticates with its key — which is what this deployment's own connection uses, and
-        // what the verified end-to-end path proved. A connection whose ONLY credential is a keychain password is
-        // a known gap: the lookup exists (`tools/terminal/secrets.rs`), the wrapper's exact shape was not
-        // confirmed, and guessing a key convention would fail as an auth error that reads like a wrong password.
+
+        // AND THE CREDENTIAL, which is where this was WRONG in a way the device could see: a connection whose only
+        // credential is a keychain password could never work, because the password was hardcoded empty and only
+        // `params.key_path` was read. Measured on desktop-14rjcr8: 4 of the 5 saved ssh connections carry no
+        // key_path, and `secret_get("stc@192.168.1.1:22")` returns "1234" — the credential was there and this
+        // function never asked. `SshSession::connect` has no keychain fallback of its own; `SshBackend::connect`
+        // does, and this is that same lookup, by the connection's TARGET.
+        let (password, key_path) =
+            credential_for(&text("key_path"), &text("password"), target, |t| {
+                crate::tools::terminal::secret_get(t).ok().flatten()
+            });
         Ok(Self {
             host,
             user,
             port: params
                 .get("port")
                 .and_then(|x| x.as_u64())
-                .map(|p| p as u16)
-                .or(port_in_target)
-                .unwrap_or(22),
-            password: String::new(),
-            key_path: text("key_path"),
+                .and_then(|p| u16::try_from(p).ok())
+                .unwrap_or(port),
+            password,
+            key_path,
         })
     }
 
@@ -9378,19 +9396,114 @@ mod workspace_registry_tests {
         );
     }
 
-    /// A target with no user is not a connection, and it says so by name rather than connecting as nobody.
+    /// A TARGET WITH NO USER RESOLVES AS `root`, because that is what the terminal's own parser does — the
+    /// reviewer's finding 4 was that this function gave a SECOND answer to a question `parse_ssh_target` already
+    /// answers. What is still refused is a target with no HOST: that is not a connection at all.
     #[test]
-    fn a_saved_connection_with_no_user_is_refused_by_name() {
-        let saved = serde_json::json!({
-            "id": "ssh:h:22",
-            "kind": "ssh",
-            "target": "h:22",
-            "params": {"kind": "ssh", "target": "h:22"}
+    fn a_saved_connection_follows_the_terminals_own_target_parsing() {
+        let no_user = serde_json::json!({
+            "id": "ssh:h:22", "kind": "ssh", "target": "h:22", "params": {"kind": "ssh", "target": "h:22"}
         });
-        let err = match WorkspaceTarget::from_saved(&saved) {
-            Ok(_) => panic!("a target with no user is not a connection, but it was accepted"),
+        let t = WorkspaceTarget::from_saved(&no_user)
+            .expect("the terminal parses this, so this must too");
+        assert_eq!(
+            t.user, "root",
+            "terminal_open defaults a userless target to root"
+        );
+        assert_eq!(t.host, "h");
+
+        let no_host = serde_json::json!({
+            "id": "ssh::22", "kind": "ssh", "target": ":22", "params": {"kind": "ssh", "target": ":22"}
+        });
+        let err = match WorkspaceTarget::from_saved(&no_host) {
+            Ok(_) => panic!("a target with no host is not a connection, but it was accepted"),
             Err(e) => e,
         };
         assert_eq!(err["code"], "workspace/unknown-connection", "got: {err}");
+    }
+
+    /// THE CREDENTIAL DECISION, which is where the reviewer's CRITICAL finding lives: a saved connection whose
+    /// only credential is a keychain password could never work, because `from_saved` hardcoded an empty password
+    /// and read only `params.key_path`. Measured on the device: 4 of the 5 saved ssh connections carry no
+    /// `key_path`, and `secret_get("stc@192.168.1.1:22")` returns "1234" — the credential was there and the door
+    /// never asked. The lookup is INJECTED so this decision is testable without a keychain.
+    #[test]
+    fn a_key_wins_and_the_password_is_not_also_sent() {
+        let (password, key) =
+            credential_for("/k", "secret", "u@h:22", |_| Some("from-keychain".into()));
+        assert_eq!(key, "/k");
+        assert_eq!(
+            password, "",
+            "a key and a password together would poison the key load"
+        );
+    }
+
+    #[test]
+    fn an_inline_password_wins_over_the_keychain() {
+        let (password, key) = credential_for("", "typed", "u@h:22", |_| Some("stored".into()));
+        assert_eq!(password, "typed");
+        assert_eq!(key, "");
+    }
+
+    #[test]
+    fn a_connection_with_neither_asks_the_keychain_by_its_target() {
+        // `credential_for` takes an `Fn`, so the key it was asked for is recorded through a cell rather than by
+        // mutating a captured local — which is what the first version of this test tried and could not compile.
+        let asked = std::cell::RefCell::new(String::new());
+        let (password, key) = credential_for("", "", "stc@192.168.1.1:22", |t| {
+            *asked.borrow_mut() = t.to_string();
+            Some("1234".into())
+        });
+        assert_eq!(
+            asked.borrow().as_str(),
+            "stc@192.168.1.1:22",
+            "the keychain key is the connection's target, not its id"
+        );
+        assert_eq!(password, "1234");
+        assert_eq!(key, "");
+    }
+
+    #[test]
+    fn a_keychain_that_has_nothing_leaves_both_empty_rather_than_inventing_one() {
+        let (password, key) = credential_for("", "", "u@h:22", |_| None);
+        assert_eq!(password, "");
+        assert_eq!(key, "");
+    }
+
+    /// THE PATH DECIDES FIRST, as spec §6 says and as this code did NOT do: it consulted the store only when the
+    /// request carried no host, so a profile that still had host/user in its config silently ignored the registry —
+    /// which is why the device acceptance had to remove the host from the profile by hand. Inline parameters are
+    /// the FALLBACK, not the first answer.
+    #[tokio::test]
+    async fn a_registered_path_wins_over_inline_parameters() {
+        let _dir = isolated_mapping_dir();
+        let mut params = serde_json::Map::new();
+        params.insert("kind".into(), serde_json::json!("ssh"));
+        params.insert("target".into(), serde_json::json!("u@192.0.2.9:22"));
+        crate::tools::terminal::conn_remember("ssh", "u@192.0.2.9:22", "test", &params).unwrap();
+        crate::workspace_mappings::register("/srv/mapped", "ssh:u@192.0.2.9:22").unwrap();
+
+        // The request carries a DIFFERENT inline host: the mapped one must be what the door resolves to.
+        let target = WorkspaceTarget::from_request(&serde_json::json!({
+            "cwd": "/srv/mapped/x",
+            "host": "inline.example",
+            "user": "someone",
+        }))
+        .expect("the mapped connection must be readable");
+        assert_eq!(
+            target.host, "192.0.2.9",
+            "the registry, not the inline host, decides a registered path"
+        );
+        assert_eq!(target.user, "u");
+
+        // …and a path with NO mapping still uses the inline parameters, which is the fallback.
+        let fallback = WorkspaceTarget::from_request(&serde_json::json!({
+            "cwd": "/nowhere/at/all",
+            "host": "inline.example",
+            "user": "someone",
+        }))
+        .expect("the inline fallback must still work");
+        assert_eq!(fallback.host, "inline.example");
+        assert_eq!(fallback.user, "someone");
     }
 }
