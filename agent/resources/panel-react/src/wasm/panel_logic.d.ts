@@ -22,6 +22,12 @@ export function any_command_running(sessions: any): boolean;
 export function archive_entries(payload: any): any;
 
 /**
+ * `attemptAge(atMs, nowMs)` — the age of an ACT, where `checkedAge` is the age of a READING. Same
+ * units, no verb: the sentence around it already says what happened.
+ */
+export function attempt_age(at_ms: any, now_ms: any): string;
+
+/**
  * `attentionSteps(steps)` — worth a second look, worst first.
  *
  * `bg` ranks with `running`: both are "not finished", and neither is a problem to draw the eye. The
@@ -46,6 +52,14 @@ export function badge_icon(count: number, urgent: boolean, base_href: any): stri
 export function card_state(card: any): object;
 
 /**
+ * `checkedAge(checkedAt, nowMs)` — "checked 12s ago", or null when there is no time to weigh.
+ *
+ * ZERO IS NOT A TIME, and the formatter is the last place before the screen: `epoch 0` renders as
+ * "checked 497204h ago", which is a claim about a device that simply has not answered.
+ */
+export function checked_age(checked_at: any, now_ms: any): any;
+
+/**
  * `derivePath(rounds, controlEvents)` — the steps, their summary, and the round id → index map.
  *
  * `controlEvents` DEFAULTS to `[]` in the TypeScript, and a `JsValue::UNDEFINED` in is that same
@@ -62,6 +76,16 @@ export function derive_path(rounds: any, control_events: any): object;
  * the one mark that is always on screen — a light that is on most of the time means nothing.
  */
 export function device_liveness(input: any): string;
+
+/**
+ * `diagnoseUpdate(log)` — the four-way verdict over `summrise-update.log`.
+ *
+ * PRESENCE IS DECIDED PER KIND, not by position: a receipt and a start can be interleaved over
+ * several updates, and the question is only whether each kind appears at all. Ordering by line index
+ * would answer a different question ("was the LAST thing a receipt?") and would report `cli-only` for
+ * a device whose most recent update succeeded.
+ */
+export function diagnose_update(log: any): object;
 
 /**
  * `disambiguateLabels(items)` — one label per item, numbered where they collide.
@@ -134,6 +158,12 @@ export function liveness_of(input: any): string;
 export function operation_rows(groups: any): any;
 
 /**
+ * `parseAttempt(v)` — the launch record, or null. A record without a POSITIVE time, a `from` and a
+ * `to` is not one: half a record would render as "updated from to at Invalid Date".
+ */
+export function parse_attempt(v: any): any;
+
+/**
  * `parseBootHistory(j)` — never throws, and never invents a value.
  */
 export function parse_boot_history(j: any): any;
@@ -176,6 +206,12 @@ export function parse_monitor_change(detail: any): any;
  * alternative is a chart drawn from guesswork.
  */
 export function parse_monitors(j: any): any;
+
+/**
+ * `parseUpdateStatus(j)` — read `/api/update`. Never throws; a body this build cannot use is the
+ * empty state, which renders as "unknown" rather than as "current".
+ */
+export function parse_update_status(j: any): object;
 
 /**
  * `parseVitalsSeries(j)` — the series, or the empty one.
@@ -281,22 +317,27 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly any_command_running: (a: any) => [number, number, number];
     readonly archive_entries: (a: any) => [number, number, number];
+    readonly attempt_age: (a: any, b: any) => [number, number];
     readonly attention_steps: (a: any) => any;
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
     readonly card_state: (a: any) => [number, number, number];
+    readonly checked_age: (a: any, b: any) => any;
     readonly derive_path: (a: any, b: any) => [number, number, number];
     readonly device_liveness: (a: any) => [number, number, number, number];
+    readonly diagnose_update: (a: any) => [number, number, number];
     readonly disambiguate_labels: (a: any) => [number, number, number];
     readonly group_events: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly group_rounds: (a: any) => [number, number, number];
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
+    readonly parse_attempt: (a: any) => any;
     readonly parse_boot_history: (a: any) => [number, number, number];
     readonly parse_evicted: (a: any) => [number, number, number];
     readonly parse_last_boot: (a: any) => [number, number, number];
     readonly parse_monitor_change: (a: any) => [number, number, number];
     readonly parse_monitors: (a: any) => [number, number, number];
+    readonly parse_update_status: (a: any) => any;
     readonly parse_vitals_series: (a: any) => [number, number, number];
     readonly session_active: (a: any, b: number) => [number, number, number];
     readonly session_failed: (a: any) => [number, number, number];

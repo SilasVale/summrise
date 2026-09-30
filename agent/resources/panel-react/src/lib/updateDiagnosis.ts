@@ -23,6 +23,21 @@
 //
 // PURE ON PURPOSE: no fetch, no React, no clock. The four-way logic is the part
 // worth testing, and every input is a string.
+//
+// ── RUST SINCE 2026-09-30 (block ②), WITH `UpdateCard`'s READERS ─────────────────────────────────
+//
+// The whole derivation is `agent/resources/panel-logic/src/update.rs` now: the four-way table, the
+// two hand-rolled regexes (`/copy ok\s*=\s*(true|false)/i`, `/task restarted/i`), the `log.trim()`
+// and `log.split(/\r?\n/)` calls — including the fact that they are METHOD CALLS, so a number raises
+// here exactly as it raised before. `components/UpdateCard.tsx`'s `parseUpdateStatus`, `parseAttempt`,
+// `checkedAge` and `attemptAge` are in the same module, because they are the other end of the same
+// question: the log says what HAPPENED, the device's answer says what is TRUE NOW.
+//
+// THE DIFFERENTIAL IS 422 CASES WITH 0 DIVERGENCES — the original TypeScript against the Rust, on the
+// VALUES, the KEY ORDER and whether each side RAISED — and every arm of the five verdicts is reached.
+// `src/lib/__tests__/updateDiagnosis.test.ts` and `components/__tests__/UpdateCard.test.tsx` run
+// UNCHANGED against it.
+import { logic } from "../wasm/panelLogic";
 
 type UpdateVerdict =
   "cli-swap-launched" | "cli-only" | "rust-swap" | "never-arrived" | "no-log";
@@ -38,55 +53,6 @@ export interface UpdateDiagnosis {
   restarted: boolean | null;
 }
 
-/** Lines matching `update requested <from> -> <to>`, newest last. */
-function receipts(lines: string[]): string[] {
-  return lines.filter((l) => l.includes("update requested"));
-}
-
-/**
- * `update start` lines — written by the swap script, WHICHEVER builder produced it: the CLI generates one
- * at `<scripts>\summrise-update.ps1` and the agent generates another at the same path, and both write this
- * line verbatim.
- *
- * THAT IS NOT AN AMBIGUITY THIS DIAGNOSIS HAS TO LIVE WITH, which is worth recording because the tenth
- * architecture exploration read it as one ("the receipt cannot say which ran"). The RECEIPT is what tells
- * them apart, and this file already relies on it: `update requested` present means the CLI ran, so a
- * `start` beside it is `cli-swap-launched`; a `start` with NO receipt is `rust-swap` — "a swap was
- * launched by the agent itself, which writes no receipt". Two builders, one line, and the distinction is
- * carried by the line only one of them writes.
- *
- * WHAT IS NOT EQUIVALENT IS WHAT THE TWO SCRIPTS DO, and no verdict here can show it: the agent's swaps
- * the boxed components (summrise-playwright.new.zip, cloudflared.new.exe) while the CLI's runs the
- * fail-closed layout migration gate. Neither does both, so a CLI-launched update re-stages no
- * components and an agent-launched one runs no migration gate — and both report a successful swap.
- */
-function starts(lines: string[]): string[] {
-  return lines.filter((l) => l.includes("update start"));
-}
-
-/**
- * Read a `copy ok=` line, the swap script's own verdict on the file copy.
- *
- * Returns `null` when the line is absent rather than guessing: "the script never
- * got there" and "the copy failed" are different, and only one of them means the
- * device is running the old binary.
- */
-function copyOkFrom(lines: string[]): boolean | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /copy ok\s*=\s*(true|false)/i.exec(lines[i]);
-    if (m) return m[1].toLowerCase() === "true";
-  }
-  return null;
-}
-
-/** `task restarted` — the swap's last step; its absence is the interesting case. */
-function restartedFrom(lines: string[]): boolean | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (/task restarted/i.test(lines[i])) return true;
-  }
-  return null;
-}
-
 /**
  * The four-way verdict.
  *
@@ -100,71 +66,10 @@ function restartedFrom(lines: string[]): boolean | null {
  * device that has never been updated there is nothing to have arrived, and
  * collapsing the two would tell an operator their update was lost when none was
  * attempted.
+ *
+ * THE TYPE IS WIDER THAN THE WIRE (`string | null | undefined`): a log line the
+ * device did not answer with is `null`, and the crate answers `no-log` for both.
  */
-export function diagnoseUpdate(
-  log: string | null | undefined,
-): UpdateDiagnosis {
-  if (log == null || log.trim() === "") {
-    return {
-      verdict: "no-log",
-      summary:
-        "This device has no update log, so no update has been attempted here (or the log was removed).",
-      receipt: null,
-      copyOk: null,
-      restarted: null,
-    };
-  }
-  const lines = log.split(/\r?\n/);
-  const rs = receipts(lines);
-  const ss = starts(lines);
-  const receipt = rs.length > 0 ? rs[rs.length - 1] : null;
-  const copyOk = copyOkFrom(lines);
-  const restarted = restartedFrom(lines);
-
-  if (receipt && ss.length > 0) {
-    // Say what the SCRIPT reported, not just that it ran: a launched swap that
-    // failed to copy leaves the device on the old binary, and "launched" alone
-    // would read as success.
-    const detail =
-      copyOk === false
-        ? " The copy did NOT succeed, so the device is still running the previous build."
-        : restarted === true
-          ? " The copy succeeded and the agent was restarted."
-          : " The swap started but the log does not say it finished — check the lines below.";
-    return {
-      verdict: "cli-swap-launched",
-      summary: `The CLI reached this device and the swap launched.${detail}`,
-      receipt,
-      copyOk,
-      restarted,
-    };
-  }
-  if (receipt) {
-    return {
-      verdict: "cli-only",
-      summary:
-        "The CLI reached this device but the swap never launched — nothing was replaced. Re-running the update is safe.",
-      receipt,
-      copyOk,
-      restarted,
-    };
-  }
-  if (ss.length > 0) {
-    return {
-      verdict: "rust-swap",
-      summary:
-        "A swap was launched by the agent itself (the console/auto channel), which writes no receipt. The lines below are its record.",
-      receipt: null,
-      copyOk,
-      restarted,
-    };
-  }
-  return {
-    verdict: "never-arrived",
-    summary:
-      "No update was ever requested through either channel. If you just asked for one, the command did not reach this device — the connection drop is NOT proof it started.",
-    receipt: null,
-    copyOk,
-    restarted,
-  };
+export function diagnoseUpdate(log: string | null | undefined): UpdateDiagnosis {
+  return logic().diagnose_update(log) as UpdateDiagnosis;
 }
