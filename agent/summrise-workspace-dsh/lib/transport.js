@@ -36,6 +36,53 @@ export function connectionFields({ host, user, port = 22 } = {}) {
   return { host, user, port };
 }
 
+/**
+ * THE MACHINE'S ROOT MAPPING — `path: "/"` against the connection this provider was configured with — or `null`
+ * when it has no machine of its own.
+ *
+ * WHY THIS EXISTS. A mapping is what makes a path resolvable, and the in-app directory picker browses through the
+ * fs seam: without a mapping, "add workspace" refuses every path. Something has to be the moment at which "the
+ * machine" is added, and the panel used to be it — the operator retired that ("不是另外加个 workspace"). The
+ * moment is the CONFIG: a provider that was told a host IS that machine. A delegated provider (no host) has no
+ * machine of its own and registers nothing — the registry decides, which is what a registry is for.
+ *
+ * `"/"` rather than the host's home directory: the mapping is a PREFIX, so the root covers every path on the
+ * machine, and a more specific mapping can still override a subtree.
+ */
+export function machineRootMapping({ host, user, port = 22 } = {}) {
+  if (!host || !user) return null;
+  return { path: '/', connection_id: `ssh:${user}@${host}:${port}` };
+}
+
+/**
+ * Register it, through the same route the doors resolve by. Registering is idempotent on the agent's side, so a
+ * second call is harmless; the providers still call it once per instance.
+ *
+ * A REFUSAL IS NOT THROWN: this runs before a request that has its own error to report, and a registry that
+ * cannot be told is not a reason to fail the call it precedes. The mapping it returns is what was sent, or null.
+ */
+export async function registerMachineRoot({
+  endpoint = DEFAULT_ENDPOINT,
+  token,
+  host,
+  user,
+  port,
+  fetchImpl = globalThis.fetch,
+} = {}) {
+  const mapping = machineRootMapping({ host, user, port });
+  if (!mapping) return null;
+  try {
+    const res = await fetchImpl(`${endpoint}/api/workspace/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(mapping),
+    });
+    return res && res.ok ? mapping : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Where the staged argv helper lives on a workspace host. Mirrors the agent's own default. */
 export const DEFAULT_HELPER = '~/.summrise/bin/summrise-exec-argv';
 
