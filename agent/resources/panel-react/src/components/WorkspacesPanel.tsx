@@ -363,10 +363,11 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
   if (opened === null) {
     return (
       <div className="workspaces-panel">
-        {/* THE PAGE'S ONE H1, and it must be the first heading: `design-sweep.mjs` reports
-            "h1 count 0, first-is-h1 false" without it. `sr-only` is what the sibling pages do (DshPage), so the
-            name reaches the outline and a screen reader without a second visible heading. */}
-        <h1 className="sr-only">Workspaces</h1>
+        {/* NO H1 HERE, and that is the correction. The page's own sweep line was "h1 count 0, first-is-h1
+            false", so this used to carry an sr-only one; then the machines moved into ContextRail, which
+            renders inside the HARNESS page — whose DshPage already has its own sr-only "Harness" — and the
+            same line became "h1 count 2". A page inside a page does not get a second h1: the sweep's rule is
+            `h1Count !== 1 || !firstIsH1`, and the page it is judging is the Harness page now. */}
         <p className="workspaces-lede">
           A workspace host is a machine this device can work on. Add one once — the agent keeps the
           connection and the credentials, and every path on it becomes a workspace after that.
@@ -499,7 +500,6 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
   const name = machine?.label || machine?.target || opened.id;
   return (
     <div className="workspaces-panel">
-      <h1 className="sr-only">Workspaces</h1>
       <div className="workspaces-view-head">
         <button className="btn btn-mini" onClick={() => setOpened(null)} {...ack("back")}>
           Back to machines
