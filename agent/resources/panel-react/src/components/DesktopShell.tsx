@@ -117,7 +117,7 @@ const PAGE_TITLES: Record<Page, string> = {
   terminal: "Terminal",
   history: "History",
   browser: "Browser",
-  dsh: "Harness",
+  harness: "Harness",
   memory: "Memory",
   plugins: "Plugins",
   settings: "Settings",
@@ -506,7 +506,7 @@ export function DesktopShell({
               <MonitorAlerts alerts={monitorAlerts} />
               {page === "history" && <HistoryPage sessions={sessions} />}
               {page === "browser" && <BrowserPage token={token} />}
-              {page === "dsh" && <DshPage />}
+              {page === "harness" && <DshPage />}
               {page === "memory" && <MemoryPage />}
               {page === "plugins" && <PluginsPage plugins={plugins} />}
               {page === "settings" && (

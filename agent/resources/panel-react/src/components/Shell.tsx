@@ -13,17 +13,19 @@ type Density = "panel" | "desktop";
  *  the device-level answer to the question the terminal page answers
  *  per-session, and because it is the one page that works with no session at
  *  all, which is where an operator landing on an idle device starts. */
-export type Page = "terminal" | "history" | "browser" | "dsh" | "memory" | "plugins" | "settings";
+export type Page = "terminal" | "history" | "browser" | "harness" | "memory" | "plugins" | "settings";
 
-export const PAGES: Page[] = ["terminal", "history", "browser", "dsh", "memory", "plugins", "settings"];
+export const PAGES: Page[] = ["terminal", "history", "browser", "harness", "memory", "plugins", "settings"];
 export const PAGE_LABELS: Record<Page, string> = {
   terminal: "Terminal",
   // One page for what the device recorded: sessions AND runs (round 31's merge).
   history: "History",
   browser: "Browser",
-  // The AI client itself, embedded by the desktop shell. NOT "DSH": the label is what a person
-  // reads, and the product's own word for it is the harness.
-  dsh: "Harness",
+  // The AI client itself, embedded by the desktop shell. THE ID IS `harness` AND NOT `dsh`
+  // because the rail DERIVES its label from the id (`p[0].toUpperCase() + p.slice(1)`) — an id of
+  // `dsh` printed "Dsh" on the rail while this map said "Harness" in the header, which is two
+  // surfaces disagreeing about one page. Measured on the device, not noticed by reading.
+  harness: "Harness",
   memory: "Memory",
   plugins: "Plugins",
   settings: "Settings",
