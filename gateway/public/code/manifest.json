@@ -256,6 +256,11 @@
       "group": "instruments"
     },
     {
+      "name": "verify-workspaces-page.mjs",
+      "path": "files/instruments/verify-workspaces-page.mjs",
+      "group": "instruments"
+    },
+    {
       "name": "lib/contrast-probe.mjs",
       "path": "files/instruments/lib/contrast-probe.mjs",
       "group": "instruments"
