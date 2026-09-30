@@ -1056,6 +1056,15 @@ h3 { font-size: var(--fs-base); }
   white-space: nowrap;
 }
 .side-unhide:hover { color: var(--ink); }
+/* THE MACHINES RIDE IN THE RAIL BESIDE THE HARNESS, so the wrapper scrolls and pads like the session list
+   beside it — a rail that clipped the machine list would be the same defect the panel already fixed for
+   sessions, and the spacing is the same scale rather than a new one. */
+.side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-1) var(--sp-1) var(--sp-2);
+}
 .side-list {
   flex: 1;
   min-height: 0;

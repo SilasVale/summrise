@@ -21,8 +21,6 @@ import type { Page } from "./Shell";
  *  no icon there). */
 export const PAGE_ICONS: Record<Page, IconName> = {
   terminal: "terminal",
-  // A machine reached over ssh: the glyph the rail already uses for exactly that.
-  workspaces: "ssh",
   // RECORDED HISTORY (sessions + runs), not a live console: a stacked box with a lid. The
   // `activity` glyph went with the `activity` PAGE in round 31's merge — an icon nothing can draw
   // is not a spare part, it is a thing to keep in sync by hand.
