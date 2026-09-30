@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { pendingApprovalCount, type Session } from "../hooks/useSessions";
 import { anyCommandRunning } from "../lib/liveness";
+import { WorkspacesPanel } from "./WorkspacesPanel";
 import { EvictedNotice } from "./EvictedNotice";
 import { IdleSessionsBar } from "./IdleSessionsBar";
 import { GettingStarted } from "./GettingStarted";
@@ -138,6 +139,9 @@ export function PanelApp(props: Props) {
       /* the browser refused at the last moment — the card shows the permission state it reported */
     }
   };
+  // WHICH OF THE TWO THE HARNESS PAGE IS SHOWING. The page reports it; the shell stands the native view
+  // down, because that view is composited over the canvas and would cover whatever is under it.
+  const [machineOpen, setMachineOpen] = useState(false);
   const [page, setPage] = useState<Page>("terminal");
   const connected = props.sseState === "connected";
   // THE FIRST FIVE MINUTES, ONCE. Read through a try/catch because private-mode storage throws on
@@ -187,7 +191,7 @@ export function PanelApp(props: Props) {
           />
         }
         contextRail={
-          page === "terminal" || page === "plugins" || page === "harness" ? (
+          page === "terminal" || page === "plugins" ? (
             <ContextRail
               page={page}
               sessions={props.sessions}
@@ -196,7 +200,6 @@ export function PanelApp(props: Props) {
               onNewSession={props.onNewSession}
               plugins={props.plugins}
               connected={connected}
-              onOpenTerminal={() => setPage("terminal")}
             />
           ) : undefined
         }
@@ -254,7 +257,12 @@ export function PanelApp(props: Props) {
             <MonitorAlerts alerts={monitorAlerts} />
             {page === "history" && <HistoryPage sessions={props.sessions} />}
             {page === "browser" && <BrowserPage token={props.token} />}
-              {page === "harness" && <DshPage />}
+              {page === "harness" && (
+                <>
+                  <WorkspacesPanel onOpenedChange={setMachineOpen} onOpenTerminal={() => setPage("terminal")} />
+                  {!machineOpen && <DshPage />}
+                </>
+              )}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}
             {page === "settings" && (
