@@ -67,6 +67,11 @@ const UNPINNED: Record<string, string> = {
   // the page reads only `name` and `kind`, and a rename of either would show as an empty browser rather than as a
   // failure, which is exactly the kind of silence this list exists to name.
   "/api/workspace/fs": "refusals are pinned by the door's tests; the listing's entry shape is NOT — the page reads name/kind only",
+  // THE EXEC DOOR, which the Workspaces page now uses for two things: asking a machine where its home
+  // is (the DERIVED prefix) and running a command in the opened machine. Its shape is pinned in Rust by
+  // `web::tests::workspace_exec_refuses_a_malformed_request_before_it_connects` — an argv is required and
+  // a malformed request is refused BEFORE the connection, which is the part a fixture cannot pin.
+  "/api/workspace/exec": "agent/src/web/mod.rs workspace_exec tests (an argv is required, refused before it connects)",
   "/api/plugins/playwright/${which}": "a POST through a parameterised route",
   "/api/sessions/${encodeURIComponent(sid)}":
     "a session's audit trail; the EVENTS inside it are the trajectory contract and the session row is pinned by session-row.json",

@@ -5453,14 +5453,7 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
   letter-spacing: var(--tracking-display);
 }
 
-.workspaces-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
+
 
 .workspaces-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); }
 
@@ -5481,9 +5474,9 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
 
 .workspaces-machine-state { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--muted); }
 
-.workspaces-paths { list-style: none; margin: 0; padding: 0 0 0 var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
 
-.workspaces-browse-note { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+
+
 
 .workspaces-browser { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 
@@ -5507,6 +5500,52 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
    this rule the first time it ran. The tokens are the rail's, so the two controls answer a press the same way. */
 .workspaces-entry-dir:active { background: var(--chrome-active-bg); }
 
+/* ── the machine-first shape ──────────────────────────────────────────────────────────────────────
+   Written in this sheet's own vocabulary (`--line`, `--sp-*`, `--radius-sm`, `--bg`) rather than in
+   invented names: `build-css.mjs` REFUSES a stylesheet that references a variable nothing defines,
+   which is how the first version of these rules was caught. The unstyled-markup gate is the other
+   half — a class the JSX renders and no rule paints. */
+.workspaces-view-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
+.workspaces-entry-file {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 2px 4px;
+  text-align: left;
+}
+.workspaces-entry-file:hover { text-decoration: underline; }
+
+.workspaces-editor { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+
+.workspaces-editor-text {
+  width: 100%;
+  min-height: 220px;
+  padding: var(--sp-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-sm);
+  resize: vertical;
+}
+
+.workspaces-command { display: flex; align-items: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
+
+.workspaces-run-output {
+  max-height: 220px;
+  margin-top: var(--sp-1);
+  padding: var(--sp-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  overflow: auto;
+  white-space: pre-wrap;
+}
 
 
 /* ============ dial.css ============ */
