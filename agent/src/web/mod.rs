@@ -840,6 +840,11 @@ pub(crate) enum RouteId {
     ToolCall,
     WorkspaceExec,
     WorkspaceFs,
+    /// The registry: what the form calls to add a workspace, and what it reads to offer the agent's connections.
+    WorkspaceConnections,
+    WorkspaceMappings,
+    WorkspaceRegister,
+    WorkspaceUnregister,
     // ── answered in `route_pre_dispatch`, which runs its own `check_auth` ──
     EventsStream,
     TermStream,
@@ -1109,6 +1114,33 @@ pub(crate) fn routes() -> &'static [Route] {
             method: "POST",
             pattern: Pattern::Exact("/api/workspace/fs"),
             id: RouteId::WorkspaceFs,
+            stage: Stage::DispatchGated,
+        },
+        // THE REGISTRY, and it is not a door: these four decide WHICH connection a path belongs to, and they
+        // never open one. Behind the same unconditional auth gate as the doors — a mapping names a saved
+        // connection, and the list of those is not public.
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/workspace/connections"),
+            id: RouteId::WorkspaceConnections,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "GET",
+            pattern: Pattern::Exact("/api/workspace/mappings"),
+            id: RouteId::WorkspaceMappings,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/register"),
+            id: RouteId::WorkspaceRegister,
+            stage: Stage::DispatchGated,
+        },
+        Route {
+            method: "POST",
+            pattern: Pattern::Exact("/api/workspace/unregister"),
+            id: RouteId::WorkspaceUnregister,
             stage: Stage::DispatchGated,
         },
         // ── answered in `route_pre_dispatch`, each running `check_auth` itself ──
@@ -1677,6 +1709,10 @@ async fn dispatch(
         // an oversight.
         Some(RouteId::WorkspaceExec) => api_workspace_exec(body_str).await,
         Some(RouteId::WorkspaceFs) => api_workspace_fs(body_str).await,
+        Some(RouteId::WorkspaceConnections) => api_workspace_connections().await,
+        Some(RouteId::WorkspaceMappings) => api_workspace_mappings().await,
+        Some(RouteId::WorkspaceRegister) => api_workspace_register(body_str).await,
+        Some(RouteId::WorkspaceUnregister) => api_workspace_unregister(body_str).await,
         // ONE FAILURE, THREE ANSWERS — AND THE ONE BELOW IS DELIBERATE, which is why it is written
         // down rather than tidied. The agent-web exploration listed this as friction: a malformed body
         // on the request-parsing routes is `400 + code` (`parse::invalid_params_response`), a
@@ -2328,7 +2364,7 @@ struct WorkspaceTarget {
 /// `register()` writes the REAL `<DataDir>\summrise-workspace-mappings.json` — a test mutating the machine it runs
 /// on. Unique per test, not per process: `resolve()`/`list()` read a FILE, and two tests sharing a path see each
 /// other's entries (the defect Task 1's own tests hit).
-#[cfg(test)]
+#[cfg(all(test, feature = "terminal"))]
 fn isolated_mapping_dir() -> std::path::PathBuf {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NTH: AtomicUsize = AtomicUsize::new(0);
@@ -2339,6 +2375,10 @@ fn isolated_mapping_dir() -> std::path::PathBuf {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     crate::workspace_mappings::TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
+    // AND THE CONNECTIONS STORE, for the tests that seed one: the registry refuses a mapping to a connection it
+    // cannot find, so without this the answer depends on what the operator's machine happens to have saved.
+    #[cfg(feature = "terminal")]
+    crate::tools::terminal::TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.clone()));
     dir
 }
 
@@ -2505,6 +2545,72 @@ impl WorkspaceTarget {
 /// THE OPERATIONS ARE READS ONLY. A write is a different thing to get right (the version guard, the
 /// atomic publish, and the per-path serialization that keeps the guard from being decoration), and a
 /// route offering a write it had not built that carefully would be worse than one that offers none.
+/// The agent's saved connections, so a form can OFFER them instead of asking for a host and a user.
+///
+/// It carries what `terminal_saved_connections` carries — id, kind, target, label, the open params minus the
+/// password (the store scrubs it on read; the secret lives in the keychain).
+#[cfg(feature = "terminal")]
+async fn api_workspace_connections() -> serde_json::Value {
+    serde_json::json!({"ok": true, "connections": crate::tools::terminal::conn_list()})
+}
+
+/// The path → connection table, so an operator can see what is registered without reading a file.
+#[cfg(feature = "terminal")]
+async fn api_workspace_mappings() -> serde_json::Value {
+    serde_json::json!({"ok": true, "mappings": crate::workspace_mappings::list()})
+}
+
+/// Registering is IDEMPOTENT, and an unknown connection is refused BY NAME: a mapping to a connection that does
+/// not exist is a workspace that fails much later, somewhere else, with nothing pointing back here.
+#[cfg(feature = "terminal")]
+async fn api_workspace_register(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => {
+            return serde_json::json!({"ok": false, "error": format!("bad json: {e}"), "code": "invalid_params"})
+        }
+    };
+    let (Some(path), Some(connection_id)) = (
+        v.get("path").and_then(|x| x.as_str()),
+        v.get("connection_id").and_then(|x| x.as_str()),
+    ) else {
+        return serde_json::json!({
+            "ok": false,
+            "error": "path and connection_id are required",
+            "code": "invalid_params",
+        });
+    };
+    if crate::tools::terminal::conn_find(connection_id).is_none() {
+        return serde_json::json!({
+            "ok": false,
+            "error": format!("no saved connection {connection_id:?}"),
+            "code": "workspace/unknown-connection",
+        });
+    }
+    match crate::workspace_mappings::register(path, connection_id) {
+        Ok(()) => serde_json::json!({"ok": true}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
+/// `removed` is the answer, and `false` is a FACT rather than an error: removing a mapping that is not there
+/// leaves the operator exactly where they wanted to be.
+#[cfg(feature = "terminal")]
+async fn api_workspace_unregister(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+    };
+    match crate::workspace_mappings::unregister(path) {
+        Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
 #[cfg(feature = "terminal")]
 async fn api_workspace_fs(body: &str) -> serde_json::Value {
     use base64::Engine as _;
@@ -2623,6 +2729,35 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
 
 /// Without the `terminal` feature there is no SSH client, so this build cannot read a workspace host
 /// — and it says so rather than answering as though it had.
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_connections() -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_mappings() -> serde_json::Value {
+    serde_json::json!({"ok": true, "mappings": crate::workspace_mappings::list()})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_register(_body: &str) -> serde_json::Value {
+    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+}
+
+#[cfg(not(feature = "terminal"))]
+async fn api_workspace_unregister(body: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
+        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+    };
+    match crate::workspace_mappings::unregister(path) {
+        Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
+        Err(e) => {
+            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
+        }
+    }
+}
+
 #[cfg(not(feature = "terminal"))]
 async fn api_workspace_fs(_body: &str) -> serde_json::Value {
     serde_json::json!({
@@ -9065,7 +9200,7 @@ mod tests {
 ///
 /// The store is pointed at a temp dir first — `register()` below must never touch the real
 /// `<DataDir>\summrise-workspace-mappings.json`, and `TEST_DIR` is the one cell `store_path()` reads.
-#[cfg(test)]
+#[cfg(all(test, feature = "terminal"))]
 mod workspace_registry_tests {
     use super::*;
 
@@ -9104,6 +9239,86 @@ mod workspace_registry_tests {
         assert_ne!(
             answer["code"], "workspace/unknown-connection",
             "got: {answer}"
+        );
+    }
+
+    /// A mapping to a connection that is not saved is refused BY NAME: a workspace that fails much later, in
+    /// another subsystem, is a defect nobody can trace back to this call.
+    #[tokio::test]
+    async fn registering_a_mapping_names_an_unknown_connection() {
+        let _dir = isolated_mapping_dir();
+        let answer =
+            api_workspace_register(r#"{"path":"/srv/x","connection_id":"ssh:192.0.2.9:22"}"#).await;
+        assert_eq!(answer["ok"], false);
+        assert_eq!(
+            answer["code"], "workspace/unknown-connection",
+            "got: {answer}"
+        );
+    }
+
+    /// Removing nothing is a FACT, not an error — and the answer says which one happened.
+    #[tokio::test]
+    async fn unregistering_nothing_is_a_fact_not_an_error() {
+        let _dir = isolated_mapping_dir();
+        let answer = api_workspace_unregister(r#"{"path":"/never/registered"}"#).await;
+        assert_eq!(answer["ok"], true, "got: {answer}");
+        assert_eq!(answer["removed"], false);
+    }
+
+    /// The whole round trip, through the endpoints the form will call: seed a saved connection, register a path
+    /// against it, read the table back, remove it.
+    #[tokio::test]
+    async fn a_registered_mapping_comes_back_from_the_mappings_endpoint() {
+        let _dir = isolated_mapping_dir();
+        let mut params = serde_json::Map::new();
+        params.insert("host".into(), serde_json::json!("192.0.2.7"));
+        params.insert("user".into(), serde_json::json!("u"));
+        params.insert("port".into(), serde_json::json!(22));
+        crate::tools::terminal::conn_remember("ssh", "192.0.2.7:22", "test", &params).unwrap();
+
+        let connections = api_workspace_connections().await;
+        assert_eq!(connections["ok"], true, "got: {connections}");
+        assert!(
+            connections["connections"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|c| c["id"] == "ssh:192.0.2.7:22")),
+            "the form's own list must contain the seeded connection: {connections}"
+        );
+
+        let registered =
+            api_workspace_register(r#"{"path":"/srv/y","connection_id":"ssh:192.0.2.7:22"}"#).await;
+        assert_eq!(registered["ok"], true, "got: {registered}");
+
+        let listed = api_workspace_mappings().await;
+        assert!(
+            listed["mappings"].as_array().is_some_and(|a| a
+                .iter()
+                .any(|m| m["path"] == "/srv/y" && m["connection_id"] == "ssh:192.0.2.7:22")),
+            "got: {listed}"
+        );
+
+        let removed = api_workspace_unregister(r#"{"path":"/srv/y"}"#).await;
+        assert_eq!(removed["removed"], true, "got: {removed}");
+    }
+
+    /// The four endpoints are IN the table, with the methods they were designed for.
+    #[test]
+    fn the_registry_endpoints_are_routed() {
+        assert_eq!(
+            route_of("GET", "/api/workspace/connections"),
+            Some(RouteId::WorkspaceConnections)
+        );
+        assert_eq!(
+            route_of("GET", "/api/workspace/mappings"),
+            Some(RouteId::WorkspaceMappings)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/register"),
+            Some(RouteId::WorkspaceRegister)
+        );
+        assert_eq!(
+            route_of("POST", "/api/workspace/unregister"),
+            Some(RouteId::WorkspaceUnregister)
         );
     }
 }
