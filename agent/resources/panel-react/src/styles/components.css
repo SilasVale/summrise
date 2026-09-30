@@ -438,15 +438,7 @@
   white-space: nowrap;
 }
 .side-unhide:hover { color: var(--ink); }
-/* THE MACHINES RIDE IN THE RAIL BESIDE THE HARNESS, so the wrapper scrolls and pads like the session list
-   beside it — a rail that clipped the machine list would be the same defect the panel already fixed for
-   sessions, and the spacing is the same scale rather than a new one. */
-.side-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--sp-1) var(--sp-1) var(--sp-2);
-}
+
 .side-list {
   flex: 1;
   min-height: 0;
@@ -4848,22 +4840,15 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
 
 .workspaces-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); }
 
-.workspaces-machines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 
-.workspaces-machine {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  padding: var(--sp-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
 
-.workspaces-machine-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 
-.workspaces-machine-name { flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); }
 
-.workspaces-machine-state { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--muted); }
+
+
+
+
+
 
 
 
@@ -4945,3 +4930,49 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
    exactly what `build-css` refuses. The FAILURE case has a token, and that is the one that must shout. */
 .workspaces-run-status { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); }
 .workspaces-run-status.failed { color: var(--badge-err-ink); }
+
+/* THE MACHINES AS A ROW, above the harness page's own view. It is OUTSIDE the DshPage slot on
+   purpose: the harness's native WebContentsView is composited over whatever rectangle the pane reports,
+   and the pane IS the canvas — anything inside the canvas is covered by it. Spacing is the sheet's own
+   scale, and a chip is `btn`-shaped rather than a new visual language. */
+.workspaces-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  padding: var(--sp-1) 0 var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.workspaces-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.workspaces-chip[data-opened="yes"] { background: var(--chrome-active-bg); }
+.workspaces-chip-name {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: var(--sp-0-5) var(--sp-1);
+  cursor: pointer;
+}
+.workspaces-chip-name:hover { background: var(--chrome-hover); }
+.workspaces-chip-name:active { background: var(--chrome-active-bg); }
+.workspaces-chip-name[data-state="not added"] .workspaces-chip-state { color: var(--muted); }
+.workspaces-chip-x {
+  appearance: none;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: 0 var(--sp-1);
+  cursor: pointer;
+}
+.workspaces-chip-x:hover { background: var(--chrome-hover); color: var(--ink); }
+.workspaces-chip-x:active { background: var(--chrome-active-bg); }

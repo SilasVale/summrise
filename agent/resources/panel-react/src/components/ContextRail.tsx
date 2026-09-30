@@ -1,6 +1,6 @@
 // ContextRail — panel-density context rail: for the Terminal page it shows
 // the session list (+ new-session menu), for the Plugins page the plugin
-// inventory, and for the Harness page the MACHINES this device can work on.
+// inventory.
 // Other pages hide it entirely (the Shell only renders it when the page has
 // a context).
 //
@@ -17,7 +17,6 @@ import type { usePlugins } from "../hooks/usePlugins";
 import type { Page } from "./Shell";
 import { Icon } from "../ui/Icon";
 import { sessionLiveness } from "../lib/liveness";
-import { WorkspacesPanel } from "./WorkspacesPanel";
 
 function relTime(ts: number): string {
   const sec = Math.max(0, (Date.now() - ts) / 1000);
@@ -38,7 +37,6 @@ export function ContextRail({
   onNewSession,
   plugins,
   connected,
-  onOpenTerminal,
 }: {
   page: Page;
   sessions: Session[];
@@ -52,9 +50,6 @@ export function ContextRail({
    *  "Connection lost — reconnecting…". */
   connected: boolean;
   plugins: ReturnType<typeof usePlugins>;
-  /** The shell's switch to the Terminal page: a machine's terminal is a session, and sessions live
-   *  there. `undefined` in a plain browser, where there is nothing to switch to. */
-  onOpenTerminal?: (sessionId: string) => void;
 }) {
   const [labels, setLabels] = useState<Map<string, string>>(new Map());
   const [archived, setArchived] = useState<Set<string>>(new Set());
@@ -124,14 +119,6 @@ export function ContextRail({
           ))}
         </div>
       </>
-    );
-  }
-
-  if (page === "harness") {
-    return (
-      <div className="side-body">
-        <WorkspacesPanel onOpenTerminal={onOpenTerminal} />
-      </div>
     );
   }
 

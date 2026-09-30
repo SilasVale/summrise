@@ -90,15 +90,15 @@ describe("WorkspacesPanel", () => {
   it("says a machine is added once its root is registered, and offers Add before that", async () => {
     reads({ connections: [SSH], mappings: [] });
     const first = render(<WorkspacesPanel />);
-    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.label}` })).toBeTruthy());
     first.unmount();
 
     reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
     render(<WorkspacesPanel />);
     // ADDED: the machine can be opened, and the offer to add it is gone. The prefix is whatever that
     // machine registered — the page looks for the connection's own mapping, not for a fixed "/".
-    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeTruthy());
-    expect(screen.queryByRole("button", { name: `Add ${SSH.id}` })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: /10\.10\.61\.83/ })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: `Add ${SSH.label}` })).toBeNull();
   });
 
   it("shows the agent's refusal VERBATIM", async () => {
@@ -109,8 +109,8 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: false, error: 'no saved connection "ssh:x@y:22"' });
     });
     render(<WorkspacesPanel />);
-    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.id}` })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: `Add ${SSH.id}` }));
+    await waitFor(() => expect(screen.getByRole("button", { name: `Add ${SSH.label}` })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: `Add ${SSH.label}` }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain('no saved connection "ssh:x@y:22"'),
     );
@@ -156,8 +156,8 @@ describe("WorkspacesPanel", () => {
     render(<WorkspacesPanel />);
     // OPENING the machine is what lists its files: the browse affordance is the machine's own Open,
     // and the listing lives in that view rather than under the row.
-    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /10\.10\.61\.83/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /10\.10\.61\.83/ }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "etc/" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "vmlinuz/" })).toBeNull();
@@ -207,11 +207,11 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /add (a )?host/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a host" }));   // the strip OPENS the form
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "10.10.61.83" } });
     fireEvent.change(screen.getByLabelText("User"), { target: { value: "zhengsaisi" } });
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "22122" } });
-    fireEvent.click(screen.getByRole("button", { name: /connect|add/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect and add/i }));      // and the form CONNECTS
     await waitFor(() => {
       const registered = mockApi.mock.calls.filter((c) => c[0] === "/api/workspace/register");
       expect(registered.length).toBeGreaterThan(0);
@@ -230,7 +230,7 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     // A DIRECTORY IS SPELLED WITH ITS SLASH (the same shape the browse test asserts with "etc/"):
     // the trailing slash is what tells the reader it can be entered, and a file does not get one.
     await waitFor(() => expect(screen.getByText("summrise/")).toBeTruthy());
@@ -257,7 +257,7 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     fireEvent.click(await screen.findByText("notes.txt"));
     const editor = await screen.findByLabelText(/contents|text/i);
     fireEvent.change(editor, { target: { value: "hello there" } });
@@ -303,7 +303,7 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     fireEvent.change(await screen.findByLabelText("Command"), { target: { value: "grep nope /etc/hosts" } });
     fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
     // THE CODE IS THE FACT: "exit 2" is what tells the reader this did not work.
@@ -330,7 +330,7 @@ describe("WorkspacesPanel", () => {
       return Promise.resolve({ ok: true });
     });
     render(<WorkspacesPanel />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     fireEvent.change(await screen.findByLabelText("Command"), { target: { value: "sleep 999" } });
     fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
     // A TRUNCATED STREAM IS REPORTED LOSSY — the seam's own rule, and the reason the door sends the flag.
@@ -358,7 +358,7 @@ describe("WorkspacesPanel", () => {
     });
     const onOpenTerminal = vi.fn();
     render(<WorkspacesPanel onOpenTerminal={onOpenTerminal} />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     fireEvent.click(await screen.findByRole("button", { name: /terminal/i }));
     await waitFor(() =>
       expect(mockApi).toHaveBeenCalledWith("/api/tools/terminal_connect_saved", {
@@ -384,7 +384,7 @@ describe("WorkspacesPanel", () => {
     });
     const onOpenTerminal = vi.fn();
     render(<WorkspacesPanel onOpenTerminal={onOpenTerminal} />);
-    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /10\.10\.61\.83/ }));
     fireEvent.click(await screen.findByRole("button", { name: /terminal/i }));
     expect(await screen.findByText(/unknown saved connection/)).toBeTruthy();
     expect(onOpenTerminal).not.toHaveBeenCalled();

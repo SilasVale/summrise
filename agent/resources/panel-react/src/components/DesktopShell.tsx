@@ -29,6 +29,7 @@ import {
   useAttentionTitle,
   useNotifyPermission,
 } from "../hooks/useAttention";
+import { WorkspacesPanel } from "./WorkspacesPanel";
 import { MonitorAlerts } from "./MonitorAlerts";
 import { VitalsDial } from "./VitalsDial";
 import { EvictedNotice } from "./EvictedNotice";
@@ -148,6 +149,9 @@ export function DesktopShell({
   plugins,
   cmdEvents,
 }: Props) {
+  // WHICH OF THE TWO THE HARNESS PAGE IS SHOWING. The page reports it; the shell stands the native view
+  // down, because that view is composited over the canvas and would cover whatever is under it.
+  const [machineOpen, setMachineOpen] = useState(false);
   const [page, setPage] = useState<Page>("terminal");
   // Same line, same reason, other density.
   const evicted = useEvictedNotice();
@@ -506,7 +510,16 @@ export function DesktopShell({
               <MonitorAlerts alerts={monitorAlerts} />
               {page === "history" && <HistoryPage sessions={sessions} />}
               {page === "browser" && <BrowserPage token={token} />}
-              {page === "harness" && <DshPage />}
+              {page === "harness" && (
+                <>
+                  {/* THE MACHINES RIDE ABOVE THE HARNESS'S OWN VIEW, and the shell owns which of the
+                      two the canvas shows: the harness's native WebContentsView is composited over the
+                      canvas, so a machine opened underneath it would be invisible. `onOpenedChange` is
+                      that conversation — the page says which of the two it is showing. */}
+                  <WorkspacesPanel onOpenedChange={setMachineOpen} onOpenTerminal={() => setPage("terminal")} />
+                  {!machineOpen && <DshPage />}
+                </>
+              )}
               {page === "memory" && <MemoryPage />}
               {page === "plugins" && <PluginsPage plugins={plugins} />}
               {page === "settings" && (

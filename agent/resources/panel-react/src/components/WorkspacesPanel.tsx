@@ -51,7 +51,29 @@ const MACHINE_ROOT = "/";
  * whole page already (`TerminalWorkspace`), and a second one here would be a second thing to keep alive;
  * what this page knows is WHICH MACHINE, and the shell knows how to show it.
  */
-export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionId: string) => void } = {}) {
+/**
+ * The machines, as a STRIP above the harness page's own view, and one machine opened in its place.
+ *
+ * WHY A STRIP AND NOT A RAIL, and the measurement behind it: `ContextRail` exists in the PANEL density
+ * only — `DesktopShell` draws an 84px icon rail and a canvas, and no right-hand side at all, so a rail
+ * entry for the machines renders in one shell and is absent from the other, which is the shell the
+ * operator is actually looking at. A strip under the header is in BOTH, and it sits OUTSIDE the
+ * `DshPage` slot, so the harness's native WebContentsView cannot cover it: that view is composited over
+ * whatever rectangle the pane reports, and the pane is the canvas.
+ *
+ * So: the strip is always there (machines + "Add a host"), and opening a machine REPLACES the harness
+ * view with that machine's files, editor, command line and terminal link — the page is the harness, and
+ * this is what the harness works on. `onOpenedChange` tells the shell which of the two to show, because
+ * the native view's visibility belongs to the shell.
+ */
+export function WorkspacesPanel({
+  onOpenTerminal,
+  onOpenedChange,
+}: {
+  onOpenTerminal?: (sessionId: string) => void;
+  /** True while a machine is open, so the shell can stand the harness's native view down. */
+  onOpenedChange?: (open: boolean) => void;
+} = {}) {
   const [machines, setMachines] = useState<Connection[] | null>(null);
   const [mappings, setMappings] = useState<Mapping[] | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
@@ -99,6 +121,11 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
       setMappings(null);
     }
   }, []);
+
+  // THE SHELL OWNS THE NATIVE VIEW, so it needs to know which of the two it is standing down.
+  useEffect(() => {
+    onOpenedChange?.(opened !== null);
+  }, [opened, onOpenedChange]);
 
   useEffect(() => {
     void load();
@@ -181,6 +208,38 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
         onOpenTerminal?.(String(sessionId));
       }),
     [onOpenTerminal, run],
+  );
+
+  /**
+   * THE MACHINE'S OWN PREFIX — the LONGEST path registered against its connection, whatever it is.
+   * Looking for "/" specifically was a bug the rewrite would have shipped: the prefix is DERIVED (a
+   * machine's home, see addMachine), so a lookup keyed on the old constant would never match and every
+   * machine would read as "not added" with its Open control disabled.
+   */
+  const rootOf = (id: string) =>
+    (mappings ?? [])
+      .filter((m) => m.connection_id === id)
+      .sort((a, b) => b.path.length - a.path.length)[0];
+
+  /**
+   * OPEN A MACHINE FROM ITS CHIP. A saved connection with no workspace prefix is the one state that
+   * cannot be opened, and the chip says which it is (`not added`), so the click does the missing step
+   * and says what it did rather than refusing with a button the reader has to find.
+   */
+  const openMachine = useCallback(
+    (m: Connection) => {
+      const root = rootOf(m.id);
+      if (!root) {
+        setShowAdd(false);
+        void register(`add:${m.id}`, m.id, MACHINE_ROOT, "added this machine");
+        return;
+      }
+      setOpened({ id: m.id, path: root.path });
+      setEditing(null);
+      setRan(null);
+      void listDir(m.id, root.path);
+    },
+    [listDir, register, rootOf],
   );
 
   /** Open one file: the READ is what produces the version a save must carry. */
@@ -347,22 +406,28 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
     });
   }, [host, user, port, keyPath, password, load, run]);
 
-  /** The mapping that makes a machine's whole filesystem resolvable, if it is registered. */
-  /**
-   * THE MACHINE'S OWN PREFIX — the LONGEST path registered against its connection, whatever it is.
-   * Looking for "/" specifically was a bug the rewrite would have shipped: the prefix is now DERIVED
-   * (a machine's home, see addMachine), so a lookup keyed on the old constant would never match and
-   * every machine would read as "not added" with its Open button disabled.
-   */
-  const rootOf = (id: string) =>
-    (mappings ?? [])
-      .filter((m) => m.connection_id === id)
-      .sort((a, b) => b.path.length - a.path.length)[0];
-
   // ── THE MACHINES VIEW: the list is the page, the form is behind a button ─────────────────────────
+  // ONE STRIP, ABOVE BOTH VIEWS. The machines view and the open machine are an early-return pair, so a
+  // strip written into each of them appears TWICE on the machines view — two "Add a host" buttons, one
+  // of them inert. Holding it here makes the row part of the PAGE rather than of either view, which is
+  // what it was when it was a list.
+  const THE_STRIP = (
+    <MachinesStrip
+      machines={machines}
+      unreachable={unreachable}
+      showAdd={showAdd}
+      opened={opened}
+      rootOf={rootOf}
+      onToggleAdd={() => setShowAdd((v) => !v)}
+      onOpen={openMachine}
+      onClose={() => setOpened(null)}
+    />
+  );
+
   if (opened === null) {
     return (
       <div className="workspaces-panel">
+      {THE_STRIP}
         {/* NO H1 HERE, and that is the correction. The page's own sweep line was "h1 count 0, first-is-h1
             false", so this used to carry an sr-only one; then the machines moved into ContextRail, which
             renders inside the HARNESS page — whose DshPage already has its own sr-only "Harness" — and the
@@ -397,15 +462,14 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
               already made this exact call for its own labels: `side-title` is a `<div>`, because
               "NOT a heading: this labels the side list, and as an `<h1>` it was the largest-level
               heading in the whole product at 13px". Same reason, same element. */}
-          <div className="workspaces-heading">Machines</div>
-          <button
-            className="btn btn-primary btn-mini"
-            onClick={() => setShowAdd((v) => !v)}
-            aria-expanded={showAdd}
-            {...ack("toggle-add")}
-          >
-            {showAdd ? "Cancel" : "Add a host"}
+        {/* No toggle here: THE STRIP owns "Add a host", and a second control on the same screen is
+            two ways to do one thing. The strip's is the one that stays put while the two views
+            swap. */}
+        {showAdd ? (
+          <button className="btn btn-mini" onClick={() => setShowAdd(false)} {...ack("cancel-add")}>
+            Cancel adding a host
           </button>
+        ) : null}
         </div>
 
         {showAdd ? (
@@ -441,63 +505,9 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
           </div>
         ) : null}
 
-        {machines === null ? (
-          <p className="workspaces-note">{unreachable ? "not read" : "reading…"}</p>
-        ) : machines.length === 0 ? (
-          <p className="workspaces-note">No machine yet — add one.</p>
-        ) : (
-          <ul className="workspaces-machines">
-            {machines.map((m) => {
-              const root = rootOf(m.id);
-              return (
-                <li key={m.id} className="workspaces-machine">
-                  <div className="workspaces-machine-head">
-                    <code className="workspaces-machine-name">{m.label || m.target || m.id}</code>
-                    {root ? (
-                      <span className="workspaces-machine-state">ready</span>
-                    ) : (
-                      <span className="workspaces-machine-state">not added</span>
-                    )}
-                    <button
-                      className="btn btn-primary btn-mini"
-                      onClick={() => {
-                        setOpened({ id: m.id, path: root?.path ?? MACHINE_ROOT });
-                        setEditing(null);
-                        setRan(null);
-                        void listDir(m.id, root?.path ?? MACHINE_ROOT);
-                      }}
-                      disabled={busy || !root}
-                      {...ack(`open:${m.id}`)}
-                    >
-                      Open
-                    </button>
-                    {root ? (
-                      <button
-                        className="btn btn-mini"
-                        onClick={() => void unregister(root.path)}
-                        disabled={busy}
-                        aria-label={`Remove ${m.id}`}
-                        {...ack(`remove:${root.path}`)}
-                      >
-                        Remove
-                      </button>
-                    ) : (
-                      <button
-                        className="btn btn-mini"
-                        onClick={() => void register(`add:${m.id}`, m.id, MACHINE_ROOT, "added this machine")}
-                        disabled={busy}
-                        aria-label={`Add ${m.id}`}
-                        {...ack(`add:${m.id}`)}
-                      >
-                        Add this machine
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {machines !== null && machines.length > 0 ? (
+          <p className="workspaces-note">Pick a machine above to work on it.</p>
+        ) : null}
       </div>
     );
   }
@@ -507,10 +517,25 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
   const name = machine?.label || machine?.target || opened.id;
   return (
     <div className="workspaces-panel">
+      {THE_STRIP}
       <div className="workspaces-view-head">
         <button className="btn btn-mini" onClick={() => setOpened(null)} {...ack("back")}>
           Back to machines
         </button>
+        {(() => {
+          const root = rootOf(opened.id);
+          return root ? (
+            <button
+              className="btn btn-mini"
+              onClick={() => void unregister(root.path)}
+              disabled={busy}
+              aria-label={`Remove ${opened.id}`}
+              {...ack(`remove:${root.path}`)}
+            >
+              Remove this machine
+            </button>
+          ) : null;
+        })()}
         {/* The same label-not-a-heading call, for the same reason. */}
         <div className="workspaces-heading">{name}</div>
         <code className="workspaces-path">{opened.path}</code>
@@ -648,6 +673,89 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
           <pre className="workspaces-run-output">{ran.text}</pre>
         </>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * THE MACHINES, AS A ROW. Each chip is one saved connection: its name, and whether it is mapped to a
+ * workspace prefix (`ready`) or not (`not added`). A chip you click OPENS; an unmapped one you click
+ * REGISTERS first, because that is the only thing missing before it can be worked on — the same two
+ * states the old list spelled out with an `Open` button and a `Add this machine` button, with the
+ * decision carried by the chip's own state rather than by two controls per row.
+ *
+ * `data-opened` on the open chip is what a sweep (and a reader of the DOM) can see without running one.
+ */
+function MachinesStrip({
+  machines,
+  unreachable,
+  showAdd,
+  opened,
+  rootOf,
+  onToggleAdd,
+  onOpen,
+  onClose,
+}: {
+  machines: Connection[] | null;
+  unreachable: string | null;
+  /** Whether a machine is registered, per connection id — the strip cannot ask the component. */
+  rootOf: (id: string) => Mapping | undefined;
+  showAdd: boolean;
+  opened: { id: string; path: string } | null;
+  onToggleAdd: () => void;
+  onOpen: (m: Connection) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="workspaces-strip" role="group" aria-label="Machines">
+      <button
+        className="btn btn-mini"
+        onClick={onToggleAdd}
+        aria-expanded={showAdd}
+        data-opened={showAdd ? "yes" : "no"}
+      >
+        Add a host
+      </button>
+      {machines === null ? (
+        <span className="workspaces-note">{unreachable ? "machines not read" : "reading machines…"}</span>
+      ) : machines.length === 0 ? (
+        <span className="workspaces-note">No machine yet.</span>
+      ) : (
+        machines.map((m) => {
+          const name = m.label || m.target || m.id;
+          const isOpen = opened?.id === m.id;
+          // A chip that CANNOT be opened says so, and clicking it does the one step that is missing. The
+          // old list spelled this as a second button ("Add this machine"); a chip's state carries it, and
+          // the accessible name carries the state with it so a reader — or a test — can tell the two apart.
+          const registered = rootOf(m.id) !== undefined;
+          const state = registered ? (isOpen ? "open" : "ready") : "not added";
+          return (
+            <span key={m.id} className="workspaces-chip" data-opened={isOpen ? "yes" : "no"}>
+              <button
+                className="workspaces-chip-name"
+                data-state={state}
+                onClick={() => (isOpen ? onClose() : onOpen(m))}
+                title={
+                  isOpen
+                    ? `${name} — click to close`
+                    : registered
+                      ? `Open ${name}`
+                      : `Add ${name}`
+                }
+                aria-label={isOpen ? name : registered ? `Open ${name}` : `Add ${name}`}
+              >
+                {name}
+                {!registered ? <span className="workspaces-chip-state"> not added</span> : null}
+              </button>
+              {isOpen ? (
+                <button className="workspaces-chip-x" onClick={onClose} aria-label={`Close ${name}`}>
+                  ×
+                </button>
+              ) : null}
+            </span>
+          );
+        })
+      )}
     </div>
   );
 }
