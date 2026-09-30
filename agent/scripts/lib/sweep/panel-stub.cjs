@@ -463,6 +463,31 @@ const FIXTURE = require("./pieces.cjs");
   // just happened — so both fields move together here.
   var BOOT_REPLACED = P.get('boot') === 'replaced';
   var DOWN = P.get('monitor') === 'down';
+  // THE WORKSPACE REGISTRY, POPULATED. Both endpoints were served by the generic `{ok:true}` — no `connections`
+  // array, no `mappings` array — so the Workspaces panel rendered ONLY its empty state and the design sweep
+  // pressed nothing on it (`panel-Workspaces/rail: 0pressed/0found` in all four density×theme combos), which is
+  // how a page's controls go unmeasured. The same silence is what hid a page that drew `{ok:false}` as an empty
+  // list. These fixtures give it a host to add, one already added, and a directory to browse.
+  if (u.indexOf('/api/workspace/connections') >= 0) {
+    return Promise.resolve(J({ ok: true, connections: [
+      { id: 'ssh:root@10.0.0.9:22', kind: 'ssh', label: '10.0.0.9', target: 'root@10.0.0.9:22' },
+      { id: 'ssh:stc@192.168.1.1:22', kind: 'ssh', label: '192.168.1.1', target: 'stc@192.168.1.1:22' },
+      { id: 'pty:powershell', kind: 'pty', label: 'powershell', target: 'powershell' }
+    ] }));
+  }
+  if (u.indexOf('/api/workspace/mappings') >= 0) {
+    return Promise.resolve(J({ ok: true, mappings: [
+      { path: '/', connection_id: 'ssh:root@10.0.0.9:22' },
+      { path: '/srv/www', connection_id: 'ssh:root@10.0.0.9:22' }
+    ] }));
+  }
+  if (u.indexOf('/api/workspace/fs') >= 0) {
+    return Promise.resolve(J({ ok: true, entries: [
+      { name: 'etc', kind: 'dir', size: 4096, mtime: 0, mode: 493 },
+      { name: 'srv', kind: 'dir', size: 4096, mtime: 0, mode: 493 },
+      { name: 'vmlinuz', kind: 'file', size: 1234, mtime: 0, mode: 420 }
+    ] }));
+  }
   if (u.indexOf('/api/monitors') >= 0 && u.indexOf('/api/monitors/') < 0) {
     var probe = function (i, ok, ms) { return { ts_ms: 1789000000000 + i * 15000, ok: ok, ms: ms }; };
     // THE ENVELOPE MATTERS: the hook requires ok === true and treats anything else as a FAILED read

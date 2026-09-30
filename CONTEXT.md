@@ -28,6 +28,31 @@ A Windows machine running a Summrise Agent and registered with the Gate. It is t
 reaches.
 _Avoid_: machine, host, node, box.
 
+## Workspaces
+
+**Workspace**:
+A path that the harness works in. Its files and commands live on the workspace host that path belongs
+to, not on the device.
+_Avoid_: project, folder (that names a directory on some machine, not the thing the harness opens).
+
+**Workspace host**:
+The machine a workspace's files and commands actually live on — reached over ssh, through a connection
+the agent already saved. It is NOT a Device: no Summrise agent runs there, and nothing about it is
+managed.
+_Avoid_: machine, host, box, server — each of those either means the Device or means nothing here.
+
+**Mapping**:
+One `path prefix → saved connection` record. The longest matching prefix wins, so a mapping at `/` says
+"everything on this host" and a mapping at `/srv/x` overrides it for that subtree. Registering a mapping
+is what makes a path resolvable; it carries no credential, only the connection's id.
+_Avoid_: mount, route, alias — those name mechanisms this is not.
+
+**Registry** (the workspace registry):
+The agent's store of mappings, and the four routes that read and write it. The agent is the only
+authority for which connection serves a path AND for that connection's credentials; the harness and the
+panel hold a connection id and never a password.
+_Avoid_: config (it is not a file an operator edits), workspace list (that is the harness's own).
+
 ## Work
 
 **Session**:

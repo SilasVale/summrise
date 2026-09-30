@@ -211,7 +211,7 @@ export function WorkspacesPanel() {
   return (
     <div className="workspaces-panel">
       <p className="workspaces-lede">
-        Add a Linux machine once — every path on it is a workspace after that. The connection is saved by the
+        Add a workspace host once — every path on it is a workspace after that. The connection is saved by the
         agent (the same store its terminals use), and the credentials never leave it.
       </p>
 
@@ -231,7 +231,7 @@ export function WorkspacesPanel() {
         </p>
       ) : null}
 
-      <h2 className="workspaces-heading">Add a machine</h2>
+      <h2 className="workspaces-heading">Add a workspace host</h2>
       <div className="workspaces-form">
         <label className="workspaces-field">
           <span>Host</span>
@@ -263,11 +263,11 @@ export function WorkspacesPanel() {
         </button>
       </div>
 
-      <h2 className="workspaces-heading">Machines</h2>
+      <h2 className="workspaces-heading">Workspace hosts</h2>
       {machines === null ? (
         <p className="workspaces-note">{unreachable ? "not read" : "reading…"}</p>
       ) : machines.length === 0 ? (
-        <p className="workspaces-note">None yet — add one above.</p>
+        <p className="workspaces-note">No workspace host yet — add one above.</p>
       ) : (
         <ul className="workspaces-machines">
           {machines.map((m) => {

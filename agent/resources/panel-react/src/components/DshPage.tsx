@@ -52,9 +52,9 @@ function EmbeddedHarness() {
           className="btn btn-mini"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          aria-label="Machines and workspaces"
+          aria-label="Workspace hosts"
         >
-          {open ? "Hide machines and workspaces" : "Machines and workspaces…"}
+          {open ? "Hide workspace hosts" : "Workspace hosts…"}
         </button>
       </div>
       {open ? <WorkspacesPanel /> : null}
