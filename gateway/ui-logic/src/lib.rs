@@ -397,6 +397,218 @@ pub fn device_tally(devices: JsValue, statuses: JsValue) -> js_sys::Object {
     o
 }
 
+// ── `lib/deviceUpdate.ts` — WHAT THIS CONSOLE MAY SAY AND DO ABOUT ONE DEVICE'S UPDATE ────────────
+//
+// The third module through the seam, and the one with the most arms. A device that ANSWERED has five
+// outcomes (`busy`, an available update, an unreachable release server, a rollback pin, up to date);
+// a device that did NOT answer has two more (this console's own record of a press, or nothing at
+// all). The ORDER those are tested in is the content of the module, and every one of them has a
+// plausible-looking wrong answer that this file's comments name.
+//
+// WHAT DID NOT MOVE, AND IT IS P0's THIRD CLASS RATHER THAN AN OMISSION: the localStorage half —
+// `rememberUpdateAttempt`, `forgetUpdateAttempt` and `rememberedUpdateAttempt`'s store read. That is
+// BOUNDARY code (it talks to the platform) and the crate has no localStorage. What moved is the
+// DECISION, plus the two-hour window that dates it; the store's own filter asks this crate for the
+// window (`dark_window_ms`) instead of keeping a second copy of the number in TypeScript.
+
+/// HOW LONG A DEVICE MAY STAY DARK AFTER AN UPDATE BEFORE THIS CONSOLE STOPS CALLING IT "IN FLIGHT".
+///
+/// TWO HOURS, and it is this repository's own measurement rather than a round number: on 2026-09-28 a
+/// device took `summrise update`, answered 502 and then 530 / error 1033 for roughly two hours, and
+/// `startup.log` showed the agent starting normally with the release marker already moved — THE SWAP
+/// HAD SUCCEEDED, SLOWLY. The two sentences this must not repeat are both in the tree: the DEVICE's
+/// own tool description promises "MCP reconnects in ~1 minute" and the PANEL tells the operator
+/// "within about a minute". Both describe the retry backoff (~25 s in total) and neither describes the
+/// TUNNEL, which is what actually goes dark.
+const UPDATE_DARK_WINDOW_MS: f64 = 2.0 * 60.0 * 60.0 * 1000.0;
+
+/// `UPDATE_DARK_WINDOW_MS`, for the one caller that needs the NUMBER rather than the rule:
+/// `rememberedUpdateAttempt`'s store filter, which asks here so that the console keeps ONE definition
+/// of the window. A FUNCTION and not a module-level constant, because a module-level `logic()` call
+/// evaluates before any test can await the seam — the mistake the note below records for
+/// `CONSOLE_POLL_MS`.
+#[wasm_bindgen]
+pub fn dark_window_ms() -> f64 {
+    UPDATE_DARK_WINDOW_MS
+}
+
+/// `v[key]` — PROPERTY ACCESS, which boxes a primitive instead of throwing.
+///
+/// `Reflect::get` requires an OBJECT target and raises a `TypeError` on `"str".busy`; JavaScript's
+/// property access does not — it boxes the primitive and answers `undefined`. The corpus carries
+/// `update: "str"`, `1`, `true`, `[]` and `{}` for exactly this reason: `(1).busy` is `undefined` and
+/// the derivation must reach its LAST arm (`current`) rather than throw. `null` is handled by the
+/// object arm's `unwrap_or`: `Reflect::get` raises there too, and the JavaScript answers `undefined`.
+fn field(v: &JsValue, key: &str) -> JsValue {
+    match v.js_typeof().as_string().as_deref() {
+        Some("object") | Some("function") => {
+            js_sys::Reflect::get(v, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+        }
+        // A primitive carries no own property of any name this module reads — `String.prototype.length`
+        // is the one member a string primitive has, and no key here is `length`.
+        _ => JsValue::UNDEFINED,
+    }
+}
+
+/// `positive(v)` — `typeof v === "number" && Number.isFinite(v) && v > 0`, or nothing.
+///
+/// THREE TESTS, and each one is load-bearing: a NUMERIC STRING is not a number here (`"123"` is
+/// rejected while `123` is accepted), `NaN` and `±Infinity` are rejected by `is_finite`, and `0` is
+/// rejected by `> 0` — so `checked_at: 0` is "not reported", which is what the row's `checkedAt: null`
+/// means. The corpus crosses all four.
+fn positive(v: &JsValue) -> Option<f64> {
+    if v.js_typeof().as_string().as_deref() != Some("number") {
+        return None;
+    }
+    let n = v.as_f64()?;
+    (n.is_finite() && n > 0.0).then_some(n)
+}
+
+/// `u.last_attempt && typeof u.last_attempt === "object" ? positive(u.last_attempt.at_ms) : null`.
+///
+/// The `&&` SHORT-CIRCUITS on `null`, whose `typeof` is also `"object"` — so a nullish record is not
+/// read, and an array or a `{}` (both objects, both truthy) read `at_ms` as `undefined` and answer
+/// nothing. `last_attempt` is NOT cleared when a new attempt begins, which is why the window is
+/// applied to it below rather than trusted.
+fn device_start(update: &JsValue) -> Option<f64> {
+    let last = field(update, "last_attempt");
+    if !last.is_truthy() || last.js_typeof().as_string().as_deref() != Some("object") {
+        return None;
+    }
+    positive(&field(&last, "at_ms"))
+}
+
+/// `datableStart(u, remembered, now)` — WHEN THIS ATTEMPT STARTED, from the two records that can say
+/// so, and THE NEWEST WINS.
+///
+/// Both describe the same launch: the device writes `last_attempt` at the WMI handoff and this console
+/// writes its record before the request leaves, so on a console that pressed the button they agree to
+/// within a round trip. A RECORD OLDER THAN THE WINDOW IS NOT USED AS A START — `null` is the honest
+/// answer, and the view says so in words rather than inventing a time. The JavaScript filters with
+/// `t !== null && now - t < WINDOW` and then takes `Math.max`; a `now - t` that is `NaN` fails the
+/// comparison, so no `NaN` can reach the maximum.
+fn datable_start(update: &JsValue, remembered: &JsValue, now: f64) -> Option<f64> {
+    let ours = if remembered.is_truthy() {
+        positive(&field(remembered, "at"))
+    } else {
+        None
+    };
+    let mut best: Option<f64> = None;
+    for t in [device_start(update), ours].into_iter().flatten() {
+        if now - t < UPDATE_DARK_WINDOW_MS {
+            best = Some(best.map_or(t, |b: f64| b.max(t)));
+        }
+    }
+    best
+}
+
+/// A result object, built in the TypeScript's own KEY ORDER (`kind` first) — the same rule
+/// `agent_signal` records for its rows, and the reason the differential compares `Object.keys` as well
+/// as the values.
+fn control(pairs: &[(&str, JsValue)]) -> JsValue {
+    let o = js_sys::Object::new();
+    for (k, v) in pairs {
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str(k), v);
+    }
+    o.into()
+}
+
+/// `number | null`, the shape `since` and `checkedAt` are — `null` and not `undefined`, because the
+/// views spread these rows and a missing key is a different sentence from a `null` one.
+fn number_or_null(v: Option<f64>) -> JsValue {
+    match v {
+        Some(n) => JsValue::from_f64(n),
+        None => JsValue::NULL,
+    }
+}
+
+/// `updateControl({ update, agentSignal, remembered, now })` — the one function every render of this
+/// control goes through.
+///
+/// THE ARMS, IN THE ORDER THE TYPESCRIPT TESTS THEM, because that order is the module:
+///
+///   update truthy   `busy`               -> inflight, dated by `datableStart`, source `device`
+///                   available + `latest` -> action (a non-empty STRING `latest`, not just a truthy one)
+///                   `error` (non-empty)  -> unchecked — it OUTRANKS the pin, because "we could not
+///                                           ask" is not "it is held": a pin claim needs a channel
+///                   `pinned_to`          -> held
+///                   otherwise            -> current
+///   update absent   `agentSignal === "err"` AND this console's own record, still inside the window
+///                                        -> inflight, source `console`
+///                   otherwise            -> none, which is the absence of a sentence
+///
+/// `agentSignal === "err"` IS NOT `!agentUp`, and that is the defect this module exists to remove: a
+/// device nobody has asked about yet is ALSO falsy, so a boolean test would speak about every row of a
+/// console before its first poll answered. `now` defaults with `?? Date.now()`, so `null` and `absent`
+/// both mean "the engine's clock" and a `0` is a real (and unusable) instant.
+#[wasm_bindgen]
+pub fn update_control(
+    update: JsValue,
+    agent_signal: JsValue,
+    remembered: JsValue,
+    now: JsValue,
+) -> JsValue {
+    let now = if now.is_null() || now.is_undefined() {
+        js_sys::Date::now()
+    } else {
+        to_number(&now)
+    };
+
+    if update.is_truthy() {
+        if field(&update, "busy").is_truthy() {
+            return control(&[
+                ("kind", JsValue::from_str("inflight")),
+                ("since", number_or_null(datable_start(&update, &remembered, now))),
+                ("source", JsValue::from_str("device")),
+            ]);
+        }
+        let latest = field(&update, "latest");
+        if field(&update, "update_available").is_truthy()
+            && latest.js_typeof().as_string().as_deref() == Some("string")
+            && latest.is_truthy()
+        {
+            return control(&[
+                ("kind", JsValue::from_str("action")),
+                ("to", latest),
+            ]);
+        }
+        let checked_at = positive(&field(&update, "checked_at"));
+        let error = field(&update, "error");
+        if error.js_typeof().as_string().as_deref() == Some("string") && error.is_truthy() {
+            return control(&[
+                ("kind", JsValue::from_str("unchecked")),
+                ("error", error),
+                ("checkedAt", number_or_null(checked_at)),
+            ]);
+        }
+        let pinned = field(&update, "pinned_to");
+        if pinned.js_typeof().as_string().as_deref() == Some("string") && pinned.is_truthy() {
+            return control(&[
+                ("kind", JsValue::from_str("held")),
+                ("pinnedTo", pinned),
+                ("checkedAt", number_or_null(checked_at)),
+            ]);
+        }
+        return control(&[
+            ("kind", JsValue::from_str("current")),
+            ("checkedAt", number_or_null(checked_at)),
+        ]);
+    }
+
+    if agent_signal.as_string().as_deref() == Some("err") && remembered.is_truthy() {
+        if let Some(at) = positive(&field(&remembered, "at")) {
+            if now - at < UPDATE_DARK_WINDOW_MS {
+                return control(&[
+                    ("kind", JsValue::from_str("inflight")),
+                    ("since", JsValue::from_f64(at)),
+                    ("source", JsValue::from_str("console")),
+                ]);
+            }
+        }
+    }
+    control(&[("kind", JsValue::from_str("none"))])
+}
+
 // `CONSOLE_POLL_MS` IS NOT HERE, AND THE REASON IS THE SAME ONE THAT KEPT `WORKING_MS` IN THE PANEL.
 // It is the CONSOLE'S OWN POLLING CADENCE, read by two views' intervals; no function in this crate
 // consults it — so moving it would move a number the logic never looks at, and leave the module-level

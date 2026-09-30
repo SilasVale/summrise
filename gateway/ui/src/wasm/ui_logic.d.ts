@@ -59,6 +59,15 @@ export function channel_label(channel: any, t: Function): any;
 export function channel_signal(ok: any): string;
 
 /**
+ * `UPDATE_DARK_WINDOW_MS`, for the one caller that needs the NUMBER rather than the rule:
+ * `rememberedUpdateAttempt`'s store filter, which asks here so that the console keeps ONE definition
+ * of the window. A FUNCTION and not a module-level constant, because a module-level `logic()` call
+ * evaluates before any test can await the seam — the mistake the note below records for
+ * `CONSOLE_POLL_MS`.
+ */
+export function dark_window_ms(): number;
+
+/**
  * `deviceIsUp(status)` — `!!status?.agent_up`, i.e. TRUTHINESS on the optional chain. A caller that
  * needs "offline" rather than "not checked" reads the signal below instead.
  */
@@ -110,6 +119,29 @@ export function tunnel_known_down(status: any): boolean;
  */
 export function tunnel_signal(status: any, t: Function): object;
 
+/**
+ * `updateControl({ update, agentSignal, remembered, now })` — the one function every render of this
+ * control goes through.
+ *
+ * THE ARMS, IN THE ORDER THE TYPESCRIPT TESTS THEM, because that order is the module:
+ *
+ *   update truthy   `busy`               -> inflight, dated by `datableStart`, source `device`
+ *                   available + `latest` -> action (a non-empty STRING `latest`, not just a truthy one)
+ *                   `error` (non-empty)  -> unchecked — it OUTRANKS the pin, because "we could not
+ *                                           ask" is not "it is held": a pin claim needs a channel
+ *                   `pinned_to`          -> held
+ *                   otherwise            -> current
+ *   update absent   `agentSignal === "err"` AND this console's own record, still inside the window
+ *                                        -> inflight, source `console`
+ *                   otherwise            -> none, which is the absence of a sentence
+ *
+ * `agentSignal === "err"` IS NOT `!agentUp`, and that is the defect this module exists to remove: a
+ * device nobody has asked about yet is ALSO falsy, so a boolean test would speak about every row of a
+ * console before its first poll answered. `now` defaults with `?? Date.now()`, so `null` and `absent`
+ * both mean "the engine's clock" and a `0` is a real (and unusable) instant.
+ */
+export function update_control(update: any, agent_signal: any, remembered: any, now: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -118,12 +150,14 @@ export interface InitOutput {
     readonly bare_prefix: (a: any) => [number, number];
     readonly channel_label: (a: any, b: any) => [number, number, number];
     readonly channel_signal: (a: any) => [number, number];
+    readonly dark_window_ms: () => number;
     readonly device_is_up: (a: any) => number;
     readonly device_tally: (a: any, b: any) => any;
     readonly health_tone: (a: any, b: any, c: any) => [number, number];
     readonly lane_class: (a: any) => [number, number];
     readonly tunnel_known_down: (a: any) => number;
     readonly tunnel_signal: (a: any, b: any) => [number, number, number];
+    readonly update_control: (a: any, b: any, c: any, d: any) => any;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
