@@ -13,9 +13,9 @@ type Density = "panel" | "desktop";
  *  the device-level answer to the question the terminal page answers
  *  per-session, and because it is the one page that works with no session at
  *  all, which is where an operator landing on an idle device starts. */
-export type Page = "terminal" | "history" | "browser" | "harness" | "memory" | "plugins" | "settings";
+export type Page = "terminal" | "history" | "browser" | "harness" | "workspaces" | "memory" | "plugins" | "settings";
 
-export const PAGES: Page[] = ["terminal", "history", "browser", "harness", "memory", "plugins", "settings"];
+export const PAGES: Page[] = ["terminal", "history", "browser", "harness", "workspaces", "memory", "plugins", "settings"];
 export const PAGE_LABELS: Record<Page, string> = {
   terminal: "Terminal",
   // One page for what the device recorded: sessions AND runs (round 31's merge).
@@ -26,6 +26,9 @@ export const PAGE_LABELS: Record<Page, string> = {
   // `dsh` printed "Dsh" on the rail while this map said "Harness" in the header, which is two
   // surfaces disagreeing about one page. Measured on the device, not noticed by reading.
   harness: "Harness",
+  // THE MACHINES THIS DEVICE CAN WORK ON, and the way to add one. A page of its own because it is a
+  // different question from the harness: the harness is what you work IN, this is WHERE the work lands.
+  workspaces: "Workspaces",
   memory: "Memory",
   plugins: "Plugins",
   settings: "Settings",
