@@ -4976,3 +4976,75 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
 }
 .workspaces-chip-x:hover { background: var(--chrome-hover); color: var(--ink); }
 .workspaces-chip-x:active { background: var(--chrome-active-bg); }
+
+/* THE TWO PANES OF THE HARNESS PAGE. The left column is a list of hosts; the right one is the harness's
+   own view, which the main process composites over whatever rectangle the pane reports — so the column is
+   a SIBLING of that pane and not something inside it, and nothing here may set a position that would put
+   the column under the native view. */
+.dsh-two-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.hosts-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.hosts-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.hosts-pane-title { font-size: var(--fs-sm); color: var(--ink); }
+.hosts-pane-note,
+.hosts-pane-refusal {
+  margin: var(--sp-2) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.hosts-pane-refusal { color: var(--badge-err-ink); }
+.hosts-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1);
+  overflow-y: auto;
+  min-height: 0;
+}
+.hosts-row {
+  display: grid;
+  gap: 0 var(--sp-1);
+  padding: var(--sp-1) 0 var(--sp-1) var(--sp-1);
+  border-radius: var(--radius-sm);
+}
+.hosts-row[data-open="yes"] { background: var(--chrome-active-bg); }
+.hosts-row:hover { background: var(--chrome-hover); }
+.hosts-row:active { background: var(--chrome-active-bg); }
+.hosts-row-name {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hosts-row-state { font-size: var(--fs-xs); color: var(--muted); }
+.hosts-row-state[data-state="not answering"] { color: var(--badge-err-ink); }
+.hosts-row-probe {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

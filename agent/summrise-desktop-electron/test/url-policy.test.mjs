@@ -172,3 +172,52 @@ test("isDshUrl: the DSH view reaches its own loopback port and nothing else", ()
   assert.equal(isDshUrl("http://127.0.0.1:18081/"), false);
   setDshPort(18081);
 });
+
+// ── ONE HARNESS PER HOST, SO THE VIEW HAS MORE THAN ONE DOOR ────────────────────────────────────────
+//
+// The harness page is two panes: hosts on the left, the SELECTED host's own harness on the right. Each
+// host's harness is reached through its own forward on this machine's loopback, so the shell needs to
+// allow a SET of loopback origins rather than one — while everything the single-port test above refuses
+// stays refused, because a second harness is still loopback and nothing else is.
+//
+// MUTATION: make `addDshPort` push into the allow-list without the port range check and this test sees
+// `http://127.0.0.1:70000/` accepted — an out-of-range "origin" no forward can hold.
+
+test("isDshUrl: a second host's harness is its own door, and a third thing is still not", () => {
+  const { isDshUrl, dshBase, setDshPort, addDshPort, clearExtraDshPorts } = require("../src/url-policy.js");
+  setDshPort(18081);
+  clearExtraDshPorts();
+
+  // the first host: this device's own harness, unchanged
+  assert.equal(dshBase(), "http://127.0.0.1:18081");
+  assert.equal(isDshUrl("http://127.0.0.1:18081/"), true);
+
+  // a second host's forward
+  addDshPort(7801);
+  assert.equal(isDshUrl("http://127.0.0.1:7801/"), true, "the second host's harness is reachable");
+  assert.equal(isDshUrl("http://127.0.0.1:7801/api/remote.mux"), true, "and its own API");
+  assert.equal(
+    isDshUrl("http://127.0.0.1:18081/"),
+    true,
+    "the first host is still reachable: selecting another must not un-reach this one",
+  );
+
+  // and the refusals the single-port test already pins, on the NEW door too
+  assert.equal(isDshUrl("http://127.0.0.1:7801@evil.com/"), false, "userinfo trick, on a second door");
+  assert.equal(isDshUrl("http://127.0.0.1.evil.com:7801/"), false, "sibling-host lookalike, ditto");
+  assert.equal(isDshUrl("https://127.0.0.1:7801/"), false, "scheme matters, ditto");
+  assert.equal(isDshUrl("http://127.0.0.1:18080/panel/"), false, "the agent port is never a harness");
+  assert.equal(isDshUrl("http://127.0.0.1:7802/"), false, "a port nobody added is not a door");
+
+  // a port outside the range is refused BY NAME rather than added
+  assert.throws(() => addDshPort(0), /port/i, "0 is not a port");
+  assert.throws(() => addDshPort(70000), /port/i, "and neither is 70000");
+  assert.equal(isDshUrl("http://127.0.0.1:70000/"), false);
+
+  // forgetting a host's door takes it away again — the list is not append-only
+  clearExtraDshPorts();
+  assert.equal(isDshUrl("http://127.0.0.1:7801/"), false, "a host that was dropped is no longer a door");
+  assert.equal(isDshUrl("http://127.0.0.1:18081/"), true, "and the primary door is untouched");
+
+  setDshPort(18081);
+});

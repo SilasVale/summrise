@@ -26,7 +26,7 @@ import * as net from "net";
 
 // url-policy.ts (shipped alongside, staged by summrise update): pure
 // origin/URL predicates, unit-tested in test/url-policy.test.mjs.
-import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort, setDshPort, dshBase, isDshUrl } from "./url-policy";
+import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort, setDshPort, addDshPort, dshBase, isDshUrl } from "./url-policy";
 // IPC audit #3: /api/status is TOKEN-GATED (same fact the watchdog fix cites);
 // credential-less fetches got 401 -> version title + tray vitals were DEAD on
 // every configured device. The shell runs as the interactive admin, and the
@@ -632,6 +632,33 @@ function resolveDshPort(): number {
 function dshTarget(raw: string): string {
   return isDshUrl(raw) ? new URL(raw).toString() : "about:blank";
 }
+// ── ONE DOOR PER HOST, TAKEN FROM THE AGENT'S OWN TABLE ───────────────────────────────────────────────
+// The harness page shows the SELECTED host's own harness, and each host is reached through its own
+// forward on this machine's loopback. Those ports are not a shell setting: the agent keeps them, because
+// it is what knows which host a forward belongs to. So the shell asks, once at boot, and admits what the
+// answer names — never a port of its own choosing, and never a host that is not in the table.
+//
+// A read that fails leaves the list as it was. A shell that widened its own door list on a failed read is
+// exactly how the view ends up pointed somewhere it was not told about.
+function loadHarnessDoors(): void {
+  const base = `http://127.0.0.1:${resolveAgentPort()}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  fetch(`${base}/api/workspace/harnesses`, { headers: authHeaders(), signal: controller.signal })
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((answer: unknown) => {
+      const rows = (answer as { harnesses?: unknown })?.harnesses;
+      if (!Array.isArray(rows)) return;
+      for (const row of rows as { local_port?: unknown }[]) {
+        const port = Number(row?.local_port);
+        if (Number.isInteger(port) && port > 0 && port < 65536) addDshPort(port);
+      }
+    })
+    .catch(() => {
+      /* the list stays as it was: one host, or none */
+    })
+    .finally(() => clearTimeout(timer));
+}
 function dshViewEnsure(): WebContentsView {
   if (dshView && !dshView.webContents.isDestroyed()) return dshView;
   const view = new WebContentsView({
@@ -728,6 +755,10 @@ ipcHandle("embedded-dsh:place", (bounds: { x: number; y: number; width: number; 
   return { ok: true };
 });
 ipcHandle("embedded-dsh:state", () => dshState());
+// SELECT A HOST: `dshNavigate` already refuses anything `isDshUrl` does not admit, so this channel can
+// only reach a door the agent configured — and it answers with the address it actually loaded, which for a
+// refusal is `about:blank`. The pane shows that rather than pretending the switch worked.
+ipcHandle("embedded-dsh:go", (url) => dshNavigate(String(url)));
 ipcHandle("embedded-dsh:reload", () => dshReload());
 ipcHandle("embedded-dsh:recover", () => dshRecover());
 
@@ -956,6 +987,8 @@ if (gotTheLock) {
     // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
     // before this line would check a port nothing is listening on.
     setDshPort(resolveDshPort());
+    // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
+    loadHarnessDoors();
     // review #7: with no handler Electron AUTO-GRANTS every permission
     // request (media/geolocation/clipboard) — deny by default for all
     // windows, esp. the remote-browser ones loading arbitrary pages.

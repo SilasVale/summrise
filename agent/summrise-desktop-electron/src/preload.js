@@ -65,6 +65,9 @@ electron_1.contextBridge.exposeInMainWorld("summriseEmbedded", {
 electron_1.contextBridge.exposeInMainWorld("summriseDsh", {
     open: () => electron_1.ipcRenderer.invoke("embedded-dsh:open"),
     place: (bounds) => electron_1.ipcRenderer.invoke("embedded-dsh:place", bounds),
+    // SELECTING A HOST: the URL is one of the agent's configured harness doors, and the main process
+    // checks it against that list — the pane cannot point the view at an address of its own choosing.
+    go: (url) => electron_1.ipcRenderer.invoke("embedded-dsh:go", url),
     state: () => electron_1.ipcRenderer.invoke("embedded-dsh:state"),
     reload: () => electron_1.ipcRenderer.invoke("embedded-dsh:reload"),
     // Recovery after a renderer crash: the main process force-re-creates the view.
