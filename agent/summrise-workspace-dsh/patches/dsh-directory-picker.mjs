@@ -99,7 +99,15 @@ const NEW_LIST = `	async list(path, signal) {
 		const target = path ?? home;
 		let rows;
 		try {
-			rows = await this.ctx.fs.listDir(target, signal);
+			// THE SEAM'S METHODS TAKE THE TARGET resolve() RETURNED, NOT A PATH — and this comment must not
+			// contain backticks, because it lives INSIDE A TEMPLATE LITERAL: one pair of them ends the string
+			// early and the script stops parsing (the trap this file's own header records). The seam's types
+			// say a consumer "never manufactures a key, it receives one from resolve()"; handing it the string
+			// instead is answered with invalid_type at path "target" — measured on zss, where the dialog
+			// printed: cannot list: [ { "expected": "object", "path": [ "target" ], ... "received string" } ].
+			// resolve is a pure operation on both backends, so this costs no round trip.
+			const resolved = await this.ctx.fs.resolve(target);
+			rows = await this.ctx.fs.listDir(resolved, signal);
 		} catch (error) {
 			signal?.throwIfAborted();
 			throw new DirectoryPickerError("directory-unreadable", target, \`cannot list \${target}: \${messageOf(error)}\`);
