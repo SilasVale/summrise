@@ -154,4 +154,97 @@ describe("WorkspacesPanel", () => {
       }),
     );
   });
+
+  // ── THE MACHINE IS THE OBJECT, NOT A PATH PREFIX ────────────────────────────────────────────────
+  //
+  // The operator's verdict on the first version was "太丑了，根本没法用，还有现在的机制对吗" — and the
+  // mechanism part was the load-bearing one: the page was a FORM over a registry of PATH PREFIXES, so the
+  // reader had to think about prefixes (an implementation detail) and could not edit anything. These four
+  // pin the shape that replaces it: machines first, the form behind a button, one machine opened at a
+  // time, its files EDITABLE with the version the read returned, and its prefix derived rather than
+  // managed.
+
+  it("shows the MACHINES first: the add form is behind a button, not the opening screen", async () => {
+    reads({ connections: [SSH], mappings: [] });
+    render(<WorkspacesPanel />);
+    await waitFor(() => expect(screen.getByText("10.10.61.83")).toBeTruthy());
+    // the form is NOT there until it is asked for
+    expect(screen.queryByLabelText("Host")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /add (a )?host/i }));
+    expect(screen.getByLabelText("Host")).toBeTruthy();
+  });
+
+  it("derives the machine's HOME as its prefix instead of asking the reader for one", async () => {
+    reads({ connections: [], mappings: [] });
+    mockApi.mockImplementation((path: string, init?: { body?: string }) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [] });
+      if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [] });
+      if (path === "/api/tools/terminal_open") return Promise.resolve({ ok: true, result: "term-abc-0" });
+      if (path === "/api/workspace/exec") return Promise.resolve({ ok: true, stdout_b64: btoa("/home/zhengsaisi\n"), code: 0 });
+      if (path === "/api/workspace/register") return Promise.resolve({ ok: true });
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /add (a )?host/i }));
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "10.10.61.83" } });
+    fireEvent.change(screen.getByLabelText("User"), { target: { value: "zhengsaisi" } });
+    fireEvent.change(screen.getByLabelText("Port"), { target: { value: "22122" } });
+    fireEvent.click(screen.getByRole("button", { name: /connect|add/i }));
+    await waitFor(() => {
+      const registered = mockApi.mock.calls.filter((c) => c[0] === "/api/workspace/register");
+      expect(registered.length).toBeGreaterThan(0);
+      // THE HOME, NOT "/": a machine's home is where its work is, and "/" can only ever belong to one
+      // machine in a path-keyed registry — the collision this page must not walk into.
+      expect(String(registered[0][1]?.body)).toContain("/home/zhengsaisi");
+    });
+  });
+
+  it("opening a machine is a VIEW: its files, a way to run a command, and a way back", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") return Promise.resolve({ ok: true, entries: [{ name: "summrise", kind: "dir" }, { name: "notes.txt", kind: "file" }] });
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    await waitFor(() => expect(screen.getByText("summrise")).toBeTruthy());
+    expect(screen.getByText("notes.txt")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /command/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /back|machines/i })).toBeTruthy();
+  });
+
+  it("EDITING a file sends the version the read returned, and a conflict is shown verbatim", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string, init?: { body?: string }) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings") return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        if (body.op === "listDir") return Promise.resolve({ ok: true, entries: [{ name: "notes.txt", kind: "file" }] });
+        if (body.op === "readText") return Promise.resolve({ ok: true, text: "hello", version: "sha256:abc" });
+        if (body.op === "writeText") return Promise.resolve({ ok: false, code: "FS_VERSION_CONFLICT", error: "notes.txt is not the content this write expected" });
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    render(<WorkspacesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByText("notes.txt"));
+    const editor = await screen.findByLabelText(/contents|text/i);
+    fireEvent.change(editor, { target: { value: "hello there" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => {
+      const writes = mockApi.mock.calls.filter((c) => c[0] === "/api/workspace/fs" && String(c[1]?.body).includes("writeText"));
+      expect(writes.length).toBe(1);
+      const body = JSON.parse(String(writes[0][1]?.body));
+      // THE GUARD IS THE POINT: a write that cannot say what it replaces is the silent loss this door
+      // refuses, so the page must carry the version the READ returned.
+      expect(body.expect_version).toBe("sha256:abc");
+      expect(body.text).toBe("hello there");
+    });
+    // the refusal is the agent's own sentence, not a paraphrase
+    expect(await screen.findByText(/not the content this write expected/)).toBeTruthy();
+  });
 });
