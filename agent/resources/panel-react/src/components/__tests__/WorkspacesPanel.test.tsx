@@ -337,4 +337,56 @@ describe("WorkspacesPanel", () => {
     expect(await screen.findByText(/KILL/)).toBeTruthy();
     expect(screen.getByText(/cut|truncat/i)).toBeTruthy();
   });
+
+  // ── OPENING A TERMINAL ON THE MACHINE ────────────────────────────────────────────────────────────
+  //
+  // "并在那里开终端 / 跑命令" is what the operator asked for, and the two are different tools: the command
+  // line runs ONE argv through the exec door, while a terminal is a SESSION on that machine. The agent
+  // already reconnects a saved connection by id (`terminal_connect_saved`), so this page does not need
+  // credentials again — it needs the id it already has.
+
+  it("opens a TERMINAL on the machine, by reconnecting the connection the agent saved", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings")
+        return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") return Promise.resolve({ ok: true, entries: [] });
+      if (path === "/api/tools/terminal_connect_saved")
+        return Promise.resolve({ ok: true, result: "term-saved-7" });
+      return Promise.resolve({ ok: true });
+    });
+    const onOpenTerminal = vi.fn();
+    render(<WorkspacesPanel onOpenTerminal={onOpenTerminal} />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /terminal/i }));
+    await waitFor(() =>
+      expect(mockApi).toHaveBeenCalledWith("/api/tools/terminal_connect_saved", {
+        method: "POST",
+        body: JSON.stringify({ id: SSH.id }),
+      }),
+    );
+    // and the page hands the session to the shell, which is what shows it: the terminal UI lives on
+    // the Terminal page, and duplicating it here would be a second terminal to keep alive.
+    await waitFor(() => expect(onOpenTerminal).toHaveBeenCalledWith("term-saved-7"));
+  });
+
+  it("says why a terminal could NOT be opened, in the agent's own words", async () => {
+    reads({ connections: [SSH], mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+    mockApi.mockImplementation((path: string) => {
+      if (path === "/api/workspace/connections") return Promise.resolve({ ok: true, connections: [SSH] });
+      if (path === "/api/workspace/mappings")
+        return Promise.resolve({ ok: true, mappings: [{ path: "/home/zhengsaisi", connection_id: SSH.id }] });
+      if (path === "/api/workspace/fs") return Promise.resolve({ ok: true, entries: [] });
+      if (path === "/api/tools/terminal_connect_saved")
+        return Promise.resolve({ ok: false, error: "unknown saved connection \"ssh:x@y:22\"; known: (none)" });
+      return Promise.resolve({ ok: true });
+    });
+    const onOpenTerminal = vi.fn();
+    render(<WorkspacesPanel onOpenTerminal={onOpenTerminal} />);
+    fireEvent.click(await screen.findByRole("button", { name: /open/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /terminal/i }));
+    expect(await screen.findByText(/unknown saved connection/)).toBeTruthy();
+    expect(onOpenTerminal).not.toHaveBeenCalled();
+  });
 });

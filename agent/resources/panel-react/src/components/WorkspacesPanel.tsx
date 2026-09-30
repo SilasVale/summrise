@@ -46,7 +46,12 @@ interface Entry {
 /** A machine's registered root: the prefix that makes everything under it resolvable. */
 const MACHINE_ROOT = "/";
 
-export function WorkspacesPanel() {
+/**
+ * `onOpenTerminal` is how this page ASKS FOR a terminal instead of growing one. The terminal UI is a
+ * whole page already (`TerminalWorkspace`), and a second one here would be a second thing to keep alive;
+ * what this page knows is WHICH MACHINE, and the shell knows how to show it.
+ */
+export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionId: string) => void } = {}) {
   const [machines, setMachines] = useState<Connection[] | null>(null);
   const [mappings, setMappings] = useState<Mapping[] | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
@@ -148,6 +153,34 @@ export function WorkspacesPanel() {
       });
     },
     [run],
+  );
+
+  /**
+   * OPEN A TERMINAL ON THIS MACHINE. The credentials are not asked for again: adding the machine saved a
+   * connection, and `terminal_connect_saved` reconnects it by the id this page already holds. A refusal
+   * is the agent's own sentence — an unknown id is answered with the id it did not find and the list of
+   * ones it has, which is exactly what a reader needs.
+   */
+  const openTerminal = useCallback(
+    (connectionId: string) =>
+      run(`terminal:${connectionId}`, async () => {
+        const j = await callApi("/api/tools/terminal_connect_saved", {
+          method: "POST",
+          body: JSON.stringify({ id: connectionId }),
+        });
+        if (!j?.ok) {
+          setOutcome({ ok: false, text: j?.error || j?.code || "the agent refused without saying why" });
+          return;
+        }
+        const sessionId = typeof j.result === "string" ? j.result : j?.result?.session_id;
+        if (!sessionId) {
+          setOutcome({ ok: false, text: "the agent opened a terminal but did not say which session it is" });
+          return;
+        }
+        setOutcome({ ok: true, text: `terminal ${sessionId} opened on this machine` });
+        onOpenTerminal?.(String(sessionId));
+      }),
+    [onOpenTerminal, run],
   );
 
   /** Open one file: the READ is what produces the version a save must carry. */
@@ -554,6 +587,20 @@ export function WorkspacesPanel() {
           />
         </div>
       ) : null}
+
+      <div className="workspaces-view-head">
+        <button
+          className="btn btn-mini"
+          onClick={() => void openTerminal(opened.id)}
+          disabled={busy}
+          {...ack("terminal")}
+        >
+          Open a terminal
+        </button>
+        <span className="workspaces-note">
+          a session on this machine — the command line below runs one argv through the exec door
+        </span>
+      </div>
 
       <div className="workspaces-command">
         <label className="workspaces-field">
