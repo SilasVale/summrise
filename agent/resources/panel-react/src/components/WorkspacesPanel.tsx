@@ -390,7 +390,14 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
         ) : null}
 
         <div className="workspaces-view-head">
-          <h2 className="workspaces-heading">Machines</h2>
+          {/* A LABEL, NOT A HEADING — and the sweep is what says so. `ContextRail` renders beside the
+              canvas, so this markup comes BEFORE the page's own `<h1>`, and the rule is
+              `heads[0].tagName === 'H1'`: the reading was `h1 count 1, first-is-h1 false` — the count
+              right, the position wrong, because a heading here claimed to be the page's first. The rail
+              already made this exact call for its own labels: `side-title` is a `<div>`, because
+              "NOT a heading: this labels the side list, and as an `<h1>` it was the largest-level
+              heading in the whole product at 13px". Same reason, same element. */}
+          <div className="workspaces-heading">Machines</div>
           <button
             className="btn btn-primary btn-mini"
             onClick={() => setShowAdd((v) => !v)}
@@ -504,7 +511,8 @@ export function WorkspacesPanel({ onOpenTerminal }: { onOpenTerminal?: (sessionI
         <button className="btn btn-mini" onClick={() => setOpened(null)} {...ack("back")}>
           Back to machines
         </button>
-        <h2 className="workspaces-heading">{name}</h2>
+        {/* The same label-not-a-heading call, for the same reason. */}
+        <div className="workspaces-heading">{name}</div>
         <code className="workspaces-path">{opened.path}</code>
       </div>
 
