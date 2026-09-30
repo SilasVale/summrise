@@ -14,10 +14,6 @@ describe("Shell page contract", () => {
       "history",
       "browser",
       "harness",
-      // WHERE the work lands: the machines this device can reach. A page of its own because it answers
-      // a different question from the harness, and the contract here is what makes that a decision
-      // rather than an omission — a page nobody listed is a page nobody meant to add.
-      "workspaces",
       "memory",
       "plugins",
       "settings",
@@ -30,7 +26,6 @@ describe("Shell page contract", () => {
       "History",
       "Browser",
       "Harness",
-      "Workspaces",
       "Memory",
       "Plugins",
       "Settings",

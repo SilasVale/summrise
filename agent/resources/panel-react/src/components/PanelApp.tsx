@@ -34,7 +34,6 @@ import { MonitorAlerts } from "./MonitorAlerts";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { BrowserPage } from "./BrowserPage";
 import { DshPage } from "./DshPage";
-import { WorkspacesPanel } from "./WorkspacesPanel";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
 import { SettingsPage } from "./SettingsPage";
@@ -188,7 +187,7 @@ export function PanelApp(props: Props) {
           />
         }
         contextRail={
-          page === "terminal" || page === "plugins" ? (
+          page === "terminal" || page === "plugins" || page === "harness" ? (
             <ContextRail
               page={page}
               sessions={props.sessions}
@@ -197,6 +196,7 @@ export function PanelApp(props: Props) {
               onNewSession={props.onNewSession}
               plugins={props.plugins}
               connected={connected}
+              onOpenTerminal={() => setPage("terminal")}
             />
           ) : undefined
         }
@@ -255,7 +255,6 @@ export function PanelApp(props: Props) {
             {page === "history" && <HistoryPage sessions={props.sessions} />}
             {page === "browser" && <BrowserPage token={props.token} />}
               {page === "harness" && <DshPage />}
-              {page === "workspaces" && <WorkspacesPanel onOpenTerminal={() => setPage("terminal")} />}
             {page === "memory" && <MemoryPage />}
             {page === "plugins" && <PluginsPage plugins={props.plugins} />}
             {page === "settings" && (

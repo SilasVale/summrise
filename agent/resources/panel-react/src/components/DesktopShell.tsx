@@ -38,7 +38,6 @@ import { Shell, type Page } from "./Shell";
 import { TerminalWorkspace, type CommandEvents } from "./TerminalWorkspace";
 import { BrowserPage } from "./BrowserPage";
 import { DshPage } from "./DshPage";
-import { WorkspacesPanel } from "./WorkspacesPanel";
 import { HistoryPage } from "./HistoryPage";
 import { MemoryPage } from "./MemoryPage";
 import { PluginsPage } from "./PluginsPage";
@@ -119,7 +118,6 @@ const PAGE_TITLES: Record<Page, string> = {
   history: "History",
   browser: "Browser",
   harness: "Harness",
-  workspaces: "Workspaces",
   memory: "Memory",
   plugins: "Plugins",
   settings: "Settings",
@@ -509,7 +507,6 @@ export function DesktopShell({
               {page === "history" && <HistoryPage sessions={sessions} />}
               {page === "browser" && <BrowserPage token={token} />}
               {page === "harness" && <DshPage />}
-              {page === "workspaces" && <WorkspacesPanel onOpenTerminal={() => setPage("terminal")} />}
               {page === "memory" && <MemoryPage />}
               {page === "plugins" && <PluginsPage plugins={plugins} />}
               {page === "settings" && (
