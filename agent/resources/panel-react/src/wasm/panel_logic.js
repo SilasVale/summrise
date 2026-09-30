@@ -297,6 +297,31 @@ export function liveness_of(input) {
 }
 
 /**
+ * Does the recent series say something worth interrupting an operator for?
+ *
+ * `samples` is the device's series, oldest first; `nowMs` the caller's clock. The rule reads only
+ * the last `window_ms`, needs `min_samples` of evidence, and fires only when at least two thirds of
+ * those readings sit in the dial's `crit` band.
+ *
+ * SILENCE IS THE DEFAULT, and it is the honest one: a device this panel cannot see a series for (a
+ * host that reports no vitals, an agent that just started) produces no notice, because "I have not
+ * looked" and "nothing is wrong" are different facts and a chip that conflates them is worse than no
+ * chip.
+ * @param {any} samples
+ * @param {any} now_ms
+ * @param {any} window_ms
+ * @param {any} min_samples
+ * @returns {any}
+ */
+export function load_notice(samples, now_ms, window_ms, min_samples) {
+    const ret = wasm.load_notice(samples, now_ms, window_ms, min_samples);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
  * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
  * bucket last and separate".
@@ -442,6 +467,20 @@ export function parse_vitals_series(j) {
 }
 
 /**
+ * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
+ * an empty series.
+ * @param {any} values
+ * @returns {any}
+ */
+export function series_stats(values) {
+    const ret = wasm.series_stats(values);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `sessionActive(session, workingMs)` — is the SESSION working, not "is the device busy".
  *
  * THE DEVICE'S ANSWER FIRST: `command_running` is the manager's own busy flag, so it is true for the
@@ -523,6 +562,29 @@ export function session_waiting(session) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return ret[0] !== 0;
+}
+
+/**
+ * Path data for an SVG polyline, one entry per RUN of known values.
+ *
+ * `values` is oldest-first (the device's order). `width`/`height` are the drawing box; the path is
+ * scaled to fill it, with the series' own min/max as the vertical range — a sparkline's job is the
+ * shape, and a fixed 0-100 axis would flatten every real series into a straight line. A run of ONE
+ * known value draws a dot-sized segment rather than nothing, so a single reading is still visible.
+ *
+ * Returns an EMPTY list when there is nothing to draw (all values absent): an empty chart must be an
+ * ABSENT chart, never a flat line at zero.
+ * @param {any} values
+ * @param {any} width
+ * @param {any} height
+ * @returns {Array<any>}
+ */
+export function spark_segments(values, width, height) {
+    const ret = wasm.spark_segments(values, width, height);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**

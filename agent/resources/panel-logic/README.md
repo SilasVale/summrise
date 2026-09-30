@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **142,205 raw / 68,025 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **36,282 raw / 10,092 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **150,824 raw / 72,125 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **38,642 raw / 10,802 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -39,6 +39,15 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `path.rs` (5 functions + the endings table) | 38,487 (+8,610) | 8,617 (+777) | **272,623** (**−617**) |
 | `events.rs` (4 functions: the two groupings, the marker rule, ANSI) | **62,553** (+24,066) | **9,382** (+765) | **271,904** (**−719**) |
 | `update.rs` (5 functions: the four-way log verdict, the update readers, two age formatters) | **68,025** (+5,472) | **10,092** (+710) | **279,038** (**−607**) |
+| `spark.rs` (5 exports: the polyline geometry, its summary, the sustained-load rule) | **72,125** (+4,100) | **10,802** (+710) | **278,585** (**−453**) |
+
+**AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
+8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
+reached for `format!("{:.2}", f64)` — which LINKS RUST'S FLOAT FORMATTER: **80,038 gz, +12,013 for the
+family**, the largest single-family jump this crate has taken. The digits are computed with integer
+arithmetic now (exact, from the float's own mantissa and exponent) and the same 2,763-case differential
+passes: **72,125 gz, +4,100 — the decision was worth 7,913 gz.** It is P0's `{:.3}` lesson (8,879 gz,
+26% of the landing page's payload) arriving in the panel, and the fix is the same one.
 
 **AND THE PAYLOAD COLUMN IS MEASURED AGAINST THE TREE THE FAMILY LANDED ON, not against the row above
 it** — the panel gains product features between families, so `update.rs`'s before is 279,645 gz at
@@ -81,6 +90,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `path.rs` | `lib/path.ts`'s `stateFromEnd`, `cardState`, `derivePath`, `summarizePath`, `attentionSteps`, and the `END_STATE`/`END_LABEL` tables | 5 |
 | `events.rs` | `useCommandEvents.ts`'s `terminalStatus` + `groupEvents`, `useTrajectory.ts`'s `groupRounds`, `lib/ansi.ts`'s `stripAnsi` | 4 |
 | `update.rs` | `lib/updateDiagnosis.ts`'s `diagnoseUpdate`, `components/UpdateCard.tsx`'s `parseUpdateStatus`, `parseAttempt`, `checkedAge`, `attemptAge` | 5 |
+| `spark.rs` | `lib/spark.ts`'s `sparkSegments`, `seriesStats`, `loadNotice` (its two exported numbers stay in TypeScript and are passed in) | 3 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
