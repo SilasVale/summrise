@@ -2676,10 +2676,17 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
     // THE OP IS CHECKED BEFORE THE CONNECTION, which a test caught: validating it in the `match`
     // below meant a caller who mistyped the verb learned it only after a 30 s connect attempt to a
     // host that may not even exist. A name this door does not have is answerable without a network.
-    const OPS: [&str; 5] = ["stat", "lstat", "readText", "readBytes", "listDir"];
+    const OPS: [&str; 6] = [
+        "stat",
+        "lstat",
+        "readText",
+        "readBytes",
+        "listDir",
+        "writeText",
+    ];
     if !OPS.contains(&op) {
         return bad(&format!(
-            "unknown op {op:?}; this route reads only (stat, lstat, readText, readBytes, listDir)"
+            "unknown op {op:?}; this route has (stat, lstat, readText, readBytes, listDir, writeText)"
         ));
     }
     let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
@@ -2688,6 +2695,22 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
     if path.is_empty() {
         return bad("a path is required");
     }
+    // THE VERSION IS REQUIRED, AND IT IS CHECKED BEFORE THE CONNECTION — the same property the op
+    // check has: a caller who forgot the guard learns it without a 30 s connect to a host that may
+    // not exist. A write that cannot say what it is replacing is not a write this door offers.
+    let expect_version = if op == "writeText" {
+        match v.get("expect_version").and_then(|x| x.as_str()) {
+            Some(value) if !value.is_empty() => value.to_string(),
+            _ => {
+                return bad(
+                    "a writeText requires expect_version: the `version` the read returned, so a write \
+                     that would replace content the caller never saw is a conflict rather than a loss",
+                )
+            }
+        }
+    } else {
+        String::new()
+    };
 
     let target = match WorkspaceTarget::from_request(&v) {
         Ok(target) => target,
@@ -2758,6 +2781,17 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
                 Err(e) => fs_failed(e),
             }
         }
+        "writeText" => {
+            let text = v.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            match crate::workspace::fs_write_text(&sftp, path, text, &expect_version).await {
+                Ok(written) => serde_json::json!({
+                    "ok": true,
+                    "info": info_json(&written.info),
+                    "version": written.version,
+                }),
+                Err(e) => fs_failed(e),
+            }
+        }
         "listDir" => match crate::workspace::fs_list_dir(&sftp, path).await {
             Ok(entries) => {
                 let entries: Vec<serde_json::Value> = entries
@@ -2773,7 +2807,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
             Err(e) => fs_failed(e),
         },
         other => bad(&format!(
-            "unknown op {other:?}; this route reads only (stat, lstat, readText, readBytes, listDir)"
+            "unknown op {other:?}; this route has (stat, lstat, readText, readBytes, listDir, writeText)"
         )),
     }
 }
@@ -5847,16 +5881,33 @@ mod tests {
             assert_eq!(answer["error"], serde_json::json!(expected), "body: {body}");
         }
 
-        // A WRITE IS NAMED AS UNSUPPORTED, with the operations this door does have. `writeText` is
-        // the obvious thing for a caller to try next, and it has to learn why it cannot.
+        // A WRITE WITHOUT A VERSION IS REFUSED, AND NAMED. `writeText` IS an op this door has — the
+        // optimistic guard is what makes it safe to offer: a caller must say which content it read,
+        // so a write that would clobber someone else's edit is a CONFLICT rather than a silent loss.
+        // The refusal names the missing field, because "invalid_params" alone would send the caller
+        // looking for a typo in the op.
         let answer =
             api_workspace_fs(r#"{"op":"writeText","path":"/x","host":"h","user":"u"}"#).await;
         assert_eq!(answer["ok"], serde_json::json!(false));
         assert_eq!(answer["code"], serde_json::json!("invalid_params"));
         let message = answer["error"].as_str().unwrap_or_default();
         assert!(
-            message.contains("reads only") && message.contains("readText"),
-            "the refusal must name what IS available: {message}"
+            message.contains("expect_version"),
+            "the refusal must name the field that is missing: {message}"
+        );
+
+        // AND WITH A VERSION IT GETS PAST THE OP CHECK — the failure is the CONNECTION, not the verb.
+        // This is the same property its neighbours pin: a mistyped verb is answerable without a
+        // network, and a well-formed write must reach the host it named.
+        let answer = api_workspace_fs(
+            r#"{"op":"writeText","path":"/x","text":"t","expect_version":"v","host":"h","user":"u"}"#,
+        )
+        .await;
+        assert_eq!(answer["ok"], serde_json::json!(false));
+        let message = answer["error"].as_str().unwrap_or_default();
+        assert!(
+            !message.contains("unknown op"),
+            "writeText is an op this door has: {message}"
         );
     }
 
