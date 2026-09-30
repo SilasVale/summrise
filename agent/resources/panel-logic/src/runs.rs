@@ -433,8 +433,8 @@ pub fn group_operation(events: JsValue, boundaries: JsValue) -> Result<JsValue, 
                 continue;
             };
             let id = value(&prop(&e, "run_id"));
-            let idx = match &id {
-                Some(k) => Some(match by_id.iter().find(|(key, _)| key == k) {
+            let idx = id.as_ref().map(|k| {
+                match by_id.iter().find(|(key, _)| key == k) {
                     Some((_, i)) => *i,
                     None => {
                         order.push(Acc::new(Some(k.clone())));
@@ -442,9 +442,8 @@ pub fn group_operation(events: JsValue, boundaries: JsValue) -> Result<JsValue, 
                         by_id.push((k.clone(), i));
                         i
                     }
-                }),
-                None => None,
-            };
+                }
+            });
             let a = match idx {
                 Some(i) => &mut order[i],
                 None => &mut unattributed,
