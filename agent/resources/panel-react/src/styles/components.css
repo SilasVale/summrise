@@ -4895,16 +4895,19 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
   color: inherit;
   cursor: pointer;
   font: inherit;
-  padding: 2px 4px;
+  padding: var(--sp-0-5) var(--sp-1);
   text-align: left;
 }
 .workspaces-entry-file:hover { text-decoration: underline; }
+/* A HOVER THAT ANSWERS AND A PRESS THAT DOES NOT IS THE FAILURE `tests/feedback.rs` NAMES, and it caught
+   this rule: the underline said "this is clickable" and nothing said "you clicked it". The press is a
+   background, not a layout change — a transition that re-lays out is the other half of that gate. */
+.workspaces-entry-file:active { background: var(--chrome-active-bg); }
 
 .workspaces-editor { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
 
 .workspaces-editor-text {
   width: 100%;
-  min-height: 220px;
   padding: var(--sp-2);
   background: var(--bg);
   border: 1px solid var(--line);
@@ -4918,7 +4921,7 @@ button.dtab-close { background: none; border: 0; padding: 0; margin-left: 6px; c
 .workspaces-command { display: flex; align-items: flex-end; gap: var(--sp-2); margin-top: var(--sp-2); }
 
 .workspaces-run-output {
-  max-height: 220px;
+  max-height: 40vh;
   margin-top: var(--sp-1);
   padding: var(--sp-2);
   background: var(--bg);
