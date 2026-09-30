@@ -146,6 +146,20 @@ export function group_rounds(events: any): Array<any>;
 export function liveness_of(input: any): string;
 
 /**
+ * Does the recent series say something worth interrupting an operator for?
+ *
+ * `samples` is the device's series, oldest first; `nowMs` the caller's clock. The rule reads only
+ * the last `window_ms`, needs `min_samples` of evidence, and fires only when at least two thirds of
+ * those readings sit in the dial's `crit` band.
+ *
+ * SILENCE IS THE DEFAULT, and it is the honest one: a device this panel cannot see a series for (a
+ * host that reports no vitals, an agent that just started) produces no notice, because "I have not
+ * looked" and "nothing is wrong" are different facts and a chip that conflates them is worse than no
+ * chip.
+ */
+export function load_notice(samples: any, now_ms: any, window_ms: any, min_samples: any): any;
+
+/**
  * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
  * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
  * bucket last and separate".
@@ -225,6 +239,12 @@ export function parse_update_status(j: any): object;
 export function parse_vitals_series(j: any): any;
 
 /**
+ * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
+ * an empty series.
+ */
+export function series_stats(values: any): any;
+
+/**
  * `sessionActive(session, workingMs)` — is the SESSION working, not "is the device busy".
  *
  * THE DEVICE'S ANSWER FIRST: `command_running` is the manager's own busy flag, so it is true for the
@@ -262,6 +282,19 @@ export function session_liveness(session: any, working_ms: number): string;
  * all, which is the disagreement between the two densities this model exists to stop.
  */
 export function session_waiting(session: any): boolean;
+
+/**
+ * Path data for an SVG polyline, one entry per RUN of known values.
+ *
+ * `values` is oldest-first (the device's order). `width`/`height` are the drawing box; the path is
+ * scaled to fill it, with the series' own min/max as the vertical range — a sparkline's job is the
+ * shape, and a fixed 0-100 axis would flatten every real series into a straight line. A run of ONE
+ * known value draws a dot-sized segment rather than nothing, so a single reading is still visible.
+ *
+ * Returns an EMPTY list when there is nothing to draw (all values absent): an empty chart must be an
+ * ABSENT chart, never a flat line at zero.
+ */
+export function spark_segments(values: any, width: any, height: any): Array<any>;
 
 /**
  * `stateFromEnd(ended, exitCode, reason)` — THE ONE DERIVATION OF A COMMAND'S STATE.
@@ -330,6 +363,7 @@ export interface InitOutput {
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly group_rounds: (a: any) => [number, number, number];
     readonly liveness_of: (a: any) => [number, number, number, number];
+    readonly load_notice: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_attempt: (a: any) => any;
     readonly parse_boot_history: (a: any) => [number, number, number];
@@ -339,10 +373,12 @@ export interface InitOutput {
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_update_status: (a: any) => any;
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly series_stats: (a: any) => [number, number, number];
     readonly session_active: (a: any, b: number) => [number, number, number];
     readonly session_failed: (a: any) => [number, number, number];
     readonly session_liveness: (a: any, b: number) => [number, number, number, number];
     readonly session_waiting: (a: any) => [number, number, number];
+    readonly spark_segments: (a: any, b: any, c: any) => [number, number, number];
     readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];
     readonly strip_ansi: (a: any) => [number, number];
     readonly summarize_path: (a: any) => any;
