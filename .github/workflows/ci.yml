@@ -553,14 +553,14 @@ jobs:
       # inline sheet. The check pins the rule as a pure function AND the wiring in all three emitted artifacts.
       - name: press anchor checks
         run: node scripts/test/press-anchor-check.mjs
-      # ONE design vocabulary across the two frontends. They shared 16 token
-      # NAMES and 12 of them held different VALUES — the console's frame was
-      # Bootstrap's gray scale while the panel's was zinc/Apple — and the
-      # console's own comment claimed they shared a vocabulary, which is what
-      # stopped anyone checking. Needs no network and no build: it reads both
-      # stylesheets.
-      - name: token contract (console vs panel)
-        run: node scripts/test/token-contract-check.mjs
+      # THE TOKEN CONTRACT IS NOT HERE ANY MORE (2026-09-30, P1 of the migration). It was the last
+      # gate in this repository that could move into `cargo test`: it reads two stylesheets and
+      # computes, with no dependency to spawn, and its proof lives in this repository. It is
+      # `agent/tests/token_contract.rs` now, run by the `agent` job's `cargo test -p summrise-agent`
+      # — the SAME step the other migrated gates run in, and a step this job does not have (no Rust
+      # toolchain here). The equivalence proof is in the commit that moved it: eleven planted cases,
+      # one per check plus two that must not bite, the two implementations indistinguishable on
+      # every line and every verdict.
       # THE OTHER TWO SWEEPS' JUDGES. `panel-design-sweep.bash` has gated the panel's judge since round 50;
       # the console's and the extension's adapter-specific rules had NO gate — the shared judge they call is
       # covered through the panel's, which is exactly why the gap was easy to miss. Each case here plants one

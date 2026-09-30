@@ -261,7 +261,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 **AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no Node, no browser, no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
 
-**Every one of them carries its own mutation proof in its header** — the edit that must break it, and what it said when it did. Read that block when you change the gate.
+**Each carries its own mutation proof in its header.** Read it when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`
 `console-smoke-check.mjs`, `contrast-probe-check.mjs`
@@ -273,7 +273,9 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
 `smoke-helpers.bash`, `smoke-index.bash`
 `sweep-judges.bash`
-`token-contract-check.mjs`
+
+`token-contract-check.mjs` moved 2026-09-30: it is `agent/tests/token_contract.rs` now, and it left this
+list for the reason the paragraph above gives.
 
 ## Where the long form lives
 
