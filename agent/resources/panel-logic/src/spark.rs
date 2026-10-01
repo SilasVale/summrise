@@ -37,7 +37,7 @@
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{js_max, number_text, prop, put, to_number, type_of};
+use crate::js::{js_max, js_round, number_text, prop, put, to_number, type_of};
 
 /// Percentages at or above this are "pegged" for the purpose of a notice. This is the dial's own
 /// `crit` band, restated here because this rule is about DURATION: a single reading in the band is a
@@ -70,14 +70,6 @@ fn js_max_list(values: &[f64]) -> f64 {
         out = out.max(*v);
     }
     out
-}
-
-/// `Math.round` — half toward +INFINITY, which is not `f64::round`.
-fn js_round(x: f64) -> f64 {
-    if x.is_nan() || x.is_infinite() || x == 0.0 {
-        return x;
-    }
-    (x + 0.5).floor()
 }
 
 /// `n.toFixed(2)` — **WITHOUT LINKING RUST'S FLOAT FORMATTER, WHICH IS THE WHOLE POINT.**

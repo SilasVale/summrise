@@ -382,6 +382,27 @@ export function human_idle(ms) {
 }
 
 /**
+ * `humanMs(ms)`.
+ *
+ * `Math.max(0, Math.round(ms / 1000))` — the coercion, `Math.round`'s half-toward-+INFINITY (which is
+ * not `f64::round`), and `Math.max`'s NaN propagation, in that order.
+ * @param {any} ms
+ * @returns {string}
+ */
+export function human_ms(ms) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.human_ms(ms);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * ONE LINE for the offer: how many, and the longest silence among them.
  * @param {any} candidates
  * @returns {any}

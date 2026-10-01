@@ -25,7 +25,7 @@
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{call_method, js_add, js_max, number_text, read, to_js_string, to_number, type_of};
+use crate::js::{call_method, js_add, js_max, number_text, pad_start_2, read, to_js_string, to_number, type_of};
 
 /// HOW LONG A SILENCE LASTED — `45s`, `4m`, `1h 04m`.
 ///
@@ -52,16 +52,6 @@ pub fn human_idle(ms: JsValue) -> String {
         number_text((s / 3600.0).floor()),
         pad_start_2(&number_text(((s % 3600.0) / 60.0).floor()))
     )
-}
-
-/// `String(v).padStart(2, "0")` — a zero in front of a ONE-UNIT string. `"-5"` is already two units and
-/// is left alone, which is what `padStart` does with it.
-fn pad_start_2(s: &str) -> String {
-    if s.encode_utf16().count() < 2 {
-        format!("0{s}")
-    } else {
-        s.to_string()
-    }
 }
 
 /// The sessions nobody is using: live, silent for longer than the threshold, and NOT holding a command.

@@ -184,6 +184,14 @@ export function group_rounds(events: any): Array<any>;
 export function human_idle(ms: any): string;
 
 /**
+ * `humanMs(ms)`.
+ *
+ * `Math.max(0, Math.round(ms / 1000))` — the coercion, `Math.round`'s half-toward-+INFINITY (which is
+ * not `f64::round`), and `Math.max`'s NaN propagation, in that order.
+ */
+export function human_ms(ms: any): string;
+
+/**
  * ONE LINE for the offer: how many, and the longest silence among them.
  */
 export function idle_offer_text(candidates: any): any;
@@ -559,6 +567,7 @@ export interface InitOutput {
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly group_rounds: (a: any) => [number, number, number];
     readonly human_idle: (a: any) => [number, number];
+    readonly human_ms: (a: any) => [number, number];
     readonly idle_offer_text: (a: any) => [number, number, number];
     readonly idle_sessions: (a: any, b: any) => [number, number, number];
     readonly is_crash: (a: any) => number;
