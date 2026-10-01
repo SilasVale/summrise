@@ -1,0 +1,27 @@
+[package]
+name = "summrise-relay"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The VPS relay, in Rust — the axum/hyper target of block ④'s api-relay."
+
+# THE FIRST PIECE IS `server/routing.mjs`, and the reason it is first is the module's own comment:
+# it is "pure URL routing + entry plumbing helpers", it has its own test file, and it is the last
+# logic that was still testable in `entry.mjs` before the socket plumbing. The rest of the relay
+# (the upstream fetch, the gates, the response writer) lands here as it moves.
+[lib]
+# `rlib` ONLY, for now: the crate is a library whose surface is proved by `cargo test` and by the
+# committed corpus in `fixtures/`. The `[[bin]]` arrives with the server plumbing — and the plan's
+# P3 note is that this relay is the one whose target is a STATIC BINARY rather than a Worker.
+crate-type = ["rlib"]
+
+[dependencies]
+# The routes table and the header objects arrive as JSON, and `preserve_order` is not optional: a
+# header object's key order is what `forwardHeaders` walks, and the routes table's order is what
+# `resolveRoute` matches against (FIRST match wins).
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# NO `[workspace] members` LINE HERE, deliberately, and the sibling crates say why: this crate must
+# never be built as part of the agent's workspace, and the agent's release pipeline must never try to
+# link it. An empty table keeps it out of any workspace it happens to sit near.
+[workspace]

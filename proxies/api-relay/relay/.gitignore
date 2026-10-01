@@ -1,0 +1,2 @@
+# Build output — never commit (the sibling worker crates carry the same line).
+target/
