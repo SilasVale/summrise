@@ -1035,6 +1035,148 @@ pub fn zen_upstream_plan(method: &str, request_url: &str, headers: &Map<String, 
     }
 }
 
+// ── THE `api/gform` GATE'S DECISIONS: the body rewriter and its two helpers ─────────────────────
+//
+// THIS IS THE ONE HANDLER THAT REWRITES BYTES. Google's forms embed assets and scripts from eight
+// hosts, and the relay rewrites every spelling of those URLs it can recognise into its own `/api/gform`
+// URLs — because a form served through the relay must not fetch its own scripts direct-to-Google. It is
+// DELIBERATELY LOSSY: a missed escape variant leaves one asset loading direct, which is visible in
+// verification, where a half-matched rewrite would break the page.
+
+const GFORM_UPSTREAMS: [(&str, &str); 8] = [
+    ("gle", "https://forms.gle"),
+    ("docs", "https://docs.google.com"),
+    ("www", "https://www.google.com"),
+    ("gstatic", "https://www.gstatic.com"),
+    ("ssl-gstatic", "https://ssl.gstatic.com"),
+    ("fontscss", "https://fonts.googleapis.com"),
+    ("fonts", "https://fonts.gstatic.com"),
+    ("usercontent", "https://lh3.googleusercontent.com"),
+];
+
+/// The script injected into every rewritten HTML page, verbatim from the JavaScript.
+const SRI_NEUTRALIZER: &str = "\n<!-- SRI hashes do not survive byte rewriting; neutralize static + injected integrity -->\n<script>\n(function () {\n  try { Object.defineProperty(HTMLScriptElement.prototype, 'integrity', { configurable: true, get: function () { return ''; }, set: function () {} }); } catch (e) {}\n  new MutationObserver(function (ms) {\n    for (var i = 0; i < ms.length; i++) {\n      var ns = ms[i].addedNodes;\n      for (var j = 0; j < ns.length; j++) {\n        var el = ns[j];\n        if (!el || !el.querySelectorAll) continue;\n        var at = el.querySelectorAll('[integrity]');\n        for (var k = 0; k < at.length; k++) at[k].removeAttribute('integrity');\n      }\n    }\n  }).observe(document.documentElement || document, { subtree: true, childList: true });\n})();\n</script>";
+
+/// `rewritable(contentType)` — is this response worth rewriting at all? Text, code and JSON are;
+/// media, binary and an absent type are not.
+pub fn rewritable(content_type: Option<&str>) -> bool {
+    let Some(raw) = content_type else {
+        return false;
+    };
+    let t = raw.to_lowercase();
+    t.starts_with("text/")
+        || t.contains("javascript")
+        || t.contains("ecmascript")
+        || t.contains("json")
+}
+
+/// `body.replace(/\s+integrity="[^"]*"/g, " ")` — every static `integrity` attribute, with its
+/// surrounding whitespace, replaced by ONE SPACE.
+///
+/// Hand-rolled rather than regex, because this crate carries no regex engine and the pattern is four
+/// clauses: whitespace (one or more), the literal `integrity="`, anything but a quote, a quote.
+fn strip_integrity(body: &str) -> String {
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let ws_start = i;
+        let mut j = i;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j > ws_start && body[j..].starts_with("integrity=\"") {
+            let after = j + "integrity=\"".len();
+            if let Some(close) = body[after..].find('"') {
+                out.push(' ');
+                i = after + close + 1;
+                continue;
+            }
+        }
+        // Not a match: copy this character and move on. (`is_ascii_whitespace` is `\s` for the ASCII
+        // range, which is what the pattern's `\s` matches in this source.)
+        let ch = body[i..].chars().next().unwrap_or(' ');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// `rewriteBody(body, origin, isHtml)` — every recognised spelling of an upstream URL becomes a
+/// `/api/gform` URL on THIS origin.
+///
+/// THE SIX SPELLINGS PER HOST ARE TRIED IN ORDER, escaped variants FIRST, so the plain `https://` form
+/// can never half-match inside an escaped one: `https:\/\/host` (the JSON `\/` escape),
+/// `https:\u002F\u002Fhost` and its lowercase twin, `https:\x2f\x2fhost` (obfuscated JS strings), the
+/// plain form, and the protocol-relative `//host`.
+///
+/// `Err` is the JavaScript's throw: `new URL(origin)` on an origin that is not a URL.
+pub fn rewrite_body(body: &str, origin: &str, is_html: bool) -> Result<String, String> {
+    let mut out = body.to_string();
+    if is_html {
+        out = strip_integrity(&out);
+        if let Some(head) = out.find("<head") {
+            out.insert_str(head + 5, SRI_NEUTRALIZER);
+        }
+    }
+    let origin_url = url::Url::parse(origin).map_err(|_| format!("invalid origin: {origin}"))?;
+    let proxy_host = match origin_url.port() {
+        Some(p) => format!("{}:{}", origin_url.host_str().unwrap_or(""), p),
+        None => origin_url.host_str().unwrap_or("").to_string(),
+    };
+    let bs = '\\';
+    for (key, base) in GFORM_UPSTREAMS {
+        let host = url::Url::parse(base)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_string()))
+            .unwrap_or_default();
+        let proxy = format!("{origin}/api/gform/{key}");
+        let escaped = |esc: &str| proxy.split('/').collect::<Vec<_>>().join(esc);
+        let pairs: [(String, String); 6] = [
+            (
+                format!("https:{bs}/{bs}/{host}"),
+                escaped(&format!("{bs}/")),
+            ),
+            (
+                format!("https:{bs}u002F{bs}u002F{host}"),
+                escaped(&format!("{bs}u002F")),
+            ),
+            (
+                format!("https:{bs}u002f{bs}u002f{host}"),
+                escaped(&format!("{bs}u002f")),
+            ),
+            (
+                format!("https:{bs}x2f{bs}x2f{host}"),
+                escaped(&format!("{bs}x2f")),
+            ),
+            (format!("https://{host}"), proxy.clone()),
+            (
+                format!("//{host}"),
+                format!("//{proxy_host}/api/gform/{key}"),
+            ),
+        ];
+        for (from, to) in pairs {
+            out = out.replace(&from, &to);
+        }
+    }
+    Ok(out)
+}
+
+/// `setCookieValues(headers)` — EVERY `set-cookie`, because `Headers#get` returns only the first.
+///
+/// The JavaScript tries `getSetCookie()` and falls back to a `forEach` walk. The port takes both
+/// shapes as arguments: the `getSetCookie()` values, and the entries the fallback would walk.
+pub fn set_cookie_values(set_cookie: &[String], entries: &[(String, String)]) -> Vec<String> {
+    if !set_cookie.is_empty() {
+        return set_cookie.to_vec();
+    }
+    entries
+        .iter()
+        .filter(|(name, _)| name.to_lowercase() == "set-cookie")
+        .map(|(_, value)| value.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1651,6 +1793,172 @@ mod tests {
             "the fixture moved: {valid} valid, {refused_path} refused paths, {preflights} preflights, \
              {refused} refused, {sent} sent"
         );
+    }
+
+    /// THE `api/gform` GATE'S CORPUS, generated by `oracle.mjs gform` driving the shipping
+    /// `api/gform.ts`.
+    ///
+    /// MUTATION: change one expected rewrite in `fixtures/gform-corpus.json`.
+    /// RESULT:   fails, naming the body.
+    #[test]
+    fn the_typescript_gform_corpus() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/gform-corpus.json");
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        let mut yes = 0usize;
+        let mut no = 0usize;
+        for case in doc["rewritable_cases"]
+            .as_array()
+            .expect("a rewritable_cases array")
+        {
+            let value = case["value"].as_str();
+            let want = case["ok"].as_bool().expect("a verdict");
+            assert_eq!(rewritable(value), want, "rewritable({value:?})");
+            if want {
+                yes += 1;
+            } else {
+                no += 1;
+            }
+        }
+
+        let mut changed = 0usize;
+        let mut injected = 0usize;
+        let mut untouched = 0usize;
+        for case in doc["rewrite_cases"]
+            .as_array()
+            .expect("a rewrite_cases array")
+        {
+            let body = case["body"].as_str().expect("a body");
+            for (is_html, field) in [(false, "text"), (true, "html")] {
+                let want = case[field].as_str().expect("a rewritten body");
+                let got = rewrite_body(body, "https://v.saisi.online", is_html)
+                    .unwrap_or_else(|e| panic!("rewriteBody({body:?}, is_html={is_html}): {e}"));
+                assert_eq!(got, want, "rewriteBody({body:?}, is_html={is_html})");
+                if is_html && got.contains("SRI hashes do not survive") {
+                    injected += 1;
+                }
+            }
+            if case["text"].as_str() == Some(body) {
+                untouched += 1;
+            } else {
+                changed += 1;
+            }
+        }
+
+        let mut cookies = 0usize;
+        for case in doc["cookie_cases"]
+            .as_array()
+            .expect("a cookie_cases array")
+        {
+            let set_cookie: Vec<String> = case["setCookie"]
+                .as_array()
+                .expect("a setCookie array")
+                .iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect();
+            let entries: Vec<(String, String)> = case["entries"]
+                .as_array()
+                .expect("an entries array")
+                .iter()
+                .map(|p| {
+                    (
+                        p[0].as_str().unwrap_or("").to_string(),
+                        p[1].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect();
+            let want: Vec<String> = case["viaGetSetCookie"]
+                .as_array()
+                .expect("a viaGetSetCookie array")
+                .iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect();
+            assert_eq!(
+                set_cookie_values(&set_cookie, &entries),
+                want,
+                "getSetCookie path"
+            );
+            let want_fallback: Vec<String> = case["viaForEach"]
+                .as_array()
+                .expect("a viaForEach array")
+                .iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect();
+            // THE FALLBACK ARM IS TAKEN BY PASSING NO `getSetCookie` VALUES, which is what a runtime
+            // without the method looks like to this function.
+            assert_eq!(
+                set_cookie_values(&[], &entries),
+                want_fallback,
+                "forEach fallback path"
+            );
+            cookies += 1;
+        }
+
+        assert!(
+            yes >= 5 && no >= 5 && changed >= 20 && injected >= 3 && untouched >= 1 && cookies >= 3,
+            "the fixture moved: {yes} rewritable, {no} not, {changed} changed, {injected} injected, \
+             {untouched} untouched, {cookies} cookie cases"
+        );
+    }
+
+    #[test]
+    fn the_escaped_variants_are_tried_before_the_plain_one() {
+        // THE ORDER IS THE RULE: if the plain `https://host` form ran first it would HALF-MATCH inside
+        // an escaped variant and leave `https:\/\/proxy…` behind — a URL no runtime can use.
+        let out = rewrite_body(
+            r"x https:\/\/www.gstatic.com/a.js y",
+            "https://v.saisi.online",
+            false,
+        )
+        .expect("a valid origin");
+        assert_eq!(
+            out,
+            r"x https:\/\/v.saisi.online\/api\/gform\/gstatic/a.js y"
+        );
+        assert!(!out.contains("www.gstatic.com"));
+        // AND A PROTOCOL-RELATIVE URL KEEPS ITS SHAPE — `//host` becomes `//proxyHost/api/gform/…`,
+        // not an absolute URL, because the page may be on either scheme.
+        let pr =
+            rewrite_body("a //forms.gle/x b", "https://v.saisi.online", false).expect("origin");
+        assert_eq!(pr, "a //v.saisi.online/api/gform/gle/x b");
+    }
+
+    #[test]
+    fn the_sri_neutralizer_lands_inside_head_and_the_header_quirk_is_pinned() {
+        let html = rewrite_body(
+            "<html><head><script integrity=\"sha384-x\"></script></head></html>",
+            "https://v.saisi.online",
+            true,
+        )
+        .expect("origin");
+        assert!(html.contains(
+            "<head
+<!-- SRI hashes"
+        ));
+        assert!(
+            !html.contains("integrity=\"sha384-x\""),
+            "the static attribute is stripped"
+        );
+        // THE QUIRK: `<head` is a SUBSTRING of `<header`, so a page whose first tag is `<header>`
+        // gets the script inserted inside the attribute name. It is pinned rather than fixed —
+        // changing it is a behaviour change for another round.
+        let header = rewrite_body(
+            "<html><header>x</header></html>",
+            "https://v.saisi.online",
+            true,
+        )
+        .expect("origin");
+        assert!(
+            header.starts_with(
+                "<html><head
+<!-- SRI hashes"
+            ),
+            "{header:.40}"
+        );
+        // And a page with no `<head` at all gets no script.
+        let none = rewrite_body("<p>plain</p>", "https://v.saisi.online", true).expect("origin");
+        assert!(!none.contains("SRI hashes"));
     }
 
     #[test]
