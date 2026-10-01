@@ -322,6 +322,21 @@ export function prune_session_views(views: any, live_sids: any): any;
 export function recipe_warnings(steps: any): Array<any>;
 
 /**
+ * `releaseVersion(status)` — the npm release if the device sent one, else the frozen protocol version,
+ * else nothing.
+ *
+ * `(status ?? {})` IS THE FIRST THING THAT HAPPENS, and it is why a nullish status answers `""` rather
+ * than raising. Everything else is read off a BOXED value, because `(5).release` is `undefined` in
+ * JavaScript — a primitive has no properties but is not an error either.
+ */
+export function release_version(status: any): string;
+
+/**
+ * `v1.2.354`, or `v?` when the device reported neither — never a bare "v".
+ */
+export function release_version_label(status: any): string;
+
+/**
  * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
  * an empty series.
  */
@@ -478,6 +493,8 @@ export interface InitOutput {
     readonly parse_vitals_series: (a: any) => [number, number, number];
     readonly prune_session_views: (a: any, b: any) => [number, number, number];
     readonly recipe_warnings: (a: any) => [number, number, number];
+    readonly release_version: (a: any) => [number, number];
+    readonly release_version_label: (a: any) => [number, number];
     readonly series_stats: (a: any) => [number, number, number];
     readonly session_active: (a: any, b: number) => [number, number, number];
     readonly session_failed: (a: any) => [number, number, number];
