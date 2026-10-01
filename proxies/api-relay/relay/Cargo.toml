@@ -5,10 +5,12 @@ edition = "2021"
 publish = false
 description = "The VPS relay, in Rust — the axum/hyper target of block ④'s api-relay."
 
-# THE FIRST PIECE IS `server/routing.mjs`, and the reason it is first is the module's own comment:
-# it is "pure URL routing + entry plumbing helpers", it has its own test file, and it is the last
-# logic that was still testable in `entry.mjs` before the socket plumbing. The rest of the relay
-# (the upstream fetch, the gates, the response writer) lands here as it moves.
+# THE FIRST TWO PIECES ARE `server/routing.mjs`'s — the module's own comment says why it is first: it
+# is "pure URL routing + entry plumbing helpers", it has its own test file, and it is the last logic
+# that was still testable in `entry.mjs` before the socket plumbing. All five of its exports are here
+# now (`resolveHost`, `resolveRoute`, `buildUrl`, `forwardHeaders`, `collectResponseHeaders`). The rest
+# of the relay — the three gates (`api/git`, `api/github`, `api/gform`), `api/zen`'s upstream fetch,
+# `api/proxy`'s CORS decision and the response writer — lands here as it moves.
 [lib]
 # `rlib` ONLY, for now: the crate is a library whose surface is proved by `cargo test` and by the
 # committed corpus in `fixtures/`. The `[[bin]]` arrives with the server plumbing — and the plan's

@@ -287,6 +287,163 @@ pub fn form_encode(s: &str) -> String {
     out
 }
 
+// ── THE HEADER PLUMBING (`forwardHeaders` · `collectResponseHeaders`) ─────────────────────────────
+//
+// These two decide what rides upstream and what rides back, and they are WHATWG `Headers` semantics
+// rather than a dictionary: names are LOWERCASED and validated as HTTP tokens, values are trimmed of
+// HTTP whitespace and validated, iteration is SORTED BY NAME, and multiple values COMBINE — with `; `
+// for `cookie` (the spec's own special case, so a session cookie is not torn apart by a comma) and
+// `, ` for everything else. `set-cookie` is NOT combined: it rides as one entry per value, which is
+// exactly why `collect_response_headers` puts the array back.
+
+/// The HTTP whitespace a header value is trimmed of: SP, HT, LF, CR.
+fn trim_http_whitespace(s: &str) -> &str {
+    s.trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\r'))
+}
+
+/// An HTTP token (RFC 9110): `!#$%&'*+-.^_`|~` and the alphanumerics. A name outside this set is a
+/// TypeError in the `Headers` API, and the corpus carries one.
+fn is_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(
+                    b,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+}
+
+/// A header value may not carry NUL, LF or CR — `Headers` raises, and this is the check that says so
+/// rather than writing a header that would split the request.
+///
+/// **AND IT MUST BE A BYTE STRING**: every code point at or below U+00FF. `new Headers().set("x", "中")`
+/// is a TypeError ("Cannot convert argument to a ByteString… greater than 255"), which the corpus found
+/// by carrying one — a port that accepted it would put a header on the wire that no `Headers` object
+/// would ever have produced.
+fn is_valid_value(s: &str) -> bool {
+    !s.contains('\0')
+        && !s.contains('\n')
+        && !s.contains('\r')
+        && s.chars().all(|c| (c as u32) <= 0xFF)
+}
+
+/// `forwardHeaders(rawHeaders)` — the inbound headers for the upstream Request.
+///
+/// Drops hop-by-hop noise (`host`, which is rebuilt from the upstream URL, and HTTP/2 pseudo-headers)
+/// and returns the header LIST the way `[...headers.entries()]` reads it: lowercased names, sorted,
+/// multi-values combined. The first version of this port returned a map and lost both the order and the
+/// combining, which the corpus would have caught on its first set-cookie case.
+pub fn forward_headers(raw: &Map<String, Value>) -> Result<Vec<(String, String)>, String> {
+    let mut list: Vec<(String, String)> = Vec::new();
+    for (k, v) in raw {
+        if k == "host" || k.starts_with(':') {
+            continue;
+        }
+        let values: Vec<Value> = match v {
+            Value::Array(items) => items.clone(),
+            other => vec![other.clone()],
+        };
+        let multi = matches!(v, Value::Array(_));
+        for one in values {
+            let name = k.to_lowercase();
+            if !is_token(&name) {
+                return Err(format!("invalid header name: {k:?}"));
+            }
+            let value = trim_http_whitespace(&js_text(&one)).to_string();
+            if !is_valid_value(&value) {
+                return Err(format!("invalid header value for {name:?}"));
+            }
+            if multi {
+                list.push((name, value));
+            } else {
+                // `headers.set(k, v)` REPLACES every existing entry — and since an object cannot repeat
+                // a key, that only differs from `append` when the name collides after LOWERCASING.
+                list.retain(|(n, _)| n != &name);
+                list.push((name, value));
+            }
+        }
+    }
+    Ok(combine(list))
+}
+
+/// The spec's sort-and-combine: sorted by name, one entry per name — except `set-cookie`, which rides
+/// as one entry PER VALUE — with `cookie` joined by `; ` and everything else by `, `.
+fn combine(list: Vec<(String, String)>) -> Vec<(String, String)> {
+    let mut names: Vec<String> = Vec::new();
+    for (n, _) in &list {
+        if !names.contains(n) {
+            names.push(n.clone());
+        }
+    }
+    names.sort();
+    let mut out = Vec::new();
+    for name in names {
+        let values: Vec<String> = list
+            .iter()
+            .filter(|(n, _)| n == &name)
+            .map(|(_, v)| v.clone())
+            .collect();
+        if name == "set-cookie" {
+            for v in values {
+                out.push((name.clone(), v));
+            }
+        } else {
+            let sep = if name == "cookie" { "; " } else { ", " };
+            out.push((name, values.join(sep)));
+        }
+    }
+    out
+}
+
+/// `collectResponseHeaders(response)` — the plain-object headers for the `node:http` reply.
+///
+/// `entries` is the upstream's combined list and `set_cookie` its `getSetCookie()` values: multi
+/// set-cookie values ride as an ARRAY, because gform's reCAPTCHA session needs ALL of them rather than
+/// the first.
+///
+/// **`content-length` AND `content-encoding` ARE DROPPED ON PURPOSE, AND IT IS A CORRECTNESS FIX RATHER
+/// THAN TIDINESS** (the JavaScript's own note, round 126): `fetch` TRANSPARENTLY DECOMPRESSES the body
+/// and leaves both headers exactly as the upstream sent them, so forwarding them makes the reply a lie
+/// — a length that is no longer the length and a `gzip` over bytes that are no longer compressed. It is
+/// reachable rather than theoretical, because `forward_headers` passes the CALLER's `accept-encoding`
+/// upstream.
+pub fn collect_response_headers(entries: &[(String, String)], set_cookie: &[String]) -> Value {
+    let mut out = Map::new();
+    for (k, v) in entries {
+        // `Object.fromEntries` keeps the LAST value for a repeated key, and a numeric-looking key would
+        // jump to the front of a JavaScript object — header names are neither.
+        out.insert(k.clone(), Value::String(v.clone()));
+    }
+    if !set_cookie.is_empty() {
+        out.insert(
+            "set-cookie".to_string(),
+            Value::Array(
+                set_cookie
+                    .iter()
+                    .map(|v| Value::String(v.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    out.remove("content-length");
+    out.remove("content-encoding");
+    Value::Object(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +536,124 @@ mod tests {
         assert!(
             routed >= 20,
             "the fixture moved: only {routed} routed case(s)"
+        );
+    }
+
+    /// THE HEADER PLUMBING'S CORPUS, generated the same way: `oracle.mjs headers` drove the shipping
+    /// `forwardHeaders`/`collectResponseHeaders` and this replays what they produced — including the
+    /// five inputs the `Headers` API REFUSES (an invalid token as a name, an empty name, a value with a
+    /// newline, one with a NUL) and the set-cookie cases that are the reason this is not a dictionary.
+    ///
+    /// MUTATION: change one expected value in `fixtures/headers-corpus.json`.
+    /// RESULT:   fails, naming the input and showing both lists.
+    #[test]
+    fn the_typescript_header_corpus() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/headers-corpus.json");
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        let pairs = |v: &Value| -> Vec<(String, String)> {
+            v.as_array()
+                .expect("an entries array")
+                .iter()
+                .map(|p| {
+                    (
+                        p[0].as_str().unwrap_or("").to_string(),
+                        p[1].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect()
+        };
+
+        let mut forwarded = 0usize;
+        let mut refused = 0usize;
+        for case in doc["forward_cases"]
+            .as_array()
+            .expect("a forward_cases array")
+        {
+            let headers = case["raw"].as_object().expect("a raw headers object");
+            match forward_headers(headers) {
+                Ok(list) => {
+                    assert!(
+                        case["threw"].is_null(),
+                        "forwardHeaders({headers:?}) raised in the JavaScript and not here"
+                    );
+                    assert_eq!(list, pairs(&case["entries"]), "forwardHeaders({headers:?})");
+                    forwarded += 1;
+                }
+                Err(message) => {
+                    assert!(
+                        case["threw"].is_string(),
+                        "forwardHeaders({headers:?}) raised here ({message}) and not in the JavaScript"
+                    );
+                    refused += 1;
+                }
+            }
+        }
+
+        let mut responses = 0usize;
+        for case in doc["response_cases"]
+            .as_array()
+            .expect("a response_cases array")
+        {
+            let entries = pairs(&case["entries"]);
+            let set_cookie: Vec<String> = case["setCookie"]
+                .as_array()
+                .expect("a setCookie array")
+                .iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect();
+            let got = collect_response_headers(&entries, &set_cookie);
+            let want = &case["out"];
+            assert_eq!(&got, want, "collectResponseHeaders({entries:?})");
+            // KEY ORDER TOO, because a plain object's order is observable and `Object.fromEntries`
+            // decides it.
+            let keys = |v: &Value| -> Vec<String> {
+                v.as_object()
+                    .expect("an object")
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(keys(&got), keys(want), "key order for {entries:?}");
+            responses += 1;
+        }
+
+        assert!(
+            forwarded >= 10 && refused >= 3 && responses >= 5,
+            "the fixture moved: {forwarded} forwarded, {refused} refused, {responses} responses"
+        );
+    }
+
+    #[test]
+    fn the_two_headers_that_would_make_the_reply_a_lie_are_dropped() {
+        // The JavaScript's own note, round 126: `fetch` decompresses the body and leaves both headers as
+        // the upstream sent them. This is the rule that stops the relay forwarding them.
+        let entries = vec![
+            ("content-length".to_string(), "45".to_string()),
+            ("content-encoding".to_string(), "gzip".to_string()),
+            ("content-type".to_string(), "application/json".to_string()),
+        ];
+        let out = collect_response_headers(&entries, &[]);
+        let obj = out.as_object().expect("an object");
+        assert!(!obj.contains_key("content-length"));
+        assert!(!obj.contains_key("content-encoding"));
+        assert_eq!(obj["content-type"], json!("application/json"));
+    }
+
+    #[test]
+    fn a_cookie_is_joined_with_a_semicolon_and_anything_else_with_a_comma() {
+        // The spec's own special case, and the node suite's assertion: `a=1; b=2`, not `a=1, b=2`.
+        let mut raw = Map::new();
+        raw.insert("cookie".to_string(), json!(["a=1", "b=2"]));
+        raw.insert("x-multi".to_string(), json!(["1", "2"]));
+        let list = forward_headers(&raw).expect("valid");
+        assert_eq!(
+            list,
+            vec![
+                ("cookie".to_string(), "a=1; b=2".to_string()),
+                ("x-multi".to_string(), "1, 2".to_string()),
+            ]
         );
     }
 
