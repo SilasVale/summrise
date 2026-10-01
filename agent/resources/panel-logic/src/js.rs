@@ -166,3 +166,47 @@ pub fn require_present(v: &JsValue, what: &str) -> Result<(), JsValue> {
     }
     Ok(())
 }
+
+/// `Object(v)` — ToObject. Identity for an object, a WRAPPER for a primitive, and the receiver
+/// JavaScript's property access and method calls both use.
+///
+/// **THIS RULE HAS NOW BEEN PAID FOR FOUR TIMES IN THIS REPOSITORY** (`update_control` in the console's
+/// crate, `update.rs`, `recipe.rs`, and the console's `mask_token`): `Reflect::get` RAISES on a
+/// primitive where the language boxes it, and every one of those four was a silent wrong answer
+/// because the failure was swallowed by a fallback. It lives here now, where a family that needs it
+/// finds it instead of writing a fifth copy.
+pub fn boxed(v: &JsValue) -> JsValue {
+    match type_of(v).as_str() {
+        "object" | "function" => v.clone(),
+        _ => Reflect::get(&js_sys::global(), &JsValue::from_str("Object"))
+            .ok()
+            .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+            .unwrap_or(JsValue::UNDEFINED),
+    }
+}
+
+/// `receiver[name](args…)` — a method called on a BOXED receiver, raising where the method is absent,
+/// which is what the TypeScript does (`(5).slice` is a TypeError).
+pub fn call_method(receiver: &JsValue, name: &str, args: &[JsValue]) -> Result<JsValue, JsValue> {
+    let boxed_receiver = boxed(receiver);
+    let f = Reflect::get(&boxed_receiver, &JsValue::from_str(name))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .ok_or_else(|| JsValue::from_str(&format!("{name} is not a function")))?;
+    let list = Array::new();
+    for a in args {
+        list.push(a);
+    }
+    f.apply(&boxed_receiver, &list)
+}
+
+/// `Math.max(a, b)` for two numbers — `NaN` if either is, where `f64::max` answers the other one.
+/// (`Math.floor` needs no helper: `f64::floor` IS it, including `-0` and the infinities.)
+pub fn js_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        a.max(b)
+    }
+}
