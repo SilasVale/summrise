@@ -62,7 +62,7 @@ const ALLOWED: [&str; 2] = ["lib/path.ts", "lib/contract.gen.ts"];
 /// they are four different vocabularies that happen to use the same words, plus the input side of the
 /// derivation itself. That is the distinction the gate exists to make somebody write down, which is
 /// why this is a list of reasons rather than a wider pattern.
-const SHARED_WORDS: [(&str, &str); 6] = [
+const SHARED_WORDS: [(&str, &str); 7] = [
     ("components/EvidenceDrawer.tsx", "action verdicts (ok/timeout/err) — a browser action's state, not a command ending"),
     ("components/UpdateCard.tsx", "the update card's own phase machine"),
     ("lib/evicted.ts", "an eviction cause (idle/cap) — why a session was dropped"),
@@ -72,6 +72,7 @@ const SHARED_WORDS: [(&str, &str); 6] = [
     // becomes a reason now, and `evicted.rs` is where the cause is read — so they are listed rather
     // than silently exempted, which is the distinction this list exists to make somebody write down.
     ("events.rs", "UPSTREAM of the derivation — the Rust half of hooks/useCommandEvents.ts"),
+    ("actions.rs", "action verdicts (ok/timeout/nocode/fail) — the Rust half of lib/browserAction.ts, whose \"timeout\" is a browser action's state and not a command ending"),
     ("evicted.rs", "an eviction cause (idle/cap) — the Rust half of lib/evicted.ts"),
 ];
 

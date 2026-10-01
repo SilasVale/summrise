@@ -1,6 +1,19 @@
 /* @ts-self-types="./panel_logic.d.ts" */
 
 /**
+ * `actionVerdict(a)` — the badge's word and the device's own sentence, or nothing.
+ * @param {any} action
+ * @returns {any}
+ */
+export function action_verdict(action) {
+    const ret = wasm.action_verdict(action);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * True when the response proves more history exists past what we rendered.
  * @param {any} resp
  * @param {any} rendered

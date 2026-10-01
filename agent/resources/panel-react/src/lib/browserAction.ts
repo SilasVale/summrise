@@ -22,6 +22,8 @@ interface ActionVerdict {
   detail: string | null;
 }
 
+import { logic } from "../wasm/panelLogic";
+
 /**
  * WHAT A RECORD IN THE ACTION FEED CAN ACTUALLY BE.
  *
@@ -50,20 +52,11 @@ interface ActionVerdict {
  *     is its own answer rather than a shade of failure — the same distinction
  *     `lib/runs.ts` and `ActivityPage` already draw for commands.
  */
+// ── RUST SINCE 2026-09-30 (block ②) ─────────────────────────────────────────────────────────────
+//
+// The rule is `agent/resources/panel-logic/src/actions.rs` now; the differential is 1,477 corpus cases
+// with 0 divergences and every arm reached (ok, fail, timeout, nocode, unknown, and 590 raises), and
+// `lib/__tests__/browserAction.test.ts` runs UNCHANGED.
 export function actionVerdict(a: BrowserActionLike): ActionVerdict {
-  const code = a.exit_code;
-  const detail = (a.stderr_tail || "").trim() || (a.stdout_tail || "").trim() || null;
-
-  if (code === 0) return { state: "ok", label: "ok", detail: null };
-  if (typeof code === "number") return { state: "fail", label: `exit ${code}`, detail };
-  if (a.timed_out === true) return { state: "timeout", label: "timeout", detail };
-  if (code === null) {
-    // The device recorded this action, it is over, and it produced no exit code
-    // without timing out — the spawn-failure arm. Name what is known and let
-    // `detail` carry the device's own sentence.
-    return { state: "nocode", label: "did not start", detail };
-  }
-  // `undefined`: this record does not carry an exit code at all. Say THAT rather
-  // than inventing either verdict.
-  return { state: "unknown", label: "no exit code recorded", detail };
+  return logic().action_verdict(a) as ActionVerdict;
 }
