@@ -202,15 +202,17 @@ export function useAttentionNotifications(
   }, [permission, enabled]);
 }
 
-/** `2m 15s` / `45s` / `1h 04m` — the same shapes the rest of the panel uses for durations. */
+// ── RUST SINCE 2026-09-30 (block ②), AND IT IS THE PANEL'S LAST PIECE OF LOGIC ──────────────────
+//
+// `humanMs` is `agent/resources/panel-logic/src/attention.rs` now — the module that already holds this
+// family's badge and title rules. The differential is 38 corpus cases with 0 divergences and every arm
+// reached (seconds, `2m 15s`, whole minutes, hours), and `lib/attention.test.tsx` runs UNCHANGED.
+//
+// **AND IT IS NOT `humanIdle`, DELIBERATELY**: that one jumps from `45s` to `4m` and never spells
+// `2m 15s`, because a silence's seconds are noise once the minutes are known — while "back up after
+// 2m 15s" is a measurement of an outage. Two shapes, two surfaces.
+import { logic } from "../wasm/panelLogic";
+
 export function humanMs(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) {
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return r === 0 ? `${m}m` : `${m}m ${r}s`;
-  }
-  const h = Math.floor(s / 3600);
-  return `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  return logic().human_ms(ms) as string;
 }

@@ -34,6 +34,8 @@
 use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
+use crate::js::{js_max, js_round, number_text, pad_start_2, to_number};
+
 
 /// A plain byte-window scan, and NOT `str::find`/`rfind`.
 ///
@@ -167,4 +169,46 @@ pub fn badge_icon(count: f64, urgent: bool, base_href: JsValue) -> String {
         out.push(c);
     }
     out
+}
+
+
+// ── `hooks/useAttention.ts`'s `humanMs` — THE LAST PIECE OF THE PANEL'S LOGIC TO MOVE ───────────
+//
+// `2m 15s` / `45s` / `1h 04m`, "the same shapes the rest of the panel uses for durations". It lives in
+// a hooks file because that is where the notices that use it are: `useAttention` renders
+// `back up after 2m 15s down` and `DOWN — it had been up 1h 04m`.
+//
+// **AND IT IS NOT `humanIdle`, DELIBERATELY.** `idle.rs`'s formatter takes the SECONDS branch under a
+// minute and then jumps to `4m` — it never spells `2m 15s`, because a silence's seconds are noise once
+// the minutes are known. This one KEEPS the seconds up to the hour, because "back up after 2m 15s" is a
+// measurement of an outage rather than a statement of how long something has been quiet. Two shapes, two
+// surfaces, and `duration.ts`'s header records the sweep that found the copies which had drifted.
+
+/// `humanMs(ms)`.
+///
+/// `Math.max(0, Math.round(ms / 1000))` — the coercion, `Math.round`'s half-toward-+INFINITY (which is
+/// not `f64::round`), and `Math.max`'s NaN propagation, in that order.
+#[wasm_bindgen]
+pub fn human_ms(ms: JsValue) -> String {
+    let s = js_max(0.0, js_round(to_number(&ms) / 1000.0));
+    if s < 60.0 {
+        return format!("{}s", number_text(s));
+    }
+    if s < 3600.0 {
+        let m = (s / 60.0).floor();
+        let r = s % 60.0;
+        // `r === 0` — a STRICT comparison against zero, so a whole number of minutes drops the seconds
+        // and anything else keeps them.
+        return if r == 0.0 {
+            format!("{}m", number_text(m))
+        } else {
+            format!("{}m {}s", number_text(m), number_text(r))
+        };
+    }
+    let h = (s / 3600.0).floor();
+    format!(
+        "{}h {}m",
+        number_text(h),
+        pad_start_2(&number_text(((s % 3600.0) / 60.0).floor()))
+    )
 }

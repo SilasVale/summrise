@@ -260,3 +260,22 @@ pub fn read(v: &JsValue, key: &str) -> Result<JsValue, JsValue> {
     }
     Ok(prop(v, key))
 }
+
+/// `Math.round(x)` — half toward +INFINITY, which is NOT `f64::round` (half away from zero). `NaN`, the
+/// infinities and a signed zero pass through unchanged, because that is what the engine answers.
+pub fn js_round(x: f64) -> f64 {
+    if x.is_nan() || x.is_infinite() || x == 0.0 {
+        return x;
+    }
+    (x + 0.5).floor()
+}
+
+/// `String(v).padStart(2, "0")` — a zero in front of a ONE-UNIT string. `"-5"` is already two units and
+/// is left alone, which is what `padStart` does with it.
+pub fn pad_start_2(s: &str) -> String {
+    if s.encode_utf16().count() < 2 {
+        format!("0{s}")
+    } else {
+        s.to_string()
+    }
+}
