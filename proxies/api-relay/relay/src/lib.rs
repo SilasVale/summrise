@@ -832,6 +832,209 @@ pub fn redirect_target(location: &str, current: &str) -> Option<String> {
     }
 }
 
+// ── THE `api/zen` GATE: the path guard and the upstream request plan ────────────────────────────
+//
+// FIVE UPSTREAMS BEHIND ONE ROUTE, chosen by `?target=`, and the request half is where the rules are:
+// the caller's key is required (BYOK, default-closed), an ABSENT target is `og` while an UNLISTED one
+// is refused, and `og` authenticates by PATH — one credential scheme, chosen per endpoint.
+
+/// `TARGETS` — the five upstreams, and each one's host is pinned by the JavaScript suite.
+const TARGETS: [(&str, &str); 5] = [
+    ("og", "https://opencode.ai/zen/go"),
+    ("ds", "https://api.deepseek.com"),
+    ("qw", "https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+    ("or", "https://openrouter.ai/api"),
+    ("cm", "https://api.commandcode.ai/provider"),
+];
+
+const ZEN_SAFE: [&str; 6] = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "anthropic-version",
+    "content-type",
+    "user-agent",
+];
+
+/// The conversation-id spellings a caller may send on an `og` request, in the order they are tried.
+/// `x-opencode-session` is what zen/go expects; the others are what the gateway and DSH send.
+const SESSION_SOURCE_HEADERS: [&str; 4] = [
+    "x-opencode-session",
+    "x-client-request-id",
+    "session_id",
+    "x-session-id",
+];
+
+/// `normalizeUpstreamPath(p)` — the traversal guard, and it is NOT the same rule as the other two
+/// handlers':
+///
+///   * it decodes FIRST and returns the DECODED path, so `%2e%2e` is caught and the upstream receives
+///     the plain form;
+///   * a `\\` is refused because a WHATWG URL parser treats `\` as `/` for `https:`, so `\\host`
+///     escapes the origin;
+///   * an absolute URI or a scheme is refused — but a PROTOCOL-RELATIVE `//host` is NOT, because this
+///     handler CONCATENATES (`base + path`) rather than resolving, so `//host` stays on the same
+///     upstream and cannot move the origin;
+///   * `..` must be a whole SEGMENT (`decoded.split("/").includes("..")`), where the git and github
+///     guards refuse the substring.
+pub fn normalize_upstream_path(p: &str) -> Option<String> {
+    let decoded = decode_uri_component(p).ok()?;
+    if !decoded.starts_with('/') {
+        return None;
+    }
+    if decoded.contains('\\') {
+        return None;
+    }
+    if decoded.contains("://") {
+        return None;
+    }
+    // `/^[a-zA-Z][a-zA-Z0-9+.-]*:/` over `decoded.slice(1)` — a SCHEME in the tail, which is what
+    // makes `/https:/evil.example` a refusal while `//evil.example` is not.
+    if has_scheme_prefix(&decoded[1..]) {
+        return None;
+    }
+    if decoded.contains('\0') || decoded.contains('\r') || decoded.contains('\n') {
+        return None;
+    }
+    if decoded.split('/').any(|seg| seg == "..") {
+        return None;
+    }
+    Some(decoded)
+}
+
+fn has_scheme_prefix(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    for c in chars {
+        if c == ':' {
+            return true;
+        }
+        if !(c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-')) {
+            return false;
+        }
+    }
+    false
+}
+
+/// What the zen handler decided to do with a request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ZenPlan {
+    /// `OPTIONS` short-circuits before the caller gate, like the other two handlers.
+    Preflight,
+    Refused {
+        status: u16,
+        error: String,
+    },
+    Send {
+        url: String,
+        headers: Vec<(String, String)>,
+        send_body: bool,
+    },
+}
+
+/// The request half of `handler(request)`.
+///
+/// THE TARGET CONTRACT, BOTH HALVES STATED (round 135): an ABSENT target is `og` — a documented
+/// DEFAULT, not a fallback for something the caller asked for — while an UNLISTED target is refused,
+/// because the caller's key would otherwise ride an upstream nobody vetted. The lookup is
+/// `Object.hasOwn`, so `?target=constructor` is refused rather than finding `Object`'s constructor.
+pub fn zen_upstream_plan(method: &str, request_url: &str, headers: &Map<String, Value>) -> ZenPlan {
+    if method == "OPTIONS" {
+        return ZenPlan::Preflight;
+    }
+    let get = |name: &str| -> Option<String> {
+        headers
+            .iter()
+            .find(|(k, _)| k.to_lowercase() == name)
+            .map(|(_, v)| js_text(v))
+    };
+    // `(x-api-key || authorization || "").trim()`, then a leading `bearer ` is stripped ONCE —
+    // otherwise the reuse below sends `Bearer Bearer sk-…`.
+    let raw_key = get("x-api-key")
+        .filter(|v| !v.is_empty())
+        .or_else(|| get("authorization").filter(|v| !v.is_empty()))
+        .unwrap_or_default();
+    let mut caller_key = raw_key.trim().to_string();
+    if caller_key.to_lowercase().starts_with("bearer ") {
+        caller_key = caller_key[7..].trim().to_string();
+    }
+    if caller_key.is_empty() {
+        return ZenPlan::Refused {
+            status: 401,
+            error: "caller key required (x-api-key or Authorization)".to_string(),
+        };
+    }
+    let query = url::Url::parse(request_url).ok();
+    let param = |name: &str| -> Option<String> {
+        query
+            .as_ref()
+            .and_then(|u| {
+                u.query_pairs()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v.to_string())
+            })
+            .filter(|v| !v.is_empty())
+    };
+    // `url.searchParams.get("target") || "og"` — an EMPTY target is the default too.
+    let target = param("target").unwrap_or_else(|| "og".to_string());
+    let Some((_, base)) = TARGETS.iter().find(|(name, _)| *name == target) else {
+        return ZenPlan::Refused {
+            status: 400,
+            error: format!("unknown target: {target}"),
+        };
+    };
+    let raw_path = param("path").unwrap_or_else(|| "/v1/messages".to_string());
+    let Some(path) = normalize_upstream_path(&raw_path) else {
+        return ZenPlan::Refused {
+            status: 400,
+            error: "invalid path".to_string(),
+        };
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in ZEN_SAFE {
+        if let Some(v) = get(name) {
+            if !v.is_empty() {
+                out.push((name.to_string(), v));
+            }
+        }
+    }
+    if target == "og" {
+        // EXACTLY ONE CREDENTIAL SCHEME, CHOSEN BY PATH: zen's two AI endpoints authenticate
+        // differently — `/v1/messages` takes `x-api-key`, while `chat/completions` and the
+        // OpenAI-format `/v1/responses` take `Authorization: Bearer`. Sending both leaked the key in
+        // the scheme the endpoint does not use. Every other path keeps zen's native `x-api-key`.
+        if path.contains("chat/completions") || path.contains("/v1/responses") {
+            out.push(("authorization".to_string(), format!("Bearer {caller_key}")));
+        } else {
+            out.push(("x-api-key".to_string(), caller_key.clone()));
+        }
+        // THE SESSION HEADER IS og-ONLY, and the FIRST spelling that has a value wins.
+        for name in SESSION_SOURCE_HEADERS {
+            if let Some(v) = get(name) {
+                if !v.is_empty() {
+                    out.push(("x-opencode-session".to_string(), v.trim().to_string()));
+                    break;
+                }
+            }
+        }
+    } else {
+        out.push(("authorization".to_string(), format!("Bearer {caller_key}")));
+    }
+    if !out.iter().any(|(k, _)| k == "anthropic-version") {
+        out.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+    }
+    out.retain(|(k, _)| k != "content-type");
+    out.push(("content-type".to_string(), "application/json".to_string()));
+    ZenPlan::Send {
+        url: format!("{base}{path}"),
+        headers: combine(out),
+        send_body: matches!(method, "POST" | "PUT" | "PATCH"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1338,6 +1541,175 @@ mod tests {
             "the fixture moved: {routed} routed, {unrouted} unrouted, {composed} composed, {refused} refused, \
              {followed} followed, {none} none, {header_cases} header cases"
         );
+    }
+
+    /// THE `api/zen` GATE'S CORPUS — 220 request cases and 32 path cases, generated by
+    /// `oracle.mjs zen` driving the shipping handler with a STUBBED `fetch`.
+    ///
+    /// MUTATION: change one expected header or one refusal body in `fixtures/zen-corpus.json`.
+    /// RESULT:   fails, naming the method, the target and the request URL.
+    #[test]
+    fn the_typescript_zen_corpus() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/zen-corpus.json");
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        let mut valid = 0usize;
+        let mut refused_path = 0usize;
+        for case in doc["path_cases"].as_array().expect("a path_cases array") {
+            let value = case["value"].as_str().expect("a path");
+            let want = case["out"].as_str().map(|s| s.to_string());
+            assert_eq!(
+                normalize_upstream_path(value),
+                want,
+                "normalizeUpstreamPath({value:?})"
+            );
+            if want.is_some() {
+                valid += 1;
+            } else {
+                refused_path += 1;
+            }
+        }
+
+        let mut preflights = 0usize;
+        let mut refused = 0usize;
+        let mut sent = 0usize;
+        for case in doc["zen_cases"].as_array().expect("a zen_cases array") {
+            assert!(
+                case["threw"].is_null(),
+                "the fixture carries a throw this test cannot read: {case}"
+            );
+            let method = case["method"].as_str().expect("a method");
+            let url = case["requestUrl"].as_str().expect("a request URL");
+            let headers = case["headers"].as_object().expect("a headers object");
+            match zen_upstream_plan(method, url, headers) {
+                ZenPlan::Preflight => {
+                    assert_eq!(method, "OPTIONS", "only OPTIONS short-circuits");
+                    assert_eq!(
+                        case["status"].as_u64(),
+                        Some(200),
+                        "preflight status for {url}"
+                    );
+                    assert!(
+                        case["upstream"].is_null(),
+                        "the preflight never dials: {url}"
+                    );
+                    preflights += 1;
+                }
+                ZenPlan::Refused { status, error } => {
+                    assert_eq!(
+                        Some(status as u64),
+                        case["status"].as_u64(),
+                        "status for {method} {url}"
+                    );
+                    assert!(
+                        case["upstream"].is_null(),
+                        "a refusal never dials: {method} {url}"
+                    );
+                    // THE BODY REACHES THE CALLER, so its text is compared rather than its shape.
+                    let body = case["body"].as_str().expect("a refusal body");
+                    assert_eq!(
+                        body,
+                        format!("{{\"error\":{}}}", serde_json::to_string(&error).unwrap()),
+                        "refusal body for {method} {url}"
+                    );
+                    refused += 1;
+                }
+                ZenPlan::Send {
+                    url: got_url,
+                    headers: got_headers,
+                    send_body,
+                } => {
+                    assert_eq!(
+                        Some(got_url.as_str()),
+                        case["upstreamUrl"].as_str(),
+                        "upstream URL for {method} {url}"
+                    );
+                    let want: Vec<(String, String)> = case["upstream"]
+                        .as_array()
+                        .expect("an upstream array")
+                        .iter()
+                        .map(|p| {
+                            (
+                                p[0].as_str().unwrap_or("").to_string(),
+                                p[1].as_str().unwrap_or("").to_string(),
+                            )
+                        })
+                        .collect();
+                    assert_eq!(got_headers, want, "upstream headers for {method} {url}");
+                    assert_eq!(
+                        send_body,
+                        case["sendBody"].as_bool().unwrap_or(false),
+                        "sendBody for {method}"
+                    );
+                    sent += 1;
+                }
+            }
+        }
+        assert!(
+            valid >= 10 && refused_path >= 8 && preflights >= 10 && refused >= 50 && sent >= 50,
+            "the fixture moved: {valid} valid, {refused_path} refused paths, {preflights} preflights, \
+             {refused} refused, {sent} sent"
+        );
+    }
+
+    #[test]
+    fn one_credential_scheme_per_zen_endpoint() {
+        // THE SPLIT THE HANDLER EXISTS TO KEEP: `/v1/messages` takes `x-api-key`, `chat/completions`
+        // and the OpenAI-format `/v1/responses` take `Authorization: Bearer`, and sending BOTH leaked
+        // the key in the scheme the endpoint does not use.
+        let plan = |path: &str| {
+            let mut headers = Map::new();
+            headers.insert("x-api-key".to_string(), json!("sk-zen"));
+            let url = format!("https://r.example/api/zen?target=og&path={path}");
+            match zen_upstream_plan("POST", &url, &headers) {
+                ZenPlan::Send { headers, .. } => headers,
+                other => panic!("expected a send for {path}: {other:?}"),
+            }
+        };
+        let names = |h: &[(String, String)]| h.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>();
+        assert!(names(&plan("/v1/messages")).contains(&"x-api-key".to_string()));
+        assert!(!names(&plan("/v1/messages")).contains(&"authorization".to_string()));
+        assert!(names(&plan("/v1/chat/completions")).contains(&"authorization".to_string()));
+        assert!(!names(&plan("/v1/chat/completions")).contains(&"x-api-key".to_string()));
+        assert!(names(&plan("/v1/responses")).contains(&"authorization".to_string()));
+        // A non-AI path keeps zen's native scheme.
+        assert!(names(&plan("/v1/models")).contains(&"x-api-key".to_string()));
+    }
+
+    #[test]
+    fn the_target_contract_has_two_halves() {
+        // AN ABSENT TARGET IS og — a documented DEFAULT — while an UNLISTED one is refused, and the
+        // lookup is `Object.hasOwn`, so a prototype key is refused rather than found.
+        let plan = |query: &str| {
+            let mut headers = Map::new();
+            headers.insert("x-api-key".to_string(), json!("sk-zen"));
+            zen_upstream_plan(
+                "POST",
+                &format!("https://r.example/api/zen?{query}"),
+                &headers,
+            )
+        };
+        let url_of = |p: ZenPlan| match p {
+            ZenPlan::Send { url, .. } => url,
+            other => panic!("expected a send: {other:?}"),
+        };
+        assert!(url_of(plan("path=%2Fv1%2Fmessages")).starts_with("https://opencode.ai/zen/go"));
+        assert!(
+            url_of(plan("target=&path=%2Fv1%2Fmessages")).starts_with("https://opencode.ai/zen/go")
+        );
+        assert!(
+            url_of(plan("target=ds&path=%2Fv1%2Fmessages")).starts_with("https://api.deepseek.com")
+        );
+        for bad in ["target=nope", "target=constructor", "target=toString"] {
+            match plan(&format!("{bad}&path=%2Fv1%2Fmessages")) {
+                ZenPlan::Refused { status, error } => {
+                    assert_eq!(status, 400);
+                    assert!(error.starts_with("unknown target: "), "{error}");
+                }
+                other => panic!("expected a refusal for {bad}: {other:?}"),
+            }
+        }
     }
 
     #[test]
