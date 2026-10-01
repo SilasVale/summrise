@@ -94,6 +94,26 @@ export function badge_icon(count, urgent, base_href) {
 }
 
 /**
+ * Render the recipe body.
+ *
+ * The shape is deliberate: a machine-readable marker line, the outcome summary (so a recipe that
+ * half-failed is honest about it rather than presenting itself as a known-good procedure), then the
+ * commands one per line in order.
+ * @param {any} path
+ * @param {any} input
+ * @param {any} marker
+ * @param {any} tag
+ * @returns {object}
+ */
+export function build_recipe(path, input, marker, tag) {
+    const ret = wasm.build_recipe(path, input, marker, tag);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `cardState(card)` — the same derivation, over the command card's own fields. It is a separate
  * export because two callers hold a card and not the three arguments, and folding it into one means
  * every call site builds an object to pass three values.
@@ -467,6 +487,20 @@ export function parse_vitals_series(j) {
 }
 
 /**
+ * Steps that make a recipe questionable — surfaced in the save form so the operator is not silently
+ * saving a broken procedure as a good one.
+ * @param {any} steps
+ * @returns {Array<any>}
+ */
+export function recipe_warnings(steps) {
+    const ret = wasm.recipe_warnings(steps);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
  * an empty series.
  * @param {any} values
@@ -633,6 +667,20 @@ export function strip_ansi(input) {
 }
 
 /**
+ * Title shown in the save form, derived from the path so the operator usually only has to confirm
+ * it. Uses the FIRST command (what the run was about) and the step count.
+ * @param {any} path
+ * @returns {any}
+ */
+export function suggested_title(path) {
+    const ret = wasm.suggested_title(path);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
  *
  * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
@@ -731,6 +779,10 @@ function __wbg_get_imports() {
             const ret = typeof arg0;
             return ret;
         },
+        __wbg_apply_a910804df6e1e433: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.apply(arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_call_187d372bd5fdd4aa: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.call(arg1, arg2);
             return ret;
@@ -749,6 +801,10 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_get_464ae6d03ecb8ac7: function(arg0, arg1) {
             const ret = arg0.get(arg1);
+            return ret;
+        },
+        __wbg_get_6c896e0571ddae51: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
             return ret;
         },
         __wbg_get_unchecked_288889d017702237: function(arg0, arg1) {
