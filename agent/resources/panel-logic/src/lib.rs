@@ -39,6 +39,7 @@ mod adopt;
 mod agent_vitals;
 mod archive;
 mod attention;
+
 mod boot;
 mod boot_notice;
 mod events;
@@ -67,7 +68,7 @@ pub use actions::action_verdict;
 pub use adopt::{adopt_needs_another_page, adopt_page_exceeded, split_write_slices};
 pub use agent_vitals::parse_last_boot;
 pub use archive::archive_entries;
-pub use attention::{badge_icon, title_for};
+pub use attention::{badge_icon, human_ms, title_for};
 pub use boot::parse_boot_history;
 pub use boot_notice::{boot_kind_label, boot_notice, is_crash};
 pub use events::{group_events, group_rounds, strip_ansi, terminal_status};
