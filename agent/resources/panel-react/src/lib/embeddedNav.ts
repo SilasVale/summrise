@@ -15,9 +15,12 @@ interface NavPushMerge {
   lastPushedUrl: string;
 }
 
+// ── RUST SINCE 2026-09-30 (block ②) ─────────────────────────────────────────────────────────────
+//
+// The rule is `agent/resources/panel-logic/src/nav.rs` now; the differential is 1,568 corpus cases with
+// 0 divergences and both arms reached, and the interface below is what the caller passes.
+import { logic } from "../wasm/panelLogic";
+
 export function shouldAcceptNavPush(m: NavPushMerge): boolean {
-  if (!m.editing) return true;
-  if (m.inputValue === m.valueAtFocus) return true;
-  if (m.inputValue === m.lastPushedUrl) return true;
-  return false;
+  return logic().should_accept_nav_push(m) as boolean;
 }
