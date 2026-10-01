@@ -57,7 +57,10 @@ const RESPONSE_HEADERS = [
 // handlers compile to standalone modules (the bundle is flat), so one cannot import another —
 // and a guard that exists in three places is exactly how this codebase loses a check on one of
 // them. The parity test is what makes "three copies" safe here.
-function upstreamUrl(base: string, path: string): { url?: URL; error?: string } {
+// Exported for direct pins (block ④, 2026-09-30 — additive, handler untouched, the same
+// arrangement the three pins above use): the ORIGIN GUARD is the round-120 live-defect fix, and the
+// Rust port of it is proved against this function rather than against a re-implementation.
+export function upstreamUrl(base: string, path: string): { url?: URL; error?: string } {
   let url: URL;
   try {
     url = new URL(path, base);
@@ -124,7 +127,7 @@ export function parseRoute(value: string | null): Route | null {
   return base && safePath(path) ? { base, path } : null;
 }
 
-function copyRequestHeaders(request: Request): Headers {
+export function copyRequestHeaders(request: Request): Headers {
   const headers = new Headers();
   for (const name of REQUEST_HEADERS) {
     const value = request.headers.get(name);
@@ -133,7 +136,7 @@ function copyRequestHeaders(request: Request): Headers {
   return headers;
 }
 
-function copyResponseHeaders(response: Response): Headers {
+export function copyResponseHeaders(response: Response): Headers {
   const headers = new Headers();
   for (const name of RESPONSE_HEADERS) {
     const value = response.headers.get(name);
