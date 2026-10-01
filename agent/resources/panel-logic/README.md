@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **181,271 raw / 83,876 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **54,352 raw / 14,629 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **182,050 raw / 84,216 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **54,914 raw / 14,746 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -49,6 +49,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `actions.rs` (1 function: what a browser-action record actually is) | **82,003** (+511) | **13,621** (+44) | **278,045** (**−117**) |
 | `trail.rs` + `notify.rs` (3 functions: the empty-trail wording, the permission state, its hint) | **82,883** (+880) | **14,195** (+574) | **277,826** (**−219**) |
 | `guide.rs` + `lag.rs` + `nav.rs` (3 functions: the guide flag, the lag-marker prune, the address-bar merge) | **83,876** (+993) | **14,629** (+434) | **277,944** (**+118**) |
+| `attention.rs`'s `human_ms` (the duration shape the notices use) — **THE PANEL'S LAST PIECE OF LOGIC** | **84,216** (+340) | **14,746** (+117) | **277,897** (**−47**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -122,6 +123,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `guide.rs` | `lib/gettingStarted.ts`'s `shouldShowGuide` (the version stays in TypeScript and is passed in; the storage KEY is the boundary) | 1 |
 | `lag.rs` | `lib/lagMarkers.ts`'s `pruneLagMarkers` — the DECISION only: the crate answers which keys go, the caller owns the map and does the deleting | 1 |
 | `nav.rs` | `lib/embeddedNav.ts`'s `shouldAcceptNavPush` | 1 |
+| `attention.rs` | `hooks/useAttention.ts`'s `humanMs`, beside the family's `badge_icon`/`title_for` that were already there — **and with it the panel's LOGIC list is COMPLETE**: every remaining file under `lib/` and `hooks/` is a named BOUNDARY (localStorage, the DOM, the clipboard, the download path, the native bridge, the canvas, the SSE transport) | 1 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
