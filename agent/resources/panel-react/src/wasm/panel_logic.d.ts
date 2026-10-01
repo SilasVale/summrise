@@ -2,6 +2,11 @@
 /* eslint-disable */
 
 /**
+ * `actionVerdict(a)` — the badge's word and the device's own sentence, or nothing.
+ */
+export function action_verdict(action: any): any;
+
+/**
  * True when the response proves more history exists past what we rendered.
  */
 export function adopt_needs_another_page(resp: any, rendered: any, advanced: any): boolean;
@@ -481,6 +486,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly action_verdict: (a: any) => [number, number, number];
     readonly adopt_needs_another_page: (a: any, b: any, c: any) => number;
     readonly adopt_page_exceeded: (a: any, b: any) => number;
     readonly any_command_running: (a: any) => [number, number, number];
