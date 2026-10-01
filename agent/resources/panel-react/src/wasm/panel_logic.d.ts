@@ -228,6 +228,30 @@ export function liveness_of(input: any): string;
 export function load_notice(samples: any, now_ms: any, window_ms: any, min_samples: any): any;
 
 /**
+ * The class list for a monitor mark. `flapping` wins over `up`: a target that is up now but has been
+ * dropping is the thing the chip exists to say.
+ *
+ * `["monitor-mark", modifier, extra].filter(Boolean).join(" ")` — TRUTHINESS drops a falsy `extra`
+ * (an empty string, `null`, `0`), and the join goes through the ENGINE because an `extra` can carry
+ * anything a wire string can, a lone surrogate included.
+ */
+export function monitor_mark_class(state: any, extra: any): any;
+
+/**
+ * THE MODIFIER ALONE — the same state, for the elements that carry the family's vocabulary without
+ * being the mark itself.
+ *
+ * `MonitorAlerts` renders `<div className={"monitor-alert " + …}>` around a `<span className=
+ * "monitor-mark …">`, and both describe ONE fact: this alert is up or down. Round 126 gave the mark
+ * the derivation and left the container spelling the words by hand — the gate this module is guarded
+ * by found it on its next run, which is what it is for.
+ *
+ * THE COMPARISON IS STRICT, and anything that is not `"up"` or `"down"` is `is-flapping` — which is
+ * what the TypeScript's chained ternary does with a value that is neither.
+ */
+export function monitor_modifier(state: any): string;
+
+/**
  * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
  * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
  * bucket last and separate".
@@ -482,6 +506,8 @@ export interface InitOutput {
     readonly is_crash: (a: any) => number;
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly load_notice: (a: any, b: any, c: any, d: any) => [number, number, number];
+    readonly monitor_mark_class: (a: any, b: any) => [number, number, number];
+    readonly monitor_modifier: (a: any) => [number, number];
     readonly operation_rows: (a: any) => [number, number, number];
     readonly parse_attempt: (a: any) => any;
     readonly parse_boot_history: (a: any) => [number, number, number];

@@ -62,19 +62,30 @@ const ALLOWED: [&str; 2] = ["lib/path.ts", "lib/contract.gen.ts"];
 /// they are four different vocabularies that happen to use the same words, plus the input side of the
 /// derivation itself. That is the distinction the gate exists to make somebody write down, which is
 /// why this is a list of reasons rather than a wider pattern.
-const SHARED_WORDS: [(&str, &str); 4] = [
+const SHARED_WORDS: [(&str, &str); 6] = [
     ("components/EvidenceDrawer.tsx", "action verdicts (ok/timeout/err) — a browser action's state, not a command ending"),
     ("components/UpdateCard.tsx", "the update card's own phase machine"),
     ("lib/evicted.ts", "an eviction cause (idle/cap) — why a session was dropped"),
     ("hooks/useCommandEvents.ts", "UPSTREAM of the derivation: it turns a terminal marker into the reason stateFromEnd consumes"),
+    // AND THE TWO RUST HALVES OF THOSE LAST TWO, declared when the scan crossed the boundary into the
+    // crate. They are the SAME facts with the same reasons — `events.rs` is where the terminal marker
+    // becomes a reason now, and `evicted.rs` is where the cause is read — so they are listed rather
+    // than silently exempted, which is the distinction this list exists to make somebody write down.
+    ("events.rs", "UPSTREAM of the derivation — the Rust half of hooks/useCommandEvents.ts"),
+    ("evicted.rs", "an eviction cause (idle/cap) — the Rust half of lib/evicted.ts"),
 ];
 
 /// The mark families' CSS states (round 129). The rule is absolute and cheap: a mark's CSS state
 /// literal may appear ONLY in the module that derives it.
+///
+/// **AND THAT MODULE IS RUST NOW (block ②, 2026-09-30), SO THE SCAN FOLLOWS IT.** `lib/monitorMark.ts`
+/// is a wrapper that calls `monitor_modifier`/`monitor_mark_class`, so the literals live in
+/// `panel-logic/src/marks.rs` — and the panel's TypeScript may no longer spell them ANYWHERE, the
+/// wrapper included. Both trees are scanned; the home is the crate-relative path.
 const MARK_STATES: [(&str, &str); 3] = [
-    ("is-flapping", "lib/monitorMark.ts"),
-    ("is-up", "lib/monitorMark.ts"),
-    ("is-down", "lib/monitorMark.ts"),
+    ("is-flapping", "marks.rs"),
+    ("is-up", "marks.rs"),
+    ("is-down", "marks.rs"),
 ];
 
 /// SHARED WORDS, DIFFERENT FACTS — `MonitorsCard`'s LOG ROWS spell `is-up`/`is-down` for a `<li>`,
@@ -83,6 +94,15 @@ const MARK_STATE_EXCEPTIONS: [(&str, &str); 1] =
     [("components/MonitorsCard.tsx", "log rows, not marks")];
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+    walk_where(dir, &[".ts", ".tsx"], out)
+}
+
+/// **THE WALKER FILTERS BY EXTENSION, AND THAT IS HOW THE CRATE SCAN WAS A NO-OP.** The first version
+/// of the mark-state scan reused this function for `panel-logic/src`, collected ZERO files, and passed —
+/// a scan that reads nothing certifies nothing, which is the failure this repository has recorded more
+/// than once. It was caught by trying to make the gate REFUSE something (a planted literal in another
+/// crate module) and watching it pass instead.
+fn walk_where(dir: &Path, extensions: &[&str], out: &mut Vec<PathBuf>) {
     let entries =
         fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
     for e in entries {
@@ -93,17 +113,17 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            if name == "__tests__" || name == "node_modules" {
+            if name == "__tests__" || name == "node_modules" || name == "target" {
                 continue;
             }
-            walk(&p, out);
+            walk_where(&p, extensions, out);
         } else {
             let name = p
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            if name.ends_with(".ts") || name.ends_with(".tsx") {
+            if extensions.iter().any(|ext| name.ends_with(ext)) {
                 out.push(p);
             }
         }
@@ -332,7 +352,16 @@ fn check(vocab_src: &str, files: &[(String, String)]) -> Result<String, String> 
     }
 
     for (rel, src) in files {
-        if rel == "lib/monitorMark.ts" || (rel.starts_with("lib/") && rel.ends_with(".test.ts")) {
+        // NO EXEMPTION FOR THE WRAPPER ANY MORE: `lib/monitorMark.ts` calls the crate, so a mark-state
+        // literal in it would be a SECOND spelling — exactly what this rule exists to catch.
+        if rel.starts_with("lib/") && rel.ends_with(".test.ts") {
+            continue;
+        }
+        // AND NONE FOR WHAT WASM-PACK GENERATES. `wasm/panel_logic.d.ts` and its `.js` twin carry the
+        // CRATE'S OWN DOC COMMENTS, so a module whose header quotes the state it derives would be
+        // reported as a second spelling of it. The directory is a build artifact: nothing in it is
+        // written by hand, and `panel-sheet-freshness-check.mjs` is what proves it matches the source.
+        if rel.starts_with("wasm/") {
             continue;
         }
         if MARK_STATE_EXCEPTIONS.iter().any(|(f, _)| f == rel) {
@@ -343,6 +372,14 @@ fn check(vocab_src: &str, files: &[(String, String)]) -> Result<String, String> 
                 continue;
             }
             for (literal, home) in MARK_STATES {
+                // THE HOME IS EXEMPT, and it is the same tuple that names it in the message: the rule is
+                // "only the module that DERIVES the state may spell it", so that module must be allowed
+                // to. (Removing the old by-name skip for the TypeScript wrapper took this exemption with
+                // it, and the first run after the walker fix reported `marks.rs` as an offender three
+                // times — which is what a gate that cannot see its own home looks like.)
+                if rel == home {
+                    continue;
+                }
                 if spells_literal(line, literal) {
                     offenders.push(format!(
                         "{rel}:{} spells the mark state \"{literal}\", which {home} derives",
@@ -411,9 +448,11 @@ fn read(rel: &str) -> String {
 
 #[test]
 fn lib_path_is_the_only_derivation_of_an_ending() {
+    let mut files = panel_files();
+    files.extend(crate_files());
     let msg = check(
         &read("agent/resources/panel-logic/src/vocabulary.rs"),
-        &panel_files(),
+        &files,
     )
     .unwrap_or_else(|e| panic!("{e}"));
     println!("{msg}");
@@ -432,6 +471,28 @@ fn lib_path_is_the_only_derivation_of_an_ending() {
 /// The gate's floor is checked BEFORE the offenders, exactly as the JS does — so a fixture that is
 /// meant to exercise a RULE has to clear the floor first, or the floor's message is what comes back
 /// and the fixture proves nothing about the rule.
+/// THE CRATE'S SOURCES, with the file name as `rel` — so `marks.rs` is the home the table above names.
+/// The panel's rule and this one are the same rule, and a scan that stopped at the boundary would
+/// certify half of it.
+fn crate_files() -> Vec<(String, String)> {
+    let root = repo().join("agent/resources/panel-logic/src");
+    let mut paths = Vec::new();
+    walk_where(&root, &[".rs"], &mut paths);
+    paths
+        .into_iter()
+        .map(|p| {
+            let rel = p
+                .strip_prefix(&root)
+                .expect("a walked path is under the crate root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let src = fs::read_to_string(&p)
+                .unwrap_or_else(|e| panic!("cannot read {}: {e}", p.display()));
+            (rel, src)
+        })
+        .collect()
+}
+
 fn panel_like(probe: &str) -> Vec<(String, String)> {
     let mut files: Vec<(String, String)> = (0..60)
         .map(|i| {
@@ -480,7 +541,7 @@ fn a_mark_state_spelled_outside_its_home_is_reported() {
     )
     .expect_err("a mark state outside its home must fail");
     assert!(
-        err.contains("spells the mark state \"is-flapping\", which lib/monitorMark.ts derives"),
+        err.contains("spells the mark state \"is-flapping\", which marks.rs derives"),
         "{err}"
     );
     // The word alone, with no quotes around it, is not a literal and must NOT bite.

@@ -470,6 +470,52 @@ export function load_notice(samples, now_ms, window_ms, min_samples) {
 }
 
 /**
+ * The class list for a monitor mark. `flapping` wins over `up`: a target that is up now but has been
+ * dropping is the thing the chip exists to say.
+ *
+ * `["monitor-mark", modifier, extra].filter(Boolean).join(" ")` — TRUTHINESS drops a falsy `extra`
+ * (an empty string, `null`, `0`), and the join goes through the ENGINE because an `extra` can carry
+ * anything a wire string can, a lone surrogate included.
+ * @param {any} state
+ * @param {any} extra
+ * @returns {any}
+ */
+export function monitor_mark_class(state, extra) {
+    const ret = wasm.monitor_mark_class(state, extra);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * THE MODIFIER ALONE — the same state, for the elements that carry the family's vocabulary without
+ * being the mark itself.
+ *
+ * `MonitorAlerts` renders `<div className={"monitor-alert " + …}>` around a `<span className=
+ * "monitor-mark …">`, and both describe ONE fact: this alert is up or down. Round 126 gave the mark
+ * the derivation and left the container spelling the words by hand — the gate this module is guarded
+ * by found it on its next run, which is what it is for.
+ *
+ * THE COMPARISON IS STRICT, and anything that is not `"up"` or `"down"` is `is-flapping` — which is
+ * what the TypeScript's chained ternary does with a value that is neither.
+ * @param {any} state
+ * @returns {string}
+ */
+export function monitor_modifier(state) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.monitor_modifier(state);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * `operationRows(...)` — every row of the timeline, in the same groups `groupOperation` builds,
  * in the order the groups are rendered: "grouped by run, oldest group first, the unattributed
  * bucket last and separate".
