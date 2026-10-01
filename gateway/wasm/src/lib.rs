@@ -223,4 +223,5 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     not_found()
 }
 
+pub mod stream;
 pub mod translate;
