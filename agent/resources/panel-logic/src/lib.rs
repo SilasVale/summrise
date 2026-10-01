@@ -45,6 +45,7 @@ mod evicted;
 mod idle;
 mod js;
 mod liveness;
+mod marks;
 mod monitors;
 mod path;
 mod recipe;
@@ -65,6 +66,7 @@ pub use boot_notice::{boot_kind_label, boot_notice, is_crash};
 pub use events::{group_events, group_rounds, strip_ansi, terminal_status};
 pub use evicted::parse_evicted;
 pub use idle::{human_idle, idle_offer_text, idle_sessions, prune_session_views};
+pub use marks::{monitor_mark_class, monitor_modifier};
 pub use liveness::{
     any_command_running, device_liveness, liveness_of, session_active, session_failed,
     session_liveness, session_waiting,
