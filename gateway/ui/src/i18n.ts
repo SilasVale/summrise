@@ -1,3 +1,20 @@
+// ── WHY THE DICTIONARY AND `t` ARE STILL TYPESCRIPT (block ③, 2026-09-30) ───────────────────────
+//
+// This is the console's last unmigrated LOGIC export by the inventory's count, and the answer is a
+// DECISION rather than an omission, for two reasons that are measured rather than argued:
+//
+//   1. THE SEAM IS ALREADY DRAWN AROUND IT. Two migrated families — `lib/channelState.ts`'s
+//      `channelLabel` and `lib/deviceState.ts`'s `agentSignal`/`tunnelSignal` — take `t` as a CALLBACK,
+//      because the WORD for a state belongs to this dictionary while the crate decides WHICH state.
+//      Moving the dictionary into the crate would reverse that: the crate would have to call its own
+//      `t` through a JS shim, and every migrated call site would become a wasm→JS→wasm round trip.
+//   2. IT IS 728 KEYS OF DATA, READ ON EVERY RENDER. `t()` is called hundreds of times per page, and
+//      a lookup that crosses the boundary returns a fresh JS string each time. The crate would grow by
+//      the dictionary (45,805 bytes of source) and every word on every screen would pay an allocation
+//      for a table lookup that the bundler already ships as data.
+//
+// What IS Rust: every function that DECIDES something about a word — the lane class, a channel's
+// signal, a device's three states, the update control. The words themselves stay here.
 import { useCallback, useSyncExternalStore } from "react";
 
 const I18N = {
