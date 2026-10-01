@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **164,282 raw / 77,536 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **43,378 raw / 11,950 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **173,028 raw / 80,919 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **47,103 raw / 12,804 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -43,6 +43,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `recipe.rs` (3 functions: the recipe body, its title, its warnings) | **75,962** (+3,837) | **11,183** (+381) | **278,181** (**−404**) |
 | `boot_notice.rs` (3 functions: the kind's words, the crash test, the chip) | **76,964** (+1,002) | **11,729** (+546) | **277,950** (**−231**) |
 | `adopt.rs` (3 functions: the paging decision, the page bound, the write slices) | **77,536** (+572) | **11,950** (+221) | **277,998** (**+48**) |
+| `idle.rs` (4 functions: the silence formatter, the idle rule, its one-line offer, the view prune) | **80,919** (+3,383) | **12,804** (+854) | **278,135** (**+137**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -52,10 +53,10 @@ arithmetic now (exact, from the float's own mantissa and exponent) and the same 
 passes: **72,125 gz, +4,100 — the decision was worth 7,913 gz.** It is P0's `{:.3}` lesson (8,879 gz,
 26% of the landing page's payload) arriving in the panel, and the fix is the same one.
 
-**TWO FAMILIES HAVE COST THE PAYLOAD SOMETHING, AND BOTH ARE SMALL**: `adopt.rs` +48 gz (0.017 %) and
-the console's `mask_token` +72 gz (0.06 %). Both are kept, with the numbers stated — the rule is "if a
-move makes the payload CLEARLY worse, keep the JavaScript", and 0.017 % is not that. Every other family
-in this table took the payload DOWN.
+**THREE FAMILIES HAVE COST THE PAYLOAD SOMETHING, AND ALL THREE ARE SMALL**: `adopt.rs` +48 gz
+(0.017 %), the console's `mask_token` +72 gz (0.06 %) and `idle.rs` +137 gz (0.05 %). All are kept, with
+the numbers stated — the rule is "if a move makes the payload CLEARLY worse, keep the JavaScript", and
+none of these is that. Every other family in this table took the payload DOWN.
 
 **AND THE PAYLOAD COLUMN IS MEASURED AGAINST THE TREE THE FAMILY LANDED ON, not against the row above
 it** — the panel gains product features between families, so `update.rs`'s before is 279,645 gz at
@@ -102,6 +103,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `recipe.rs` | `lib/recipe.ts`'s `buildRecipe`, `suggestedTitle`, `recipeWarnings` (its marker and tag stay in TypeScript and are passed in) | 3 |
 | `boot_notice.rs` | `lib/bootNotice.ts`'s `bootNotice`, `bootKindLabel`, `isCrash` (the notice window stays in TypeScript and is passed in; the boot vocabulary comes from `vocabulary.rs`, not a third copy) | 3 |
 | `adopt.rs` | `lib/terminalAdopt.ts`'s `adoptNeedsAnotherPage`, `adoptPageExceeded`, `splitWriteSlices` (both numbers stay in TypeScript and are passed in — the slice budget is also the JavaScript DEFAULT, which the wrapper decides) | 3 |
+| `idle.rs` | `lib/duration.ts`'s `humanIdle`, `lib/idleSessions.ts`'s `idleSessions` + `idleOfferText`, `lib/sessionViews.ts`'s `pruneSessionViews` (the threshold stays in TypeScript, and it is also the JavaScript DEFAULT) | 4 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
