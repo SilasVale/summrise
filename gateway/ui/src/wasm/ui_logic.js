@@ -191,6 +191,24 @@ export function lane_class(prefix) {
 }
 
 /**
+ * `maskToken(tok)` — `vk-1ab…cdef`, the only secret-adjacent rendering in the console.
+ *
+ * THE BRANCH IS ON THE UTF-16 LENGTH: at most eight units keeps the first unit and the last three
+ * (`slice(-3)` on a shorter string is the whole string, so the answer is never expanded), and
+ * anything longer keeps the first six and the last four. Both slices go through the ENGINE, and so
+ * does the `tok[0]`, because each of them can land mid-surrogate-pair.
+ * @param {any} tok
+ * @returns {any}
+ */
+export function mask_token(tok) {
+    const ret = wasm.mask_token(tok);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `tunnelKnownDown(status)` — THE TRI-STATE RULE, IN ONE PLACE.
  *
  * `status?.tunnel_up === false` — STRICT equality against `false`, so an absent flag and an absent
@@ -289,6 +307,10 @@ function __wbg_get_imports() {
             const ret = typeof arg0;
             return ret;
         },
+        __wbg_apply_a910804df6e1e433: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = arg0.apply(arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_call_187d372bd5fdd4aa: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.call(arg1, arg2);
             return ret;
@@ -317,8 +339,16 @@ function __wbg_get_imports() {
             const ret = new Object();
             return ret;
         },
+        __wbg_new_ee2291f50781bf1d: function() {
+            const ret = new Array();
+            return ret;
+        },
         __wbg_now_aa4ccb83129e9e55: function() {
             const ret = Date.now();
+            return ret;
+        },
+        __wbg_push_2baf45db356cf468: function(arg0, arg1) {
+            const ret = arg0.push(arg1);
             return ret;
         },
         __wbg_set_145a351398b48c65: function() { return handleError(function (arg0, arg1, arg2) {
