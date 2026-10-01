@@ -21,6 +21,8 @@
 // The whole thing takes an injectable constructor so it can be tested without a browser: the rules
 // above are the feature, and none of them need a real OS notification to verify.
 
+import { logic } from "../wasm/panelLogic";
+
 export type NotifyPermission = "unsupported" | "default" | "granted" | "denied";
 
 interface NotifyPayload {
@@ -40,28 +42,32 @@ const MIN_GAP_MS = 5_000;
 const BURST = 3;
 const BURST_WINDOW_MS = 60_000;
 
+// ── THE TWO PURE DECISIONS ARE RUST SINCE 2026-09-30 (block ②) ─────────────────────────────────
+//
+// `readPermission` and `permissionHint` are `agent/resources/panel-logic/src/notify.rs` now. The
+// differential is 210 corpus cases with 0 divergences and every arm reached, and `NotificationsCard`
+// renders the same sentences.
+//
+// `DeviceNotifier` BELOW IS STILL TYPESCRIPT, and `notify.rs`'s header says why: it is a STATEFUL
+// object (dedupe, rate limit, the suppressed count) whose port needs a handle the panel holds across
+// calls, which is a shape this crate does not export yet. Its rules are real and stay pinned by its own
+// tests until then.
+
 /** The browser's answer, read defensively: a page in an insecure context has no `Notification` at
  *  all, and that is a STATE, not an error. */
 export function readPermission(ctor?: NotificationCtor | null, permission?: string): NotifyPermission {
-  if (!ctor) return "unsupported";
-  const p = permission ?? (typeof Notification !== "undefined" ? Notification.permission : "default");
-  return p === "granted" || p === "denied" ? p : "default";
+  // THE BOUNDARY IS HERE, not in the crate: reading `Notification.permission` is the browser's own
+  // global, and the crate takes the answer the caller read.
+  const answer =
+    permission ?? (typeof Notification !== "undefined" ? Notification.permission : "default");
+  return logic().read_permission(ctor, answer) as NotifyPermission;
 }
 
 /** What the operator should be told about the current state, in the panel's own voice — the
  *  settings card renders this verbatim, and it is the ONLY place the difference between "you never
  *  turned it on", "the browser said no" and "this browser cannot" is explained. */
 export function permissionHint(state: NotifyPermission): string {
-  switch (state) {
-    case "granted":
-      return "Desktop notifications are on. A watched host going down reaches you even when this window is in the background.";
-    case "denied":
-      return "This browser is blocking notifications for this page, and it will not ask again — allow them in the site settings (the padlock in the address bar), or rely on the tab title, which always works.";
-    case "unsupported":
-      return "This browser (or this page's context) cannot show desktop notifications, so the tab title carries the count instead — it always works.";
-    default:
-      return "Notifications are off. Turning them on asks your browser once; if it says no, the tab title still carries the count.";
-  }
+  return logic().permission_hint(state) as string;
 }
 
 /** The notifier: dedupe + rate limit + tag. Constructed with the live ctor and a clock, so both the

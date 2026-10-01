@@ -674,6 +674,26 @@ export function parse_vitals_series(j) {
 }
 
 /**
+ * What the operator should be told about the current state, in the panel's own voice — the settings
+ * card renders this verbatim, and it is the ONLY place the difference between "you never turned it
+ * on", "the browser said no" and "this browser cannot" is explained.
+ * @param {any} state
+ * @returns {string}
+ */
+export function permission_hint(state) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.permission_hint(state);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Which per-session views are still worth keeping.
  *
  * THE IDENTITY RETURN IS PART OF THE CONTRACT, not an optimisation. The caller's effect depends on the
@@ -689,6 +709,32 @@ export function prune_session_views(views, live_sids) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * `readPermission(ctor, permission)` — the browser's answer, read defensively.
+ *
+ * A page in an insecure context has no `Notification` at all, and that is a STATE, not an error: the
+ * caller passes the constructor it found (or nothing) and the permission string it read (or nothing),
+ * because reading `Notification.permission` is the BOUNDARY this module deliberately does not cross.
+ *
+ * `permission ?? …` IS NULLISH COALESCING, not truthiness: an EMPTY STRING is a value the caller read
+ * and is passed through to the strict comparison below, where it answers `default`.
+ * @param {any} ctor
+ * @param {any} permission
+ * @returns {string}
+ */
+export function read_permission(ctor, permission) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.read_permission(ctor, permission);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
 }
 
 /**
@@ -993,6 +1039,24 @@ export function title_for(items, base, tab) {
     } finally {
         wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
+}
+
+/**
+ * The sentence a view shows while a read is in flight, or when it failed — or `null` when the caller's
+ * own empty state is TRUE and may be shown.
+ *
+ * THE COMPARISONS ARE STRICT, so anything that is not exactly `"ok"` or `"unreadable"` takes the
+ * in-flight branch — which is the safe direction: a state this build has never heard of is not a
+ * licence to claim the session ran nothing.
+ * @param {any} read
+ * @returns {any}
+ */
+export function trail_read_notice(read) {
+    const ret = wasm.trail_read_notice(read);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 function __wbg_get_imports() {
     const import0 = {
