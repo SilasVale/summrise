@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **178,416 raw / 82,883 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **52,825 raw / 14,195 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **181,271 raw / 83,876 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **54,352 raw / 14,629 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -48,6 +48,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `marks.rs` (2 functions: a monitor mark's state and its class list) | **81,492** (+303) | **13,577** (+495) | **278,162** (**+45**) |
 | `actions.rs` (1 function: what a browser-action record actually is) | **82,003** (+511) | **13,621** (+44) | **278,045** (**−117**) |
 | `trail.rs` + `notify.rs` (3 functions: the empty-trail wording, the permission state, its hint) | **82,883** (+880) | **14,195** (+574) | **277,826** (**−219**) |
+| `guide.rs` + `lag.rs` + `nav.rs` (3 functions: the guide flag, the lag-marker prune, the address-bar merge) | **83,876** (+993) | **14,629** (+434) | **277,944** (**+118**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -63,8 +64,8 @@ passes: **72,125 gz, +4,100 — the decision was worth 7,913 gz.** It is P0's `{
 the numbers stated — the rule is "if a move makes the payload CLEARLY worse, keep the JavaScript", and
 none of these is that. Every other family in this table took the payload DOWN.
 
-**ONE ROW IS TWO FAMILIES MEASURED TOGETHER** (`trail.rs` and `notify.rs`, which landed in the same
-push). The plan asks for the three numbers per family; these two were built once, so the row is the
+**TWO ROWS ARE SEVERAL FAMILIES MEASURED TOGETHER** (`trail.rs` + `notify.rs`, and `guide.rs` +
+`lag.rs` + `nav.rs` — each set landed in one push). The plan asks for the three numbers per family; these two were built once, so the row is the
 combined delta and says so rather than splitting a number nobody measured.
 
 **AND THE PAYLOAD COLUMN IS MEASURED AGAINST THE TREE THE FAMILY LANDED ON, not against the row above
@@ -118,6 +119,9 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `actions.rs` | `lib/browserAction.ts`'s `actionVerdict` (the file's own types stay; its `timeout` is declared in the derivation gate's shared words, because a browser action's state is not a command ending) | 1 |
 | `trail.rs` | `lib/trailRead.ts`'s `trailReadNotice` | 1 |
 | `notify.rs` | `lib/notify.ts`'s `readPermission` + `permissionHint` — NOT `DeviceNotifier`, which is a STATEFUL object whose port needs a handle the panel holds across calls; its rules stay pinned by its own tests and the reason is in the module's header | 2 |
+| `guide.rs` | `lib/gettingStarted.ts`'s `shouldShowGuide` (the version stays in TypeScript and is passed in; the storage KEY is the boundary) | 1 |
+| `lag.rs` | `lib/lagMarkers.ts`'s `pruneLagMarkers` — the DECISION only: the crate answers which keys go, the caller owns the map and does the deleting | 1 |
+| `nav.rs` | `lib/embeddedNav.ts`'s `shouldAcceptNavPush` | 1 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 

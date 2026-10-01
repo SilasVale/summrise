@@ -70,7 +70,15 @@ export const GETTING_STARTED_LEAD =
 /** Where the guide can be reopened from — shown in the footer, so it is never a dead end. */
 export const GETTING_STARTED_REOPEN = "Reopen this any time from the ? button at the foot of the rail.";
 
+// ── RUST SINCE 2026-09-30 (block ②) ─────────────────────────────────────────────────────────────
+//
+// The rule is `agent/resources/panel-logic/src/guide.rs` now, and the differential is 12 corpus cases
+// with 0 divergences and both arms reached. THE VERSION STAYS HERE and is passed in: it is this
+// surface's own vocabulary, and `GETTING_STARTED_KEY` — the string `localStorage` is read with — is the
+// boundary the crate does not cross.
+import { logic } from "../wasm/panelLogic";
+
 /** Should the guide open for this stored value? Pure, so the rule is testable without a browser. */
 export function shouldShowGuide(stored: string | null): boolean {
-  return stored !== GETTING_STARTED_VERSION;
+  return logic().should_show_guide(stored, GETTING_STARTED_VERSION) as boolean;
 }

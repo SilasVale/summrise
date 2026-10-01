@@ -43,7 +43,10 @@ mod boot;
 mod boot_notice;
 mod events;
 mod evicted;
+mod guide;
 mod idle;
+mod lag;
+mod nav;
 mod js;
 mod liveness;
 mod marks;
@@ -69,13 +72,16 @@ pub use boot::parse_boot_history;
 pub use boot_notice::{boot_kind_label, boot_notice, is_crash};
 pub use events::{group_events, group_rounds, strip_ansi, terminal_status};
 pub use evicted::parse_evicted;
+pub use guide::should_show_guide;
 pub use idle::{human_idle, idle_offer_text, idle_sessions, prune_session_views};
+pub use lag::lag_markers_to_drop;
 pub use marks::{monitor_mark_class, monitor_modifier};
 pub use liveness::{
     any_command_running, device_liveness, liveness_of, session_active, session_failed,
     session_liveness, session_waiting,
 };
 pub use monitors::{parse_monitor_change, parse_monitors};
+pub use nav::should_accept_nav_push;
 pub use notify::{permission_hint, read_permission};
 pub use path::{attention_steps, card_state, derive_path, state_from_end, summarize_path};
 pub use recipe::{build_recipe, recipe_warnings, suggested_title};
