@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **173,812 raw / 81,189 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **48,381 raw / 13,082 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **174,676 raw / 81,492 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **50,154 raw / 13,577 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -45,6 +45,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `adopt.rs` (3 functions: the paging decision, the page bound, the write slices) | **77,536** (+572) | **11,950** (+221) | **277,998** (**+48**) |
 | `idle.rs` (4 functions: the silence formatter, the idle rule, its one-line offer, the view prune) | **80,919** (+3,383) | **12,804** (+854) | **278,135** (**+137**) |
 | `version.rs` (2 functions: which of the device's two versions wins, and its label) | **81,189** (+270) | **13,082** (+278) | **278,117** (**−18**) |
+| `marks.rs` (2 functions: a monitor mark's state and its class list) | **81,492** (+303) | **13,577** (+495) | **278,162** (**+45**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -54,8 +55,9 @@ arithmetic now (exact, from the float's own mantissa and exponent) and the same 
 passes: **72,125 gz, +4,100 — the decision was worth 7,913 gz.** It is P0's `{:.3}` lesson (8,879 gz,
 26% of the landing page's payload) arriving in the panel, and the fix is the same one.
 
-**THREE FAMILIES HAVE COST THE PAYLOAD SOMETHING, AND ALL THREE ARE SMALL**: `adopt.rs` +48 gz
-(0.017 %), the console's `mask_token` +72 gz (0.06 %) and `idle.rs` +137 gz (0.05 %). All are kept, with
+**FOUR FAMILIES HAVE COST THE PAYLOAD SOMETHING, AND ALL FOUR ARE SMALL**: `adopt.rs` +48 gz
+(0.017 %), `marks.rs` +45 gz (0.016 %), the console's `mask_token` +72 gz (0.06 %) and `idle.rs` +137 gz
+(0.05 %). All are kept, with
 the numbers stated — the rule is "if a move makes the payload CLEARLY worse, keep the JavaScript", and
 none of these is that. Every other family in this table took the payload DOWN.
 
@@ -106,6 +108,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `adopt.rs` | `lib/terminalAdopt.ts`'s `adoptNeedsAnotherPage`, `adoptPageExceeded`, `splitWriteSlices` (both numbers stay in TypeScript and are passed in — the slice budget is also the JavaScript DEFAULT, which the wrapper decides) | 3 |
 | `idle.rs` | `lib/duration.ts`'s `humanIdle`, `lib/idleSessions.ts`'s `idleSessions` + `idleOfferText`, `lib/sessionViews.ts`'s `pruneSessionViews` (the threshold stays in TypeScript, and it is also the JavaScript DEFAULT) | 4 |
 | `version.rs` | `lib/agentVersion.ts`'s `releaseVersion`, `releaseVersionLabel` — AND `agent/tests/device_version_rule.rs` followed the rule into the crate, because it holds this half equal to the gateway's `wireVersion` | 2 |
+| `marks.rs` | `lib/monitorMark.ts`'s `monitorModifier`, `monitorMarkClass` — AND `agent/tests/one_derivation.rs` followed it: the gate now scans this crate's Rust for the mark-state literals, with `marks.rs` as their declared home | 2 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
