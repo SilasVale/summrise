@@ -171,6 +171,28 @@ export function group_operation(events: any, boundaries: any): any;
 export function group_rounds(events: any): Array<any>;
 
 /**
+ * HOW LONG A SILENCE LASTED — `45s`, `4m`, `1h 04m`.
+ *
+ * THE SHAPE IS THE PANEL'S DOMINANT ONE, with the seconds branch kept: under a minute, seconds are the
+ * useful unit and `0m` is a lie about a 45-second silence.
+ */
+export function human_idle(ms: any): string;
+
+/**
+ * ONE LINE for the offer: how many, and the longest silence among them.
+ */
+export function idle_offer_text(candidates: any): any;
+
+/**
+ * The sessions nobody is using: live, silent for longer than the threshold, and NOT holding a command.
+ *
+ * CLOSED SESSIONS ARE NOT CANDIDATES: they have no shell to release (the device closed them when they
+ * exited), and counting them would make the offer's number wrong. `savedOnly` is the same kind of
+ * exclusion.
+ */
+export function idle_sessions(sessions: any, threshold_ms: any): Array<any>;
+
+/**
  * True for the one kind that means the agent died on its own. Used by the history card to weigh a row
  * and by the summary line to count; the chip has its own rule.
  */
@@ -283,6 +305,15 @@ export function parse_update_status(j: any): object;
  * is a change to the panel, not a migration of it.
  */
 export function parse_vitals_series(j: any): any;
+
+/**
+ * Which per-session views are still worth keeping.
+ *
+ * THE IDENTITY RETURN IS PART OF THE CONTRACT, not an optimisation. The caller's effect depends on the
+ * session list, which changes on every poll; returning a fresh object whenever nothing was pruned
+ * would re-render `App` once per poll for ever. **Unchanged in, SAME OBJECT out.**
+ */
+export function prune_session_views(views: any, live_sids: any): any;
 
 /**
  * Steps that make a recipe questionable — surfaced in the save form so the operator is not silently
@@ -430,6 +461,9 @@ export interface InitOutput {
     readonly group_events: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly group_rounds: (a: any) => [number, number, number];
+    readonly human_idle: (a: any) => [number, number];
+    readonly idle_offer_text: (a: any) => [number, number, number];
+    readonly idle_sessions: (a: any, b: any) => [number, number, number];
     readonly is_crash: (a: any) => number;
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly load_notice: (a: any, b: any, c: any, d: any) => [number, number, number];
@@ -442,6 +476,7 @@ export interface InitOutput {
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_update_status: (a: any) => any;
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly prune_session_views: (a: any, b: any) => [number, number, number];
     readonly recipe_warnings: (a: any) => [number, number, number];
     readonly series_stats: (a: any) => [number, number, number];
     readonly session_active: (a: any, b: number) => [number, number, number];
