@@ -33,11 +33,24 @@ function arg(name, dflt) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
 
-function tokenOk(given, want) {
+// Exported for direct pins (block ④, 2026-09-30 — additive, the handler's behaviour is unchanged).
+// THE COMPARISON IS TIMING-SAFE AND FAIL-CLOSED: an empty `want` refuses EVERY caller, because a relay
+// configured without a token must not be a relay anyone can drive.
+export function tokenOk(given, want) {
   if (!want) return false;
   const a = Buffer.from(String(given || ""));
   const b = Buffer.from(want);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/// WHICH OF THE FOUR THINGS THIS REQUEST IS — the relay's whole routing table, as a pure function so it
+/// can be pinned without a socket. The ORDER is the rule: the agent's two endpoints first (the second
+/// only for a POST), then the health probe, then everything else goes to the agent.
+export function routeOf(pathname, method) {
+  if (pathname === "/agent/pull") return "agent-pull";
+  if (pathname === "/agent/answer" && method === "POST") return "agent-answer";
+  if (pathname === "/healthz") return "healthz";
+  return "forward";
 }
 
 /// A LAST-RESORT NET: a relay that exits because one socket misbehaved is worse than a relay that logs and keeps carrying.
@@ -85,14 +98,17 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
     const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
 
     // ---- the agent's two endpoints ---------------------------------------------------------------------------------
-    if (url.pathname === "/agent/pull") {
+    // THE ROUTE IS DECIDED BY `routeOf`, which is exported and pinned (block ④). This block used to test
+    // the paths inline; the decision is the same and the order is the same.
+    const route = routeOf(url.pathname, req.method);
+    if (route === "agent-pull") {
       if (!tokenOk(bearer, token)) return respond(res, 401, '{"ok":false}');
       agentSeenMs = Date.now();
       const job = pendingJob();
       if (job) return handToAgentNow(res, job);
       return parkAgent(res);
     }
-    if (url.pathname === "/agent/answer" && req.method === "POST") {
+    if (route === "agent-answer") {
       if (!tokenOk(bearer, token)) return res.writeHead(401, { "Content-Type": "application/json" }).end('{"ok":false}');
       return readBody(req, (err, body) => {
         if (err) return res.writeHead(413).end();
@@ -109,7 +125,7 @@ export function createRelay({ token, deviceName = "device", log = () => {} }) {
 
     // ---- everything else is for the agent --------------------------------------------------------------------------
 
-    if (url.pathname === "/healthz") {
+    if (route === "healthz") {
       return res.writeHead(200, { "Content-Type": "application/json" }).end(
         JSON.stringify({ ok: true, device: deviceName, agentConnectedMsAgo: agentSeenMs ? Date.now() - agentSeenMs : null, waiting: waiting.length }),
       );
