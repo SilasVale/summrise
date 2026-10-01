@@ -20,9 +20,17 @@
  * a monitor's uptime, a trajectory's span), and four of them claim authority over the same shapes. This
  * module takes the pair that had actually drifted; unifying the rest is a separate, larger pass.
  */
+// ── RUST SINCE 2026-09-30 (block ②), WITH THE IDLE FAMILY ───────────────────────────────────────
+//
+// `humanIdle` is `agent/resources/panel-logic/src/idle.rs` now, together with `idleSessions`,
+// `idleOfferText` and `pruneSessionViews` — one module, because they answer one question: which
+// sessions nobody is using, and which views are still worth keeping.
+//
+// THE IDENTITY THE TEST ASSERTS STILL HOLDS: `evicted.ts` and `idleSessions.ts` re-export THIS
+// function object, and `duration.test.ts` pins that they are the same reference — which is what stops
+// the two drifted copies coming back.
+import { logic } from "../wasm/panelLogic";
+
 export function humanIdle(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  return logic().human_idle(ms) as string;
 }
