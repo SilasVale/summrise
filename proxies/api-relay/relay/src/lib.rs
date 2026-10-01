@@ -663,6 +663,175 @@ pub fn allowed_redirect(location: &str, current: &str) -> Option<String> {
     }
 }
 
+// ── THE `api/github` GATE'S DECISIONS ───────────────────────────────────────────────────────────
+//
+// THE TWIN OF THE `api/git` GATE WITH THREE DELIBERATE DIFFERENCES, and each one is in the corpus:
+//
+//   * `safe_path` does NOT refuse `//` — the ORIGIN GUARD is what handles a protocol-relative path
+//     here, and it is a separate decision (`upstream_url`).
+//   * `redirect_target` allows SEVEN hosts rather than one, because this handler follows redirects to
+//     GitHub's asset hosts (a release download lands on `objects.githubusercontent.com`).
+//   * the two header allowlists are its own: it forwards conditional-request and range headers, and it
+//     copies a different set back.
+
+/// `UPSTREAMS` — the four route types and the origin each one means.
+const UPSTREAMS: [(&str, &str); 4] = [
+    ("web", "https://github.com"),
+    ("raw", "https://raw.githubusercontent.com"),
+    ("api", "https://api.github.com"),
+    ("release", "https://github.com"),
+];
+
+/// `ALLOWED_REDIRECT_HOSTS` — the asset hosts included, which is the difference from `git.ts`.
+const ALLOWED_REDIRECT_HOSTS: [&str; 7] = [
+    "github.com",
+    "www.github.com",
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+];
+
+const REQUEST_HEADERS: [&str; 7] = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "if-none-match",
+    "if-modified-since",
+    "range",
+    "user-agent",
+];
+
+const RESPONSE_HEADERS: [&str; 11] = [
+    "accept-ranges",
+    "cache-control",
+    "content-disposition",
+    "content-encoding",
+    "content-length",
+    "content-range",
+    "content-type",
+    "etag",
+    "expires",
+    "last-modified",
+    "vary",
+];
+
+/// `safePath(value)` — the shape check WITHOUT the `//` refusal, because the origin guard is the thing
+/// that catches a protocol-relative path in this handler.
+pub fn safe_path(value: &str) -> bool {
+    if value.is_empty() || !value.starts_with('/') {
+        return false;
+    }
+    if value.contains('\\') || value.contains('\0') || value.contains("..") {
+        return false;
+    }
+    let Ok(decoded) = decode_uri_component(value) else {
+        return false;
+    };
+    decoded.starts_with('/')
+        && !decoded.contains('\\')
+        && !decoded.contains("..")
+        && !decoded.chars().any(|c| (c as u32) <= 0x1F)
+}
+
+/// `parseRoute(value)` — `/type/rest` into the origin it means and the path to append.
+///
+/// **AND A PROTOTYPE KEY IS A CASE THIS PORT ANSWERS DIFFERENTLY ON PURPOSE.** `UPSTREAMS` is a plain
+/// object in the TypeScript, so `parseRoute("/constructor/x")` finds `Object`'s constructor — a
+/// FUNCTION — where a route type should be. Nothing downstream can use it: `upstreamUrl` calls
+/// `new URL(base)` on it, throws, and the handler answers 400, which is exactly what an unknown type
+/// answers. This port returns `None` for it, the corpus records the case with `baseIsString: false`,
+/// and the test asserts the two verdicts agree where it matters — the observable outcome.
+pub fn parse_route(value: Option<&str>) -> Option<(String, String)> {
+    let value = value?;
+    if value.is_empty() || !safe_path(value) {
+        return None;
+    }
+    // `value.indexOf("/", 1)` — the first slash AFTER the leading one, so `/web` has no type at all.
+    let slash = value[1..].find('/').map(|i| i + 1)?;
+    let kind = &value[1..slash];
+    let path = &value[slash..];
+    let base = UPSTREAMS
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, base)| *base)?;
+    if safe_path(path) {
+        Some((base.to_string(), path.to_string()))
+    } else {
+        None
+    }
+}
+
+/// `upstreamUrl(base, path)` — THE ORIGIN GUARD, and the reason it exists is a LIVE DEFECT: round 120
+/// measured `GET https://v.saisi.online/api/git//example.com/` returning Example Domain's HTML with
+/// the caller's GitHub token attached, because `new URL("//evil.example/x", "https://github.com")`
+/// REPLACES THE ORIGIN. The per-handler shape checks test the path as a STRING; this tests the
+/// RESOLVED ORIGIN, which is what decides where the request actually goes.
+///
+/// The error strings are the JavaScript's, because they reach the caller in a 400 body.
+pub fn upstream_url(base: &str, path: &str) -> Result<String, String> {
+    let want = url::Url::parse(base).map_err(|_| "uncomposable upstream path".to_string())?;
+    let url = want
+        .join(path)
+        .map_err(|_| "uncomposable upstream path".to_string())?;
+    if url.origin() != want.origin() {
+        return Err(format!(
+            "path escapes the upstream origin ({} != {})",
+            url.origin().ascii_serialization(),
+            want.origin().ascii_serialization()
+        ));
+    }
+    Ok(url.to_string())
+}
+
+/// `copyRequestHeaders(request)` — the allowlist, truthiness, and `Headers` semantics.
+pub fn copy_request_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(&REQUEST_HEADERS, headers)
+}
+
+/// `copyResponseHeaders(response)` — the same shape with the other list.
+pub fn copy_response_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(&RESPONSE_HEADERS, headers)
+}
+
+fn copy_allowlisted(names: &[&str], headers: &Map<String, Value>) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in names {
+        // `request.headers.get(name)` IS CASE-INSENSITIVE, and the harness passes a plain object.
+        let found = headers
+            .iter()
+            .find(|(k, _)| k.to_lowercase() == *name)
+            .map(|(_, v)| js_text(v));
+        // `if (value)` — an empty header is not forwarded.
+        if let Some(v) = found {
+            if !v.is_empty() {
+                out.push((name.to_string(), v));
+            }
+        }
+    }
+    combine(out)
+}
+
+/// `redirectTarget(location, currentUrl)` — an allowlisted `https:` host, resolved against the current
+/// URL.
+pub fn redirect_target(location: &str, current: &str) -> Option<String> {
+    if location.is_empty() {
+        return None;
+    }
+    let base = url::Url::parse(current).ok()?;
+    let target = base.join(location).ok()?;
+    if target.scheme() == "https"
+        && target
+            .host_str()
+            .is_some_and(|h| ALLOWED_REDIRECT_HOSTS.contains(&h))
+    {
+        Some(target.to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,6 +1193,188 @@ mod tests {
             valid >= 8 && refused >= 10 && allowed >= 3 && none >= 10 && unparseable >= 1,
             "the fixture moved: {valid} valid, {refused} refused, {allowed} allowed, {none} none, {unparseable} unparseable"
         );
+    }
+
+    /// THE `api/github` GATE'S CORPUS, generated by `oracle.mjs github` driving the shipping
+    /// `api/github.ts` — including the ORIGIN GUARD, which is exported for exactly this pin.
+    ///
+    /// MUTATION: change one expected value in `fixtures/github-corpus.json`.
+    /// RESULT:   fails, naming the path, the (base, path) pair or the location.
+    #[test]
+    fn the_typescript_github_corpus() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/github-corpus.json");
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        let mut routed = 0usize;
+        let mut unrouted = 0usize;
+        for case in doc["path_cases"].as_array().expect("a path_cases array") {
+            let value = case["value"].as_str().expect("a path");
+            assert_eq!(
+                safe_path(value),
+                case["safe"].as_bool().expect("a verdict"),
+                "safePath({value:?})"
+            );
+            let got = parse_route(Some(value));
+            match case["route"].as_object() {
+                None => {
+                    assert_eq!(got, None, "parseRoute({value:?})");
+                    unrouted += 1;
+                }
+                Some(route) => {
+                    if case["baseIsString"].as_bool() == Some(true) {
+                        assert_eq!(
+                            got,
+                            Some((
+                                route["base"].as_str().unwrap_or("").to_string(),
+                                route["path"].as_str().unwrap_or("").to_string()
+                            )),
+                            "parseRoute({value:?})"
+                        );
+                        routed += 1;
+                    } else {
+                        // THE PROTOTYPE QUIRK: `UPSTREAMS["constructor"]` is a FUNCTION in the
+                        // TypeScript, so it reaches `upstreamUrl` and dies there as a 400 — the same
+                        // answer an unknown type gets. This port says `None`, and the case is asserted
+                        // rather than skipped so that a route type APPEARING with that name would fail.
+                        assert_eq!(got, None, "parseRoute({value:?}) — the prototype key");
+                        unrouted += 1;
+                    }
+                }
+            }
+        }
+
+        let mut composed = 0usize;
+        let mut refused = 0usize;
+        for case in doc["upstream_cases"]
+            .as_array()
+            .expect("an upstream_cases array")
+        {
+            assert!(
+                case["threw"].is_null(),
+                "the fixture carries a throw this test cannot read: {case}"
+            );
+            let base = case["base"].as_str().expect("a base");
+            let tail = case["path"].as_str().expect("a path");
+            match case["url"].as_str() {
+                Some(want) => {
+                    assert_eq!(
+                        upstream_url(base, tail).as_deref(),
+                        Ok(want),
+                        "upstreamUrl({base:?}, {tail:?})"
+                    );
+                    composed += 1;
+                }
+                None => {
+                    assert_eq!(
+                        upstream_url(base, tail),
+                        Err(case["error"].as_str().unwrap_or("").to_string()),
+                        "upstreamUrl({base:?}, {tail:?})"
+                    );
+                    refused += 1;
+                }
+            }
+        }
+
+        let mut followed = 0usize;
+        let mut none = 0usize;
+        for case in doc["redirect_cases"]
+            .as_array()
+            .expect("a redirect_cases array")
+        {
+            let current = case["current"].as_str().expect("a current URL");
+            let location = case["location"].as_str().unwrap_or("");
+            let got = redirect_target(location, current);
+            match case["out"].as_str() {
+                Some(want) => {
+                    assert_eq!(
+                        got.as_deref(),
+                        Some(want),
+                        "redirectTarget({location:?}, {current:?})"
+                    );
+                    followed += 1;
+                }
+                None => {
+                    assert_eq!(got, None, "redirectTarget({location:?}, {current:?})");
+                    none += 1;
+                }
+            }
+        }
+
+        let pairs = |v: &Value| -> Vec<(String, String)> {
+            v.as_array()
+                .expect("an array")
+                .iter()
+                .map(|p| {
+                    (
+                        p[0].as_str().unwrap_or("").to_string(),
+                        p[1].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect()
+        };
+        let mut header_cases = 0usize;
+        for case in doc["header_cases"]
+            .as_array()
+            .expect("a header_cases array")
+        {
+            let headers = case["headers"].as_object().expect("a headers object");
+            assert_eq!(
+                copy_request_headers(headers),
+                pairs(&case["request"]),
+                "copyRequestHeaders({headers:?})"
+            );
+            assert_eq!(
+                copy_response_headers(headers),
+                pairs(&case["response"]),
+                "copyResponseHeaders({headers:?})"
+            );
+            header_cases += 1;
+        }
+
+        assert!(
+            routed >= 5 && unrouted >= 5 && composed >= 5 && refused >= 3 && followed >= 5 && none >= 5
+                && header_cases >= 5,
+            "the fixture moved: {routed} routed, {unrouted} unrouted, {composed} composed, {refused} refused, \
+             {followed} followed, {none} none, {header_cases} header cases"
+        );
+    }
+
+    #[test]
+    fn the_origin_guard_is_what_the_shape_check_cannot_be() {
+        // `safePath("//evil.example/x")` is TRUE — this handler does not refuse `//` — so the guard is
+        // the ONLY thing between a caller-supplied path and a foreign origin. Round 120 measured the
+        // live defect this closes, with the caller's GitHub token attached.
+        assert!(safe_path("//evil.example/x"));
+        assert!(upstream_url("https://github.com", "//evil.example/x").is_err());
+        assert!(upstream_url("https://github.com", "https://evil.example/x").is_err());
+        assert!(upstream_url("https://github.com", "/\\evil.example").is_err());
+        // The same host is fine, and so is a same-origin protocol-relative path.
+        assert!(upstream_url("https://github.com", "//github.com/x").is_ok());
+        assert_eq!(
+            upstream_url("https://github.com", "/o/r").as_deref(),
+            Ok("https://github.com/o/r")
+        );
+    }
+
+    #[test]
+    fn the_seven_hosts_are_the_difference_from_the_git_gate() {
+        let current = "https://github.com/o/r";
+        assert!(redirect_target("https://objects.githubusercontent.com/a", current).is_some());
+        assert!(
+            redirect_target("https://release-assets.githubusercontent.com/a", current).is_some()
+        );
+        assert!(redirect_target("https://www.github.com/a", current).is_some());
+        // AND THE HOSTS THE GIT GATE REFUSES ARE NOT AUTOMATICALLY ALLOWED HERE EITHER.
+        assert_eq!(
+            redirect_target("https://codeload.github.com/a", current),
+            None
+        );
+        assert_eq!(
+            redirect_target("https://github.com.evil.example/a", current),
+            None
+        );
+        assert_eq!(redirect_target("http://github.com/a", current), None);
     }
 
     #[test]
