@@ -27,7 +27,7 @@
 //!
 //! MIGRATION-TIME EQUIVALENCE, MEASURED (the same tree, both implementations, 2026-09-28):
 //!   * `node scripts/test/contract-vocabulary-check.mjs` → the seven `ok` lines ("FRAMES: both
-//!     artifacts carry the same 5 value(s)", "BOOT_KINDS … 5", "END_REASONS … 6", "10 frame
+//!     artifacts carry the same 5 value(s)", "END_REASONS … 6", "10 frame
 //!     literal(s) in the agent, every one listed (5 known)", "5 boot kind(s) agree in both
 //!     directions", "7 boot kind(s) in bootNotice.ts", "6 end reason(s) in the derivation's table")
 //!     then "contract-vocabulary: the device and the interfaces spell one vocabulary".
@@ -54,17 +54,21 @@ use std::collections::BTreeSet;
 const JSON: &str = "agent/contract-vocabulary.json";
 const TS_GEN: &str = "agent/resources/panel-react/src/lib/contract.gen.ts";
 
-/// The three arrays the two artifacts both carry, with the name each has in the generated TS.
-/// THE TWO LISTS `contract.gen.ts` STILL EMITS, after 2026-09-29.
+/// The arrays the two artifacts both carry, with the name each has in the generated TS.
+/// THE ONE LIST `contract.gen.ts` STILL EMITS, after 2026-09-30.
 ///
 /// `end_reasons` left this table when the derivation that was its only reader moved into
-/// `panel-logic/src/path.rs` — the generator no longer emits `END_REASONS`, and the crate's own copy
-/// is compared against the JSON by `crate_end_reasons` further down. A list nobody imports is a
-/// promise nobody asked for, and `exports-check` refused the emitted one on exactly that ground.
-const ARRAYS: [(&str, &str); 2] = [("frames", "FRAMES"), ("boot_kinds", "BOOT_KINDS")];
+/// `panel-logic/src/path.rs`, and `boot_kinds` left it the same way one round later: the boot notice
+/// is `panel-logic/src/boot_notice.rs` now, so the generator stopped emitting `BOOT_KINDS` (the TYPE
+/// stays — two panel signatures take it) and the crate's own copy is compared against the JSON by
+/// `crate_boot_kinds` further down. A list nobody imports is a promise nobody asked for, and
+/// `exports-check` refused the emitted one on exactly that ground.
+const ARRAYS: [(&str, &str); 1] = [("frames", "FRAMES")];
 
 /// The readers the panel's clauses are about.
-const BOOT_NOTICE: &str = "agent/resources/panel-react/src/lib/bootNotice.ts";
+/// THE BOOT NOTICE IS THE CRATE'S FILE NOW (2026-09-30), so the scan below reads where the kinds are
+/// actually spelled — the same move `wire_fields.rs` made when a family left the TypeScript.
+const BOOT_NOTICE: &str = "agent/resources/panel-logic/src/boot_notice.rs";
 const PATH_RS: &str = "agent/resources/panel-logic/src/path.rs";
 const CRATE_VOCAB: &str = "agent/resources/panel-logic/src/vocabulary.rs";
 const RUNSTATE: &str = "agent/src/runstate.rs";
@@ -201,19 +205,28 @@ fn boot_kind_arms(src: &str) -> Vec<String> {
 
 /// `^\s*case "([a-z-]+)":` — one per line; `^\s*` always succeeds at a line start.
 fn boot_notice_cases(src: &str) -> Vec<String> {
+    // THE CRATE'S SHAPE: `match kind.as_string().as_deref() { Some("first-run") => … }`. The scan
+    // looks for `Some("…")` followed by `=>`, so a string that is merely mentioned in a comment or a
+    // comparison elsewhere is not counted as a case.
     let mut out = Vec::new();
     for line in src.lines() {
         let t = line.trim_start();
-        if let Some(rest) = t.strip_prefix("case \"") {
-            let end = rest
-                .char_indices()
-                .take_while(|(_, c)| c.is_ascii_lowercase() || *c == '-')
-                .last()
-                .map(|(i, c)| i + c.len_utf8())
-                .unwrap_or(0);
-            if end > 0 && rest[end..].starts_with("\":") {
-                out.push(rest[..end].to_string());
-            }
+        let Some(rest) = t.strip_prefix("Some(\"") else {
+            continue;
+        };
+        let end = rest
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_lowercase() || *c == '-')
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        // `")` IS TWO CHARACTERS, and the first version advanced by one — so the `=>` test looked at
+        // the closing quote and the scan found ZERO kinds on a file that spells five.
+        if end > 0
+            && rest[end..].starts_with("\")")
+            && rest[end + 2..].trim_start().starts_with("=>")
+        {
+            out.push(rest[..end].to_string());
         }
     }
     out
@@ -487,18 +500,18 @@ fn check() -> Result<String, String> {
     for k in &cases {
         if !kinds.contains(k) {
             o.bad(format!(
-                "bootNotice.ts switches on kind \"{k}\", which the device never writes"
+                "boot_notice.rs spells kind \"{k}\", which the device never writes"
             ));
         }
     }
     if cases.len() < 2 {
         o.bad(format!(
-            "read {} boot kind(s) out of bootNotice.ts — expected at least 2, so this proves nothing",
+            "read {} boot kind(s) out of boot_notice.rs — expected at least 2, so this proves nothing",
             cases.len()
         ));
     } else {
         o.ok(format!(
-            "{} boot kind(s) in bootNotice.ts, all named by contract-vocabulary.json",
+            "{} boot kind(s) in boot_notice.rs, all named by contract-vocabulary.json",
             cases.len()
         ));
     }
@@ -733,13 +746,15 @@ fn the_boot_kind_arms_and_the_notice_cases_have_their_own_shapes() {
         vec!["first-run".to_string(), "crashed".to_string()]
     );
     assert!(boot_kind_arms("BootKind::FirstRun => FirstRun").is_empty());
-    let notice =
-        "  switch (kind) {\n    case \"crashed\":\n      return x;\n    case \"clean-exit\":\n";
+    // THE CRATE'S SHAPE: `Some("…") =>`, which is what the boot notice spells its arms with now.
+    let notice = "        Some(\"crashed\") => {\n        Some(\"clean-exit\") => \"x\",\n";
     assert_eq!(
         boot_notice_cases(notice),
         vec!["crashed".to_string(), "clean-exit".to_string()]
     );
-    assert!(boot_notice_cases("if (kind === \"crashed\") {}").is_empty());
+    // A comparison is not a case, and a kind mentioned in prose is not one either.
+    assert!(boot_notice_cases("kind.as_string().as_deref() == Some(\"crashed\")").is_empty());
+    assert!(boot_notice_cases("// Some(\"crashed\") => was the old shape").is_empty());
 }
 
 #[test]

@@ -117,8 +117,8 @@ mod tests {
             "// The wire vocabulary: the strings the device writes and the interfaces read.\n\
              // Generated from agent/src/vocabulary.rs by\n\
              // vocabulary::tests::contract_vocabulary_snapshot.\n\
-             // The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked by\n\
-             // scripts/test/contract-vocabulary-check.mjs.\n\
+             // The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked\n\
+             // by agent/tests/contract_vocabulary.rs, which is where that .mjs went (2026-09-29).\n\
              // Do not hand-edit: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.\n{}\n",
             serde_json::to_string_pretty(&as_json()).unwrap()
         );
@@ -126,13 +126,18 @@ mod tests {
         let ts = format!(
             "// GENERATED — do not edit. Source of truth: agent/src/vocabulary.rs\n\
              // Refresh: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot\n\
-             // Checked by scripts/test/contract-vocabulary-check.mjs, which fails by name when either end drifts.\n\n\
+             // Checked by agent/tests/contract_vocabulary.rs, which fails BY NAME when either end drifts.\n\n\
              /** The `ev` field of every control frame the device pushes on /api/events/term. */\n\
              export const FRAMES = {frames} as const;\n\n\
-             /** How the run before this one ended (/api/status.last_boot_kind, /api/boots[].kind). */\n\
-             export const BOOT_KINDS = {boots} as const;\n\n\
+             /** How the run before this one ended (/api/status.last_boot_kind, /api/boots[].kind).\n\
+              *  THE ARRAY IS NOT EMITTED ANY MORE, AND THAT IS A MOVE, NOT A RETIREMENT — the same\n\
+              *  one `END_REASONS` took below. Its only reader was `lib/bootNotice.ts`'s `isKnownKind`,\n\
+              *  and the boot notice is `panel-logic/src/boot_notice.rs` now, where the membership\n\
+              *  test reads the crate's OWN `vocabulary.rs`. A list nobody imports is a promise\n\
+              *  nobody keeps, and `agent/tests/exports_check.rs` refuses one. The TYPE stays: two\n\
+              *  panel signatures take it. */\n\
              export type Frame = (typeof FRAMES)[number];\n\
-             export type BootKind = (typeof BOOT_KINDS)[number];\n\n\
+             export type BootKind = {boot_kinds_union};\n\n\
              // `END_REASONS`, `EXITED_PREFIX` and `EndReason` ARE NOT EMITTED ANY MORE, AND THAT IS\n\
              // A MOVE, NOT A RETIREMENT (2026-09-29, P2). `lib/path.ts` stateFromEnd was their only\n\
              // reader and it is `panel-logic/src/path.rs` now, where the list and the table it keys\n\
@@ -140,7 +145,13 @@ mod tests {
              // against `contract-vocabulary.json` on every run. The JSON still carries both: it is\n\
              // the contract the gate reads.\n",
             frames = serde_json::to_string(FRAMES).unwrap(),
-            boots = serde_json::to_string(BOOT_KINDS).unwrap(),
+            // The union the TYPE is spelled with, generated from the same list the JSON carries — so
+            // the type cannot drift from the vocabulary either.
+            boot_kinds_union = BOOT_KINDS
+                .iter()
+                .map(|k| format!("\"{k}\""))
+                .collect::<Vec<_>>()
+                .join(" | "),
         );
 
         let refresh = std::env::var("SUMMRISE_REFRESH_CONTRACT").is_ok_and(|v| !v.is_empty());

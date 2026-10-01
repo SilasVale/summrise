@@ -27,39 +27,32 @@
 // verdict exists apart from `crashed` is that it must NOT raise this chip: a warning
 // that fires after every routine reboot is one nobody reads by the time a real crash
 // arrives.
+//
+// ── RUST SINCE 2026-09-30 (block ②) ──────────────────────────────────────────────────────────────
+//
+// All three are `agent/resources/panel-logic/src/boot_notice.rs` now, and the differential is **4,510
+// corpus cases with 0 divergences** — values, KEY ORDER and whether each side raised — with every arm
+// reached. `lib/bootNotice.test.ts` and `components/__tests__/BootChip.test.tsx` run UNCHANGED.
+//
+// THE NUMBER BELOW STAYS, and it is passed INTO the crate: it is the panel's own patience with a
+// normal restart, this module exports it, and this module's test imports it — the arrangement
+// `liveness.rs` records for `WORKING_MS`. The VOCABULARY did not stay: `isKnownKind` asks whether
+// `BOOT_KINDS` — generated from the agent's own enum — contains the wire's string, and the crate reads
+// that list from its own `vocabulary.rs` rather than a third copy.
+import { logic } from "../wasm/panelLogic";
 import type { BootKind, LastBoot } from "../hooks/useAgentVitals";
-import { BOOT_KINDS } from "./contract.gen";
 
 /** The kinds, in words. ONE vocabulary for every surface that names a verdict — the chip's
  *  hover, the history card's rows — so a kind cannot be described two ways in one panel.
  *  `null` (an unrecognised kind) says so rather than borrowing another kind's wording. */
-/** IS THIS KIND ONE THE DEVICE CAN REPORT? The wire carries a string, and `BOOT_KINDS` is generated from the agent's
- *  own enum — so a kind this build has never heard of is answered "no" here rather than being described with another
- *  kind's words. (The file's own comment below is about that distinction: an unrecognised kind must render as SILENCE,
- *  never as a guess.) */
-const isKnownKind = (kind: string | null | undefined): kind is BootKind =>
-  !!kind && (BOOT_KINDS as readonly string[]).includes(kind);
-
 export function bootKindLabel(kind: BootKind | null): string {
-  switch (kind) {
-    case "first-run":
-      return "first start";
-    case "clean-exit":
-      return "previous run exited cleanly";
-    case "replaced":
-      return "replaced by a restart";
-    case "machine-restart":
-      return "the machine restarted";
-    case "crashed":
-      return "previous run crashed";
-    default:
-      return "unrecorded";
-  }
+  return logic().boot_kind_label(kind) as string;
 }
 
 /** True for the one kind that means the agent died on its own. Used by the history card to
  *  weigh a row and by the summary line to count; the chip has its own rule below. */
-export const isCrash = (kind: BootKind | null): boolean => kind === "crashed";
+export const isCrash = (kind: BootKind | null): boolean =>
+  logic().is_crash(kind) as boolean;
 
 /** How long a normal restart keeps its chip. Five minutes is measured rather than
  *  chosen: the update flow's own swap+restart is seconds, the panel polls `/api/status`
@@ -93,30 +86,10 @@ export function bootNotice(
   uptimeSecs: number | null | undefined,
   recentCrashes?: number | null,
 ): BootNotice | null {
-  if (!lastBoot) return null;
-  // A KIND THIS BUILD DOES NOT KNOW IS SILENCE, and `isKnownKind` is what says so: the list is generated from the
-  // agent's own enum, so a verdict a NEWER device invents cannot be described with an older one's words. This is the
-  // same outcome the default branch below reaches, stated where the decision belongs.
-  if (!isKnownKind(lastBoot.kind)) return null;
-  switch (lastBoot.kind) {
-    case "crashed": {
-      const base = `${lastBoot.detail}\n\nThe agent is running now — this is how the run before it ended.`;
-      const repeated =
-        typeof recentCrashes === "number" && recentCrashes > 1
-          ? `\n\n${recentCrashes} crashes in the last 24 hours — the Restarts card in Settings lists them.`
-          : "";
-      return { tone: "warn", text: "last run crashed", title: base + repeated };
-    }
-    case "replaced":
-      if (typeof uptimeSecs !== "number" || uptimeSecs >= REPLACED_NOTICE_SECS) {
-        return null;
-      }
-      return { tone: "info", text: "just restarted", title: lastBoot.detail };
-    default:
-      // `first-run` (nothing precedes this run) and `clean-exit` (it stopped on
-      // purpose): neither is news. An unrecognised kind lands here too — a newer agent
-      // inventing a verdict this build cannot explain must render as SILENCE, never as
-      // a warning it does not understand.
-      return null;
-  }
+  return logic().boot_notice(
+    lastBoot,
+    uptimeSecs,
+    recentCrashes,
+    REPLACED_NOTICE_SECS,
+  ) as BootNotice | null;
 }

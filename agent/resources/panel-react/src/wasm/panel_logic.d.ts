@@ -45,6 +45,27 @@ export function attention_steps(steps: any): Array<any>;
 export function badge_icon(count: number, urgent: boolean, base_href: any): string;
 
 /**
+ * The kinds, in words. ONE vocabulary for every surface that names a verdict — the chip's hover, the
+ * history card's rows — so a kind cannot be described two ways in one panel. `null` (an unrecognised
+ * kind) says so rather than borrowing another kind's wording.
+ */
+export function boot_kind_label(kind: any): string;
+
+/**
+ * The chip to render, or `null` for "nothing worth saying".
+ *
+ * `uptime_secs` is required for the `replaced` case and may be null: without a trustworthy "how long
+ * ago", a normal restart cannot be told from a stale one, and the rule then says nothing rather than
+ * guessing.
+ *
+ * `recent_crashes` is the device's own 24 h count from `/api/boots`. It never changes WHETHER the
+ * chip appears — it is the same verdict either way — and it only ever adds a sentence to the hover:
+ * "this happened once" and "this keeps happening" are different situations, and an operator staring
+ * at the chip is exactly who needs to know which.
+ */
+export function boot_notice(last_boot: any, uptime_secs: any, recent_crashes: any, replaced_notice_secs: any): any;
+
+/**
  * Render the recipe body.
  *
  * The shape is deliberate: a machine-readable marker line, the outcome summary (so a recipe that
@@ -138,6 +159,12 @@ export function group_operation(events: any, boundaries: any): any;
  * raw view: what the log says), which is where this deliberately disagrees with `groupEvents`.
  */
 export function group_rounds(events: any): Array<any>;
+
+/**
+ * True for the one kind that means the agent died on its own. Used by the history card to weigh a row
+ * and by the summary line to count; the chip has its own rule.
+ */
+export function is_crash(kind: any): boolean;
 
 /**
  * `livenessOf(input)` — THE PRECEDENCE, in one place.
@@ -374,6 +401,8 @@ export interface InitOutput {
     readonly attempt_age: (a: any, b: any) => [number, number];
     readonly attention_steps: (a: any) => any;
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
+    readonly boot_kind_label: (a: any) => [number, number];
+    readonly boot_notice: (a: any, b: any, c: any, d: any) => any;
     readonly build_recipe: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly card_state: (a: any) => [number, number, number];
     readonly checked_age: (a: any, b: any) => any;
@@ -384,6 +413,7 @@ export interface InitOutput {
     readonly group_events: (a: any) => [number, number, number];
     readonly group_operation: (a: any, b: any) => [number, number, number];
     readonly group_rounds: (a: any) => [number, number, number];
+    readonly is_crash: (a: any) => number;
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly load_notice: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly operation_rows: (a: any) => [number, number, number];
