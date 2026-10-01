@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **174,676 raw / 81,492 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **50,154 raw / 13,577 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **176,144 raw / 82,003 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **50,493 raw / 13,621 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -46,6 +46,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `idle.rs` (4 functions: the silence formatter, the idle rule, its one-line offer, the view prune) | **80,919** (+3,383) | **12,804** (+854) | **278,135** (**+137**) |
 | `version.rs` (2 functions: which of the device's two versions wins, and its label) | **81,189** (+270) | **13,082** (+278) | **278,117** (**−18**) |
 | `marks.rs` (2 functions: a monitor mark's state and its class list) | **81,492** (+303) | **13,577** (+495) | **278,162** (**+45**) |
+| `actions.rs` (1 function: what a browser-action record actually is) | **82,003** (+511) | **13,621** (+44) | **278,045** (**−117**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -109,6 +110,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `idle.rs` | `lib/duration.ts`'s `humanIdle`, `lib/idleSessions.ts`'s `idleSessions` + `idleOfferText`, `lib/sessionViews.ts`'s `pruneSessionViews` (the threshold stays in TypeScript, and it is also the JavaScript DEFAULT) | 4 |
 | `version.rs` | `lib/agentVersion.ts`'s `releaseVersion`, `releaseVersionLabel` — AND `agent/tests/device_version_rule.rs` followed the rule into the crate, because it holds this half equal to the gateway's `wireVersion` | 2 |
 | `marks.rs` | `lib/monitorMark.ts`'s `monitorModifier`, `monitorMarkClass` — AND `agent/tests/one_derivation.rs` followed it: the gate now scans this crate's Rust for the mark-state literals, with `marks.rs` as their declared home | 2 |
+| `actions.rs` | `lib/browserAction.ts`'s `actionVerdict` (the file's own types stay; its `timeout` is declared in the derivation gate's shared words, because a browser action's state is not a command ending) | 1 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 
