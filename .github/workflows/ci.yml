@@ -856,6 +856,16 @@ jobs:
       # standing rule is no new CI job, and this job already carries both languages for these workers.
       - name: Test zen-go translation (Rust)
         run: cargo test --manifest-path proxies/zen-go-proxy/worker/Cargo.toml
+      # AND api-relay's ROUTING, which is the FIRST piece of the relay to move (2026-09-30). This one
+      # is not a Worker at all — `proxies/README.md` says it in its own words ("api-relay is separate —
+      # it ships to the VPS, not to Cloudflare") and the plan's P3 note names it as the highest-risk
+      # item in the migration. `server/routing.mjs` is where the move starts because the module says
+      # what it is: "pure URL routing + entry plumbing helpers", with its own test file.
+      # A STEP IN THIS JOB, for the same reason as the two above: no new CI job, and this job already
+      # carries the relay's JavaScript suite (`node --test` in `proxies/api-relay`), which is the
+      # ORACLE the committed fixture was generated from.
+      - name: Test api-relay routing (Rust)
+        run: cargo test --manifest-path proxies/api-relay/relay/Cargo.toml
       - name: Install wrangler (pinned)
         # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
         # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
