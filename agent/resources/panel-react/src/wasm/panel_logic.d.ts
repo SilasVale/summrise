@@ -2,6 +2,16 @@
 /* eslint-disable */
 
 /**
+ * True when the response proves more history exists past what we rendered.
+ */
+export function adopt_needs_another_page(resp: any, rendered: any, advanced: any): boolean;
+
+/**
+ * Page bound: never chain more than this many reads (wedged-server guard).
+ */
+export function adopt_page_exceeded(page: any, max_pages: any): boolean;
+
+/**
  * `anyCommandRunning(sessions)` — is ANY session holding a command in flight, for the DEVICE mark.
  *
  * `!!sessions?.some(…)`: an absent or null list is `false`, and anything that is NOT a list is a
@@ -339,6 +349,11 @@ export function session_waiting(session: any): boolean;
 export function spark_segments(values: any, width: any, height: any): Array<any>;
 
 /**
+ * Split text into per-frame write slices (pure, unit-tested).
+ */
+export function split_write_slices(text: any, size: any): Array<any>;
+
+/**
  * `stateFromEnd(ended, exitCode, reason)` — THE ONE DERIVATION OF A COMMAND'S STATE.
  *
  * `reason` is the STATUS string the trail carries (`backgrounded`, `closed`, `interrupted`,
@@ -396,6 +411,8 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly adopt_needs_another_page: (a: any, b: any, c: any) => number;
+    readonly adopt_page_exceeded: (a: any, b: any) => number;
     readonly any_command_running: (a: any) => [number, number, number];
     readonly archive_entries: (a: any) => [number, number, number];
     readonly attempt_age: (a: any, b: any) => [number, number];
@@ -432,6 +449,7 @@ export interface InitOutput {
     readonly session_liveness: (a: any, b: number) => [number, number, number, number];
     readonly session_waiting: (a: any) => [number, number, number];
     readonly spark_segments: (a: any, b: any, c: any) => [number, number, number];
+    readonly split_write_slices: (a: any, b: any) => [number, number, number];
     readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];
     readonly strip_ansi: (a: any) => [number, number];
     readonly suggested_title: (a: any) => [number, number, number];

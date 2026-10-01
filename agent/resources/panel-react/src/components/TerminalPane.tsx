@@ -8,6 +8,7 @@ import { Icon } from "../ui/Icon";
 import type { Session } from "../hooks/useSessions";
 import {
   adoptNeedsAnotherPage,
+  MAX_ADOPT_PAGES,
   splitWriteSlices,
   WRITE_SLICE_CHARS,
 } from "../lib/terminalAdopt";
@@ -326,7 +327,10 @@ export function TerminalPane({
     // The dedup below (skip = rendered - start) keeps SSE frames that arrive
     // DURING the chain from being duplicated, exactly as the single-read
     // version did.
-    const MAX_ADOPT_PAGES = 64; // hard bound — a wedged server cannot loop us
+    // THE BOUND IS IMPORTED NOW (2026-09-30), and this line used to declare its own `64` beside a
+    // module that exported the same number — two declarations of one bound, which is the shape this
+    // repository keeps paying for. `adoptPageExceeded` reads the module's copy and this chain reads it
+    // here; a wedged server still cannot loop us, and now both ends would move together.
     // AND IT STOPS WHEN THE PANE DOES (2026-09-24, the panel exploration). The cleanup below disposes
     // the terminal, nulls the refs and cancels the pump, but it used to leave THIS chain running: a
     // read already in flight resolves anyway, the response is written into a disposed xterm (the pump

@@ -34,6 +34,7 @@
 // modules and re-exports their functions, and each module imports the prelude for its own
 // `#[wasm_bindgen]` attribute. The line was here and unused — the build said so on every run, which
 // is how a warning becomes furniture.
+mod adopt;
 mod agent_vitals;
 mod archive;
 mod attention;
@@ -53,6 +54,7 @@ mod update;
 mod vitals;
 mod vocabulary;
 
+pub use adopt::{adopt_needs_another_page, adopt_page_exceeded, split_write_slices};
 pub use agent_vitals::parse_last_boot;
 pub use archive::archive_entries;
 pub use attention::{badge_icon, title_for};

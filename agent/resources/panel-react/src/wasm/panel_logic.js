@@ -1,6 +1,29 @@
 /* @ts-self-types="./panel_logic.d.ts" */
 
 /**
+ * True when the response proves more history exists past what we rendered.
+ * @param {any} resp
+ * @param {any} rendered
+ * @param {any} advanced
+ * @returns {boolean}
+ */
+export function adopt_needs_another_page(resp, rendered, advanced) {
+    const ret = wasm.adopt_needs_another_page(resp, rendered, advanced);
+    return ret !== 0;
+}
+
+/**
+ * Page bound: never chain more than this many reads (wedged-server guard).
+ * @param {any} page
+ * @param {any} max_pages
+ * @returns {boolean}
+ */
+export function adopt_page_exceeded(page, max_pages) {
+    const ret = wasm.adopt_page_exceeded(page, max_pages);
+    return ret !== 0;
+}
+
+/**
  * `anyCommandRunning(sessions)` — is ANY session holding a command in flight, for the DEVICE mark.
  *
  * `!!sessions?.some(…)`: an absent or null list is `false`, and anything that is NOT a list is a
@@ -668,6 +691,20 @@ export function session_waiting(session) {
  */
 export function spark_segments(values, width, height) {
     const ret = wasm.spark_segments(values, width, height);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Split text into per-frame write slices (pure, unit-tested).
+ * @param {any} text
+ * @param {any} size
+ * @returns {Array<any>}
+ */
+export function split_write_slices(text, size) {
+    const ret = wasm.split_write_slices(text, size);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
