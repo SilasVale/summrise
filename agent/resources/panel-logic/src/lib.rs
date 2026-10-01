@@ -53,6 +53,7 @@ mod session_labels;
 mod spark;
 mod update;
 mod vitals;
+mod version;
 mod vocabulary;
 
 pub use adopt::{adopt_needs_another_page, adopt_page_exceeded, split_write_slices};
