@@ -45,6 +45,15 @@ export function attention_steps(steps: any): Array<any>;
 export function badge_icon(count: number, urgent: boolean, base_href: any): string;
 
 /**
+ * Render the recipe body.
+ *
+ * The shape is deliberate: a machine-readable marker line, the outcome summary (so a recipe that
+ * half-failed is honest about it rather than presenting itself as a known-good procedure), then the
+ * commands one per line in order.
+ */
+export function build_recipe(path: any, input: any, marker: any, tag: any): object;
+
+/**
  * `cardState(card)` — the same derivation, over the command card's own fields. It is a separate
  * export because two callers hold a card and not the three arguments, and folding it into one means
  * every call site builds an object to pass three values.
@@ -239,6 +248,12 @@ export function parse_update_status(j: any): object;
 export function parse_vitals_series(j: any): any;
 
 /**
+ * Steps that make a recipe questionable — surfaced in the save form so the operator is not silently
+ * saving a broken procedure as a good one.
+ */
+export function recipe_warnings(steps: any): Array<any>;
+
+/**
  * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
  * an empty series.
  */
@@ -319,6 +334,12 @@ export function state_from_end(ended: any, exit_code: any, reason: any): object;
 export function strip_ansi(input: any): string;
 
 /**
+ * Title shown in the save form, derived from the path so the operator usually only has to confirm
+ * it. Uses the FIRST command (what the run was about) and the step count.
+ */
+export function suggested_title(path: any): any;
+
+/**
  * `summarizePath(steps)` — how much work, how much of it failed, and how long it took.
  *
  * `commandMs` is a FLOOR, not a total: a backgrounded or still-running step has no duration, so
@@ -353,6 +374,7 @@ export interface InitOutput {
     readonly attempt_age: (a: any, b: any) => [number, number];
     readonly attention_steps: (a: any) => any;
     readonly badge_icon: (a: number, b: number, c: any) => [number, number];
+    readonly build_recipe: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly card_state: (a: any) => [number, number, number];
     readonly checked_age: (a: any, b: any) => any;
     readonly derive_path: (a: any, b: any) => [number, number, number];
@@ -373,6 +395,7 @@ export interface InitOutput {
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_update_status: (a: any) => any;
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly recipe_warnings: (a: any) => [number, number, number];
     readonly series_stats: (a: any) => [number, number, number];
     readonly session_active: (a: any, b: number) => [number, number, number];
     readonly session_failed: (a: any) => [number, number, number];
@@ -381,6 +404,7 @@ export interface InitOutput {
     readonly spark_segments: (a: any, b: any, c: any) => [number, number, number];
     readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];
     readonly strip_ansi: (a: any) => [number, number];
+    readonly suggested_title: (a: any) => [number, number, number];
     readonly summarize_path: (a: any) => any;
     readonly terminal_status: (a: number, b: number) => any;
     readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
