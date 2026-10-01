@@ -29,7 +29,7 @@
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{prop, put, type_of};
+use crate::js::{boxed, call_method, prop, put, type_of};
 
 /// `String(v)` AS A JS STRING — NOT through a Rust `String`, because `slice` can cut a surrogate pair
 /// in half and a lone surrogate cannot exist in UTF-8. The engine's coercion keeps it.
@@ -82,35 +82,6 @@ fn read(v: &JsValue, key: &str) -> Result<JsValue, JsValue> {
         )));
     }
     Ok(prop(v, key))
-}
-
-/// `v[name]()` — a method called ON THE VALUE, which is what the TypeScript does. A primitive is
-/// BOXED first (`Reflect::get` raises on one where JavaScript's property access does not), and a
-/// value with no such method raises, which is the behaviour a caller depends on.
-fn call_method(v: &JsValue, name: &str, args: &[JsValue]) -> Result<JsValue, JsValue> {
-    let target = boxed(v);
-    let f = js_sys::Reflect::get(&target, &JsValue::from_str(name))
-        .ok()
-        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-        .ok_or_else(|| JsValue::from_str(&format!("{name} is not a function")))?;
-    let list = Array::new();
-    for a in args {
-        list.push(a);
-    }
-    f.apply(&target, &list)
-}
-
-/// `Object(v)` — ToObject: identity for an object, a wrapper for a primitive.
-fn boxed(v: &JsValue) -> JsValue {
-    let t = type_of(v);
-    if t == "object" || t == "function" {
-        return v.clone();
-    }
-    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("Object"))
-        .ok()
-        .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
-        .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
-        .unwrap_or(JsValue::UNDEFINED)
 }
 
 /// `undefined` as a VALUE, for the places the TypeScript reads a missing property and prints it:
