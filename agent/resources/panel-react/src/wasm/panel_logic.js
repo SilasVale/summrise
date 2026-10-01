@@ -94,6 +94,48 @@ export function badge_icon(count, urgent, base_href) {
 }
 
 /**
+ * The kinds, in words. ONE vocabulary for every surface that names a verdict — the chip's hover, the
+ * history card's rows — so a kind cannot be described two ways in one panel. `null` (an unrecognised
+ * kind) says so rather than borrowing another kind's wording.
+ * @param {any} kind
+ * @returns {string}
+ */
+export function boot_kind_label(kind) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.boot_kind_label(kind);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * The chip to render, or `null` for "nothing worth saying".
+ *
+ * `uptime_secs` is required for the `replaced` case and may be null: without a trustworthy "how long
+ * ago", a normal restart cannot be told from a stale one, and the rule then says nothing rather than
+ * guessing.
+ *
+ * `recent_crashes` is the device's own 24 h count from `/api/boots`. It never changes WHETHER the
+ * chip appears — it is the same verdict either way — and it only ever adds a sentence to the hover:
+ * "this happened once" and "this keeps happening" are different situations, and an operator staring
+ * at the chip is exactly who needs to know which.
+ * @param {any} last_boot
+ * @param {any} uptime_secs
+ * @param {any} recent_crashes
+ * @param {any} replaced_notice_secs
+ * @returns {any}
+ */
+export function boot_notice(last_boot, uptime_secs, recent_crashes, replaced_notice_secs) {
+    const ret = wasm.boot_notice(last_boot, uptime_secs, recent_crashes, replaced_notice_secs);
+    return ret;
+}
+
+/**
  * Render the recipe body.
  *
  * The shape is deliberate: a machine-readable marker line, the outcome summary (so a recipe that
@@ -280,6 +322,17 @@ export function group_rounds(events) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * True for the one kind that means the agent died on its own. Used by the history card to weigh a row
+ * and by the summary line to count; the chip has its own rule.
+ * @param {any} kind
+ * @returns {boolean}
+ */
+export function is_crash(kind) {
+    const ret = wasm.is_crash(kind);
+    return ret !== 0;
 }
 
 /**

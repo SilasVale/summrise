@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **160,582 raw / 75,962 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **40,420 raw / 11,183 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **162,887 raw / 76,964 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **42,384 raw / 11,729 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -41,6 +41,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `update.rs` (5 functions: the four-way log verdict, the update readers, two age formatters) | **68,025** (+5,472) | **10,092** (+710) | **279,038** (**−607**) |
 | `spark.rs` (5 exports: the polyline geometry, its summary, the sustained-load rule) | **72,125** (+4,100) | **10,802** (+710) | **278,585** (**−453**) |
 | `recipe.rs` (3 functions: the recipe body, its title, its warnings) | **75,962** (+3,837) | **11,183** (+381) | **278,181** (**−404**) |
+| `boot_notice.rs` (3 functions: the kind's words, the crash test, the chip) | **76,964** (+1,002) | **11,729** (+546) | **277,950** (**−231**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -93,6 +94,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `update.rs` | `lib/updateDiagnosis.ts`'s `diagnoseUpdate`, `components/UpdateCard.tsx`'s `parseUpdateStatus`, `parseAttempt`, `checkedAge`, `attemptAge` | 5 |
 | `spark.rs` | `lib/spark.ts`'s `sparkSegments`, `seriesStats`, `loadNotice` (its two exported numbers stay in TypeScript and are passed in) | 3 |
 | `recipe.rs` | `lib/recipe.ts`'s `buildRecipe`, `suggestedTitle`, `recipeWarnings` (its marker and tag stay in TypeScript and are passed in) | 3 |
+| `boot_notice.rs` | `lib/bootNotice.ts`'s `bootNotice`, `bootKindLabel`, `isCrash` (the notice window stays in TypeScript and is passed in; the boot vocabulary comes from `vocabulary.rs`, not a third copy) | 3 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 

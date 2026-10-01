@@ -1,8 +1,8 @@
 // The wire vocabulary: the strings the device writes and the interfaces read.
 // Generated from agent/src/vocabulary.rs by
 // vocabulary::tests::contract_vocabulary_snapshot.
-// The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked by
-// scripts/test/contract-vocabulary-check.mjs.
+// The panel's typed copy is resources/panel-react/src/lib/contract.gen.ts; both are checked
+// by agent/tests/contract_vocabulary.rs, which is where that .mjs went (2026-09-29).
 // Do not hand-edit: SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot, then commit.
 {
   "boot_kinds": [
