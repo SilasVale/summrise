@@ -48,12 +48,14 @@ mod js;
 mod liveness;
 mod marks;
 mod monitors;
+mod notify;
 mod path;
 mod recipe;
 mod runs;
 mod session_labels;
 mod spark;
 mod update;
+mod trail;
 mod vitals;
 mod version;
 mod vocabulary;
@@ -74,10 +76,12 @@ pub use liveness::{
     session_liveness, session_waiting,
 };
 pub use monitors::{parse_monitor_change, parse_monitors};
+pub use notify::{permission_hint, read_permission};
 pub use path::{attention_steps, card_state, derive_path, state_from_end, summarize_path};
 pub use recipe::{build_recipe, recipe_warnings, suggested_title};
 pub use runs::{group_operation, operation_rows};
 pub use session_labels::disambiguate_labels;
 pub use spark::{load_notice, series_stats, spark_segments};
 pub use update::{attempt_age, checked_age, diagnose_update, parse_attempt, parse_update_status};
+pub use trail::trail_read_notice;
 pub use vitals::parse_vitals_series;

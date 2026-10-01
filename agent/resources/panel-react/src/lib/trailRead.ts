@@ -26,19 +26,17 @@ import type { ReadState } from "./readState";
  *
  * Returns `null` when the caller's own empty state is TRUE and may be shown.
  */
+// ── RUST SINCE 2026-09-30 (block ②) ─────────────────────────────────────────────────────────────
+//
+// The wording and the rule are `agent/resources/panel-logic/src/trail.rs` now; the differential is 14
+// corpus cases with 0 divergences and every arm reached (null, the in-flight line, the failed line),
+// with the object's key order compared too. `components/__tests__/TrailReadNotice.test.tsx` runs
+// UNCHANGED.
+//
+// THE COMPARISONS ARE STRICT THERE, so a state this build has never heard of takes the IN-FLIGHT
+// branch — the safe direction: an unknown state is not a licence to claim the session ran nothing.
+import { logic } from "../wasm/panelLogic";
+
 export function trailReadNotice(read: ReadState): { text: string; failed: boolean } | null {
-  if (read === "ok") return null;
-  if (read === "unreadable") {
-    return {
-      failed: true,
-      // NOT "the session is empty": the read failed and nothing established
-      // anything about the session. The file may be gone, or the device may be
-      // unreachable — both are different from "it ran nothing".
-      text:
-        "This session's audit trail could not be read from the device, so nothing " +
-        "is shown. This is not an empty history: the file may be gone, or the " +
-        "device may be unreachable.",
-    };
-  }
-  return { failed: false, text: "Reading this session's audit trail…" };
+  return logic().trail_read_notice(read) as { text: string; failed: boolean } | null;
 }
