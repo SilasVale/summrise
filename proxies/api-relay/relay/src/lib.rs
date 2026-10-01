@@ -444,6 +444,140 @@ pub fn collect_response_headers(entries: &[(String, String)], set_cookie: &[Stri
     Value::Object(out)
 }
 
+// ── `/api/proxy`'s DECISIONS: the CORS copy and the upstream request plan ─────────────────────────
+//
+// BYOK-ONLY, AND DEFAULT-CLOSED. The caller MUST supply their own OpenRouter key in `Authorization`;
+// there is no built-in env key to spend, so a request without one is refused with 401 rather than
+// relayed. And any Origin outside the allowlist gets NO `Access-Control-Allow-Origin` header at all —
+// absence is the refusal, which is why the corpus pins `null` rather than a string.
+
+/// The console origins this relay serves. The gateway's `http.ts` holds the same closed set, and
+/// `proxy-gate.test.mjs` is the test that keeps the two copies equal.
+const ALLOWED_ORIGINS: [&str; 2] = ["https://ai.saisi.online", "https://api.saisi.online"];
+
+/// The headers `/api/proxy` will forward upstream. Anything else the caller sends is DROPPED — the
+/// list is an allowlist, not a filter.
+const SAFE: [&str; 6] = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "anthropic-version",
+    "content-type",
+    "user-agent",
+];
+
+/// `new URL(request.url).hostname`, with `""` for a URL that does not parse — the JavaScript's `catch`.
+pub fn request_host(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_default()
+}
+
+/// A loopback Origin is a LOCAL-DEV affordance, not a production grant: `http:`/`https:` on
+/// `localhost` or `127.0.0.1`.
+pub fn is_loopback_origin(origin: &str) -> bool {
+    match url::Url::parse(origin) {
+        Ok(u) => {
+            matches!(u.scheme(), "http" | "https")
+                && matches!(u.host_str(), Some("localhost") | Some("127.0.0.1"))
+        }
+        Err(_) => false,
+    }
+}
+
+/// `corsHeaders(request)` — the object the handler spreads into every reply.
+///
+/// **THE LOOPBACK RULE IS THE TRAP THIS KEEPS CLOSED**: a loopback Origin is reflected only when the
+/// REQUEST HOST is itself loopback, so the deployed relay never reflects a foreign page's
+/// `http://localhost` Origin. The corpus carries that pair both ways.
+pub fn cors_headers(origin: &str, request_host: &str) -> Vec<(String, String)> {
+    let mut out = vec![
+        (
+            "Access-Control-Allow-Methods".to_string(),
+            "GET,POST,OPTIONS".to_string(),
+        ),
+        ("Access-Control-Allow-Headers".to_string(), "*".to_string()),
+    ];
+    let loopback_host = matches!(request_host, "localhost" | "127.0.0.1");
+    if ALLOWED_ORIGINS.contains(&origin) || (is_loopback_origin(origin) && loopback_host) {
+        out.push((
+            "Access-Control-Allow-Origin".to_string(),
+            origin.to_string(),
+        ));
+        out.push(("Vary".to_string(), "Origin".to_string()));
+    }
+    out
+}
+
+/// What the handler decided to do with a request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProxyPlan {
+    /// `OPTIONS` SHORT-CIRCUITS BEFORE THE GATE: the reply is the CORS object and nothing else — no
+    /// authorization check, no upstream call. The corpus found this by carrying an `OPTIONS` request
+    /// WITH a caller key: the JavaScript answered 200 and never dialled, and the first version of this
+    /// port planned an upstream request for it.
+    Preflight,
+    /// The 401 the caller gets, with the JSON body the JavaScript writes.
+    Refused { status: u16, error: String },
+    /// What rides upstream, in order, and whether a body goes with it.
+    Send {
+        headers: Vec<(String, String)>,
+        send_body: bool,
+    },
+}
+
+/// `handler`'s request half: which headers ride upstream, or the refusal.
+///
+/// THE ORDER OF THE THREE WRITES MATTERS AND IS THE JAVASCRIPT'S: the allowlist is copied first, then
+/// `Authorization`, then `Content-Type` — which OVERRIDES a caller's own `content-type`, even though
+/// `content-type` is in the allowlist — and finally the `anthropic-version` default, only if the
+/// caller did not supply one.
+pub fn proxy_upstream_plan(method: &str, headers: &Map<String, Value>) -> ProxyPlan {
+    if method == "OPTIONS" {
+        return ProxyPlan::Preflight;
+    }
+    let get = |name: &str| -> Option<String> {
+        // `request.headers.get(n)` IS CASE-INSENSITIVE, and the harness passes the request's headers as
+        // a plain object — so the lookup folds the name rather than trusting the caller's spelling.
+        headers
+            .iter()
+            .find(|(k, _)| k.to_lowercase() == name)
+            .map(|(_, v)| js_text(v))
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    for name in SAFE {
+        // `if (v)` — TRUTHINESS, so an empty header is not forwarded as an empty header.
+        if let Some(v) = get(name) {
+            if !v.is_empty() {
+                out.push((name.to_string(), v));
+            }
+        }
+    }
+    let Some(client_auth) = get("authorization").filter(|v| !v.is_empty()) else {
+        return ProxyPlan::Refused {
+            status: 401,
+            error: "caller Authorization required (BYOK)".to_string(),
+        };
+    };
+    // THE NAMES ARE LOWERCASED AND THE LIST IS SORTED, because that is what `Headers.set` and
+    // `[...headers.entries()]` do — and the corpus reads the upstream request exactly that way. The
+    // first version kept the caller's capitalisation and the insertion order, which is a different
+    // observable value for the same request.
+    out.push(("authorization".to_string(), client_auth));
+    out.retain(|(k, _)| k != "content-type");
+    out.push(("content-type".to_string(), "application/json".to_string()));
+    if !out.iter().any(|(k, _)| k == "anthropic-version") {
+        out.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+    }
+    ProxyPlan::Send {
+        headers: combine(out),
+        // GET/HEAD carry no body: passing one throws on some runtimes, so only methods with a body send
+        // one — and `includes` is an EXACT, case-sensitive comparison.
+        send_body: matches!(method, "POST" | "PUT" | "PATCH"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -622,6 +756,177 @@ mod tests {
         assert!(
             forwarded >= 10 && refused >= 3 && responses >= 5,
             "the fixture moved: {forwarded} forwarded, {refused} refused, {responses} responses"
+        );
+    }
+
+    /// `/api/proxy`'s DECISIONS, generated by `oracle.mjs proxy` driving the shipping handler with a
+    /// STUBBED fetch — which is how the node suite reaches these gates too. What it decided is read off
+    /// the upstream `init` it passed and off the reply it built.
+    ///
+    /// MUTATION: change one expected header in `fixtures/proxy-corpus.json`.
+    /// RESULT:   fails, naming the origin/method and showing both lists.
+    #[test]
+    fn the_typescript_proxy_corpus() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/proxy-corpus.json");
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        let mut allowed = 0usize;
+        let mut refused_origin = 0usize;
+        for case in doc["cors_cases"].as_array().expect("a cors_cases array") {
+            let origin = case["origin"].as_str().unwrap_or("");
+            // THE FIXTURE CARRIES THE URL'S HOST:PORT, because that is what builds the Request; the
+            // JavaScript then reads `new URL(request.url).hostname` — port stripped — so the port goes
+            // through `request_host` here too rather than being compared directly.
+            let host = request_host(&format!(
+                "https://{}/api/proxy",
+                case["host"].as_str().unwrap_or("")
+            ));
+            let got: Vec<(String, String)> = cors_headers(origin, &host)
+                .into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect();
+            // The reply's headers are a `Headers` object, so the fixture is sorted and lowercased;
+            // the port's object is in insertion order, so the comparison sorts BOTH.
+            let want: Vec<(String, String)> = case["headers"]
+                .as_array()
+                .expect("a headers array")
+                .iter()
+                .map(|p| {
+                    (
+                        p[0].as_str().unwrap_or("").to_string(),
+                        p[1].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect();
+            let mut got_sorted = got.clone();
+            got_sorted.sort();
+            let mut want_sorted = want.clone();
+            want_sorted.sort();
+            assert_eq!(got_sorted, want_sorted, "corsHeaders({origin:?}, {host:?})");
+            if got.iter().any(|(k, _)| k == "access-control-allow-origin") {
+                allowed += 1;
+            } else {
+                refused_origin += 1;
+            }
+        }
+
+        let mut refused = 0usize;
+        let mut sent = 0usize;
+        for case in doc["proxy_cases"].as_array().expect("a proxy_cases array") {
+            // A THROWING CASE WOULD BE UNREAD BY THE ARMS BELOW, so it is a loud failure rather than a
+            // silently skipped one: the oracle records throws, and this corpus has none.
+            assert!(
+                case["threw"].is_null(),
+                "the fixture carries a throw this test cannot read: {case}"
+            );
+            let method = case["method"].as_str().expect("a method");
+            let headers = case["headers"].as_object().expect("a headers object");
+            match proxy_upstream_plan(method, headers) {
+                ProxyPlan::Preflight => {
+                    assert_eq!(method, "OPTIONS", "only OPTIONS short-circuits");
+                    assert_eq!(case["status"].as_u64(), Some(200), "the preflight status");
+                    assert!(case["upstream"].is_null(), "the preflight never dials");
+                }
+                ProxyPlan::Refused { status, error } => {
+                    assert_eq!(
+                        status,
+                        case["status"].as_u64().unwrap_or(0) as u16,
+                        "status for {method} {headers:?}"
+                    );
+                    assert!(
+                        case["upstream"].is_null(),
+                        "the JavaScript dialled for {method}"
+                    );
+                    assert!(
+                        error.contains("BYOK"),
+                        "the refusal names the rule: {error}"
+                    );
+                    refused += 1;
+                }
+                ProxyPlan::Send {
+                    headers: got,
+                    send_body,
+                } => {
+                    let want: Vec<(String, String)> = case["upstream"]
+                        .as_array()
+                        .expect("an upstream array")
+                        .iter()
+                        .map(|p| {
+                            (
+                                p[0].as_str().unwrap_or("").to_string(),
+                                p[1].as_str().unwrap_or("").to_string(),
+                            )
+                        })
+                        .collect();
+                    assert_eq!(got, want, "upstream headers for {method} {headers:?}");
+                    assert_eq!(
+                        send_body,
+                        case["sendBody"].as_bool().unwrap_or(false),
+                        "sendBody for {method}"
+                    );
+                    sent += 1;
+                }
+            }
+        }
+        assert!(
+            allowed >= 3 && refused_origin >= 3 && refused >= 2 && sent >= 5,
+            "the fixture moved: {allowed} allowed, {refused_origin} refused origins, {refused} refused, {sent} sent"
+        );
+    }
+
+    #[test]
+    fn a_loopback_origin_is_only_reflected_by_a_loopback_host() {
+        // THE TRAP THIS KEEPS CLOSED: a foreign page cannot get `http://localhost` reflected by the
+        // deployed relay, because the request host has to be loopback too.
+        let allows = |origin: &str, request_url: &str| {
+            cors_headers(origin, &request_host(request_url))
+                .iter()
+                .any(|(k, _)| k == "Access-Control-Allow-Origin")
+        };
+        assert!(allows(
+            "http://localhost:3000",
+            "https://127.0.0.1:3000/api/proxy"
+        ));
+        assert!(!allows(
+            "http://localhost:3000",
+            "https://r.example/api/proxy"
+        ));
+        assert!(!allows(
+            "https://evil.example",
+            "https://r.example/api/proxy"
+        ));
+        assert!(allows(
+            "https://ai.saisi.online",
+            "https://r.example/api/proxy"
+        ));
+        // An allowed origin is allowed whatever the request host is; only the LOOPBACK rule is paired.
+        assert!(allows(
+            "https://api.saisi.online",
+            "https://evil.example/api/proxy"
+        ));
+    }
+
+    #[test]
+    fn the_caller_key_rides_verbatim_and_x_api_key_never_does() {
+        // `/api/zen` accepts `x-api-key`; THIS relay does not — Authorization only, which is the
+        // difference the node suite pins.
+        let mut headers = Map::new();
+        headers.insert("authorization".to_string(), json!("Bearer sk-or-test"));
+        headers.insert("x-api-key".to_string(), json!("sk-should-not-ride"));
+        headers.insert("cookie".to_string(), json!("a=1"));
+        let ProxyPlan::Send { headers: got, .. } = proxy_upstream_plan("POST", &headers) else {
+            panic!("a caller key was supplied");
+        };
+        let names: Vec<&str> = got.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["anthropic-version", "authorization", "content-type"],
+            "only the allowlist rides"
+        );
+        assert_eq!(
+            got.iter().find(|(k, _)| k == "authorization").unwrap().1,
+            "Bearer sk-or-test"
         );
     }
 
