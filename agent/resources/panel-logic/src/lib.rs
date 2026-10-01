@@ -44,6 +44,7 @@ mod js;
 mod liveness;
 mod monitors;
 mod path;
+mod recipe;
 mod runs;
 mod session_labels;
 mod spark;
@@ -63,6 +64,7 @@ pub use liveness::{
 };
 pub use monitors::{parse_monitor_change, parse_monitors};
 pub use path::{attention_steps, card_state, derive_path, state_from_end, summarize_path};
+pub use recipe::{build_recipe, recipe_warnings, suggested_title};
 pub use runs::{group_operation, operation_rows};
 pub use session_labels::disambiguate_labels;
 pub use spark::{load_notice, series_stats, spark_segments};

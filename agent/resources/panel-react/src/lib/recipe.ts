@@ -21,6 +21,30 @@
 // still goes through the AI (or the operator), because automatic re-execution is
 // the control plane's job (proposal-control-path.md), which is a separate and
 // much larger piece of work. The design's own rule applies — say what is true.
+//
+// ── RUST SINCE 2026-09-30 (block ②) ──────────────────────────────────────────────────────────────
+//
+// All three functions are `agent/resources/panel-logic/src/recipe.rs` now, and the differential is
+// **682 corpus cases with 0 divergences** — values, KEY ORDER and whether each side raised — with
+// every arm reached. `components/__tests__/recipe.test.tsx` (412 lines, the PathView save flow
+// included) runs UNCHANGED against it.
+//
+// THE TWO CONSTANTS BELOW STAY, and they are passed INTO the crate: they are the recipe format's
+// VOCABULARY — what a client greps the shared store for — and this module's own test imports them.
+// It is the split `liveness.rs` records for `WORKING_MS`: the surface owns the words.
+//
+// AND THREE FINDINGS FROM THE DIFFERENTIAL ARE WORTH KNOWING WHEN THIS FILE IS READ:
+//
+//   * **A NULLISH PROPERTY READ RAISES.** `path.summary.steps` on a path with no summary is a
+//     TypeError in the TypeScript, and the first port answered "undefined steps" — writing a recipe
+//     the JavaScript refuses to write.
+//   * **`st.considered.join` IS A METHOD CALL**, so a `considered` that is a non-empty string raises
+//     where the first port answered an empty join.
+//   * **THE TITLE AND THE CONTENT ARE BUILT IN JS**, not in a Rust `String`: `slice(0, 45)` counts
+//     UTF-16 units and can cut a surrogate pair in half, and a lone surrogate cannot exist in UTF-8.
+//     `runs.rs` names that same boundary for a React list key and rounds down; here the string is
+//     RENDERED and written to the device's memory, so it is exact.
+import { logic } from "../wasm/panelLogic";
 import type { SessionPath, PathStep } from "./path";
 
 /** Marker line so a recipe is identifiable in the shared store, and greppable
@@ -42,9 +66,7 @@ interface RecipeDraft {
  *  only has to confirm it. Uses the FIRST command (what the run was about) and
  *  the step count. */
 export function suggestedTitle(path: SessionPath): string {
-  const first = path.steps[0]?.command ?? "empty path";
-  const short = first.length > 48 ? `${first.slice(0, 45)}…` : first;
-  return `Recipe: ${short} (${path.steps.length} steps)`;
+  return logic().suggested_title(path) as string;
 }
 
 interface RecipeInput {
@@ -67,70 +89,16 @@ interface RecipeInput {
  * as a known-good procedure), then the commands one per line in order.
  */
 export function buildRecipe(path: SessionPath, input: RecipeInput): RecipeDraft {
-  const name = input.name.trim() || "untitled";
-  const s = path.summary;
-
-  const outcome: string[] = [`${s.steps} step${s.steps === 1 ? "" : "s"}`];
-  if (s.counts.ok) outcome.push(`${s.counts.ok} succeeded`);
-  if (s.counts.fail) outcome.push(`${s.counts.fail} FAILED`);
-  if (s.counts.warn) outcome.push(`${s.counts.warn} interrupted`);
-  if (s.counts.running) outcome.push(`${s.counts.running} still running`);
-  // `bg` IS NOT `running` AND IS NOT A VERDICT. It was absent from this list, so
-  // a path whose commands were all handed off to run in the background produced
-  // a recipe whose outcome line read complete — the same omission the palette,
-  // the sheet's legend and the state list each had when round 31 added the state,
-  // and the reason `PATH_STATES` now exists as the one list to check against.
-  if (s.counts.bg) outcome.push(`${s.counts.bg} backgrounded`);
-  if (s.counts.muted) outcome.push(`${s.counts.muted} with no verdict`);
-
-  const where = input.sessionLabel
-    ? ` on ${input.sessionKind ? `${input.sessionKind} ` : ""}${input.sessionLabel}`
-    : input.sessionKind
-      ? ` on a ${input.sessionKind} session`
-      : "";
-
-  const lines: string[] = [
+  return logic().build_recipe(
+    path,
+    input,
     RECIPE_MARKER,
-    `# ${name}`,
-    `# Walked${where}. Outcome: ${outcome.join(", ")}.`,
-  ];
-  if (s.counts.fail > 0 || s.counts.warn > 0) {
-    lines.push(
-      "# NOTE: this run did not complete cleanly — review the marked steps before reusing it.",
-    );
-  }
-  if (input.goal) {
-    lines.push(`# Goal: ${input.goal}`);
-  }
-  lines.push("#", "# Commands, in order:");
-  path.steps.forEach((st, i) => {
-    lines.push(`${i + 1}. ${st.command}`);
-    // The reasoning is carried as an indented comment. It is the part a reader
-    // cannot reconstruct: why THIS command, and what else was on the table. A
-    // recipe that keeps only the commands teaches the what and loses the why,
-    // which is the difference between a script and something reusable.
-    if (st.intent) lines.push(`   #    why: ${st.intent}`);
-    if (st.considered.length > 0) {
-      lines.push(`   #    instead of: ${st.considered.join(" | ")}`);
-    }
-  });
-
-  return {
-    title: name.startsWith("Recipe:") ? name : `Recipe: ${name}`,
-    content: lines.join("\n"),
-    tags: [RECIPE_TAG],
-  };
+    RECIPE_TAG,
+  ) as RecipeDraft;
 }
 
 /** Steps that make a recipe questionable — surfaced in the save form so the
  *  operator is not silently saving a broken procedure as a good one. */
 export function recipeWarnings(steps: PathStep[]): string[] {
-  const out: string[] = [];
-  const failed = steps.filter((s) => s.state === "fail").length;
-  const cut = steps.filter((s) => s.state === "warn").length;
-  const live = steps.filter((s) => s.state === "running").length;
-  if (failed) out.push(`${failed} step${failed === 1 ? "" : "s"} failed`);
-  if (cut) out.push(`${cut} step${cut === 1 ? "" : "s"} was interrupted`);
-  if (live) out.push("the run has not finished");
-  return out;
+  return logic().recipe_warnings(steps) as string[];
 }
