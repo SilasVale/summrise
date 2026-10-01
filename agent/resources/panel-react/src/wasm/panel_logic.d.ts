@@ -336,6 +336,13 @@ export function parse_update_status(j: any): object;
 export function parse_vitals_series(j: any): any;
 
 /**
+ * What the operator should be told about the current state, in the panel's own voice — the settings
+ * card renders this verbatim, and it is the ONLY place the difference between "you never turned it
+ * on", "the browser said no" and "this browser cannot" is explained.
+ */
+export function permission_hint(state: any): string;
+
+/**
  * Which per-session views are still worth keeping.
  *
  * THE IDENTITY RETURN IS PART OF THE CONTRACT, not an optimisation. The caller's effect depends on the
@@ -343,6 +350,18 @@ export function parse_vitals_series(j: any): any;
  * would re-render `App` once per poll for ever. **Unchanged in, SAME OBJECT out.**
  */
 export function prune_session_views(views: any, live_sids: any): any;
+
+/**
+ * `readPermission(ctor, permission)` — the browser's answer, read defensively.
+ *
+ * A page in an insecure context has no `Notification` at all, and that is a STATE, not an error: the
+ * caller passes the constructor it found (or nothing) and the permission string it read (or nothing),
+ * because reading `Notification.permission` is the BOUNDARY this module deliberately does not cross.
+ *
+ * `permission ?? …` IS NULLISH COALESCING, not truthiness: an EMPTY STRING is a value the caller read
+ * and is passed through to the strict comparison below, where it answers `default`.
+ */
+export function read_permission(ctor: any, permission: any): string;
 
 /**
  * Steps that make a recipe questionable — surfaced in the save form so the operator is not silently
@@ -482,6 +501,16 @@ export function terminal_status(status: string): object | undefined;
  */
 export function title_for(items: any, base: string, tab: boolean): string;
 
+/**
+ * The sentence a view shows while a read is in flight, or when it failed — or `null` when the caller's
+ * own empty state is TRUE and may be shown.
+ *
+ * THE COMPARISONS ARE STRICT, so anything that is not exactly `"ok"` or `"unreadable"` takes the
+ * in-flight branch — which is the safe direction: a state this build has never heard of is not a
+ * licence to claim the session ran nothing.
+ */
+export function trail_read_notice(read: any): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -523,7 +552,9 @@ export interface InitOutput {
     readonly parse_monitors: (a: any) => [number, number, number];
     readonly parse_update_status: (a: any) => any;
     readonly parse_vitals_series: (a: any) => [number, number, number];
+    readonly permission_hint: (a: any) => [number, number];
     readonly prune_session_views: (a: any, b: any) => [number, number, number];
+    readonly read_permission: (a: any, b: any) => [number, number];
     readonly recipe_warnings: (a: any) => [number, number, number];
     readonly release_version: (a: any) => [number, number];
     readonly release_version_label: (a: any) => [number, number];
@@ -540,6 +571,7 @@ export interface InitOutput {
     readonly summarize_path: (a: any) => any;
     readonly terminal_status: (a: number, b: number) => any;
     readonly title_for: (a: any, b: number, c: number, d: number) => [number, number];
+    readonly trail_read_notice: (a: any) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
