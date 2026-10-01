@@ -204,6 +204,14 @@ export function idle_sessions(sessions: any, threshold_ms: any): Array<any>;
 export function is_crash(kind: any): boolean;
 
 /**
+ * The keys whose markers should be dropped: every key that is NOT in `reachable`.
+ *
+ * `new Set(reachable)` is the ITERABLE protocol, so an array, a string, a Set and a Map all work and a
+ * non-iterable raises — which the corpus carries.
+ */
+export function lag_markers_to_drop(keys: any, reachable: any): Array<any>;
+
+/**
  * `livenessOf(input)` — THE PRECEDENCE, in one place.
  *
  * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
@@ -430,6 +438,21 @@ export function session_liveness(session: any, working_ms: number): string;
 export function session_waiting(session: any): boolean;
 
 /**
+ * `shouldAcceptNavPush(m)`.
+ *
+ * Each `===` is STRICT and on the RAW value, so a numeric `inputValue` equal to a numeric
+ * `valueAtFocus` answers true — and the comparisons are in the source's order, because each one is a
+ * separate reason to follow the push.
+ */
+export function should_accept_nav_push(m: any): boolean;
+
+/**
+ * `stored !== GETTING_STARTED_VERSION` — a STRICT comparison, so `null` (nothing stored, a fresh
+ * install) opens the guide, and so does a stored value from any other version.
+ */
+export function should_show_guide(stored: any, version: any): boolean;
+
+/**
  * Path data for an SVG polyline, one entry per RUN of known values.
  *
  * `values` is oldest-first (the device's order). `width`/`height` are the drawing box; the path is
@@ -539,6 +562,7 @@ export interface InitOutput {
     readonly idle_offer_text: (a: any) => [number, number, number];
     readonly idle_sessions: (a: any, b: any) => [number, number, number];
     readonly is_crash: (a: any) => number;
+    readonly lag_markers_to_drop: (a: any, b: any) => [number, number, number];
     readonly liveness_of: (a: any) => [number, number, number, number];
     readonly load_notice: (a: any, b: any, c: any, d: any) => [number, number, number];
     readonly monitor_mark_class: (a: any, b: any) => [number, number, number];
@@ -563,6 +587,8 @@ export interface InitOutput {
     readonly session_failed: (a: any) => [number, number, number];
     readonly session_liveness: (a: any, b: number) => [number, number, number, number];
     readonly session_waiting: (a: any) => [number, number, number];
+    readonly should_accept_nav_push: (a: any) => number;
+    readonly should_show_guide: (a: any, b: any) => number;
     readonly spark_segments: (a: any, b: any, c: any) => [number, number, number];
     readonly split_write_slices: (a: any, b: any) => [number, number, number];
     readonly state_from_end: (a: any, b: any, c: any) => [number, number, number];

@@ -424,6 +424,23 @@ export function is_crash(kind) {
 }
 
 /**
+ * The keys whose markers should be dropped: every key that is NOT in `reachable`.
+ *
+ * `new Set(reachable)` is the ITERABLE protocol, so an array, a string, a Set and a Map all work and a
+ * non-iterable raises — which the corpus carries.
+ * @param {any} keys
+ * @param {any} reachable
+ * @returns {Array<any>}
+ */
+export function lag_markers_to_drop(keys, reachable) {
+    const ret = wasm.lag_markers_to_drop(keys, reachable);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `livenessOf(input)` — THE PRECEDENCE, in one place.
  *
  * `reachable` is about the TRANSPORT, not the entity: a session on a dead connection cannot be
@@ -891,6 +908,32 @@ export function session_waiting(session) {
 }
 
 /**
+ * `shouldAcceptNavPush(m)`.
+ *
+ * Each `===` is STRICT and on the RAW value, so a numeric `inputValue` equal to a numeric
+ * `valueAtFocus` answers true — and the comparisons are in the source's order, because each one is a
+ * separate reason to follow the push.
+ * @param {any} m
+ * @returns {boolean}
+ */
+export function should_accept_nav_push(m) {
+    const ret = wasm.should_accept_nav_push(m);
+    return ret !== 0;
+}
+
+/**
+ * `stored !== GETTING_STARTED_VERSION` — a STRICT comparison, so `null` (nothing stored, a fresh
+ * install) opens the guide, and so does a stored value from any other version.
+ * @param {any} stored
+ * @param {any} version
+ * @returns {boolean}
+ */
+export function should_show_guide(stored, version) {
+    const ret = wasm.should_show_guide(stored, version);
+    return ret !== 0;
+}
+
+/**
  * Path data for an SVG polyline, one entry per RUN of known values.
  *
  * `values` is oldest-first (the device's order). `width`/`height` are the drawing box; the path is
@@ -1085,6 +1128,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_is_undefined_8865fb403f8fe9d8: function(arg0) {
             const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_jsval_eq_02babf21faa37971: function(arg0, arg1) {
+            const ret = arg0 === arg1;
             return ret;
         },
         __wbg___wbindgen_number_get_2e0e7dee9f701a71: function(arg0, arg1) {
