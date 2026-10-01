@@ -110,12 +110,13 @@ const DEVICE_PROBE_TTL_MS = 30000;
  * outdated badge never cleared.
  *
  * THE SAME RULE AS THE PANEL'S `releaseVersion`
- * (`agent/resources/panel-react/src/lib/agentVersion.ts`), which met it from the other direction: in the
+ * (`agent/resources/panel-logic/src/version.rs` — the rule itself, reached through the panel's
+ * `lib/agentVersion.ts` wrapper), which met it from the other direction: in the
  * desktop shell the status strip read v1.2.354 while Settings reported v1.0.145 for the SAME device. Two
  * copies of a rule is what let them disagree — the panel's own comment — and neither side could see the
  * other until each named it. Change this and change that, or the two answers diverge again.
  *
- * `device-version-rule-check.mjs` holds both to one table.
+ * `agent/tests/device_version_rule.rs` holds both to one table.
  */
 export function wireVersion(j: unknown): string | undefined {
   const o = (j ?? {}) as { release?: unknown; version?: unknown };
