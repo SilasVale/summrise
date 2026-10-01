@@ -12,15 +12,11 @@
  * list, which changes on every poll; returning a fresh object whenever nothing was pruned would
  * re-render `App` once per poll for ever. Unchanged in, SAME OBJECT out.
  */
+import { logic } from "../wasm/panelLogic";
+
 export function pruneSessionViews<V>(
   views: Record<string, V>,
   liveSids: Iterable<string>,
 ): Record<string, V> {
-  const live = new Set(liveSids);
-  const keys = Object.keys(views);
-  const kept = keys.filter((sid) => live.has(sid));
-  if (kept.length === keys.length) return views;
-  const next: Record<string, V> = {};
-  for (const sid of kept) next[sid] = views[sid];
-  return next;
+  return logic().prune_session_views(views, liveSids) as Record<string, V>;
 }

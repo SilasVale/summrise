@@ -18,6 +18,7 @@ import type { Session } from "../hooks/useSessions";
 // The private copy that lived here emitted `1h04m` (the panel writes `1h 04m`) and `0m` for a
 // 45-second silence — a false statement reached by branch order rather than by a decision. One owner
 // now, and the seconds branch comes with it. Re-exported so a test can assert the identity.
+import { logic } from "../wasm/panelLogic";
 import { humanIdle } from "./duration";
 export { humanIdle };
 
@@ -37,21 +38,15 @@ export function idleSessions(
   sessions: Session[],
   thresholdMs: number = IDLE_OFFER_MS,
 ): Session[] {
-  return sessions.filter(
-    (s) =>
-      !s.closed && !s.savedOnly && !s.commandRunning && s.idleMs > thresholdMs,
-  );
+  // THE DEFAULT IS DECIDED HERE, because a JavaScript default parameter fires only for `undefined` —
+  // and the crate takes the threshold as an argument (it is this surface's own number).
+  return logic().idle_sessions(
+    sessions,
+    thresholdMs === undefined ? IDLE_OFFER_MS : thresholdMs,
+  ) as Session[];
 }
 
 /** ONE LINE for the offer: how many, and the longest silence among them. */
 export function idleOfferText(candidates: Session[]): string {
-  if (candidates.length === 0) return "";
-  const longest = Math.max(...candidates.map((s) => s.idleMs));
-  const names = candidates.map((s) => s.label || s.sid);
-  const shown =
-    names.slice(0, 3).join(", ") +
-    (names.length > 3 ? ` +${names.length - 3} more` : "");
-  return `${candidates.length} session${candidates.length === 1 ? "" : "s"} idle for up to ${humanIdle(
-    longest,
-  )} — ${shown}`;
+  return logic().idle_offer_text(candidates) as string;
 }

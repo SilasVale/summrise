@@ -210,3 +210,53 @@ pub fn js_max(a: f64, b: f64) -> f64 {
         a.max(b)
     }
 }
+
+/// `String(v)` AS A JS STRING — NOT through a Rust `String`, because `slice` can cut a surrogate pair
+/// in half and a lone surrogate cannot exist in UTF-8. The engine's coercion keeps it.
+pub fn to_js_string(v: &JsValue) -> JsValue {
+    if type_of(v) == "string" {
+        return v.clone();
+    }
+    if v.is_null() {
+        return JsValue::from_str("null");
+    }
+    if v.is_undefined() {
+        return JsValue::from_str("undefined");
+    }
+    Reflect::get(&js_sys::global(), &JsValue::from_str("String"))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+        .unwrap_or_else(|| JsValue::from_str(""))
+}
+
+/// `a + b` THROUGH THE ENGINE — `String.prototype.concat`, so a lone surrogate survives the join, and
+/// EACH CALL BOXES ITS OWN RECEIVER (`String.prototype.concat` returns a primitive, and a second call
+/// in a chain that does not box reads `concat` off a primitive and silently answers its left operand —
+/// which is a bug this repository has already shipped once, in the console's `mask_token`).
+pub fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
+    let a = to_js_string(a);
+    let b = to_js_string(b);
+    let receiver = boxed(&a);
+    Reflect::get(&receiver, &JsValue::from_str("concat"))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .and_then(|f| f.call1(&receiver, &b).ok())
+        .unwrap_or(a)
+}
+
+/// `v.k` WHERE A NULLISH `v` IS A TypeError — which is not what `prop` does, and the difference is the
+/// whole reason this helper exists: `prop` is the `(j ?? {})` GUARD, right for a parser that answers an
+/// empty shape for a body it cannot use, and a function whose TypeScript has no such guard needs the
+/// raise. `path.summary.steps` on a path with no summary, and `session.closed` on a null entry in a
+/// list, are both that case. A PRIMITIVE is fine: `(5).summary` is `undefined`, because JavaScript
+/// boxes it.
+pub fn read(v: &JsValue, key: &str) -> Result<JsValue, JsValue> {
+    if v.is_null() || v.is_undefined() {
+        return Err(JsValue::from_str(&format!(
+            "Cannot read properties of {} (reading '{key}')",
+            if v.is_null() { "null" } else { "undefined" }
+        )));
+    }
+    Ok(prop(v, key))
+}

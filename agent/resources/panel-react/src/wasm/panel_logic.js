@@ -348,6 +348,58 @@ export function group_rounds(events) {
 }
 
 /**
+ * HOW LONG A SILENCE LASTED — `45s`, `4m`, `1h 04m`.
+ *
+ * THE SHAPE IS THE PANEL'S DOMINANT ONE, with the seconds branch kept: under a minute, seconds are the
+ * useful unit and `0m` is a lie about a 45-second silence.
+ * @param {any} ms
+ * @returns {string}
+ */
+export function human_idle(ms) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.human_idle(ms);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * ONE LINE for the offer: how many, and the longest silence among them.
+ * @param {any} candidates
+ * @returns {any}
+ */
+export function idle_offer_text(candidates) {
+    const ret = wasm.idle_offer_text(candidates);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * The sessions nobody is using: live, silent for longer than the threshold, and NOT holding a command.
+ *
+ * CLOSED SESSIONS ARE NOT CANDIDATES: they have no shell to release (the device closed them when they
+ * exited), and counting them would make the offer's number wrong. `savedOnly` is the same kind of
+ * exclusion.
+ * @param {any} sessions
+ * @param {any} threshold_ms
+ * @returns {Array<any>}
+ */
+export function idle_sessions(sessions, threshold_ms) {
+    const ret = wasm.idle_sessions(sessions, threshold_ms);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * True for the one kind that means the agent died on its own. Used by the history card to weigh a row
  * and by the summary line to count; the chip has its own rule.
  * @param {any} kind
@@ -556,6 +608,24 @@ export function parse_update_status(j) {
  */
 export function parse_vitals_series(j) {
     const ret = wasm.parse_vitals_series(j);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Which per-session views are still worth keeping.
+ *
+ * THE IDENTITY RETURN IS PART OF THE CONTRACT, not an optimisation. The caller's effect depends on the
+ * session list, which changes on every poll; returning a fresh object whenever nothing was pruned
+ * would re-render `App` once per poll for ever. **Unchanged in, SAME OBJECT out.**
+ * @param {any} views
+ * @param {any} live_sids
+ * @returns {any}
+ */
+export function prune_session_views(views, live_sids) {
+    const ret = wasm.prune_session_views(views, live_sids);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -844,6 +914,11 @@ function __wbg_get_imports() {
             const ret = arg0 === null;
             return ret;
         },
+        __wbg___wbindgen_is_object_3c45d4f2dde4e749: function(arg0) {
+            const val = arg0;
+            const ret = typeof(val) === 'object' && val !== null;
+            return ret;
+        },
         __wbg___wbindgen_is_undefined_8865fb403f8fe9d8: function(arg0) {
             const ret = arg0 === undefined;
             return ret;
@@ -881,6 +956,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1);
             return ret;
         }, arguments); },
+        __wbg_done_b41a1d26cdb37fb6: function(arg0) {
+            const ret = arg0.done;
+            return ret;
+        },
         __wbg_from_296ca31f8d0f1c52: function(arg0) {
             const ret = Array.from(arg0);
             return ret;
@@ -893,6 +972,10 @@ function __wbg_get_imports() {
             const ret = arg0.get(arg1);
             return ret;
         },
+        __wbg_get_658f6698067d9515: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.get(arg0, arg1);
+            return ret;
+        }, arguments); },
         __wbg_get_6c896e0571ddae51: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
             return ret;
@@ -901,12 +984,30 @@ function __wbg_get_imports() {
             const ret = arg0[arg1 >>> 0];
             return ret;
         },
+        __wbg_instanceof_Object_67a83cdc00c5d141: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Object;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
         __wbg_isArray_2b41c29f43a3fb12: function(arg0) {
             const ret = Array.isArray(arg0);
             return ret;
         },
         __wbg_isArray_e15a2ff68ffdbef2: function(arg0) {
             const ret = Array.isArray(arg0);
+            return ret;
+        },
+        __wbg_iterator_e3c31c892080e444: function() {
+            const ret = Symbol.iterator;
+            return ret;
+        },
+        __wbg_keys_440be172f17c0265: function(arg0) {
+            const ret = Object.keys(arg0);
             return ret;
         },
         __wbg_length_d4bdea10311bd9cf: function(arg0) {
@@ -937,6 +1038,14 @@ function __wbg_get_imports() {
             const ret = new Array();
             return ret;
         },
+        __wbg_next_33784799010f1bbe: function(arg0) {
+            const ret = arg0.next;
+            return ret;
+        },
+        __wbg_next_f4aac29c42af995c: function() { return handleError(function (arg0) {
+            const ret = arg0.next();
+            return ret;
+        }, arguments); },
         __wbg_push_2baf45db356cf468: function(arg0, arg1) {
             const ret = arg0.push(arg1);
             return ret;
@@ -969,6 +1078,10 @@ function __wbg_get_imports() {
             const ret = arg0.toString(arg1);
             return ret;
         }, arguments); },
+        __wbg_value_f3c585ee8f5ba40c: function(arg0) {
+            const ret = arg0.value;
+            return ret;
+        },
         __wbindgen_generic_0000000000000001: function(arg0) {
             // Cast intrinsic for `F64 -> Externref`.
             const ret = arg0;

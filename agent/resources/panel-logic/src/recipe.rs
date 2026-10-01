@@ -29,60 +29,8 @@
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
-use crate::js::{boxed, call_method, prop, put, type_of};
+use crate::js::{boxed, call_method, js_add, prop, put, read, to_js_string, type_of};
 
-/// `String(v)` AS A JS STRING — NOT through a Rust `String`, because `slice` can cut a surrogate pair
-/// in half and a lone surrogate cannot exist in UTF-8. The engine's coercion keeps it.
-fn to_js_string(v: &JsValue) -> JsValue {
-    if type_of(v) == "string" {
-        return v.clone();
-    }
-    if v.is_null() {
-        return JsValue::from_str("null");
-    }
-    if v.is_undefined() {
-        return JsValue::from_str("undefined");
-    }
-    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("String"))
-        .ok()
-        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-        .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
-        .unwrap_or_else(|| JsValue::from_str(""))
-}
-
-/// `a + b` THROUGH THE ENGINE — `String.prototype.concat`, so a lone surrogate survives the join.
-/// `runs.rs` names the same boundary for a React list key (`slice_units`, rounded down to a whole
-/// character); here the string is RENDERED, so the exact answer is worth one engine call.
-fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
-    let a = to_js_string(a);
-    let b = to_js_string(b);
-    // THE RECEIVER IS BOXED, and this is the third time this repository has paid for the same rule:
-    // `Reflect::get` RAISES on a primitive where JavaScript's property access boxes it. Without the
-    // box the concat silently answered its left operand, and the differential reported
-    // `"Recipe: "` for every title.
-    let receiver = boxed(&a);
-    js_sys::Reflect::get(&receiver, &JsValue::from_str("concat"))
-        .ok()
-        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
-        .and_then(|f| f.call1(&receiver, &b).ok())
-        .unwrap_or(a)
-}
-
-/// `v.k` WHERE A NULLISH `v` IS A TypeError — which is not what `js::prop` does, and the difference
-/// is the whole reason this helper exists: `prop` is the `(j ?? {})` GUARD, right for a parser that
-/// answers an empty shape for a body it cannot use, and this module's TypeScript has no such guard.
-/// `path.summary.steps` on a path with no summary raises (`Cannot read properties of undefined`), and
-/// a port that answered `undefined steps` would write a recipe the JavaScript refuses to write. A
-/// PRIMITIVE is fine: `(5).summary` is `undefined`, because JavaScript boxes it.
-fn read(v: &JsValue, key: &str) -> Result<JsValue, JsValue> {
-    if v.is_null() || v.is_undefined() {
-        return Err(JsValue::from_str(&format!(
-            "Cannot read properties of {} (reading '{key}')",
-            if v.is_null() { "null" } else { "undefined" }
-        )));
-    }
-    Ok(prop(v, key))
-}
 
 /// `undefined` as a VALUE, for the places the TypeScript reads a missing property and prints it:
 /// `${undefined}` is the string `"undefined"`, which is not the same sentence as `${null}`.
@@ -377,15 +325,23 @@ pub fn recipe_warnings(steps: JsValue) -> Result<Array, JsValue> {
         ));
     }
     let list = Array::from(&steps);
-    let count = |state: &str| -> usize {
-        list.iter()
-            .filter(|s| prop(s, "state").as_string().as_deref() == Some(state))
-            .count()
+    // `steps.filter((s) => s.state === …)` — a NULLISH STEP RAISES (`null.state` is a TypeError), which
+    // is what `read` does and what `prop` deliberately does not. Found by adding `[null]` to the
+    // differential's corpus: the first version answered an empty warning list where the JavaScript
+    // answered an exception.
+    let count = |state: &str| -> Result<usize, JsValue> {
+        let mut n = 0;
+        for s in list.iter() {
+            if read(&s, "state")?.as_string().as_deref() == Some(state) {
+                n += 1;
+            }
+        }
+        Ok(n)
     };
     let out = Array::new();
-    let failed = count("fail");
-    let cut = count("warn");
-    let live = count("running");
+    let failed = count("fail")?;
+    let cut = count("warn")?;
+    let live = count("running")?;
     if failed > 0 {
         out.push(&JsValue::from_str(&format!(
             "{failed} step{} failed",
