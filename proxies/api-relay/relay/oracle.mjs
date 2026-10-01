@@ -8,6 +8,7 @@
 // committed so the fixture is REGENERABLE, and it is a `.mjs` for the reason AGENTS.md's carve-outs
 // name — the oracle IS the shipping module, and only a JavaScript runtime can run it.
 import proxyHandler from "../api/proxy.js";
+import zenHandler, { normalizeUpstreamPath } from "../api/zen.js";
 import { validPath, allowedRedirect } from "../api/git.ts";
 import {
   safePath,
@@ -385,7 +386,141 @@ const ghHeaderCases = HEADER_SETS.map((headers) => ({
   response: [...copyResponseHeaders({ headers: new Headers(headers) }).entries()],
 }));
 
-if (MODE === "github") {
+// ── the api/zen gate ─────────────────────────────────────────────────────────────────────────────
+const ZEN_PATHS = [
+  "/v1/messages", "/v1/messages/x", "/v1/chat/completions", "/v1/responses", "/v1/models",
+  "/v1/chat/completions/extra", "/messages", "/",
+  "", "v1/messages", "//evil.example/x", "/%2F%2Fevil.example/x", "/a/../b", "/..", "/a/..",
+  "/%2e%2e/b", "/a%2F..%2Fb", "/a\\b", "/a\u0000b", "/a\r\nb", "/a\u001fb",
+  "/https:/evil.example", "/v1:2/x", "/a:b", "/%zz", "/%FF", "/a+b", "/a%20b",
+  "/v1/messages?x=1", "/%E4%B8%AD", "/a..b", "/a/..b",
+];
+const zenPathCases = ZEN_PATHS.map((value) => {
+  const out = normalizeUpstreamPath(value);
+  return { value, out };
+});
+
+const ZEN_TARGETS = [null, "og", "ds", "qw", "or", "cm", "nope", "constructor", "toString", "", "OG", " og"];
+const ZEN_CREDS = [
+  { "x-api-key": "sk-zen" },
+  { authorization: "Bearer sk-or" },
+  { "x-api-key": "sk-zen", authorization: "Bearer sk-or" },
+  { authorization: "Bearer Bearer sk-x" },
+  { authorization: "bearer sk-lower" },
+  { "x-api-key": "  sk-padded  " },
+  { "x-api-key": "" },
+  {},
+];
+const ZEN_SESSIONS = [
+  {},
+  { "x-opencode-session": "s1" },
+  { "x-client-request-id": "c1" },
+  { session_id: "s2" },
+  { "x-session-id": "s3" },
+  { "x-client-request-id": "c1", session_id: "s2" },
+  { "x-opencode-session": "  spaced  " },
+];
+const ZEN_METHODS = ["POST", "GET", "OPTIONS", "PUT", "HEAD", "DELETE"];
+const ZEN_URL_PATHS = ["/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1/models", "/a/../b", "/%zz", "/x"];
+
+// THE MATRIX IS TARGETED RATHER THAN A CROSS PRODUCT. The first version was every method × target ×
+// credential × session spelling — 4,032 cases and a 1.6 MB fixture, sixteen times every other corpus in
+// this directory, for combinations that differ in nothing (the session header only exists on `og`, and
+// a credential only matters where the auth split reads it). What each SWEEP below is for is named where
+// it is built, and every arm still has its floor in the Rust test.
+const zenRequests = [];
+const push = (method, target, cred, session, zenPath) => {
+  const q = [];
+  if (target !== null) q.push(`target=${encodeURIComponent(target)}`);
+  q.push(`path=${encodeURIComponent(zenPath)}`);
+  zenRequests.push({
+    method,
+    target,
+    requestUrl: `https://r.example/api/zen?${q.join("&")}`,
+    headers: { ...cred, ...session },
+  });
+};
+
+// 1. every method against a representative target and credential — the preflight, the body rule and
+//    the 401.
+for (const method of ZEN_METHODS) {
+  for (const target of [null, "og", "ds", "nope", "constructor"]) {
+    for (const cred of [{ "x-api-key": "sk-zen" }, { authorization: "Bearer sk-or" }, {}]) {
+      push(method, target, cred, {}, "/v1/messages");
+    }
+  }
+}
+// 2. every target, with a credential, against every upstream path — the auth split and the URL.
+for (const target of ZEN_TARGETS) {
+  for (const zenPath of ZEN_URL_PATHS) {
+    push("POST", target, { "x-api-key": "sk-zen" }, {}, zenPath);
+  }
+}
+// 3. every credential spelling on each of og's three auth shapes — the strip-once rule.
+for (const cred of ZEN_CREDS) {
+  for (const zenPath of ["/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1/models"]) {
+    push("POST", "og", cred, {}, zenPath);
+  }
+}
+// 4. every session spelling on og AND on a non-og target — the header is og-only, and the first
+//    spelling with a value wins.
+for (const session of ZEN_SESSIONS) {
+  for (const target of ["og", "ds"]) {
+    push("POST", target, { "x-api-key": "sk-zen" }, session, "/v1/messages");
+  }
+}
+
+const zenCases = [];
+for (const { method, target, requestUrl, headers } of zenRequests) {
+  const seen = {};
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    seen.url = String(url);
+    seen.init = init;
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const body = method === "GET" || method === "HEAD" ? undefined : "{}";
+    const r = await zenHandler(new Request(requestUrl, { method, headers, body }));
+    zenCases.push({
+      method,
+      target,
+      requestUrl,
+      headers,
+      status: r.status,
+      // THE BODY TOO: a refusal's text reaches the caller, so it is part of the decision.
+      body: r.status >= 400 ? await r.clone().text() : null,
+      upstream: seen.init ? [...seen.init.headers.entries()] : null,
+      upstreamUrl: seen.url ?? null,
+      sendBody: seen.init ? seen.init.body !== undefined : null,
+    });
+  } catch (e) {
+    zenCases.push({ method, target, requestUrl, headers, threw: String(e && e.message ? e.message : e) });
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+if (MODE === "zen") {
+  console.log(
+    JSON.stringify(
+      {
+        note: "Generated by proxies/api-relay/relay/oracle.mjs zen from the SHIPPING api/zen.js. Do not edit by hand.",
+        path_cases: zenPathCases,
+        zen_cases: zenCases,
+      },
+      null,
+      1,
+    ),
+  );
+  const sent = zenCases.filter((c) => c.upstream).length;
+  const refused = zenCases.filter((c) => c.status === 401 || c.status === 400).length;
+  const valid = zenPathCases.filter((c) => c.out).length;
+  if (sent < 50 || refused < 20 || valid < 5) {
+    console.error(`oracle: the zen corpus moved (${sent} sent, ${refused} refused, ${valid} valid paths)`);
+    process.exit(1);
+  }
+} else if (MODE === "github") {
   console.log(
     JSON.stringify(
       {
