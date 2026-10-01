@@ -17,6 +17,15 @@
  *
  * ORDER IS PRESENTATION: the tile and the page render in this order. The array is read-only —
  * callers map and filter it, never sort it in place.
+ *
+ * ── WHY THIS IS STILL TYPESCRIPT, SAID RATHER THAN LEFT TO BE INFERRED (block ③, 2026-09-30) ─────
+ *
+ * The migration's inventory counts this file's export as LOGIC, and P0's own rule for that word is
+ * "computes, parses, derives, validates, formats or decides". A CONSTANT LIST DOES NONE OF THOSE — it
+ * is a VOCABULARY, and its whole value is being one declaration that a gate compares against the
+ * WORKER's own `USER_KEY_NAMES`. Moving it into the crate would turn a module constant into a call
+ * that allocates an array per render, and it would put the list on the far side of a boundary from the
+ * test that checks it. So it stays, and this paragraph is the reason rather than an omission.
  */
 export const KEY_NAMES = [
   "DEEPSEEK_API_KEY",

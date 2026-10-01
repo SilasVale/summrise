@@ -609,6 +609,113 @@ pub fn update_control(
     control(&[("kind", JsValue::from_str("none"))])
 }
 
+
+// ── `lib/format.ts` — the console's display formatters ────────────────────────────────────────────
+//
+// THE LAST PIECE OF THE CONSOLE'S LOGIC (block ③), and the smallest: `maskToken` is the only
+// secret-adjacent rendering in the UI. What remains in TypeScript after this is `keyNames.ts` and
+// `i18n.ts`, and each of those carries a written reason in its own file rather than being an
+// omission — a vocabulary list and a dictionary are DATA, not logic.
+
+/// `Object(v)` — ToObject. Identity for an object, a WRAPPER for a primitive, and the receiver
+/// JavaScript's property access and method calls both use. `Reflect::get` raises on a primitive where
+/// the language boxes it, which is a rule this repository has now paid for four times.
+fn boxed(v: &JsValue) -> JsValue {
+    match v.js_typeof().as_string().as_deref() {
+        Some("object") | Some("function") => v.clone(),
+        _ => js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("Object"))
+            .ok()
+            .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+            .unwrap_or(JsValue::UNDEFINED),
+    }
+}
+
+/// `receiver[name](args…)` — a method called on a BOXED receiver, raising where the method is absent,
+/// which is what the TypeScript does (`(5).slice` is a TypeError).
+fn call_method(receiver: &JsValue, name: &str, args: &[JsValue]) -> Result<JsValue, JsValue> {
+    let boxed_receiver = boxed(receiver);
+    let f = js_sys::Reflect::get(&boxed_receiver, &JsValue::from_str(name))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .ok_or_else(|| JsValue::from_str(&format!("{name} is not a function")))?;
+    let list = js_sys::Array::new();
+    for a in args {
+        list.push(a);
+    }
+    f.apply(&boxed_receiver, &list)
+}
+
+/// `a + b + c` THROUGH THE ENGINE, for the same reason `lib/recipe.ts`'s title is: `tok[0]` is the
+/// first UTF-16 UNIT, so masking a token that begins with an astral character produces a LONE
+/// SURROGATE — and a lone surrogate cannot exist in a Rust `String`.
+fn js_concat3(a: &JsValue, b: &str, c: &JsValue) -> JsValue {
+    // `a + b + c` IS NOT `a.concat(b, c)`: the `+` operator applies ToString to every operand, while
+    // `.concat` is whatever the LEFT OPERAND's prototype says it is — and for an array that is
+    // `Array.prototype.concat`, so `maskToken([1,2,3])` came back as an ARRAY where the TypeScript
+    // answers `"1…1,2,3"`. Every operand goes through the engine's `String` first, which is what `+`
+    // does.
+    let to_string = |v: &JsValue| -> JsValue {
+        if v.js_typeof().as_string().as_deref() == Some("string") {
+            return v.clone();
+        }
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("String"))
+            .ok()
+            .and_then(|ctor| ctor.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call1(&JsValue::UNDEFINED, v).ok())
+            .unwrap_or_else(|| JsValue::from_str(""))
+    };
+    let start = boxed(&to_string(a));
+    let mid = boxed(&to_string(&JsValue::from_str(b)));
+    let end = boxed(&to_string(c));
+    let concat = |x: &JsValue, y: &JsValue| -> JsValue {
+        // EACH CALL BOXES ITS OWN RECEIVER, and the first version did not: `String.prototype.concat`
+        // returns a PRIMITIVE, so the second call read `concat` off a primitive, `Reflect::get` raised,
+        // the `unwrap_or_else` swallowed it, and every masked tail came back empty ("1…" for
+        // "12345678"). This is the same rule the module's header names, arriving one call deeper.
+        let x = boxed(x);
+        js_sys::Reflect::get(&x, &JsValue::from_str("concat"))
+            .ok()
+            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+            .and_then(|f| f.call1(&x, y).ok())
+            .unwrap_or(x)
+    };
+    concat(&concat(&start, &mid), &end)
+}
+
+/// `maskToken(tok)` — `vk-1ab…cdef`, the only secret-adjacent rendering in the console.
+///
+/// THE BRANCH IS ON THE UTF-16 LENGTH: at most eight units keeps the first unit and the last three
+/// (`slice(-3)` on a shorter string is the whole string, so the answer is never expanded), and
+/// anything longer keeps the first six and the last four. Both slices go through the ENGINE, and so
+/// does the `tok[0]`, because each of them can land mid-surrogate-pair.
+#[wasm_bindgen]
+pub fn mask_token(tok: JsValue) -> Result<JsValue, JsValue> {
+    // `if (!tok) return ""` — TRUTHINESS, so `null`, `undefined`, the empty string and `0` all answer
+    // the empty string rather than a mask about nothing.
+    if !tok.is_truthy() {
+        return Ok(JsValue::from_str(""));
+    }
+    let receiver = boxed(&tok);
+    let len = js_sys::Reflect::get(&receiver, &JsValue::from_str("length"))
+        .ok()
+        .and_then(|v| v.as_f64());
+    // `tok.length <= 8` — `undefined <= 8` is FALSE, which is how a number or a plain object reaches
+    // the long branch and raises there on the missing `slice`, exactly as the TypeScript does.
+    let short = matches!(len, Some(n) if n <= 8.0);
+    let head = if short {
+        js_sys::Reflect::get(&receiver, &JsValue::from_str("0")).unwrap_or(JsValue::UNDEFINED)
+    } else {
+        call_method(&receiver, "slice", &[JsValue::from_f64(0.0), JsValue::from_f64(6.0)])?
+    };
+    let tail = call_method(
+        &receiver,
+        "slice",
+        &[JsValue::from_f64(if short { -3.0 } else { -4.0 })],
+    )?;
+    Ok(js_concat3(&head, "…", &tail))
+}
+
 // `CONSOLE_POLL_MS` IS NOT HERE, AND THE REASON IS THE SAME ONE THAT KEPT `WORKING_MS` IN THE PANEL.
 // It is the CONSOLE'S OWN POLLING CADENCE, read by two views' intervals; no function in this crate
 // consults it — so moving it would move a number the logic never looks at, and leave the module-level

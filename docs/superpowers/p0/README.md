@@ -197,6 +197,29 @@ The table counts what each file exports, because that is what a caller imports.
 
 **31 LOGIC exports across 8 files** (of 16 files exporting anything; the other 22 exports are rendering or boundary).
 
+#### WHERE EACH OF THE CONSOLE'S EIGHT ENDED (2026-09-30, block ③ closed)
+
+This is the inventory's own tally, closed item by item. Six of the eight are in `gateway/ui-logic`;
+the other two are named decisions, each with its reason written in the file it applies to.
+
+| file | disposition |
+|---|---|
+| `lib/lane.ts` | **Rust** — `bare_prefix`, `lane_class` (the console's first wired module) |
+| `lib/channelState.ts` | **Rust** — `channel_signal`, `channel_label`, `health_tone` |
+| `lib/deviceState.ts` | **Rust** — the tri-state device facts and the tally |
+| `lib/deviceUpdate.ts` | **Rust** — `update_control` and the two-hour window; the localStorage half stays (boundary) |
+| `lib/format.ts` | **Rust** — `mask_token`, and it is the LAST one to move |
+| `lib/keyNames.ts` | **stays** — a VOCABULARY LIST: P0's rule is "computes, parses, derives, validates, formats or decides", and a constant list does none of those. Its whole value is being one declaration `byok.test.mjs` compares against the WORKER's own `USER_KEY_NAMES` |
+| `i18n.ts` | **stays** — 728 keys of DATA read on every render, and THE SEAM IS ALREADY DRAWN AROUND IT: `channelLabel` and `agentSignal` take `t` as a CALLBACK, so moving the dictionary would make the crate call itself through a JS shim and turn every migrated call site into a wasm→JS→wasm round trip |
+| `api/client.ts` | **stays** — BOUNDARY (the `api` object talks to the network) plus wire-shape type declarations, which compute nothing |
+
+**AND THE CONSOLE'S `maskToken` IS THE ONE MOVE THAT COST THE PAYLOAD SOMETHING: +72 gz** (388,332 →
+388,577 raw, 115,668 → 115,740 gz; the wasm went 14,185 → 15,762 gz as a separate fetch). It is the
+smallest family in the migration and it is kept, with the number stated rather than rounded away: a
+regression of 0.06 % is smaller than the two the panel already carries (`session_labels.rs` +816 gz,
+`liveness.rs` +120 gz), and what it buys is that the console's logic is now either in the crate or
+named in a file.
+
 ### The total
 
 **187 logic exports across 54 files** (panel + console).
