@@ -22,6 +22,11 @@ crate-type = ["rlib"]
 # header object's key order is what `forwardHeaders` walks, and the routes table's order is what
 # `resolveRoute` matches against (FIRST match wins).
 serde_json = { version = "1", features = ["preserve_order"] }
+# THE WHATWG URL STANDARD, because the JavaScript's `new URL(...)` is what these decisions are written
+# against — the origin allowlist's loopback rule parses an Origin, and the request host comes out of a
+# URL. Hand-rolling that parser is how a port comes to disagree about `http://LOCALHOST:3000` or an
+# IPv6 literal, and `url` implements the same specification `new URL` does.
+url = "2"
 
 # NO `[workspace] members` LINE HERE, deliberately, and the sibling crates say why: this crate must
 # never be built as part of the agent's workspace, and the agent's release pipeline must never try to
