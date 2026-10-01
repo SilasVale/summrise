@@ -54,7 +54,7 @@ pub fn sse(name: &str, data: &Value) -> String {
 /// JavaScript truthiness, spelled out — `truthy_js` in the sibling crate, and it is duplicated here
 /// for the same reason `sse` is: **the two crates are autonomous satellites and the gateway, and a
 /// shared crate for four lines is a coupling neither asked for.** It is the same eleven lines.
-fn truthy_js(v: &Value) -> bool {
+pub(crate) fn truthy_js(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
