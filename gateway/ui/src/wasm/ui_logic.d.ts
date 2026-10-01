@@ -105,6 +105,16 @@ export function health_tone(known: any, ok: any, total: any): string;
 export function lane_class(prefix: any): string;
 
 /**
+ * `maskToken(tok)` — `vk-1ab…cdef`, the only secret-adjacent rendering in the console.
+ *
+ * THE BRANCH IS ON THE UTF-16 LENGTH: at most eight units keeps the first unit and the last three
+ * (`slice(-3)` on a shorter string is the whole string, so the answer is never expanded), and
+ * anything longer keeps the first six and the last four. Both slices go through the ENGINE, and so
+ * does the `tok[0]`, because each of them can land mid-surrogate-pair.
+ */
+export function mask_token(tok: any): any;
+
+/**
  * `tunnelKnownDown(status)` — THE TRI-STATE RULE, IN ONE PLACE.
  *
  * `status?.tunnel_up === false` — STRICT equality against `false`, so an absent flag and an absent
@@ -155,6 +165,7 @@ export interface InitOutput {
     readonly device_tally: (a: any, b: any) => any;
     readonly health_tone: (a: any, b: any, c: any) => [number, number];
     readonly lane_class: (a: any) => [number, number];
+    readonly mask_token: (a: any) => [number, number, number];
     readonly tunnel_known_down: (a: any) => number;
     readonly tunnel_signal: (a: any, b: any) => [number, number, number];
     readonly update_control: (a: any, b: any, c: any, d: any) => any;

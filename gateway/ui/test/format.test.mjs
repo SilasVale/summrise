@@ -4,6 +4,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { maskToken } from "../src/lib/format.ts";
+// THE CONSOLE'S RUST IS LOADED BEFORE THE ASSERTIONS (block ③). `maskToken` is
+// `gateway/ui-logic/src/lib.rs` now, and that seam is asynchronous under `node --test` — it reads
+// `ui/public/ui_logic_bg.wasm` off disk and `initSync`s it. The browser awaits it in `main.tsx`; a
+// test file awaits it here, which is the arrangement `test/lane.test.mjs` established.
+import { consoleLogic } from "../src/wasm/consoleLogic.ts";
+await consoleLogic();
 
 test("maskToken: empty/null → blank, short kept mostly, long head…tail", () => {
   assert.equal(maskToken(""), "");
