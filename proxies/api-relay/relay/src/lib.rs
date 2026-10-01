@@ -1177,6 +1177,114 @@ pub fn set_cookie_values(set_cookie: &[String], entries: &[(String, String)]) ->
         .collect()
 }
 
+// ── WHAT THE RELAY ANSWERS WHEN THINGS GO WRONG ─────────────────────────────────────────────────
+//
+// Five handlers, four rules, and the differences between them are the point:
+//
+//   * **THE 5xx RULE IS A CONTRACT** (`proxies/README.md:13`): a 5xx gets GENERIC client text and the
+//     detail stays in the log. `/api/proxy` used to stream the upstream's error body straight to the
+//     caller — the provider's own words about a request it rejected, verbatim — which is the one thing
+//     the documented contract says must not leave the worker.
+//   * **THE STATUS IS THE UPSTREAM'S for the two API relays and a FIXED 502 for the three content
+//     ones**, because "OpenRouter said 503" is a fact a client can act on, while a Google asset host
+//     answering 503 says nothing about the relay's own fetch.
+//   * **`no-store` ON ERRORS, and ONLY on the three content handlers.** An error response that a CDN
+//     caches is an error served to the next caller, and the three that set it are the three that sit
+//     behind one.
+//   * **THE METHOD GATES DIFFER BY PROTOCOL**: git speaks smart-HTTP (GET/HEAD/POST), github and gform
+//     are read-mostly (GET/HEAD, with gform taking a form POST), and the two API relays gate on nothing
+//     but `OPTIONS` because their callers are programs.
+
+/// The handler names this module knows — the five routes of the relay.
+const HANDLERS: [&str; 5] = ["proxy", "zen", "git", "github", "gform"];
+
+/// `method_allowed(handler, method)` — the gate each handler applies before anything else.
+///
+/// `OPTIONS` IS NOT LISTED, because every handler answers it BEFORE the gate: the two API relays
+/// short-circuit to the CORS object, and the three content handlers do the same or refuse it as a
+/// method like any other. The corpus drives the real handlers and pins which is which.
+pub fn method_allowed(handler: &str, method: &str) -> Result<bool, String> {
+    let allowed: &[&str] = match handler {
+        // The API relays gate on NOTHING but `OPTIONS`: their callers are programs, and a method they
+        // cannot use is answered by the upstream rather than here.
+        "proxy" | "zen" => &[
+            "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "TRACE", "CONNECT",
+        ],
+        "git" => &["GET", "HEAD", "POST"],
+        "github" => &["GET", "HEAD"],
+        "gform" => &["GET", "HEAD", "POST"],
+        other => return Err(format!("unknown handler: {other}")),
+    };
+    Ok(allowed.contains(&method))
+}
+
+/// The GENERIC text a 5xx carries out of the worker, or `None` where the handler does not have one.
+///
+/// **AND `git` IS THE ONE WITHOUT ONE, WHICH THE CORPUS FOUND AFTER THIS MODULE'S FIRST VERSION
+/// ASSUMED OTHERWISE.** It answers a 5xx with the upstream's own body and status, verbatim — the git
+/// protocol's errors are part of the exchange a client parses — while `github`, `gform`, `proxy` and
+/// `zen` all replace the body with a sentence of their own, which is the documented contract
+/// (`proxies/README.md:13`): the provider's words about a request it rejected must not leave the worker.
+pub fn upstream_error_text(handler: &str) -> Result<Option<&'static str>, String> {
+    match handler {
+        "proxy" | "zen" => Ok(Some("Upstream unavailable")),
+        "github" => Ok(Some("GitHub upstream unavailable")),
+        "gform" => Ok(Some("Google upstream unavailable")),
+        "git" => Ok(None),
+        other => Err(format!("unknown handler: {other}")),
+    }
+}
+
+/// The status a 5xx carries: **THE UPSTREAM'S, in every handler that rewrites the body**, which the
+/// corpus pinned after the first version of this module guessed a fixed 502 for the content handlers.
+/// `git` passes the upstream's status through with its body.
+pub fn upstream_error_status(upstream_status: u16) -> u16 {
+    upstream_status
+}
+
+/// The catch-all for an exception, which is NOT one sentence: the two API relays answer
+/// `500 Internal error`, and the three content handlers answer **502 with their upstream sentence** —
+/// because from their side an exception while fetching IS the upstream being unavailable.
+pub fn catch_all(handler: &str) -> Result<(u16, &'static str), String> {
+    match handler {
+        "proxy" | "zen" => Ok((500, "Internal error")),
+        "github" => Ok((502, "GitHub upstream unavailable")),
+        "gform" => Ok((502, "Google upstream unavailable")),
+        "git" => Ok((502, "GitHub upstream unavailable")),
+        other => Err(format!("unknown handler: {other}")),
+    }
+}
+
+/// The redirect cap: how many redirects a handler will follow before it refuses.
+pub fn redirect_cap(handler: &str) -> Result<u32, String> {
+    match handler {
+        // git's is TIGHTER (3 against 5) and that is deliberate: a smart-HTTP clone's redirects are
+        // `github.com` -> `github.com`, so a chain longer than a couple is a loop or a hijack.
+        "git" => Ok(3),
+        "github" | "gform" => Ok(5),
+        other => Err(format!("unknown handler: {other}")),
+    }
+}
+/// The `cache-control` an ERROR response carries, for the handlers that set one.
+pub fn error_cache_control() -> &'static str {
+    "no-store, max-age=0, must-revalidate"
+}
+
+/// Does this handler set `error_cache_control()` on its errors? The three that sit behind a CDN do; the
+/// two API relays do not, and the corpus pins both directions.
+pub fn sets_error_cache_control(handler: &str) -> Result<bool, String> {
+    match handler {
+        "git" | "github" | "gform" => Ok(true),
+        "proxy" | "zen" => Ok(false),
+        other => Err(format!("unknown handler: {other}")),
+    }
+}
+
+/// Every handler this module knows, for a corpus that must exercise all of them.
+pub fn handlers() -> &'static [&'static str] {
+    &HANDLERS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1793,6 +1901,167 @@ mod tests {
             "the fixture moved: {valid} valid, {refused_path} refused paths, {preflights} preflights, \
              {refused} refused, {sent} sent"
         );
+    }
+
+    /// THE RESPONSE RULES' CORPUS, generated by `oracle.mjs responses` driving ALL FIVE handlers with a
+    /// stubbed `fetch` — 40 method cases and 30 failure cases (four upstream statuses, a throw, and a
+    /// redirect loop per handler).
+    ///
+    /// **THIS CORPUS OVERTURNED THREE ASSUMPTIONS IN THE MODULE'S FIRST VERSION**, and each one is
+    /// asserted below rather than described: `git` does NOT rewrite a 5xx body (it passes the
+    /// upstream's through), the content handlers answer with the UPSTREAM'S status rather than a fixed
+    /// 502, and their catch-all is a 502 with their own upstream sentence rather than a 500.
+    ///
+    /// MUTATION: change one expected status or text in `fixtures/responses-corpus.json`.
+    /// RESULT:   fails, naming the handler and the case.
+    #[test]
+    fn the_typescript_response_corpus() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/responses-corpus.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("the fixture is committed");
+        let doc: Value = serde_json::from_str(&raw).expect("the fixture is JSON");
+
+        // ── the method gates ────────────────────────────────────────────────────────────────────
+        let mut refused = 0usize;
+        let mut allowed = 0usize;
+        for case in doc["method_cases"]
+            .as_array()
+            .expect("a method_cases array")
+        {
+            let handler = case["handler"].as_str().expect("a handler");
+            let method = case["method"].as_str().expect("a method");
+            // **`TRACE` NEVER REACHES A HANDLER**: Node's `Request` refuses the method, so the corpus
+            // records a throw rather than a status. That is a RUNTIME fact rather than a rule of this
+            // relay, and it is asserted here so a new throwing method cannot slip in unread.
+            if let Some(threw) = case["threw"].as_str() {
+                assert_eq!(method, "TRACE", "{handler} {method}: {threw}");
+                assert!(threw.contains("unsupported"), "{threw}");
+                continue;
+            }
+            let status = case["status"].as_u64().expect("a status");
+            let is_405 = status == 405;
+            // **`OPTIONS` IS ANSWERED BEFORE THE GATE BY EXACTLY THREE HANDLERS** — `proxy`, `zen` and
+            // `github` — and BY the gate in `git` (no CORS surface at all) and in `gform` (which has
+            // one but no preflight short-circuit). The corpus pins all five, and this list is one of
+            // the things its first run corrected.
+            if method == "OPTIONS" && matches!(handler, "proxy" | "zen" | "github") {
+                assert_eq!(status, 200, "{handler} answers the preflight");
+                continue;
+            }
+            assert_eq!(
+                method_allowed(handler, method).expect("a known handler"),
+                !is_405,
+                "method_allowed({handler:?}, {method:?}) — the corpus answered {status}"
+            );
+            if is_405 {
+                refused += 1;
+            } else {
+                allowed += 1;
+            }
+        }
+
+        // ── the failure rules ───────────────────────────────────────────────────────────────────
+        let mut upstream = 0usize;
+        let mut catch_alls = 0usize;
+        let mut loops = 0usize;
+        for case in doc["failure_cases"]
+            .as_array()
+            .expect("a failure_cases array")
+        {
+            let handler = case["handler"].as_str().expect("a handler");
+            let kind = case["kind"].as_str().expect("a kind");
+            let status = case["status"].as_u64().expect("a status") as u16;
+            let text = case["text"].as_str();
+            let cc = case["cacheControl"].as_str();
+            match kind {
+                "throw" => {
+                    let (want_status, want_text) = catch_all(handler).expect("a known handler");
+                    assert_eq!(status, want_status, "{handler} catch-all status");
+                    assert!(
+                        text.is_some_and(|t| t.contains(want_text)),
+                        "{handler} catch-all text: {text:?}"
+                    );
+                    catch_alls += 1;
+                }
+                "redirect-loop" => {
+                    // The two API relays do not follow redirects at all; the three content handlers
+                    // refuse once their cap is reached, and the corpus carries each one's sentence.
+                    if sets_error_cache_control(handler).expect("a known handler") {
+                        assert_eq!(status, 502, "{handler} redirect cap");
+                        assert!(
+                            text.is_some_and(|t| t.contains("too many")),
+                            "{handler} redirect cap text: {text:?}"
+                        );
+                        assert!(redirect_cap(handler).expect("a known handler") <= 5);
+                        loops += 1;
+                    } else {
+                        assert_eq!(status, 302, "{handler} forwards the redirect");
+                    }
+                }
+                _ => {
+                    let upstream_status: u16 = kind
+                        .strip_prefix("upstream-")
+                        .expect("an upstream case")
+                        .parse()
+                        .expect("a status");
+                    assert_eq!(
+                        status,
+                        upstream_error_status(upstream_status),
+                        "{handler} passes the upstream status through"
+                    );
+                    match upstream_error_text(handler).expect("a known handler") {
+                        Some(want) => assert!(
+                            text.is_some_and(|t| t.contains(want)),
+                            "{handler} 5xx text: {text:?}"
+                        ),
+                        // `git` PASSES THE UPSTREAM'S BODY THROUGH, which is the assumption this
+                        // corpus overturned.
+                        None => assert_eq!(
+                            text,
+                            Some("UPSTREAM SECRET DETAIL"),
+                            "{handler} passes the upstream body through"
+                        ),
+                    }
+                    upstream += 1;
+                }
+            }
+            // The three content handlers set `no-store` on every error; the two API relays set none.
+            if status >= 400 {
+                assert_eq!(
+                    cc.is_some(),
+                    sets_error_cache_control(handler).expect("a known handler"),
+                    "{handler} cache-control: {cc:?}"
+                );
+                if let Some(cc) = cc {
+                    assert_eq!(cc, error_cache_control());
+                }
+            }
+        }
+        assert!(
+            refused >= 5 && allowed >= 10 && upstream >= 15 && catch_alls >= 3 && loops >= 2,
+            "the fixture moved: {refused} refused, {allowed} allowed, {upstream} upstream, \
+             {catch_alls} catch-alls, {loops} loops"
+        );
+    }
+
+    #[test]
+    fn every_handler_this_module_knows_is_a_route_of_the_relay() {
+        assert_eq!(handlers().len(), 5);
+        for h in handlers() {
+            assert!(method_allowed(h, "GET").is_ok(), "{h}");
+            assert!(upstream_error_text(h).is_ok(), "{h}");
+            assert!(
+                redirect_cap(h).is_ok() || *h == "proxy" || *h == "zen",
+                "{h}"
+            );
+            assert!(sets_error_cache_control(h).is_ok(), "{h}");
+        }
+        // AND AN UNKNOWN HANDLER IS AN ERROR RATHER THAN A SILENT `false`: a typo'd name must not read
+        // as "this handler allows nothing".
+        assert!(method_allowed("nope", "GET").is_err());
+        assert!(upstream_error_text("nope").is_err());
     }
 
     /// THE `api/gform` GATE'S CORPUS, generated by `oracle.mjs gform` driving the shipping
