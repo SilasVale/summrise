@@ -161,11 +161,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/lib/ratelimit.ts",
-      "path": "files/summrise-gate/src/lib/ratelimit.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/store/admin.ts",
       "path": "files/summrise-gate/src/store/admin.ts",
       "group": "summrise-gate"
@@ -223,6 +218,11 @@
     {
       "name": "src/store/users.ts",
       "path": "files/summrise-gate/src/store/users.ts",
+      "group": "summrise-gate"
+    },
+    {
+      "name": "src/lib/ratelimit.ts",
+      "path": "files/summrise-gate/src/lib/ratelimit.ts",
       "group": "summrise-gate"
     },
     {
