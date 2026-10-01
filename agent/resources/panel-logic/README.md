@@ -17,8 +17,8 @@ optimizes, installs all three artifacts and prints their sizes.
 
 | artifact | size | goes to | why there |
 |---|---|---|---|
-| `panel_logic_bg.wasm` | **173,028 raw / 80,919 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
-| `panel_logic.js` (the `--target web` glue) | **47,103 raw / 12,804 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
+| `panel_logic_bg.wasm` | **173,812 raw / 81,189 gz** | `agent/resources/panel/` | served by the agent beside panel.js, **fetched and compiled by `index.html`'s inline module and awaited before the first render** |
+| `panel_logic.js` (the `--target web` glue) | **48,381 raw / 13,082 gz** | `panel-react/src/wasm/` | imported by the panel's loader; minified into panel.js |
 | `panel_logic.d.ts` | — | `panel-react/src/wasm/` | `tsc --noEmit` needs it for the glue's types |
 
 **These numbers move with every family, and they are the FIRST-LOAD payload's business only where the
@@ -44,6 +44,7 @@ the glue is minified into `panel.js`, so it is. Measured per family, with
 | `boot_notice.rs` (3 functions: the kind's words, the crash test, the chip) | **76,964** (+1,002) | **11,729** (+546) | **277,950** (**−231**) |
 | `adopt.rs` (3 functions: the paging decision, the page bound, the write slices) | **77,536** (+572) | **11,950** (+221) | **277,998** (**+48**) |
 | `idle.rs` (4 functions: the silence formatter, the idle rule, its one-line offer, the view prune) | **80,919** (+3,383) | **12,804** (+854) | **278,135** (**+137**) |
+| `version.rs` (2 functions: which of the device's two versions wins, and its label) | **81,189** (+270) | **13,082** (+278) | **278,117** (**−18**) |
 
 **AND `spark.rs` IS THE ONE FAMILY WHOSE WASM COST WAS MEASURED TWICE, because the first version was
 8 KB more expensive than the family.** It formats coordinates with `toFixed(2)`, and the first port
@@ -104,6 +105,7 @@ this crate, then `npm run build` in `panel-react`** (the TS wrapper may need the
 | `boot_notice.rs` | `lib/bootNotice.ts`'s `bootNotice`, `bootKindLabel`, `isCrash` (the notice window stays in TypeScript and is passed in; the boot vocabulary comes from `vocabulary.rs`, not a third copy) | 3 |
 | `adopt.rs` | `lib/terminalAdopt.ts`'s `adoptNeedsAnotherPage`, `adoptPageExceeded`, `splitWriteSlices` (both numbers stay in TypeScript and are passed in — the slice budget is also the JavaScript DEFAULT, which the wrapper decides) | 3 |
 | `idle.rs` | `lib/duration.ts`'s `humanIdle`, `lib/idleSessions.ts`'s `idleSessions` + `idleOfferText`, `lib/sessionViews.ts`'s `pruneSessionViews` (the threshold stays in TypeScript, and it is also the JavaScript DEFAULT) | 4 |
+| `version.rs` | `lib/agentVersion.ts`'s `releaseVersion`, `releaseVersionLabel` — AND `agent/tests/device_version_rule.rs` followed the rule into the crate, because it holds this half equal to the gateway's `wireVersion` | 2 |
 
 ## THE SYNC STORY, AND IT ENDED ON 2026-09-29
 

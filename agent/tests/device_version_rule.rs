@@ -2,7 +2,7 @@
 //!
 //! "Which of the device's two version fields wins" is implemented on BOTH sides:
 //!
-//!   panel    agent/resources/panel-react/src/lib/agentVersion.ts   releaseVersion()
+//!   panel    agent/resources/panel-logic/src/version.rs            release_version()
 //!   gateway  gateway/src/plugins/mcp.ts                            wireVersion()
 //!
 //! They cannot share code — different packages, different deploy targets — and BOTH have been broken:
@@ -32,7 +32,11 @@ mod common;
 use common::decomment;
 use std::fs;
 
-const PANEL: &str = "agent/resources/panel-react/src/lib/agentVersion.ts";
+/// THE PANEL'S HALF IS THE CRATE'S NOW (block ②, 2026-09-30): `agentVersion.ts` is a thin wrapper that
+/// calls `release_version`, so the RULE — which field wins, and in what order — lives in Rust. The
+/// subject of this gate follows the rule, which is the same move `wire_fields.rs` made when a console
+/// family left the TypeScript.
+const PANEL: &str = "agent/resources/panel-logic/src/version.rs";
 const GATEWAY: &str = "gateway/src/plugins/mcp.ts";
 
 struct Streams {
@@ -46,7 +50,13 @@ struct Streams {
 /// than a pass.
 fn body_of(src: &str, name: &str) -> String {
     let c: Vec<char> = src.chars().collect();
-    let marker = format!("export function {name}(");
+    // THE PANEL'S HALF IS RUST NOW, so the marker is `pub fn` — and the gateway's is still
+    // `export function`, which is why this tries both rather than being rewritten to one shape.
+    let marker = if src.contains(&format!("pub fn {name}(")) {
+        format!("pub fn {name}(")
+    } else {
+        format!("export function {name}(")
+    };
     let Some(at) = find(src, &marker, 0) else {
         return String::new();
     };
@@ -84,14 +94,18 @@ fn find(hay: &str, needle: &str, from: usize) -> Option<usize> {
 fn first_version_branch(body: &str) -> Option<String> {
     let c: Vec<char> = body.chars().collect();
     let mut from = 0;
-    while let Some(i) = find(body, "if (", from) {
+    // `if (` IS THE JAVASCRIPT'S SHAPE; the Rust half writes `if let Some(…) = …`. Both are scanned, and
+    // the branch is read up to WHERE ITS BODY STARTS — `{`, `;` or the end of the line — rather than to
+    // the first `)`, because the Rust condition's first `)` closes the binding and would cut the field
+    // name off: `if let Some(v) = string_field(&s, "release")` would read as naming nothing.
+    while let Some(i) = find(body, "if ", from) {
         let i = body[..i].chars().count();
-        let start = i + "if (".chars().count();
+        let start = i + "if ".chars().count();
         let mut j = start;
-        while j < c.len() && c[j] != ')' {
+        while j < c.len() && !matches!(c[j], '{' | ';' | '\n') {
             j += 1;
         }
-        if j < c.len() {
+        if j > start {
             let branch: String = c[start..j].iter().collect();
             if branch.contains("release") || branch.contains("version") {
                 return Some(branch);
@@ -140,9 +154,9 @@ fn check() -> Streams {
     let mut problems: Vec<String> = Vec::new();
 
     // 1. Each side must still implement the rule, under a name, so a reader can find it.
-    if !panel.contains("export function releaseVersion(") {
+    if !panel.contains("pub fn release_version(") {
         problems.push(format!(
-            "{PANEL}: `releaseVersion` is gone — the panel's half of the rule has no name."
+            "{PANEL}: `release_version` is gone — the panel's half of the rule has no name."
         ));
     }
     if !gateway.contains("export function wireVersion(") {
@@ -156,7 +170,7 @@ fn check() -> Streams {
     //    `version` is the FROZEN Cargo protocol version, so reading it first is what showed v1.0.145
     //    forever.
     for (src, name, label) in [
-        (&panel, "releaseVersion", PANEL),
+        (&panel, "release_version", PANEL),
         (&gateway, "wireVersion", GATEWAY),
     ] {
         let body = body_of(src, name);
@@ -177,9 +191,10 @@ fn check() -> Streams {
              device; if this file does not say so, the next change here is invisible from there."
         ));
     }
-    if !gateway_raw.contains("agent/resources/panel-react/src/lib/agentVersion.ts") {
+    if !gateway_raw.contains("agent/resources/panel-logic/src/version.rs") {
         problems.push(format!(
-            "{GATEWAY}: no longer names the panel's `agentVersion.ts`. Same reason, other direction."
+            "{GATEWAY}: no longer names the panel's rule (`agent/resources/panel-logic/src/version.rs`, \
+             reached through `lib/agentVersion.ts`). Same reason, other direction."
         ));
     }
 
@@ -223,11 +238,17 @@ fn the_branch_is_read_from_the_returns_not_from_the_annotation() {
     // the whole body measured DECLARATION order. The branches are what the rule lives in.
     let swapped = "  return as { release?: unknown; version?: unknown }\n    if (v.version) return v.version;\n    if (v.release) return v.release;";
     let first = first_version_branch(swapped).expect("a branch naming a field");
-    assert_eq!(first.trim(), "v.version");
+    assert!(first.contains("version"), "the branch is read: {first:?}");
     assert!(
         !first.contains("release"),
         "the frozen version is read first"
     );
+    // AND THE RUST SHAPE, where the field name sits inside the binding: the branch has to be read past
+    // the `)` that closes `Some(…)`, or a correct port reads as naming nothing.
+    let rust = "    if let Some(release) = string_field(&s, \"release\") {\n        return release;\n    }\n    if let Some(version) = string_field(&s, \"version\") {";
+    let first_rust = first_version_branch(rust).expect("a Rust branch");
+    assert!(first_rust.contains("release"), "{first_rust:?}");
+    assert!(!first_rust.contains("version"), "{first_rust:?}");
     let right = "  if (v.release) return v.release;\n  if (v.version) return v.version;";
     assert!(first_version_branch(right)
         .expect("a branch")

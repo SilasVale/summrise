@@ -647,6 +647,47 @@ export function recipe_warnings(steps) {
 }
 
 /**
+ * `releaseVersion(status)` — the npm release if the device sent one, else the frozen protocol version,
+ * else nothing.
+ *
+ * `(status ?? {})` IS THE FIRST THING THAT HAPPENS, and it is why a nullish status answers `""` rather
+ * than raising. Everything else is read off a BOXED value, because `(5).release` is `undefined` in
+ * JavaScript — a primitive has no properties but is not an error either.
+ * @param {any} status
+ * @returns {string}
+ */
+export function release_version(status) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.release_version(status);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * `v1.2.354`, or `v?` when the device reported neither — never a bare "v".
+ * @param {any} status
+ * @returns {string}
+ */
+export function release_version_label(status) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.release_version_label(status);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * min / avg / max over the known readings, or `null` when there are none. Never invents a zero for
  * an empty series.
  * @param {any} values
