@@ -1023,6 +1023,22 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 | **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**41 个公开项、26 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
 | **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
 
+**而操作者 2026-09-30 的三个决定** ✓：
+
+1. **P4 做** ✓ —— 而**它已经落地了** ✓：`index/landing/` 在构建时渲染整份文档 ✓，
+   `index/src/landing/{setup,npm-only}.js` 是它产出的两个 arm ✓，
+   而 `index/src/page.js` 只剩三个 URL 的替换与策略 ✓。
+   **这一轮补的是接线** ✓：`build.sh index` 现在会重新渲染 ✓，
+   而 `index` 作业跑 `cargo test --manifest-path index/landing/Cargo.toml` ✓——
+   **那条测试把"跟踪的 arm 就是这个 crate 渲染出来的"钉住** ✓（变异：改 `page.rs` 一个字而不重新生成 →
+   失败，并打印"Regenerate with `index/landing/build.sh`" ✓）。
+2. **P1 那 8 个例外逐个复查** ✓——**2 个能搬** ✓（`contrast-probe-check` 与 `landing-check`：
+   **它们不 spawn 任何东西** ✓，一个是解析器、一个是判官 ✓），
+   **6 个不能** ✓：`console-assets-check` / `panel-sheet-freshness-check`（跑 npm 构建 ✓）、
+   `console-smoke-check`（跑 smoke 脚本 ✓）、`main-shape-check`（问 git ✓）、
+   `npm-test-floored`（跑 npm test ✓）、`press-anchor-check`（跑发射器 `--emit` ✓）。
+3. **P3 切流：待操作者确认对 relay 的理解** ✓（它在回答里问"relay 是什么" ✓）。
+
 **而剩下的是三件计划从一开始就写明"由操作者决定"的事** ✓：
 
 1. **P3 的切流**：gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
