@@ -254,13 +254,11 @@ async fn proxy(State(relay): State<Relay>, req: axum::extract::Request) -> Respo
             headers: plan,
             send_body,
         } => {
-            let bytes = if send_body {
-                axum::body::to_bytes(body, 8 * 1024 * 1024)
-                    .await
-                    .unwrap_or_default()
-            } else {
-                Default::default()
-            };
+            // **STREAMED, NOT BUFFERED.** `entry.mjs` hands the handler `Readable.toWeb(req)`; this read
+            // the whole body into memory with an 8 MiB cap, and the README documents a **725 MB push
+            // path** — so a large body did not merely run slowly, it failed. The body rides as a stream
+            // and the only limit left is the upstream's.
+            let stream = body.into_data_stream();
             let mut request = relay.client.request(
                 reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST),
                 relay.dial("https://openrouter.ai/api/v1/messages"),
@@ -269,7 +267,7 @@ async fn proxy(State(relay): State<Relay>, req: axum::extract::Request) -> Respo
                 request = request.header(k, v);
             }
             if send_body {
-                request = request.body(bytes.to_vec());
+                request = request.body(reqwest::Body::wrap_stream(stream));
             }
             forward(relay.clone(), request, &cors).await
         }
@@ -302,13 +300,11 @@ async fn zen(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
             headers: plan,
             send_body,
         } => {
-            let bytes = if send_body {
-                axum::body::to_bytes(body, 8 * 1024 * 1024)
-                    .await
-                    .unwrap_or_default()
-            } else {
-                Default::default()
-            };
+            // **STREAMED, NOT BUFFERED.** `entry.mjs` hands the handler `Readable.toWeb(req)`; this read
+            // the whole body into memory with an 8 MiB cap, and the README documents a **725 MB push
+            // path** — so a large body did not merely run slowly, it failed. The body rides as a stream
+            // and the only limit left is the upstream's.
+            let stream = body.into_data_stream();
             let mut request = relay.client.request(
                 reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST),
                 relay.dial(&url),
@@ -317,7 +313,7 @@ async fn zen(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
                 request = request.header(k, v);
             }
             if send_body {
-                request = request.body(bytes.to_vec());
+                request = request.body(reqwest::Body::wrap_stream(stream));
             }
             forward(relay.clone(), request, &cors).await
         }
@@ -363,13 +359,11 @@ async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
     };
     let headers = request_headers(&parts.headers);
     let plan = summrise_relay::git_request_headers(&headers);
-    let bytes = if method == "POST" {
-        axum::body::to_bytes(body, 8 * 1024 * 1024)
-            .await
-            .unwrap_or_default()
-    } else {
-        Default::default()
-    };
+    // Streamed for the same reason as the API relays: a git push can be hundreds of megabytes. It is an
+    // `Option` because a redirect loop may want the body again and a stream cannot be rewound — the first
+    // attempt takes it, and a later hop that needs one is answered by the upstream rather than by a
+    // replayed body.
+    let mut stream = Some(body.into_data_stream());
 
     let mut current = url;
     let mut redirects = 0u32;
@@ -387,7 +381,9 @@ async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
             request = request.header(k, v);
         }
         if method == "POST" {
-            request = request.body(bytes.to_vec());
+            if let Some(stream) = stream.take() {
+                request = request.body(reqwest::Body::wrap_stream(stream));
+            }
         }
         let response = match send(&relay, request).await {
             Ok(r) => r,
@@ -432,11 +428,15 @@ async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
                 "cache-control".to_string(),
                 summrise_relay::error_cache_control().to_string(),
             ));
-            let body = response.bytes().await.unwrap_or_default();
+            // **AND THE RESPONSE STREAMS TOO.** `entry.mjs` reads the upstream body and writes each chunk
+            // as it arrives; `response.bytes()` waits for the END of it — which for a long SSE generation
+            // means holding the whole thing in memory and sending the first byte minutes late. The
+            // contract says a streamed body is forwarded UNTIMED, and forwarding it as a stream is what
+            // makes that true rather than merely intended.
             return (
                 StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
                 build_headers(&pairs, &[]),
-                Body::from(body),
+                Body::from_stream(response.bytes_stream()),
             )
                 .into_response();
         }
@@ -530,11 +530,10 @@ async fn forward(
                 .collect()
         })
         .unwrap_or_default();
-    let body = response.bytes().await.unwrap_or_default();
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
         build_headers(&pairs, cors),
-        Body::from(body),
+        Body::from_stream(response.bytes_stream()),
     )
         .into_response()
 }
@@ -627,6 +626,58 @@ mod tests {
                     let _ = sock.read(&mut buf).await;
                     let response = format!(
                         "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    );
+                    let _ = sock.write_all(response.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// A stub that COUNTS THE BYTES IT RECEIVES and answers with the number — so a test can see whether
+    /// a body arrived whole, and whether it arrived at all.
+    async fn stub_count() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    // Read the HEAD, take the declared length from it, then read exactly that many bytes.
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 65536];
+                    let mut head_end = 0usize;
+                    loop {
+                        let n = sock.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        if head_end == 0 {
+                            if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                                head_end = at + 4;
+                            }
+                        }
+                        if head_end > 0 {
+                            let head = String::from_utf8_lossy(&buf[..head_end]).to_lowercase();
+                            let want: usize = head
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length:"))
+                                .and_then(|v| v.trim().parse().ok())
+                                .unwrap_or(0);
+                            if buf.len() >= head_end + want {
+                                break;
+                            }
+                        }
+                    }
+                    let body_len = buf.len().saturating_sub(head_end);
+                    let answer = format!("{body_len}");
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                        answer.len()
                     );
                     let _ = sock.write_all(response.as_bytes()).await;
                     let _ = sock.shutdown().await;
@@ -922,6 +973,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_body_larger_than_the_old_cap_reaches_the_upstream_whole() {
+        // **TWELVE MEBIBYTES, AGAINST AN EIGHT MEBIBYTE CAP THAT NO LONGER EXISTS.** The handlers read the
+        // body into memory with a cap until this round, and `proxies/README.md` documents a **725 MB push
+        // path** — so a large push did not run slowly, it failed. The stub counts what it received, which
+        // is the only way to tell "streamed" from "truncated at the cap".
+        let origin = stub_count().await;
+        let big = "x".repeat(12 * 1024 * 1024);
+        let (status, _, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .method("POST")
+                .uri("/api/git/o/r.git/git-receive-pack")
+                .header("host", "v.saisi.online")
+                .header("content-length", big.len().to_string())
+                .body(Body::from(big))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body,
+            (12 * 1024 * 1024).to_string(),
+            "the upstream received the whole body"
+        );
+    }
+
+    #[tokio::test]
     async fn a_git_method_outside_the_protocol_is_refused_with_no_store() {
         let relay = relay_at("http://127.0.0.1:1".to_string());
         let (status, headers, body) = call(
@@ -1031,11 +1109,16 @@ mod tests {
             headers.get("cache-control").and_then(|v| v.to_str().ok()),
             Some("no-store, max-age=0, must-revalidate")
         );
-        // AND THIS HANDLER KEEPS THE UPSTREAM'S LENGTH, unlike the two that rewrite bodies: a packfile
-        // streams through untouched, so the length still describes what is being sent.
-        assert_eq!(
-            headers.get("content-length").and_then(|v| v.to_str().ok()),
-            Some("9")
+        // **AND THE REPLY CARRIES NO `content-length`, WHICH IS THE SHIPPING BEHAVIOUR.** The entry
+        // strips it with `collectResponseHeaders` (the decompression rule) and Node then frames the reply
+        // itself — `proxies/README.md` says so in as many words: "Node sets its own framing on the reply
+        // (chunked), which is the honest answer when the length is no longer the upstream's". The test
+        // asserted `Some("9")` until the response began streaming, and that `9` was AXUM'S OWN framing for
+        // a buffered body — the divergence was the buffering, not the streaming.
+        assert!(
+            headers.get("content-length").is_none(),
+            "a streamed reply is chunked, and the upstream's length was stripped anyway: {:?}",
+            headers.get("content-length")
         );
     }
 
