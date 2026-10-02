@@ -237,13 +237,18 @@ async fn forward(State(relay): State<Local>, req: axum::extract::Request) -> Res
     } else {
         Duration::from_millis(2_000)
     };
+    // **UNIQUE, WHICH `randomUUID()` GAVE THE JAVASCRIPT FOR FREE.** A timestamp plus a pid is unique
+    // across processes but NOT within one: two requests in the same nanosecond would share an id, and the
+    // answer to one would be delivered to the other. The counter is what makes that impossible.
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let id = format!(
-        "{:x}-{:x}",
+        "{:x}-{:x}-{:x}",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0),
-        std::process::id()
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::SeqCst)
     );
     let headers: serde_json::Map<String, Value> = parts
         .headers
@@ -276,20 +281,93 @@ async fn forward(State(relay): State<Local>, req: axum::extract::Request) -> Res
         let _ = poll.slot.send(frame);
     }
     match tokio::time::timeout(grace, wait).await {
-        Ok(Ok(answer)) => json_response(200, answer),
+        // **THE ANSWER IS THE DEVICE'S OWN RESPONSE, REPLAYED** — its status, its headers and its body,
+        // not an envelope about them. `relay.mjs` writes exactly this:
+        //
+        //     const headers = { ...(answer.headers || {}) };
+        //     delete headers["content-length"];
+        //     res.writeHead(answer.status || 502, headers).end(Buffer.from(answer.bodyB64 || "", "base64"));
+        //
+        // and the version before this one answered `200 {"id":…,"status":…}` — a client would have seen a
+        // frame where it expected the device's HTTP answer. The default status is 502 for an answer that
+        // carries none, and the length goes because the device's framing is not this relay's.
+        Ok(Ok(answer)) => replay(&answer),
         Ok(Err(_)) => json_response(502, json!({ "ok": false, "error": "agent went away" })),
         Err(_) => {
             relay.take_answer(&id);
+            // THE TWO SENTENCES ARE THE JAVASCRIPT'S, and the difference between them is the point: "no
+            // agent has EVER connected" is an operator's mistake, "it did not answer in time" is a device
+            // that is merely between polls.
             if relay.seen() {
                 json_response(
                     504,
-                    json!({ "ok": false, "error": "no answer from the agent" }),
+                    json!({ "ok": false, "error": "the agent did not answer in time" }),
                 )
             } else {
-                json_response(503, json!({ "ok": false, "error": "no agent connected" }))
+                json_response(
+                    503,
+                    json!({ "ok": false, "error": "no agent has connected to this relay yet" }),
+                )
             }
         }
     }
+}
+
+/// The device's response, as the client receives it.
+fn replay(answer: &Value) -> Response {
+    let status = answer
+        .get("status")
+        .and_then(|v| v.as_u64())
+        .filter(|s| (100..=599).contains(s))
+        .unwrap_or(502) as u16;
+    let mut headers = HeaderMap::new();
+    if let Some(map) = answer.get("headers").and_then(|v| v.as_object()) {
+        for (k, v) in map {
+            // `delete headers["content-length"]` — the device's framing does not describe what THIS
+            // process sends, exactly as the comment in `relay.mjs` says.
+            if k.eq_ignore_ascii_case("content-length") {
+                continue;
+            }
+            if let (Ok(name), Some(value)) = (
+                axum::http::HeaderName::from_bytes(k.as_bytes()),
+                v.as_str().and_then(|s| HeaderValue::from_str(s).ok()),
+            ) {
+                headers.insert(name, value);
+            }
+        }
+    }
+    let body = decode_base64(answer.get("bodyB64").and_then(|v| v.as_str()).unwrap_or(""));
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+        headers,
+        body,
+    )
+        .into_response()
+}
+
+/// `Buffer.from(b64, "base64")` — the frame carries the device's body encoded, because a frame is JSON.
+fn decode_base64(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            // Padding and any whitespace a producer may have added end the stream.
+            _ => break,
+        } as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
 }
 
 /// The frame carries the body as base64, because a device request can be any bytes and the frame is JSON.
@@ -349,6 +427,19 @@ mod tests {
 
     fn relay() -> Local {
         Local::new("s3cret".to_string(), "d1".to_string())
+    }
+
+    async fn call_headers(
+        relay: Local,
+        request: Request<axum::body::Body>,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let response = app(relay).oneshot(request).await.expect("a response");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("a body");
+        (status, headers, String::from_utf8_lossy(&body).to_string())
     }
 
     async fn call(relay: Local, request: Request<axum::body::Body>) -> (StatusCode, String) {
@@ -416,7 +507,10 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert!(body.contains("no agent connected"), "{body}");
+        assert!(
+            body.contains("no agent has connected to this relay yet"),
+            "{body}"
+        );
         assert!(
             started.elapsed() < Duration::from_millis(8_000),
             "the short grace, not the full window: {:?}",
@@ -459,7 +553,7 @@ mod tests {
         let client = {
             let relay = relay.clone();
             tokio::spawn(async move {
-                call(
+                call_headers(
                     relay,
                     Request::builder()
                         .method("POST")
@@ -489,15 +583,70 @@ mod tests {
                 .uri("/agent/answer")
                 .header("authorization", "Bearer s3cret")
                 .body(axum::body::Body::from(
-                    serde_json::json!({ "id": id, "status": 200, "body": "ok" }).to_string(),
+                    serde_json::json!({
+                        "id": id,
+                        "status": 201,
+                        "headers": { "content-type": "text/plain", "content-length": "999", "x-device": "d1" },
+                        "bodyB64": "aGVsbG8=",
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, answer) = client.await.expect("the client");
-        assert_eq!(status, StatusCode::OK);
-        assert!(answer.contains("\"body\":\"ok\""), "{answer}");
+        // **THE CLIENT GETS THE DEVICE'S RESPONSE, NOT AN ENVELOPE ABOUT IT.** `relay.mjs` replays
+        // `answer.status`, `answer.headers` (minus `content-length`) and the decoded body; the version
+        // before this one answered `200 {…frame…}`, which a client would read as the device's answer.
+        let (status, headers, answer) = client.await.expect("the client");
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(answer, "hello");
+        assert_eq!(
+            headers.get("x-device").and_then(|v| v.to_str().ok()),
+            Some("d1"),
+            "the device's own headers ride"
+        );
+        // **THE DEVICE'S FRAMING DOES NOT RIDE; THIS PROCESS FRAMES ITS OWN REPLY.** `relay.mjs` deletes
+        // the header and lets Node frame it — the same arrangement `proxies/README.md` describes for the
+        // api-relay — so the length present is axum's, computed for the five bytes actually sent, and never
+        // the device's `999`.
+        assert_ne!(
+            headers.get("content-length").and_then(|v| v.to_str().ok()),
+            Some("999"),
+            "the device's length does not ride"
+        );
+        assert_eq!(
+            headers.get("content-length").and_then(|v| v.to_str().ok()),
+            Some("5"),
+            "the reply's own framing does"
+        );
+    }
+
+    #[test]
+    fn the_replay_defaults_to_502_drops_the_length_and_decodes_base64() {
+        // An answer that carries no status is a 502 — the JavaScript's `answer.status || 502`.
+        let bare = replay(&serde_json::json!({
+            "headers": { "content-length": "999", "x-device": "d1" },
+            "bodyB64": "aGk=",
+        }));
+        assert_eq!(bare.status(), StatusCode::BAD_GATEWAY);
+        assert!(
+            bare.headers().get("content-length").is_none(),
+            "its framing does not ride"
+        );
+        assert_eq!(
+            bare.headers().get("x-device").and_then(|v| v.to_str().ok()),
+            Some("d1")
+        );
+        // `Buffer.from(b64, "base64")`, including the unpadded and empty forms.
+        assert_eq!(decode_base64("aGk="), b"hi");
+        assert_eq!(decode_base64("aGk"), b"hi");
+        assert_eq!(decode_base64(""), b"");
+        // And an answer that carries a status keeps it.
+        assert_eq!(
+            replay(&serde_json::json!({ "status": 404 })).status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[tokio::test]
