@@ -34,8 +34,9 @@ use axum::Router;
 use serde_json::Value;
 
 use summrise_relay::{
-    collect_response_headers, cors_headers, proxy_upstream_plan, request_host, upstream_url,
-    valid_path, zen_upstream_plan, ProxyPlan, ZenPlan,
+    build_url, collect_response_headers, cors_headers, proxy_upstream_plan, request_host,
+    resolve_host, resolve_route, upstream_url, valid_path, zen_upstream_plan, ProxyPlan, Route,
+    ZenPlan,
 };
 
 /// What the wiring needs that the decisions do not: where to dial, and the origins this relay serves.
@@ -77,12 +78,90 @@ impl Relay {
 }
 
 /// The app, as a value — so a test can drive it in-process and the binary can serve it.
+/// `entry.mjs`'s `ROUTES`, with the `handler` name the dispatch switches on. **THE ORDER IS THE
+/// TABLE'S**: `resolveRoute` takes the FIRST match, which is what keeps `/api/git` and `/api/github`
+/// distinguishable.
+fn routes() -> Vec<Route> {
+    [
+        ("/api/zen", "zen", false),
+        ("/api/proxy", "proxy", false),
+        ("/api/github", "github", true),
+        ("/api/git", "git", true),
+        ("/api/gform", "gform", true),
+    ]
+    .iter()
+    .map(|(prefix, handler, path_from_rest)| Route {
+        prefix: (*prefix).to_string(),
+        handler: Value::String((*handler).to_string()),
+        path_from_rest: *path_from_rest,
+    })
+    .collect()
+}
+
+/// **THE ENTRY POINT, AND THE REWRITING IT DOES.** `entry.mjs` is not a router that hands the request on
+/// unchanged: for the three `pathFromRest` routes it REWRITES the tail into a `path` query parameter —
+/// the shape the deleted `vercel.json` declared as `/api/git/:path*` -> `/api/git?path=/:path*` — and the
+/// handler reads `?path=`. **THIS WAS MISSING FROM THE BINARY**, and it is the form this repository's own
+/// git remote uses (`git config url."https://v.saisi.online/api/git/".insteadOf "https://github.com/"`),
+/// so `/api/git/o/r.git/info/refs` would have been answered 400 "invalid GitHub path" by a relay that
+/// looked correct.
 pub fn app(relay: Relay) -> Router {
-    Router::new()
-        .route("/api/proxy", any(proxy))
-        .route("/api/zen", any(zen))
-        .route("/api/git", any(git))
-        .with_state(relay)
+    Router::new().fallback(any(dispatch)).with_state(relay)
+}
+
+async fn dispatch(State(relay): State<Relay>, mut req: axum::extract::Request) -> Response {
+    let uri = req.uri().clone();
+    // `/healthz` ANSWERS PLAIN TEXT, before any routing — the entry's own first branch.
+    if uri.path() == "/healthz" {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", HeaderValue::from_static("text/plain"));
+        return (StatusCode::OK, headers, "ok").into_response();
+    }
+    let raw = match uri.query() {
+        Some(q) => format!("{}?{q}", uri.path()),
+        None => uri.path().to_string(),
+    };
+    let Some(hit) = resolve_route(&routes(), &raw) else {
+        return json_response(404, "not found");
+    };
+    let host = {
+        let headers = request_headers(req.headers());
+        resolve_host(&headers)
+    };
+    // THE REWRITE, through the crate's own `build_url` — so the rule the corpus proved is the rule that
+    // runs, rather than a second implementation of it here.
+    if let Ok(url) = url::Url::parse(&build_url(&hit, &host)) {
+        let rewritten = match url.query() {
+            Some(q) => format!("{}?{q}", url.path()),
+            None => url.path().to_string(),
+        };
+        if let Ok(new_uri) = rewritten.parse() {
+            *req.uri_mut() = new_uri;
+        }
+    }
+    let handler = hit.route.handler.as_str().unwrap_or_default().to_string();
+    match handler.as_str() {
+        "proxy" => proxy(State(relay), req).await,
+        "zen" => zen(State(relay), req).await,
+        "git" => git(State(relay), req).await,
+        // `/api/github` and `/api/gform` ARE ROUTES OF THE SHIPPING RELAY AND ARE NOT WIRED HERE YET:
+        // their decisions are in the crate and proved, and whether they are needed at all is a question
+        // the operator is answering from the relay's own access log. A 404 is the honest answer from a
+        // binary that does not serve them.
+        _ => json_response(404, "not found"),
+    }
+}
+
+/// A JSON body with a status — the entry's own 404 shape.
+fn json_response(status: u16, error: &str) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("application/json"));
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::NOT_FOUND),
+        headers,
+        serde_json::json!({ "error": error }).to_string(),
+    )
+        .into_response()
 }
 
 /// **THE ONE PLACE AN UPSTREAM IS DIALED.** `reqwest`'s `send()` resolves when the response HEADERS
@@ -557,6 +636,33 @@ mod tests {
         format!("http://{addr}")
     }
 
+    /// A stub that ECHOES THE REQUEST LINE as its body — so a test can assert what the upstream was
+    /// actually asked for, which is the only way to see a URL rewrite from the outside.
+    async fn stub_echo() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let line = request.lines().next().unwrap_or("").to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{line}",
+                        line.len()
+                    );
+                    let _ = sock.write_all(response.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
     /// A stub that ACCEPTS and then says NOTHING — the hung upstream the header budget exists for.
     async fn stub_silent() -> String {
         use tokio::io::AsyncReadExt;
@@ -746,6 +852,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_repositorys_own_git_url_form_is_rewritten_into_the_path_parameter() {
+        // **THIS IS THE FORM THIS REPOSITORY'S OWN GIT REMOTE USES**:
+        //   git config url."https://v.saisi.online/api/git/".insteadOf "https://github.com/"
+        // so `git push` sends `/api/git/o/r.git/git-receive-pack`, NOT `?path=`. The entry rewrites the
+        // tail into the `path` query parameter (the shape the deleted vercel.json declared as
+        // `/api/git/:path*` -> `/api/git?path=/:path*`) and the handler reads it back. The stub ECHOES the
+        // request line, so this asserts what the upstream was asked for.
+        let origin = stub_echo().await;
+        let (status, _, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .uri("/api/git/o/r.git/info/refs?service=git-upload-pack")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.starts_with("GET /o/r.git/info/refs?service=git-upload-pack"),
+            "the upstream was asked for: {body:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn healthz_answers_plain_text_before_any_routing() {
+        let relay = relay_at("http://127.0.0.1:1".to_string());
+        let (status, headers, body) = call(
+            relay,
+            Request::builder()
+                .uri("/healthz")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "ok");
+        assert_eq!(
+            headers.get("content-type").and_then(|v| v.to_str().ok()),
+            Some("text/plain")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_route_this_binary_does_not_serve_is_a_json_404() {
+        // `/api/github` and `/api/gform` are ROUTES OF THE SHIPPING RELAY. Their decisions are in the
+        // crate and proved; whether they are needed at all is the operator's question, so a binary that
+        // does not serve them says so with the entry's own 404 shape rather than something else's.
+        let relay = relay_at("http://127.0.0.1:1".to_string());
+        for path in [
+            "/api/github?path=%2Fweb%2Fo",
+            "/api/gform?path=%2Fdocs%2Fx",
+            "/nope",
+        ] {
+            let (status, _, body) = call(
+                relay.clone(),
+                Request::builder()
+                    .uri(path)
+                    .header("host", "v.saisi.online")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+            assert!(body.contains("not found"), "{path}: {body}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_git_method_outside_the_protocol_is_refused_with_no_store() {
         let relay = relay_at("http://127.0.0.1:1".to_string());
         let (status, headers, body) = call(
@@ -770,21 +946,47 @@ mod tests {
     #[tokio::test]
     async fn a_git_path_that_escapes_the_origin_is_refused_before_anything_is_dialled() {
         let relay = relay_at("http://127.0.0.1:1".to_string());
-        // `//host` is PROTOCOL-RELATIVE and `new URL(path, base)` would REPLACE the origin — round 120
-        // measured that hole live, with the caller's token attached. The shape check refuses it here.
-        for hostile in ["%2F%2Fevil.example%2Fx", "%2Fa%2F..%2Fb", "%2Fa%5Cb", ""] {
+        // **THE TAIL FORM, WHICH IS THE ONE THE ENTRY REWRITES.** `//host` is PROTOCOL-RELATIVE and
+        // `new URL(path, base)` would REPLACE the origin — round 120 measured that hole live, with the
+        // caller's token attached. The origin is a CLOSED PORT here, so a path that got through would
+        // fail as a 502 rather than the 400 this asserts.
+        for hostile in ["%2F%2Fevil.example%2Fx", "%2Fa%2F..%2Fb", "%2Fa%5Cb"] {
             let (status, _, body) = call(
                 relay.clone(),
                 Request::builder()
-                    .uri(format!("/api/git?path={hostile}"))
+                    .uri(format!("/api/git/{hostile}"))
                     .header("host", "v.saisi.online")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{hostile}");
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{hostile}: {body}");
             assert!(body.contains("invalid GitHub path"), "{hostile}: {body}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_caller_supplied_path_is_dropped_by_the_rewrite() {
+        // **THE RULE THE ROUTING CORPUS PINS**: on a `pathFromRest` route the tail IS the path, so a
+        // caller's own `path=` would collide with the rewritten one and is DROPPED. This test asserted a
+        // 400 here until the entry was wired — the request never reached the handler with that query at
+        // all, which is exactly what the corpus says should happen.
+        let origin = stub_echo().await;
+        let (status, _, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .uri("/api/git/o/r.git/info/refs?path=%2Fevil&service=git-upload-pack")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.starts_with("GET /o/r.git/info/refs?service=git-upload-pack"),
+            "the caller's path= is gone and everything else rides: {body:?}"
+        );
+        assert!(!body.contains("evil"), "{body:?}");
     }
 
     #[tokio::test]
