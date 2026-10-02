@@ -14,7 +14,11 @@
 //! rendered document is byte-identical to the page it replaces outside the two
 //! places the migration is about; `measure.mjs` measures the first render.
 
+pub mod colour;
 pub mod page;
+
+#[cfg(test)]
+mod checks;
 
 #[cfg(target_arch = "wasm32")]
 pub mod interactive;

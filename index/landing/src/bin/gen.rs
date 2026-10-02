@@ -53,7 +53,11 @@ fn main() {
                 eprintln!("usage: gen render <out.html> <console> <installer> <setup|->");
                 std::process::exit(2);
             };
-            let setup = (setup != "-").then(|| setup.as_str());
+            let setup = if setup == "-" {
+                None
+            } else {
+                Some(setup.as_str())
+            };
             write_file(
                 std::path::Path::new(out),
                 &render(console, installer, setup),
