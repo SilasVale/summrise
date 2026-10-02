@@ -150,7 +150,7 @@ pub fn render(console_url: &str, installer_url: &str, setup_url: Option<&str>) -
 
       <p class="desc">Summrise Agent is a device command center (serial / terminal / browser + MCP) that runs on a Windows machine. Each device is exposed over a Cloudflare Tunnel and managed from the <a href=""#,
     );
-    h.push_str(&console);
+    h.push_str(console);
     h.push_str(
         r#"">Summrise console</a>.</p>
     </div>
@@ -171,11 +171,11 @@ pub fn render(console_url: &str, installer_url: &str, setup_url: Option<&str>) -
           <div class="step-num">1</div>
           <div class="step-body">Install and set up in one command: <code>npx summrise-agent setup</code>. The device registers itself with the <a href=""#,
     );
-    h.push_str(&console);
+    h.push_str(console);
     h.push_str(
         r#"">Summrise console</a> on first start — a no-key install is not a local-only one. <b>Behind a locked-down network</b> that cannot reach the npm registry, install from the release host instead: <code>npm i -g "#,
     );
-    h.push_str(&installer);
+    h.push_str(installer);
     h.push_str(
         r#"</code></div>
         </div>

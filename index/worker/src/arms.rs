@@ -5,7 +5,7 @@
 //! `index/landing/build.sh` writes `index/src/landing/setup.js` and `npm-only.js` — JavaScript modules
 //! whose default export is the document as a template literal — and the reason is in the generator's
 //! own comment: the document has two consumers that do not share a module system. The worker imports
-//! it as text; plain Node (the index tests, `landing-check.mjs`, the landing design sweep) cannot
+//! it as text; plain Node (the index tests, `index/landing`'s checks, the landing design sweep) cannot
 //! import a `.html` at all (`ERR_UNKNOWN_FILE_EXTENSION`). A module satisfies both, and the document
 //! inside it is still a document a person can read.
 //!
