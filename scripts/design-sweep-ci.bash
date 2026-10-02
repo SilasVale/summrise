@@ -50,7 +50,7 @@
 #     rendered panel too" was a ONE-OFF measurement, not a CI job.
 #   * `feedback-check` is about hover implying press, layout properties in transitions and the duration budget — ALL read
 #     from sheets. It is not a reflow check at all, so the third pairing above was simply wrong: **the reflow axis has
-#     no standalone counterpart anywhere in CI.** The two gates that do mention reflow (`landing-check`,
+#     no standalone counterpart anywhere in CI.** The two gates that do mention reflow (`index/landing`'s checks (Rust),
 #     `spacing-scale-check`) check that a width is CAPPED in the source; whether the rendered page scrolls sideways at
 #     320px is measured only here.
 #
