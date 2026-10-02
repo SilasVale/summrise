@@ -823,6 +823,13 @@ jobs:
         working-directory: index
       - name: Release manifest (Rust)
         run: cargo test --manifest-path index/worker/Cargo.toml
+      # THE LANDING'S ARMS ARE RENDERED, TRACKED AND SERVED, so the tree has to say what Rust renders —
+      # and the check is a TEST in the crate that renders them, which is why it needs no toolchain
+      # beyond cargo. (The wasm pair under index/public/summrise-agent/landing/ is rebuilt by
+      # `build.sh index` at deploy time; checking THAT here would mean installing wasm-bindgen and
+      # binaryen in this job.)
+      - name: The landing (Rust renders its arms, and they are fresh)
+        run: cargo test --manifest-path index/landing/Cargo.toml
 
   # satellite proxy behavior suites (CORS/gates/BYOK/protocol conversion)
   # + wrangler dry-run per worker + the api-relay syntax gate below.
