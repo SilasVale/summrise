@@ -309,7 +309,7 @@ impl AnthropicStreamEncoder {
             return Ok(());
         };
         let delta = prop(&choice, "delta")
-            .filter(|d| truthy_js(d))
+            .filter(truthy_js)
             .unwrap_or_else(|| json!({}));
         if !truthy_js(&self.id) {
             if let Some(id) = prop(chunk, "id") {
