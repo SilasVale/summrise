@@ -3,99 +3,34 @@
 // Read this when you change this file: the mutation is how you find out whether the gate can still
 // fail at all. A gate that cannot be broken is worse than no gate.
 //
-// MUTATION: remove the probe's hex handling, or delete `svgRootPaints`'s `painted.has(...)` guard
-// RESULT:   exit 1 both ways: "both spellings must parse"; and the brand mark's `rgb(0,0,0)` — the INHERITED default on an SVG root whose shapes each declare their own paint — is reported as its colour again. Those rows were TEN of a red design job in round 94, and they pushed the one real defect in that run off the end of the report
-
-// contrast-probe-check.mjs — the contrast math, pinned.
+// MUTATION: put a backtick in one of the probe's embedded comments, or let a `\\s` in a regex collapse to
+// `s`. RESULT: exit 1 — "the probe is a template literal: no backticks inside it", or "a collapsed \\s
+// reached the emitted source".
 //
-// Four rounds of contrast sweeps used an ad-hoc snippet retyped each time, and it
-// was wrong twice. Both defects are assertions here, with the numbers they cost:
+// ── WHAT IS LEFT HERE, AND WHY IT IS FIVE ASSERTIONS ABOUT ONE STRING ───────────────────────────────
 //
-//   1. TRANSLUCENT BACKGROUNDS. Reading `rgba(255,255,255,0.07)` as if it were
-//      white reported 2.51 for text that actually sits on a composited
-//      rgb(44,45,49) and measures 5.49 — twenty of fifty findings were this.
-//   2. A SKIP RULE THAT DISABLED THE SWEEP. Skipping anything with a
-//      background-image ancestor skipped EVERY node in the panel and reported
-//      `checked=0, underAA=0`, which reads exactly like a pass.
+// THE OTHER THIRTEEN ASSERTIONS ARE RUST NOW: `agent/tests/contrast_probe.rs` carries the probe's pure
+// functions (compositeStack, contrastRatio, aaThreshold, parseColour, failures, inactive, unmeasurable,
+// gradientStops, worstOverGradient, svgRootPaints) and the gate's own cases for them, numbers included —
+// the translucent-background composite that reported 2.51 for text measuring 5.49, the inactive-control
+// exemption, the gradient row that must be UNMEASURABLE rather than a failure or a pass, the SVG root
+// whose inherited `rgb(0,0,0)` filed ten false findings, and hex equalling its `rgb()` form.
 //
-// The functions tested here are the ones the BROWSER runs: `PROBE_SOURCE` embeds
-// them with `Function.prototype.toString()`, so this is not a copy that can drift.
-import {
-  compositeStack, contrastRatio, aaThreshold, parseColour, failures, unmeasurable, inactive, PROBE_SOURCE,
-  gradientStops, worstOverGradient, svgRootPaints,
-} from "../../agent/scripts/lib/contrast-probe.mjs";
+// WHAT COULD NOT MOVE IS `PROBE_SOURCE`: the probe the DESIGN SWEEPS INJECT INTO A BROWSER. The plan's
+// carve-out list keeps that JavaScript, because `browser_run_script` takes a JS file and the measurement
+// runs in the DOM — so these five assertions are about a JS ARTIFACT rather than about a rule, and they
+// stay until the probe itself is not JavaScript. That is the plan's rule for a gate that cannot follow
+// its subject: keep it, and write down why.
+//
+// THE FUNCTIONS TESTED HERE ARE THE ONES THE BROWSER RUNS: `PROBE_SOURCE` embeds them with
+// `Function.prototype.toString()`, so this is not a copy that can drift — and THAT is the property these
+// five protect. The moment the functions move to Rust, the embedding is what changes, and these
+// assertions are what will say so.
+import { compositeStack, contrastRatio, aaThreshold, parseColour, svgRootPaints, PROBE_SOURCE } from "../../agent/scripts/lib/contrast-probe.mjs";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
 let n = 0;
 const t = (desc, fn) => { fn(); n += 1; };
-
-t("a translucent white over a dark base composites — it is NOT white", () => {
-  const bg = compositeStack([{ r: 255, g: 255, b: 255, a: 0.07 }], { r: 28, g: 29, b: 34 });
-  assert.ok(bg.r > 40 && bg.r < 50, `expected a dark grey, got ${JSON.stringify(bg)}`);
-  // ...and the difference is the whole point.
-  assert.equal(contrastRatio({ r: 162, g: 163, b: 172 }, bg), 5.49);
-  assert.equal(contrastRatio({ r: 162, g: 163, b: 172 }, { r: 255, g: 255, b: 255 }), 2.51);
-});
-
-t("the stack applies innermost LAST (order is the defect both times)", () => {
-  // Element's own bg first in the array, then its parent, then the canvas.
-  const over = compositeStack([
-    { r: 255, g: 255, b: 255, a: 0.5 },   // the element
-    { r: 0, g: 0, b: 0, a: 1 },           // an opaque parent stops the walk
-  ]);
-  assert.deepEqual(over, { r: 127.5, g: 127.5, b: 127.5 });
-});
-
-t("an opaque layer ends the walk regardless of what is beneath", () => {
-  const over = compositeStack([{ r: 19, g: 20, b: 24, a: 1 }, { r: 255, g: 0, b: 0, a: 1 }]);
-  assert.deepEqual(over, { r: 19, g: 20, b: 24 });
-});
-
-t("WCAG ratios match the reference values", () => {
-  assert.equal(contrastRatio({ r: 255, g: 255, b: 255 }, { r: 0, g: 0, b: 0 }), 21);
-  assert.equal(contrastRatio({ r: 0, g: 0, b: 0 }, { r: 0, g: 0, b: 0 }), 1);
-  // The two numbers this repo argues about, so they cannot be re-derived wrongly.
-  assert.equal(contrastRatio({ r: 162, g: 161, b: 170 }, { r: 255, g: 255, b: 255 }), 2.56);
-  assert.equal(contrastRatio({ r: 82, g: 82, b: 91 }, { r: 255, g: 255, b: 255 }), 7.73);
-});
-
-t("the AA bar depends on size and weight", () => {
-  assert.equal(aaThreshold(12, 400), 4.5);
-  assert.equal(aaThreshold(24, 400), 3);
-  assert.equal(aaThreshold(18.66, 700), 3);
-  // 18px bold is NOT large — the boundary is 18.66, and rounding it to 18 would
-  // let a real failure through.
-  assert.equal(aaThreshold(18, 700), 4.5);
-});
-
-t("colours parse in every form the app emits", () => {
-  assert.deepEqual(parseColour("rgb(29, 29, 31)"), { r: 29, g: 29, b: 31, a: 1 });
-  assert.deepEqual(parseColour("rgba(255, 255, 255, 0.07)"), { r: 255, g: 255, b: 255, a: 0.07 });
-  assert.equal(parseColour("transparent"), null);
-  assert.equal(parseColour(""), null);
-});
-
-t("failures() uses each row's OWN bar, not a flat 4.5", () => {
-  const rows = [
-    { cr: 3.5, size: 30, weight: 400, need: 3 },     // large text, passes
-    { cr: 3.5, size: 12, weight: 400, need: 4.5 },   // body text, fails
-  ];
-  assert.equal(failures(rows).length, 1);
-  assert.equal(failures(rows)[0].size, 12);
-});
-
-t("an INACTIVE control is exempt, not a failure", () => {
-  // WCAG 1.4.3 exempts inactive UI components. The panel's disabled Start button
-  // measures a truthful 2.1:1 through its opacity chain, which is a real reading
-  // of a control nobody can use — chasing it as a defect wastes a round.
-  const rows = [
-    { cr: 2.1, inactive: true, size: 12, weight: "400", need: 4.5 },
-    { cr: 2.1, inactive: false, size: 12, weight: "400", need: 4.5 },
-  ];
-  assert.equal(failures(rows).length, 1);
-  assert.equal(inactive(rows).length, 1);
-});
 
 // NO SEPARATE BACKTICK CHECK, and the reason is worth keeping. I wrote one three
 // times and every version had a wrong premise (exactly-2-in-the-file: 42; last
@@ -109,24 +44,10 @@ t("an INACTIVE control is exempt, not a failure", () => {
 t("PROBE_SOURCE is SYNTACTICALLY VALID", () => {
   // It is a template literal, so a stray BACKTICK inside an embedded comment
   // terminates it — which is exactly what happened while adding the gradient
-  // guard above, and the module failed to PARSE at import time rather than at
+  // guard, and the module failed to PARSE at import time rather than at
   // sweep time. Compiling it here turns that into a test failure instead.
   assert.doesNotThrow(() => new Function(`return ${PROBE_SOURCE}`), "the probe must compile");
   assert.ok(!PROBE_SOURCE.includes("`"), "the probe is a template literal: no backticks inside it");
-});
-
-t("a gradient row is UNMEASURABLE, not a failure and not a pass", () => {
-  const rows = [
-    { cr: null, gradient: true, size: 40, weight: "400", need: 3 },  // the panel's "V"
-    { cr: 2.0, gradient: false, size: 12, weight: "400", need: 4.5 }, // a real failure
-  ];
-  // It must not be counted as a failure — that was a false positive on the live
-  // panel (white on white = 1.0, because the walk went PAST the gradient).
-  assert.equal(failures(rows).length, 1);
-  assert.equal(failures(rows)[0].cr, 2.0);
-  // ...and it must not vanish either: the caller has to be able to SAY how many
-  // were skipped, or a sweep that measured nothing reads as a clean pass.
-  assert.equal(unmeasurable(rows).length, 1);
 });
 
 t("PROBE_SOURCE carries the REAL functions, not a paraphrase", () => {
@@ -139,51 +60,6 @@ t("PROBE_SOURCE carries the REAL functions, not a paraphrase", () => {
   assert.ok(PROBE_SOURCE.includes(parseColour.toString()), "parseColour not embedded");
 });
 
-
-// ── GRADIENTS ARE MEASURED AS A BOUND, NOT SKIPPED ───────────────────────────
-// 140 of the desktop density's 242 text nodes sat over a gradient and came back
-// unmeasurable. A bound is the honest answer: measure every stop, report the worst.
-t("a gradient's stops are read, and an unreadable background stays unreadable", () => {
-  const g2 = gradientStops('linear-gradient(135deg, rgb(250, 250, 250) 0%, rgb(0, 0, 0) 100%)');
-  assert.equal(g2.length, 2);
-  assert.equal(g2[0].r, 250);
-  // A translucent stop keeps its alpha: compositing it as opaque is how a probe
-  // reads rgba(255,255,255,0.07) as WHITE and reports twenty false findings.
-  assert.equal(gradientStops('linear-gradient(rgba(255,255,255,0.5), transparent)')[1].a, 0);
-  assert.equal(gradientStops('url("x.png")').length, 0);
-  assert.equal(gradientStops('none').length, 0);
-});
-
-t("the WORST stop decides, never the best", () => {
-  const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
-  const base = { r: 255, g: 255, b: 255 };
-  // White text is unreadable on the white stop and perfect on the black one; the
-  // number reported is the one that can hurt somebody.
-  assert.equal(worstOverGradient({ r: 255, g: 255, b: 255 }, bw, base).toFixed(2), '1.00');
-  assert.equal(worstOverGradient({ r: 0, g: 0, b: 0 }, bw, base).toFixed(2), '1.00');
-  assert.equal(worstOverGradient({ r: 0, g: 0, b: 0 }, [], base), null);
-});
-
-const bw = gradientStops('linear-gradient(rgb(255,255,255), rgb(0,0,0))');
-
-// ── HEX IS A COLOUR, AND IT MUST EQUAL ITS rgb() FORM ────────────────────────────────────────
-// The parser scraped numbers out of whatever it was given, so `#f4f4f5` became {4,4,5} — a real
-// colour, silently wrong — and `#71717a` became nothing. The rendered sweep never noticed because
-// getComputedStyle returns rgb(); a static check reading the token sheet hit it at once. These
-// checks compare hex against the rgb() spelling of the SAME colour, so a stride bug cannot pass by
-// happening to look plausible.
-// THE FORM getComputedStyle RETURNS FOR A LIGHT TOKEN, and the one this parser read as NEAR-BLACK (round 75).
-// `color(srgb …)` carries 0-1 floats, not 0-255: reading 0.956863 as a channel value gave rgb(1,1,1), which
-// composited the light rail (#f4f4f5 at 88%) into rgb(31,31,31) and filed six false contrast findings in CI against
-// marks that measure 7.47 on it. The same lesson the LOUD axis learned in round 59; the contrast axis had no case.
-// THE SVG ROOT IS MEASURABLE, AND ITS CHILDREN ARE NOT (round 93). The probe excluded every SVG — the element and
-// its paths together — for a measured reason about PATHS ("an icon's path inherits fill: black and its real colour
-// comes from the svg above it, so every decorative glyph reported cr ~1"). The cost of excluding the ROOT as well was
-// named only in round 92, beside a waiver it produced: the per-kind lane colours in the new-session menu had no row
-// anywhere in the suite, while painterOf carried SVG fill/stroke branches no element could reach.
-//
-// This is a SHAPE check and it is honest about that: the loop runs in a browser and cannot be exercised here. What it
-// pins is the rule — a blanket exclusion is what regressed the coverage, so a blanket exclusion fails it.
 t("the probe measures the SVG root and skips only its children", () => {
   assert(
     /el instanceof SVGElement && el\.tagName\.toLowerCase\(\) !== 'svg'/.test(PROBE_SOURCE),
@@ -194,80 +70,6 @@ t("the probe measures the SVG root and skips only its children", () => {
     "a blanket SVG exclusion is back — it takes the root with it and leaves painterOf's fill/stroke branches unreachable",
   );
   assert(PROBE_SOURCE.includes(svgRootPaints.toString()), "svgRootPaints is not embedded — the browser would run a different rule");
-});
-
-// ── AN SVG ROOT'S PAINT COUNTS ONLY WHERE A SHAPE PAINTS IT (round 94) ───────────────────────────────────────
-// Round 93 let the svg ROOT through the loop, and the root's fill/stroke are INHERITED properties — so a root whose
-// shapes each declare their own paint contributed the DEFAULT, rgb(0,0,0), and CI filed ten rows reading
-// "svg — painted rgb(0, 0, 0) (fill) ... 22px graphic, needs 3" against the brand mark and the vitals dial. These
-// cases are the two idioms MEASURED ON THE DEVICE (round 94), plus the number those false rows produced.
-t("an SVG root's paint is reported only when a shape computes it", () => {
-  // The panel's Icon: fill="none" stroke="currentColor", and every shape inherits exactly that.
-  const icon = svgRootPaints("none", "rgb(162, 163, 172)", ["none", "rgb(162, 163, 172)", "none", "rgb(162, 163, 172)"]);
-  assert.deepEqual(icon.map((c) => c.from), ["stroke"], `the icon's stroke is its colour, got ${JSON.stringify(icon)}`);
-  assert.equal(Math.round(icon[0].colour.r), 162);
-
-  // THE LANE COLOUR ROUND 92 NAMED AS UNMEASURABLE: the icon inside the new-session menu takes its stroke from
-  // the chip's `color`, so the same read measures --lane-ds / --lane-or instead of nothing.
-  const lane = svgRootPaints("none", "rgb(77, 171, 247)", ["none", "rgb(77, 171, 247)"]);
-  assert.equal(lane.length, 1, "an icon that inherits a lane colour must produce a row");
-  assert.equal(lane[0].colour.b, 247, "and the row must carry THAT colour");
-
-  // The brand mark, exactly as the device computed it: the root reports rgb(0,0,0) — the initial value of an
-  // inherited property — and all three shapes override it. NOTHING paints black, so nothing is reported.
-  const brand = svgRootPaints("rgb(0, 0, 0)", "none", ['url("#summrise-sky")', "rgb(255, 248, 225)", "rgb(255, 255, 255)"]);
-  assert.deepEqual(brand, [], `the root's black is an inherited default, not a paint: ${JSON.stringify(brand)}`);
-  // ...and the row it used to produce was the 1.18 CI filed, which is why a false row is not harmless.
-  assert.equal(
-    contrastRatio(parseColour("rgb(0, 0, 0)"), parseColour("rgb(23, 24, 29)")).toFixed(2),
-    "1.18",
-    "the removed finding's own number — if this moves, the story in the probe's comment is stale",
-  );
-
-  // A root value that a shape DOES inherit still counts, and an empty svg paints nothing at all.
-  const kept = svgRootPaints("rgb(191, 58, 10)", "none", ["rgb(191, 58, 10)"]);
-  assert.equal(kept.length, 1, "a fill a shape inherits is the mark's real colour");
-  assert.deepEqual(svgRootPaints("rgb(0, 0, 0)", "none", []), [], "an svg with no shapes paints nothing");
-});
-
-t("color(srgb …) components are 0-1 floats, not channels", () => {
-  const c = parseColour("color(srgb 0.956863 0.956863 0.960784 / 0.88)");
-  assert(c, "the srgb form must parse — getComputedStyle returns it for a token the sheet declares with a function");
-  assert(
-    Math.round(c.r) === 244 && Math.round(c.g) === 244 && Math.round(c.b) === 245,
-    `expected the light rail (244,244,245), parsed ${JSON.stringify(c)}`,
-  );
-  assert(Math.abs(c.a - 0.88) < 0.001, `alpha must stay 0-1 as written, got ${c.a}`);
-  // and a genuine 0-255 triple is not scaled by the same rule
-  const plain = parseColour("rgb(244, 244, 245)");
-  assert(plain.r === 244, `rgb() must not be scaled: ${JSON.stringify(plain)}`);
-});
-
-t("6-digit hex parses to the same colour as its rgb() form", () => {
-  const hex = parseColour("#71717a");
-  const rgb = parseColour("rgb(113, 113, 122)");
-  assert(hex && rgb, "both spellings must parse");
-  assert(hex.r === 113 && hex.g === 113 && hex.b === 122, `hex parsed as ${JSON.stringify(hex)}`);
-  assert(hex.r === rgb.r && hex.g === rgb.g && hex.b === rgb.b, "hex and rgb() must agree");
-});
-t("a hex pair and its rgb() pair give the SAME contrast ratio", () => {
-  const a = contrastRatio(parseColour("#71717a"), parseColour("#f4f4f5"));
-  const b = contrastRatio(parseColour("rgb(113,113,122)"), parseColour("rgb(244,244,245)"));
-  assert(Math.abs(a - b) < 0.001, `hex ${a.toFixed(3)} vs rgb ${b.toFixed(3)}`);
-  assert(Math.abs(a - 4.4) < 0.15, `expected ~4.4 (the measured ghost-button pair), got ${a.toFixed(2)}`);
-});
-t("3- and 4-digit hex expand, and 8-digit hex carries alpha", () => {
-  const short = parseColour("#fff");
-  assert(short && short.r === 255 && short.g === 255 && short.b === 255 && short.a === 1, JSON.stringify(short));
-  const shortAlpha = parseColour("#0008");
-  assert(shortAlpha && shortAlpha.a > 0 && shortAlpha.a < 1, JSON.stringify(shortAlpha));
-  const long = parseColour("#ffffff80");
-  assert(long && long.r === 255 && Math.abs(long.a - 0.502) < 0.01, JSON.stringify(long));
-});
-t("a malformed hex is null, not a colour", () => {
-  assert(parseColour("#12345") === null, "5 digits is not a colour");
-  assert(parseColour("#1234567") === null, "7 digits is not a colour");
-  assert(parseColour("#gggggg") === null, "not hex at all");
 });
 
 // ── THE EMITTED SOURCE MUST COMPILE (round 124) ─────────────────────────────────────────────────
@@ -287,18 +89,4 @@ t("the emitted probe keeps its regex escapes (a collapsed one changes the match,
   assert.ok(!PROBE_SOURCE.includes("split(/s+/)"), "a collapsed \\s reached the emitted source");
 });
 
-// ── GRAPHICS (round 125) ─────────────────────────────────────────────────────────────────────────
-// WCAG 1.4.11 asks 3:1 of a non-text element that carries meaning, and the text loop cannot see one. The
-// pass that collects them was built twice (rounds 123-124) and each time its own validation failed; what
-// made the third attempt work was putting the two colours the ratio came from ON THE ROW. Round 124 spent
-// a whole round on "cr: 7.03" with nothing to say why; round 125 read `paint rgb(82,82,91) (border)` and
-// saw the bug in one look — the painter was taking the colour of a ZERO-WIDTH border side.
-t("a graphic row carries the evidence its number came from", () => {
-  const row = { sel: "span.boot-mark.warn", text: "", kind: "graphic", paint: "rgb(146, 64, 14) (border)", surface: "rgb(244, 244, 245)", size: 7, weight: "400", need: 3.0, inactive: false, cr: 6.45 };
-  assert.equal(failures([row]).length, 0, "6.45 clears the 3:1 a graphic needs");
-  assert.equal(failures([{ ...row, cr: 2.9 }]).length, 1, "2.9 does not");
-  assert.ok(/rgb\(/.test(row.paint) && /rgb\(/.test(row.surface), "paint and surface must name real colours");
-  assert.ok(/\(border\)|\(background\)|\(fill\)|\(stroke\)|\(ring\)|\(::/.test(row.paint), "the painter must say WHERE the colour came from");
-});
-
-console.log(`contrast-probe: all ${n} checks passed`);
+console.log(`contrast-probe (the emitted probe): ok — ${n} assertion(s) about the JS artifact the sweeps inject; the probe's rules are cargo test --test contrast_probe`);
