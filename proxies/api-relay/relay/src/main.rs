@@ -51,6 +51,11 @@ pub struct Relay {
     /// URLs — and a loopback stub in the tests, which is what makes an end-to-end test possible without
     /// TLS and without a network.
     pub upstream_origin: Option<String>,
+    /// **HOW LONG TO WAIT FOR RESPONSE HEADERS, AND NOTHING ELSE.** `proxies/README.md:13` is the
+    /// contract: the budget covers WAITING FOR HEADERS, and a streamed body is forwarded UNTIMED so a
+    /// long SSE generation or a 725 MB push is never cut mid-stream. The JavaScript reads
+    /// `SUMMRISE_RELAY_HEADER_TIMEOUT_MS` at MODULE LOAD, which is what reading it once at start-up is.
+    pub header_budget: std::time::Duration,
 }
 
 impl Relay {
@@ -78,6 +83,23 @@ pub fn app(relay: Relay) -> Router {
         .route("/api/zen", any(zen))
         .route("/api/git", any(git))
         .with_state(relay)
+}
+
+/// **THE ONE PLACE AN UPSTREAM IS DIALED.** `reqwest`'s `send()` resolves when the response HEADERS
+/// arrive, so a timeout around it is exactly the JavaScript's `AbortController` plus `clearTimeout` —
+/// the body is not covered, and that is the point rather than an oversight.
+async fn send(
+    relay: &Relay,
+    request: reqwest::RequestBuilder,
+) -> Result<reqwest::Response, String> {
+    match tokio::time::timeout(relay.header_budget, request.send()).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(e)) => Err(format!("upstream error: {e}")),
+        Err(_) => Err(format!(
+            "upstream sent no headers within {:?}",
+            relay.header_budget
+        )),
+    }
 }
 
 /// The reply headers every handler carries: the CORS copy for this origin and host.
@@ -170,7 +192,7 @@ async fn proxy(State(relay): State<Relay>, req: axum::extract::Request) -> Respo
             if send_body {
                 request = request.body(bytes.to_vec());
             }
-            forward(request, &cors).await
+            forward(relay.clone(), request, &cors).await
         }
     }
 }
@@ -218,7 +240,7 @@ async fn zen(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
             if send_body {
                 request = request.body(bytes.to_vec());
             }
-            forward(request, &cors).await
+            forward(relay.clone(), request, &cors).await
         }
     }
 }
@@ -288,12 +310,12 @@ async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
         if method == "POST" {
             request = request.body(bytes.to_vec());
         }
-        let response = match request.send().await {
+        let response = match send(&relay, request).await {
             Ok(r) => r,
             Err(e) => {
                 // Never leak internal detail (DNS, TLS, timeout internals) — generic client text, full
                 // detail in the log.
-                eprintln!("[vrelay-git] upstream error: {e}");
+                eprintln!("[vrelay-git] {e}");
                 return git_error("GitHub upstream unavailable", 502);
             }
         };
@@ -369,11 +391,16 @@ fn git_error(message: &str, status: u16) -> Response {
 
 /// Send it, and apply the two rules every handler shares: **the 5xx rule** (generic client text, detail
 /// stays in the log) and the CORS copy on the reply.
-async fn forward(request: reqwest::RequestBuilder, cors: &[(String, String)]) -> Response {
-    let response = match request.send().await {
+async fn forward(
+    relay: Relay,
+    request: reqwest::RequestBuilder,
+    cors: &[(String, String)],
+) -> Response {
+    let response = match send(&relay, request).await {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("[vrelay] upstream error: {e}");
+            // The JavaScript's catch-all for these two: generic client text, detail in the log.
+            eprintln!("[vrelay] {e}");
             return refusal(500, "Internal error", cors);
         }
     };
@@ -433,6 +460,15 @@ async fn forward(request: reqwest::RequestBuilder, cors: &[(String, String)]) ->
         .into_response()
 }
 
+/// `SUMMRISE_RELAY_HEADER_TIMEOUT_MS`, read ONCE — which is what the JavaScript's module-load read is.
+fn header_budget_from_env() -> std::time::Duration {
+    let ms = std::env::var("SUMMRISE_RELAY_HEADER_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30_000);
+    std::time::Duration::from_millis(ms)
+}
+
 #[tokio::main]
 async fn main() {
     let listen = std::env::args()
@@ -445,6 +481,7 @@ async fn main() {
             "https://api.saisi.online".to_string(),
         ]),
         upstream_origin: None,
+        header_budget: header_budget_from_env(),
     };
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
@@ -520,6 +557,28 @@ mod tests {
         format!("http://{addr}")
     }
 
+    /// A stub that ACCEPTS and then says NOTHING — the hung upstream the header budget exists for.
+    async fn stub_silent() -> String {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let _ = sock.read(&mut buf).await;
+                    // Hold the socket open, and never write a byte.
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                });
+                held.push(());
+            }
+        });
+        format!("http://{addr}")
+    }
+
     fn relay_at(origin: String) -> Relay {
         Relay {
             client: reqwest::Client::builder()
@@ -528,6 +587,9 @@ mod tests {
                 .expect("a client"),
             allowed_origins: Arc::new(Vec::new()),
             upstream_origin: Some(origin),
+            // SHORT IN THE TESTS, because a test that waits thirty seconds to prove a timeout is a test
+            // nobody runs. The value is the same field the binary fills from the environment.
+            header_budget: std::time::Duration::from_millis(300),
         }
     }
 
@@ -640,6 +702,47 @@ mod tests {
             !body.contains("SECRET"),
             "the provider's words must not leave the worker: {body}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_hung_upstream_is_cut_at_the_header_budget_and_answered_generically() {
+        // **THE BUDGET COVERS HEADERS, AND ONLY HEADERS** (`proxies/README.md:13`): an upstream that
+        // accepts and says nothing must not hold a client for ever, while a response that HAS sent its
+        // headers is forwarded untimed so a long generation is never cut mid-stream.
+        let origin = stub_silent().await;
+        let started = std::time::Instant::now();
+        let (status, _, body) = call(
+            relay_at(origin.clone()),
+            Request::builder()
+                .method("POST")
+                .uri("/api/proxy")
+                .header("host", "v.saisi.online")
+                .header("authorization", "Bearer sk-test")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        // The JavaScript's catch-all for this handler: generic client text, detail in the log.
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.contains("Internal error"), "{body}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "the budget is 300 ms in the tests, not the default: {:?}",
+            started.elapsed()
+        );
+
+        // AND THE SAME HUNG UPSTREAM ON THE GIT ROUTE, whose catch answers 502 with its own sentence.
+        let (status, _, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .uri("/api/git?path=%2Fo%2Fr.git%2Finfo%2Frefs")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(body.contains("GitHub upstream unavailable"), "{body}");
     }
 
     #[tokio::test]
