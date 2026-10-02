@@ -1,7 +1,7 @@
 // landing-design-sweep — the LANDING, measured as RENDERED.
 //
 // WHY IT EXISTS (round 81). Three of the four surfaces were measured as rendered: the panel through a generated
-// harness, the console through a build of its own checkout. The landing was measured as TEXT — `landing-check` reads
+// harness, the console through a build of its own checkout. The landing was measured as TEXT — `index/landing`'s checks (Rust) read
 // the page's own values and asserts contrast, exactly one h1 and a 320px reflow — and a static read cannot see the
 // cascade as painted, the state that replaces the installer button when a release publishes none, focus order, or a
 // press. This serves the page the WORKER serves, in BOTH installer states and both colour schemes, and measures it
