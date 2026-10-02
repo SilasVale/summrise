@@ -11,11 +11,19 @@ description = "The VPS relay, in Rust — the axum/hyper target of block ④'s a
 # now (`resolveHost`, `resolveRoute`, `buildUrl`, `forwardHeaders`, `collectResponseHeaders`). The rest
 # of the relay — the three gates (`api/git`, `api/github`, `api/gform`), `api/zen`'s upstream fetch,
 # `api/proxy`'s CORS decision and the response writer — lands here as it moves.
+[[bin]]
+name = "vrelay"
+path = "src/main.rs"
+
 [lib]
 # `rlib` ONLY, for now: the crate is a library whose surface is proved by `cargo test` and by the
 # committed corpus in `fixtures/`. The `[[bin]]` arrives with the server plumbing — and the plan's
 # P3 note is that this relay is the one whose target is a STATIC BINARY rather than a Worker.
 crate-type = ["rlib"]
+
+[dev-dependencies]
+# Driving the app in-process, the way the node suite drives the handlers with a stubbed fetch.
+tower = { version = "0.5", features = ["util"] }
 
 [dependencies]
 # The routes table and the header objects arrive as JSON, and `preserve_order` is not optional: a
@@ -27,6 +35,17 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # URL. Hand-rolling that parser is how a port comes to disagree about `http://LOCALHOST:3000` or an
 # IPv6 literal, and `url` implements the same specification `new URL` does.
 url = "2"
+# THE TARGET RUNTIME THE PLAN NAMES: this crate is the axum/hyper binary the two VPS processes become.
+# `axum` for the router and `tokio` for the runtime — the handlers' DECISIONS are already here, so the
+# binary is wiring rather than logic, and the corpora that proved those decisions are what will prove
+# the wiring answers the same bytes.
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+http-body-util = "0.1"
+# THE UPSTREAM CLIENT. Every upstream this relay talks to is https, so a TLS backend is not optional;
+# rustls keeps it a static binary with no system OpenSSL, which is what "静态链接的二进制" asks for.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
 
 # NO `[workspace] members` LINE HERE, deliberately, and the sibling crates say why: this crate must
 # never be built as part of the agent's workspace, and the agent's release pipeline must never try to
