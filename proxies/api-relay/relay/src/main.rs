@@ -34,8 +34,8 @@ use axum::Router;
 use serde_json::Value;
 
 use summrise_relay::{
-    collect_response_headers, cors_headers, proxy_upstream_plan, request_host, zen_upstream_plan,
-    ProxyPlan, ZenPlan,
+    collect_response_headers, cors_headers, proxy_upstream_plan, request_host, upstream_url,
+    valid_path, zen_upstream_plan, ProxyPlan, ZenPlan,
 };
 
 /// What the wiring needs that the decisions do not: where to dial, and the origins this relay serves.
@@ -76,6 +76,7 @@ pub fn app(relay: Relay) -> Router {
     Router::new()
         .route("/api/proxy", any(proxy))
         .route("/api/zen", any(zen))
+        .route("/api/git", any(git))
         .with_state(relay)
 }
 
@@ -222,6 +223,150 @@ async fn zen(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
     }
 }
 
+/// **`/api/git` — THE ROUTE THAT IS THIS REPOSITORY'S OWN PUSH PATH.** It is the one the plan says to
+/// do first and most carefully: `git.ts` forwards the caller's `authorization` (the smart-HTTP protocol
+/// requires it), so the ORIGIN GUARD is the only thing between a caller-supplied path and a foreign host
+/// — round 120 measured exactly that hole live, with the token attached.
+///
+/// AND IT IS THE ONE HANDLER THAT DOES NOT REWRITE A BODY: a packfile is bytes, so it streams through,
+/// and its response allowlist keeps `content-length`/`content-encoding` for that reason. What it does
+/// instead is follow up to THREE redirects, all of them on `github.com` exactly.
+async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Response {
+    const UPSTREAM: &str = "https://github.com";
+    let (parts, body) = req.into_parts();
+    let uri = parts.uri.clone();
+    let method = parts.method.as_str().to_string();
+    if !matches!(method.as_str(), "GET" | "HEAD" | "POST") {
+        return git_error("method not allowed", 405);
+    }
+    let query = uri.query().unwrap_or("");
+    let path = summrise_relay::FormParams::parse(query)
+        .entries()
+        .into_iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+    if path.is_empty() || !valid_path(&path) {
+        return git_error("invalid GitHub path", 400);
+    }
+    let Ok(base) = upstream_url(UPSTREAM, &path) else {
+        return git_error(&upstream_url(UPSTREAM, &path).unwrap_err(), 400);
+    };
+    // The caller's own query, minus the parameter this relay consumed — git's smart-HTTP needs
+    // `service=git-upload-pack` to describe what the client is about to do.
+    let search = summrise_relay::git_upstream_search(query);
+    let url = if search.is_empty() {
+        base
+    } else {
+        format!("{base}?{search}")
+    };
+    let headers = request_headers(&parts.headers);
+    let plan = summrise_relay::git_request_headers(&headers);
+    let bytes = if method == "POST" {
+        axum::body::to_bytes(body, 8 * 1024 * 1024)
+            .await
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+
+    let mut current = url;
+    let mut redirects = 0u32;
+    loop {
+        // **EVERY HOP GOES THROUGH THE SEAM, NOT JUST THE FIRST.** The first version dialled the composed
+        // URL and then assigned the redirect target straight into `current`, so a test's second hop left
+        // the stub and reached the REAL github.com — measured, not theorised: the failing assertion
+        // printed a live profile page. The seam is where a dial happens, so it belongs inside the loop.
+        let dialled = relay.dial(&current);
+        let mut request = relay.client.request(
+            reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
+            &dialled,
+        );
+        for (k, v) in &plan {
+            request = request.header(k, v);
+        }
+        if method == "POST" {
+            request = request.body(bytes.to_vec());
+        }
+        let response = match request.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                // Never leak internal detail (DNS, TLS, timeout internals) — generic client text, full
+                // detail in the log.
+                eprintln!("[vrelay-git] upstream error: {e}");
+                return git_error("GitHub upstream unavailable", 502);
+            }
+        };
+        let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let target = summrise_relay::allowed_redirect(&location, &current);
+        if target.is_none() || !(300..400).contains(&status) {
+            let entries: Vec<(String, String)> = response
+                .headers()
+                .iter()
+                .filter_map(|(k, v)| {
+                    v.to_str()
+                        .ok()
+                        .map(|v| (k.as_str().to_string(), v.to_string()))
+                })
+                .collect();
+            let plain = summrise_relay::collect_response_headers(&entries, &[]);
+            let mut pairs: Vec<(String, String)> = plain
+                .as_object()
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Git metadata MUST NOT be edge-cached: a cached `info/refs` made pushes appear to fail
+            // (stale 404s, stale refs, for minutes).
+            pairs.retain(|(k, _)| k != "cache-control");
+            pairs.push((
+                "cache-control".to_string(),
+                summrise_relay::error_cache_control().to_string(),
+            ));
+            let body = response.bytes().await.unwrap_or_default();
+            return (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                build_headers(&pairs, &[]),
+                Body::from(body),
+            )
+                .into_response();
+        }
+        if redirects >= summrise_relay::redirect_cap("git").unwrap_or(3) {
+            return git_error("too many GitHub redirects", 502);
+        }
+        redirects += 1;
+        current = target.unwrap_or(current);
+    }
+}
+
+/// `git.ts`'s own `errorResponse`: JSON with a charset, **and `no-store`** — an error that a CDN caches
+/// is an error served to the next caller.
+fn git_error(message: &str, status: u16) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    headers.insert(
+        "cache-control",
+        HeaderValue::from_static("no-store, max-age=0, must-revalidate"),
+    );
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+        headers,
+        serde_json::json!({ "error": message }).to_string(),
+    )
+        .into_response()
+}
+
 /// Send it, and apply the two rules every handler shares: **the 5xx rule** (generic client text, detail
 /// stays in the log) and the CORS copy on the reply.
 async fn forward(request: reqwest::RequestBuilder, cors: &[(String, String)]) -> Response {
@@ -352,9 +497,35 @@ mod tests {
         format!("http://{addr}")
     }
 
+    /// A stub that ALWAYS redirects to the given location — the storm the cap exists for.
+    async fn stub_redirect(location: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let addr = listener.local_addr().expect("an address");
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let _ = sock.read(&mut buf).await;
+                    let response = format!(
+                        "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    );
+                    let _ = sock.write_all(response.as_bytes()).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
     fn relay_at(origin: String) -> Relay {
         Relay {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("a client"),
             allowed_origins: Arc::new(Vec::new()),
             upstream_origin: Some(origin),
         }
@@ -468,6 +639,98 @@ mod tests {
         assert!(
             !body.contains("SECRET"),
             "the provider's words must not leave the worker: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_git_method_outside_the_protocol_is_refused_with_no_store() {
+        let relay = relay_at("http://127.0.0.1:1".to_string());
+        let (status, headers, body) = call(
+            relay,
+            Request::builder()
+                .method("PUT")
+                .uri("/api/git?path=%2Fo%2Fr.git%2Finfo%2Frefs")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+        assert!(body.contains("method not allowed"), "{body}");
+        // AN ERROR MUST NOT BE EDGE-CACHED: a cached transient failure would outlive its cause.
+        assert_eq!(
+            headers.get("cache-control").and_then(|v| v.to_str().ok()),
+            Some("no-store, max-age=0, must-revalidate")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_git_path_that_escapes_the_origin_is_refused_before_anything_is_dialled() {
+        let relay = relay_at("http://127.0.0.1:1".to_string());
+        // `//host` is PROTOCOL-RELATIVE and `new URL(path, base)` would REPLACE the origin — round 120
+        // measured that hole live, with the caller's token attached. The shape check refuses it here.
+        for hostile in ["%2F%2Fevil.example%2Fx", "%2Fa%2F..%2Fb", "%2Fa%5Cb", ""] {
+            let (status, _, body) = call(
+                relay.clone(),
+                Request::builder()
+                    .uri(format!("/api/git?path={hostile}"))
+                    .header("host", "v.saisi.online")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{hostile}");
+            assert!(body.contains("invalid GitHub path"), "{hostile}: {body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_git_redirect_loop_stops_at_the_cap() {
+        // The cap is THREE for this handler (five for the other two), and every hop must be on
+        // `github.com` exactly — so a storm of allowed-looking redirects still ends in a 502.
+        let origin = stub_redirect("https://github.com/loop").await;
+        let (status, _, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .uri("/api/git?path=%2Fo%2Fr.git%2Finfo%2Frefs")
+                .header("host", "v.saisi.online")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_GATEWAY,
+            "got {status} with body {body:?}"
+        );
+        assert!(body.contains("too many GitHub redirects"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_git_success_keeps_its_length_and_forbids_caching() {
+        let origin = stub_upstream(200, "git-bytes").await;
+        let (status, headers, body) = call(
+            relay_at(origin),
+            Request::builder()
+                .uri("/api/git?path=%2Fo%2Fr.git%2Finfo%2Frefs&service=git-upload-pack")
+                .header("host", "v.saisi.online")
+                .header("authorization", "Bearer sk-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "git-bytes");
+        // GIT METADATA MUST NOT BE EDGE-CACHED — a cached `info/refs` made pushes appear to fail.
+        assert_eq!(
+            headers.get("cache-control").and_then(|v| v.to_str().ok()),
+            Some("no-store, max-age=0, must-revalidate")
+        );
+        // AND THIS HANDLER KEEPS THE UPSTREAM'S LENGTH, unlike the two that rewrite bodies: a packfile
+        // streams through untouched, so the length still describes what is being sent.
+        assert_eq!(
+            headers.get("content-length").and_then(|v| v.to_str().ok()),
+            Some("9")
         );
     }
 

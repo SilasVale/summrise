@@ -200,6 +200,11 @@ impl FormParams {
         self.0.push((k.to_string(), v.to_string()));
     }
 
+    /// `params.delete(k)` — every pair with that name goes.
+    pub fn remove(&mut self, k: &str) {
+        self.0.retain(|(name, _)| name != k);
+    }
+
     pub fn entries(&self) -> Vec<(String, String)> {
         self.0.clone()
     }
@@ -1348,6 +1353,55 @@ pub fn max_body() -> usize {
 /// How long an agent's long-poll is parked before it is answered 204 and dropped.
 pub fn long_poll_ms() -> u64 {
     25_000
+}
+
+/// `git.ts`'s `REQUEST_HEADERS` — **`authorization` IS IN THIS ONE**, and that is the git protocol
+/// rather than an oversight: a smart-HTTP clone or push authenticates with it, and this relay forwards
+/// the caller's own credential. It is the reason the ORIGIN GUARD matters most on this route.
+pub fn git_request_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(
+        &[
+            "accept",
+            "accept-encoding",
+            "content-type",
+            "content-length",
+            "if-none-match",
+            "if-modified-since",
+            "user-agent",
+            "authorization",
+        ],
+        headers,
+    )
+}
+
+/// `git.ts`'s `RESPONSE_HEADERS` — **AND THIS ONE KEEPS `content-encoding`/`content-length`**, which
+/// `github.ts` and `gform.ts` drop. The difference is deliberate and the corpus pins it: this handler
+/// passes a git payload through as bytes (a packfile is not text and is never rewritten), while the two
+/// that rewrite bodies must not forward a length that no longer describes what they send.
+pub fn git_response_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(
+        &[
+            "cache-control",
+            "clear-site-data",
+            "content-encoding",
+            "content-length",
+            "content-type",
+            "etag",
+            "expires",
+            "last-modified",
+            "vary",
+        ],
+        headers,
+    )
+}
+
+/// The query the upstream is asked with: **the caller's own, MINUS `path`** — which is the parameter
+/// this relay consumed to choose the upstream. Everything else rides, because git's smart-HTTP needs
+/// `service=git-upload-pack` (or `-receive-pack`) to describe what the client is about to do.
+pub fn git_upstream_search(search: &str) -> String {
+    let mut params = FormParams::parse(search);
+    params.remove("path");
+    params.to_string()
 }
 
 #[cfg(test)]
