@@ -46,14 +46,22 @@ cargo build --release --bin gen -q
 
 echo "── 2/4  the two behaviours (wasm, fetched after paint) ──"
 cargo build --release --target wasm32-unknown-unknown --lib -q
-rm -rf "$PKG"
-wasm-bindgen --target web --out-dir "$PKG" --no-typescript \
+# **BUILD INTO A SCRATCH DIRECTORY AND MOVE THE PAIR IN ONLY ON SUCCESS.** This step used to
+# `rm -rf "$PKG"` and then call `wasm-bindgen` — so a box without that tool (or any failure between
+# the two lines) DELETED the tracked pair that the worker serves, and the page lost its behaviours
+# until someone rebuilt. Measured 2026-09-30: one run of this script on a box without wasm-bindgen
+# left `index/public/summrise-agent/landing/` with two deleted files, and two gates failed on it.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+wasm-bindgen --target web --out-dir "$STAGE" --no-typescript \
   target/wasm32-unknown-unknown/release/summrise_landing.wasm
-BG="$PKG/summrise_landing_bg.wasm"
+BG="$STAGE/summrise_landing_bg.wasm"
 # Rust 1.98 emits bulk-memory and nontrapping-float-to-int; wasm-opt 132 refuses
 # the module without being told they are allowed.
 "$WASM_OPT" -Oz --enable-bulk-memory --enable-nontrapping-float-to-int "$BG" -o "$BG.opt"
 mv "$BG.opt" "$BG"
+mkdir -p "$PKG"
+mv "$STAGE/summrise_landing.js" "$STAGE/summrise_landing_bg.wasm" "$PKG/"
 
 echo "── 3/4  fidelity: the Rust page against the page it replaces ──"
 node verify.mjs

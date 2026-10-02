@@ -1008,3 +1008,44 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 `safeEq` 对任意两个字符串都答 true** ✗✗。**一个永远说"是"的仪器，和一个宽松的实现是无法区分的** ✓，
 **而 28 个用例看起来像"对的门错了"** ✗——**因为"差异的方向"是读者最先信、最后该信的东西** ✓✓。
 **worker 自己那行是 `const a8 = new Uint8Array(da)`，而覆盖版现在有它** ✓。
+
+## 收口普查（2026-09-30 ✓）：**可搬的逻辑搬完了，剩下三件是操作者的**
+
+按计划自己的判据逐项对过一遍，每条都带能跑的命令：
+
+| 块 | 状态 | 证据 |
+|---|---|---|
+| **P0** | ✓ 完成 | `docs/superpowers/p0/`：187 个 LOGIC 导出、基线、wasm-pack 证明 |
+| **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **41 个门禁**；`scripts/test/*.mjs` 只剩 **8 个具名例外** |
+| **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary** |
+| **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`） |
+| **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（`translate.rs` + `stream.rs`，**两半都在**，10 测试）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
+| **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**41 个公开项、26 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
+| **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
+
+**而操作者 2026-09-30 的三个决定** ✓：
+
+1. **P4 做** ✓ —— 而**它已经落地了** ✓：`index/landing/` 在构建时渲染整份文档 ✓，
+   `index/src/landing/{setup,npm-only}.js` 是它产出的两个 arm ✓，
+   而 `index/src/page.js` 只剩三个 URL 的替换与策略 ✓。
+   **这一轮补的是接线** ✓：`build.sh index` 现在会重新渲染 ✓，
+   而 `index` 作业跑 `cargo test --manifest-path index/landing/Cargo.toml` ✓——
+   **那条测试把"跟踪的 arm 就是这个 crate 渲染出来的"钉住** ✓（变异：改 `page.rs` 一个字而不重新生成 →
+   失败，并打印"Regenerate with `index/landing/build.sh`" ✓）。
+2. **P1 那 8 个例外逐个复查** ✓——**2 个能搬** ✓（`contrast-probe-check` 与 `landing-check`：
+   **它们不 spawn 任何东西** ✓，一个是解析器、一个是判官 ✓），
+   **6 个不能** ✓：`console-assets-check` / `panel-sheet-freshness-check`（跑 npm 构建 ✓）、
+   `console-smoke-check`（跑 smoke 脚本 ✓）、`main-shape-check`（问 git ✓）、
+   `npm-test-floored`（跑 npm test ✓）、`press-anchor-check`（跑发射器 `--emit` ✓）。
+3. **P3 切流：待操作者确认对 relay 的理解** ✓（它在回答里问"relay 是什么" ✓）。
+
+**而剩下的是三件计划从一开始就写明"由操作者决定"的事** ✓：
+
+1. **P3 的切流**：gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
+   **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
+   **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
+   先让它跑起来、再让它当远端** ✓。
+2. **P1 那 8 个 `.mjs` 的 CI 依赖**：计划写着"加不加 CI 依赖由操作者决定" ✓。
+3. **P4**：只有操作者点名才做 ✓。
+
+**所以这一份计划的可执行部分到此为止** ✓——**再往下走需要上面三个决定中的任意一个** ✓。

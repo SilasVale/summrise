@@ -213,8 +213,16 @@ fn palette() -> Vec<[u8; 3]> {
 fn resize(field: &Rc<RefCell<Field>>) {
     let win = window();
     let dpr = win.device_pixel_ratio().min(2.0);
-    let w = win.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let h = win.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let w = win
+        .inner_width()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let h = win
+        .inner_height()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let mut f = field.borrow_mut();
     f.canvas.set_width((w * dpr).floor() as u32);
     f.canvas.set_height((h * dpr).floor() as u32);
