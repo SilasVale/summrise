@@ -15,6 +15,13 @@ description = "The VPS relay, in Rust — the axum/hyper target of block ④'s a
 name = "vrelay"
 path = "src/main.rs"
 
+# THE SECOND PROCESS THE PLAN NAMES, and the same crate for the same reason: `summrise-relay` runs on an
+# OPERATOR'S machine rather than the VPS, and both are the axum/hyper target of block ④. Its decisions
+# (`token_ok`, `relay_route`, the caps) are already in the library; this binary is its queue.
+[[bin]]
+name = "srelay"
+path = "src/bin/srelay.rs"
+
 [lib]
 # `rlib` ONLY, for now: the crate is a library whose surface is proved by `cargo test` and by the
 # committed corpus in `fixtures/`. The `[[bin]]` arrives with the server plumbing — and the plan's
