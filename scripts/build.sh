@@ -159,6 +159,18 @@ build_index_worker() {
   }
 }
 
+build_landing() {
+  echo "=== [build] the landing page's arms (Rust renders the document at build time) ==="
+  # THE ARMS UNDER index/src/landing/ ARE TRACKED AND SERVED, AND THEY ARE RENDERED — by
+  # index/landing's `gen` binary, which the worker's page.js substitutes three URLs into. Nothing
+  # regenerated them before a deploy, so a change to page.rs would have shipped the PREVIOUS document:
+  # the same shape as the panel's sheet, and the reason the `index` job carries a freshness step.
+  ( cd "$ROOT/index/landing" && ./build.sh ) || {
+    echo "  !! the landing did not build — refusing to deploy" >&2
+    return 1
+  }
+}
+
 deploy_worker() {
   local dir="$1" name="$2"
   require_cf_token "$name" || return 1
@@ -169,6 +181,9 @@ deploy_worker() {
   # THE INDEX WORKER'S MODULE IS BUILT, NOT COMMITTED (its whole output dir is gitignored), so this
   # arm is where the Rust half gets built — before wrangler looks for a `main` that would not be there.
   [[ "$dir" == "index" ]] && { build_index_worker "$name" || return 1; }
+  # AND THE LANDING'S ARMS, for the same reason and before the same deploy: they are rendered, they are
+  # tracked, and wrangler serves whatever is in the tree.
+  [[ "$dir" == "index" ]] && { build_landing || return 1; }
   # round-324: the gateway's public /code/ viewer mirrors gateway/src —
   # (build-installer.sh no longer syncs it — that job moved here).
   # Sync before deploy so the served sources never drift from live.
