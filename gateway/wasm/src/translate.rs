@@ -652,7 +652,31 @@ fn usage_cache_read(up: &Value) -> Value {
 ///    sends `{}` rather than `undefined` (which would throw inside `JSON.stringify`).
 ///
 /// **AND AN UNKNOWN BLOCK TYPE GETS A START AND A STOP AND NO DELTA**, exactly as in the satellites.
+/// `{ stop_reason: res.stop_reason, stop_sequence: null }` — with `undefined` DROPPED, as
+/// `JSON.stringify` drops it.
+fn delta_of(res: &Value) -> Value {
+    let mut delta = serde_json::Map::new();
+    if let Some(reason) = res.get("stop_reason") {
+        delta.insert("stop_reason".to_string(), reason.clone());
+    }
+    delta.insert("stop_sequence".to_string(), Value::Null);
+    Value::Object(delta)
+}
+
 pub fn to_sse(res: &Value) -> String {
+    // **THE TYPESCRIPT ITERATES `res.content` AND CRASHES WHEN IT IS ABSENT.** Measured by the oracle
+    // (`gateway/wasm/oracle-translate.mjs`), on the case named "no content":
+    //
+    //     Cannot read properties of undefined (reading 'forEach')
+    //
+    // and the corpus's rule is the one this repository states for every port — BOTH REFUSING IS AN
+    // EQUIVALENCE, and a port that quietly accepted it would answer a document the JavaScript never
+    // produces. So this refuses in the only way Rust has, which under workerd is the same 500 the
+    // throw is. It is a degenerate input (the route builds `res` from an Anthropic-shaped document, so
+    // it always has `content`), which is exactly why the hand-written tests never found it.
+    if res.get("content").is_none() {
+        panic!("toSSE: content is required (the TypeScript throws here)");
+    }
     let mut start_message = res.clone();
     if let Some(obj) = start_message.as_object_mut() {
         // THE SPREAD IS SHALLOW AND THREE KEYS ARE REPLACED — the id, model, role, type and usage
@@ -764,7 +788,13 @@ pub fn to_sse(res: &Value) -> String {
         "message_delta",
         &json!({
             "type": "message_delta",
-            "delta": { "stop_reason": res.get("stop_reason").cloned().unwrap_or(Value::Null), "stop_sequence": Value::Null },
+            // **A KEY WHOSE VALUE IS `undefined` IS DROPPED BY `JSON.stringify`, AND THAT IS A BYTE.**
+            // The TypeScript writes `delta: { stop_reason: res.stop_reason, stop_sequence: null }`, so a
+            // response with NO `stop_reason` produces `{"stop_sequence":null}` — the corpus measured it,
+            // and `unwrap_or(Value::Null)` kept the key and changed the bytes. An EXPLICIT `null` is a
+            // value and keeps its key, which is why this asks whether the key is there rather than
+            // whether it is null.
+            "delta": delta_of(res),
             // `res.usage?.output_tokens || 0` — OPTIONAL CHAINING, so a response with no `usage`
             // answers 0 here (and would throw in the satellites' version, which uses a bare `.`).
             "usage": { "output_tokens": match res.get("usage").and_then(|u| u.get("output_tokens")) {
@@ -1105,5 +1135,94 @@ mod tests {
             .expect("an array")
             .clone();
         assert_eq!(msgs.len(), 2, "one message per character: {msgs:?}");
+    }
+}
+
+#[cfg(test)]
+mod oracle_corpus {
+    //! `fixtures/translate-corpus.json` was produced by the SHIPPING TypeScript
+    //! (`gateway/wasm/oracle-translate.mjs`), and this replays it.
+    //!
+    //! THE COMPARISON IS THE JSON TEXT, NOT THE PARSED VALUE: `Object.keys` order is what the response
+    //! bytes are, this crate carries `preserve_order`, and comparing parsed values would quietly accept a
+    //! reordered document.
+    //!
+    //! A CASE THE TYPESCRIPT THROWS ON IS A CASE THIS MUST REFUSE, and "both refuse" is asserted with
+    //! `catch_unwind` — the only refusal Rust has. That arm is not decoration: the FIRST run of this
+    //! corpus found `to_sse` answering a document where the TypeScript crashes, which no hand-written
+    //! test had asked about.
+    use super::*;
+
+    fn corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/translate-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    #[test]
+    fn every_case_matches_the_shipping_typescript() {
+        let doc = corpus();
+        let cases = doc["cases"].as_array().expect("cases");
+        assert!(
+            cases.len() >= 15,
+            "a corpus that shrank is a corpus that stopped covering"
+        );
+        let mut checked = 0;
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let func = case["fn"].as_str().unwrap_or("?");
+            let input = &case["input"];
+            let model = case["model"].as_str().unwrap_or("m");
+            let expected = &case["expected"];
+            let throws = expected.get("threw").is_some();
+
+            // The call, captured as a refusal rather than a value when it panics.
+            let outcome: Result<String, ()> = std::panic::catch_unwind(|| match func {
+                "to_openai_request" => {
+                    serde_json::to_string(&to_openai_request(input, model)).unwrap()
+                }
+                "to_anthropic_response" => {
+                    serde_json::to_string(&to_anthropic_response(input, model)).unwrap()
+                }
+                "sse" => sse(case["event"].as_str().unwrap_or(""), input),
+                "to_sse" => to_sse(input),
+                other => panic!("unknown function in the corpus: {other}"),
+            })
+            .map_err(|_| ());
+
+            match (throws, outcome) {
+                (true, Err(())) => {
+                    checked += 1;
+                }
+                (true, Ok(value)) => panic!(
+                    "{func} / {name}: the TypeScript THROWS and this answered {value:.120} — both \
+                     refusing is the equivalence the corpus asks for"
+                ),
+                (false, Err(())) => {
+                    panic!("{func} / {name}: this refused where the TypeScript answered")
+                }
+                (false, Ok(value)) => {
+                    let want = expected
+                        .get("json")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .or_else(|| {
+                            expected
+                                .get("text")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        })
+                        .unwrap_or_else(|| {
+                            panic!("{func} / {name}: the corpus has no expectation")
+                        });
+                    assert_eq!(value, want, "{func} / {name}: the bytes differ");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, cases.len());
     }
 }
