@@ -377,6 +377,11 @@ case "$cmd" in
   index)    deploy_worker index "Summrise Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
+  # THE RUST RELAY, ALONGSIDE RATHER THAN INSTEAD (block ④). The plan's own warning is the reason this is
+  # a separate command: `api-relay` is this repository's push path, so the binary runs on a port of its
+  # own FIRST, and the cutover is a deliberate act somebody takes after reading its smoke. See
+  # `proxies/api-relay/deploy-rs.sh`'s header for the switch and the rollback.
+  vrelay-rs) bash "$ROOT/proxies/api-relay/deploy-rs.sh" "${2:-}" ;;
   # build-installer.sh is ALIVE and is not part of `deploy` by design: it is a
   # release step (`scripts/publish-release.sh` runs it after staging the tgz).
   # Round-320 deleted it (182a0347) because the version then staged a dead Vercel
@@ -389,5 +394,5 @@ case "$cmd" in
   # P0-2: full-stack preflight FIRST — a missing toolchain piece or token
   # aborts here, never mid-chain as a half-deployed stack (&& serial).
   deploy)   preflight_deploy && build_agent "${2:-release}" && deploy_worker gateway "Summrise Gate" && deploy_worker index "Summrise Index" && deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
-  *) echo "usage: $0 [agent|gateway|index|proxies|api-relay|deploy]"; exit 1 ;;
+  *) echo "usage: $0 [agent|gateway|index|proxies|api-relay|vrelay-rs|deploy]"; exit 1 ;;
 esac
