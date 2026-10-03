@@ -629,6 +629,450 @@
    }
   },
   {
+   "fn": "allowed_origins",
+   "name": "no configuration",
+   "input": {
+    "configured": null
+   },
+   "expected": {
+    "value": [
+     "https://ai.saisi.online",
+     "https://api.saisi.online"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "an empty configuration",
+   "input": {
+    "configured": ""
+   },
+   "expected": {
+    "value": [
+     "https://ai.saisi.online",
+     "https://api.saisi.online"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "a blank configuration",
+   "input": {
+    "configured": "   "
+   },
+   "expected": {
+    "value": [
+     "https://ai.saisi.online",
+     "https://api.saisi.online"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "one origin",
+   "input": {
+    "configured": "https://a.example"
+   },
+   "expected": {
+    "value": [
+     "https://a.example"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "several, with spaces",
+   "input": {
+    "configured": " https://a.example , https://b.example "
+   },
+   "expected": {
+    "value": [
+     "https://a.example",
+     "https://b.example"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "a trailing comma keeps the rest",
+   "input": {
+    "configured": "https://a.example,"
+   },
+   "expected": {
+    "value": [
+     "https://a.example"
+    ]
+   }
+  },
+  {
+   "fn": "allowed_origins",
+   "name": "only commas is the default",
+   "input": {
+    "configured": ",,,"
+   },
+   "expected": {
+    "value": [
+     "https://ai.saisi.online",
+     "https://api.saisi.online"
+    ]
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "http localhost",
+   "input": {
+    "origin": "http://localhost"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "http localhost with a port",
+   "input": {
+    "origin": "http://localhost:8787"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "https 127.0.0.1",
+   "input": {
+    "origin": "https://127.0.0.1"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "UPPERCASE host is lowercased by URL",
+   "input": {
+    "origin": "http://LOCALHOST"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "ftp is not a loopback origin",
+   "input": {
+    "origin": "ftp://localhost"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "a real origin",
+   "input": {
+    "origin": "https://example.com"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "localhost as a LABEL is not localhost",
+   "input": {
+    "origin": "http://localhost.evil.com"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "not a url at all",
+   "input": {
+    "origin": "not a url"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "an empty string",
+   "input": {
+    "origin": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "a relative url",
+   "input": {
+    "origin": "/api/health"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "IPv6 loopback is NOT matched",
+   "input": {
+    "origin": "http://[::1]:8787"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_origin",
+   "name": "127.0.0.2 is not loopback",
+   "input": {
+    "origin": "http://127.0.0.2"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "localhost",
+   "input": {
+    "host": "localhost"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "127.0.0.1",
+   "input": {
+    "host": "127.0.0.1"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "LOCALHOST is not (case-sensitive)",
+   "input": {
+    "host": "LOCALHOST"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "127.0.0.2",
+   "input": {
+    "host": "127.0.0.2"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "an empty host",
+   "input": {
+    "host": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_loopback_host",
+   "name": "a deployed host",
+   "input": {
+    "host": "api.saisi.online"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "an allowlisted origin",
+   "input": {
+    "origin": "https://ai.saisi.online",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "a loopback origin at a loopback host",
+   "input": {
+    "origin": "http://localhost:8787",
+    "requestHost": "localhost",
+    "configured": null
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "a loopback origin at a DEPLOYED host gets NOTHING (audit P2)",
+   "input": {
+    "origin": "http://localhost:8787",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "a loopback origin with no host at all",
+   "input": {
+    "origin": "http://localhost:8787",
+    "requestHost": null,
+    "configured": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "a foreign origin",
+   "input": {
+    "origin": "https://evil.example",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "an empty origin",
+   "input": {
+    "origin": "",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "the configured override",
+   "input": {
+    "origin": "https://test.example",
+    "requestHost": "test.example",
+    "configured": "https://test.example"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_allowed_origin",
+   "name": "the override REPLACES the default",
+   "input": {
+    "origin": "https://ai.saisi.online",
+    "requestHost": "api.saisi.online",
+    "configured": "https://test.example"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "cors_headers_for",
+   "name": "allowed reflects and varies",
+   "input": {
+    "origin": "https://ai.saisi.online",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": {
+     "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "Access-Control-Allow-Headers": "*",
+     "Access-Control-Allow-Origin": "https://ai.saisi.online",
+     "Vary": "Origin"
+    }
+   }
+  },
+  {
+   "fn": "cors_headers_for",
+   "name": "not allowed has no ACAO",
+   "input": {
+    "origin": "https://evil.example",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": {
+     "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "Access-Control-Allow-Headers": "*"
+    }
+   }
+  },
+  {
+   "fn": "cors_headers_for",
+   "name": "a loopback pair reflects",
+   "input": {
+    "origin": "http://localhost:8787",
+    "requestHost": "localhost",
+    "configured": null
+   },
+   "expected": {
+    "value": {
+     "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "Access-Control-Allow-Headers": "*",
+     "Access-Control-Allow-Origin": "http://localhost:8787",
+     "Vary": "Origin"
+    }
+   }
+  },
+  {
+   "fn": "cors_headers_for",
+   "name": "a loopback origin at a deployed host does not",
+   "input": {
+    "origin": "http://localhost:8787",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": {
+     "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "Access-Control-Allow-Headers": "*"
+    }
+   }
+  },
+  {
+   "fn": "cors_headers_for",
+   "name": "an empty origin",
+   "input": {
+    "origin": "",
+    "requestHost": "api.saisi.online",
+    "configured": null
+   },
+   "expected": {
+    "value": {
+     "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "Access-Control-Allow-Headers": "*"
+    }
+   }
+  },
+  {
    "fn": "strip_bracket",
    "name": "a trailing bracket",
    "input": "model[1m]",
