@@ -711,3 +711,83 @@ mod passthrough_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod passthrough_differential {
+    //! **THE ARM'S OWN DIFFERENTIAL**: `fixtures/passthrough-corpus.json` records the REQUEST the shipping
+    //! route built, captured by stubbing `fetch` (`gateway/wasm/route-oracle.mjs`). The Rust side rebuilds
+    //! that request with `passthrough_request` and compares the body and the headers — the two things the
+    //! upstream actually sees.
+    //!
+    //! THE FIRST VERSION OF THE ORACLE'S CASES USED `og/`, AND THE CAPTURE SAID WHAT THAT ARM IS: the
+    //! translate arm (the "og pattern"), a different slice. Recording the wrong arm would have compared a
+    //! decision against a route that does not use it — which is exactly the class of mistake a differential
+    //! exists to catch, caught here by the differential's own output.
+    use super::*;
+
+    fn corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/passthrough-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the passthrough corpus is committed");
+        serde_json::from_str(&text).expect("the passthrough corpus parses")
+    }
+
+    #[test]
+    fn the_request_the_route_builds_is_the_one_this_rebuilds() {
+        let doc = corpus();
+        let mut checked = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            assert!(
+                case.get("noUpstreamCall").is_none(),
+                "{name}: the route dialled nothing, so there is no request to compare"
+            );
+            let captured = &case["captured"];
+            let raw = case["rawText"].as_str().unwrap_or("");
+            let got = passthrough_request(
+                case["kind"].as_str().unwrap_or(""),
+                case["upstreamModel"].as_str().unwrap_or(""),
+                raw,
+                None, // these channels never parse — see the oracle's note
+                case["bearerKey"].as_str(),
+                &[],
+                None,
+            );
+            assert_eq!(
+                got.body,
+                captured["body"].as_str().unwrap_or(""),
+                "{name}: the forwarded BODY"
+            );
+            // The captured headers are a `Headers` object's, so both sides fold.
+            let want: Vec<(String, String)> = captured["headers"]
+                .as_object()
+                .expect("headers")
+                .iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string()))
+                .filter(|(k, _)| k == "authorization" || k == "x-api-key" || k == "content-type")
+                .collect();
+            let have: Vec<(String, String)> = got
+                .headers
+                .iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
+                .collect();
+            for pair in &want {
+                assert!(have.contains(pair), "{name}: missing {pair:?} in {have:?}");
+            }
+            // The URL is the route's business, not this function's, but it is recorded — and a case whose
+            // URL is not the passthrough host would mean the capture hit the wrong arm again.
+            let url = captured["url"].as_str().unwrap_or("");
+            assert!(
+                !url.contains("opencode.ai"),
+                "{name}: this captured the TRANSLATE arm, not the passthrough one: {url}"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 3,
+            "the passthrough corpus shrank to {checked} cases"
+        );
+    }
+}

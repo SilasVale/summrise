@@ -97,6 +97,45 @@ async function callRoute(body, { keys = {}, token = TOKEN, headers = {} } = {}) 
   };
 }
 
+// ── the passthrough arm, which DOES dial out ─────────────────────────────────────────────────────
+// **THIS CAPTURES THE REQUEST THE ROUTE BUILDS**, which is the security-shaped half of a passthrough: the
+// body decides what the upstream runs and the headers decide which credential it sees. The stub answers a
+// canned OpenAI-shaped response and records what it was asked; the real `fetch` is restored in a `finally`.
+async function captureUpstream(request) {
+  const captured = { url: request.url, method: request.method, headers: {}, body: "" };
+  for (const [k, v] of request.headers.entries()) captured.headers[k] = v;
+  captured.body = await request.text();
+  return captured;
+}
+
+/** One passthrough call with `fetch` stubbed. Returns the captured request and the route's own answer. */
+async function callPassthrough(c) {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = async (url, init = {}) => {
+    captured = await captureUpstream(new Request(url, init));
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    __clearCaches();
+    const request = new Request("https://relay.example/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ ...c.body, model: c.model }),
+    });
+    const response = await handleGateway(request, envWith(c.keys), new URL(request.url));
+    return { captured, status: response.status, answer: await response.text() };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
 // The three arms of the `count_tokens` decision, plus the two shapes that decide whether the arm is reached
 // at all: an unauthenticated request (401 before the estimate) and a body whose estimate is NaN.
@@ -231,4 +270,63 @@ writeFileSync(
     1,
   ) + "\n",
 );
-console.log(`route-oracle: ${out.length} case(s) written to fixtures/route-corpus.json`);
+// The passthrough cases live in their own fixture: they carry a CAPTURED REQUEST rather than a response, so
+// the Rust side compares what the route ASKED, not what it answered.
+// **`ds/` TAKES THE PASSTHROUGH ARM, WHICH IS THE ONE THE RUST SIDE PORTS.** The first version of these
+// cases used `og/`, and the capture showed what that arm actually is: `POST opencode.ai/zen/go/v1/chat/
+// completions` with `Bearer` — the TRANSLATE arm (the "og pattern"), which is a different slice and not
+// ported yet. Recording the wrong arm would have compared a decision against a route that does not use it.
+const passthroughCases = [
+  {
+    name: "ds: the model is swapped in place and the key rides Bearer",
+    model: "ds/deepseek-v4.1-flash",
+    body: { messages: [{ role: "user", content: "hi" }], max_tokens: 16 },
+    keys: { DEEPSEEK_API_KEY: "sk-ds" },
+  },
+  {
+    name: "ds: a model key already in the body keeps its POSITION",
+    model: "ds/deepseek-v4.1-flash",
+    body: { model: "ds/old", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+    keys: { DEEPSEEK_API_KEY: "sk-ds" },
+  },
+  {
+    name: "qw: a second passthrough channel behaves the same way",
+    model: "qw/qwen3.8-flash",
+    body: { messages: [{ role: "user", content: "hi" }] },
+    keys: { QWEN_API_KEY: "sk-qw" },
+  },
+];
+const passthroughOut = [];
+for (const c of passthroughCases) {
+  const r = await callPassthrough(c);
+  passthroughOut.push({
+    name: c.name,
+    // The inputs the Rust side needs, recorded rather than re-derived: the kind, the wire model, the raw
+    // text, the PARSED body (og-native parses, so the port takes the parsed branch) and the bearer key.
+    // The kind and the wire model the route resolved, recorded so the port is driven without resolving a
+    // route: `ds/` -> deepseek, and its wire is the stripped id.
+    kind: c.model.startsWith("qw/") ? "qwen" : "deepseek",
+    upstreamModel: c.model.startsWith("qw/") ? "qwen3.8-flash" : "deepseek-v4.1-flash",
+    rawText: JSON.stringify({ ...c.body, model: c.model }),
+    // **`parsed: null`, BECAUSE THESE CHANNELS NEVER PARSE.** `ds/qw/or` forward RAW TEXT with only the
+    // top-level model field swapped (no parse, no spread, no full re-stringify, for the 10 ms budget), and
+    // the capture proves it: the body's key order is the CLIENT's, not a spread's. Recording a parsed body
+    // here would have driven the port down a branch the route does not take.
+    parsed: null,
+    bearerKey: c.keys.DEEPSEEK_API_KEY || c.keys.QWEN_API_KEY,
+    status: r.status,
+    ...(r.captured ? { captured: r.captured } : { noUpstreamCall: true, answer: r.answer }),
+  });
+}
+writeFileSync(
+  new URL("./fixtures/passthrough-corpus.json", import.meta.url),
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING handleGateway, with fetch stubbed.",
+      cases: passthroughOut,
+    },
+    null,
+    1,
+  ) + "\n",
+);
+console.log(`route-oracle: ${out.length} count_tokens case(s) and ${passthroughOut.length} passthrough case(s) written`);
