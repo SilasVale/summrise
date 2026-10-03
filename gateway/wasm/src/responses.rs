@@ -154,6 +154,48 @@ pub fn provider_key_missing_error(provider: Option<&serde_json::Value>) -> Built
     )
 }
 
+/// `jsonOk(data, extraHeaders)` — the success shape every JSON route returns.
+///
+/// `JSON.stringify` writes a whole number as `30000` and a `NaN` as `null`, so the body is built from the
+/// value rather than from a formatted number; the header order is `Content-Type`, then `CORS_HEADERS`, then
+/// the caller's extras, which is the spread order in the source.
+pub fn json_ok(data: &serde_json::Value, extra: &[(String, String)]) -> Built {
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(cors_headers());
+    for (k, v) in extra {
+        headers.push((k.clone(), v.clone()));
+    }
+    Built {
+        status: 200,
+        headers,
+        // **`JSON.stringify(NaN)` IS `null`** — the token estimate can be NaN (an empty sample divides by
+        // zero), and the wire form of that is what the corpus recorded.
+        body: stringify_like_json(data),
+    }
+}
+
+/// `JSON.stringify` for the shapes a route body holds: whole numbers stay whole, and a non-finite number
+/// becomes `null`.
+pub fn stringify_like_json(data: &serde_json::Value) -> String {
+    fn norm(v: &serde_json::Value) -> serde_json::Value {
+        match v {
+            serde_json::Value::Number(n) => match n.as_f64() {
+                Some(f) if !f.is_finite() => serde_json::Value::Null,
+                Some(f) if f.fract() == 0.0 && f.abs() < 9e15 => serde_json::json!(f as i64),
+                _ => v.clone(),
+            },
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(norm).collect())
+            }
+            serde_json::Value::Object(map) => {
+                serde_json::Value::Object(map.iter().map(|(k, v)| (k.clone(), norm(v))).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    serde_json::to_string(&norm(data)).unwrap_or_else(|_| "null".to_string())
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `built` cases were produced by the SHIPPING TypeScript
@@ -238,6 +280,44 @@ mod oracle_corpus {
                 }
                 "key_missing_error" => {
                     check(case, key_missing_error(input.as_str().unwrap_or("")));
+                    checked += 1;
+                }
+                "json_ok" => {
+                    // This arm reads the case directly: the loop binds `case`, and every other arm goes
+                    // through `check`'s narrower parameters.
+                    let name = case["name"].as_str().unwrap_or("?");
+                    let input = &case["input"];
+                    let want = &case["expected"];
+                    let extra: Vec<(String, String)> = input["extra"]
+                        .as_object()
+                        .map(|o| {
+                            o.iter()
+                                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let got = json_ok(&input["data"], &extra);
+                    assert_eq!(got.status, 200, "json_ok / {name}: status");
+                    assert_eq!(
+                        got.body,
+                        want["body"].as_str().unwrap_or(""),
+                        "json_ok / {name}: body"
+                    );
+                    // **FOLDED HERE, UNFOLDED FOR `corsHeadersFor`, AND THE DIFFERENCE IS HOW THE ORACLE
+                    // READ IT.** `jsonOk` returns a `Response`, so the oracle read its `Headers` object —
+                    // which lowercases every name. `corsHeadersFor` returns a plain `Record`, so its oracle
+                    // recorded the source's own spelling. Neither function's output changed; the recording
+                    // did.
+                    let headers: serde_json::Map<String, serde_json::Value> = got
+                        .headers
+                        .into_iter()
+                        .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+                        .collect();
+                    assert_eq!(
+                        &serde_json::Value::Object(headers),
+                        &want["headers"],
+                        "json_ok / {name}: headers"
+                    );
                     checked += 1;
                 }
                 "provider_key_missing_error" => {
