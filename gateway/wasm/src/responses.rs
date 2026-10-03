@@ -196,6 +196,64 @@ pub fn stringify_like_json(data: &serde_json::Value) -> String {
     serde_json::to_string(&norm(data)).unwrap_or_else(|_| "null".to_string())
 }
 
+/// **WHAT HAPPENS WHEN THE UPSTREAM IGNORES `stream: true`.**
+///
+/// The recorded incident is in the source's own comment: "Feeding JSON into the SSE parser produced an EMPTY
+/// Anthropic message — the whole answer was silently dropped." So the branch exists, and it has three
+/// answers, each of which the corpus pins:
+///
+///   * a plain JSON completion is translated as a ONE-SHOT SSE (`sseResponse(toSSE(toAnthropicResponse(…)))`);
+///   * a 200-wrapped OpenAI ERROR envelope — `{error:{…}}`, or no `choices`, or an empty `choices` — becomes
+///     a **502 naming the upstream's message**, because "a silent empty assistant message" is the failure
+///     this branch was written to stop;
+///   * and a JSON PARSE FAILURE is its own 502, not a fall-through to the SSE translator: the body has
+///     already been consumed, so falling through would "read an empty stream and fabricate an empty
+///     message".
+///
+/// `content_type` IS AN ARGUMENT because the caller decides with it whether this branch applies at all: a
+/// `text/event-stream` answer takes the streaming path instead.
+pub fn stream_ignored_response(
+    upstream_json: Option<&serde_json::Value>,
+    upstream_model: &str,
+) -> Built {
+    let Some(json) = upstream_json else {
+        // The parse failed AND the body was consumed — see the third answer above.
+        return json_error(502, "upstream returned invalid JSON", "api_error");
+    };
+    let choices = json.get("choices").and_then(|c| c.as_array());
+    let usable = json.get("error").is_none() && choices.map(|c| !c.is_empty()).unwrap_or(false);
+    if !usable {
+        // `json.error?.message || json.message || "upstream returned an error envelope"` — the first truthy
+        // of three, so a bare `{error:{}}` falls through to the generic sentence.
+        let message = json
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .filter(|m| !m.is_empty())
+            .or_else(|| {
+                json.get("message")
+                    .and_then(|m| m.as_str())
+                    .filter(|m| !m.is_empty())
+            })
+            .unwrap_or("upstream returned an error envelope");
+        return json_error(502, message, "api_error");
+    }
+    let one_shot = crate::translate::to_sse(&crate::translate::to_anthropic_response(
+        json,
+        upstream_model,
+    ));
+    sse_response(&one_shot)
+}
+
+/// Does the upstream's content type mean "this is JSON, not a stream"?
+///
+/// `ctype.includes("application/json") && !ctype.includes("text/event-stream")` — BOTH halves matter: a
+/// backend that answers `application/json` on a stream request ignored the flag, and one that answers
+/// `text/event-stream` did not.
+pub fn upstream_ignored_stream(content_type: &str) -> bool {
+    content_type.contains("application/json") && !content_type.contains("text/event-stream")
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `built` cases were produced by the SHIPPING TypeScript
@@ -264,6 +322,73 @@ mod oracle_corpus {
             .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
             .collect();
         assert_eq!(sorted(&built.headers), want, "{func} / {name}: headers");
+    }
+
+    fn stream_corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/stream-ignored-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the stream-ignored corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **THE RESPONSE SIDE'S DIFFERENTIAL**: `fixtures/stream-ignored-corpus.json` records what the shipping
+    /// route ANSWERS when the upstream ignores `stream: true` and returns JSON — captured by stubbing
+    /// `fetch` (`gateway/wasm/route-oracle.mjs`).
+    #[test]
+    fn the_ignored_stream_branch_matches_the_shipping_route() {
+        let doc = stream_corpus();
+        let mut checked = 0;
+        let mut seen_statuses = Vec::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["upstreamJson"];
+            let upstream_json = if json.is_null() { None } else { Some(json) };
+            let got = stream_ignored_response(
+                upstream_json,
+                case["upstreamModel"].as_str().unwrap_or(""),
+            );
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            // **FOLDED, BECAUSE THE ROUTE ANSWERS WITH A REAL `Response`.** The capture read its `Headers`
+            // object, which lowercases every name — the same rule `json_ok`'s arm carries and the opposite
+            // of `corsHeadersFor`'s, whose oracle recorded a plain `Record`. The rule is about HOW THE
+            // ORACLE READ IT, not about the function.
+            let headers: serde_json::Map<String, serde_json::Value> = got
+                .headers
+                .into_iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+                .collect();
+            assert_eq!(
+                &serde_json::Value::Object(headers),
+                &want["headers"],
+                "{name}: headers"
+            );
+            seen_statuses.push(got.status);
+            checked += 1;
+        }
+        assert!(
+            checked >= 6,
+            "the stream-ignored corpus shrank to {checked} cases"
+        );
+        // **BOTH ANSWERS ARE IN THE CORPUS, AND THE FLOOR ABOVE WOULD PASS WITHOUT THIS.** A corpus that
+        // only ever produced 502s would prove the error path and nothing else; one that only produced 200s
+        // would prove the happy path. The one-shot SSE arm is the reason this branch exists.
+        assert!(
+            seen_statuses.contains(&200),
+            "no case exercised the one-shot SSE"
+        );
+        assert!(seen_statuses.contains(&502), "no case exercised a refusal");
     }
 
     #[test]
