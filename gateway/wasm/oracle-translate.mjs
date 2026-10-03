@@ -44,6 +44,13 @@ import {
   opencodeSessionHeader,
   passthroughHeaders,
 } from "../src/upstream.ts";
+import {
+  allowedOrigins,
+  isLoopbackOrigin,
+  isLoopbackHost,
+  isAllowedOrigin,
+  corsHeadersFor,
+} from "../src/http.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -293,6 +300,59 @@ const passthroughCases = [
   { name: "extra headers", bearerKey: "sk-1", apiKeyHeader: null, extra: { "x-a": "1", "x-b": "2" } },
   { name: "an empty extra value adds nothing", bearerKey: "sk-1", apiKeyHeader: null, extra: { "x-a": "" } },
   { name: "an empty apiKeyHeader means Bearer", bearerKey: "sk-1", apiKeyHeader: "", extra: {} },
+];
+
+// ── the CORS gate ─────────────────────────────────────────────────────────────────────────────────
+// A SECURITY SURFACE, and the case that matters is the one audit P2 was: a loopback ORIGIN arriving at a
+// NON-loopback request host must get no grant. Every other case here is a spelling of "which origin is
+// this", which is where a port drifts.
+const originListCases = [
+  { name: "no configuration", configured: null },
+  { name: "an empty configuration", configured: "" },
+  { name: "a blank configuration", configured: "   " },
+  { name: "one origin", configured: "https://a.example" },
+  { name: "several, with spaces", configured: " https://a.example , https://b.example " },
+  { name: "a trailing comma keeps the rest", configured: "https://a.example," },
+  { name: "only commas is the default", configured: ",,," },
+];
+const loopbackOriginCases = [
+  { name: "http localhost", origin: "http://localhost" },
+  { name: "http localhost with a port", origin: "http://localhost:8787" },
+  { name: "https 127.0.0.1", origin: "https://127.0.0.1" },
+  { name: "UPPERCASE host is lowercased by URL", origin: "http://LOCALHOST" },
+  { name: "ftp is not a loopback origin", origin: "ftp://localhost" },
+  { name: "a real origin", origin: "https://example.com" },
+  { name: "localhost as a LABEL is not localhost", origin: "http://localhost.evil.com" },
+  { name: "not a url at all", origin: "not a url" },
+  { name: "an empty string", origin: "" },
+  { name: "a relative url", origin: "/api/health" },
+  { name: "IPv6 loopback is NOT matched", origin: "http://[::1]:8787" },
+  { name: "127.0.0.2 is not loopback", origin: "http://127.0.0.2" },
+];
+const loopbackHostCases = [
+  { name: "localhost", host: "localhost" },
+  { name: "127.0.0.1", host: "127.0.0.1" },
+  { name: "LOCALHOST is not (case-sensitive)", host: "LOCALHOST" },
+  { name: "127.0.0.2", host: "127.0.0.2" },
+  { name: "an empty host", host: "" },
+  { name: "a deployed host", host: "api.saisi.online" },
+];
+const allowedOriginCases = [
+  { name: "an allowlisted origin", origin: "https://ai.saisi.online", requestHost: "api.saisi.online" },
+  { name: "a loopback origin at a loopback host", origin: "http://localhost:8787", requestHost: "localhost" },
+  { name: "a loopback origin at a DEPLOYED host gets NOTHING (audit P2)", origin: "http://localhost:8787", requestHost: "api.saisi.online" },
+  { name: "a loopback origin with no host at all", origin: "http://localhost:8787", requestHost: null },
+  { name: "a foreign origin", origin: "https://evil.example", requestHost: "api.saisi.online" },
+  { name: "an empty origin", origin: "", requestHost: "api.saisi.online" },
+  { name: "the configured override", origin: "https://test.example", requestHost: "test.example", configured: "https://test.example" },
+  { name: "the override REPLACES the default", origin: "https://ai.saisi.online", requestHost: "api.saisi.online", configured: "https://test.example" },
+];
+const corsHeaderCases = [
+  { name: "allowed reflects and varies", origin: "https://ai.saisi.online", requestHost: "api.saisi.online" },
+  { name: "not allowed has no ACAO", origin: "https://evil.example", requestHost: "api.saisi.online" },
+  { name: "a loopback pair reflects", origin: "http://localhost:8787", requestHost: "localhost" },
+  { name: "a loopback origin at a deployed host does not", origin: "http://localhost:8787", requestHost: "api.saisi.online" },
+  { name: "an empty origin", origin: "", requestHost: "api.saisi.online" },
 ];
 
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
@@ -577,6 +637,50 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of originListCases) {
+  cases.push({
+    fn: "allowed_origins",
+    name: c.name,
+    input: { configured: c.configured },
+    expected: { value: [...allowedOrigins(c.configured === null ? undefined : { CONSOLE_ORIGINS: c.configured })] },
+  });
+}
+for (const c of loopbackOriginCases) {
+  cases.push({
+    fn: "is_loopback_origin",
+    name: c.name,
+    input: { origin: c.origin },
+    expected: { value: isLoopbackOrigin(c.origin) },
+  });
+}
+for (const c of loopbackHostCases) {
+  cases.push({
+    fn: "is_loopback_host",
+    name: c.name,
+    input: { host: c.host },
+    expected: { value: isLoopbackHost(c.host) },
+  });
+}
+for (const c of allowedOriginCases) {
+  const env = c.configured ? { CONSOLE_ORIGINS: c.configured } : undefined;
+  cases.push({
+    fn: "is_allowed_origin",
+    name: c.name,
+    input: { origin: c.origin, requestHost: c.requestHost, configured: c.configured ?? null },
+    expected: { value: isAllowedOrigin(c.origin, c.requestHost ?? undefined, env) },
+  });
+}
+for (const c of corsHeaderCases) {
+  const env = c.configured ? { CONSOLE_ORIGINS: c.configured } : undefined;
+  const req = { headers: { get: (n) => (n === "origin" ? c.origin : null) }, url: `https://${c.requestHost || "x"}/api/health` };
+  cases.push({
+    fn: "cors_headers_for",
+    name: c.name,
+    input: { origin: c.origin, requestHost: c.requestHost, configured: c.configured ?? null },
+    expected: { value: corsHeadersFor(req, env) },
   });
 }
 
