@@ -34,6 +34,7 @@ import {
   extractByokKeys,
   bearerKeyFor,
   isKeyMissing,
+  checkRateLimit,
 } from "../src/plugins/translate.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
@@ -129,6 +130,33 @@ const toSseCases = [
     input: { id: "msg_1", model: "m", role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1, output_tokens: 2 } },
   },
   { name: "no content", input: { id: "msg_2", model: "m" } },
+];
+
+// ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
+// THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
+// `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
+// exercised. Each case uses its OWN TOKEN, because the shipping worker's counters are module-level maps
+// that persist across calls, and the limits are reached by COUNTING (`preload`), not by a magic value.
+//
+// The day limit needs its counts SPREAD ACROSS MINUTES: the minute limit is checked first, so 4000
+// requests in one minute are refused at 48. Spreading them (48 per minute, advancing the clock) reaches
+// the day counter without tripping the minute one — and it is what the deployed worker sees, since a real
+// day contains 1440 minute buckets.
+const FIXED_NOW = 1_700_000_000_000;
+const rateLimitCases = [
+  { name: "a GET is not counted", hasKeys: true, method: "GET", path: "/v1/messages" },
+  { name: "a path outside /v1 is not counted", hasKeys: true, method: "POST", path: "/api/health" },
+  { name: "no KEYS binding means no guard", hasKeys: false, method: "POST", path: "/v1/messages" },
+  // PRELOADED TO THE LIMIT, and that is what makes the exclusion OBSERVABLE: with an empty counter both
+  // implementations allow a single call, so the case passed while the gate was broken (measured — the
+  // mutation "count_tokens is no longer excluded" did not bite until this preload was added).
+  { name: "count_tokens is EXCLUDED even at the limit", hasKeys: true, method: "POST", path: "/v1/messages/count_tokens", preload: 48 },
+  { name: "messages is counted", hasKeys: true, method: "POST", path: "/v1/messages", preload: 1 },
+  { name: "chat/completions is counted", hasKeys: true, method: "POST", path: "/v1/chat/completions", preload: 1 },
+  { name: "responses is counted", hasKeys: true, method: "POST", path: "/v1/responses", preload: 1 },
+  { name: "47 is still allowed", hasKeys: true, method: "POST", path: "/v1/messages", preload: 47 },
+  { name: "48 is refused", hasKeys: true, method: "POST", path: "/v1/messages", preload: 48 },
+  { name: "4000 spread across minutes is refused on the DAY", hasKeys: true, method: "POST", path: "/v1/messages", spread: 4000 },
 ];
 
 // ── the BYOK decisions ────────────────────────────────────────────────────────────────────────────
@@ -388,6 +416,47 @@ for (const c of redactCases) {
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
   });
 }
+
+// A FRESH TOKEN PER CASE, and the clock pinned. `Date.now` is restored at the end.
+const realNow = Date.now;
+Date.now = () => FIXED_NOW;
+for (const c of rateLimitCases) {
+  const token = `tok-${c.name}`;
+  const path = c.path;
+  if (c.preload) {
+    for (let i = 0; i < c.preload; i += 1) checkRateLimit({ KEYS: {} }, "POST", path, token);
+  }
+  if (c.spread) {
+    let done = 0;
+    let minute = 0;
+    while (done < c.spread) {
+      Date.now = () => FIXED_NOW + minute * 60_000;
+      for (let i = 0; i < 48 && done < c.spread; i += 1, done += 1) {
+        checkRateLimit({ KEYS: {} }, "POST", path, token);
+      }
+      minute += 1;
+    }
+    Date.now = () => FIXED_NOW;
+  }
+  const res = checkRateLimit(c.hasKeys ? { KEYS: {} } : {}, c.method, path, token);
+  cases.push({
+    fn: "rate_limit",
+    name: c.name,
+    // THE PRIMING SHAPE IS RECORDED, not just the final call: the Rust side has to reach the same state,
+    // and "the counters were already at 48" is not reproducible from an outcome.
+    input: {
+      hasKeys: c.hasKeys,
+      method: c.method,
+      path,
+      token,
+      now: FIXED_NOW,
+      preload: c.preload || 0,
+      spread: c.spread || 0,
+    },
+    expected: res === null ? { null: true } : { status: res.status, body: await res.text() },
+  });
+}
+Date.now = realNow;
 
 for (const c of ukeyRecords) {
   cases.push({
