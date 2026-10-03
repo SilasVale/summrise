@@ -629,6 +629,673 @@
    }
   },
   {
+   "fn": "retry_policy_for",
+   "name": "nvidia nv/x",
+   "input": {
+    "kind": "nvidia",
+    "upstreamModel": "nv/x",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000,
+     "attempts": 4,
+     "retry502": true
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "gmi gmi/x",
+   "input": {
+    "kind": "gmi",
+    "upstreamModel": "gmi/x",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000,
+     "attempts": 4,
+     "retry502": true
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "openrouter z-ai/glm-5.2:free",
+   "input": {
+    "kind": "openrouter",
+    "upstreamModel": "z-ai/glm-5.2:free",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000,
+     "attempts": 10,
+     "backoffMs": 300,
+     "retry502": true,
+     "ignoreRetryAfter": true
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "openrouter or/other",
+   "input": {
+    "kind": "openrouter",
+    "upstreamModel": "or/other",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000,
+     "attempts": 4,
+     "retry502": true
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "deepseek ds/x",
+   "input": {
+    "kind": "deepseek",
+    "upstreamModel": "ds/x",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "opencode og/x",
+   "input": {
+    "kind": "opencode",
+    "upstreamModel": "og/x",
+    "timeoutMs": 120000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 120000
+    }
+   }
+  },
+  {
+   "fn": "retry_policy_for",
+   "name": "qwen qw/x",
+   "input": {
+    "kind": "qwen",
+    "upstreamModel": "qw/x",
+    "timeoutMs": 30000
+   },
+   "expected": {
+    "value": {
+     "timeoutMs": 30000
+    }
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "no env at all",
+   "input": {
+    "env": null
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "no env at all",
+   "input": {
+    "env": null
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "the key is absent",
+   "input": {
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "the key is absent",
+   "input": {
+    "env": {}
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a number",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": 5000
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a number",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": 5000
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a numeric string",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": "5000"
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a numeric string",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": "5000"
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a padded numeric string",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": "  12  "
+    }
+   },
+   "expected": {
+    "value": 12
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a padded numeric string",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": "  12  "
+    }
+   },
+   "expected": {
+    "value": 12
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a hex string",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": "0x10"
+    }
+   },
+   "expected": {
+    "value": 16
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a hex string",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": "0x10"
+    }
+   },
+   "expected": {
+    "value": 16
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "an empty string is 0 and takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": ""
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "an empty string is 0 and takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": ""
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "null is 0 and takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": null
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "null is 0 and takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": null
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a non-numeric string is NaN and takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": "abc"
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a non-numeric string is NaN and takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": "abc"
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "zero takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": 0
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "zero takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": 0
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a negative takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": -5
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a negative takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": -5
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "Infinity is not finite and takes the default",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": "Infinity"
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "Infinity is not finite and takes the default",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": "Infinity"
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a float",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": 1500.7
+    }
+   },
+   "expected": {
+    "value": 1500.7
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a float",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": 1500.7
+    }
+   },
+   "expected": {
+    "value": 1500.7
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "a boolean true is 1",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": true
+    }
+   },
+   "expected": {
+    "value": 1
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "a boolean true is 1",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": true
+    }
+   },
+   "expected": {
+    "value": 1
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "an array of one",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": [
+      5000
+     ]
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "an array of one",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": [
+      5000
+     ]
+    }
+   },
+   "expected": {
+    "value": 5000
+   }
+  },
+  {
+   "fn": "upstream_timeout_ms",
+   "name": "an empty array is 0",
+   "input": {
+    "env": {
+     "UPSTREAM_TIMEOUT_MS": []
+    }
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "og_timeout_ms",
+   "name": "an empty array is 0",
+   "input": {
+    "env": {
+     "OG_TIMEOUT_MS": []
+    }
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "opencode",
+   "input": {
+    "kind": "opencode",
+    "env": {}
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "commandgoat",
+   "input": {
+    "kind": "commandgoat",
+    "env": {}
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "amd",
+   "input": {
+    "kind": "amd",
+    "env": {}
+   },
+   "expected": {
+    "value": 120000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "deepseek",
+   "input": {
+    "kind": "deepseek",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "qwen",
+   "input": {
+    "kind": "qwen",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "openrouter",
+   "input": {
+    "kind": "openrouter",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "gmi",
+   "input": {
+    "kind": "gmi",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "nvidia",
+   "input": {
+    "kind": "nvidia",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "passthrough_timeout_ms",
+   "name": "r4",
+   "input": {
+    "kind": "r4",
+    "env": {}
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a network error",
+   "input": {
+    "detail": "network error: connect ECONNREFUSED"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a timeout",
+   "input": {
+    "detail": "timeout after 30000ms"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a bare timeout prefix",
+   "input": {
+    "detail": "timeout"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a fast 502 does NOT count",
+   "input": {
+    "detail": "upstream 502"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a 429 does NOT count",
+   "input": {
+    "detail": "upstream 429"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "a network error in the middle does not count",
+   "input": {
+    "detail": "see network error above"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "an empty string",
+   "input": {
+    "detail": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_channel_down_failure",
+   "name": "undefined",
+   "input": {
+    "detail": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
    "fn": "safe_eq",
    "name": "equal",
    "input": {
