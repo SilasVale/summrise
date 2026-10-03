@@ -114,6 +114,54 @@ pub fn cors_headers_for(
     headers
 }
 
+/// `stampCors(request, headers, env)` — set the CORS pair on an EXISTING header set, or REMOVE the origin.
+///
+/// **THE `else` BRANCH DELETES, AND THAT IS NOT SYMMETRIC WITH `corsHeadersFor`.** That one starts from a
+/// fresh set that never had an ACAO, so "not allowed" means "do not add one". This one is handed the
+/// UPSTREAM's headers, which may carry an ACAO of their own — so refusing has to take it away. A port that
+/// merely skipped the `if` would forward whatever the upstream said about origins.
+pub fn stamp_cors(
+    headers: &mut Vec<(String, String)>,
+    origin: &str,
+    request_host: Option<&str>,
+    configured: Option<&str>,
+) {
+    headers.retain(|(k, _)| {
+        let lower = k.to_ascii_lowercase();
+        lower != "access-control-allow-origin" && lower != "vary"
+    });
+    if is_allowed_origin(origin, request_host, configured) {
+        headers.push((
+            "Access-Control-Allow-Origin".to_string(),
+            origin.to_string(),
+        ));
+        headers.push(("Vary".to_string(), "Origin".to_string()));
+    }
+}
+
+/// The SUCCESS path of `relayUpstreamResult`: the upstream's status and body, its headers with the CORS pair
+/// stamped, and nothing else touched.
+///
+/// **`new Response(upstream.body, …)` FORWARDS THE BODY UNTOUCHED** — a passthrough answer is the upstream's
+/// bytes, not a reshaping of them — and the only header surgery is `stampCors`. The `x-generation-id`
+/// header the source also reads goes to the LOG context rather than to the client, so it is not here.
+pub fn forwarded_upstream_response(
+    status: u16,
+    upstream_headers: &[(String, String)],
+    origin: &str,
+    request_host: Option<&str>,
+    configured: Option<&str>,
+    body: &str,
+) -> crate::responses::Built {
+    let mut headers = upstream_headers.to_vec();
+    stamp_cors(&mut headers, origin, request_host, configured);
+    crate::responses::Built {
+        status,
+        headers,
+        body: body.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `cors` cases were produced by the SHIPPING TypeScript
@@ -139,6 +187,90 @@ mod oracle_corpus {
             .into_iter()
             .map(|(k, v)| (k, serde_json::Value::String(v)))
             .collect()
+    }
+
+    #[test]
+    fn stamping_removes_an_origin_it_does_not_allow() {
+        // **THE ASYMMETRY WITH `corsHeadersFor`, WHICH IS THE WHOLE REASON THIS FUNCTION EXISTS.** That one
+        // builds a fresh set, so "not allowed" means "add nothing". This one is handed the UPSTREAM's
+        // headers, which may carry an ACAO of their own — so refusing has to take it away, and a port that
+        // merely skipped the `if` would forward whatever the upstream claimed about origins.
+        let upstream = vec![
+            ("content-type".to_string(), "application/json".to_string()),
+            (
+                "access-control-allow-origin".to_string(),
+                "https://evil.example".to_string(),
+            ),
+            ("vary".to_string(), "Accept-Encoding".to_string()),
+        ];
+        let mut headers = upstream.clone();
+        stamp_cors(
+            &mut headers,
+            "https://evil.example",
+            Some("api.saisi.online"),
+            None,
+        );
+        assert!(
+            !headers
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin")),
+            "the upstream's origin must be REMOVED: {headers:?}"
+        );
+        assert!(
+            !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("vary")),
+            "and its Vary goes with it: {headers:?}"
+        );
+        assert!(
+            headers.iter().any(|(k, _)| k == "content-type"),
+            "the rest rides"
+        );
+
+        // An ALLOWED origin is stamped, and the upstream's value is replaced rather than duplicated.
+        let mut headers = upstream.clone();
+        stamp_cors(
+            &mut headers,
+            "https://ai.saisi.online",
+            Some("api.saisi.online"),
+            None,
+        );
+        let acao: Vec<&String> = headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin"))
+            .map(|(_, v)| v)
+            .collect();
+        assert_eq!(acao, vec!["https://ai.saisi.online"], "{headers:?}");
+    }
+
+    #[test]
+    fn the_forwarded_response_is_the_upstreams_bytes_plus_the_cors_pair() {
+        let upstream = vec![
+            ("content-type".to_string(), "application/json".to_string()),
+            ("x-generation-id".to_string(), "gen-1".to_string()),
+        ];
+        let got = forwarded_upstream_response(
+            200,
+            &upstream,
+            "https://ai.saisi.online",
+            Some("api.saisi.online"),
+            None,
+            "{\"ok\":true}",
+        );
+        assert_eq!(got.status, 200);
+        assert_eq!(got.body, "{\"ok\":true}", "the body is forwarded untouched");
+        // **THE KEY IS COMPARED CASE-INSENSITIVELY, AND THE VALUE KEEPS THE SOURCE'S SPELLING.** `stampCors`
+        // writes `Access-Control-Allow-Origin` on a `Headers` object, which folds it; this port carries a
+        // `Vec` of pairs, so the spelling is the source's — and a test that compared the folded form would be
+        // asserting something the runtime does rather than something the function does.
+        assert!(
+            got.headers.iter().any(
+                |(k, v)| k.eq_ignore_ascii_case("access-control-allow-origin")
+                    && v == "https://ai.saisi.online"
+            ),
+            "headers were {:?}",
+            got.headers
+        );
+        // The generation id is the LOG context's, not the client's — the source reads it into `ctx`.
+        assert!(got.headers.iter().any(|(k, _)| k == "x-generation-id"));
     }
 
     #[test]
