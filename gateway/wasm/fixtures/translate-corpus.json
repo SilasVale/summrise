@@ -373,6 +373,260 @@
     "threw": true,
     "message": "Cannot read properties of undefined (reading 'forEach')"
    }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "a bare key",
+   "input": "sk-abcdefgh",
+   "expected": {
+    "text": "***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "a key inside a sentence",
+   "input": "failed with key sk-abcdefgh in the header",
+   "expected": {
+    "text": "failed with key *** in the header"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "the greedy class eats the whole thing",
+   "input": "sk-or-v1-abcdefgh",
+   "expected": {
+    "text": "***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "no word boundary, no match",
+   "input": "xsk-abcdefgh",
+   "expected": {
+    "text": "xsk-abcdefgh"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "a boundary from a dash",
+   "input": "-sk-abcdefgh",
+   "expected": {
+    "text": "-***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "seven characters is too short",
+   "input": "sk-abcdefg",
+   "expected": {
+    "text": "sk-abcdefg"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "xoxb",
+   "input": "token xoxb-12345678 end",
+   "expected": {
+    "text": "token *** end"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "or-",
+   "input": "or-abcdefgh",
+   "expected": {
+    "text": "***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "two keys in one string",
+   "input": "sk-aaaaaaaa and rc-bbbbbbbb",
+   "expected": {
+    "text": "*** and ***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "already scrubbed",
+   "input": "***",
+   "expected": {
+    "text": "***"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "unicode around a key",
+   "input": "密钥 sk-abcdefgh 结束",
+   "expected": {
+    "text": "密钥 *** 结束"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "a number input",
+   "input": 42,
+   "expected": {
+    "text": "42"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "null input",
+   "input": null,
+   "expected": {
+    "text": ""
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "an array input",
+   "input": [
+    "sk-abcdefgh",
+    "x"
+   ],
+   "expected": {
+    "text": "***,x"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "an object input",
+   "input": {
+    "a": 1
+   },
+   "expected": {
+    "text": "[object Object]"
+   }
+  },
+  {
+   "fn": "scrub_keys",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "text": ""
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "one secret",
+   "input": {
+    "text": "the key is longsecret123 ok",
+    "secrets": [
+     "longsecret123"
+    ]
+   },
+   "expected": {
+    "text": "the key is *** ok"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "too short to matter",
+   "input": {
+    "text": "the key is short ok",
+    "secrets": [
+     "short"
+    ]
+   },
+   "expected": {
+    "text": "the key is short ok"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "duplicates collapse",
+   "input": {
+    "text": "longsecret123 and longsecret123",
+    "secrets": [
+     "longsecret123",
+     "longsecret123"
+    ]
+   },
+   "expected": {
+    "text": "*** and ***"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "nested: the long one goes first",
+   "input": {
+    "text": "a longsecret123 and longsecret",
+    "secrets": [
+     "longsecret123",
+     "longsecret"
+    ]
+   },
+   "expected": {
+    "text": "a *** and ***"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "nested, declared the other way round",
+   "input": {
+    "text": "a longsecret123 and longsecret",
+    "secrets": [
+     "longsecret",
+     "longsecret123"
+    ]
+   },
+   "expected": {
+    "text": "a *** and ***"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "no secrets at all",
+   "input": {
+    "text": "nothing to hide",
+    "secrets": []
+   },
+   "expected": {
+    "text": "nothing to hide"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "a non-string entry",
+   "input": {
+    "text": "12345678 here",
+    "secrets": [
+     12345678
+    ]
+   },
+   "expected": {
+    "text": "12345678 here"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "falsy entries are skipped",
+   "input": {
+    "text": "x longsecret123",
+    "secrets": [
+     null,
+     "",
+     "longsecret123",
+     null
+    ]
+   },
+   "expected": {
+    "text": "x ***"
+   }
+  },
+  {
+   "fn": "redact_secrets",
+   "name": "every occurrence",
+   "input": {
+    "text": "longsecret123 longsecret123 longsecret123",
+    "secrets": [
+     "longsecret123"
+    ]
+   },
+   "expected": {
+    "text": "*** *** ***"
+   }
   }
  ]
 }

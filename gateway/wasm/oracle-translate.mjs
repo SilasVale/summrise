@@ -17,6 +17,10 @@
 // "both refuse is an equivalence" and a port that quietly accepted it would answer a document where the
 // JavaScript answers an exception.
 import { toOpenAIRequest, toAnthropicResponse, sse, toSSE } from "../src/anthropic-translate.ts";
+// The plugin is 1,696 lines and reads keys, channels, KV and upstreams — but these two are pure, and
+// they are its safety net. Node imports the module fine (measured), so the oracle drives the REAL
+// functions rather than a snapshot of them.
+import { scrubKeys, redactSecrets } from "../src/plugins/translate.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
 // Every case is a SHAPE THE DEPLOYED WORKER CAN SEE, plus the two degenerate ends (an empty request and
@@ -113,6 +117,48 @@ const toSseCases = [
   { name: "no content", input: { id: "msg_2", model: "m" } },
 ];
 
+// ── the redaction pair ────────────────────────────────────────────────────────────────────────────
+// The regex cases are the ones a transliteration gets wrong: a word boundary, a GREEDY class, the
+// prefix alternation's own order, and the `String(msg || "")` coercion for non-strings.
+const scrubCases = [
+  { name: "a bare key", input: "sk-abcdefgh" },
+  { name: "a key inside a sentence", input: "failed with key sk-abcdefgh in the header" },
+  { name: "the greedy class eats the whole thing", input: "sk-or-v1-abcdefgh" },
+  { name: "no word boundary, no match", input: "xsk-abcdefgh" },
+  { name: "a boundary from a dash", input: "-sk-abcdefgh" },
+  { name: "seven characters is too short", input: "sk-abcdefg" },
+  { name: "xoxb", input: "token xoxb-12345678 end" },
+  { name: "or-", input: "or-abcdefgh" },
+  { name: "two keys in one string", input: "sk-aaaaaaaa and rc-bbbbbbbb" },
+  { name: "already scrubbed", input: "***" },
+  { name: "unicode around a key", input: "密钥 sk-abcdefgh 结束" },
+  { name: "a number input", input: 42 },
+  { name: "null input", input: null },
+  { name: "an array input", input: ["sk-abcdefgh", "x"] },
+  { name: "an object input", input: { a: 1 } },
+  { name: "an empty string", input: "" },
+];
+
+const redactCases = [
+  { name: "one secret", text: "the key is longsecret123 ok", secrets: ["longsecret123"] },
+  { name: "too short to matter", text: "the key is short ok", secrets: ["short"] },
+  { name: "duplicates collapse", text: "longsecret123 and longsecret123", secrets: ["longsecret123", "longsecret123"] },
+  {
+    name: "nested: the long one goes first",
+    text: "a longsecret123 and longsecret",
+    secrets: ["longsecret123", "longsecret"],
+  },
+  {
+    name: "nested, declared the other way round",
+    text: "a longsecret123 and longsecret",
+    secrets: ["longsecret", "longsecret123"],
+  },
+  { name: "no secrets at all", text: "nothing to hide", secrets: [] },
+  { name: "a non-string entry", text: "12345678 here", secrets: [12345678] },
+  { name: "falsy entries are skipped", text: "x longsecret123", secrets: [null, "", "longsecret123", undefined] },
+  { name: "every occurrence", text: "longsecret123 longsecret123 longsecret123", secrets: ["longsecret123"] },
+];
+
 function attempt(fn) {
   try {
     return { value: fn() };
@@ -158,6 +204,25 @@ for (const c of toSseCases) {
     fn: "to_sse",
     name: c.name,
     input: c.input,
+    expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of scrubCases) {
+  const r = attempt(() => scrubKeys(c.input));
+  cases.push({
+    fn: "scrub_keys",
+    name: c.name,
+    input: c.input,
+    expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+for (const c of redactCases) {
+  const r = attempt(() => redactSecrets(c.text, c.secrets));
+  cases.push({
+    fn: "redact_secrets",
+    name: c.name,
+    input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
   });
 }
