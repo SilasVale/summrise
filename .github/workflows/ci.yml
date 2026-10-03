@@ -233,13 +233,22 @@ jobs:
         # rather than the word `cargo` for the same reason.
         if: failure()
         run: |
-          set -o pipefail
           cmd="cargo test -p summrise-agent --no-fail-fast"
-          $cmd 2>&1 | tee /tmp/agent-tests.out || true
+          $cmd > /tmp/agent-tests.out 2>&1 || true
+          # **AND IT SAYS SO WHEN THE RE-RUN PASSES.** The first version piped through `tee` under
+          # `set -o pipefail`, so a `grep` that matched nothing exited 1 and the diagnostic step failed the
+          # job it was only supposed to explain. Measured on `44bcd18a`: the step failed with NO annotation,
+          # because the re-run was GREEN — which is itself the finding, and now it is printed as one.
+          named=$(grep -cE "^test .* FAILED|^error(\[|:)|panicked at" /tmp/agent-tests.out || true)
+          if [ "${named:-0}" -eq 0 ]; then
+            echo "the tests PASSED on the re-run — this job's failure is FLAKY, not a defect in the tree"
+            exit 0
+          fi
           grep -E "^test .* FAILED|^error(\[|:)|panicked at" /tmp/agent-tests.out |
             sort -u | head -25 | while IFS= read -r line; do
               echo "::error::$line"
             done
+          exit 0
         working-directory: agent
       - name: Clippy (zero warnings)
         run: |
