@@ -17,6 +17,7 @@
 // WHAT IT DOES NOT COVER, stated rather than implied: workerd's own runtime glue, and any path that dials
 // an upstream (this route does not).
 import { writeFileSync } from "node:fs";
+import { opencodeSessionHeader } from "../src/upstream.ts";
 import { advertisedIds, extraModelEntries, facetOverrides } from "../src/store/models.ts";
 import { handleGateway } from "../src/plugins/translate.ts";
 import { __clearCaches } from "../src/store/cache.ts";
@@ -454,6 +455,14 @@ for (const c of [...passthroughCases, ...translateCases]) {
     // here would have driven the port down a branch the route does not take.
     parsed: isTranslate ? { ...c.body, model: c.model } : null,
     bearerKey: c.keys.DEEPSEEK_API_KEY || c.keys.QWEN_API_KEY || c.keys.OPENCODE_GO_API_KEY,
+    // **THE SESSION HEADER, RECORDED RATHER THAN RE-DERIVED.** `opencodeSessionHeader(request.headers,
+    // user?.id)` reads the CLIENT's headers and the user id, and a Rust test cannot reconstruct what the
+    // oracle's request carried — so the fixture records the object the route actually spread into its
+    // headers. It is the header zen/go 400s without.
+    ogSession: opencodeSessionHeader(
+      new Request("https://relay.example/v1/messages", { headers: { "x-api-key": TOKEN } }).headers,
+      UID,
+    ),
     status: r.status,
     ...(r.captured ? { captured: r.captured } : { noUpstreamCall: true, answer: r.answer }),
   });

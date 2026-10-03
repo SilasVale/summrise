@@ -37,7 +37,9 @@ const BYOK_CHANNELS: [(&str, &str, Option<&str>); 9] = [
 
 /// `REQUIRED_KEY_BY_KIND` — route kind -> the field `extractByokKeys` spells it as. The three irregular
 /// ones are `nvidia -> nv`, `opencode -> opencodeGo`, `commandgoat -> cmd`.
-const REQUIRED_KEY_BY_KIND: [(&str, &str); 9] = [
+// `pub(crate)` so the dispatch's own test can build a store record without copying the table — a second copy
+// is how two surfaces come to disagree about one kind.
+pub(crate) const REQUIRED_KEY_BY_KIND: [(&str, &str); 9] = [
     ("deepseek", "deepseek"),
     ("opencode", "opencodeGo"),
     ("openrouter", "openRouter"),
