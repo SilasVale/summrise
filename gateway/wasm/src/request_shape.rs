@@ -746,15 +746,49 @@ mod passthrough_differential {
             );
             let captured = &case["captured"];
             let raw = case["rawText"].as_str().unwrap_or("");
-            let got = passthrough_request(
-                case["kind"].as_str().unwrap_or(""),
-                case["upstreamModel"].as_str().unwrap_or(""),
-                raw,
-                None, // these channels never parse — see the oracle's note
-                case["bearerKey"].as_str(),
-                &[],
-                None,
-            );
+            let kind = case["kind"].as_str().unwrap_or("");
+            let wire = case["upstreamModel"].as_str().unwrap_or("");
+            let bearer = case["bearerKey"].as_str();
+            // **THE TWO ARMS TAKE DIFFERENT BRANCHES, WHICH IS WHY THE FIXTURE SAYS WHICH ONE IT IS.**
+            // The passthrough arm forwards RAW TEXT with the model swapped in place; the translate arm
+            // PARSES and rebuilds the body through the translator.
+            let got = match case["arm"].as_str().unwrap_or("passthrough") {
+                "translate" => {
+                    let parsed = &case["parsed"];
+                    let r = translate_request(bearer.unwrap_or(""), parsed, wire, None);
+                    // **THE FIELDS, NOT THE FUNCTION.** Comparing `r.policy` against
+                    // `translate_retry_policy(...)` is a comparison of a function with ITSELF — a tautology
+                    // that cannot fail, which this test was until a mutation proved it: routing the arm
+                    // through the shared table changed the answer and the assertion stayed green.
+                    //
+                    // WHAT IT MUST BE: og's 120 s budget with FOUR attempts and a 502 retry, for EVERY kind
+                    // this arm serves. The shared table would answer `{timeoutMs}` alone for a kind that is
+                    // not nv/gmi — the "silently drop to the plain budget" the round-77 review caught.
+                    assert_eq!(r.policy.timeout_ms, 120_000.0, "{name}: og's budget");
+                    assert_eq!(r.policy.attempts, Some(4), "{name}: four attempts");
+                    assert_eq!(r.policy.retry502, Some(true), "{name}: and a 502 retry");
+                    assert_eq!(r.policy.backoff_ms, None, "{name}");
+                    assert_eq!(r.policy.ignore_retry_after, None, "{name}");
+                    assert_ne!(
+                        r.policy,
+                        crate::reliability::retry_policy_for("deepseek", wire, 120_000.0),
+                        "{name}: this must NOT be the shared table's answer"
+                    );
+                    PassthroughRequest {
+                        body: r.body,
+                        headers: r.headers,
+                    }
+                }
+                _ => passthrough_request(
+                    kind,
+                    wire,
+                    raw,
+                    None, // these channels never parse — see the oracle's note
+                    bearer,
+                    &[],
+                    None,
+                ),
+            };
             assert_eq!(
                 got.body,
                 captured["body"].as_str().unwrap_or(""),
@@ -776,18 +810,73 @@ mod passthrough_differential {
             for pair in &want {
                 assert!(have.contains(pair), "{name}: missing {pair:?} in {have:?}");
             }
-            // The URL is the route's business, not this function's, but it is recorded — and a case whose
-            // URL is not the passthrough host would mean the capture hit the wrong arm again.
+            // **THE URL IS THE ROUTE'S BUSINESS, BUT IT IS ALSO THE ARM'S FINGERPRINT**, and this guard is
+            // what caught a capture of the wrong arm once already. It is arm-aware now: the passthrough arm
+            // must NOT be on opencode.ai's chat endpoint, and the translate arm must be.
             let url = captured["url"].as_str().unwrap_or("");
-            assert!(
-                !url.contains("opencode.ai"),
-                "{name}: this captured the TRANSLATE arm, not the passthrough one: {url}"
-            );
+            match case["arm"].as_str().unwrap_or("passthrough") {
+                "translate" => assert!(
+                    url.contains("opencode.ai/zen/go/v1/chat/completions"),
+                    "{name}: the translate arm dials chat/completions, got {url}"
+                ),
+                _ => assert!(
+                    !url.contains("opencode.ai"),
+                    "{name}: this captured the TRANSLATE arm, not the passthrough one: {url}"
+                ),
+            }
             checked += 1;
         }
         assert!(
             checked >= 3,
             "the passthrough corpus shrank to {checked} cases"
         );
+    }
+}
+
+/// **THE TRANSLATE ARM'S REQUEST — the "og pattern", which is what an Anthropic request becomes on its way
+/// to an OpenAI-format upstream.**
+///
+/// `toOpenAIRequest` is already ported and oracle-proved; what this adds is the three things around it, and
+/// each is a decision the capture measured rather than one I assumed:
+///
+///   * the body is `JSON.stringify(toOpenAIRequest(...))`, so the key order is the translator's — **`model`
+///     FIRST**, which the captured request from the shipping route confirms;
+///   * the header is `Authorization: Bearer <key>` — NOT the `x-api-key` form the passthrough arm uses for
+///     og-native and amd/, even though this arm serves `og/` too;
+///   * and the retry policy is a UNIFORM LITERAL, **deliberately not `retryPolicyFor`**. The source says
+///     why in a comment a reviewer wrote: routing this arm through the shared table "would silently drop
+///     non-nv/gmi kinds to the plain budget (3 attempts, no retry502)".
+pub struct TranslateRequest {
+    pub body: String,
+    pub headers: Vec<(String, String)>,
+    pub policy: crate::reliability::RetryPolicy,
+}
+
+/// The uniform policy this arm uses for every kind it serves.
+pub fn translate_retry_policy(env: Option<&serde_json::Value>) -> crate::reliability::RetryPolicy {
+    crate::reliability::RetryPolicy {
+        timeout_ms: crate::reliability::og_timeout_ms(env),
+        attempts: Some(4),
+        backoff_ms: None,
+        retry502: Some(true),
+        ignore_retry_after: None,
+    }
+}
+
+/// The request an OpenAI-format upstream receives for an Anthropic request.
+pub fn translate_request(
+    bearer_key: &str,
+    body: &serde_json::Value,
+    upstream_model: &str,
+    env: Option<&serde_json::Value>,
+) -> TranslateRequest {
+    let openai = crate::translate::to_openai_request(body, upstream_model);
+    TranslateRequest {
+        body: crate::responses::stringify_like_json(&openai),
+        headers: vec![
+            ("Authorization".to_string(), format!("Bearer {bearer_key}")),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        policy: translate_retry_policy(env),
     }
 }
