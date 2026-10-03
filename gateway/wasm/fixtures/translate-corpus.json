@@ -629,6 +629,398 @@
    }
   },
   {
+   "fn": "strip_bracket",
+   "name": "a trailing bracket",
+   "input": "model[1m]",
+   "expected": {
+    "value": "model"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "not at the end",
+   "input": "a[b]c",
+   "expected": {
+    "value": "a[b]c"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "two groups, only the last goes",
+   "input": "[a][b]",
+   "expected": {
+    "value": "[a]"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "an empty group",
+   "input": "model[]",
+   "expected": {
+    "value": "model"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "an unclosed bracket",
+   "input": "a[",
+   "expected": {
+    "value": "a["
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "a closing bracket alone",
+   "input": "a]",
+   "expected": {
+    "value": "a]"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "nothing to strip",
+   "input": "model",
+   "expected": {
+    "value": "model"
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "strip_bracket",
+   "name": "a bracket group with a space inside",
+   "input": "m[ 1m ]",
+   "expected": {
+    "value": "m"
+   }
+  },
+  {
+   "fn": "fnv_hex",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "value": "811c9dc501000193"
+   }
+  },
+  {
+   "fn": "synthetic_session_id",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "value": "summrise-fdf11b728aa7765c"
+   }
+  },
+  {
+   "fn": "fnv_hex",
+   "name": "ascii",
+   "input": "summrise-og-session-v1:u1",
+   "expected": {
+    "value": "7dd3b5dcc6643a86"
+   }
+  },
+  {
+   "fn": "synthetic_session_id",
+   "name": "ascii",
+   "input": "summrise-og-session-v1:u1",
+   "expected": {
+    "value": "summrise-190d6775b936786b"
+   }
+  },
+  {
+   "fn": "fnv_hex",
+   "name": "CJK (UTF-16 units, not bytes)",
+   "input": "用户一",
+   "expected": {
+    "value": "5feaea2025e405ae"
+   }
+  },
+  {
+   "fn": "synthetic_session_id",
+   "name": "CJK (UTF-16 units, not bytes)",
+   "input": "用户一",
+   "expected": {
+    "value": "summrise-53333bc1f9da2733"
+   }
+  },
+  {
+   "fn": "fnv_hex",
+   "name": "a long uid",
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+   "expected": {
+    "value": "05320561a48d38bf"
+   }
+  },
+  {
+   "fn": "synthetic_session_id",
+   "name": "a long uid",
+   "input": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+   "expected": {
+    "value": "summrise-87d0cd0efde5b4d8"
+   }
+  },
+  {
+   "fn": "fnv_hex",
+   "name": "punctuation",
+   "input": "a-b_c.d:e/f",
+   "expected": {
+    "value": "a31d100f09154d55"
+   }
+  },
+  {
+   "fn": "synthetic_session_id",
+   "name": "punctuation",
+   "input": "a-b_c.d:e/f",
+   "expected": {
+    "value": "summrise-3b21278e5a8d4808"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "the first name wins",
+   "input": {
+    "x-opencode-session": "a",
+    "x-client-request-id": "b"
+   },
+   "expected": {
+    "value": "a"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "the second when the first is blank",
+   "input": {
+    "x-opencode-session": "   ",
+    "x-client-request-id": "b"
+   },
+   "expected": {
+    "value": "b"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "session_id",
+   "input": {
+    "session_id": "c"
+   },
+   "expected": {
+    "value": "c"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "x-session-id",
+   "input": {
+    "x-session-id": "d"
+   },
+   "expected": {
+    "value": "d"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "CASE-INSENSITIVE lookup",
+   "input": {
+    "X-Opencode-Session": "e"
+   },
+   "expected": {
+    "value": "e"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "trimmed",
+   "input": {
+    "x-opencode-session": "  f  "
+   },
+   "expected": {
+    "value": "f"
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "none at all",
+   "input": {},
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "client_session_id",
+   "name": "an unrelated header",
+   "input": {
+    "authorization": "Bearer x"
+   },
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "opencode_session_header",
+   "name": "the client id",
+   "input": {
+    "headers": {
+     "x-opencode-session": "abc"
+    },
+    "uid": "u1"
+   },
+   "expected": {
+    "value": {
+     "x-opencode-session": "abc"
+    }
+   }
+  },
+  {
+   "fn": "opencode_session_header",
+   "name": "the synthetic fallback",
+   "input": {
+    "headers": {},
+    "uid": "u1"
+   },
+   "expected": {
+    "value": {
+     "x-opencode-session": "summrise-7dd3b5dcc6643a86"
+    }
+   }
+  },
+  {
+   "fn": "opencode_session_header",
+   "name": "a blank client id falls back",
+   "input": {
+    "headers": {
+     "x-opencode-session": " "
+    },
+    "uid": "u1"
+   },
+   "expected": {
+    "value": {
+     "x-opencode-session": "summrise-7dd3b5dcc6643a86"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "a bearer key",
+   "input": {
+    "bearerKey": "sk-1",
+    "apiKeyHeader": null,
+    "extra": {}
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "authorization": "Bearer sk-1",
+     "content-type": "application/json"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "the api key header form",
+   "input": {
+    "bearerKey": "sk-1",
+    "apiKeyHeader": "x-api-key",
+    "extra": {}
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json",
+     "x-api-key": "sk-1"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "no key at all",
+   "input": {
+    "bearerKey": null,
+    "apiKeyHeader": null,
+    "extra": {}
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "an empty key is no key",
+   "input": {
+    "bearerKey": "",
+    "apiKeyHeader": null,
+    "extra": {}
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "content-type": "application/json"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "extra headers",
+   "input": {
+    "bearerKey": "sk-1",
+    "apiKeyHeader": null,
+    "extra": {
+     "x-a": "1",
+     "x-b": "2"
+    }
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "authorization": "Bearer sk-1",
+     "content-type": "application/json",
+     "x-a": "1",
+     "x-b": "2"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "an empty extra value adds nothing",
+   "input": {
+    "bearerKey": "sk-1",
+    "apiKeyHeader": null,
+    "extra": {
+     "x-a": ""
+    }
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "authorization": "Bearer sk-1",
+     "content-type": "application/json"
+    }
+   }
+  },
+  {
+   "fn": "passthrough_headers",
+   "name": "an empty apiKeyHeader means Bearer",
+   "input": {
+    "bearerKey": "sk-1",
+    "apiKeyHeader": "",
+    "extra": {}
+   },
+   "expected": {
+    "value": {
+     "anthropic-version": "2023-06-01",
+     "authorization": "Bearer sk-1",
+     "content-type": "application/json"
+    }
+   }
+  },
+  {
    "fn": "count_base64_payloads",
    "name": "nothing",
    "input": "{}",
