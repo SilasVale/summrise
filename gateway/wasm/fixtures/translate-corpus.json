@@ -629,6 +629,370 @@
    }
   },
   {
+   "fn": "extract_byok_keys",
+   "name": "every field set",
+   "input": {
+    "DEEPSEEK_API_KEY": "d",
+    "OPENCODE_GO_API_KEY": "o",
+    "OPENROUTER_API_KEY": "r",
+    "QWEN_API_KEY": "q",
+    "NVAPI_KEY": "n",
+    "GMI_API_KEY": "g",
+    "CMD_API_KEY": "c",
+    "AMD_API_KEY": "a",
+    "R4_API_KEY": "4"
+   },
+   "expected": {
+    "value": {
+     "deepseek": "d",
+     "opencodeGo": "o",
+     "openRouter": "r",
+     "qwen": "q",
+     "nv": "n",
+     "gmi": "g",
+     "cmd": "c",
+     "amd": "a",
+     "r4": "4"
+    }
+   }
+  },
+  {
+   "fn": "extract_byok_keys",
+   "name": "an empty record",
+   "input": {},
+   "expected": {
+    "value": {
+     "deepseek": null,
+     "opencodeGo": null,
+     "openRouter": null,
+     "qwen": null,
+     "nv": null,
+     "gmi": null,
+     "cmd": null,
+     "amd": null,
+     "r4": null
+    }
+   }
+  },
+  {
+   "fn": "extract_byok_keys",
+   "name": "falsy values become null",
+   "input": {
+    "DEEPSEEK_API_KEY": "",
+    "OPENCODE_GO_API_KEY": 0,
+    "OPENROUTER_API_KEY": false,
+    "QWEN_API_KEY": null
+   },
+   "expected": {
+    "value": {
+     "deepseek": null,
+     "opencodeGo": null,
+     "openRouter": null,
+     "qwen": null,
+     "nv": null,
+     "gmi": null,
+     "cmd": null,
+     "amd": null,
+     "r4": null
+    }
+   }
+  },
+  {
+   "fn": "extract_byok_keys",
+   "name": "a truthy non-string is CARRIED as it is",
+   "input": {
+    "DEEPSEEK_API_KEY": 5,
+    "OPENCODE_GO_API_KEY": {
+     "a": 1
+    },
+    "OPENROUTER_API_KEY": [
+     "x"
+    ]
+   },
+   "expected": {
+    "value": {
+     "deepseek": 5,
+     "opencodeGo": {
+      "a": 1
+     },
+     "openRouter": [
+      "x"
+     ],
+     "qwen": null,
+     "nv": null,
+     "gmi": null,
+     "cmd": null,
+     "amd": null,
+     "r4": null
+    }
+   }
+  },
+  {
+   "fn": "extract_byok_keys",
+   "name": "an unknown field is not carried",
+   "input": {
+    "SOMETHING_ELSE": "x",
+    "DEEPSEEK_API_KEY": "d"
+   },
+   "expected": {
+    "value": {
+     "deepseek": "d",
+     "opencodeGo": null,
+     "openRouter": null,
+     "qwen": null,
+     "nv": null,
+     "gmi": null,
+     "cmd": null,
+     "amd": null,
+     "r4": null
+    }
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "the user key",
+   "input": {
+    "ukeys": {
+     "DEEPSEEK_API_KEY": "u"
+    },
+    "env": {},
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": "u"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "the env fallback",
+   "input": {
+    "ukeys": {},
+    "env": {
+     "DEEPSEEK_API_KEY": "e"
+    },
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": "e"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "neither",
+   "input": {
+    "ukeys": {},
+    "env": {},
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "the user key wins",
+   "input": {
+    "ukeys": {
+     "DEEPSEEK_API_KEY": "u"
+    },
+    "env": {
+     "DEEPSEEK_API_KEY": "e"
+    },
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": "u"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "nv has NO env fallback",
+   "input": {
+    "ukeys": {},
+    "env": {
+     "NVAPI_KEY": "e"
+    },
+    "kind": "nvidia"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "gmi has NO env fallback",
+   "input": {
+    "ukeys": {},
+    "env": {
+     "GMI_API_KEY": "e"
+    },
+    "kind": "gmi"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "nv still takes the user key",
+   "input": {
+    "ukeys": {
+     "NVAPI_KEY": "u"
+    },
+    "env": {},
+    "kind": "nvidia"
+   },
+   "expected": {
+    "value": "u"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "the irregular opencode -> opencodeGo",
+   "input": {
+    "ukeys": {
+     "OPENCODE_GO_API_KEY": "u"
+    },
+    "env": {},
+    "kind": "opencode"
+   },
+   "expected": {
+    "value": "u"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "the irregular commandgoat -> cmd",
+   "input": {
+    "ukeys": {
+     "CMD_API_KEY": "u"
+    },
+    "env": {},
+    "kind": "commandgoat"
+   },
+   "expected": {
+    "value": "u"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "an unknown kind",
+   "input": {
+    "ukeys": {
+     "DEEPSEEK_API_KEY": "u"
+    },
+    "env": {},
+    "kind": "nope"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "a falsy user key falls through to env",
+   "input": {
+    "ukeys": {
+     "DEEPSEEK_API_KEY": ""
+    },
+    "env": {
+     "DEEPSEEK_API_KEY": "e"
+    },
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": "e"
+   }
+  },
+  {
+   "fn": "bearer_key_for",
+   "name": "a falsy env value is not a key",
+   "input": {
+    "ukeys": {},
+    "env": {
+     "DEEPSEEK_API_KEY": ""
+    },
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "present",
+   "input": {
+    "ukeys": {
+     "DEEPSEEK_API_KEY": "u"
+    },
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "absent",
+   "input": {
+    "ukeys": {},
+    "kind": "deepseek"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "absent but env has it",
+   "input": {
+    "ukeys": {},
+    "kind": "deepseek",
+    "env": {
+     "DEEPSEEK_API_KEY": "e"
+    }
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "nv absent, env set — still missing",
+   "input": {
+    "ukeys": {},
+    "kind": "nvidia",
+    "env": {
+     "NVAPI_KEY": "e"
+    }
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "an UNKNOWN kind is not missing",
+   "input": {
+    "ukeys": {},
+    "kind": "nope"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_key_missing",
+   "name": "an empty kind",
+   "input": {
+    "ukeys": {},
+    "kind": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
    "fn": "detect_route",
    "name": "POST /v1/messages/count_tokens",
    "input": {
