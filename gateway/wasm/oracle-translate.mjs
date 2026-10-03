@@ -66,6 +66,13 @@ import {
   passthroughTimeoutMs,
   isChannelDownFailure,
 } from "../src/reliability.ts";
+import {
+  MODEL_REGISTRY,
+  modelSpec,
+  wireSpec,
+  reasoningMaxRawFor,
+  reasoningMaxParsedFor,
+} from "../src/channels.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -472,6 +479,37 @@ const downFailureCases = [
   { name: "undefined", detail: null },
 ];
 
+// ── the model registry ────────────────────────────────────────────────────────────────────────────
+// THE WHOLE TABLE IS THE FIRST CASE. A transcription is where a quiet typo hides, so the oracle dumps all
+// 24 records with every facet and the Rust side compares them field by field — `undefined` recorded as
+// null, because an absent facet and a false one are different things here.
+const REGISTRY_DUMP = MODEL_REGISTRY.map((m) => ({
+  id: m.id,
+  ownedBy: m.ownedBy,
+  wire: m.wire ?? null,
+  usEgress: m.usEgress ?? null,
+  search: m.search ?? null,
+  responsesOnly: m.responsesOnly ?? null,
+  reasoningMax: m.reasoningMax ?? null,
+  reasoningEffort: m.reasoningEffort ?? null,
+  contextWindow: m.contextWindow ?? null,
+  maxTokens: m.maxTokens ?? null,
+  probe: m.probe ?? null,
+  probeWhy: m.probeWhy ?? null,
+}));
+const wireLookupCases = [
+  { name: "the og wire alias", wire: "deepseek-flash" },
+  { name: "a stripped id", wire: "deepseek-v4.1-flash" },
+  { name: "the AMBIGUOUS pair resolves to NOTHING", wire: "openai/gpt-5.6-luna:floor[1m]" },
+  { name: "an unknown wire", wire: "nope/nope" },
+  { name: "an empty wire name", wire: "" },
+];
+const reasoningLookupCases = [
+  { name: "a raw model", wire: "deepseek-flash" },
+  { name: "a parsed model", wire: "minimax-m3" },
+  { name: "an unknown wire", wire: "nope" },
+];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -754,6 +792,50 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+cases.push({
+  fn: "model_registry",
+  name: "the whole table",
+  input: null,
+  expected: { value: REGISTRY_DUMP },
+});
+for (const id of MODEL_REGISTRY.map((m) => m.id)) {
+  cases.push({
+    fn: "model_spec",
+    name: id,
+    input: id,
+    expected: { value: modelSpec(id) === undefined ? { null: true } : { id: modelSpec(id).id, ownedBy: modelSpec(id).ownedBy } },
+  });
+}
+cases.push({
+  fn: "model_spec",
+  name: "an unknown id",
+  input: "nope/nope",
+  expected: { value: { null: true } },
+});
+for (const c of wireLookupCases) {
+  const hit = wireSpec(c.wire);
+  cases.push({
+    fn: "wire_spec",
+    name: c.name,
+    input: c.wire,
+    expected: { value: hit === undefined ? { null: true } : { id: hit.id } },
+  });
+}
+for (const c of reasoningLookupCases) {
+  cases.push({
+    fn: "reasoning_max_raw_for",
+    name: c.name,
+    input: c.wire,
+    expected: { value: reasoningMaxRawFor(c.wire) },
+  });
+  cases.push({
+    fn: "reasoning_max_parsed_for",
+    name: c.name,
+    input: c.wire,
+    expected: { value: reasoningMaxParsedFor(c.wire) },
   });
 }
 

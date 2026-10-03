@@ -629,6 +629,723 @@
    }
   },
   {
+   "fn": "model_registry",
+   "name": "the whole table",
+   "input": null,
+   "expected": {
+    "value": [
+     {
+      "id": "og/deepseek-v4.1-flash",
+      "ownedBy": "opencode",
+      "wire": "deepseek-flash",
+      "usEgress": null,
+      "search": true,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/minimax-m3",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": false,
+      "probeWhy": "translate-only model; the og/ health card covers the channel"
+     },
+     {
+      "id": "og/mimo-v2.5",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/mimo-v2.6-flash",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/ox-alpha-free",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": "parsed",
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/muse-spark-1.3-contributor",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": true,
+      "search": null,
+      "responsesOnly": true,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/muse-spark-1.2-contributor",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": true,
+      "search": null,
+      "responsesOnly": true,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": false,
+      "probeWhy": "superseded by 1.3; one probe per model family is enough"
+     },
+     {
+      "id": "og/gpt-5.6-luna",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": true,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "og/openai/gpt-5.6-luna:floor[1m]",
+      "ownedBy": "opencode",
+      "wire": null,
+      "usEgress": true,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": false,
+      "probeWhy": "the or/ spelling below is the probed luna card"
+     },
+     {
+      "id": "or/openai/gpt-5.6-luna:floor[1m]",
+      "ownedBy": "openrouter",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "or/z-ai/glm-5.2:free",
+      "ownedBy": "openrouter",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+      "ownedBy": "openrouter",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+      "ownedBy": "nvidia",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "nv/moonshotai/kimi-k3",
+      "ownedBy": "nvidia",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": false,
+      "probeWhy": "the nv/ health card already probes nemotron"
+     },
+     {
+      "id": "gmi/MiniMaxAI/MiniMax-M3",
+      "ownedBy": "gmi",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "gmi/MiniMaxAI/MiniMax-M2.7",
+      "ownedBy": "gmi",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "or/stealth/ox-alpha",
+      "ownedBy": "openrouter",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": "raw",
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "qw/qwen3.8-max-preview",
+      "ownedBy": "qwen",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "qw/qwen3.8-flash",
+      "ownedBy": "qwen",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "qw/deepseek-v4.1-flash",
+      "ownedBy": "qwen",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "cm/meituan/LongCat-2.0:free",
+      "ownedBy": "command-code",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "cm/poolside/laguna-s-2.1-free",
+      "ownedBy": "command-code",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "cm/deepseek/deepseek-v4.1-flash",
+      "ownedBy": "command-code",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     },
+     {
+      "id": "r4/deepseek-v4.1-flash",
+      "ownedBy": "r4",
+      "wire": null,
+      "usEgress": null,
+      "search": null,
+      "responsesOnly": null,
+      "reasoningMax": null,
+      "reasoningEffort": null,
+      "contextWindow": null,
+      "maxTokens": null,
+      "probe": true,
+      "probeWhy": null
+     }
+    ]
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/deepseek-v4.1-flash",
+   "input": "og/deepseek-v4.1-flash",
+   "expected": {
+    "value": {
+     "id": "og/deepseek-v4.1-flash",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/minimax-m3",
+   "input": "og/minimax-m3",
+   "expected": {
+    "value": {
+     "id": "og/minimax-m3",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/mimo-v2.5",
+   "input": "og/mimo-v2.5",
+   "expected": {
+    "value": {
+     "id": "og/mimo-v2.5",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/mimo-v2.6-flash",
+   "input": "og/mimo-v2.6-flash",
+   "expected": {
+    "value": {
+     "id": "og/mimo-v2.6-flash",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/ox-alpha-free",
+   "input": "og/ox-alpha-free",
+   "expected": {
+    "value": {
+     "id": "og/ox-alpha-free",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/muse-spark-1.3-contributor",
+   "input": "og/muse-spark-1.3-contributor",
+   "expected": {
+    "value": {
+     "id": "og/muse-spark-1.3-contributor",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/muse-spark-1.2-contributor",
+   "input": "og/muse-spark-1.2-contributor",
+   "expected": {
+    "value": {
+     "id": "og/muse-spark-1.2-contributor",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/gpt-5.6-luna",
+   "input": "og/gpt-5.6-luna",
+   "expected": {
+    "value": {
+     "id": "og/gpt-5.6-luna",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "og/openai/gpt-5.6-luna:floor[1m]",
+   "input": "og/openai/gpt-5.6-luna:floor[1m]",
+   "expected": {
+    "value": {
+     "id": "og/openai/gpt-5.6-luna:floor[1m]",
+     "ownedBy": "opencode"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "or/openai/gpt-5.6-luna:floor[1m]",
+   "input": "or/openai/gpt-5.6-luna:floor[1m]",
+   "expected": {
+    "value": {
+     "id": "or/openai/gpt-5.6-luna:floor[1m]",
+     "ownedBy": "openrouter"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "or/z-ai/glm-5.2:free",
+   "input": "or/z-ai/glm-5.2:free",
+   "expected": {
+    "value": {
+     "id": "or/z-ai/glm-5.2:free",
+     "ownedBy": "openrouter"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+   "input": "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+   "expected": {
+    "value": {
+     "id": "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+     "ownedBy": "openrouter"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+   "input": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+   "expected": {
+    "value": {
+     "id": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+     "ownedBy": "nvidia"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "nv/moonshotai/kimi-k3",
+   "input": "nv/moonshotai/kimi-k3",
+   "expected": {
+    "value": {
+     "id": "nv/moonshotai/kimi-k3",
+     "ownedBy": "nvidia"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "gmi/MiniMaxAI/MiniMax-M3",
+   "input": "gmi/MiniMaxAI/MiniMax-M3",
+   "expected": {
+    "value": {
+     "id": "gmi/MiniMaxAI/MiniMax-M3",
+     "ownedBy": "gmi"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "gmi/MiniMaxAI/MiniMax-M2.7",
+   "input": "gmi/MiniMaxAI/MiniMax-M2.7",
+   "expected": {
+    "value": {
+     "id": "gmi/MiniMaxAI/MiniMax-M2.7",
+     "ownedBy": "gmi"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "or/stealth/ox-alpha",
+   "input": "or/stealth/ox-alpha",
+   "expected": {
+    "value": {
+     "id": "or/stealth/ox-alpha",
+     "ownedBy": "openrouter"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "qw/qwen3.8-max-preview",
+   "input": "qw/qwen3.8-max-preview",
+   "expected": {
+    "value": {
+     "id": "qw/qwen3.8-max-preview",
+     "ownedBy": "qwen"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "qw/qwen3.8-flash",
+   "input": "qw/qwen3.8-flash",
+   "expected": {
+    "value": {
+     "id": "qw/qwen3.8-flash",
+     "ownedBy": "qwen"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "qw/deepseek-v4.1-flash",
+   "input": "qw/deepseek-v4.1-flash",
+   "expected": {
+    "value": {
+     "id": "qw/deepseek-v4.1-flash",
+     "ownedBy": "qwen"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "cm/meituan/LongCat-2.0:free",
+   "input": "cm/meituan/LongCat-2.0:free",
+   "expected": {
+    "value": {
+     "id": "cm/meituan/LongCat-2.0:free",
+     "ownedBy": "command-code"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "cm/poolside/laguna-s-2.1-free",
+   "input": "cm/poolside/laguna-s-2.1-free",
+   "expected": {
+    "value": {
+     "id": "cm/poolside/laguna-s-2.1-free",
+     "ownedBy": "command-code"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "cm/deepseek/deepseek-v4.1-flash",
+   "input": "cm/deepseek/deepseek-v4.1-flash",
+   "expected": {
+    "value": {
+     "id": "cm/deepseek/deepseek-v4.1-flash",
+     "ownedBy": "command-code"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "r4/deepseek-v4.1-flash",
+   "input": "r4/deepseek-v4.1-flash",
+   "expected": {
+    "value": {
+     "id": "r4/deepseek-v4.1-flash",
+     "ownedBy": "r4"
+    }
+   }
+  },
+  {
+   "fn": "model_spec",
+   "name": "an unknown id",
+   "input": "nope/nope",
+   "expected": {
+    "value": {
+     "null": true
+    }
+   }
+  },
+  {
+   "fn": "wire_spec",
+   "name": "the og wire alias",
+   "input": "deepseek-flash",
+   "expected": {
+    "value": {
+     "id": "og/deepseek-v4.1-flash"
+    }
+   }
+  },
+  {
+   "fn": "wire_spec",
+   "name": "a stripped id",
+   "input": "deepseek-v4.1-flash",
+   "expected": {
+    "value": {
+     "null": true
+    }
+   }
+  },
+  {
+   "fn": "wire_spec",
+   "name": "the AMBIGUOUS pair resolves to NOTHING",
+   "input": "openai/gpt-5.6-luna:floor[1m]",
+   "expected": {
+    "value": {
+     "null": true
+    }
+   }
+  },
+  {
+   "fn": "wire_spec",
+   "name": "an unknown wire",
+   "input": "nope/nope",
+   "expected": {
+    "value": {
+     "null": true
+    }
+   }
+  },
+  {
+   "fn": "wire_spec",
+   "name": "an empty wire name",
+   "input": "",
+   "expected": {
+    "value": {
+     "null": true
+    }
+   }
+  },
+  {
+   "fn": "reasoning_max_raw_for",
+   "name": "a raw model",
+   "input": "deepseek-flash",
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "reasoning_max_parsed_for",
+   "name": "a raw model",
+   "input": "deepseek-flash",
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "reasoning_max_raw_for",
+   "name": "a parsed model",
+   "input": "minimax-m3",
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "reasoning_max_parsed_for",
+   "name": "a parsed model",
+   "input": "minimax-m3",
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "reasoning_max_raw_for",
+   "name": "an unknown wire",
+   "input": "nope",
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "reasoning_max_parsed_for",
+   "name": "an unknown wire",
+   "input": "nope",
+   "expected": {
+    "value": false
+   }
+  },
+  {
    "fn": "retry_policy_for",
    "name": "nvidia nv/x",
    "input": {
