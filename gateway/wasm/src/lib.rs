@@ -234,6 +234,7 @@ pub mod registry;
 pub mod reliability;
 pub mod request_shape;
 pub mod responses;
+pub mod routing;
 pub mod session;
 pub mod store;
 pub mod stream;
