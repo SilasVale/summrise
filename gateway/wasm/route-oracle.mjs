@@ -72,25 +72,28 @@ const TOKEN = "tok-route-test";
 const UID = "u-route-test";
 
 /** A user record with a role and `enabled`, and a key record for one channel. */
-function envWith(keys = {}) {
+function envWith(keys = {}, enabled = true) {
   return {
     KEYS: fakeKV({
       [`token:${TOKEN}`]: UID,
-      [`user:${UID}`]: JSON.stringify({ id: UID, enabled: true, role: "user" }),
+      // **`enabled` IS A PARAMETER BECAUSE THE HANDLER CHECKS IT** and the first version of this fixture
+      // could not reach the disabled branch at all: its 401 case had NO user, so a port that dropped the
+      // `enabled` test would have passed every case.
+      [`user:${UID}`]: JSON.stringify({ id: UID, enabled, role: "user" }),
       [`ukeys:${UID}`]: JSON.stringify(keys),
     }),
     BREAKER: new DurableObjectNamespace(),
   };
 }
 
-async function callRoute(body, { keys = {}, token = TOKEN, headers = {} } = {}) {
+async function callRoute(body, { keys = {}, token = TOKEN, headers = {}, enabled = true } = {}) {
   const request = new Request("https://relay.example/v1/messages/count_tokens", {
     method: "POST",
     headers: { "x-api-key": token, "content-type": "application/json", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
   const url = new URL(request.url);
-  const response = await handleGateway(request, envWith(keys), url);
+  const response = await handleGateway(request, envWith(keys, enabled), url);
   return {
     status: response.status,
     headers: Object.fromEntries(response.headers),
@@ -249,6 +252,14 @@ const cases = [
     beforeArm: true,
   },
   {
+    // **A DISABLED USER, WHICH THE FIRST FIXTURE COULD NOT REACH.** The handler's rule is
+    // `!user || !user.enabled`, and its 401 case only covered the FIRST half — so the `enabled` check was a
+    // named gap in `request_shape.rs` until this case existed.
+    name: "a DISABLED user is refused even with a valid token and key",
+    body: { model: "ds/deepseek-v4.1-flash", messages: [] },
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" }, enabled: false },
+  },
+  {
     name: "an unauthenticated request is refused before the estimate",
     body: { model: "ds/deepseek-v4.1-flash", messages: [] },
     opts: { keys: { DEEPSEEK_API_KEY: "sk-test" }, token: "wrong" },
@@ -283,7 +294,7 @@ const cases = [
 
 const out = [];
 for (const c of cases) {
-  const env = envWith(c.opts.keys || {});
+  const env = envWith(c.opts.keys || {}, c.opts.enabled ?? true);
   if (c.opts.env) Object.assign(env, c.opts.env);
   const request = new Request("https://relay.example/v1/messages/count_tokens", {
     method: "POST",
@@ -309,7 +320,13 @@ for (const c of cases) {
     // **THE AUTH OUTCOME, RECORDED RATHER THAN RE-DERIVED.** The corpus's 401 case is the one whose token
     // resolves to no user, and a Rust test cannot know that from the expectation without reasoning
     // backwards from the answer it is checking.
-    authenticated: (c.opts.token ?? TOKEN) === TOKEN,
+    // **THE AUTH OUTCOME, RECORDED RATHER THAN RE-DERIVED.** A Rust test cannot know from the EXPECTATION
+    // whether the token resolved, let alone whether the user was enabled — so the fixture records the USER
+    // SHAPE the store would hand the handler: `null`, or a record whose `enabled` may be false.
+    user:
+      (c.opts.token ?? TOKEN) === TOKEN
+        ? { id: "u-route-test", enabled: c.opts.enabled ?? true }
+        : null,
     ...(c.beforeArm ? { beforeArm: true } : {}),
     expected: {
       status: response.status,
