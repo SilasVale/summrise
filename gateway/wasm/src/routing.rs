@@ -267,6 +267,57 @@ mod tests {
         serde_json::Value::Object(m)
     }
 
+    /// **THE ORACLE REPLAY**, and the reason the hand pins above are kept beside it: the corpus pins the
+    /// BYTES (what the shipping `pickRoute` answers, case by case) while the pins say WHY each one matters.
+    /// `fixtures/translate-corpus.json`'s `pick_route` cases are produced by `oracle-translate.mjs` calling
+    /// the exported function directly — no capture, no stub.
+    #[test]
+    fn every_routing_case_matches_the_shipping_typescript() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/translate-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the corpus is committed");
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("the corpus parses");
+        let mut checked = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            if case["fn"].as_str() != Some("pick_route") {
+                continue;
+            }
+            let name = case["name"].as_str().unwrap_or("?");
+            let input = &case["input"];
+            let env = {
+                let mut m = serde_json::Map::new();
+                if let Some(p) = input["usProxy"].as_str() {
+                    m.insert("US_PROXY".into(), serde_json::json!(p));
+                }
+                if let Some(b) = input["base"].as_str() {
+                    m.insert("US_PROXY_BASE".into(), serde_json::json!(b));
+                }
+                serde_json::Value::Object(m)
+            };
+            let got = pick_route(
+                input["prefix"].as_str().unwrap_or(""),
+                Some(&env),
+                input["usProxy"].as_str(),
+                input["requestPath"].as_str().unwrap_or(""),
+            );
+            let want = &case["expected"]["value"];
+            let as_json = serde_json::json!({
+                "type": if got.is_translate { "translate" } else { "passthrough" },
+                "kind": got.kind,
+                "stripPrefix": got.strip_prefix,
+                "upstream": got.upstream,
+            });
+            assert_eq!(&as_json, want, "{name}");
+            checked += 1;
+        }
+        assert!(
+            checked >= 40,
+            "the routing corpus shrank to {checked} cases"
+        );
+    }
+
     #[test]
     fn the_nine_prefixes_answer_their_own_kind_and_wire_path() {
         let cases = [

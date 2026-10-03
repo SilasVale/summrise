@@ -1330,6 +1330,816 @@
    }
   },
   {
+   "fn": "pick_route",
+   "name": "or on /v1/messages",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://openrouter.ai/api/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on /v1/messages via the exit",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=or&path=%2Fv1%2Fmessages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on /v1/chat/completions",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://openrouter.ai/api/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=or&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "ds on /v1/messages",
+   "input": {
+    "prefix": "ds",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://api.deepseek.com/anthropic/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "ds on /v1/messages via the exit",
+   "input": {
+    "prefix": "ds",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=ds&path=%2Fanthropic%2Fv1%2Fmessages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "ds on /v1/chat/completions",
+   "input": {
+    "prefix": "ds",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://api.deepseek.com/anthropic/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "ds on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "ds",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=ds&path=%2Fanthropic%2Fv1%2Fmessages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "qw on /v1/messages",
+   "input": {
+    "prefix": "qw",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "qw on /v1/messages via the exit",
+   "input": {
+    "prefix": "qw",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=qw&path=%2Fapps%2Fanthropic%2Fv1%2Fmessages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "qw on /v1/chat/completions",
+   "input": {
+    "prefix": "qw",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "qw on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "qw",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=qw&path=%2Fcompatible-mode%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "og on /v1/messages",
+   "input": {
+    "prefix": "og",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "og on /v1/messages via the exit",
+   "input": {
+    "prefix": "og",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "og on /v1/chat/completions",
+   "input": {
+    "prefix": "og",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "og on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "og",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "nv on /v1/messages",
+   "input": {
+    "prefix": "nv",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://integrate.api.nvidia.com/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "nv on /v1/messages via the exit",
+   "input": {
+    "prefix": "nv",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=nv&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "nv on /v1/chat/completions",
+   "input": {
+    "prefix": "nv",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://integrate.api.nvidia.com/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "nv on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "nv",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=nv&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "gmi on /v1/messages",
+   "input": {
+    "prefix": "gmi",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://api.gmi-serving.com/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "gmi on /v1/messages via the exit",
+   "input": {
+    "prefix": "gmi",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=gmi&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "gmi on /v1/chat/completions",
+   "input": {
+    "prefix": "gmi",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://api.gmi-serving.com/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "gmi on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "gmi",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=gmi&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "cm on /v1/messages",
+   "input": {
+    "prefix": "cm",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "cm on /v1/messages via the exit",
+   "input": {
+    "prefix": "cm",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=cm&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "cm on /v1/chat/completions",
+   "input": {
+    "prefix": "cm",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "cm on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "cm",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=cm&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "amd on /v1/messages",
+   "input": {
+    "prefix": "amd",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "amd on /v1/messages via the exit",
+   "input": {
+    "prefix": "amd",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "amd on /v1/chat/completions",
+   "input": {
+    "prefix": "amd",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "amd on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "amd",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "r4 on /v1/messages",
+   "input": {
+    "prefix": "r4",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "r4 on /v1/messages via the exit",
+   "input": {
+    "prefix": "r4",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "r4 on /v1/chat/completions",
+   "input": {
+    "prefix": "r4",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "r4 on /v1/chat/completions via the exit",
+   "input": {
+    "prefix": "r4",
+    "requestPath": "/v1/chat/completions",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "zz on /v1/messages",
+   "input": {
+    "prefix": "zz",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "(empty) on /v1/messages",
+   "input": {
+    "prefix": "",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on (empty)",
+   "input": {
+    "prefix": "or",
+    "requestPath": "",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://openrouter.ai/api/v1/messages"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "constructor on /v1/messages",
+   "input": {
+    "prefix": "constructor",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "toString on /v1/messages",
+   "input": {
+    "prefix": "toString",
+    "requestPath": "/v1/messages",
+    "usProxy": null,
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "a&path=/evil on /v1/messages via the exit",
+   "input": {
+    "prefix": "a&path=/evil",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=a%26path%3D%2Fevil&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "中文 on /v1/messages via the exit",
+   "input": {
+    "prefix": "中文",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=%E4%B8%AD%E6%96%87&path=%2Fv1%2Fchat%2Fcompletions"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on /v1/a b via the exit",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/a b",
+    "usProxy": "1",
+    "base": null
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=or&path=%2Fv1%2Fa%20b"
+    }
+   }
+  },
+  {
+   "fn": "pick_route",
+   "name": "or on /v1/messages via the exit with a base",
+   "input": {
+    "prefix": "or",
+    "requestPath": "/v1/messages",
+    "usProxy": "1",
+    "base": "https://exit.example"
+   },
+   "expected": {
+    "value": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://exit.example/api/zen?target=or&path=%2Fv1%2Fmessages"
+    }
+   }
+  },
+  {
    "fn": "wire_model_name",
    "name": "a non-og prefix passes through",
    "input": {
