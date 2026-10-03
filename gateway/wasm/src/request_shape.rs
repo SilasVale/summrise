@@ -459,6 +459,118 @@ pub fn v1_dispatch(req: &V1Request) -> crate::responses::Built {
     crate::responses::json_error(501, "route not wired", "api_error")
 }
 
+/// **WHAT THE UPSTREAM ANSWERED — the I/O edge's result, as data.**
+///
+/// `json` is `upstream.json().catch(() => null)`: the parsed body, or `None` when it was not JSON at all.
+/// `text` is the same body as text, which is what a passthrough forwards.
+#[derive(Debug, Clone, Default)]
+pub struct UpstreamAnswer {
+    pub status: u16,
+    pub content_type: String,
+    pub json: Option<serde_json::Value>,
+    pub retry_after: Option<String>,
+    pub text: String,
+}
+
+/// **WHAT AN ARM ANSWERS: a response, or a request to stream.**
+///
+/// The streaming half of the translate arm is `streamOgToAnthropic` over a live `ReadableStream`, which is
+/// I/O rather than a decision — so this composition DELEGATES it instead of faking a response, and the
+/// worker's `fetch` hands the upstream body to the streaming translator when it sees this.
+#[derive(Debug)]
+pub enum ArmOutcome {
+    Response(crate::responses::Built),
+    /// "Hand the upstream's body to the SSE translator" — the only case that is not a value.
+    Stream,
+}
+
+/// **THE `/v1/messages` ARM, COMPOSED — every piece of it was proved before this function existed.**
+///
+/// The source's order, with the two arms it serves:
+///
+/// ```text
+///     no upstream at all            ->  upstreamFetchFailedResponse
+///     a non-OK upstream             ->  upstreamBodyErrorResponse
+///     the passthrough arm           ->  the upstream's bytes + the CORS stamp
+///     the translate arm, streaming  ->  DELEGATED (see `ArmOutcome::Stream`)
+///     the translate arm, JSON       ->  streamIgnoredResponse when the client asked to stream
+///                                       upstreamJsonResponse otherwise
+/// ```
+///
+/// `wants_stream` IS `body.stream` — the CLIENT's request, not the upstream's answer, which is why the
+/// ignored-stream branch can only be reached when it is true.
+/// Everything the arm needs that is not the upstream's answer. A struct rather than nine arguments, and the
+/// seam is the same one: the caller reads the config, this decides.
+pub struct MessagesArm<'a> {
+    pub is_translate: bool,
+    /// `body.stream` — the CLIENT's request, which is why the ignored-stream branch needs it.
+    pub wants_stream: bool,
+    pub kind: &'a str,
+    pub upstream_model: &'a str,
+    pub origin: &'a str,
+    pub request_host: Option<&'a str>,
+    pub cors_configured: Option<&'a str>,
+    pub secrets: &'a [serde_json::Value],
+}
+
+pub fn messages_response(arm: &MessagesArm, answer: Option<&UpstreamAnswer>) -> ArmOutcome {
+    let MessagesArm {
+        is_translate,
+        wants_stream,
+        kind,
+        upstream_model,
+        origin,
+        request_host,
+        cors_configured,
+        secrets,
+    } = *arm;
+    let Some(answer) = answer else {
+        // The fetch itself failed: the status is the inspection's own when it looks like one.
+        return ArmOutcome::Response(crate::responses::upstream_fetch_failed(
+            kind,
+            None,
+            "fetch failed",
+        ));
+    };
+    let label = crate::responses::translate_label(kind, None);
+    if !(200..=299).contains(&answer.status) {
+        return ArmOutcome::Response(crate::responses::upstream_body_error(
+            answer.status,
+            answer.json.as_ref(),
+            answer.retry_after.as_deref(),
+            &label,
+            secrets,
+        ));
+    }
+    if !is_translate {
+        // A passthrough forwards the upstream's bytes; the only surgery is the CORS stamp.
+        return ArmOutcome::Response(crate::cors::forwarded_upstream_response(
+            answer.status,
+            &[("Content-Type".to_string(), answer.content_type.clone())],
+            origin,
+            request_host,
+            cors_configured,
+            &answer.text,
+        ));
+    }
+    if wants_stream {
+        if crate::responses::upstream_ignored_stream(&answer.content_type) {
+            // The upstream ignored `stream: true` and answered JSON — the branch whose recorded incident is
+            // an EMPTY Anthropic message.
+            return ArmOutcome::Response(crate::responses::stream_ignored_response(
+                answer.json.as_ref(),
+                upstream_model,
+            ));
+        }
+        // A real SSE answer: the translator needs the live body.
+        return ArmOutcome::Stream;
+    }
+    ArmOutcome::Response(crate::responses::upstream_json_response(
+        answer.json.as_ref(),
+        upstream_model,
+    ))
+}
+
 #[cfg(test)]
 mod count_tokens_tests {
     //! **THE COMPOSITION IS PINNED BY HAND, AND THE REASON IS STATED.** The `count_tokens` arm lives inside
@@ -567,6 +679,240 @@ mod count_tokens_tests {
             auth_error(Some(&serde_json::json!({ "id": "u" }))).is_some(),
             "a missing enabled flag is not an enabled user"
         );
+    }
+
+    fn fixture(name: &str) -> serde_json::Value {
+        let path = format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        serde_json::from_str(&text).expect("the fixture parses")
+    }
+
+    fn fold(headers: Vec<(String, String)>) -> serde_json::Map<String, serde_json::Value> {
+        headers
+            .into_iter()
+            .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+            .collect()
+    }
+
+    /// **THE COMPOSITION, DRIVEN BY THE THREE FIXTURES THAT ALREADY EXISTED — 21 cases through one
+    /// function.** Each fixture was captured from the shipping route for a different branch, and the arm is
+    /// what puts them in their order:
+    ///
+    /// * `non-stream-corpus.json` — the translate arm's buffered answers (6)
+    /// * `stream-ignored-corpus.json` — the same arm when the CLIENT asked to stream and the upstream
+    ///   answered JSON anyway (6)
+    /// * `upstream-failure-corpus.json` — the non-OK path, which is reached BEFORE either (9)
+    ///
+    /// Nothing here is a new expectation: every `expected` was recorded from the TypeScript.
+    #[test]
+    fn the_messages_arm_composes_the_proved_pieces_in_the_sources_order() {
+        let mut checked = 0;
+
+        // 1. THE BUFFERED TRANSLATE ARM.
+        for case in fixture("non-stream-corpus.json")["cases"]
+            .as_array()
+            .expect("cases")
+        {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["upstreamJson"];
+            let answer = UpstreamAnswer {
+                status: 200,
+                content_type: "application/json".to_string(),
+                json: if json.is_null() {
+                    None
+                } else {
+                    Some(json.clone())
+                },
+                retry_after: None,
+                text: String::new(),
+            };
+            let out = messages_response(
+                &MessagesArm {
+                    is_translate: true,
+                    wants_stream: false,
+                    kind: "opencode",
+                    upstream_model: case["upstreamModel"].as_str().unwrap_or(""),
+                    origin: "https://ai.saisi.online",
+                    request_host: Some("api.saisi.online"),
+                    cors_configured: None,
+                    secrets: &[],
+                },
+                Some(&answer),
+            );
+            let ArmOutcome::Response(got) = out else {
+                panic!("{name}: the buffered arm must answer, not stream");
+            };
+            assert_eq!(
+                got.status,
+                case["expected"]["status"].as_u64().unwrap_or(0) as u16,
+                "{name}"
+            );
+            assert_eq!(
+                got.body,
+                case["expected"]["body"].as_str().unwrap_or(""),
+                "{name}"
+            );
+            checked += 1;
+        }
+
+        // 2. THE CLIENT ASKED TO STREAM AND THE UPSTREAM ANSWERED JSON.
+        for case in fixture("stream-ignored-corpus.json")["cases"]
+            .as_array()
+            .expect("cases")
+        {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["upstreamJson"];
+            let answer = UpstreamAnswer {
+                status: 200,
+                content_type: "application/json".to_string(),
+                json: if json.is_null() {
+                    None
+                } else {
+                    Some(json.clone())
+                },
+                retry_after: None,
+                text: String::new(),
+            };
+            let out = messages_response(
+                &MessagesArm {
+                    is_translate: true,
+                    wants_stream: true, // the client asked to stream — that is what this fixture captured
+                    kind: "opencode",
+                    upstream_model: case["upstreamModel"].as_str().unwrap_or(""),
+                    origin: "https://ai.saisi.online",
+                    request_host: Some("api.saisi.online"),
+                    cors_configured: None,
+                    secrets: &[],
+                },
+                Some(&answer),
+            );
+            let ArmOutcome::Response(got) = out else {
+                panic!("{name}: a JSON answer is not a stream, however the client asked");
+            };
+            assert_eq!(
+                got.status,
+                case["expected"]["status"].as_u64().unwrap_or(0) as u16,
+                "{name}"
+            );
+            assert_eq!(
+                got.body,
+                case["expected"]["body"].as_str().unwrap_or(""),
+                "{name}"
+            );
+            checked += 1;
+        }
+
+        // 3. THE NON-OK PATH.
+        for case in fixture("upstream-failure-corpus.json")["cases"]
+            .as_array()
+            .expect("cases")
+        {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["json"];
+            let answer = UpstreamAnswer {
+                status: case["status"].as_u64().unwrap_or(0) as u16,
+                content_type: "application/json".to_string(),
+                json: if json.is_null() {
+                    None
+                } else {
+                    Some(json.clone())
+                },
+                retry_after: case["retryAfter"].as_str().map(str::to_string),
+                text: String::new(),
+            };
+            let out = messages_response(
+                &MessagesArm {
+                    is_translate: true,
+                    wants_stream: false,
+                    kind: case["kind"].as_str().unwrap_or(""),
+                    upstream_model: "deepseek-flash",
+                    origin: "https://ai.saisi.online",
+                    request_host: Some("api.saisi.online"),
+                    cors_configured: None,
+                    secrets: &[],
+                },
+                Some(&answer),
+            );
+            let ArmOutcome::Response(got) = out else {
+                panic!("{name}: a failure must answer");
+            };
+            assert_eq!(
+                got.status,
+                case["expected"]["status"].as_u64().unwrap_or(0) as u16,
+                "{name}"
+            );
+            assert_eq!(
+                got.body,
+                case["expected"]["body"].as_str().unwrap_or(""),
+                "{name}"
+            );
+            for (k, v) in case["expected"]["headers"].as_object().expect("headers") {
+                assert_eq!(
+                    fold(got.headers.clone()).get(k),
+                    Some(v),
+                    "{name}: header {k}"
+                );
+            }
+            checked += 1;
+        }
+
+        assert_eq!(checked, 21, "the three fixtures changed size");
+    }
+
+    #[test]
+    fn a_real_sse_answer_is_delegated_rather_than_faked() {
+        // **THE ONE CASE THAT IS NOT A VALUE.** A `text/event-stream` answer needs the live body, so the
+        // composition says `Stream` and the worker hands it to the translator — an outcome the caller must
+        // handle rather than a response invented here. This is the boundary stated, not a 501 dressed as one.
+        let answer = UpstreamAnswer {
+            status: 200,
+            content_type: "text/event-stream".to_string(),
+            json: None,
+            retry_after: None,
+            text: String::new(),
+        };
+        let out = messages_response(
+            &MessagesArm {
+                is_translate: true,
+                wants_stream: true,
+                kind: "opencode",
+                upstream_model: "deepseek-flash",
+                origin: "https://ai.saisi.online",
+                request_host: Some("api.saisi.online"),
+                cors_configured: None,
+                secrets: &[],
+            },
+            Some(&answer),
+        );
+        assert!(
+            matches!(out, ArmOutcome::Stream),
+            "a real SSE answer streams"
+        );
+
+        // A PASSTHROUGH never streams through this function: it forwards the bytes it was given.
+        let passthrough_answer = UpstreamAnswer {
+            status: 200,
+            content_type: "text/event-stream".to_string(),
+            text: "event: x\n\n".to_string(),
+            ..Default::default()
+        };
+        let out = messages_response(
+            &MessagesArm {
+                is_translate: false,
+                wants_stream: true,
+                kind: "deepseek",
+                upstream_model: "deepseek-v4.1-flash",
+                origin: "https://ai.saisi.online",
+                request_host: Some("api.saisi.online"),
+                cors_configured: None,
+                secrets: &[],
+            },
+            Some(&passthrough_answer),
+        );
+        let ArmOutcome::Response(got) = out else {
+            panic!("a passthrough forwards, it does not translate a stream");
+        };
+        assert_eq!(got.body, "event: x\n\n");
     }
 
     #[test]
