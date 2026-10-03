@@ -538,12 +538,19 @@ const searchTargetCases = [
   { name: "an unknown wire", model: "x/y", upstreamModel: "nope" },
   { name: "an empty wire name", model: "x/y", upstreamModel: "" },
 ];
+// **THE RAW WIRE IS `stealth/ox-alpha`, AND TWO EARLIER VERSIONS OF THESE CASES WERE VACUOUS.**
+// The first used `deepseek-flash` and the second `ox-alpha-free` — neither is raw (`ox-alpha-free` is
+// `"parsed"`), so every expectation was "unchanged" and the gate NEVER FIRED: a corpus that proves nothing.
+// A Rust pin caught it by trying a wire the source calls raw and disagreeing with the oracle. The facet
+// belongs to ONE record, and `or/stealth/ox-alpha` is it — which `oxAlphaReasoningDefault`'s own comment
+// says in as many words ("or/stealth/ox-alpha is the only 'raw' record and it rides this kind").
 const oxReasoningCases = [
-  { name: "openrouter + a raw model + no reasoning", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: '{"model":"og/deepseek-v4.1-flash"}' },
-  { name: "openrouter + a raw model + reasoning present", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: '{"reasoning":{"effort":"low"},"model":"m"}' },
-  { name: "a DIFFERENT kind + a raw model", routeKind: "deepseek", upstreamModel: "deepseek-flash", body: '{"model":"m"}' },
+  { name: "openrouter + the RAW model + no reasoning", routeKind: "openrouter", upstreamModel: "stealth/ox-alpha", body: '{"model":"og/ox-alpha-free"}' },
+  { name: "openrouter + the RAW model + reasoning present", routeKind: "openrouter", upstreamModel: "stealth/ox-alpha", body: '{"reasoning":{"effort":"low"},"model":"m"}' },
+  { name: "a DIFFERENT kind + the RAW model", routeKind: "deepseek", upstreamModel: "stealth/ox-alpha", body: '{"model":"m"}' },
   { name: "openrouter + a NON-raw model", routeKind: "openrouter", upstreamModel: "minimax-m3", body: '{"model":"m"}' },
-  { name: "an empty body", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: "" },
+  { name: "openrouter + ox-alpha-free, which is PARSED not raw", routeKind: "openrouter", upstreamModel: "ox-alpha-free", body: '{"model":"m"}' },
+  { name: "an empty body", routeKind: "openrouter", upstreamModel: "stealth/ox-alpha", body: "" },
 ];
 
 // ── the device-host rules and the two tooling helpers ─────────────────────────────────────────────

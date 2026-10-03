@@ -450,3 +450,264 @@ mod count_tokens_tests {
         assert_eq!(got.status, 200, "an env key is a usable credential");
     }
 }
+
+/// **WHAT THE UPSTREAM IS ASKED — the passthrough arm's pure decision.**
+///
+/// The handler builds a forwarded body and a header set for every passthrough channel, and both are
+/// security-shaped: the body decides WHAT the upstream runs and the headers decide WHICH CREDENTIAL it
+/// sees. The pieces are all ported (`raw_with_model`, `ox_alpha_reasoning_default`, `passthrough_headers`);
+/// what this adds is the ORDER they compose in and the two branches that choose between them.
+///
+/// **`{ ...body, model: upstreamModel }` KEEPS AN EXISTING `model` KEY IN PLACE.** JavaScript objects keep
+/// the position of a key that is assigned again, so a body that already carries `model` comes out with the
+/// new value in the SAME SLOT — a byte-level fact that a port appending the key would get wrong, and the
+/// corpus has the case.
+///
+/// THE PARSED BRANCH IS FOR THE CHANNELS THAT ALREADY PARSED: og-native parses for web-search detection and
+/// image preprocessing (images must arrive DESCRIBED, because deepseek is text-only), and amd/ parses only
+/// when the raw scan finds an image. `ds/qw/or` never parse: raw text with only the top-level model field
+/// swapped — no parse, no spread, no full re-stringify, for the 10 ms budget.
+pub struct PassthroughRequest {
+    pub body: String,
+    pub headers: Vec<(String, String)>,
+}
+
+/// The header the channel authenticates with, or `None` for `Bearer`.
+///
+/// og-native and amd/ use `x-api-key` (amd's docs use that header though it accepts Bearer too); every
+/// other passthrough channel uses Bearer.
+pub fn passthrough_api_key_header(kind: &str) -> Option<&'static str> {
+    if kind == "opencode" || kind == "amd" {
+        Some("x-api-key")
+    } else {
+        None
+    }
+}
+
+/// The forwarded body, before the ox-alpha default is applied.
+fn forwarded_body(
+    raw_text: &str,
+    body: Option<&serde_json::Value>,
+    upstream_model: &str,
+    scanned: Option<(usize, usize)>,
+) -> String {
+    match body {
+        Some(parsed) => {
+            // `{ ...body, model: upstreamModel }` — an existing `model` keeps its POSITION.
+            let mut out = match parsed {
+                serde_json::Value::Object(map) => map.clone(),
+                // A non-object body spreads to nothing, so the result is just `{ model }`.
+                _ => serde_json::Map::new(),
+            };
+            out.insert(
+                "model".to_string(),
+                serde_json::Value::String(upstream_model.to_string()),
+            );
+            crate::responses::stringify_like_json(&serde_json::Value::Object(out))
+        }
+        None => crate::body_scan::raw_with_model(
+            raw_text,
+            &serde_json::Value::String(upstream_model.to_string()),
+            scanned,
+        ),
+    }
+}
+
+/// The whole arm: the body the upstream receives and the headers it authenticates with.
+pub fn passthrough_request(
+    kind: &str,
+    upstream_model: &str,
+    raw_text: &str,
+    body: Option<&serde_json::Value>,
+    bearer_key: Option<&str>,
+    extra: &[(String, String)],
+    scanned: Option<(usize, usize)>,
+) -> PassthroughRequest {
+    let mut forward_body = forwarded_body(raw_text, body, upstream_model, scanned);
+    if kind == "openrouter" && upstream_model == "deepseek/deepseek-v4-flash-0731" {
+        // UNREACHABLE SINCE THE 2026-09-10 V4 RETIREMENT — the id is in RETIRED_MODELS and refused before
+        // routing — and kept so the or/ DeepSeek pin-to-official behaviour is one catalogue entry away from
+        // returning. The raw branch takes `rawWithDeepSeekProvider`, which is the same field by the same
+        // rule, so the two branches agree.
+        let mut map = match body {
+            Some(serde_json::Value::Object(m)) => m.clone(),
+            _ => serde_json::Map::new(),
+        };
+        map.insert(
+            "model".to_string(),
+            serde_json::Value::String(upstream_model.to_string()),
+        );
+        map.insert(
+            "provider".to_string(),
+            serde_json::json!({ "order": ["deepseek"], "allow_fallbacks": false }),
+        );
+        forward_body = if body.is_some() {
+            crate::responses::stringify_like_json(&serde_json::Value::Object(map))
+        } else {
+            crate::body_scan::raw_with_deepseek_provider(&forward_body)
+        };
+    }
+    // **THE OX-ALPHA DEFAULT COMES LAST, AFTER THE MODEL SWAP** — the source calls it on `forwardBody`, so a
+    // body that already carried `reasoning` is left alone and one that did not gets `effort: max` appended.
+    forward_body = crate::registry::ox_alpha_reasoning_default(kind, upstream_model, &forward_body);
+    PassthroughRequest {
+        body: forward_body,
+        headers: crate::session::passthrough_headers(
+            bearer_key,
+            passthrough_api_key_header(kind),
+            extra,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod passthrough_tests {
+    //! **PINNED BY HAND, WITH THE REASON.** The passthrough arm's own differential is a harness that stubs
+    //! `fetch` and CAPTURES the request the shipping route builds — the security-shaped half of a
+    //! passthrough — and that is the next step rather than this one. What is here pins the composition
+    //! against the source's own order, and every PIECE it composes is already oracle-proved:
+    //! `rawWithModel`, `passthroughHeaders`, `oxAlphaReasoningDefault` and `wireModelName`.
+    //!
+    //! **AND THE CORRECTION THIS PIN FORCED IS WORTH THE PARAGRAPH.** The raw reasoning facet belongs to
+    //! `or/stealth/ox-alpha` — wire `stealth/ox-alpha` — and NOT to `deepseek-flash` or `ox-alpha-free`
+    //! (`ox-alpha-free` is `"parsed"`). Two earlier versions of the oracle cases used those wires, which made
+    //! every expectation "unchanged" and left the gate NEVER FIRING: a corpus that proves nothing, caught by
+    //! this pin disagreeing with it. `oxAlphaReasoningDefault`'s own comment had said which record it was all
+    //! along.
+    use super::*;
+
+    fn headers_of(r: &PassthroughRequest) -> Vec<(String, String)> {
+        r.headers
+            .iter()
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn a_parsed_body_gets_the_model_swapped_and_the_ox_alpha_default_appended() {
+        let body = serde_json::json!({ "messages": [{ "role": "user", "content": "hi" }] });
+        let r = passthrough_request(
+            "opencode",
+            "deepseek-flash",
+            "",
+            Some(&body),
+            Some("sk-og"),
+            &[],
+            None,
+        );
+        assert_eq!(
+            r.body,
+            r#"{"messages":[{"role":"user","content":"hi"}],"model":"deepseek-flash"}"#
+        );
+        let h = headers_of(&r);
+        assert!(
+            h.contains(&("x-api-key".to_string(), "sk-og".to_string())),
+            "{h:?}"
+        );
+        assert!(
+            !h.iter().any(|(k, _)| k == "authorization"),
+            "og uses x-api-key"
+        );
+    }
+
+    #[test]
+    fn an_existing_model_key_keeps_its_position() {
+        // **`{ ...body, model: x }` DOES NOT MOVE AN EXISTING KEY.** JavaScript keeps the slot a key was
+        // first assigned to, so the new value lands where `model` already was — a byte-level fact that an
+        // implementation appending the key would get wrong.
+        let body = serde_json::json!({ "model": "og/old", "messages": [], "max_tokens": 8 });
+        let r = passthrough_request(
+            "opencode",
+            "deepseek-flash",
+            "",
+            Some(&body),
+            None,
+            &[],
+            None,
+        );
+        assert_eq!(
+            r.body, r#"{"model":"deepseek-flash","messages":[],"max_tokens":8}"#,
+            "the model key stays FIRST"
+        );
+    }
+
+    #[test]
+    fn a_raw_body_takes_the_scan_path_instead() {
+        let raw = r#"{"messages":[{"role":"user","content":"hi"}],"model":"og/old"}"#;
+        let r = passthrough_request(
+            "deepseek",
+            "deepseek-v4.1-flash",
+            raw,
+            None,
+            Some("sk"),
+            &[],
+            None,
+        );
+        assert!(
+            r.body.contains(r#""model":"deepseek-v4.1-flash""#),
+            "{}",
+            r.body
+        );
+        // The raw path REPLACES the span in place, so the key order is the body's own.
+        assert!(r.body.starts_with(r#"{"messages":"#), "{}", r.body);
+        let h = headers_of(&r);
+        assert!(
+            h.contains(&("authorization".to_string(), "Bearer sk".to_string())),
+            "{h:?}"
+        );
+    }
+
+    #[test]
+    fn the_reasoning_default_respects_a_client_sent_field() {
+        let with = serde_json::json!({ "messages": [], "reasoning": { "effort": "low" } });
+        let r = passthrough_request(
+            "openrouter",
+            "stealth/ox-alpha",
+            "",
+            Some(&with),
+            None,
+            &[],
+            None,
+        );
+        assert!(r.body.contains(r#""effort":"low""#), "{}", r.body);
+        assert!(!r.body.contains(r#""effort":"max""#), "{}", r.body);
+
+        let without = serde_json::json!({ "messages": [] });
+        let r2 = passthrough_request(
+            "openrouter",
+            "stealth/ox-alpha",
+            "",
+            Some(&without),
+            None,
+            &[],
+            None,
+        );
+        assert!(
+            r2.body.contains(r#""reasoning":{"effort":"max"}"#),
+            "{}",
+            r2.body
+        );
+    }
+
+    #[test]
+    fn the_api_key_header_belongs_to_two_kinds_only() {
+        for kind in ["opencode", "amd"] {
+            assert_eq!(
+                passthrough_api_key_header(kind),
+                Some("x-api-key"),
+                "{kind}"
+            );
+        }
+        for kind in [
+            "deepseek",
+            "qwen",
+            "openrouter",
+            "nvidia",
+            "gmi",
+            "commandgoat",
+            "r4",
+        ] {
+            assert_eq!(passthrough_api_key_header(kind), None, "{kind}");
+        }
+    }
+}
