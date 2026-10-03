@@ -9,6 +9,9 @@
    "rawText": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":16,\"model\":\"ds/deepseek-v4.1-flash\"}",
    "parsed": null,
    "bearerKey": "sk-ds",
+   "ogSession": {
+    "x-opencode-session": "summrise-b239c65c0cfcee5a"
+   },
    "status": 200,
    "captured": {
     "url": "https://api.deepseek.com/anthropic/v1/messages",
@@ -29,6 +32,9 @@
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}",
    "parsed": null,
    "bearerKey": "sk-ds",
+   "ogSession": {
+    "x-opencode-session": "summrise-b239c65c0cfcee5a"
+   },
    "status": 200,
    "captured": {
     "url": "https://api.deepseek.com/anthropic/v1/messages",
@@ -49,6 +55,9 @@
    "rawText": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"qw/qwen3.8-flash\"}",
    "parsed": null,
    "bearerKey": "sk-qw",
+   "ogSession": {
+    "x-opencode-session": "summrise-b239c65c0cfcee5a"
+   },
    "status": 200,
    "captured": {
     "url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages",
@@ -78,6 +87,9 @@
     "model": "og/deepseek-v4.1-flash"
    },
    "bearerKey": "sk-og",
+   "ogSession": {
+    "x-opencode-session": "summrise-b239c65c0cfcee5a"
+   },
    "status": 200,
    "captured": {
     "url": "https://opencode.ai/zen/go/v1/chat/completions",
@@ -117,6 +129,9 @@
     "model": "og/deepseek-v4.1-flash"
    },
    "bearerKey": "sk-og",
+   "ogSession": {
+    "x-opencode-session": "summrise-b239c65c0cfcee5a"
+   },
    "status": 200,
    "captured": {
     "url": "https://opencode.ai/zen/go/v1/chat/completions",

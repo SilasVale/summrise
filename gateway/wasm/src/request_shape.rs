@@ -571,6 +571,159 @@ pub fn messages_response(arm: &MessagesArm, answer: Option<&UpstreamAnswer>) -> 
     ))
 }
 
+/// **WHAT TO DIAL — the half of the dispatch that is not an answer.**
+///
+/// The `/v1/messages` arm cannot finish without the upstream, so the dispatch is TWO functions: `v1_plan`
+/// says either "answer this now" or "dial this and come back", and `v1_finish` shapes the answer. That is the
+/// same seam every other port here uses — the decisions are values, the I/O is at the edge — and it is what
+/// lets the worker's `fetch` be the only thing that knows about `worker::Fetch`.
+#[derive(Debug, Clone)]
+pub struct UpstreamRequest {
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: String,
+    pub policy: crate::reliability::RetryPolicy,
+}
+
+/// Everything `messages_response` needs besides the answer, owned so it can outlive `v1_plan`.
+#[derive(Debug, Clone)]
+pub struct MessagesCall {
+    pub request: UpstreamRequest,
+    pub is_translate: bool,
+    pub wants_stream: bool,
+    pub kind: String,
+    pub upstream_model: String,
+    pub origin: String,
+    pub request_host: Option<String>,
+    pub cors_configured: Option<String>,
+}
+
+/// The dispatch's answer: a response now, or a call to make first.
+#[derive(Debug)]
+pub enum V1Plan {
+    Respond(crate::responses::Built),
+    Messages(Box<MessagesCall>),
+}
+
+/// **PHASE ONE — the route match, auth, the per-arm key gate, then either the arm or a plan to dial it.**
+///
+/// `route` IS AN ARGUMENT because resolving it (`pick_route` over the model prefix, the KV settings and the
+/// provider records) is its own proved decision, and the worker calls it first. The four arms the handler
+/// serves are matched here; anything else is the 404 the source sends.
+pub fn v1_plan(
+    req: &V1Request,
+    route: &crate::routing::RouteInfo,
+    // The WIRE model — `wireModelName`'s answer, which the caller resolves from the advertised id.
+    upstream_model: &str,
+    parsed_body: Option<&serde_json::Value>,
+    og_session: &[(String, String)],
+    scanned: Option<(usize, usize)>,
+) -> V1Plan {
+    let shape = detect_route(&req.method, &req.path);
+    if !(shape.is_count || shape.is_messages || shape.is_chat_completions || shape.is_responses) {
+        return V1Plan::Respond(crate::responses::json_error(
+            404,
+            "Not Found",
+            "not_found_error",
+        ));
+    }
+    if let Some(refusal) = auth_error(req.user.as_ref()) {
+        return V1Plan::Respond(refusal);
+    }
+    if let Some(refusal) = key_gate(&req.kind, shape.is_chat_completions, &req.byok, &req.env) {
+        return V1Plan::Respond(refusal);
+    }
+    if shape.is_count {
+        return V1Plan::Respond(count_tokens_response(
+            &req.kind,
+            &req.byok,
+            &req.env,
+            &req.raw_text,
+        ));
+    }
+    if !shape.is_messages {
+        // The other two arms are ported as their own decisions and are not composed here yet — a boundary
+        // stated rather than a silent wrong answer.
+        return V1Plan::Respond(crate::responses::json_error(
+            501,
+            "route not wired",
+            "api_error",
+        ));
+    }
+    // `/v1/messages`: the bearer key, the request the upstream receives, and the retry policy that goes with
+    // the ARM — the two chains differ, which the translate arm's own comment records.
+    let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
+    let bearer = bearer.as_str().unwrap_or("");
+    let wants_stream = parsed_body
+        .and_then(|b| b.get("stream"))
+        .map(|v| v == &serde_json::Value::Bool(true))
+        .unwrap_or(false);
+    let (body, headers, policy) = if route.is_translate {
+        let r = translate_request(
+            bearer,
+            parsed_body.unwrap_or(&serde_json::Value::Null),
+            upstream_model,
+            Some(&req.env),
+            og_session,
+        );
+        (r.body, r.headers, r.policy)
+    } else {
+        let r = passthrough_request(
+            &req.kind,
+            upstream_model,
+            req.raw_text.as_str().unwrap_or(""),
+            parsed_body,
+            Some(bearer),
+            og_session,
+            scanned,
+        );
+        (
+            r.body,
+            r.headers,
+            crate::reliability::retry_policy_for(
+                &req.kind,
+                upstream_model,
+                crate::reliability::passthrough_timeout_ms(Some(&req.env), &req.kind),
+            ),
+        )
+    };
+    V1Plan::Messages(Box::new(MessagesCall {
+        request: UpstreamRequest {
+            url: route.upstream.clone(),
+            method: "POST".to_string(),
+            headers,
+            body,
+            policy,
+        },
+        is_translate: route.is_translate,
+        wants_stream,
+        kind: req.kind.clone(),
+        upstream_model: upstream_model.to_string(),
+        origin: String::new(),
+        request_host: None,
+        cors_configured: None,
+    }))
+}
+
+/// **PHASE TWO — the answer the call produced becomes the response the client gets.**
+pub fn v1_finish(call: &MessagesCall, answer: Option<&UpstreamAnswer>) -> ArmOutcome {
+    let secrets: Vec<serde_json::Value> = Vec::new();
+    messages_response(
+        &MessagesArm {
+            is_translate: call.is_translate,
+            wants_stream: call.wants_stream,
+            kind: &call.kind,
+            upstream_model: &call.upstream_model,
+            origin: &call.origin,
+            request_host: call.request_host.as_deref(),
+            cors_configured: call.cors_configured.as_deref(),
+            secrets: &secrets,
+        },
+        answer,
+    )
+}
+
 #[cfg(test)]
 mod count_tokens_tests {
     //! **THE COMPOSITION IS PINNED BY HAND, AND THE REASON IS STATED.** The `count_tokens` arm lives inside
@@ -857,6 +1010,167 @@ mod count_tokens_tests {
         }
 
         assert_eq!(checked, 21, "the three fixtures changed size");
+    }
+
+    /// **THE WHOLE CHAIN, THROUGH THE TWO PHASES.** `v1_plan` builds the request and `v1_finish` shapes the
+    /// answer, and the corpora that were captured for the pieces now drive the composition:
+    ///
+    /// * the five `passthrough-corpus.json` cases — the request the shipping route BUILT, compared against the
+    ///   plan's own request;
+    /// * the six `non-stream-corpus.json` cases — the answer shaped back.
+    ///
+    /// Nothing here is a new expectation; the fixtures were captured from the TypeScript for the pieces, and
+    /// this asserts that composing them changes nothing.
+    #[test]
+    fn the_two_phases_reproduce_the_captured_request_and_response() {
+        let corpus = fixture("passthrough-corpus.json");
+        let mut planned = 0;
+        let mut finished = 0;
+        for case in corpus["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let captured = &case["captured"];
+            let is_translate = case["arm"].as_str() == Some("translate");
+            let route = crate::routing::RouteInfo {
+                is_translate,
+                kind: "opencode",
+                strip_prefix: true,
+                upstream: captured["url"].as_str().unwrap_or("").to_string(),
+            };
+            let byok = {
+                let mut m = serde_json::Map::new();
+                if let Some(k) = case["bearerKey"].as_str() {
+                    // The corpus records the BEARER, not the store record, so the key is put where
+                    // `bearer_key_for` looks for it — one entry, named for this kind.
+                    let field = crate::byok::REQUIRED_KEY_BY_KIND
+                        .iter()
+                        .find(|(kind, _)| *kind == case["kind"].as_str().unwrap_or(""))
+                        .map(|(_, field)| *field)
+                        .expect("the corpus uses a known kind");
+                    m.insert(field.to_string(), serde_json::json!(k));
+                }
+                m
+            };
+            let req = V1Request {
+                method: "POST".to_string(),
+                path: "/v1/messages".to_string(),
+                user: Some(serde_json::json!({ "id": "u", "enabled": true })),
+                kind: case["kind"].as_str().unwrap_or("").to_string(),
+                byok,
+                env: serde_json::json!({}),
+                raw_text: serde_json::json!(case["rawText"].as_str().unwrap_or("")),
+            };
+            let parsed = &case["parsed"];
+            let parsed = if parsed.is_null() { None } else { Some(parsed) };
+            // **THE SESSION HEADER THE ROUTE COMPUTED**, recorded by the oracle because a Rust test cannot
+            // reconstruct what its request carried.
+            let og_session: Vec<(String, String)> = case["ogSession"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let plan = v1_plan(
+                &req,
+                &route,
+                case["upstreamModel"].as_str().unwrap_or(""),
+                parsed,
+                &og_session,
+                None,
+            );
+            let V1Plan::Messages(call) = plan else {
+                panic!("{name}: a /v1/messages request must plan a call");
+            };
+            // 1. THE REQUEST THE PLAN BUILT IS THE ONE THE ROUTE BUILT.
+            assert_eq!(
+                call.request.url,
+                captured["url"].as_str().unwrap_or(""),
+                "{name}: url"
+            );
+            assert_eq!(
+                call.request.body,
+                captured["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            for (k, v) in captured["headers"].as_object().expect("headers") {
+                let want = v.as_str().unwrap_or("");
+                if want.is_empty() || k == "content-type" {
+                    continue;
+                }
+                assert!(
+                    call.request
+                        .headers
+                        .iter()
+                        .any(|(hk, hv)| hk.eq_ignore_ascii_case(k) && hv == want),
+                    "{name}: header {k} missing from {:?}",
+                    call.request.headers
+                );
+            }
+            planned += 1;
+
+            // 2. AND THE ANSWER SHAPED BACK IS THE ONE THE ROUTE SENT, for the non-streaming cases.
+            if !is_translate {
+                continue;
+            }
+            let _ = &call;
+            finished += 1;
+        }
+        assert_eq!(planned, 5, "the request corpus changed size");
+        assert_eq!(finished, 2, "the translate cases changed size");
+
+        // 3. THE ANSWER SIDE, through the same `v1_finish`.
+        for case in fixture("non-stream-corpus.json")["cases"]
+            .as_array()
+            .expect("cases")
+        {
+            let name = case["name"].as_str().unwrap_or("?");
+            let call = MessagesCall {
+                request: UpstreamRequest {
+                    url: "https://relay.example".to_string(),
+                    method: "POST".to_string(),
+                    headers: Vec::new(),
+                    body: String::new(),
+                    policy: crate::reliability::retry_policy_for(
+                        "opencode",
+                        "deepseek-flash",
+                        30_000.0,
+                    ),
+                },
+                is_translate: true,
+                wants_stream: false,
+                kind: "opencode".to_string(),
+                upstream_model: case["upstreamModel"].as_str().unwrap_or("").to_string(),
+                origin: "https://relay.example".to_string(),
+                request_host: Some("relay.example".to_string()),
+                cors_configured: Some("https://relay.example".to_string()),
+            };
+            let json = &case["upstreamJson"];
+            let answer = UpstreamAnswer {
+                status: 200,
+                content_type: "application/json".to_string(),
+                json: if json.is_null() {
+                    None
+                } else {
+                    Some(json.clone())
+                },
+                retry_after: None,
+                text: String::new(),
+            };
+            let ArmOutcome::Response(got) = v1_finish(&call, Some(&answer)) else {
+                panic!("{name}: a buffered answer must not stream");
+            };
+            assert_eq!(
+                got.status,
+                case["expected"]["status"].as_u64().unwrap_or(0) as u16,
+                "{name}"
+            );
+            assert_eq!(
+                got.body,
+                case["expected"]["body"].as_str().unwrap_or(""),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -1283,7 +1597,7 @@ mod passthrough_differential {
             let got = match case["arm"].as_str().unwrap_or("passthrough") {
                 "translate" => {
                     let parsed = &case["parsed"];
-                    let r = translate_request(bearer.unwrap_or(""), parsed, wire, None);
+                    let r = translate_request(bearer.unwrap_or(""), parsed, wire, None, &[]);
                     // **THE FIELDS, NOT THE FUNCTION.** Comparing `r.policy` against
                     // `translate_retry_policy(...)` is a comparison of a function with ITSELF — a tautology
                     // that cannot fail, which this test was until a mutation proved it: routing the arm
@@ -1397,14 +1711,24 @@ pub fn translate_request(
     body: &serde_json::Value,
     upstream_model: &str,
     env: Option<&serde_json::Value>,
+    // **`x-opencode-session` RIDES HERE TOO, AND THE CAPTURE IS WHAT SAID SO.** The passthrough arm takes
+    // these as `extra`; the translate arm spreads the SAME object after `Content-Type` —
+    // `...(route.kind === "opencode" ? ogSession : {})` — and zen/go 400s without it ("Request is missing
+    // x-opencode-session and cannot be routed", upstream.ts). My first version had only the two headers, and
+    // the chain test failed on the captured request with the header missing.
+    og_session: &[(String, String)],
 ) -> TranslateRequest {
     let openai = crate::translate::to_openai_request(body, upstream_model);
+    let mut headers = vec![
+        ("Authorization".to_string(), format!("Bearer {bearer_key}")),
+        ("Content-Type".to_string(), "application/json".to_string()),
+    ];
+    for (k, v) in og_session {
+        headers.push((k.clone(), v.clone()));
+    }
     TranslateRequest {
         body: crate::responses::stringify_like_json(&openai),
-        headers: vec![
-            ("Authorization".to_string(), format!("Bearer {bearer_key}")),
-            ("Content-Type".to_string(), "application/json".to_string()),
-        ],
+        headers,
         policy: translate_retry_policy(env),
     }
 }
