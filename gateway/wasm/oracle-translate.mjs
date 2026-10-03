@@ -20,7 +20,18 @@ import { toOpenAIRequest, toAnthropicResponse, sse, toSSE } from "../src/anthrop
 // The plugin is 1,696 lines and reads keys, channels, KV and upstreams — but these two are pure, and
 // they are its safety net. Node imports the module fine (measured), so the oracle drives the REAL
 // functions rather than a snapshot of them.
-import { scrubKeys, redactSecrets, sseResponse, keyMissingError, providerKeyMissingError } from "../src/plugins/translate.ts";
+import {
+  scrubKeys,
+  redactSecrets,
+  sseResponse,
+  keyMissingError,
+  providerKeyMissingError,
+  detectRoute,
+  toolsRegionOf,
+  needsBodyParse,
+  isSearchOnlyRequest,
+  isForcedWebSearch,
+} from "../src/plugins/translate.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
 // Every case is a SHAPE THE DEPLOYED WORKER CAN SEE, plus the two degenerate ends (an empty request and
@@ -115,6 +126,79 @@ const toSseCases = [
     input: { id: "msg_1", model: "m", role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1, output_tokens: 2 } },
   },
   { name: "no content", input: { id: "msg_2", model: "m" } },
+];
+
+// ── the request-shape decisions ───────────────────────────────────────────────────────────────────
+// The cases are the INCIDENTS the source records, because that is what a corpus is for: a schema property
+// NAMED `messages`, a `web_search` literal sitting AFTER the tools array, a nested array inside a tool,
+// and the whitespace `\s` really accepts.
+const routeCases = [
+  { method: "POST", path: "/v1/messages/count_tokens" },
+  { method: "POST", path: "/v1/messages" },
+  { method: "POST", path: "/v1/chat/completions" },
+  { method: "POST", path: "/v1/responses" },
+  { method: "GET", path: "/v1/messages" },
+  { method: "POST", path: "/api/v1/messages" },
+  { method: "POST", path: "/v1/messagesx" },
+  { method: "POST", path: "/" },
+];
+
+const toolsRegionCases = [
+  { name: "no tools at all", text: '{"messages":[]}' },
+  { name: "a simple array", text: '{"tools":[{"name":"a"}],"messages":[]}' },
+  {
+    name: "a schema property NAMED messages (round 42)",
+    text: '{"tools":[{"name":"a","input_schema":{"properties":{"messages":{"type":"array"}}}}],"messages":[]}',
+  },
+  {
+    name: "a nested array inside a tool",
+    text: '{"tools":[{"name":"a","x":[[1,2],{"y":[3]}]}],"model":"m"}',
+  },
+  {
+    name: "a web_search literal AFTER the array must stay out",
+    text: '{"tools":[{"name":"a"}],"messages":[{"content":[{"type":"server_tool_use","name":"web_search"}]}]}',
+  },
+  { name: "an empty array", text: '{"tools":[],"messages":[]}' },
+  { name: "the array is the whole body", text: '{"tools":[{"name":"a"}]}' },
+  { name: "unbalanced, never closed", text: '{"tools":[{"name":"a"}' },
+];
+
+const bodyParseCases = [
+  { name: "nothing special", rawText: '{"messages":[{"content":"hi"}]}', toolsRegion: "" },
+  { name: "an image type", rawText: '{"type":"image"}', toolsRegion: "" },
+  { name: "an image type with spaces", rawText: '{"type" :  "image"}', toolsRegion: "" },
+  { name: "an image type with a newline", rawText: '{"type"\n:\t"image"}', toolsRegion: "" },
+  {
+    name: "a NON-BREAKING SPACE between them, which JS \s accepts",
+    rawText: '{"type"\u00a0:"image"}',
+    toolsRegion: "",
+  },
+  { name: "web_search in the region", rawText: "{}", toolsRegion: '{"name":"web_search"}' },
+  { name: "web_search OUTSIDE the region", rawText: '{"messages":[{"name":"web_search"}]}', toolsRegion: "" },
+  { name: "type image but not the value", rawText: '{"type":"image/png"}', toolsRegion: "" },
+];
+
+const searchOnlyCases = [
+  { name: "the one web_search tool", input: { tools: [{ type: "web_search_20250305" }] } },
+  { name: "two tools", input: { tools: [{ type: "web_search_20250305" }, { type: "x" }] } },
+  { name: "a tool_choice is present", input: { tools: [{ type: "web_search_20250305" }], tool_choice: { type: "auto" } } },
+  { name: "the wrong type", input: { tools: [{ type: "other" }] } },
+  { name: "no tools key", input: { messages: [] } },
+  { name: "an empty array", input: { tools: [] } },
+  { name: "tools is not an array", input: { tools: "x" } },
+  { name: "null body", input: null },
+  { name: "an empty object", input: {} },
+];
+
+const forcedSearchCases = [
+  { name: "type tool naming it", input: { type: "tool", name: "web_search" } },
+  { name: "type tool naming something else", input: { type: "tool", name: "other" } },
+  { name: "type any listing it", input: { type: "any", tools: [{ name: "web_search" }] } },
+  { name: "type any listing others", input: { type: "any", tools: [{ name: "a" }, { name: "b" }] } },
+  { name: "type any with an empty list", input: { type: "any", tools: [] } },
+  { name: "type auto (a DECLARATION is not intent)", input: { type: "auto" } },
+  { name: "null", input: null },
+  { name: "an empty object", input: {} },
 ];
 
 // ── the response builders ─────────────────────────────────────────────────────────────────────────
@@ -264,6 +348,47 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of routeCases) {
+  cases.push({
+    fn: "detect_route",
+    name: `${c.method} ${c.path}`,
+    input: c,
+    expected: { value: detectRoute(c.method, c.path) },
+  });
+}
+for (const c of toolsRegionCases) {
+  cases.push({
+    fn: "tools_region_of",
+    name: c.name,
+    input: c.text,
+    expected: { value: toolsRegionOf(c.text) },
+  });
+}
+for (const c of bodyParseCases) {
+  cases.push({
+    fn: "needs_body_parse",
+    name: c.name,
+    input: { rawText: c.rawText, toolsRegion: c.toolsRegion },
+    expected: { value: needsBodyParse(c.rawText, c.toolsRegion) },
+  });
+}
+for (const c of searchOnlyCases) {
+  cases.push({
+    fn: "is_search_only_request",
+    name: c.name,
+    input: c.input,
+    expected: { value: isSearchOnlyRequest(c.input) },
+  });
+}
+for (const c of forcedSearchCases) {
+  cases.push({
+    fn: "is_forced_web_search",
+    name: c.name,
+    input: c.input,
+    expected: { value: isForcedWebSearch(c.input) },
   });
 }
 

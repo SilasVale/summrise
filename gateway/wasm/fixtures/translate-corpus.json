@@ -629,6 +629,486 @@
    }
   },
   {
+   "fn": "detect_route",
+   "name": "POST /v1/messages/count_tokens",
+   "input": {
+    "method": "POST",
+    "path": "/v1/messages/count_tokens"
+   },
+   "expected": {
+    "value": {
+     "isCount": true,
+     "isMessages": false,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /v1/messages",
+   "input": {
+    "method": "POST",
+    "path": "/v1/messages"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": true,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /v1/chat/completions",
+   "input": {
+    "method": "POST",
+    "path": "/v1/chat/completions"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": false,
+     "isChatCompletions": true,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /v1/responses",
+   "input": {
+    "method": "POST",
+    "path": "/v1/responses"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": false,
+     "isChatCompletions": false,
+     "isResponses": true
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "GET /v1/messages",
+   "input": {
+    "method": "GET",
+    "path": "/v1/messages"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": false,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /api/v1/messages",
+   "input": {
+    "method": "POST",
+    "path": "/api/v1/messages"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": true,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /v1/messagesx",
+   "input": {
+    "method": "POST",
+    "path": "/v1/messagesx"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": false,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "detect_route",
+   "name": "POST /",
+   "input": {
+    "method": "POST",
+    "path": "/"
+   },
+   "expected": {
+    "value": {
+     "isCount": false,
+     "isMessages": false,
+     "isChatCompletions": false,
+     "isResponses": false
+    }
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "no tools at all",
+   "input": "{\"messages\":[]}",
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "a simple array",
+   "input": "{\"tools\":[{\"name\":\"a\"}],\"messages\":[]}",
+   "expected": {
+    "value": "\"tools\":[{\"name\":\"a\"}]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "a schema property NAMED messages (round 42)",
+   "input": "{\"tools\":[{\"name\":\"a\",\"input_schema\":{\"properties\":{\"messages\":{\"type\":\"array\"}}}}],\"messages\":[]}",
+   "expected": {
+    "value": "\"tools\":[{\"name\":\"a\",\"input_schema\":{\"properties\":{\"messages\":{\"type\":\"array\"}}}}]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "a nested array inside a tool",
+   "input": "{\"tools\":[{\"name\":\"a\",\"x\":[[1,2],{\"y\":[3]}]}],\"model\":\"m\"}",
+   "expected": {
+    "value": "\"tools\":[{\"name\":\"a\",\"x\":[[1,2],{\"y\":[3]}]}]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "a web_search literal AFTER the array must stay out",
+   "input": "{\"tools\":[{\"name\":\"a\"}],\"messages\":[{\"content\":[{\"type\":\"server_tool_use\",\"name\":\"web_search\"}]}]}",
+   "expected": {
+    "value": "\"tools\":[{\"name\":\"a\"}]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "an empty array",
+   "input": "{\"tools\":[],\"messages\":[]}",
+   "expected": {
+    "value": "\"tools\":[]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "the array is the whole body",
+   "input": "{\"tools\":[{\"name\":\"a\"}]}",
+   "expected": {
+    "value": "\"tools\":[{\"name\":\"a\"}]"
+   }
+  },
+  {
+   "fn": "tools_region_of",
+   "name": "unbalanced, never closed",
+   "input": "{\"tools\":[{\"name\":\"a\"}",
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "nothing special",
+   "input": {
+    "rawText": "{\"messages\":[{\"content\":\"hi\"}]}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "an image type",
+   "input": {
+    "rawText": "{\"type\":\"image\"}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "an image type with spaces",
+   "input": {
+    "rawText": "{\"type\" :  \"image\"}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "an image type with a newline",
+   "input": {
+    "rawText": "{\"type\"\n:\t\"image\"}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "a NON-BREAKING SPACE between them, which JS s accepts",
+   "input": {
+    "rawText": "{\"type\" :\"image\"}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "web_search in the region",
+   "input": {
+    "rawText": "{}",
+    "toolsRegion": "{\"name\":\"web_search\"}"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "web_search OUTSIDE the region",
+   "input": {
+    "rawText": "{\"messages\":[{\"name\":\"web_search\"}]}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "needs_body_parse",
+   "name": "type image but not the value",
+   "input": {
+    "rawText": "{\"type\":\"image/png\"}",
+    "toolsRegion": ""
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "the one web_search tool",
+   "input": {
+    "tools": [
+     {
+      "type": "web_search_20250305"
+     }
+    ]
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "two tools",
+   "input": {
+    "tools": [
+     {
+      "type": "web_search_20250305"
+     },
+     {
+      "type": "x"
+     }
+    ]
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "a tool_choice is present",
+   "input": {
+    "tools": [
+     {
+      "type": "web_search_20250305"
+     }
+    ],
+    "tool_choice": {
+     "type": "auto"
+    }
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "the wrong type",
+   "input": {
+    "tools": [
+     {
+      "type": "other"
+     }
+    ]
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "no tools key",
+   "input": {
+    "messages": []
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "an empty array",
+   "input": {
+    "tools": []
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "tools is not an array",
+   "input": {
+    "tools": "x"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "null body",
+   "input": null,
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_search_only_request",
+   "name": "an empty object",
+   "input": {},
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type tool naming it",
+   "input": {
+    "type": "tool",
+    "name": "web_search"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type tool naming something else",
+   "input": {
+    "type": "tool",
+    "name": "other"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type any listing it",
+   "input": {
+    "type": "any",
+    "tools": [
+     {
+      "name": "web_search"
+     }
+    ]
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type any listing others",
+   "input": {
+    "type": "any",
+    "tools": [
+     {
+      "name": "a"
+     },
+     {
+      "name": "b"
+     }
+    ]
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type any with an empty list",
+   "input": {
+    "type": "any",
+    "tools": []
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "type auto (a DECLARATION is not intent)",
+   "input": {
+    "type": "auto"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "null",
+   "input": null,
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "is_forced_web_search",
+   "name": "an empty object",
+   "input": {},
+   "expected": {
+    "value": false
+   }
+  },
+  {
    "fn": "sse_response",
    "name": "a body",
    "input": "event: x\ndata: {}\n\n",
