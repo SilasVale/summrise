@@ -73,6 +73,8 @@ import {
   reasoningMaxRawFor,
   reasoningMaxParsedFor,
 } from "../src/channels.ts";
+import { wireModelName } from "../src/upstream.ts";
+import { searchTargetFor, oxAlphaReasoningDefault } from "../src/plugins/translate.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -510,6 +512,36 @@ const reasoningLookupCases = [
   { name: "an unknown wire", wire: "nope" },
 ];
 
+// ── the three registry-derived ports ──────────────────────────────────────────────────────────────
+// Each of these was DEFERRED with the reason "its table is derived from MODEL_REGISTRY"; that reason is
+// gone, so they are cases now. The `constructor` case is the one that matters for `wireModelName`: it uses
+// `hasOwnProperty`, so the prototype chain must NOT answer — the opposite of `keyMissingError`, where it
+// does and the corpus records the divergence.
+const wireNameCases = [
+  { name: "a non-og prefix passes through", prefix: "ds", stripped: "deepseek-v4.1-flash" },
+  { name: "an og alias", prefix: "og", stripped: "deepseek-v4.1-flash" },
+  { name: "an og model with NO wire", prefix: "og", stripped: "minimax-m3" },
+  { name: "the prototype chain does NOT answer", prefix: "og", stripped: "constructor" },
+  { name: "nor toString", prefix: "og", stripped: "toString" },
+  { name: "nor hasOwnProperty", prefix: "og", stripped: "hasOwnProperty" },
+  { name: "an empty stripped name", prefix: "og", stripped: "" },
+  { name: "an og prefix with a non-og name", prefix: "og", stripped: "openai/gpt-5.6-luna:floor[1m]" },
+];
+const searchTargetCases = [
+  { name: "a capable wire", model: "og/deepseek-v4.1-flash", upstreamModel: "deepseek-flash" },
+  { name: "a NON-capable wire", model: "og/minimax-m3", upstreamModel: "minimax-m3" },
+  { name: "the ambiguous slug is not capable", model: "qw/deepseek-v4.1-flash", upstreamModel: "deepseek-v4.1-flash" },
+  { name: "an unknown wire", model: "x/y", upstreamModel: "nope" },
+  { name: "an empty wire name", model: "x/y", upstreamModel: "" },
+];
+const oxReasoningCases = [
+  { name: "openrouter + a raw model + no reasoning", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: '{"model":"og/deepseek-v4.1-flash"}' },
+  { name: "openrouter + a raw model + reasoning present", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: '{"reasoning":{"effort":"low"},"model":"m"}' },
+  { name: "a DIFFERENT kind + a raw model", routeKind: "deepseek", upstreamModel: "deepseek-flash", body: '{"model":"m"}' },
+  { name: "openrouter + a NON-raw model", routeKind: "openrouter", upstreamModel: "minimax-m3", body: '{"model":"m"}' },
+  { name: "an empty body", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: "" },
+];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -792,6 +824,31 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of wireNameCases) {
+  cases.push({
+    fn: "wire_model_name",
+    name: c.name,
+    input: { prefix: c.prefix, stripped: c.stripped },
+    expected: { value: wireModelName(c.prefix, c.stripped) },
+  });
+}
+for (const c of searchTargetCases) {
+  cases.push({
+    fn: "search_target_for",
+    name: c.name,
+    input: { model: c.model, upstreamModel: c.upstreamModel },
+    expected: { value: searchTargetFor(c.model, c.upstreamModel) },
+  });
+}
+for (const c of oxReasoningCases) {
+  cases.push({
+    fn: "ox_alpha_reasoning_default",
+    name: c.name,
+    input: { routeKind: c.routeKind, upstreamModel: c.upstreamModel, body: c.body },
+    expected: { value: oxAlphaReasoningDefault(c.routeKind, c.upstreamModel, c.body) },
   });
 }
 
