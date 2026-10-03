@@ -15,6 +15,20 @@
 //! the crate (`tools::build()` takes no argument), so it is not the seam the old
 //! wording implied.
 
+/// **ONE FIXED PORT, SO THE TESTS THAT TOUCH IT MUST NOT RUN AT THE SAME TIME.**
+///
+/// `manager.rs`'s `status_tracks_fresh_external_and_released` BINDS 9229 to exercise the "an instance we
+/// did not spawn" branch, and every status assertion in this crate PROBES it — so a suite that ran them in
+/// parallel made them flake each other. The test's own comment has said so since round-382 ("parallel
+/// tests holding it would flake each other"); what it ALSO assumed was that 9229 starts free, and that
+/// stopped being true on CI (measured 2026-10-02: `cargo test -p summrise-agent` failed as the first
+/// command of the agent job's Tests step with exit 101, twice in a row, on a tree whose only change was
+/// inside `gateway/wasm/` — which those tests never load).
+///
+/// A LOCK RATHER THAN A WIDER ASSUMPTION: the tests still assert what they always did, and they now take
+/// turns. `tokio`'s mutex because the guard is held across `await` (the probes are async).
+pub static PORT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub mod manager;
 pub mod tools;
 
