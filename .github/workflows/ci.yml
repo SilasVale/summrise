@@ -222,13 +222,17 @@ jobs:
           # no-feature build silently stopped compiling: `exec.rs` calls `term_note_exit_code`, only the REAL terminal
           # backend had it, and the stub did not — three errors that no job could see. A configuration nobody builds is a
           # configuration that is broken.
-          # **THE OUTPUT IS KEPT, AND THE COMMANDS STAY EXTRACTABLE.** A REDIRECT keeps the status (unlike a
-          # pipe to `tee`) and the line still matches what `scripts/test/all-gates.bash` greps for, so the
-          # FIRST run's failures are still on disk when the diagnostic step below looks for them. `set -e`
-          # means only the first of the three may leave a file — the diagnostic reads whatever is there.
-          cargo test -p summrise-agent > /tmp/agent-tests.out 2>&1
-          cargo test -p summrise-agent --features terminal,keyring > /tmp/agent-tests-features.out 2>&1
-          cargo test -p summrise-agent-core > /tmp/agent-core-tests.out 2>&1
+          # **NO REDIRECTS, AND `all-gates` IS WHY.** They were added so the FIRST run's failures would be
+          # on disk for the diagnostic step, and they broke a rule this repository already had: `all-gates`
+          # treats "exit 0 having printed NOTHING" as a FAILURE — "a gate that says nothing has proved
+          # nothing" (round 175) — so all three commands went red in the `pack-chain` job, whose umask loop
+          # runs that script, while the `agent` job (which runs them directly) stayed green.
+          #
+          # The capture was a nice-to-have; the rule is the point. The diagnostic re-runs when it has nothing
+          # to read, which is where the output comes from.
+          cargo test -p summrise-agent
+          cargo test -p summrise-agent --features terminal,keyring
+          cargo test -p summrise-agent-core
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
