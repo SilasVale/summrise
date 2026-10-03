@@ -432,6 +432,171 @@ pub fn models_listing(
     json_ok(&serde_json::json!({ "object": "list", "data": data }), &[])
 }
 
+/// `errorTypeForStatus(status)` — ONE line in the source, and it decides which of the two Anthropic error
+/// types a status wears. `429` is the only status that is not a generic `api_error`.
+pub fn error_type_for_status(status: u16) -> &'static str {
+    if status == 429 {
+        "rate_limit_error"
+    } else {
+        "api_error"
+    }
+}
+
+/// `jsonError(status, message, type, extraHeaders)` — the four-argument form.
+///
+/// **THE FOURTH ARGUMENT IS HEADERS, NOT BODY FIELDS.** `jsonError` spreads it into the header object after
+/// `CORS_HEADERS`, which is how a `retry-after` reaches the client — a fact worth stating because the call
+/// sites read like they are adding to the error document.
+pub fn json_error_with(
+    status: u16,
+    message: &str,
+    kind: &str,
+    extra_headers: &[(&str, &str)],
+) -> Built {
+    let mut built = json_error(status, message, kind);
+    for (k, v) in extra_headers {
+        built.headers.push(((*k).to_string(), (*v).to_string()));
+    }
+    built
+}
+
+/// **`upstreamFetchFailedResponse` — the upstream never answered.**
+///
+/// Two decisions, both pinned by the source's own comments: the status is the FETCH's own when it looks like
+/// an HTTP status (`>= 400 && <= 599`, so a `0` or a `999` from a broken inspection becomes a 502 rather
+/// than a status no client can read), and the message names the status and the kind so an operator can tell
+/// which channel died.
+///
+/// The `opencode` branch's `recordChannelFailure(env)` is a Durable Object call — the I/O edge — and is NOT
+/// here; the caller makes it.
+pub fn upstream_fetch_failed(kind: &str, inspect_status: Option<u16>, detail: &str) -> Built {
+    let fail_status = match inspect_status {
+        Some(s) if (400..=599).contains(&s) => s,
+        _ => 502,
+    };
+    json_error(
+        fail_status,
+        &format!("upstream {fail_status} ({kind}): {detail}"),
+        error_type_for_status(fail_status),
+    )
+}
+
+/// **THE LABEL THAT RIDES EVERY UPSTREAM-ERROR MESSAGE FROM THE TRANSLATE ARM — and it is NOT the kind.**
+///
+/// The source names it `translateLabel` and spells the mapping out:
+///
+/// ```text
+///     custom        -> the provider's prefix, or "custom"
+///     commandgoat   -> "cm"
+///     everything else -> "og"
+/// ```
+///
+/// So an `opencode` route labels its errors `og:`, and a `commandgoat` route labels them `cm:` — which is
+/// what the CAPTURED messages say. A port that passed `route.kind` through would produce `opencode:` and
+/// `commandgoat:` instead, and the corpus would catch it on the first case.
+pub fn translate_label(kind: &str, provider_prefix: Option<&str>) -> String {
+    if kind == "custom" {
+        return provider_prefix
+            .filter(|p| !p.is_empty())
+            .unwrap_or("custom")
+            .to_string();
+    }
+    if kind == "commandgoat" {
+        return "cm".to_string();
+    }
+    "og".to_string()
+}
+
+/// **`upstreamBodyErrorResponse` — the upstream answered, and the answer was an error.**
+///
+/// The source's own header calls out what this does that a hand-rolled envelope does not: it unwraps AMD's
+/// `{"detail":{…}}` FastAPI shape, scrubs any leaked key in TWO layers (`redactSecrets` for the exact
+/// credentials this request carried, then `scrubKeys` for the prefix heuristic), keeps the upstream's OWN
+/// `error.type` when it is a known Anthropic type — "Claude Code keys retry/auth flows off it" — and carries
+/// `Retry-After` when the upstream sent one.
+///
+/// `json` IS THE PARSED BODY (`upstream.json()`, `None` when it was not JSON at all) and `retry_after` is the
+/// upstream's header, because both are I/O. Every branch of the decision is here.
+pub fn upstream_body_error(
+    status: u16,
+    json: Option<&serde_json::Value>,
+    retry_after: Option<&str>,
+    label: &str,
+    secrets: &[serde_json::Value],
+) -> Built {
+    let prefix = if label.is_empty() {
+        String::new()
+    } else {
+        format!("{label}: ")
+    };
+    let mut message = format!("{prefix}Upstream {status}");
+    let mut kind = error_type_for_status(status);
+    let mut extra: Vec<(&str, &str)> = Vec::new();
+    if let Some(raw) = json {
+        // `rawErr?.detail && typeof rawErr.detail === "object" ? rawErr.detail : rawErr`
+        let err = match raw.get("detail") {
+            Some(d) if d.is_object() => d,
+            _ => raw,
+        };
+        // `err.error?.message || err.message || JSON.stringify(err).slice(0, 200)` — JS truthiness, so an
+        // EMPTY string falls through to the next, and the last resort is a TRUNCATED stringify.
+        let raw_msg = err
+            .get("error")
+            .and_then(|e| e.get("message"))
+            .and_then(|m| m.as_str())
+            .filter(|m| !m.is_empty())
+            .or_else(|| {
+                err.get("message")
+                    .and_then(|m| m.as_str())
+                    .filter(|m| !m.is_empty())
+            })
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let text = crate::responses::stringify_like_json(err);
+                text.chars().take(200).collect()
+            });
+        let scrubbed = crate::redact::scrub_keys(&serde_json::Value::String(
+            crate::redact::redact_secrets(&raw_msg, secrets),
+        ));
+        if !scrubbed.is_empty() {
+            message = format!("{prefix}{scrubbed}");
+        }
+        let up_type = err
+            .get("error")
+            .and_then(|e| e.get("type"))
+            .and_then(|t| t.as_str())
+            .or_else(|| err.get("type").and_then(|t| t.as_str()));
+        const KNOWN: [&str; 6] = [
+            "rate_limit_error",
+            "overloaded_error",
+            "authentication_error",
+            "invalid_request_error",
+            "permission_error",
+            "not_found_error",
+        ];
+        // (`request_too_large` and `api_error` are in the source's list too; the array is seven long and the
+        // two above are the ones a status maps to already.)
+        if let Some(t) = up_type {
+            if KNOWN.contains(&t) || t == "request_too_large" || t == "api_error" {
+                kind = match t {
+                    "rate_limit_error" => "rate_limit_error",
+                    "overloaded_error" => "overloaded_error",
+                    "authentication_error" => "authentication_error",
+                    "invalid_request_error" => "invalid_request_error",
+                    "permission_error" => "permission_error",
+                    "not_found_error" => "not_found_error",
+                    "request_too_large" => "request_too_large",
+                    _ => "api_error",
+                };
+            }
+        }
+    }
+    if let Some(ra) = retry_after {
+        extra.push(("retry-after", ra));
+    }
+    json_error_with(status, &message, kind, &extra)
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `built` cases were produced by the SHIPPING TypeScript
@@ -598,6 +763,102 @@ mod oracle_corpus {
             vec![24, 23, 22, 25, 24],
             "the listing lengths moved"
         );
+    }
+
+    fn failure_corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/upstream-failure-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the failure corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **THE UPSTREAM-FAILURE DIFFERENTIAL.** Nine cases captured from the shipping route with a stubbed
+    /// `fetch` answering a 5xx: the unwrap of AMD's `{"detail":{…}}`, the two-layer key scrub, the KNOWN
+    /// upstream type, `Retry-After` as a header, the truncated stringify, and the truthiness chain.
+    #[test]
+    fn the_upstream_failure_path_matches_the_shipping_route() {
+        let doc = failure_corpus();
+        let mut checked = 0;
+        let mut kinds = Vec::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["json"];
+            let parsed = if json.is_null() { None } else { Some(json) };
+            // The label is COMPUTED, not read: that is `translate_label`'s rule and this drives it.
+            let label = translate_label(case["kind"].as_str().unwrap_or(""), None);
+            let got = upstream_body_error(
+                case["status"].as_u64().unwrap_or(0) as u16,
+                parsed,
+                case["retryAfter"].as_str(),
+                &label,
+                &[],
+            );
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            // The captured headers are a real `Response`'s, so both sides fold.
+            let headers: serde_json::Map<String, serde_json::Value> = got
+                .headers
+                .into_iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+                .collect();
+            for (k, v) in want["headers"].as_object().expect("headers") {
+                assert_eq!(
+                    headers.get(k),
+                    Some(v),
+                    "{name}: header {k} (got {headers:?})"
+                );
+            }
+            let parsed_body: serde_json::Value =
+                serde_json::from_str(&got.body).expect("an error body is JSON");
+            kinds.push(
+                parsed_body["error"]["type"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
+            );
+            checked += 1;
+        }
+        assert!(checked >= 9, "the failure corpus shrank to {checked} cases");
+        // **THE TYPES ARE THE POINT OF FOUR OF THESE CASES.** `rate_limit_error` comes from the STATUS, the
+        // other four from the upstream's own `error.type` — kept when known, replaced when not.
+        assert!(
+            kinds.contains(&"rate_limit_error".to_string()),
+            "no 429 case"
+        );
+        assert!(
+            kinds.contains(&"invalid_request_error".to_string()),
+            "no kept type"
+        );
+        assert!(
+            kinds.contains(&"permission_error".to_string()),
+            "no unwrapped type"
+        );
+        assert!(kinds.contains(&"api_error".to_string()), "no fallback type");
+    }
+
+    #[test]
+    fn the_label_is_not_the_kind() {
+        // **THE RULE THE CAPTURE TAUGHT ME.** An `opencode` route labels its errors `og:`, and a
+        // `commandgoat` route labels them `cm:` — neither is the kind, and my first version of this test
+        // hardcoded `"opencode"` and produced a message the shipping route never sends.
+        assert_eq!(translate_label("opencode", None), "og");
+        assert_eq!(translate_label("commandgoat", None), "cm");
+        assert_eq!(translate_label("deepseek", None), "og");
+        assert_eq!(translate_label("custom", Some("acme")), "acme");
+        assert_eq!(translate_label("custom", None), "custom");
+        // An EMPTY prefix is `|| "custom"`, not an empty label.
+        assert_eq!(translate_label("custom", Some("")), "custom");
     }
 
     #[test]
