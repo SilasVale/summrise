@@ -43,6 +43,9 @@ import {
   rawWithTopLevelField,
   rawWithDeepSeekProvider,
   rawWithOxAlphaReasoningDefault,
+  countBase64Payloads,
+  estimateTextTokens,
+  estimateTokens,
 } from "../src/body-scan.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
@@ -189,6 +192,52 @@ const oxCases = [
   { name: "absent gets the default", text: '{"model":"m"}' },
   { name: "present is respected", text: '{"reasoning":{"effort":"low"},"model":"m"}' },
   { name: "present but null still counts as present", text: '{"reasoning":null,"model":"m"}' },
+];
+
+// ── the token estimates ───────────────────────────────────────────────────────────────────────────
+// THE LENGTHS ARE UTF-16 CODE UNITS in the JavaScript, so the CJK cases below are not decoration: a port
+// counting BYTES would come out ~3x long on exactly the bodies the recorded incident is about.
+const b64 = (n) => "A".repeat(n);
+const tokensCases = [
+  { name: "nothing", text: "{}" },
+  { name: "no data key", text: '{"messages":[{"content":"hi"}]}' },
+  { name: "511 chars is NOT a payload", text: `{"data":"${b64(511)}"}` },
+  { name: "512 chars IS", text: `{"data":"${b64(512)}"}` },
+  { name: "two payloads", text: `{"data":"${b64(600)}","x":1,"data":"${b64(700)}"}` },
+  {
+    name: "a payload BEFORE the last user message is not counted",
+    text: `{"messages":[{"role":"user","content":[{"data":"${b64(600)}"}]},{"role":"assistant","content":"x"},{"role":"user","content":"y"}]}`,
+  },
+  {
+    name: "a payload IN the last user message is counted",
+    text: `{"messages":[{"role":"user","content":"x"},{"role":"user","content":[{"data":"${b64(600)}"}]}]}`,
+  },
+  { name: "a non-base64 char ends the run", text: `{"data":"${b64(600)}!!!"}` },
+  { name: "an empty body", text: "" },
+];
+const textTokenCases = [
+  { name: "ascii", s: "a".repeat(400), textLen: 400 },
+  { name: "CJK (the code-unit case)", s: "中".repeat(100), textLen: 100 },
+  { name: "mixed", s: "中文abc".repeat(50), textLen: 350 },
+  { name: "an empty string", s: "", textLen: 0 },
+  { name: "a base64 run inside the sample is stripped first", s: `{"data":"${b64(600)}"}`, textLen: 620 },
+  { name: "textLen larger than the sample", s: "a".repeat(100), textLen: 4000 },
+];
+const estimateCases = [
+  { name: "an empty object", value: {} },
+  { name: "ascii text", value: { messages: [{ content: "hello world" }] } },
+  { name: "CJK text", value: { messages: [{ content: "中文内容" }] } },
+  { name: "one image", value: { messages: [{ content: [{ type: "image", source: { data: b64(600) } }] }] } },
+  { name: "a number input", value: 42 },
+  { name: "a null input", value: null },
+  // THE REAL CALLER PASSES A STRING — the parameter is typed `any`, so the object cases above estimate
+  // `"[object Object]"`, which is what the JavaScript does and NOT what the route does.
+  { name: "a STRING body, ascii", value: '{"messages":[{"content":"hello world"}]}' },
+  { name: "a STRING body, CJK", value: '{"messages":[{"content":"中文内容测试"}]}' },
+  {
+    name: "a STRING body with one image in the last user message",
+    value: `{"messages":[{"role":"user","content":[{"type":"image","source":{"data":"${b64(600)}"}}]}]}`,
+  },
 ];
 
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
@@ -473,6 +522,32 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of tokensCases) {
+  const got = countBase64Payloads(c.text);
+  cases.push({
+    fn: "count_base64_payloads",
+    name: c.name,
+    input: c.text,
+    expected: { value: { images: got.images, removedChars: got.removedChars } },
+  });
+}
+for (const c of textTokenCases) {
+  cases.push({
+    fn: "estimate_text_tokens",
+    name: c.name,
+    input: { s: c.s, textLen: c.textLen },
+    expected: { value: estimateTextTokens(c.s, c.textLen) },
+  });
+}
+for (const c of estimateCases) {
+  cases.push({
+    fn: "estimate_tokens",
+    name: c.name,
+    input: { value: c.value },
+    expected: { value: estimateTokens(c.value) },
   });
 }
 
