@@ -223,6 +223,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     not_found()
 }
 
+pub mod auth;
 pub mod body_scan;
 pub mod byok;
 pub mod cors;
