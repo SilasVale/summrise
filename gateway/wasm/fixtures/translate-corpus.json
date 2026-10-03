@@ -629,6 +629,80 @@
    }
   },
   {
+   "fn": "session_secret",
+   "name": "both set",
+   "input": {
+    "secret": "s3cret-value",
+    "password": "pw"
+   },
+   "expected": {
+    "value": "s3cret-value"
+   }
+  },
+  {
+   "fn": "session_secret",
+   "name": "only the password",
+   "input": {
+    "secret": null,
+    "password": "pw"
+   },
+   "expected": {
+    "value": "pw"
+   }
+  },
+  {
+   "fn": "session_secret",
+   "name": "an EMPTY secret falls back",
+   "input": {
+    "secret": "",
+    "password": "pw"
+   },
+   "expected": {
+    "value": "pw"
+   }
+  },
+  {
+   "fn": "session_secret",
+   "name": "both empty",
+   "input": {
+    "secret": "",
+    "password": ""
+   },
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "issue_session_secret",
+   "name": "set",
+   "input": {
+    "secret": "s3cret-value"
+   },
+   "expected": {
+    "value": "s3cret-value"
+   }
+  },
+  {
+   "fn": "issue_session_secret",
+   "name": "absent",
+   "input": {
+    "secret": null
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "issue_session_secret",
+   "name": "empty is NOT configured",
+   "input": {
+    "secret": ""
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
    "fn": "host_allow_error",
    "name": "a device host",
    "input": {

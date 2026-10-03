@@ -235,6 +235,7 @@ pub mod reliability;
 pub mod request_shape;
 pub mod responses;
 pub mod session;
+pub mod store;
 pub mod stream;
 pub mod tokens;
 pub mod tooling;
