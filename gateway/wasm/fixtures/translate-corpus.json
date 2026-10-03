@@ -1494,22 +1494,22 @@
   },
   {
    "fn": "ox_alpha_reasoning_default",
-   "name": "openrouter + a raw model + no reasoning",
+   "name": "openrouter + the RAW model + no reasoning",
    "input": {
     "routeKind": "openrouter",
-    "upstreamModel": "deepseek-flash",
-    "body": "{\"model\":\"og/deepseek-v4.1-flash\"}"
+    "upstreamModel": "stealth/ox-alpha",
+    "body": "{\"model\":\"og/ox-alpha-free\"}"
    },
    "expected": {
-    "value": "{\"model\":\"og/deepseek-v4.1-flash\"}"
+    "value": "{\"model\":\"og/ox-alpha-free\",\"reasoning\":{\"effort\":\"max\"}}"
    }
   },
   {
    "fn": "ox_alpha_reasoning_default",
-   "name": "openrouter + a raw model + reasoning present",
+   "name": "openrouter + the RAW model + reasoning present",
    "input": {
     "routeKind": "openrouter",
-    "upstreamModel": "deepseek-flash",
+    "upstreamModel": "stealth/ox-alpha",
     "body": "{\"reasoning\":{\"effort\":\"low\"},\"model\":\"m\"}"
    },
    "expected": {
@@ -1518,10 +1518,10 @@
   },
   {
    "fn": "ox_alpha_reasoning_default",
-   "name": "a DIFFERENT kind + a raw model",
+   "name": "a DIFFERENT kind + the RAW model",
    "input": {
     "routeKind": "deepseek",
-    "upstreamModel": "deepseek-flash",
+    "upstreamModel": "stealth/ox-alpha",
     "body": "{\"model\":\"m\"}"
    },
    "expected": {
@@ -1542,10 +1542,22 @@
   },
   {
    "fn": "ox_alpha_reasoning_default",
+   "name": "openrouter + ox-alpha-free, which is PARSED not raw",
+   "input": {
+    "routeKind": "openrouter",
+    "upstreamModel": "ox-alpha-free",
+    "body": "{\"model\":\"m\"}"
+   },
+   "expected": {
+    "value": "{\"model\":\"m\"}"
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
    "name": "an empty body",
    "input": {
     "routeKind": "openrouter",
-    "upstreamModel": "deepseek-flash",
+    "upstreamModel": "stealth/ox-alpha",
     "body": ""
    },
    "expected": {
