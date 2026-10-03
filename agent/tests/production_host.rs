@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 46] = [
+const ALLOWED: [(&str, &str); 47] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -84,6 +84,9 @@ const ALLOWED: [(&str, &str); 46] = [
     // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
     // for exactly that reason ("the rule that decides what a device hostname is").
     ("gateway/wasm/src/device.rs", "the DEVICE_HOST_SUFFIX fallback, ported: the rule that decides what a device hostname is"),
+    // ADDED 2026-10-02, same branch: `routing.rs` is the Rust port of `upstream.ts`'s `pickRoute`, and the US
+    // egress base's DEFAULT is a production hostname — the entry above declares the TypeScript for that.
+    ("gateway/wasm/src/routing.rs", "the US_PROXY_BASE fallback, ported: the same default upstream.ts carries"),
     ("gateway/src/device-fetch.ts", "the DEVICE_HOST_SUFFIX fallback — the rule that decides what a device hostname is"),
     ("gateway/src/plugins/devices.ts", "the INDEX_WORKER_URL / INSTALL_SOURCE fallbacks"),
     ("gateway/ui/", "the console's own API client defaults"),
@@ -176,7 +179,9 @@ const ALLOWED: [(&str, &str); 46] = [
 //
 // 45 -> 46 the same day, for the device-host rules: `device.rs` carries the `DEVICE_HOST_SUFFIX` default,
 // which is the same production hostname `device-fetch.ts` names. Raised by ONE, with the reason beside it.
-const MAX_ALLOWED: usize = 46;
+// 46 -> 47 the same day, for the routing decision: `routing.rs` carries the US_PROXY_BASE default, the same
+// production hostname `upstream.ts` names. Raised by ONE, with the reason beside it.
+const MAX_ALLOWED: usize = 47;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -368,7 +373,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 46"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 47"),
         "{}",
         ok.stdout
     );
