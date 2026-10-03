@@ -81,6 +81,33 @@ pub fn issue_session_secret(session_secret: Option<&str>) -> Option<String> {
     }
 }
 
+/// `normalizeSetting(v)` — **AN EXPLICIT OFF IS `null`, NOT THE STRING.** The source persists OFF as `"0"`
+/// (which shadows the Worker var of the same name), so every read normalizes: `"0"` and `"false"` become
+/// `null`, and the caller's fallback chain sees "unset" rather than a truthy string.
+pub fn normalize_setting(v: Option<&str>) -> Option<String> {
+    match v {
+        Some("0") | Some("false") => None,
+        Some(other) => Some(other.to_string()),
+        None => None,
+    }
+}
+
+/// `globalSettingEnabled(v)` — and its list is NOT `normalizeSetting`'s: an EMPTY string is disabled here and
+/// passes through there. Two functions, two rules, both pinned.
+pub fn global_setting_enabled(v: Option<&str>) -> bool {
+    !matches!(v, None | Some("") | Some("0") | Some("false"))
+}
+
+/// `getGlobalSetting(env, name)` — the KV key, the Worker-var fallback, and the normalization, in order.
+///
+/// `kv` IS THE READ (`env.KEYS.get("settings:<name>")`) and `env_var` is `env[name]`, because both are I/O.
+pub fn get_global_setting(kv: Option<&str>, env_var: Option<&str>) -> Option<String> {
+    match kv {
+        Some(v) => normalize_setting(Some(v)),
+        None => normalize_setting(env_var),
+    }
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! The session pair is replayed from `fixtures/translate-corpus.json` (produced by the SHIPPING
@@ -162,5 +189,44 @@ mod oracle_corpus {
         );
         assert_eq!(cache_eviction_index(513), Some(0));
         assert_eq!(CACHE_MAX_ENTRIES, 512);
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    //! The two settings rules, which are DIFFERENT and both pinned: `normalizeSetting` turns an explicit OFF
+    //! into `null` so a caller's fallback chain sees "unset", while `globalSettingEnabled` treats an EMPTY
+    //! string as disabled — a value `normalizeSetting` passes straight through.
+    use super::*;
+
+    #[test]
+    fn an_explicit_off_normalizes_to_nothing() {
+        assert_eq!(normalize_setting(Some("0")), None);
+        assert_eq!(normalize_setting(Some("false")), None);
+        assert_eq!(normalize_setting(Some("1")), Some("1".to_string()));
+        // NOT in the list: the empty string survives normalization...
+        assert_eq!(normalize_setting(Some("")), Some(String::new()));
+        assert_eq!(normalize_setting(None), None);
+        // ...and it is disabled by the OTHER rule, which is the point of having two.
+        assert!(!global_setting_enabled(Some("")));
+        assert!(!global_setting_enabled(Some("0")));
+        assert!(!global_setting_enabled(Some("false")));
+        assert!(!global_setting_enabled(None));
+        assert!(global_setting_enabled(Some("1")));
+        assert!(global_setting_enabled(Some("true")));
+    }
+
+    #[test]
+    fn the_kv_read_wins_and_the_worker_var_is_only_a_fallback() {
+        // `getGlobalSetting`: the KV key first, and the Worker var of the same name only when it is absent.
+        assert_eq!(
+            get_global_setting(Some("1"), Some("0")),
+            Some("1".to_string())
+        );
+        assert_eq!(get_global_setting(None, Some("1")), Some("1".to_string()));
+        assert_eq!(get_global_setting(None, None), None);
+        // **AND AN EXPLICIT OFF IN KV SHADOWS AN ON IN THE VAR** — the source's own round-94/95 notes: OFF is
+        // persisted as "0" precisely so it can shadow the var, and normalization is what makes that work.
+        assert_eq!(get_global_setting(Some("0"), Some("1")), None);
     }
 }
