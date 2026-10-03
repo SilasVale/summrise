@@ -144,6 +144,39 @@ mapfile -t cargo_gates < <(
 )
 gates+=("${cargo_gates[@]}")
 
+# **EVERY CARGO STEP MUST SAY WHERE IT RUNS, AND THIS IS THE CHECK FOR THE LINE THAT WENT MISSING.**
+# The runner below hardcodes `cd agent` for these commands, because every one of them means the agent's own
+# crate. The WORKFLOW does not hardcode it — each step carries its own `working-directory:` — so the two only
+# agree while every such step has one. On 2026-10-02 a text-range patch that ended at the next `- name:` ate
+# `working-directory: agent` from the Tests step: CI began running `cargo test` from the repo root (no
+# `Cargo.toml` there) and every local run stayed green, because this script's `cd agent` was still in place.
+# The failure read `error: could not find Cargo.toml in /home/runner/work/summrise/summrise`, and the loop
+# called the local red "the expected three" for two rounds.
+#
+# THE SHAPE CHECKED IS THE ONE THAT BROKE: for each extracted command, the lines between it and the NEXT
+# `- name:` step must declare a `working-directory:`.
+missing=0
+while IFS=: read -r lineno rest; do
+  [ -n "$lineno" ] || continue
+  # THE SAME EXEMPTION THE RUNNER BELOW MAKES, for the same reason: a command that NAMES ITS MANIFEST runs
+  # from anywhere, and `proxies/*/worker/Cargo.toml` only resolves from the root.
+  case $rest in *--manifest-path*) continue ;; esac
+  found=$(awk -v start="$lineno" '
+    NR > start {
+      if ($0 ~ /^[[:space:]]*- name:/) exit
+      if ($0 ~ /^[[:space:]]*working-directory:/) { print "yes"; exit }
+    }' "$WORKFLOW")
+  if [ "$found" != "yes" ]; then
+    echo "  FAIL  the cargo step at $WORKFLOW:$lineno declares no working-directory"
+    missing=$((missing + 1))
+  fi
+done < <(grep -nE '^[[:space:]]*(run: )?cargo (test|clippy|fmt) [^"]*$' "$WORKFLOW")
+if [ "$missing" -gt 0 ]; then
+  echo "  a cargo step without a working-directory runs from the REPO ROOT in CI and from agent/ here —"
+  echo "  the two ends disagree, which is the one thing this script exists to prevent."
+  exit 1
+fi
+
 fail=0
 notrun=0
 ok=0
@@ -155,8 +188,14 @@ for cmd in "${gates[@]}"; do
     # the root. Run from `agent/` it failed with "could not read Cargo.toml", which reads exactly like
     # a red crate and is nothing of the kind: it is the right command in the wrong place, which is the
     # shape `docs/superpowers/plans/2026-09-28-migration-error-prevention.md` names.
-    cargo:*--manifest-path*) out=$( (${cmd#cargo:}) 2>&1) ;;
-    cargo:*) out=$( (cd agent && ${cmd#cargo:}) 2>&1) ;;
+    # **`bash -c`, BECAUSE A REDIRECT IS NOT A WORD.** The command is extracted from the workflow as TEXT
+    # and expanded here, and expansion happens AFTER parsing — so `cargo test -p x > /tmp/y 2>&1`, run as
+    # `${cmd#cargo:}`, hands `>` and `2>&1` to cargo as ARGUMENTS. Measured 2026-10-02: the three agent test
+    # commands in the workflow gained redirects (to keep the first run's output for the CI diagnostic) and
+    # this script answered `Usage: cargo test [OPTIONS] [TESTNAME]`. `bash -c` re-parses the text as a
+    # command, which is what it is.
+    cargo:*--manifest-path*) out=$( (bash -c "${cmd#cargo:}") 2>&1) ;;
+    cargo:*) out=$( (cd agent && bash -c "${cmd#cargo:}") 2>&1) ;;
     *)       out=$($cmd 2>&1) ;;
   esac
   code=$?
