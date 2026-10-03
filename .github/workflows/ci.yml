@@ -178,6 +178,24 @@ jobs:
     name: agent (cargo test + clippy + fmt)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # **A WORKAROUND FOR A COMPILER BUG, WITH THE MEASUREMENT THAT FOUND IT.** rustc 1.98.1
+    # (48a229cea, the pinned toolchain in `rust-toolchain.toml` — the same hash) panics while compiling
+    # `summrise-agent`'s lib test on an INCREMENTAL build:
+    #
+    #     thread 'rustc' panicked at .../rustc_middle/src/dep_graph/graph.rs:1451:5:
+    #     rustc_middle::dep_graph::graph::panic_on_forbidden_read
+    #     ... query_impl::mir_for_ctfe ... optimized_mir ... exec_cache_promotions
+    #     error: could not compile `summrise-agent` (lib test)
+    #
+    # Measured on this box, on the pinned toolchain, twice: it fires with a warm `target/`, and it does NOT
+    # after `cargo clean -p summrise-agent` (706 passed, 3 failed — the three playwright tests that need a
+    # free 127.0.0.1:9229, which is this box and not CI). This job restores `target/` from
+    # `Swatinem/rust-cache`, which is exactly the warm state, and `main` went red on `17b5be94` — a commit
+    # that touches `gateway/wasm/` ONLY, with `agent/` byte-identical to the previous green commit.
+    # `CARGO_INCREMENTAL=0` keeps the dependency cache and drops the incremental one, which is the query
+    # path that panics.
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -483,10 +501,22 @@ jobs:
             echo "::error::the umask loop selected ${#gates[@]} gate(s) — a glob that matched nothing is not a clean run"
             exit 1
           fi
+          # **A LOOP THAT STOPS MUST SAY WHICH GATE STOPPED IT.** Without this the step's only output is the
+          # failing gate's own text, which is in the job log — and a job log needs a token to read from
+          # outside. An `::error::` annotation is PUBLIC, so the name of the gate travels with the failure.
+          failed=""
           for g in "${gates[@]}"; do
             echo "== $g"
-            bash "$g"
+            if ! bash "$g"; then
+              failed="$g"
+              echo "::error::the umask loop failed in $g"
+              break
+            fi
           done
+          if [ -n "$failed" ]; then
+            echo "gate $failed failed under umask 077"
+            exit 1
+          fi
       # THE OTHER HOSTILE CONDITIONS, MEASURED (round 104) so they are not re-derived: all eight bash
       # gates pass under TZ=Asia/Shanghai with LC_ALL=en_US.UTF-8, and all eight pass with an
       # unreachable proxy (http_proxy/https_proxy/ALL_PROXY pointed at a dead port). The second is by
