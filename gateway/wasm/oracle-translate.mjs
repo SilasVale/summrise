@@ -36,6 +36,14 @@ import {
   isKeyMissing,
   checkRateLimit,
 } from "../src/plugins/translate.ts";
+import {
+  stripBracket,
+  fnvHex,
+  clientSessionId,
+  syntheticSessionId,
+  opencodeSessionHeader,
+  passthroughHeaders,
+} from "../src/upstream.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -238,6 +246,53 @@ const estimateCases = [
     name: "a STRING body with one image in the last user message",
     value: `{"messages":[{"role":"user","content":[{"type":"image","source":{"data":"${b64(600)}"}}]}]}`,
   },
+];
+
+// ── the session and header decisions ──────────────────────────────────────────────────────────────
+// `zen/go` 400s without `x-opencode-session`, so these bytes are load-bearing. The FNV cases are the ones
+// a port gets wrong quietly: `Math.imul` keeps the low 32 bits of a signed multiply, and the fold is two
+// halves rather than one 64-bit hash.
+const bracketCases = [
+  { name: "a trailing bracket", s: "model[1m]" },
+  { name: "not at the end", s: "a[b]c" },
+  { name: "two groups, only the last goes", s: "[a][b]" },
+  { name: "an empty group", s: "model[]" },
+  { name: "an unclosed bracket", s: "a[" },
+  { name: "a closing bracket alone", s: "a]" },
+  { name: "nothing to strip", s: "model" },
+  { name: "an empty string", s: "" },
+  { name: "a bracket group with a space inside", s: "m[ 1m ]" },
+];
+const fnvCases = [
+  { name: "an empty string", s: "" },
+  { name: "ascii", s: "summrise-og-session-v1:u1" },
+  { name: "CJK (UTF-16 units, not bytes)", s: "用户一" },
+  { name: "a long uid", s: "u".repeat(500) },
+  { name: "punctuation", s: "a-b_c.d:e/f" },
+];
+const clientIdCases = [
+  { name: "the first name wins", headers: { "x-opencode-session": "a", "x-client-request-id": "b" } },
+  { name: "the second when the first is blank", headers: { "x-opencode-session": "   ", "x-client-request-id": "b" } },
+  { name: "session_id", headers: { session_id: "c" } },
+  { name: "x-session-id", headers: { "x-session-id": "d" } },
+  { name: "CASE-INSENSITIVE lookup", headers: { "X-Opencode-Session": "e" } },
+  { name: "trimmed", headers: { "x-opencode-session": "  f  " } },
+  { name: "none at all", headers: {} },
+  { name: "an unrelated header", headers: { authorization: "Bearer x" } },
+];
+const sessionHeaderCases = [
+  { name: "the client id", headers: { "x-opencode-session": "abc" }, uid: "u1" },
+  { name: "the synthetic fallback", headers: {}, uid: "u1" },
+  { name: "a blank client id falls back", headers: { "x-opencode-session": " " }, uid: "u1" },
+];
+const passthroughCases = [
+  { name: "a bearer key", bearerKey: "sk-1", apiKeyHeader: null, extra: {} },
+  { name: "the api key header form", bearerKey: "sk-1", apiKeyHeader: "x-api-key", extra: {} },
+  { name: "no key at all", bearerKey: null, apiKeyHeader: null, extra: {} },
+  { name: "an empty key is no key", bearerKey: "", apiKeyHeader: null, extra: {} },
+  { name: "extra headers", bearerKey: "sk-1", apiKeyHeader: null, extra: { "x-a": "1", "x-b": "2" } },
+  { name: "an empty extra value adds nothing", bearerKey: "sk-1", apiKeyHeader: null, extra: { "x-a": "" } },
+  { name: "an empty apiKeyHeader means Bearer", bearerKey: "sk-1", apiKeyHeader: "", extra: {} },
 ];
 
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
@@ -522,6 +577,59 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+const headersToObject = (h) => {
+  const out = {};
+  for (const [k, v] of h.entries()) out[k] = v;
+  return out;
+};
+for (const c of bracketCases) {
+  cases.push({ fn: "strip_bracket", name: c.name, input: c.s, expected: { value: stripBracket(c.s) } });
+}
+for (const c of fnvCases) {
+  cases.push({ fn: "fnv_hex", name: c.name, input: c.s, expected: { value: fnvHex(c.s) } });
+  cases.push({
+    fn: "synthetic_session_id",
+    name: c.name,
+    input: c.s,
+    expected: { value: syntheticSessionId(c.s) },
+  });
+}
+for (const c of clientIdCases) {
+  cases.push({
+    fn: "client_session_id",
+    name: c.name,
+    input: c.headers,
+    expected: { value: clientSessionId(c.headers) },
+  });
+}
+for (const c of sessionHeaderCases) {
+  cases.push({
+    fn: "opencode_session_header",
+    name: c.name,
+    input: { headers: c.headers, uid: c.uid },
+    expected: { value: opencodeSessionHeader(c.headers, c.uid) },
+  });
+}
+for (const c of passthroughCases) {
+  cases.push({
+    fn: "passthrough_headers",
+    name: c.name,
+    input: {
+      bearerKey: c.bearerKey,
+      apiKeyHeader: c.apiKeyHeader,
+      extra: c.extra,
+    },
+    expected: {
+      value: headersToObject(
+        passthroughHeaders(c.bearerKey, {
+          apiKeyHeader: c.apiKeyHeader === null ? false : c.apiKeyHeader,
+          extra: c.extra,
+        }),
+      ),
+    },
   });
 }
 
