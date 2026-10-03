@@ -326,9 +326,15 @@ mod now_helpers {
             millis_as_secs.saturating_sub(unix_now()) < 5,
             "now_millis()/1000 must land within seconds of unix_now()"
         );
+        // **`<=`, NOT `<`, AND THE BOUNDARY IS THE REASON.** The two sides are SEPARATE reads of the real
+        // clock — `unix_now()` above and `now_millis()` here — and when the millisecond read lands exactly on
+        // a second boundary they are EQUAL, which `<` calls a failure. Measured 2026-10-02: this test went red
+        // in `all-gates` on a commit that touches `gateway/wasm/` only, which is the ~1-in-1000 shape rather
+        // than a defect in the clock. The claim being pinned is "the seconds-as-millis value stays at or below
+        // the millis value", and equality satisfies it.
         assert!(
-            secs_as_millis < now_millis(),
-            "unix_now()*1000 must stay below now_millis()"
+            secs_as_millis <= now_millis(),
+            "unix_now()*1000 must not exceed now_millis()"
         );
     }
 }
