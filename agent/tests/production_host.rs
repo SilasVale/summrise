@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 42] = [
+const ALLOWED: [(&str, &str); 45] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -72,6 +72,14 @@ const ALLOWED: [(&str, &str); 42] = [
     // ── the worker's own configuration ──
     ("gateway/wrangler", "the deployment's own routes and vars"),
     ("gateway/src/http.ts", "the CONSOLE_HOST allowed-origins list, which is the deployment's identity"),
+    // ADDED 2026-10-02, and the reason is the entry above it: `cors.rs` is the RUST PORT of that exact
+    // list — `DEFAULT_ALLOWED_ORIGINS` is `ALLOWED_ORIGINS` verbatim, because the CORS gate moved into the
+    // worker (block ④ of the migration). The hostnames are the list's SUBJECT, so there is nothing to take
+    // out of the file; the alternative would be to leave the Rust port's default empty and pass the two
+    // origins in from TypeScript, which is a different design and not this one.
+    ("gateway/wasm/src/cors.rs", "the same allowed-origins list as gateway/src/http.ts, ported to Rust"),
+    ("gateway/wasm/oracle-translate.mjs", "the oracle drives the SHIPPING TypeScript, so its CORS cases spell the origins the list holds"),
+    ("gateway/wasm/fixtures/translate-corpus.json", "the generated corpus those cases produced: the same origins, recorded"),
     ("gateway/src/device-fetch.ts", "the DEVICE_HOST_SUFFIX fallback — the rule that decides what a device hostname is"),
     ("gateway/src/plugins/devices.ts", "the INDEX_WORKER_URL / INSTALL_SOURCE fallbacks"),
     ("gateway/ui/", "the console's own API client defaults"),
@@ -156,7 +164,12 @@ const ALLOWED: [(&str, &str); 42] = [
 // the CDN worker's canary host, which is the thing the canary is FOR. This is the growth branch the
 // comment above describes, taken visibly rather than by widening a prefix — which is how a gate stops
 // meaning anything.
-const MAX_ALLOWED: usize = 42;
+//
+// 42 -> 45 ON 2026-10-02, same branch and same rule: the CORS gate moved into the Rust worker, so THREE
+// files name the same two hosts the TypeScript list does — the port itself, the oracle that drives the
+// shipping TypeScript's cases, and the corpus those cases produced. Raised by exactly three, each with its
+// reason beside its entry, rather than by widening `gateway/`.
+const MAX_ALLOWED: usize = 45;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -348,7 +361,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 42"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 45"),
         "{}",
         ok.stdout
     );
