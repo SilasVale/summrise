@@ -549,6 +549,7 @@ jobs:
           # A GLOB THAT MATCHED NOTHING IS NOT A CLEAN RUN (round 191). This loop s own comment above
           # claims every bash gate runs under 077; with no floor, an empty glob exits 0 and the claim
           # is untested. The same rule the gate scripts already carry (script-syntax.bash s FLOOR 20).
+          set -o pipefail
           shopt -s nullglob
           gates=(scripts/test/*.bash)
           if [ ${#gates[@]} -lt 5 ]; then
@@ -561,9 +562,16 @@ jobs:
           failed=""
           for g in "${gates[@]}"; do
             echo "== $g"
-            if ! bash "$g"; then
+            # **AND IT SHOWS WHAT THE GATE SAID, NOT ONLY ITS NAME.** `all-gates.bash` prints one `FAIL` line
+            # per gate that went red, and those lines were only ever in the job log. `tee` keeps them live
+            # AND on disk; `set -o pipefail` keeps the gate's own status, which is the whole point of running
+            # it (`cmd && echo ok || echo FAIL` throws the status away — this file's own rule).
+            if ! bash "$g" 2>&1 | tee /tmp/umask-gate.out; then
               failed="$g"
               echo "::error::the umask loop failed in $g"
+              grep -E "^  FAIL|FAILED|error" /tmp/umask-gate.out | head -12 | while IFS= read -r line; do
+                echo "::error::$line"
+              done
               break
             fi
           done
