@@ -194,6 +194,12 @@ jobs:
     # that touches `gateway/wasm/` ONLY, with `agent/` byte-identical to the previous green commit.
     # `CARGO_INCREMENTAL=0` keeps the dependency cache and drops the incremental one, which is the query
     # path that panics.
+    #
+    # **AND IT DID NOT FIX THIS FAILURE — the ICE is real and measured, and it is not what failed here.** With
+    # the env var in place the `Tests` step still exited 101, and the `pack-chain` job failed in the SAME
+    # place with NO cargo cache at all (its own annotation says `the umask loop failed in
+    # scripts/test/all-gates.bash`, which runs these very tests). So the env var stays as the workaround for a
+    # flake that was reproduced, and the DIAGNOSIS is the step below, which names the tests that failed.
     env:
       CARGO_INCREMENTAL: "0"
     steps:
@@ -219,6 +225,21 @@ jobs:
           cargo test -p summrise-agent
           cargo test -p summrise-agent --features terminal,keyring
           cargo test -p summrise-agent-core
+      - name: Name the failing tests
+        # **A JOB LOG NEEDS A TOKEN; AN ANNOTATION DOES NOT.** This step exists because the three commands
+        # above are kept PURE — a `cargo test …` line is what `scripts/test/all-gates.bash` extracts from this
+        # file, so piping one in place would both drop it from that list and hide its status behind `tee`'s.
+        # So the diagnostic runs AFTER a failure, in its own step, and the command starts with a VARIABLE
+        # rather than the word `cargo` for the same reason.
+        if: failure()
+        run: |
+          set -o pipefail
+          cmd="cargo test -p summrise-agent --no-fail-fast"
+          $cmd 2>&1 | tee /tmp/agent-tests.out || true
+          grep -E "^test .* FAILED|^error(\[|:)|panicked at" /tmp/agent-tests.out |
+            sort -u | head -25 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
         working-directory: agent
       - name: Clippy (zero warnings)
         run: |
