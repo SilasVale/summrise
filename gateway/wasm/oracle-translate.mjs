@@ -68,6 +68,7 @@ import {
 } from "../src/reliability.ts";
 import { hostAllowError, deviceHostError } from "../src/device-fetch.ts";
 import { probeEnvKeyName, encodeBase64Utf8 } from "../src/tooling.ts";
+import { sessionSecret, issueSessionSecret } from "../src/session.ts";
 import {
   MODEL_REGISTRY,
   modelSpec,
@@ -587,6 +588,23 @@ const deviceHostCases = [
 const probeKeyCases = ["or", "qw", "nv", "gmi", "cm", "amd", "r4", "ds", "og", "", "constructor", "toString"];
 const b64Utf8Cases = ["", "a", "ab", "abc", "abcd", "hello world", "中文内容", "🙂", "a".repeat(1000)];
 
+// ── the session secret rules ──────────────────────────────────────────────────────────────────────
+// The FAIL-CLOSED issuance rule: without a dedicated high-entropy secret the HMAC key would fall back to the
+// admin password, letting any invited user offline-brute-force it from their own signed cookie. The VERIFY
+// path still accepts the password so a rotation does not log everyone out — two different questions, two
+// different answers, and an EMPTY string counts as unconfigured in both.
+const sessionSecretCases = [
+  { name: "both set", secret: "s3cret-value", password: "pw" },
+  { name: "only the password", secret: null, password: "pw" },
+  { name: "an EMPTY secret falls back", secret: "", password: "pw" },
+  { name: "both empty", secret: "", password: "" },
+];
+const issueSecretCases = [
+  { name: "set", secret: "s3cret-value" },
+  { name: "absent", secret: null },
+  { name: "empty is NOT configured", secret: "" },
+];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -869,6 +887,23 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of sessionSecretCases) {
+  cases.push({
+    fn: "session_secret",
+    name: c.name,
+    input: { secret: c.secret, password: c.password },
+    expected: { value: sessionSecret(c.secret === null ? {} : { SESSION_SECRET: c.secret }, c.password) },
+  });
+}
+for (const c of issueSecretCases) {
+  cases.push({
+    fn: "issue_session_secret",
+    name: c.name,
+    input: { secret: c.secret },
+    expected: { value: issueSessionSecret(c.secret === null ? {} : { SESSION_SECRET: c.secret }) },
   });
 }
 
