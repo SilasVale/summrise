@@ -296,24 +296,57 @@ const passthroughCases = [
     keys: { QWEN_API_KEY: "sk-qw" },
   },
 ];
+// ── the TRANSLATE arm (the "og pattern"), captured the same way ─────────────────────────────────
+// Its shape was measured before it was ported, and every part of it differs from the passthrough arm: the
+// upstream is chat/completions rather than the native path, the header is `Bearer` even for `og/`, the body
+// is the TRANSLATOR's output (`model` first, `stream`, `max_tokens`) and the retry policy is a uniform
+// literal rather than the shared table.
+const translateCases = [
+  {
+    name: "og: an Anthropic request becomes an OpenAI one",
+    model: "og/deepseek-v4.1-flash",
+    body: { messages: [{ role: "user", content: "hi" }], max_tokens: 16 },
+    keys: { OPENCODE_GO_API_KEY: "sk-og" },
+  },
+  {
+    name: "og: a system prompt and a tool declaration ride along",
+    model: "og/deepseek-v4.1-flash",
+    body: {
+      system: "be brief",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "t", description: "d", input_schema: { type: "object" } }],
+      max_tokens: 32,
+    },
+    keys: { OPENCODE_GO_API_KEY: "sk-og" },
+  },
+];
+
 const passthroughOut = [];
-for (const c of passthroughCases) {
+for (const c of [...passthroughCases, ...translateCases]) {
   const r = await callPassthrough(c);
+  const isTranslate = translateCases.includes(c);
   passthroughOut.push({
     name: c.name,
     // The inputs the Rust side needs, recorded rather than re-derived: the kind, the wire model, the raw
     // text, the PARSED body (og-native parses, so the port takes the parsed branch) and the bearer key.
     // The kind and the wire model the route resolved, recorded so the port is driven without resolving a
-    // route: `ds/` -> deepseek, and its wire is the stripped id.
-    kind: c.model.startsWith("qw/") ? "qwen" : "deepseek",
-    upstreamModel: c.model.startsWith("qw/") ? "qwen3.8-flash" : "deepseek-v4.1-flash",
+    // route. `ds/` -> deepseek (wire = the stripped id), `qw/` -> qwen, `og/` -> opencode with its OWN wire
+    // alias, which is why the translate cases name `deepseek-flash` rather than the advertised id.
+    kind: isTranslate ? "opencode" : c.model.startsWith("qw/") ? "qwen" : "deepseek",
+    upstreamModel: isTranslate
+      ? "deepseek-flash"
+      : c.model.startsWith("qw/") ? "qwen3.8-flash" : "deepseek-v4.1-flash",
+    // **WHICH ARM THIS IS.** The translate arm PARSES (it has to: `toOpenAIRequest` walks the message
+    // array), while the passthrough arm forwards raw text. The port takes a different branch for each, so
+    // the fixture has to say which one the capture recorded.
+    arm: isTranslate ? "translate" : "passthrough",
     rawText: JSON.stringify({ ...c.body, model: c.model }),
     // **`parsed: null`, BECAUSE THESE CHANNELS NEVER PARSE.** `ds/qw/or` forward RAW TEXT with only the
     // top-level model field swapped (no parse, no spread, no full re-stringify, for the 10 ms budget), and
     // the capture proves it: the body's key order is the CLIENT's, not a spread's. Recording a parsed body
     // here would have driven the port down a branch the route does not take.
-    parsed: null,
-    bearerKey: c.keys.DEEPSEEK_API_KEY || c.keys.QWEN_API_KEY,
+    parsed: isTranslate ? { ...c.body, model: c.model } : null,
+    bearerKey: c.keys.DEEPSEEK_API_KEY || c.keys.QWEN_API_KEY || c.keys.OPENCODE_GO_API_KEY,
     status: r.status,
     ...(r.captured ? { captured: r.captured } : { noUpstreamCall: true, answer: r.answer }),
   });
