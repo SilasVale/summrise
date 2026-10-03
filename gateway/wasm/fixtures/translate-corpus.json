@@ -629,6 +629,487 @@
    }
   },
   {
+   "fn": "safe_eq",
+   "name": "equal",
+   "input": {
+    "a": "abc",
+    "b": "abc"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "one character differs",
+   "input": {
+    "a": "abc",
+    "b": "abd"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "the first character differs",
+   "input": {
+    "a": "abc",
+    "b": "zbc"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "different lengths",
+   "input": {
+    "a": "abc",
+    "b": "abcd"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "both empty",
+   "input": {
+    "a": "",
+    "b": ""
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "one empty",
+   "input": {
+    "a": "",
+    "b": "a"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "safe_eq",
+   "name": "unicode",
+   "input": {
+    "a": "中文",
+    "b": "中文"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "one pair",
+   "input": "a=1",
+   "expected": {
+    "value": {
+     "a": "1"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "several",
+   "input": "a=1; b=2",
+   "expected": {
+    "value": {
+     "a": "1",
+     "b": "2"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "a pair with no equals is SKIPPED",
+   "input": "a=1; junk; b=2",
+   "expected": {
+    "value": {
+     "a": "1",
+     "b": "2"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "a value containing equals",
+   "input": "a=1=2",
+   "expected": {
+    "value": {
+     "a": "1=2"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "spaces are trimmed on BOTH sides",
+   "input": "  a  =  1  ",
+   "expected": {
+    "value": {
+     "a": "1"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "a duplicate name keeps the LAST",
+   "input": "a=1; a=2",
+   "expected": {
+    "value": {
+     "a": "2"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "an empty value",
+   "input": "a=",
+   "expected": {
+    "value": {
+     "a": ""
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "an empty name",
+   "input": "=b",
+   "expected": {
+    "value": {
+     "": "b"
+    }
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "value": {}
+   }
+  },
+  {
+   "fn": "parse_cookie",
+   "name": "trailing semicolon",
+   "input": "a=1;",
+   "expected": {
+    "value": {
+     "a": "1"
+    }
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "a GET is not gated",
+   "input": {
+    "method": "GET",
+    "cookie": "ag_session=x",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "a POST with NO cookie",
+   "input": {
+    "method": "POST",
+    "cookie": "",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "a POST with an unrelated cookie",
+   "input": {
+    "method": "POST",
+    "cookie": "other=1",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "same-origin passes",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": "same-origin"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "none passes",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": "none"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "cross-site is refused",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "same-site is refused",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": "same-site"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "an ABSENT header is ALLOWED (the non-browser arm)",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": null
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "the site value is case-insensitive",
+   "input": {
+    "method": "POST",
+    "cookie": "ag_session=x",
+    "secFetchSite": "SAME-ORIGIN"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "the method is case-insensitive",
+   "input": {
+    "method": "post",
+    "cookie": "ag_session=x",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "a DEVICE PAIR cookie counts",
+   "input": {
+    "method": "POST",
+    "cookie": "summrise_pt_d1=y",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "a device cookie that is not a pair does not",
+   "input": {
+    "method": "POST",
+    "cookie": "summrise_other=y",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": false
+   }
+  },
+  {
+   "fn": "csrf_cookie_violation",
+   "name": "DELETE is gated",
+   "input": {
+    "method": "DELETE",
+    "cookie": "ag_session=x",
+    "secFetchSite": "cross-site"
+   },
+   "expected": {
+    "value": true
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "plain",
+   "input": "aGVsbG8=",
+   "expected": {
+    "value": "hello"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "unpadded",
+   "input": "aGVsbG8",
+   "expected": {
+    "value": "hello"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "url alphabet",
+   "input": "a-_b",
+   "expected": {
+    "value": "kïÛ"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "whitespace is ignored",
+   "input": "aGVs bG8=",
+   "expected": {
+    "threw": true,
+    "message": "Invalid character"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "one byte",
+   "input": "YQ==",
+   "expected": {
+    "value": "a"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "two bytes",
+   "input": "YWI=",
+   "expected": {
+    "value": "ab"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "an empty string",
+   "input": "",
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "an invalid character",
+   "input": "aGVs*bG8=",
+   "expected": {
+    "threw": true,
+    "message": "Invalid character"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "padding in the middle",
+   "input": "aG=sbG8=",
+   "expected": {
+    "threw": true,
+    "message": "Invalid character"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "a bad length",
+   "input": "a",
+   "expected": {
+    "threw": true,
+    "message": "Invalid character"
+   }
+  },
+  {
+   "fn": "b64_url_decode",
+   "name": "bytes that are not utf-8",
+   "input": "/w==",
+   "expected": {
+    "value": "ÿ"
+   }
+  },
+  {
+   "fn": "session_cookie_header",
+   "name": "not secure",
+   "input": {
+    "token": "t",
+    "maxAgeSec": 3600,
+    "secure": false
+   },
+   "expected": {
+    "value": "ag_session=t; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600"
+   }
+  },
+  {
+   "fn": "session_cookie_header",
+   "name": "secure",
+   "input": {
+    "token": "t",
+    "maxAgeSec": 3600,
+    "secure": true
+   },
+   "expected": {
+    "value": "ag_session=t; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600; Secure"
+   }
+  },
+  {
+   "fn": "session_cookie_header",
+   "name": "zero max age",
+   "input": {
+    "token": "t",
+    "maxAgeSec": 0,
+    "secure": false
+   },
+   "expected": {
+    "value": "ag_session=t; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+   }
+  },
+  {
+   "fn": "clear_session_cookie_header",
+   "name": "not secure",
+   "input": {
+    "secure": false
+   },
+   "expected": {
+    "value": "ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+   }
+  },
+  {
+   "fn": "clear_session_cookie_header",
+   "name": "secure",
+   "input": {
+    "secure": true
+   },
+   "expected": {
+    "value": "ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure"
+   }
+  },
+  {
    "fn": "allowed_origins",
    "name": "no configuration",
    "input": {
