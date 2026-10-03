@@ -629,6 +629,512 @@
    }
   },
   {
+   "fn": "host_allow_error",
+   "name": "a device host",
+   "input": {
+    "hostname": "d1.agent.saisi.online",
+    "suffix": null
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "the bare suffix is NOT a device host",
+   "input": {
+    "hostname": ".agent.saisi.online",
+    "suffix": null
+   },
+   "expected": {
+    "value": "hostname must be under .agent.saisi.online"
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "uppercase is folded",
+   "input": {
+    "hostname": "D1.AGENT.SAISI.ONLINE",
+    "suffix": null
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "a deployment override",
+   "input": {
+    "hostname": "d1.test.example",
+    "suffix": ".test.example"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "an override that does not match",
+   "input": {
+    "hostname": "d1.agent.saisi.online",
+    "suffix": ".test.example"
+   },
+   "expected": {
+    "value": "hostname must be under .test.example"
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "an EMPTY override falls back to the default",
+   "input": {
+    "hostname": "d1.agent.saisi.online",
+    "suffix": ""
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "a suffix longer than the host",
+   "input": {
+    "hostname": "a.b",
+    "suffix": ".longer.example"
+   },
+   "expected": {
+    "value": "hostname must be under .longer.example"
+   }
+  },
+  {
+   "fn": "host_allow_error",
+   "name": "no dot at all",
+   "input": {
+    "hostname": "localhost",
+    "suffix": null
+   },
+   "expected": {
+    "value": "hostname must be under .agent.saisi.online"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "localhost",
+   "input": {
+    "hostname": "localhost"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "LOCALHOST",
+   "input": {
+    "hostname": "LOCALHOST"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "127.0.0.1",
+   "input": {
+    "hostname": "127.0.0.1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "10.x",
+   "input": {
+    "hostname": "10.1.2.3"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "192.168.x",
+   "input": {
+    "hostname": "192.168.1.1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172.16 is PRIVATE",
+   "input": {
+    "hostname": "172.16.0.1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172.31 is private",
+   "input": {
+    "hostname": "172.31.255.255"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172.15 is PUBLIC",
+   "input": {
+    "hostname": "172.15.0.1"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172.32 is PUBLIC",
+   "input": {
+    "hostname": "172.32.0.1"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172.abc is not a number and so not private",
+   "input": {
+    "hostname": "172.abc.1.1"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "172. alone",
+   "input": {
+    "hostname": "172."
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "::1",
+   "input": {
+    "hostname": "::1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "[::1]",
+   "input": {
+    "hostname": "[::1]"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "fc00::1",
+   "input": {
+    "hostname": "fc00::1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "fd00::1",
+   "input": {
+    "hostname": "fd00::1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "fe80::1",
+   "input": {
+    "hostname": "fe80::1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "fc.example.com has NO colon and is not private",
+   "input": {
+    "hostname": "fc.example.com"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "0.0.0.0",
+   "input": {
+    "hostname": "0.0.0.0"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "[::]",
+   "input": {
+    "hostname": "[::]"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "the cloud metadata IP",
+   "input": {
+    "hostname": "169.254.169.254"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "IPv4-mapped, bare",
+   "input": {
+    "hostname": "::ffff:127.0.0.1"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "IPv4-mapped, bracketed",
+   "input": {
+    "hostname": "[::ffff:127.0.0.1]"
+   },
+   "expected": {
+    "value": "device hostname resolves to a private/internal address"
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "a public host",
+   "input": {
+    "hostname": "example.com"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "a device host is fine",
+   "input": {
+    "hostname": "d1.agent.saisi.online"
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "device_host_error",
+   "name": "an empty hostname",
+   "input": {
+    "hostname": ""
+   },
+   "expected": {
+    "value": null
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "or",
+   "input": "or",
+   "expected": {
+    "value": "OPENROUTER_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "qw",
+   "input": "qw",
+   "expected": {
+    "value": "QWEN_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "nv",
+   "input": "nv",
+   "expected": {
+    "value": "NVAPI_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "gmi",
+   "input": "gmi",
+   "expected": {
+    "value": "GMI_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "cm",
+   "input": "cm",
+   "expected": {
+    "value": "CMD_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "amd",
+   "input": "amd",
+   "expected": {
+    "value": "AMD_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "r4",
+   "input": "r4",
+   "expected": {
+    "value": "R4_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "ds",
+   "input": "ds",
+   "expected": {
+    "value": "DEEPSEEK_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "og",
+   "input": "og",
+   "expected": {
+    "value": "DEEPSEEK_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "an empty prefix",
+   "input": "",
+   "expected": {
+    "value": "DEEPSEEK_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "constructor",
+   "input": "constructor",
+   "expected": {
+    "value": "DEEPSEEK_API_KEY"
+   }
+  },
+  {
+   "fn": "probe_env_key_name",
+   "name": "toString",
+   "input": "toString",
+   "expected": {
+    "value": "DEEPSEEK_API_KEY"
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"\"",
+   "input": "",
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"a\"",
+   "input": "a",
+   "expected": {
+    "value": "YQ=="
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"ab\"",
+   "input": "ab",
+   "expected": {
+    "value": "YWI="
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"abc\"",
+   "input": "abc",
+   "expected": {
+    "value": "YWJj"
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"abcd\"",
+   "input": "abcd",
+   "expected": {
+    "value": "YWJjZA=="
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"hello world\"",
+   "input": "hello world",
+   "expected": {
+    "value": "aGVsbG8gd29ybGQ="
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"中文内容\"",
+   "input": "中文内容",
+   "expected": {
+    "value": "5Lit5paH5YaF5a65"
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "\"🙂\"",
+   "input": "🙂",
+   "expected": {
+    "value": "8J+Zgg=="
+   }
+  },
+  {
+   "fn": "encode_base64_utf8",
+   "name": "a long string (1000)",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expected": {
+    "value": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ=="
+   }
+  },
+  {
    "fn": "wire_model_name",
    "name": "a non-og prefix passes through",
    "input": {
