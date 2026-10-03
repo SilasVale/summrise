@@ -629,6 +629,168 @@
    }
   },
   {
+   "fn": "rate_limit",
+   "name": "a GET is not counted",
+   "input": {
+    "hasKeys": true,
+    "method": "GET",
+    "path": "/v1/messages",
+    "token": "tok-a GET is not counted",
+    "now": 1700000000000,
+    "preload": 0,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "a path outside /v1 is not counted",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/api/health",
+    "token": "tok-a path outside /v1 is not counted",
+    "now": 1700000000000,
+    "preload": 0,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "no KEYS binding means no guard",
+   "input": {
+    "hasKeys": false,
+    "method": "POST",
+    "path": "/v1/messages",
+    "token": "tok-no KEYS binding means no guard",
+    "now": 1700000000000,
+    "preload": 0,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "count_tokens is EXCLUDED even at the limit",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/messages/count_tokens",
+    "token": "tok-count_tokens is EXCLUDED even at the limit",
+    "now": 1700000000000,
+    "preload": 48,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "messages is counted",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/messages",
+    "token": "tok-messages is counted",
+    "now": 1700000000000,
+    "preload": 1,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "chat/completions is counted",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "token": "tok-chat/completions is counted",
+    "now": 1700000000000,
+    "preload": 1,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "responses is counted",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/responses",
+    "token": "tok-responses is counted",
+    "now": 1700000000000,
+    "preload": 1,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "47 is still allowed",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/messages",
+    "token": "tok-47 is still allowed",
+    "now": 1700000000000,
+    "preload": 47,
+    "spread": 0
+   },
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "48 is refused",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/messages",
+    "token": "tok-48 is refused",
+    "now": 1700000000000,
+    "preload": 48,
+    "spread": 0
+   },
+   "expected": {
+    "status": 429,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limit: ~60 requests/minute per token\"}}"
+   }
+  },
+  {
+   "fn": "rate_limit",
+   "name": "4000 spread across minutes is refused on the DAY",
+   "input": {
+    "hasKeys": true,
+    "method": "POST",
+    "path": "/v1/messages",
+    "token": "tok-4000 spread across minutes is refused on the DAY",
+    "now": 1700000000000,
+    "preload": 0,
+    "spread": 4000
+   },
+   "expected": {
+    "status": 429,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limit: ~60 requests/minute per token\"}}"
+   }
+  },
+  {
    "fn": "extract_byok_keys",
    "name": "every field set",
    "input": {
