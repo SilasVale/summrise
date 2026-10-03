@@ -66,6 +66,8 @@ import {
   passthroughTimeoutMs,
   isChannelDownFailure,
 } from "../src/reliability.ts";
+import { hostAllowError, deviceHostError } from "../src/device-fetch.ts";
+import { probeEnvKeyName, encodeBase64Utf8 } from "../src/tooling.ts";
 import {
   MODEL_REGISTRY,
   modelSpec,
@@ -542,6 +544,49 @@ const oxReasoningCases = [
   { name: "an empty body", routeKind: "openrouter", upstreamModel: "deepseek-flash", body: "" },
 ];
 
+// ── the device-host rules and the two tooling helpers ─────────────────────────────────────────────
+// THE SSRF LIST IS THE POINT of the first group, and the `172.` arm is the one that looks like a
+// startsWith and is not: 172.16/12 is second-octet 16-31, so 172.15.x.x and 172.32+.x.x are PUBLIC.
+const hostAllowCases = [
+  { name: "a device host", hostname: "d1.agent.saisi.online", suffix: null },
+  { name: "the bare suffix is NOT a device host", hostname: ".agent.saisi.online", suffix: null },
+  { name: "uppercase is folded", hostname: "D1.AGENT.SAISI.ONLINE", suffix: null },
+  { name: "a deployment override", hostname: "d1.test.example", suffix: ".test.example" },
+  { name: "an override that does not match", hostname: "d1.agent.saisi.online", suffix: ".test.example" },
+  { name: "an EMPTY override falls back to the default", hostname: "d1.agent.saisi.online", suffix: "" },
+  { name: "a suffix longer than the host", hostname: "a.b", suffix: ".longer.example" },
+  { name: "no dot at all", hostname: "localhost", suffix: null },
+];
+const deviceHostCases = [
+  { name: "localhost", hostname: "localhost" },
+  { name: "LOCALHOST", hostname: "LOCALHOST" },
+  { name: "127.0.0.1", hostname: "127.0.0.1" },
+  { name: "10.x", hostname: "10.1.2.3" },
+  { name: "192.168.x", hostname: "192.168.1.1" },
+  { name: "172.16 is PRIVATE", hostname: "172.16.0.1" },
+  { name: "172.31 is private", hostname: "172.31.255.255" },
+  { name: "172.15 is PUBLIC", hostname: "172.15.0.1" },
+  { name: "172.32 is PUBLIC", hostname: "172.32.0.1" },
+  { name: "172.abc is not a number and so not private", hostname: "172.abc.1.1" },
+  { name: "172. alone", hostname: "172." },
+  { name: "::1", hostname: "::1" },
+  { name: "[::1]", hostname: "[::1]" },
+  { name: "fc00::1", hostname: "fc00::1" },
+  { name: "fd00::1", hostname: "fd00::1" },
+  { name: "fe80::1", hostname: "fe80::1" },
+  { name: "fc.example.com has NO colon and is not private", hostname: "fc.example.com" },
+  { name: "0.0.0.0", hostname: "0.0.0.0" },
+  { name: "[::]", hostname: "[::]" },
+  { name: "the cloud metadata IP", hostname: "169.254.169.254" },
+  { name: "IPv4-mapped, bare", hostname: "::ffff:127.0.0.1" },
+  { name: "IPv4-mapped, bracketed", hostname: "[::ffff:127.0.0.1]" },
+  { name: "a public host", hostname: "example.com" },
+  { name: "a device host is fine", hostname: "d1.agent.saisi.online" },
+  { name: "an empty hostname", hostname: "" },
+];
+const probeKeyCases = ["or", "qw", "nv", "gmi", "cm", "amd", "r4", "ds", "og", "", "constructor", "toString"];
+const b64Utf8Cases = ["", "a", "ab", "abc", "abcd", "hello world", "中文内容", "🙂", "a".repeat(1000)];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -824,6 +869,40 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of hostAllowCases) {
+  const env = c.suffix === null ? {} : { DEVICE_HOST_SUFFIX: c.suffix };
+  cases.push({
+    fn: "host_allow_error",
+    name: c.name,
+    input: { hostname: c.hostname, suffix: c.suffix },
+    expected: { value: hostAllowError(c.hostname, env) },
+  });
+}
+for (const c of deviceHostCases) {
+  cases.push({
+    fn: "device_host_error",
+    name: c.name,
+    input: { hostname: c.hostname },
+    expected: { value: deviceHostError(c.hostname) },
+  });
+}
+for (const prefix of probeKeyCases) {
+  cases.push({
+    fn: "probe_env_key_name",
+    name: prefix === "" ? "an empty prefix" : prefix,
+    input: prefix,
+    expected: { value: probeEnvKeyName(prefix) },
+  });
+}
+for (const text of b64Utf8Cases) {
+  cases.push({
+    fn: "encode_base64_utf8",
+    name: text.length > 20 ? `a long string (${text.length})` : JSON.stringify(text),
+    input: text,
+    expected: { value: encodeBase64Utf8(text) },
   });
 }
 
