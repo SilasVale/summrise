@@ -629,6 +629,229 @@
    }
   },
   {
+   "fn": "wire_model_name",
+   "name": "a non-og prefix passes through",
+   "input": {
+    "prefix": "ds",
+    "stripped": "deepseek-v4.1-flash"
+   },
+   "expected": {
+    "value": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "an og alias",
+   "input": {
+    "prefix": "og",
+    "stripped": "deepseek-v4.1-flash"
+   },
+   "expected": {
+    "value": "deepseek-flash"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "an og model with NO wire",
+   "input": {
+    "prefix": "og",
+    "stripped": "minimax-m3"
+   },
+   "expected": {
+    "value": "minimax-m3"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "the prototype chain does NOT answer",
+   "input": {
+    "prefix": "og",
+    "stripped": "constructor"
+   },
+   "expected": {
+    "value": "constructor"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "nor toString",
+   "input": {
+    "prefix": "og",
+    "stripped": "toString"
+   },
+   "expected": {
+    "value": "toString"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "nor hasOwnProperty",
+   "input": {
+    "prefix": "og",
+    "stripped": "hasOwnProperty"
+   },
+   "expected": {
+    "value": "hasOwnProperty"
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "an empty stripped name",
+   "input": {
+    "prefix": "og",
+    "stripped": ""
+   },
+   "expected": {
+    "value": ""
+   }
+  },
+  {
+   "fn": "wire_model_name",
+   "name": "an og prefix with a non-og name",
+   "input": {
+    "prefix": "og",
+    "stripped": "openai/gpt-5.6-luna:floor[1m]"
+   },
+   "expected": {
+    "value": "openai/gpt-5.6-luna:floor[1m]"
+   }
+  },
+  {
+   "fn": "search_target_for",
+   "name": "a capable wire",
+   "input": {
+    "model": "og/deepseek-v4.1-flash",
+    "upstreamModel": "deepseek-flash"
+   },
+   "expected": {
+    "value": {
+     "capable": true,
+     "model": "og/deepseek-v4.1-flash",
+     "wireModel": "deepseek-flash"
+    }
+   }
+  },
+  {
+   "fn": "search_target_for",
+   "name": "a NON-capable wire",
+   "input": {
+    "model": "og/minimax-m3",
+    "upstreamModel": "minimax-m3"
+   },
+   "expected": {
+    "value": {
+     "capable": false,
+     "model": "og/deepseek-v4.1-flash",
+     "wireModel": "deepseek-flash"
+    }
+   }
+  },
+  {
+   "fn": "search_target_for",
+   "name": "the ambiguous slug is not capable",
+   "input": {
+    "model": "qw/deepseek-v4.1-flash",
+    "upstreamModel": "deepseek-v4.1-flash"
+   },
+   "expected": {
+    "value": {
+     "capable": false,
+     "model": "og/deepseek-v4.1-flash",
+     "wireModel": "deepseek-flash"
+    }
+   }
+  },
+  {
+   "fn": "search_target_for",
+   "name": "an unknown wire",
+   "input": {
+    "model": "x/y",
+    "upstreamModel": "nope"
+   },
+   "expected": {
+    "value": {
+     "capable": false,
+     "model": "og/deepseek-v4.1-flash",
+     "wireModel": "deepseek-flash"
+    }
+   }
+  },
+  {
+   "fn": "search_target_for",
+   "name": "an empty wire name",
+   "input": {
+    "model": "x/y",
+    "upstreamModel": ""
+   },
+   "expected": {
+    "value": {
+     "capable": false,
+     "model": "og/deepseek-v4.1-flash",
+     "wireModel": "deepseek-flash"
+    }
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
+   "name": "openrouter + a raw model + no reasoning",
+   "input": {
+    "routeKind": "openrouter",
+    "upstreamModel": "deepseek-flash",
+    "body": "{\"model\":\"og/deepseek-v4.1-flash\"}"
+   },
+   "expected": {
+    "value": "{\"model\":\"og/deepseek-v4.1-flash\"}"
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
+   "name": "openrouter + a raw model + reasoning present",
+   "input": {
+    "routeKind": "openrouter",
+    "upstreamModel": "deepseek-flash",
+    "body": "{\"reasoning\":{\"effort\":\"low\"},\"model\":\"m\"}"
+   },
+   "expected": {
+    "value": "{\"reasoning\":{\"effort\":\"low\"},\"model\":\"m\"}"
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
+   "name": "a DIFFERENT kind + a raw model",
+   "input": {
+    "routeKind": "deepseek",
+    "upstreamModel": "deepseek-flash",
+    "body": "{\"model\":\"m\"}"
+   },
+   "expected": {
+    "value": "{\"model\":\"m\"}"
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
+   "name": "openrouter + a NON-raw model",
+   "input": {
+    "routeKind": "openrouter",
+    "upstreamModel": "minimax-m3",
+    "body": "{\"model\":\"m\"}"
+   },
+   "expected": {
+    "value": "{\"model\":\"m\"}"
+   }
+  },
+  {
+   "fn": "ox_alpha_reasoning_default",
+   "name": "an empty body",
+   "input": {
+    "routeKind": "openrouter",
+    "upstreamModel": "deepseek-flash",
+    "body": ""
+   },
+   "expected": {
+    "value": ""
+   }
+  },
+  {
    "fn": "model_registry",
    "name": "the whole table",
    "input": null,
