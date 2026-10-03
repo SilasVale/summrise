@@ -220,6 +220,12 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         let health = build_health(og_degraded(&env).await);
         return json(serde_json::to_string(&health)?, 200);
     }
+    // **THE `/v1` FRONT DOOR — the second route, and the one the migration was for.** Its decisions are all
+    // ported and proved; `v1.rs` is the I/O around them, and its header names what is deliberately not wired
+    // yet (the live SSE path, and `/v1/models`).
+    if v1::is_v1_route(&req.method(), url.path()) {
+        return v1::handle(req, env).await;
+    }
     not_found()
 }
 
@@ -241,3 +247,4 @@ pub mod stream;
 pub mod tokens;
 pub mod tooling;
 pub mod translate;
+pub mod v1;
