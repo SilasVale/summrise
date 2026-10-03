@@ -31,6 +31,9 @@ import {
   needsBodyParse,
   isSearchOnlyRequest,
   isForcedWebSearch,
+  extractByokKeys,
+  bearerKeyFor,
+  isKeyMissing,
 } from "../src/plugins/translate.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
@@ -126,6 +129,41 @@ const toSseCases = [
     input: { id: "msg_1", model: "m", role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1, output_tokens: 2 } },
   },
   { name: "no content", input: { id: "msg_2", model: "m" } },
+];
+
+// ── the BYOK decisions ────────────────────────────────────────────────────────────────────────────
+// The three irregular kind names are the reason this table is centralised at all, so every one of the nine
+// kinds is a case, and `nv`/`gmi` carry `envKey: null` — an env value of that name must NOT be used.
+const ukeyRecords = [
+  { name: "every field set", input: { DEEPSEEK_API_KEY: "d", OPENCODE_GO_API_KEY: "o", OPENROUTER_API_KEY: "r", QWEN_API_KEY: "q", NVAPI_KEY: "n", GMI_API_KEY: "g", CMD_API_KEY: "c", AMD_API_KEY: "a", R4_API_KEY: "4" } },
+  { name: "an empty record", input: {} },
+  { name: "falsy values become null", input: { DEEPSEEK_API_KEY: "", OPENCODE_GO_API_KEY: 0, OPENROUTER_API_KEY: false, QWEN_API_KEY: null } },
+  { name: "a truthy non-string is CARRIED as it is", input: { DEEPSEEK_API_KEY: 5, OPENCODE_GO_API_KEY: { a: 1 }, OPENROUTER_API_KEY: ["x"] } },
+  { name: "an unknown field is not carried", input: { SOMETHING_ELSE: "x", DEEPSEEK_API_KEY: "d" } },
+];
+
+const bearerCases = [
+  { name: "the user key", ukeys: { DEEPSEEK_API_KEY: "u" }, env: {}, kind: "deepseek" },
+  { name: "the env fallback", ukeys: {}, env: { DEEPSEEK_API_KEY: "e" }, kind: "deepseek" },
+  { name: "neither", ukeys: {}, env: {}, kind: "deepseek" },
+  { name: "the user key wins", ukeys: { DEEPSEEK_API_KEY: "u" }, env: { DEEPSEEK_API_KEY: "e" }, kind: "deepseek" },
+  { name: "nv has NO env fallback", ukeys: {}, env: { NVAPI_KEY: "e" }, kind: "nvidia" },
+  { name: "gmi has NO env fallback", ukeys: {}, env: { GMI_API_KEY: "e" }, kind: "gmi" },
+  { name: "nv still takes the user key", ukeys: { NVAPI_KEY: "u" }, env: {}, kind: "nvidia" },
+  { name: "the irregular opencode -> opencodeGo", ukeys: { OPENCODE_GO_API_KEY: "u" }, env: {}, kind: "opencode" },
+  { name: "the irregular commandgoat -> cmd", ukeys: { CMD_API_KEY: "u" }, env: {}, kind: "commandgoat" },
+  { name: "an unknown kind", ukeys: { DEEPSEEK_API_KEY: "u" }, env: {}, kind: "nope" },
+  { name: "a falsy user key falls through to env", ukeys: { DEEPSEEK_API_KEY: "" }, env: { DEEPSEEK_API_KEY: "e" }, kind: "deepseek" },
+  { name: "a falsy env value is not a key", ukeys: {}, env: { DEEPSEEK_API_KEY: "" }, kind: "deepseek" },
+];
+
+const keyMissingCases = [
+  { name: "present", ukeys: { DEEPSEEK_API_KEY: "u" }, kind: "deepseek" },
+  { name: "absent", ukeys: {}, kind: "deepseek" },
+  { name: "absent but env has it", ukeys: {}, env: { DEEPSEEK_API_KEY: "e" }, kind: "deepseek" },
+  { name: "nv absent, env set — still missing", ukeys: {}, env: { NVAPI_KEY: "e" }, kind: "nvidia" },
+  { name: "an UNKNOWN kind is not missing", ukeys: {}, kind: "nope" },
+  { name: "an empty kind", ukeys: {}, kind: "" },
 ];
 
 // ── the request-shape decisions ───────────────────────────────────────────────────────────────────
@@ -348,6 +386,37 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of ukeyRecords) {
+  cases.push({
+    fn: "extract_byok_keys",
+    name: c.name,
+    input: c.input,
+    expected: { value: extractByokKeys(c.input) },
+  });
+}
+for (const c of bearerCases) {
+  const byok = extractByokKeys(c.ukeys);
+  cases.push({
+    fn: "bearer_key_for",
+    name: c.name,
+    input: { ukeys: c.ukeys, env: c.env, kind: c.kind },
+    expected: { value: bearerKeyFor(c.env, byok, c.kind) },
+  });
+}
+for (const c of keyMissingCases) {
+  const byok = extractByokKeys(c.ukeys);
+  const input = { ukeys: c.ukeys, kind: c.kind };
+  if (c.env !== undefined) input.env = c.env;
+  cases.push({
+    fn: "is_key_missing",
+    name: c.name,
+    input,
+    // `env` OMITTED is the historical BYOK-only semantics, so the case omits the key rather than passing
+    // an empty object — the two are different calls.
+    expected: { value: c.env === undefined ? isKeyMissing(c.kind, byok) : isKeyMissing(c.kind, byok, c.env) },
   });
 }
 
