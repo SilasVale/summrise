@@ -36,6 +36,14 @@ import {
   isKeyMissing,
   checkRateLimit,
 } from "../src/plugins/translate.ts";
+// The scan/rewrite family has its own module — the same one the port took its rules from.
+import {
+  scanTopLevelModel,
+  rawWithModel,
+  rawWithTopLevelField,
+  rawWithDeepSeekProvider,
+  rawWithOxAlphaReasoningDefault,
+} from "../src/body-scan.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
 // Every case is a SHAPE THE DEPLOYED WORKER CAN SEE, plus the two degenerate ends (an empty request and
@@ -130,6 +138,57 @@ const toSseCases = [
     input: { id: "msg_1", model: "m", role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1, output_tokens: 2 } },
   },
   { name: "no content", input: { id: "msg_2", model: "m" } },
+];
+
+// ── the body scan and rewrite ─────────────────────────────────────────────────────────────────────
+// THE OBSERVABLE RESULT, NOT THE OFFSETS: the JavaScript indexes UTF-16 code units and the port walks
+// bytes, so the two agree on the rewritten TEXT (the boundaries land on ASCII delimiters) and can differ
+// on the raw index NUMBERS when non-ASCII text precedes the field. Comparing the numbers would make the
+// corpus a test of the encoding rather than of the scan.
+const BIG = 2 * 1024 * 1024;
+const bigBodyWithModelLate = () => {
+  const pad = "x".repeat(BIG + 1024);
+  return `{"system":"${pad}","model":"late/model"}`;
+};
+const bigBodyWithFieldLate = () => {
+  const pad = "x".repeat(BIG + 1024);
+  return `{"system":"${pad}","reasoning":{"effort":"low"}}`;
+};
+const scanCases = [
+  { name: "a lone model", text: '{"model":"a/b"}' },
+  { name: "model AFTER other fields (the comma arm)", text: '{"system":"s","tools":[],"model":"a/b"}' },
+  { name: "model inside a nested object is NOT top level", text: '{"x":{"model":"nope"}}' },
+  { name: "model inside an array is not top level", text: '{"x":[{"model":"nope"}]}' },
+  { name: "an escaped quote in a value before model", text: '{"system":"a\\"b","model":"a/b"}' },
+  { name: "an escaped backslash before model", text: '{"system":"a\\\\","model":"a/b"}' },
+  { name: "model is not a string", text: '{"model":5}' },
+  { name: "no model at all", text: '{"system":"s"}' },
+  { name: "whitespace before the value", text: '{"model" :  "a/b" }' },
+  { name: "an empty body", text: "" },
+  { name: "model BEYOND the 2 MiB ceiling", text: bigBodyWithModelLate() },
+];
+const rawModelCases = [
+  { name: "replace it", text: '{"model":"old/m","x":1}', model: "new/m" },
+  { name: "absent leaves the body ALONE", text: '{"x":1}', model: "new/m" },
+  { name: "an empty body", text: "", model: "new/m" },
+  { name: "replace one that is not a string", text: '{"model":5}', model: "new/m" },
+];
+const topFieldCases = [
+  { name: "replace an existing field", text: '{"provider":{"order":["x"]},"model":"m"}' },
+  { name: "append an absent field", text: '{"model":"m"}' },
+  { name: "append into an empty object (no comma)", text: "{}" },
+  { name: "append into a body with trailing whitespace", text: '{"model":"m"  }' },
+  { name: "no closing brace at all", text: '{"model":"m"' },
+  { name: "the field is beyond the ceiling: UNCHANGED", text: bigBodyWithFieldLate() },
+];
+const bsProviderCases = [
+  { name: "absent", text: '{"model":"m"}' },
+  { name: "present", text: '{"provider":{"order":["other"]},"model":"m"}' },
+];
+const oxCases = [
+  { name: "absent gets the default", text: '{"model":"m"}' },
+  { name: "present is respected", text: '{"reasoning":{"effort":"low"},"model":"m"}' },
+  { name: "present but null still counts as present", text: '{"reasoning":null,"model":"m"}' },
 ];
 
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
@@ -414,6 +473,48 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of scanCases) {
+  const scan = scanTopLevelModel(c.text);
+  cases.push({
+    fn: "scan_top_level_model",
+    name: c.name,
+    input: c.text,
+    expected: { value: { model: scan.model, found: scan.valueStart >= 0 } },
+  });
+}
+for (const c of rawModelCases) {
+  cases.push({
+    fn: "raw_with_model",
+    name: c.name,
+    input: { raw: c.text, model: c.model },
+    expected: { value: rawWithModel(c.text, c.model) },
+  });
+}
+for (const c of topFieldCases) {
+  cases.push({
+    fn: "raw_with_top_level_field",
+    name: c.name,
+    input: c.text,
+    expected: { value: rawWithTopLevelField(c.text, "reasoning", { effort: "max" }) },
+  });
+}
+for (const c of bsProviderCases) {
+  cases.push({
+    fn: "raw_with_deepseek_provider",
+    name: c.name,
+    input: c.text,
+    expected: { value: rawWithDeepSeekProvider(c.text) },
+  });
+}
+for (const c of oxCases) {
+  cases.push({
+    fn: "raw_with_ox_alpha_reasoning_default",
+    name: c.name,
+    input: c.text,
+    expected: { value: rawWithOxAlphaReasoningDefault(c.text) },
   });
 }
 
