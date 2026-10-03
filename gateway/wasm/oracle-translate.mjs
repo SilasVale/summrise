@@ -59,6 +59,7 @@ import {
   sessionCookieHeader,
   clearSessionCookieHeader,
 } from "../src/auth.ts";
+import { jsonOk } from "../src/http.ts";
 import {
   retryPolicyFor,
   upstreamTimeoutMs,
@@ -605,6 +606,19 @@ const issueSecretCases = [
   { name: "empty is NOT configured", secret: "" },
 ];
 
+// ── jsonOk ────────────────────────────────────────────────────────────────────────────────────────
+// THE SUCCESS SHAPE every JSON route returns, and the two things `JSON.stringify` decides for it: a whole
+// number stays whole, and a NON-FINITE one becomes null — which the token estimate can produce, because an
+// empty sample divides by zero.
+const jsonOkCases = [
+  { name: "a whole number", data: { input_tokens: 42 } },
+  { name: "a float", data: { input_tokens: 1500.7 } },
+  { name: "NaN becomes null", data: { input_tokens: NaN } },
+  { name: "an empty object", data: {} },
+  { name: "nested", data: { a: { b: [1, 2.5, NaN] } } },
+  { name: "extra headers", data: { ok: true }, extra: { "X-Extra": "1" } },
+];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -887,6 +901,20 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of jsonOkCases) {
+  const res = jsonOk(c.data, c.extra || {});
+  cases.push({
+    fn: "json_ok",
+    name: c.name,
+    input: { data: c.data === undefined ? null : c.data, extra: c.extra || {} },
+    expected: {
+      status: res.status,
+      headers: Object.fromEntries(res.headers),
+      body: await res.text(),
+    },
   });
 }
 
