@@ -306,6 +306,132 @@ pub fn upstream_json_response(
     )
 }
 
+/// **THE `/v1/models` LISTING — the pure half, with the three store reads as arguments.**
+///
+/// The arm reads the advertised set, the console-added models and the facet overrides from KV, then builds a
+/// document. This takes those three as values, which is the same seam every other port here uses.
+///
+/// THREE THINGS IN IT ARE BYTES RATHER THAN SHAPE, and the corpus pins all three:
+///
+///   * **`created` IS `1785000000 + i`** — a constant plus the entry's POSITION, so a model's `created`
+///     changes when the list around it does. It looks like a timestamp and is an index;
+///   * the disabled ids are removed from the REGISTRY's order, and the extras are APPENDED after it;
+///   * and the three optional fields are `m.name || ov?.name` — JS TRUTHINESS, so an empty string falls
+///     through to the override, and a `0` context window would too.
+///
+/// The override is a DECORATION and not an override, in the source's own words: "the registry supplies the
+/// routing facets and never a display one, so this decorates rather than overrides — and a custom record's
+/// own values stay authoritative where both could speak."
+pub fn models_listing(
+    registry: &[crate::registry::ModelSpec],
+    live_ids: &[String],
+    extra: &[serde_json::Value],
+    overrides: &serde_json::Map<String, serde_json::Value>,
+) -> Built {
+    let enabled: Vec<&crate::registry::ModelSpec> = registry
+        .iter()
+        .filter(|m| live_ids.iter().any(|id| id == m.id))
+        .collect();
+    let mut data: Vec<serde_json::Value> = Vec::new();
+    for (i, m) in enabled.iter().enumerate() {
+        let ov = overrides.get(m.id);
+        let field = |from_registry: Option<&str>, from_override: &str| -> Option<String> {
+            match from_registry.filter(|v| !v.is_empty()) {
+                Some(v) => Some(v.to_string()),
+                None => ov
+                    .and_then(|o| o.get(from_override))
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_string),
+            }
+        };
+        let mut entry = serde_json::Map::new();
+        entry.insert("id".into(), serde_json::json!(m.id));
+        entry.insert("object".into(), serde_json::json!("model"));
+        entry.insert(
+            "created".into(),
+            serde_json::json!(1_785_000_000i64 + i as i64),
+        );
+        entry.insert("owned_by".into(), serde_json::json!(m.owned_by));
+        if let Some(name) = field(None, "name") {
+            entry.insert("name".into(), serde_json::json!(name));
+        }
+        if let Some(window) = m.context_window {
+            entry.insert("context_window".into(), serde_json::json!(window));
+        } else if let Some(window) = ov
+            .and_then(|o| o.get("contextWindow"))
+            .and_then(|v| v.as_i64())
+        {
+            entry.insert("context_window".into(), serde_json::json!(window));
+        }
+        if let Some(max) = m.max_tokens {
+            entry.insert("max_tokens".into(), serde_json::json!(max));
+        } else if let Some(max) = ov.and_then(|o| o.get("maxTokens")).and_then(|v| v.as_i64()) {
+            entry.insert("max_tokens".into(), serde_json::json!(max));
+        }
+        data.push(serde_json::Value::Object(entry));
+    }
+    // **THE EXTRAS GO THROUGH THE SAME MAP AS THE REGISTRY, WHICH I GOT WRONG FIRST.** The source is
+    // `[...MODELS.filter(...), ...extra].map((m, i) => ({…}))` — one `map` over BOTH — so a console-added
+    // model gets `object`, `created` (continuing the index) and the same optional-field rules. My first
+    // version appended the extra record VERBATIM, and the differential caught it on its first run: the
+    // captured listing has `{"id":"og/console-added","object":"model","created":1785000024,…}` while mine
+    // had `{"id":"og/console-added","owned_by":"opencode"}`.
+    //
+    // AND THE EXTRAS ARE SNAKE_CASED ALREADY (`owned_by`, not the registry's `ownedBy`) — a different record
+    // type that happens to describe the same thing, which is why they are `Value`s here.
+    for (i, e) in extra.iter().enumerate() {
+        let ov = e
+            .get("id")
+            .and_then(|v| v.as_str())
+            .and_then(|id| overrides.get(id));
+        let mut entry = serde_json::Map::new();
+        if let Some(id) = e.get("id") {
+            entry.insert("id".into(), id.clone());
+        }
+        entry.insert("object".into(), serde_json::json!("model"));
+        entry.insert(
+            "created".into(),
+            serde_json::json!(1_785_000_000i64 + (enabled.len() + i) as i64),
+        );
+        if let Some(owner) = e.get("owned_by") {
+            entry.insert("owned_by".into(), owner.clone());
+        }
+        let text = |from_record: Option<&str>, from_override: &str| -> Option<String> {
+            match from_record.filter(|v| !v.is_empty()) {
+                Some(v) => Some(v.to_string()),
+                None => ov
+                    .and_then(|o| o.get(from_override))
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(str::to_string),
+            }
+        };
+        if let Some(name) = text(e.get("name").and_then(|v| v.as_str()), "name") {
+            entry.insert("name".into(), serde_json::json!(name));
+        }
+        if let Some(window) = e
+            .get("context_window")
+            .and_then(|v| v.as_i64())
+            .or_else(|| {
+                ov.and_then(|o| o.get("contextWindow"))
+                    .and_then(|v| v.as_i64())
+            })
+        {
+            entry.insert("context_window".into(), serde_json::json!(window));
+        }
+        if let Some(max) = e
+            .get("max_tokens")
+            .and_then(|v| v.as_i64())
+            .or_else(|| ov.and_then(|o| o.get("maxTokens")).and_then(|v| v.as_i64()))
+        {
+            entry.insert("max_tokens".into(), serde_json::json!(max));
+        }
+        data.push(serde_json::Value::Object(entry));
+    }
+    json_ok(&serde_json::json!({ "object": "list", "data": data }), &[])
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `built` cases were produced by the SHIPPING TypeScript
@@ -401,6 +527,79 @@ mod oracle_corpus {
     /// answer the same SHAPE with different generic text ("upstream returned an invalid response" against
     /// "…an error envelope"), so a test that compared statuses would call them equivalent. The corpus pins
     /// the body, and this asserts it.
+    fn models_corpus() -> serde_json::Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/models-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the models corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **`GET /v1/models`, REPLAYED FROM THE SHIPPING ROUTE.** The fixture records the three REAL inputs the
+    /// arm reads (`advertisedIds`, `extraModelEntries`, `facetOverrides`) rather than re-deriving them, so
+    /// this drives the listing and not a re-implementation of the store.
+    #[test]
+    fn the_models_listing_matches_the_shipping_route() {
+        let doc = models_corpus();
+        let mut checked = 0;
+        let mut lengths = Vec::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let live: Vec<String> = case["liveIds"]
+                .as_array()
+                .expect("liveIds")
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            let extra: Vec<serde_json::Value> = case["extraEntries"]
+                .as_array()
+                .expect("extraEntries")
+                .clone();
+            let overrides: serde_json::Map<String, serde_json::Value> = case["facet"]
+                .as_array()
+                .expect("facet")
+                .iter()
+                .filter_map(|o| {
+                    o.get("id")
+                        .and_then(|i| i.as_str())
+                        .map(|i| (i.to_string(), o.clone()))
+                })
+                .collect();
+            let got = models_listing(&crate::registry::MODEL_REGISTRY, &live, &extra, &overrides);
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            let headers: serde_json::Map<String, serde_json::Value> = got
+                .headers
+                .into_iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+                .collect();
+            assert_eq!(
+                &serde_json::Value::Object(headers),
+                &want["headers"],
+                "{name}: headers"
+            );
+            let parsed: serde_json::Value = serde_json::from_str(&got.body).expect("a JSON body");
+            lengths.push(parsed["data"].as_array().map(|d| d.len()).unwrap_or(0));
+            checked += 1;
+        }
+        assert!(checked >= 5, "the models corpus shrank to {checked} cases");
+        // **THE LENGTHS ARE THE POINT OF THREE OF THESE CASES.** 24 is the registry; disabling one drops it
+        // to 23 and disabling two to 22; a console-added model APPENDS and makes 25. A corpus that only ever
+        // listed 24 would prove the happy path and nothing about the merge.
+        assert_eq!(
+            lengths,
+            vec![24, 23, 22, 25, 24],
+            "the listing lengths moved"
+        );
+    }
+
     #[test]
     fn the_non_stream_branch_matches_the_shipping_route() {
         let doc = non_stream_corpus();
