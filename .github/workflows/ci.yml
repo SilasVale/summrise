@@ -229,6 +229,14 @@ jobs:
           cargo test -p summrise-agent > /tmp/agent-tests.out 2>&1
           cargo test -p summrise-agent --features terminal,keyring > /tmp/agent-tests-features.out 2>&1
           cargo test -p summrise-agent-core > /tmp/agent-core-tests.out 2>&1
+        # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
+        # so these three commands only work from there, and `working-directory: agent` sat between them and
+        # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
+        # failure that followed read as `error: could not find \`Cargo.toml\` in
+        # /home/runner/work/summrise/summrise`, which the diagnostic reported as an `::notice::` on the run
+        # after. The extractor in `scripts/test/all-gates.bash` runs these commands from the ROOT, so the
+        # local signal was there the whole time and this loop called it "the expected three".
+        working-directory: agent
       - name: Name the failing tests
         # **A JOB LOG NEEDS A TOKEN; AN ANNOTATION DOES NOT.** This step exists because the three commands
         # above are kept PURE — a `cargo test …` line is what `scripts/test/all-gates.bash` extracts from this
@@ -236,6 +244,10 @@ jobs:
         # So the diagnostic runs AFTER a failure, in its own step, and the command starts with a VARIABLE
         # rather than the word `cargo` for the same reason.
         if: failure()
+        # The re-run below is a cargo command, so it needs the same directory the step above uses — without
+        # it, `|| true` swallowed `could not find Cargo.toml` and the step reported "the re-run PASSED",
+        # which was the opposite of what had happened.
+        working-directory: agent
         run: |
           # **AND IT SAYS WHAT IT SAW, WHATEVER THAT IS.** Two runs in a row ended with this step GREEN and
           # silent: the first run's captured files matched nothing, and the re-run passed. That is two
