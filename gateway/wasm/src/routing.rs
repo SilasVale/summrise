@@ -251,6 +251,148 @@ pub fn pick_route(
     }
 }
 
+/// **THE MODEL -> THE ROUTE CHAIN, WHICH IS WHERE THE KIND COMES FROM.**
+///
+/// The handler derives everything from the model string, in this order, and each step is a decision the
+/// corpora pin separately:
+///
+/// ```text
+///     retiredModelHint(model)      -> a 400, and NOT a redirect
+///     prefix = model.split("/")[0] || ""
+///     usProxy = usEgress(model) || the US_PROXY setting
+///     route = pickRoute(prefix, env, usProxy, requestPath)
+///     upstreamModel = wireModelName(prefix, stripBracket(stripPrefix ? model.slice(prefix.length+1) : model))
+/// ```
+///
+/// **THE RETIRED GATE REFUSES RATHER THAN REDIRECTS**, which is worth stating because the map's name
+/// (`RETIRED_MODELS`) and its shape (advertised id -> replacement) both suggest otherwise. The source returns
+/// `jsonError(400, "Model … was retired on 2026-09-10 … Use … instead.")` and the client chooses.
+pub const RETIRED_MODELS: [(&str, &str); 13] = [
+    ("ds/deepseek-v4-flash", "cm/deepseek/deepseek-v4.1-flash"),
+    ("og/deepseek-v4-flash", "og/deepseek-v4.1-flash"),
+    (
+        "cm/deepseek/deepseek-v4-flash",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    (
+        "cm/deepseek/deepseek-v4-flash-vision-exp",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    (
+        "or/deepseek/deepseek-v4-flash-0731",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    ("amd/deepseek-v4-flash", "cm/deepseek/deepseek-v4.1-flash"),
+    (
+        "amd/deepseek-v4-flash-vision-exp",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    ("deepseek-v4-flash", "cm/deepseek/deepseek-v4.1-flash"),
+    (
+        "deepseek-v4-flash-vision-exp",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    ("deepseek-v4-flash-0731", "cm/deepseek/deepseek-v4.1-flash"),
+    (
+        "deepseek/deepseek-v4-flash",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    (
+        "deepseek/deepseek-v4-flash-vision-exp",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+    (
+        "deepseek/deepseek-v4-flash-0731",
+        "cm/deepseek/deepseek-v4.1-flash",
+    ),
+];
+
+/// `retiredModelHint(model)` — the replacement to NAME, or `None`.
+pub fn retired_model_hint(model: &str) -> Option<&'static str> {
+    RETIRED_MODELS
+        .iter()
+        .find(|(id, _)| *id == model)
+        .map(|(_, to)| *to)
+}
+
+/// The 400 the retired gate sends, with the source's own sentence.
+pub fn retired_model_error(model: &str, hint: &str) -> crate::responses::Built {
+    crate::responses::json_error(
+        400,
+        &format!(
+            "Model {model} was retired on 2026-09-10 — the DeepSeek V4 Flash line is superseded by V4.1 Flash. Use {hint} instead."
+        ),
+        "invalid_request_error",
+    )
+}
+
+/// `stripBracket(s)` — `s.replace(/\[[^\]]*\]$/, "")`.
+///
+/// **THE REGEX IS `\[[^\]]*\]$`, AND THE `[^\]]*` IS THE WHOLE POINT.** A bracket at the end comes off only
+/// when the LAST `[` before it has no `]` in between — so `x[a]b]` is returned UNCHANGED, because the class
+/// cannot cross the inner `]`. My first version used `rfind('[')` and would have stripped it, which is a
+/// divergence no shape-based test would see; the corpus carries the case.
+pub fn strip_bracket(s: &str) -> String {
+    if !s.ends_with(']') {
+        return s.to_string();
+    }
+    let inner = &s[..s.len() - 1];
+    match inner.rfind('[') {
+        Some(open) if !inner[open + 1..].contains(']') => s[..open].to_string(),
+        _ => s.to_string(),
+    }
+}
+
+/// `OG_FORCE_US_PROXY` — the registry's own `usEgress` records, derived rather than copied.
+pub fn og_force_us_proxy(model_id: &str) -> bool {
+    crate::registry::MODEL_REGISTRY
+        .iter()
+        .any(|m| m.id == model_id && m.us_egress == Some(true))
+}
+
+/// What the handler resolved for one model string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedModel {
+    pub prefix: String,
+    pub route: RouteInfo,
+    /// The name the upstream is asked for — `wireModelName` over the stripped, bracket-free id.
+    pub upstream_model: String,
+}
+
+/// The chain, with the US-proxy SETTING as an argument (the KV read is the caller's).
+pub fn resolve_model(
+    model: &str,
+    us_proxy_setting: bool,
+    request_path: &str,
+    env: Option<&serde_json::Value>,
+) -> ResolvedModel {
+    // `model.split("/")[0] || ""` — JS's `|| ""` only matters for an EMPTY first segment, which is what a
+    // leading slash gives.
+    let prefix = model.split('/').next().unwrap_or("").to_string();
+    let us_proxy = if og_force_us_proxy(model) || us_proxy_setting {
+        Some("1")
+    } else {
+        None
+    };
+    let route = pick_route(&prefix, env, us_proxy, request_path);
+    let stripped = if route.strip_prefix {
+        // `effectiveModel.slice(prefix.length + 1)` — the prefix AND its slash.
+        model
+            .char_indices()
+            .nth(prefix.chars().count() + 1)
+            .map(|(i, _)| &model[i..])
+            .unwrap_or("")
+    } else {
+        model
+    };
+    let upstream_model = crate::registry::wire_model_name(&prefix, &strip_bracket(stripped));
+    ResolvedModel {
+        prefix,
+        route,
+        upstream_model,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! **PINNED BY HAND, WITH THE REASON.** `pickRoute` is exported and pure, so its differential is a
@@ -316,6 +458,81 @@ mod tests {
             checked >= 40,
             "the routing corpus shrank to {checked} cases"
         );
+    }
+
+    fn corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/translate-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **THE MODEL -> ROUTE CHAIN, REPLAYED FROM THE SHIPPING TYPESCRIPT.** Sixty-nine cases calling the
+    /// exported pieces directly: every prefix on both request paths with and without the exit, a bracket
+    /// suffix, a leading slash, a bare id, and the thirteen retired ids.
+    #[test]
+    fn the_model_resolution_chain_matches_the_shipping_typescript() {
+        let doc = corpus();
+        let mut checked = 0;
+        let mut retired = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            if case["fn"].as_str() != Some("resolve_model") {
+                continue;
+            }
+            let name = case["name"].as_str().unwrap_or("?");
+            let input = &case["input"];
+            let model = input["model"].as_str().unwrap_or("");
+            let expected = &case["expected"];
+            if let Some(hint) = expected["retiredHint"].as_str() {
+                assert_eq!(retired_model_hint(model), Some(hint), "{name}");
+                let err = retired_model_error(model, hint);
+                assert_eq!(err.status, 400, "{name}");
+                assert!(
+                    err.body.contains(hint),
+                    "{name}: the message names the replacement"
+                );
+                assert!(err.body.contains("retired on 2026-09-10"), "{name}");
+                retired += 1;
+                continue;
+            }
+            let got = resolve_model(
+                model,
+                input["usProxySetting"].as_bool().unwrap_or(false),
+                input["requestPath"].as_str().unwrap_or(""),
+                None,
+            );
+            assert_eq!(
+                got.prefix,
+                expected["prefix"].as_str().unwrap_or(""),
+                "{name}: prefix"
+            );
+            assert_eq!(
+                got.upstream_model,
+                expected["upstreamModel"].as_str().unwrap_or(""),
+                "{name}: upstream model"
+            );
+            let want_route = &expected["route"];
+            assert_eq!(
+                got.route.kind,
+                want_route["kind"].as_str().unwrap_or(""),
+                "{name}: kind"
+            );
+            assert_eq!(
+                got.route.strip_prefix,
+                want_route["stripPrefix"].as_bool().unwrap_or(false),
+                "{name}: stripPrefix"
+            );
+            assert_eq!(
+                got.route.upstream,
+                want_route["upstream"].as_str().unwrap_or(""),
+                "{name}: upstream"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 56, "the chain corpus shrank to {checked} cases");
+        assert_eq!(retired, 13, "the retired map changed size");
     }
 
     #[test]
