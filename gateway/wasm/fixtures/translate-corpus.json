@@ -629,6 +629,127 @@
    }
   },
   {
+   "fn": "json_ok",
+   "name": "a whole number",
+   "input": {
+    "data": {
+     "input_tokens": 42
+    },
+    "extra": {}
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"input_tokens\":42}"
+   }
+  },
+  {
+   "fn": "json_ok",
+   "name": "a float",
+   "input": {
+    "data": {
+     "input_tokens": 1500.7
+    },
+    "extra": {}
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"input_tokens\":1500.7}"
+   }
+  },
+  {
+   "fn": "json_ok",
+   "name": "NaN becomes null",
+   "input": {
+    "data": {
+     "input_tokens": null
+    },
+    "extra": {}
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"input_tokens\":null}"
+   }
+  },
+  {
+   "fn": "json_ok",
+   "name": "an empty object",
+   "input": {
+    "data": {},
+    "extra": {}
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{}"
+   }
+  },
+  {
+   "fn": "json_ok",
+   "name": "nested",
+   "input": {
+    "data": {
+     "a": {
+      "b": [
+       1,
+       2.5,
+       null
+      ]
+     }
+    },
+    "extra": {}
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"a\":{\"b\":[1,2.5,null]}}"
+   }
+  },
+  {
+   "fn": "json_ok",
+   "name": "extra headers",
+   "input": {
+    "data": {
+     "ok": true
+    },
+    "extra": {
+     "X-Extra": "1"
+    }
+   },
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json",
+     "x-extra": "1"
+    },
+    "body": "{\"ok\":true}"
+   }
+  },
+  {
    "fn": "session_secret",
    "name": "both set",
    "input": {
