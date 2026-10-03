@@ -627,6 +627,334 @@
    "expected": {
     "text": "*** *** ***"
    }
+  },
+  {
+   "fn": "sse_response",
+   "name": "a body",
+   "input": "event: x\ndata: {}\n\n",
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "cache-control": "no-cache",
+     "content-type": "text/event-stream; charset=utf-8"
+    },
+    "body": "event: x\ndata: {}\n\n"
+   }
+  },
+  {
+   "fn": "sse_response",
+   "name": "an empty body",
+   "input": "",
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "cache-control": "no-cache",
+     "content-type": "text/event-stream; charset=utf-8"
+    },
+    "body": ""
+   }
+  },
+  {
+   "fn": "sse_response",
+   "name": "null body",
+   "input": null,
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "cache-control": "no-cache",
+     "content-type": "text/event-stream; charset=utf-8"
+    },
+    "body": ""
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "deepseek",
+   "input": "deepseek",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"DEEPSEEK_API_KEY not configured — add your own key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "opencode",
+   "input": "opencode",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"OPENCODE_GO_API_KEY not configured — add your own key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "openrouter",
+   "input": "openrouter",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"OPENROUTER_API_KEY not configured — add your own key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "qwen",
+   "input": "qwen",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"QWEN_API_KEY not configured — add your own key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "nvidia",
+   "input": "nvidia",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"NVAPI_KEY not configured — add your NVIDIA build.nvidia.com key\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "gmi",
+   "input": "gmi",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"GMI_API_KEY not configured — add your GMI Cloud key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "amd",
+   "input": "amd",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"AMD_API_KEY not configured — add your AMD Radeon Cloud (rc-…) key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "commandgoat",
+   "input": "commandgoat",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"CMD_API_KEY not configured — add your Command Code key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "r4",
+   "input": "r4",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"R4_API_KEY not configured — add your own r4.codes key in the console\"}}"
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "an unknown kind",
+   "input": "an unknown kind",
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "",
+   "input": "",
+   "expected": {
+    "null": true
+   }
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "the prototype chain",
+   "input": "constructor",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\"}}"
+   },
+   "divergence": "prototype"
+  },
+  {
+   "fn": "key_missing_error",
+   "name": "toString",
+   "input": "toString",
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\"}}"
+   },
+   "divergence": "prototype"
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "prefix and apiKeyEnv",
+   "input": {
+    "prefix": "myco",
+    "apiKeyEnv": "MYCO_KEY"
+   },
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"myco: no provider key — MYCO_KEY is not set in this deployment — add the Worker secret, or re-register the provider with an inline apiKey\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "prefix only",
+   "input": {
+    "prefix": "myco"
+   },
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"myco: no provider key — the provider record carries no key — re-register it with apiKey or apiKeyEnv\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "apiKeyEnv only",
+   "input": {
+    "apiKeyEnv": "MYCO_KEY"
+   },
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"custom provider: no provider key — MYCO_KEY is not set in this deployment — add the Worker secret, or re-register the provider with an inline apiKey\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "an empty prefix takes the fallback",
+   "input": {
+    "prefix": "",
+    "apiKeyEnv": "MYCO_KEY"
+   },
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"custom provider: no provider key — MYCO_KEY is not set in this deployment — add the Worker secret, or re-register the provider with an inline apiKey\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "an empty apiKeyEnv takes the fallback",
+   "input": {
+    "prefix": "myco",
+    "apiKeyEnv": ""
+   },
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"myco: no provider key — the provider record carries no key — re-register it with apiKey or apiKeyEnv\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "no provider at all",
+   "input": null,
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"custom provider: no provider key — the provider record carries no key — re-register it with apiKey or apiKeyEnv\"}}"
+   }
+  },
+  {
+   "fn": "provider_key_missing_error",
+   "name": "an empty record",
+   "input": {},
+   "expected": {
+    "status": 502,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"custom provider: no provider key — the provider record carries no key — re-register it with apiKey or apiKeyEnv\"}}"
+   }
   }
  ]
 }

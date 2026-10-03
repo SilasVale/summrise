@@ -224,5 +224,6 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 }
 
 pub mod redact;
+pub mod responses;
 pub mod stream;
 pub mod translate;
