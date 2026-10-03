@@ -223,6 +223,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     not_found()
 }
 
+pub mod byok;
 pub mod redact;
 pub mod request_shape;
 pub mod responses;
