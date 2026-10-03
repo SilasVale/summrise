@@ -413,6 +413,52 @@ pub fn key_gate(
     }
 }
 
+/// **THE `/v1` DISPATCH — the shape the worker's `fetch` will call, with its I/O results as arguments.**
+///
+/// Every piece is ported and proved; what this adds is the ORDER they run in, which the source fixes and the
+/// route corpus now covers end to end:
+///
+/// ```text
+///     the route match (404 for a path this handler does not serve)
+///       ->  auth (401)
+///         ->  the per-ARM key gate (the two chains differ)
+///           ->  the arm itself
+/// ```
+///
+/// `kind` IS AN ARGUMENT because resolving it — `pick_route` over the model prefix, the KV settings and the
+/// provider records — is its own proved decision, and the worker calls it first.
+pub struct V1Request {
+    pub method: String,
+    pub path: String,
+    /// What `findUserByToken` answered: `None`, or the user record (whose `enabled` may be false).
+    pub user: Option<serde_json::Value>,
+    pub kind: String,
+    pub byok: serde_json::Map<String, serde_json::Value>,
+    pub env: serde_json::Value,
+    pub raw_text: serde_json::Value,
+}
+
+/// The dispatch. Returns the response the handler would send.
+pub fn v1_dispatch(req: &V1Request) -> crate::responses::Built {
+    let shape = detect_route(&req.method, &req.path);
+    if !(shape.is_count || shape.is_messages || shape.is_chat_completions || shape.is_responses) {
+        // `jsonError(404, "Not Found", "not_found_error")` — the arm this handler does not serve.
+        return crate::responses::json_error(404, "Not Found", "not_found_error");
+    }
+    if let Some(refusal) = auth_error(req.user.as_ref()) {
+        return refusal;
+    }
+    if let Some(refusal) = key_gate(&req.kind, shape.is_chat_completions, &req.byok, &req.env) {
+        return refusal;
+    }
+    if shape.is_count {
+        return count_tokens_response(&req.kind, &req.byok, &req.env, &req.raw_text);
+    }
+    // The other three arms are ported as their own decisions (`translate_request`, `passthrough_request`,
+    // the response side) and are not composed here yet — a 501 rather than a silent wrong answer.
+    crate::responses::json_error(501, "route not wired", "api_error")
+}
+
 #[cfg(test)]
 mod count_tokens_tests {
     //! **THE COMPOSITION IS PINNED BY HAND, AND THE REASON IS STATED.** The `count_tokens` arm lives inside
@@ -438,17 +484,14 @@ mod count_tokens_tests {
         serde_json::from_str(&text).expect("the route corpus parses")
     }
 
-    /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED — ALL EIGHT CASES NOW.** `fixtures/route-corpus.json` was
-    /// produced by driving the SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`).
+    /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED — ALL NINE CASES.** `fixtures/route-corpus.json` was
+    /// produced by driving the SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`), and
+    /// this drives `v1_dispatch` — the same order the source runs: the route match, auth, the per-arm key
+    /// gate, then the arm.
     ///
-    /// IT USED TO SKIP THREE OF THEM, marked `beforeArm`: a request answered ABOVE the `count_tokens` arm —
-    /// by auth, by the OpenRouter key gate, or by the DEFAULT channel an empty body resolves to. Those are
-    /// exactly what the DISPATCH is, so the dispatch is what this now drives, in the source's order:
-    ///
-    ///     auth  ->  the per-kind key gate (per ARM, because the two chains differ)  ->  the arm
-    ///
-    /// The kind comes from the corpus for the arm cases and from `pick_route("")` for the empty body, which
-    /// is the default channel — the same answer the route gives it.
+    /// **IT USED TO SKIP THREE CASES** marked `beforeArm`: a request answered ABOVE the `count_tokens` arm by
+    /// auth, by the OpenRouter key gate, or by the DEFAULT channel an empty body resolves to. Those are what
+    /// the dispatch IS, so nothing is skipped now.
     #[test]
     fn the_dispatch_matches_the_shipping_route() {
         let doc = route_corpus();
@@ -457,32 +500,28 @@ mod count_tokens_tests {
         for case in doc["cases"].as_array().expect("cases") {
             let name = case["name"].as_str().unwrap_or("?");
             let byok = crate::byok::extract_byok_keys(&serde_json::json!(case["ukeys"]));
-            let env = &case["env"];
-            let raw = &case["rawText"];
+            let env = case["env"].clone();
             let kind = case["kind"].as_str().unwrap_or("");
             // The empty model resolves to the DEFAULT channel, which `pick_route` answers.
             let kind = if kind.is_empty() {
-                crate::routing::pick_route("", Some(env), None, "/v1/messages").kind
+                crate::routing::pick_route("", Some(&env), None, "/v1/messages").kind
             } else {
                 kind
             };
-
-            // 1. AUTH — the first gate of all.
-            let user = if case["authenticated"].as_bool().unwrap_or(false) {
-                Some(serde_json::json!({ "id": "u", "enabled": true }))
-            } else {
+            let user = if case["user"].is_null() {
                 None
-            };
-            let got = if let Some(refusal) = auth_error(user.as_ref()) {
-                refusal
-            } else if let Some(refusal) = key_gate(kind, false, &byok, env) {
-                // 2. THE KEY GATE for this arm.
-                refusal
             } else {
-                // 3. THE ARM.
-                count_tokens_response(kind, &byok, env, raw)
+                Some(case["user"].clone())
             };
-
+            let got = v1_dispatch(&V1Request {
+                method: "POST".to_string(),
+                path: "/v1/messages/count_tokens".to_string(),
+                user,
+                kind: kind.to_string(),
+                byok,
+                env,
+                raw_text: case["rawText"].clone(),
+            });
             let want = &case["expected"];
             assert_eq!(
                 got.status,
@@ -497,12 +536,37 @@ mod count_tokens_tests {
             seen_statuses.push(got.status);
             checked += 1;
         }
-        assert_eq!(checked, 8, "the route corpus changed size");
+        assert_eq!(checked, 9, "the route corpus changed size");
         // **BOTH ANSWERS, AND BOTH REFUSAL KINDS.** A corpus that only produced 200s would prove the happy
-        // path; one that only produced 502s would miss the arm's success. The 401 is the dispatch's own.
+        // path; one that only produced 502s would miss the arm's success. The 401s are the dispatch's own —
+        // and there are TWO of them, one for a token that resolves to nothing and one for a DISABLED user,
+        // which is the half the fixture could not reach until this round.
         assert!(seen_statuses.contains(&200), "no case estimated");
         assert!(seen_statuses.contains(&401), "no case exercised auth");
         assert!(seen_statuses.contains(&502), "no case exercised a key gate");
+    }
+
+    #[test]
+    fn the_disabled_half_of_the_auth_check_is_exercised() {
+        // **THE CASE THAT CLOSED A NAMED GAP.** `auth_error` refuses when the user is absent OR disabled, and
+        // the fixture's first version only had the first shape — so a port that dropped the `enabled` test
+        // passed every case. This asserts the two shapes separately, and the corpus carries both.
+        let enabled = serde_json::json!({ "id": "u", "enabled": true });
+        assert!(
+            auth_error(Some(&enabled)).is_none(),
+            "an enabled user passes"
+        );
+        let disabled = serde_json::json!({ "id": "u", "enabled": false });
+        assert!(
+            auth_error(Some(&disabled)).is_some(),
+            "a DISABLED user is refused"
+        );
+        assert!(auth_error(None).is_some(), "and so is no user at all");
+        // A record with no `enabled` field at all is NOT enabled — `unwrap_or(false)`.
+        assert!(
+            auth_error(Some(&serde_json::json!({ "id": "u" }))).is_some(),
+            "a missing enabled flag is not an enabled user"
+        );
     }
 
     #[test]
