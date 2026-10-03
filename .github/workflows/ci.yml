@@ -198,7 +198,15 @@ jobs:
           # no-feature build silently stopped compiling: `exec.rs` calls `term_note_exit_code`, only the REAL terminal
           # backend had it, and the stub did not — three errors that no job could see. A configuration nobody builds is a
           # configuration that is broken.
-          cargo test -p summrise-agent
+          # DIAGNOSTIC (temporary): the failure's NAMES go into a check-run ANNOTATION, because the job
+          # log needs a token to read and the annotation does not. Remove once the cause is known.
+          if ! cargo test -p summrise-agent > /tmp/t1 2>&1; then
+            names=$(grep -E '^test .* FAILED' /tmp/t1 | sed 's/^test //; s/ \.\.\. FAILED//' | head -12 | tr '\n' ' ')
+            first=$(grep -E 'panicked at|assertion|left:|right:' /tmp/t1 | head -6 | tr '\n' ' | ')
+            echo "::error::agent Tests: $names :: $first"
+            tail -30 /tmp/t1
+            exit 101
+          fi
           cargo test -p summrise-agent --features terminal,keyring
           cargo test -p summrise-agent-core
         working-directory: agent
