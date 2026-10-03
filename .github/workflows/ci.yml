@@ -237,31 +237,31 @@ jobs:
         # rather than the word `cargo` for the same reason.
         if: failure()
         run: |
-          # **THE FIRST RUN'S OUTPUT FIRST, THEN A RE-RUN ONLY IF THERE IS NONE.** `44bcd18a` and `567c23b8`
-          # both ended with this step's RE-RUN passing, which proves the job's failure is flaky and says
-          # nothing about WHICH test it was — the first run's log is the thing that can.
+          # **AND IT SAYS WHAT IT SAW, WHATEVER THAT IS.** Two runs in a row ended with this step GREEN and
+          # silent: the first run's captured files matched nothing, and the re-run passed. That is two
+          # different findings and the step could not tell them apart, so now it reports the SHAPE of what it
+          # found — which files exist, how big they are, and the raw tail — before it decides anything.
+          echo "::notice::captured files:"
+          ls -la /tmp/agent-tests.out /tmp/agent-tests-features.out /tmp/agent-core-tests.out 2>&1 || true
+          for f in /tmp/agent-tests.out /tmp/agent-tests-features.out /tmp/agent-core-tests.out; do
+            if [ -f "$f" ]; then
+              echo "::notice::$f is $(wc -c < "$f") byte(s); last lines:"
+              tail -25 "$f" | while IFS= read -r line; do echo "::notice::$line"; done
+            fi
+          done
           named=$(cat /tmp/agent-tests*.out /tmp/agent-core-tests.out 2>/dev/null |
-            grep -cE "^test .* FAILED|^error(\[|:)|panicked at" || true)
+            grep -cE "^test .* FAILED|^error(\[|:)|panicked at|error: could not compile" || true)
           if [ "${named:-0}" -eq 0 ]; then
             cmd="cargo test -p summrise-agent --no-fail-fast"
             $cmd > /tmp/agent-tests-rerun.out 2>&1 || true
             cp /tmp/agent-tests-rerun.out /tmp/agent-tests.out 2>/dev/null || true
+            echo "::warning::nothing in the first run's output matched a failure pattern; the re-run is in /tmp/agent-tests.out"
           fi
-          # **AND IT SAYS SO WHEN THE RE-RUN PASSES.** The first version piped through `tee` under
-          # `set -o pipefail`, so a `grep` that matched nothing exited 1 and the diagnostic step failed the
-          # job it was only supposed to explain. Measured on `44bcd18a`: the step failed with NO annotation,
-          # because the re-run was GREEN — which is itself the finding, and now it is printed as one.
-          named=$(grep -cE "^test .* FAILED|^error(\[|:)|panicked at" /tmp/agent-tests.out || true)
-          if [ "${named:-0}" -eq 0 ]; then
-            echo "the tests PASSED on the re-run — this job's failure is FLAKY, not a defect in the tree"
-            exit 0
-          fi
-          grep -E "^test .* FAILED|^error(\[|:)|panicked at" /tmp/agent-tests.out |
+          grep -E "^test .* FAILED|^error(\[|:)|panicked at|error: could not compile" /tmp/agent-tests.out |
             sort -u | head -25 | while IFS= read -r line; do
               echo "::error::$line"
             done
           exit 0
-        working-directory: agent
       - name: Clippy (zero warnings)
         run: |
           cargo clippy -p summrise-agent --all-targets -- -D warnings
