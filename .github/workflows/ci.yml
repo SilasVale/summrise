@@ -222,9 +222,13 @@ jobs:
           # no-feature build silently stopped compiling: `exec.rs` calls `term_note_exit_code`, only the REAL terminal
           # backend had it, and the stub did not — three errors that no job could see. A configuration nobody builds is a
           # configuration that is broken.
-          cargo test -p summrise-agent
-          cargo test -p summrise-agent --features terminal,keyring
-          cargo test -p summrise-agent-core
+          # **THE OUTPUT IS KEPT, AND THE COMMANDS STAY EXTRACTABLE.** A REDIRECT keeps the status (unlike a
+          # pipe to `tee`) and the line still matches what `scripts/test/all-gates.bash` greps for, so the
+          # FIRST run's failures are still on disk when the diagnostic step below looks for them. `set -e`
+          # means only the first of the three may leave a file — the diagnostic reads whatever is there.
+          cargo test -p summrise-agent > /tmp/agent-tests.out 2>&1
+          cargo test -p summrise-agent --features terminal,keyring > /tmp/agent-tests-features.out 2>&1
+          cargo test -p summrise-agent-core > /tmp/agent-core-tests.out 2>&1
       - name: Name the failing tests
         # **A JOB LOG NEEDS A TOKEN; AN ANNOTATION DOES NOT.** This step exists because the three commands
         # above are kept PURE — a `cargo test …` line is what `scripts/test/all-gates.bash` extracts from this
@@ -233,8 +237,16 @@ jobs:
         # rather than the word `cargo` for the same reason.
         if: failure()
         run: |
-          cmd="cargo test -p summrise-agent --no-fail-fast"
-          $cmd > /tmp/agent-tests.out 2>&1 || true
+          # **THE FIRST RUN'S OUTPUT FIRST, THEN A RE-RUN ONLY IF THERE IS NONE.** `44bcd18a` and `567c23b8`
+          # both ended with this step's RE-RUN passing, which proves the job's failure is flaky and says
+          # nothing about WHICH test it was — the first run's log is the thing that can.
+          named=$(cat /tmp/agent-tests*.out /tmp/agent-core-tests.out 2>/dev/null |
+            grep -cE "^test .* FAILED|^error(\[|:)|panicked at" || true)
+          if [ "${named:-0}" -eq 0 ]; then
+            cmd="cargo test -p summrise-agent --no-fail-fast"
+            $cmd > /tmp/agent-tests-rerun.out 2>&1 || true
+            cp /tmp/agent-tests-rerun.out /tmp/agent-tests.out 2>/dev/null || true
+          fi
           # **AND IT SAYS SO WHEN THE RE-RUN PASSES.** The first version piped through `tee` under
           # `set -o pipefail`, so a `grep` that matched nothing exited 1 and the diagnostic step failed the
           # job it was only supposed to explain. Measured on `44bcd18a`: the step failed with NO annotation,
