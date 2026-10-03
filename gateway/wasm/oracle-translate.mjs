@@ -51,6 +51,14 @@ import {
   isAllowedOrigin,
   corsHeadersFor,
 } from "../src/http.ts";
+import {
+  safeEq,
+  parseCookie,
+  csrfCookieViolation,
+  b64urlDecodeStr,
+  sessionCookieHeader,
+  clearSessionCookieHeader,
+} from "../src/auth.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -355,6 +363,66 @@ const corsHeaderCases = [
   { name: "an empty origin", origin: "", requestHost: "api.saisi.online" },
 ];
 
+// ── the auth decisions ────────────────────────────────────────────────────────────────────────────
+// ALL SECURITY SHAPES, and none of them throws when it drifts. The CSRF cases carry the arm that looks
+// wrong and is deliberate: an ABSENT Sec-Fetch-Site is ALLOWED, because browsers always send it and a
+// non-browser client has no ambient cookie to ride.
+const safeEqCases = [
+  { name: "equal", a: "abc", b: "abc" },
+  { name: "one character differs", a: "abc", b: "abd" },
+  { name: "the first character differs", a: "abc", b: "zbc" },
+  { name: "different lengths", a: "abc", b: "abcd" },
+  { name: "both empty", a: "", b: "" },
+  { name: "one empty", a: "", b: "a" },
+  { name: "unicode", a: "中文", b: "中文" },
+];
+const cookieCases = [
+  { name: "one pair", s: "a=1" },
+  { name: "several", s: "a=1; b=2" },
+  { name: "a pair with no equals is SKIPPED", s: "a=1; junk; b=2" },
+  { name: "a value containing equals", s: "a=1=2" },
+  { name: "spaces are trimmed on BOTH sides", s: "  a  =  1  " },
+  { name: "a duplicate name keeps the LAST", s: "a=1; a=2" },
+  { name: "an empty value", s: "a=" },
+  { name: "an empty name", s: "=b" },
+  { name: "an empty string", s: "" },
+  { name: "trailing semicolon", s: "a=1;" },
+];
+const csrfCases = [
+  { name: "a GET is not gated", method: "GET", cookie: "ag_session=x", secFetchSite: "cross-site" },
+  { name: "a POST with NO cookie", method: "POST", cookie: "", secFetchSite: "cross-site" },
+  { name: "a POST with an unrelated cookie", method: "POST", cookie: "other=1", secFetchSite: "cross-site" },
+  { name: "same-origin passes", method: "POST", cookie: "ag_session=x", secFetchSite: "same-origin" },
+  { name: "none passes", method: "POST", cookie: "ag_session=x", secFetchSite: "none" },
+  { name: "cross-site is refused", method: "POST", cookie: "ag_session=x", secFetchSite: "cross-site" },
+  { name: "same-site is refused", method: "POST", cookie: "ag_session=x", secFetchSite: "same-site" },
+  { name: "an ABSENT header is ALLOWED (the non-browser arm)", method: "POST", cookie: "ag_session=x", secFetchSite: null },
+  { name: "the site value is case-insensitive", method: "POST", cookie: "ag_session=x", secFetchSite: "SAME-ORIGIN" },
+  { name: "the method is case-insensitive", method: "post", cookie: "ag_session=x", secFetchSite: "cross-site" },
+  { name: "a DEVICE PAIR cookie counts", method: "POST", cookie: "summrise_pt_d1=y", secFetchSite: "cross-site" },
+  { name: "a device cookie that is not a pair does not", method: "POST", cookie: "summrise_other=y", secFetchSite: "cross-site" },
+  { name: "DELETE is gated", method: "DELETE", cookie: "ag_session=x", secFetchSite: "cross-site" },
+];
+const b64Cases = [
+  { name: "plain", s: "aGVsbG8=" },
+  { name: "unpadded", s: "aGVsbG8" },
+  { name: "url alphabet", s: "a-_b" },
+  { name: "whitespace is ignored", s: "aGVs bG8=" },
+  { name: "one byte", s: "YQ==" },
+  { name: "two bytes", s: "YWI=" },
+  { name: "an empty string", s: "" },
+  { name: "an invalid character", s: "aGVs*bG8=" },
+  { name: "padding in the middle", s: "aG=sbG8=" },
+  { name: "a bad length", s: "a" },
+  { name: "bytes that are not utf-8", s: "/w==" },
+];
+const authSessionHeaderCases = [
+  { name: "not secure", token: "t", maxAgeSec: 3600, secure: false },
+  { name: "secure", token: "t", maxAgeSec: 3600, secure: true },
+  { name: "zero max age", token: "t", maxAgeSec: 0, secure: false },
+];
+const authClearHeaderCases = [{ name: "not secure", secure: false }, { name: "secure", secure: true }];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -637,6 +705,52 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of safeEqCases) {
+  cases.push({
+    fn: "safe_eq",
+    name: c.name,
+    input: { a: c.a, b: c.b },
+    expected: { value: safeEq(c.a, c.b) },
+  });
+}
+for (const c of cookieCases) {
+  cases.push({ fn: "parse_cookie", name: c.name, input: c.s, expected: { value: parseCookie(c.s) } });
+}
+for (const c of csrfCases) {
+  const headers = { get: (n) => (n === "cookie" ? c.cookie : n === "sec-fetch-site" ? c.secFetchSite : null) };
+  cases.push({
+    fn: "csrf_cookie_violation",
+    name: c.name,
+    input: { method: c.method, cookie: c.cookie, secFetchSite: c.secFetchSite },
+    expected: { value: csrfCookieViolation({ method: c.method, headers }) },
+  });
+}
+for (const c of b64Cases) {
+  let expected;
+  try {
+    expected = { value: b64urlDecodeStr(c.s) };
+  } catch (e) {
+    expected = { threw: true, message: String(e && e.message ? e.message : e) };
+  }
+  cases.push({ fn: "b64_url_decode", name: c.name, input: c.s, expected });
+}
+for (const c of authSessionHeaderCases) {
+  cases.push({
+    fn: "session_cookie_header",
+    name: c.name,
+    input: { token: c.token, maxAgeSec: c.maxAgeSec, secure: c.secure },
+    expected: { value: sessionCookieHeader(c.token, c.maxAgeSec, c.secure) },
+  });
+}
+for (const c of authClearHeaderCases) {
+  cases.push({
+    fn: "clear_session_cookie_header",
+    name: c.name,
+    input: { secure: c.secure },
+    expected: { value: clearSessionCookieHeader(c.secure) },
   });
 }
 
