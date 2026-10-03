@@ -254,6 +254,58 @@ pub fn upstream_ignored_stream(content_type: &str) -> bool {
     content_type.contains("application/json") && !content_type.contains("text/event-stream")
 }
 
+/// **THE NON-STREAMING ANSWER — and its generic sentence is NOT the streaming branch's.**
+///
+/// The source has two near-twins, and the difference between them is one string:
+///
+/// ```text
+///     the ignored-stream branch   "upstream returned an error envelope"
+///     this one                    "upstream returned an invalid response"
+/// ```
+///
+/// (THE FENCE IS NOT DECORATION: without it this block is an INDENTED CODE BLOCK, which `cargo test` tries
+/// to compile as a doctest — and a table of sentences is not Rust.)
+///
+/// Both are reached by the same shape (`!upJson || upJson.error || choices is not a non-empty array`) and
+/// both answer 502 with the upstream's own message when there is one. Conflating them would be invisible in
+/// any test that only checked the status — which is why the corpus pins the BODY.
+///
+/// The success path is `jsonOk(toAnthropicResponse(upJson, upstreamModel))`, and both halves were ported and
+/// oracle-proved long before this.
+pub fn upstream_json_response(
+    upstream_json: Option<&serde_json::Value>,
+    upstream_model: &str,
+) -> Built {
+    let usable = match upstream_json {
+        Some(json) => {
+            let choices = json.get("choices").and_then(|c| c.as_array());
+            json.get("error").is_none() && choices.map(|c| !c.is_empty()).unwrap_or(false)
+        }
+        None => false,
+    };
+    if !usable {
+        let message = upstream_json
+            .and_then(|json| {
+                json.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .filter(|m| !m.is_empty())
+                    .or_else(|| {
+                        json.get("message")
+                            .and_then(|m| m.as_str())
+                            .filter(|m| !m.is_empty())
+                    })
+            })
+            .unwrap_or("upstream returned an invalid response");
+        return json_error(502, message, "api_error");
+    }
+    let json = upstream_json.expect("checked above");
+    json_ok(
+        &crate::translate::to_anthropic_response(json, upstream_model),
+        &[],
+    )
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `built` cases were produced by the SHIPPING TypeScript
@@ -336,6 +388,80 @@ mod oracle_corpus {
     /// **THE RESPONSE SIDE'S DIFFERENTIAL**: `fixtures/stream-ignored-corpus.json` records what the shipping
     /// route ANSWERS when the upstream ignores `stream: true` and returns JSON — captured by stubbing
     /// `fetch` (`gateway/wasm/route-oracle.mjs`).
+    fn non_stream_corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/non-stream-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the non-stream corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **THE NON-STREAMING TWIN, AND ITS SENTENCE IS THE POINT.** This branch and the ignored-stream one
+    /// answer the same SHAPE with different generic text ("upstream returned an invalid response" against
+    /// "…an error envelope"), so a test that compared statuses would call them equivalent. The corpus pins
+    /// the body, and this asserts it.
+    #[test]
+    fn the_non_stream_branch_matches_the_shipping_route() {
+        let doc = non_stream_corpus();
+        let mut checked = 0;
+        let mut statuses = Vec::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let json = &case["upstreamJson"];
+            let upstream_json = if json.is_null() { None } else { Some(json) };
+            let got =
+                upstream_json_response(upstream_json, case["upstreamModel"].as_str().unwrap_or(""));
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            let headers: serde_json::Map<String, serde_json::Value> = got
+                .headers
+                .into_iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+                .collect();
+            assert_eq!(
+                &serde_json::Value::Object(headers),
+                &want["headers"],
+                "{name}: headers"
+            );
+            statuses.push(got.status);
+            checked += 1;
+        }
+        assert!(
+            checked >= 6,
+            "the non-stream corpus shrank to {checked} cases"
+        );
+        assert!(
+            statuses.contains(&200),
+            "no case exercised the success path"
+        );
+        assert!(statuses.contains(&502), "no case exercised a refusal");
+        // **AND THE TWO SENTENCES ARE DISTINCT.** If a refactor made these branches share one generic string,
+        // the corpus would still pass — unless something asserts the difference, which is this.
+        let invalid = upstream_json_response(None, "deepseek-flash");
+        assert!(
+            invalid
+                .body
+                .contains("upstream returned an invalid response"),
+            "{}",
+            invalid.body
+        );
+        assert!(
+            !invalid.body.contains("error envelope"),
+            "this branch must NOT use the streaming branch's sentence: {}",
+            invalid.body
+        );
+    }
+
     #[test]
     fn the_ignored_stream_branch_matches_the_shipping_route() {
         let doc = stream_corpus();
