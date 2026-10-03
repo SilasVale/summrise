@@ -5,6 +5,7 @@
    "name": "ds: the model is swapped in place and the key rides Bearer",
    "kind": "deepseek",
    "upstreamModel": "deepseek-v4.1-flash",
+   "arm": "passthrough",
    "rawText": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":16,\"model\":\"ds/deepseek-v4.1-flash\"}",
    "parsed": null,
    "bearerKey": "sk-ds",
@@ -24,6 +25,7 @@
    "name": "ds: a model key already in the body keeps its POSITION",
    "kind": "deepseek",
    "upstreamModel": "deepseek-v4.1-flash",
+   "arm": "passthrough",
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}",
    "parsed": null,
    "bearerKey": "sk-ds",
@@ -43,6 +45,7 @@
    "name": "qw: a second passthrough channel behaves the same way",
    "kind": "qwen",
    "upstreamModel": "qwen3.8-flash",
+   "arm": "passthrough",
    "rawText": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"qw/qwen3.8-flash\"}",
    "parsed": null,
    "bearerKey": "sk-qw",
@@ -56,6 +59,74 @@
      "content-type": "application/json"
     },
     "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"qwen3.8-flash\"}"
+   }
+  },
+  {
+   "name": "og: an Anthropic request becomes an OpenAI one",
+   "kind": "opencode",
+   "upstreamModel": "deepseek-flash",
+   "arm": "translate",
+   "rawText": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":16,\"model\":\"og/deepseek-v4.1-flash\"}",
+   "parsed": {
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "max_tokens": 16,
+    "model": "og/deepseek-v4.1-flash"
+   },
+   "bearerKey": "sk-og",
+   "status": 200,
+   "captured": {
+    "url": "https://opencode.ai/zen/go/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+     "authorization": "Bearer sk-og",
+     "content-type": "application/json",
+     "x-opencode-session": "summrise-b239c65c0cfcee5a"
+    },
+    "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":16}"
+   }
+  },
+  {
+   "name": "og: a system prompt and a tool declaration ride along",
+   "kind": "opencode",
+   "upstreamModel": "deepseek-flash",
+   "arm": "translate",
+   "rawText": "{\"system\":\"be brief\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"name\":\"t\",\"description\":\"d\",\"input_schema\":{\"type\":\"object\"}}],\"max_tokens\":32,\"model\":\"og/deepseek-v4.1-flash\"}",
+   "parsed": {
+    "system": "be brief",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "tools": [
+     {
+      "name": "t",
+      "description": "d",
+      "input_schema": {
+       "type": "object"
+      }
+     }
+    ],
+    "max_tokens": 32,
+    "model": "og/deepseek-v4.1-flash"
+   },
+   "bearerKey": "sk-og",
+   "status": 200,
+   "captured": {
+    "url": "https://opencode.ai/zen/go/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+     "authorization": "Bearer sk-og",
+     "content-type": "application/json",
+     "x-opencode-session": "summrise-b239c65c0cfcee5a"
+    },
+    "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"system\",\"content\":\"be brief\"},{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":32,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"t\",\"description\":\"d\",\"parameters\":{\"type\":\"object\"}}}]}"
    }
   }
  ]
