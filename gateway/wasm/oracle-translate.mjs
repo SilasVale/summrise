@@ -20,7 +20,7 @@ import { toOpenAIRequest, toAnthropicResponse, sse, toSSE } from "../src/anthrop
 // The plugin is 1,696 lines and reads keys, channels, KV and upstreams — but these two are pure, and
 // they are its safety net. Node imports the module fine (measured), so the oracle drives the REAL
 // functions rather than a snapshot of them.
-import { scrubKeys, redactSecrets } from "../src/plugins/translate.ts";
+import { scrubKeys, redactSecrets, sseResponse, keyMissingError, providerKeyMissingError } from "../src/plugins/translate.ts";
 
 // ── the corpus ────────────────────────────────────────────────────────────────────────────────────
 // Every case is a SHAPE THE DEPLOYED WORKER CAN SEE, plus the two degenerate ends (an empty request and
@@ -115,6 +115,46 @@ const toSseCases = [
     input: { id: "msg_1", model: "m", role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 1, output_tokens: 2 } },
   },
   { name: "no content", input: { id: "msg_2", model: "m" } },
+];
+
+// ── the response builders ─────────────────────────────────────────────────────────────────────────
+// The shapes a client reads when something is WRONG. A `Response` body is a STREAM, so these are read
+// with `await res.text()` and pushed below the synchronous corpus rather than inside it.
+const sseCases2 = [
+  { name: "a body", input: "event: x\ndata: {}\n\n" },
+  { name: "an empty body", input: "" },
+  { name: "null body", input: null },
+];
+
+const keyMissingKinds = [
+  "deepseek",
+  "opencode",
+  "openrouter",
+  "qwen",
+  "nvidia",
+  "gmi",
+  "amd",
+  "commandgoat",
+  "r4",
+  "an unknown kind",
+  "",
+  // **THE PROTOTYPE CHAIN, RECORDED RATHER THAN MATCHED.** `KEY_MISSING_MESSAGES[kind]` is a PROPERTY
+  // lookup, so a kind of `constructor` finds `Object.prototype.constructor` — a FUNCTION — and the
+  // JavaScript answers a 502 whose message is that function's SOURCE. A Rust table has no prototype and
+  // answers null. Reproducing an accident of the prototype chain would be porting a bug, so the case is
+  // in the corpus with `divergence` set and the Rust test asserts the difference is exactly this.
+  { name: "the prototype chain", input: "constructor", divergence: "prototype" },
+  { name: "toString", input: "toString", divergence: "prototype" },
+];
+
+const providerCases = [
+  { name: "prefix and apiKeyEnv", input: { prefix: "myco", apiKeyEnv: "MYCO_KEY" } },
+  { name: "prefix only", input: { prefix: "myco" } },
+  { name: "apiKeyEnv only", input: { apiKeyEnv: "MYCO_KEY" } },
+  { name: "an empty prefix takes the fallback", input: { prefix: "", apiKeyEnv: "MYCO_KEY" } },
+  { name: "an empty apiKeyEnv takes the fallback", input: { prefix: "myco", apiKeyEnv: "" } },
+  { name: "no provider at all", input: undefined },
+  { name: "an empty record", input: {} },
 ];
 
 // ── the redaction pair ────────────────────────────────────────────────────────────────────────────
@@ -224,6 +264,42 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+// The builders, read asynchronously because a Response body is a stream.
+for (const c of sseCases2) {
+  const res = sseResponse(c.input);
+  cases.push({
+    fn: "sse_response",
+    name: c.name,
+    input: c.input,
+    expected: { status: res.status, headers: Object.fromEntries(res.headers), body: await res.text() },
+  });
+}
+for (const kind of keyMissingKinds) {
+  const value = typeof kind === "string" ? kind : kind.input;
+  const name = typeof kind === "string" ? kind : kind.name;
+  const res = keyMissingError(value);
+  if (res === null) {
+    cases.push({ fn: "key_missing_error", name, input: value, expected: { null: true } });
+    continue;
+  }
+  cases.push({
+    fn: "key_missing_error",
+    name,
+    input: value,
+    expected: { status: res.status, headers: Object.fromEntries(res.headers), body: await res.text() },
+    ...(typeof kind === "object" && kind.divergence ? { divergence: kind.divergence } : {}),
+  });
+}
+for (const c of providerCases) {
+  const res = providerKeyMissingError(c.input);
+  cases.push({
+    fn: "provider_key_missing_error",
+    name: c.name,
+    input: c.input === undefined ? null : c.input,
+    expected: { status: res.status, headers: Object.fromEntries(res.headers), body: await res.text() },
   });
 }
 
