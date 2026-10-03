@@ -280,3 +280,125 @@ mod oracle_corpus {
         );
     }
 }
+
+/// **THE `count_tokens` ROUTE'S DECISION, AND ONLY ITS DECISION.**
+///
+/// The source's whole arm is:
+///
+/// ```text
+///   for (const kind of ["deepseek", "qwen", "amd", "r4"]) {
+///     if (route.kind === kind && isKeyMissing(kind, byok, env)) return keyMissingError(kind);
+///   }
+///   return jsonOk({ input_tokens: estimateTokens(rawText) });
+/// ```
+///
+/// FOUR KINDS ARE CHECKED, AND THE LIST IS NOT THE ROUTE TABLE: a channel that reaches its upstream without
+/// its key goes out headerless and the user gets a bare "Upstream 401" instead of a config error naming the
+/// provider — which is why a forgotten entry here is worth a test rather than a review. The estimate is
+/// LOCAL for every channel (the upstream count endpoint used to cost a round-trip on every Claude Code
+/// turn); the missing-key checks stay, because those are real config errors rather than latency.
+///
+/// `kind` IS AN ARGUMENT: resolving the route from a model id is the I/O edge's job (`pickRoute` reads the
+/// table, the env and the US-proxy switch), and this answers what the route does once it is known.
+pub fn count_tokens_response(
+    kind: &str,
+    byok: &serde_json::Map<String, serde_json::Value>,
+    env: &serde_json::Value,
+    raw_text: &serde_json::Value,
+) -> crate::responses::Built {
+    for checked in ["deepseek", "qwen", "amd", "r4"] {
+        if kind == checked && crate::byok::is_key_missing(checked, byok, Some(env)) {
+            // `keyMissingError(kind) as Response` — the table's own message, and the `as Response` in the
+            // source is a non-null assertion: the list above is a SUBSET of the table's keys, so the lookup
+            // always hits. If it ever did not, this answers the same 502 with an empty message rather than
+            // panicking, which is the honest failure for a config error.
+            return crate::responses::key_missing_error(checked)
+                .unwrap_or_else(|| crate::responses::json_error(502, "", "config_error"));
+        }
+    }
+    let tokens = crate::tokens::estimate_tokens(raw_text);
+    crate::responses::json_ok(&serde_json::json!({ "input_tokens": tokens }), &[])
+}
+
+#[cfg(test)]
+mod count_tokens_tests {
+    //! **THE COMPOSITION IS PINNED BY HAND, AND THE REASON IS STATED.** The `count_tokens` arm lives inside
+    //! `handleGatewayImpl`, which resolves a route through `pickRoute` and reads the user's key record from
+    //! KV — so driving the SHIPPING arm needs a fake KV binding, which is the route's own differential
+    //! rather than a unit here. What IS oracle-proved is every piece this composes: `detectRoute` (the arm's
+    //! gate), `isKeyMissing`, `keyMissingError` and `estimateTokens` are all in the corpus, and `jsonOk` is
+    //! too. What follows pins the ORDER and the LIST, which is what the source's own comment says is worth a
+    //! test rather than a review.
+    use super::*;
+
+    fn byok(pairs: &[(&str, &str)]) -> serde_json::Map<String, serde_json::Value> {
+        let mut m = serde_json::Map::new();
+        for (k, v) in pairs {
+            m.insert((*k).to_string(), serde_json::json!(v));
+        }
+        m
+    }
+
+    #[test]
+    fn the_four_checked_kinds_refuse_with_the_tables_own_message() {
+        for kind in ["deepseek", "qwen", "amd", "r4"] {
+            let got = count_tokens_response(
+                kind,
+                &byok(&[]),
+                &serde_json::json!({}),
+                &serde_json::json!("{}"),
+            );
+            assert_eq!(got.status, 502, "{kind}");
+            let expected = crate::responses::key_missing_error(kind).expect("a table entry");
+            assert_eq!(got.body, expected.body, "{kind}");
+            assert!(got.body.contains("config_error"), "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_kind_outside_the_list_is_estimated_rather_than_refused() {
+        // **THE LIST IS A SUBSET, AND THAT IS THE POINT.** nvidia and gmi reach their upstreams with a
+        // bearer key this arm does not gate on, so an unconfigured nv/ request gets the estimate rather
+        // than a config error — exactly as the source's four-kind loop does.
+        for kind in ["nvidia", "gmi", "opencode", "openrouter", "unknown"] {
+            let got = count_tokens_response(
+                kind,
+                &byok(&[]),
+                &serde_json::json!({}),
+                &serde_json::json!("{\"messages\":[{\"content\":\"hi\"}]}"),
+            );
+            assert_eq!(got.status, 200, "{kind}");
+            assert!(got.body.contains("input_tokens"), "{kind}: {}", got.body);
+        }
+    }
+
+    #[test]
+    fn a_configured_key_estimates_and_the_estimate_is_the_ported_one() {
+        let raw = serde_json::json!("{\"messages\":[{\"content\":\"hello world\"}]}");
+        let got = count_tokens_response(
+            "deepseek",
+            &byok(&[("deepseek", "sk-1")]),
+            &serde_json::json!({}),
+            &raw,
+        );
+        assert_eq!(got.status, 200);
+        let want = crate::tokens::estimate_tokens(&raw);
+        assert_eq!(
+            got.body,
+            crate::responses::stringify_like_json(&serde_json::json!({ "input_tokens": want }))
+        );
+    }
+
+    #[test]
+    fn an_env_level_key_satisfies_the_gate_for_the_kinds_that_have_one() {
+        // `isKeyMissing(kind, byok, env)` — the env half counts where the channel declares an envKey, which
+        // is why this passes `env` through rather than an empty object.
+        let got = count_tokens_response(
+            "qwen",
+            &byok(&[]),
+            &serde_json::json!({ "QWEN_API_KEY": "env-key" }),
+            &serde_json::json!("{}"),
+        );
+        assert_eq!(got.status, 200, "an env key is a usable credential");
+    }
+}
