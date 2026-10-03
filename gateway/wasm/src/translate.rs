@@ -1178,6 +1178,16 @@ mod oracle_corpus {
             let model = case["model"].as_str().unwrap_or("m");
             let expected = &case["expected"];
             let throws = expected.get("threw").is_some();
+            // THE TWO CORPUS TESTS ARE DISJOINT: `redact.rs` owns its own functions, and this one SKIPS
+            // them rather than refusing them. (The first version panicked on an unknown name, which the
+            // `catch_unwind` below then read as "this refused where the TypeScript answered" — a test
+            // reporting its own overlap as a port defect.)
+            if !matches!(
+                func,
+                "to_openai_request" | "to_anthropic_response" | "sse" | "to_sse"
+            ) {
+                continue;
+            }
 
             // The call, captured as a refusal rather than a value when it panics.
             let outcome: Result<String, ()> = std::panic::catch_unwind(|| match func {
@@ -1223,6 +1233,8 @@ mod oracle_corpus {
                 }
             }
         }
-        assert_eq!(checked, cases.len());
+        // 19 of the corpus's cases are this module's; the rest belong to `redact.rs`, which has its own
+        // test. The floor is what keeps this from passing vacuously if the corpus is regenerated wrong.
+        assert_eq!(checked, 19, "the translate half of the corpus changed size");
     }
 }
