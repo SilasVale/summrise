@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 45] = [
+const ALLOWED: [(&str, &str); 46] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -80,6 +80,10 @@ const ALLOWED: [(&str, &str); 45] = [
     ("gateway/wasm/src/cors.rs", "the same allowed-origins list as gateway/src/http.ts, ported to Rust"),
     ("gateway/wasm/oracle-translate.mjs", "the oracle drives the SHIPPING TypeScript, so its CORS cases spell the origins the list holds"),
     ("gateway/wasm/fixtures/translate-corpus.json", "the generated corpus those cases produced: the same origins, recorded"),
+    // ADDED 2026-10-02, same branch: `device.rs` is the Rust port of `device-fetch.ts`'s host rules, and
+    // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
+    // for exactly that reason ("the rule that decides what a device hostname is").
+    ("gateway/wasm/src/device.rs", "the DEVICE_HOST_SUFFIX fallback, ported: the rule that decides what a device hostname is"),
     ("gateway/src/device-fetch.ts", "the DEVICE_HOST_SUFFIX fallback — the rule that decides what a device hostname is"),
     ("gateway/src/plugins/devices.ts", "the INDEX_WORKER_URL / INSTALL_SOURCE fallbacks"),
     ("gateway/ui/", "the console's own API client defaults"),
@@ -169,7 +173,10 @@ const ALLOWED: [(&str, &str); 45] = [
 // files name the same two hosts the TypeScript list does — the port itself, the oracle that drives the
 // shipping TypeScript's cases, and the corpus those cases produced. Raised by exactly three, each with its
 // reason beside its entry, rather than by widening `gateway/`.
-const MAX_ALLOWED: usize = 45;
+//
+// 45 -> 46 the same day, for the device-host rules: `device.rs` carries the `DEVICE_HOST_SUFFIX` default,
+// which is the same production hostname `device-fetch.ts` names. Raised by ONE, with the reason beside it.
+const MAX_ALLOWED: usize = 46;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -361,7 +368,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 45"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 46"),
         "{}",
         ok.stdout
     );
