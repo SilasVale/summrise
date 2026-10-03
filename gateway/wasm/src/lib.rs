@@ -225,6 +225,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
 pub mod body_scan;
 pub mod byok;
+pub mod cors;
 pub mod rate_limit;
 pub mod redact;
 pub mod request_shape;

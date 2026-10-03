@@ -17,6 +17,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 worker = "0.8.7"
 serde = { version = "1", features = ["derive"] }
+# ALREADY IN THE TREE (worker depends on it), so parsing an Origin costs no extra bytes.
+url = "2"
 # `worker` already links serde_json (its own dependency), so this line adds no
 # second copy of it to the module — the size measurement in the commit message is
 # the check on that claim, not this comment.
