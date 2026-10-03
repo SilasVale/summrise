@@ -78,6 +78,7 @@ import {
   reasoningMaxParsedFor,
 } from "../src/channels.ts";
 import { wireModelName, pickRoute } from "../src/upstream.ts";
+import { RETIRED_MODELS } from "../src/channels.ts";
 import { searchTargetFor, oxAlphaReasoningDefault } from "../src/plugins/translate.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
@@ -626,6 +627,45 @@ const jsonOkCases = [
   { name: "extra headers", data: { ok: true }, extra: { "X-Extra": "1" } },
 ];
 
+// ── the model -> the route chain ──────────────────────────────────────────────────────────────────
+// `prefix = model.split("/")[0] || ""`, then `pickRoute`, then
+// `wireModelName(prefix, stripBracket(stripPrefix ? model.slice(prefix.length + 1) : model))` — the same
+// order the handler uses. The retired gate is NOT here: it refuses before any of this, and the corpus carries
+// its hint separately.
+const resolveModelCases = [];
+const resolveModelIds = [
+  "og/deepseek-v4.1-flash",
+  "og/openai/gpt-5.6-luna:floor[1m]",
+  "or/stealth/ox-alpha",
+  "ds/deepseek-v4.1-flash",
+  "qw/qwen3.8-flash",
+  "nv/nvidia/nemotron-3-ultra-550b-a55b",
+  "gmi/MiniMaxAI/MiniMax-M3",
+  "cm/deepseek/deepseek-v4.1-flash",
+  "amd/deepseek-v4-flash",
+  "r4/deepseek-v4.1-flash",
+  "og/ox-alpha-free",
+  // A bare id, a leading slash, and an id with a bracket but no prefix.
+  "deepseek-v4.1-flash",
+  "/odd",
+  "gpt-5.6-luna:floor[1m]",
+  // **THE CASE THE REGEX IS ABOUT.** `[^\]]*` cannot cross an inner `]`, so this one is returned
+  // UNCHANGED — and a port that looked for the last `[` would strip it.
+  "og/x[a]b]",
+  "og/plain]",
+  "og/[",
+];
+for (const id of resolveModelIds) {
+  for (const requestPath of ["/v1/messages", "/v1/chat/completions"]) {
+    resolveModelCases.push({ id, requestPath, usProxy: null });
+    resolveModelCases.push({ id, requestPath, usProxy: "1" });
+  }
+}
+// The retired map, as hints — the gate that uses them REFUSES rather than redirects.
+for (const id of Object.keys(RETIRED_MODELS)) {
+  resolveModelCases.push({ id, requestPath: "/v1/messages", usProxy: null, retiredOnly: true });
+}
+
 // ── the routing decision ──────────────────────────────────────────────────────────────────────────
 // `pickRoute` is exported and PURE given an env, so the oracle calls it directly — no capture, no stub. The
 // cases cover all nine prefixes on both request paths, with and without the US exit, plus the three things a
@@ -1016,6 +1056,37 @@ for (const c of routingPickCases) {
       base: c.base || null,
     },
     expected: { value: pickRoute(c.prefix, env, c.usProxy, c.requestPath) },
+  });
+}
+
+for (const c of resolveModelCases) {
+  const env = {};
+  if (c.usProxy) env.US_PROXY = c.usProxy;
+  if (c.retiredOnly) {
+    cases.push({
+      fn: "resolve_model",
+      name: `retired: ${c.id}`,
+      input: { model: c.id, usProxySetting: false, requestPath: "/v1/messages" },
+      expected: { retiredHint: RETIRED_MODELS[c.id] },
+    });
+    continue;
+  }
+  const prefix = c.id.split("/")[0] || "";
+  const forceUsProxy = new Set(
+    (await import("../src/channels.ts")).MODEL_REGISTRY.filter((m) => m.usEgress).map((m) => m.id),
+  ).has(c.id);
+  const usProxy = forceUsProxy || !!c.usProxy ? "1" : null;
+  const route = pickRoute(prefix, env, usProxy, c.requestPath);
+  const stripped = route.stripPrefix ? c.id.slice(prefix.length + 1) : c.id;
+  cases.push({
+    fn: "resolve_model",
+    name: `${c.id} on ${c.requestPath}${c.usProxy ? " via the exit" : ""}`,
+    input: { model: c.id, usProxySetting: !!c.usProxy, requestPath: c.requestPath },
+    expected: {
+      prefix,
+      route,
+      upstreamModel: wireModelName(prefix, stripBracket(stripped)),
+    },
   });
 }
 

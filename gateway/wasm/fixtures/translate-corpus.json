@@ -2140,6 +2140,1454 @@
    }
   },
   {
+   "fn": "resolve_model",
+   "name": "og/deepseek-v4.1-flash on /v1/messages",
+   "input": {
+    "model": "og/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/deepseek-v4.1-flash on /v1/messages via the exit",
+   "input": {
+    "model": "og/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/deepseek-v4.1-flash on /v1/chat/completions",
+   "input": {
+    "model": "og/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/deepseek-v4.1-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/openai/gpt-5.6-luna:floor[1m] on /v1/messages",
+   "input": {
+    "model": "og/openai/gpt-5.6-luna:floor[1m]",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "openai/gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/openai/gpt-5.6-luna:floor[1m] on /v1/messages via the exit",
+   "input": {
+    "model": "og/openai/gpt-5.6-luna:floor[1m]",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "openai/gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/openai/gpt-5.6-luna:floor[1m] on /v1/chat/completions",
+   "input": {
+    "model": "og/openai/gpt-5.6-luna:floor[1m]",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "openai/gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/openai/gpt-5.6-luna:floor[1m] on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/openai/gpt-5.6-luna:floor[1m]",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "openai/gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "or/stealth/ox-alpha on /v1/messages",
+   "input": {
+    "model": "or/stealth/ox-alpha",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "or",
+    "route": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://openrouter.ai/api/v1/messages"
+    },
+    "upstreamModel": "stealth/ox-alpha"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "or/stealth/ox-alpha on /v1/messages via the exit",
+   "input": {
+    "model": "or/stealth/ox-alpha",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "or",
+    "route": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=or&path=%2Fv1%2Fmessages"
+    },
+    "upstreamModel": "stealth/ox-alpha"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "or/stealth/ox-alpha on /v1/chat/completions",
+   "input": {
+    "model": "or/stealth/ox-alpha",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "or",
+    "route": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://openrouter.ai/api/v1/chat/completions"
+    },
+    "upstreamModel": "stealth/ox-alpha"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "or/stealth/ox-alpha on /v1/chat/completions via the exit",
+   "input": {
+    "model": "or/stealth/ox-alpha",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "or",
+    "route": {
+     "type": "passthrough",
+     "kind": "openrouter",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=or&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "stealth/ox-alpha"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "ds/deepseek-v4.1-flash on /v1/messages",
+   "input": {
+    "model": "ds/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "ds",
+    "route": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://api.deepseek.com/anthropic/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "ds/deepseek-v4.1-flash on /v1/messages via the exit",
+   "input": {
+    "model": "ds/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "ds",
+    "route": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=ds&path=%2Fanthropic%2Fv1%2Fmessages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "ds/deepseek-v4.1-flash on /v1/chat/completions",
+   "input": {
+    "model": "ds/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "ds",
+    "route": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://api.deepseek.com/anthropic/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "ds/deepseek-v4.1-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "ds/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "ds",
+    "route": {
+     "type": "passthrough",
+     "kind": "deepseek",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=ds&path=%2Fanthropic%2Fv1%2Fmessages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "qw/qwen3.8-flash on /v1/messages",
+   "input": {
+    "model": "qw/qwen3.8-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "qw",
+    "route": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages"
+    },
+    "upstreamModel": "qwen3.8-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "qw/qwen3.8-flash on /v1/messages via the exit",
+   "input": {
+    "model": "qw/qwen3.8-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "qw",
+    "route": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=qw&path=%2Fapps%2Fanthropic%2Fv1%2Fmessages"
+    },
+    "upstreamModel": "qwen3.8-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "qw/qwen3.8-flash on /v1/chat/completions",
+   "input": {
+    "model": "qw/qwen3.8-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "qw",
+    "route": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+    },
+    "upstreamModel": "qwen3.8-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "qw/qwen3.8-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "qw/qwen3.8-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "qw",
+    "route": {
+     "type": "passthrough",
+     "kind": "qwen",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=qw&path=%2Fcompatible-mode%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "qwen3.8-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "nv/nvidia/nemotron-3-ultra-550b-a55b on /v1/messages",
+   "input": {
+    "model": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "nv",
+    "route": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://integrate.api.nvidia.com/v1/chat/completions"
+    },
+    "upstreamModel": "nvidia/nemotron-3-ultra-550b-a55b"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "nv/nvidia/nemotron-3-ultra-550b-a55b on /v1/messages via the exit",
+   "input": {
+    "model": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "nv",
+    "route": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=nv&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "nvidia/nemotron-3-ultra-550b-a55b"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "nv/nvidia/nemotron-3-ultra-550b-a55b on /v1/chat/completions",
+   "input": {
+    "model": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "nv",
+    "route": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://integrate.api.nvidia.com/v1/chat/completions"
+    },
+    "upstreamModel": "nvidia/nemotron-3-ultra-550b-a55b"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "nv/nvidia/nemotron-3-ultra-550b-a55b on /v1/chat/completions via the exit",
+   "input": {
+    "model": "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "nv",
+    "route": {
+     "type": "passthrough",
+     "kind": "nvidia",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=nv&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "nvidia/nemotron-3-ultra-550b-a55b"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gmi/MiniMaxAI/MiniMax-M3 on /v1/messages",
+   "input": {
+    "model": "gmi/MiniMaxAI/MiniMax-M3",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "gmi",
+    "route": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://api.gmi-serving.com/v1/chat/completions"
+    },
+    "upstreamModel": "MiniMaxAI/MiniMax-M3"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gmi/MiniMaxAI/MiniMax-M3 on /v1/messages via the exit",
+   "input": {
+    "model": "gmi/MiniMaxAI/MiniMax-M3",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "gmi",
+    "route": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=gmi&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "MiniMaxAI/MiniMax-M3"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gmi/MiniMaxAI/MiniMax-M3 on /v1/chat/completions",
+   "input": {
+    "model": "gmi/MiniMaxAI/MiniMax-M3",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "gmi",
+    "route": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://api.gmi-serving.com/v1/chat/completions"
+    },
+    "upstreamModel": "MiniMaxAI/MiniMax-M3"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gmi/MiniMaxAI/MiniMax-M3 on /v1/chat/completions via the exit",
+   "input": {
+    "model": "gmi/MiniMaxAI/MiniMax-M3",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "gmi",
+    "route": {
+     "type": "passthrough",
+     "kind": "gmi",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=gmi&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "MiniMaxAI/MiniMax-M3"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "cm/deepseek/deepseek-v4.1-flash on /v1/messages",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "cm",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "cm/deepseek/deepseek-v4.1-flash on /v1/messages via the exit",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "cm",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=cm&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "cm/deepseek/deepseek-v4.1-flash on /v1/chat/completions",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "cm",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "cm/deepseek/deepseek-v4.1-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "cm",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=cm&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "amd/deepseek-v4-flash on /v1/messages",
+   "input": {
+    "model": "amd/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "amd",
+    "route": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "amd/deepseek-v4-flash on /v1/messages via the exit",
+   "input": {
+    "model": "amd/deepseek-v4-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "amd",
+    "route": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "amd/deepseek-v4-flash on /v1/chat/completions",
+   "input": {
+    "model": "amd/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "amd",
+    "route": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "amd/deepseek-v4-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "amd/deepseek-v4-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "amd",
+    "route": {
+     "type": "passthrough",
+     "kind": "amd",
+     "stripPrefix": true,
+     "upstream": "https://developer.amd.com.cn/radeon/api/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "r4/deepseek-v4.1-flash on /v1/messages",
+   "input": {
+    "model": "r4/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "r4",
+    "route": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "r4/deepseek-v4.1-flash on /v1/messages via the exit",
+   "input": {
+    "model": "r4/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "r4",
+    "route": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/messages"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "r4/deepseek-v4.1-flash on /v1/chat/completions",
+   "input": {
+    "model": "r4/deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "r4",
+    "route": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "r4/deepseek-v4.1-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "r4/deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "r4",
+    "route": {
+     "type": "passthrough",
+     "kind": "r4",
+     "stripPrefix": true,
+     "upstream": "https://api.r4.codes/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/ox-alpha-free on /v1/messages",
+   "input": {
+    "model": "og/ox-alpha-free",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "ox-alpha-free"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/ox-alpha-free on /v1/messages via the exit",
+   "input": {
+    "model": "og/ox-alpha-free",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "ox-alpha-free"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/ox-alpha-free on /v1/chat/completions",
+   "input": {
+    "model": "og/ox-alpha-free",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "ox-alpha-free"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/ox-alpha-free on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/ox-alpha-free",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "ox-alpha-free"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "deepseek-v4.1-flash on /v1/messages",
+   "input": {
+    "model": "deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "deepseek-v4.1-flash",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "deepseek-v4.1-flash on /v1/messages via the exit",
+   "input": {
+    "model": "deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "deepseek-v4.1-flash",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=deepseek-v4.1-flash&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "deepseek-v4.1-flash on /v1/chat/completions",
+   "input": {
+    "model": "deepseek-v4.1-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "deepseek-v4.1-flash",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "deepseek-v4.1-flash on /v1/chat/completions via the exit",
+   "input": {
+    "model": "deepseek-v4.1-flash",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "deepseek-v4.1-flash",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=deepseek-v4.1-flash&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "/odd on /v1/messages",
+   "input": {
+    "model": "/odd",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "/odd"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "/odd on /v1/messages via the exit",
+   "input": {
+    "model": "/odd",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "/odd"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "/odd on /v1/chat/completions",
+   "input": {
+    "model": "/odd",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "/odd"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "/odd on /v1/chat/completions via the exit",
+   "input": {
+    "model": "/odd",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "/odd"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gpt-5.6-luna:floor[1m] on /v1/messages",
+   "input": {
+    "model": "gpt-5.6-luna:floor[1m]",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "gpt-5.6-luna:floor[1m]",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gpt-5.6-luna:floor[1m] on /v1/messages via the exit",
+   "input": {
+    "model": "gpt-5.6-luna:floor[1m]",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "gpt-5.6-luna:floor[1m]",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=gpt-5.6-luna%3Afloor%5B1m%5D&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gpt-5.6-luna:floor[1m] on /v1/chat/completions",
+   "input": {
+    "model": "gpt-5.6-luna:floor[1m]",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "gpt-5.6-luna:floor[1m]",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://api.commandcode.ai/provider/v1/chat/completions"
+    },
+    "upstreamModel": "gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "gpt-5.6-luna:floor[1m] on /v1/chat/completions via the exit",
+   "input": {
+    "model": "gpt-5.6-luna:floor[1m]",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "gpt-5.6-luna:floor[1m]",
+    "route": {
+     "type": "translate",
+     "kind": "commandgoat",
+     "stripPrefix": false,
+     "upstream": "https://v.saisi.online/api/zen?target=gpt-5.6-luna%3Afloor%5B1m%5D&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "gpt-5.6-luna:floor"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/x[a]b] on /v1/messages",
+   "input": {
+    "model": "og/x[a]b]",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "x[a]b]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/x[a]b] on /v1/messages via the exit",
+   "input": {
+    "model": "og/x[a]b]",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "x[a]b]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/x[a]b] on /v1/chat/completions",
+   "input": {
+    "model": "og/x[a]b]",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "x[a]b]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/x[a]b] on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/x[a]b]",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "x[a]b]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/plain] on /v1/messages",
+   "input": {
+    "model": "og/plain]",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "plain]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/plain] on /v1/messages via the exit",
+   "input": {
+    "model": "og/plain]",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "plain]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/plain] on /v1/chat/completions",
+   "input": {
+    "model": "og/plain]",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "plain]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/plain] on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/plain]",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "plain]"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/[ on /v1/messages",
+   "input": {
+    "model": "og/[",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "["
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/[ on /v1/messages via the exit",
+   "input": {
+    "model": "og/[",
+    "usProxySetting": true,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "["
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/[ on /v1/chat/completions",
+   "input": {
+    "model": "og/[",
+    "usProxySetting": false,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://opencode.ai/zen/go/v1/chat/completions"
+    },
+    "upstreamModel": "["
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "og/[ on /v1/chat/completions via the exit",
+   "input": {
+    "model": "og/[",
+    "usProxySetting": true,
+    "requestPath": "/v1/chat/completions"
+   },
+   "expected": {
+    "prefix": "og",
+    "route": {
+     "type": "translate",
+     "kind": "opencode",
+     "stripPrefix": true,
+     "upstream": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions"
+    },
+    "upstreamModel": "["
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: ds/deepseek-v4-flash",
+   "input": {
+    "model": "ds/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: og/deepseek-v4-flash",
+   "input": {
+    "model": "og/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "og/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: cm/deepseek/deepseek-v4-flash",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: cm/deepseek/deepseek-v4-flash-vision-exp",
+   "input": {
+    "model": "cm/deepseek/deepseek-v4-flash-vision-exp",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: or/deepseek/deepseek-v4-flash-0731",
+   "input": {
+    "model": "or/deepseek/deepseek-v4-flash-0731",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: amd/deepseek-v4-flash",
+   "input": {
+    "model": "amd/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: amd/deepseek-v4-flash-vision-exp",
+   "input": {
+    "model": "amd/deepseek-v4-flash-vision-exp",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek-v4-flash",
+   "input": {
+    "model": "deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek-v4-flash-vision-exp",
+   "input": {
+    "model": "deepseek-v4-flash-vision-exp",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek-v4-flash-0731",
+   "input": {
+    "model": "deepseek-v4-flash-0731",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek/deepseek-v4-flash",
+   "input": {
+    "model": "deepseek/deepseek-v4-flash",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek/deepseek-v4-flash-vision-exp",
+   "input": {
+    "model": "deepseek/deepseek-v4-flash-vision-exp",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
+   "fn": "resolve_model",
+   "name": "retired: deepseek/deepseek-v4-flash-0731",
+   "input": {
+    "model": "deepseek/deepseek-v4-flash-0731",
+    "usProxySetting": false,
+    "requestPath": "/v1/messages"
+   },
+   "expected": {
+    "retiredHint": "cm/deepseek/deepseek-v4.1-flash"
+   }
+  },
+  {
    "fn": "wire_model_name",
    "name": "a non-og prefix passes through",
    "input": {
