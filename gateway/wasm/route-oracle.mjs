@@ -1,0 +1,234 @@
+// route-oracle.mjs — THE ROUTE'S DIFFERENTIAL, in the shape `verify.mjs` already uses for the breaker.
+//
+// `oracle.mjs`/`oracle-translate.mjs` drive the SHIPPING FUNCTIONS. This drives the SHIPPING ROUTE: it calls
+// the real `handleGateway` from `plugins/translate.ts` with a FAKE env, and records what came back — status,
+// headers and body — as a fixture the Rust side replays.
+//
+//   cd gateway/wasm && node route-oracle.mjs > fixtures/route-corpus.json
+//
+// WHY A FAKE ENV IS ENOUGH FOR THIS ROUTE: the `count_tokens` arm estimates LOCALLY (the upstream count
+// endpoint was dropped on 2026-08-12 because it cost a round-trip on every Claude Code turn), so nothing on
+// this path dials out. What it does read is KV — the token record, the user record and the user's key
+// record — and that is a map.
+//
+// THE BREAKER STUB IS COPIED FROM `verify.mjs`, including its class name: workers-rs duck-types on
+// `obj.constructor().name`, and the real runtime's namespace object has that exact name.
+//
+// WHAT IT DOES NOT COVER, stated rather than implied: workerd's own runtime glue, and any path that dials
+// an upstream (this route does not).
+import { writeFileSync } from "node:fs";
+import { handleGateway } from "../src/plugins/translate.ts";
+import { __clearCaches } from "../src/store/cache.ts";
+
+/** A KV namespace over a plain map: the three methods the store touches. */
+function fakeKV(entries = {}) {
+  const map = new Map(Object.entries(entries));
+  return {
+    // **THE TYPE ARGUMENT IS NOT DECORATION.** The store reads records with `env.KEYS.get(key, "json")`,
+    // which PARSES in the real binding — a fake that ignores the second argument hands back a string, and
+    // `ukeys.DEEPSEEK_API_KEY` on a string is undefined. That is exactly what happened on this harness's
+    // first run: every case with a user key answered 502 "not configured".
+    async get(key, type) {
+      if (!map.has(key)) return null;
+      const value = map.get(key);
+      if (type === "json" && typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    },
+    async put(key, value) {
+      map.set(key, value);
+    },
+    async delete(key) {
+      map.delete(key);
+    },
+    async list({ prefix = "" } = {}) {
+      return {
+        keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+        list_complete: true,
+        cursor: undefined,
+      };
+    },
+    __map: map,
+  };
+}
+
+/** The breaker namespace `verify.mjs` builds, by the same constructor-name rule. */
+class DurableObjectNamespace {
+  idFromName(name) {
+    return { name };
+  }
+  get() {
+    return { fetch: async () => new Response("0", { status: 200 }) };
+  }
+}
+
+const TOKEN = "tok-route-test";
+const UID = "u-route-test";
+
+/** A user record with a role and `enabled`, and a key record for one channel. */
+function envWith(keys = {}) {
+  return {
+    KEYS: fakeKV({
+      [`token:${TOKEN}`]: UID,
+      [`user:${UID}`]: JSON.stringify({ id: UID, enabled: true, role: "user" }),
+      [`ukeys:${UID}`]: JSON.stringify(keys),
+    }),
+    BREAKER: new DurableObjectNamespace(),
+  };
+}
+
+async function callRoute(body, { keys = {}, token = TOKEN, headers = {} } = {}) {
+  const request = new Request("https://relay.example/v1/messages/count_tokens", {
+    method: "POST",
+    headers: { "x-api-key": token, "content-type": "application/json", ...headers },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  const url = new URL(request.url);
+  const response = await handleGateway(request, envWith(keys), url);
+  return {
+    status: response.status,
+    headers: Object.fromEntries(response.headers),
+    body: await response.text(),
+  };
+}
+
+// ── the corpus ────────────────────────────────────────────────────────────────────────────────────
+// The three arms of the `count_tokens` decision, plus the two shapes that decide whether the arm is reached
+// at all: an unauthenticated request (401 before the estimate) and a body whose estimate is NaN.
+const cases = [
+  {
+    name: "no key for a CHECKED kind is a config error",
+    body: { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+    opts: { keys: {} },
+  },
+  {
+    name: "a key for that kind estimates",
+    body: { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" } },
+  },
+  {
+    name: "an env-level key satisfies the gate",
+    body: { model: "qw/qwen3.8-flash", messages: [{ role: "user", content: "hi" }] },
+    opts: { keys: {}, env: { QWEN_API_KEY: "env-key" } },
+  },
+  {
+    // **THE ROUTE GATES SOME KINDS BEFORE THIS ARM**, and `or/` is one of them: with no OpenRouter key the
+    // handler answers its own config error and the estimate is never reached. The case is kept BECAUSE of
+    // that — it is the "which gate answers first" boundary, and a port that reordered them would show up
+    // here rather than in a comment.
+    name: "a kind the route gates BEFORE the arm",
+    body: { model: "or/openai/gpt-5.6-luna:floor[1m]", messages: [{ role: "user", content: "hi" }] },
+    opts: { keys: {} },
+    // THE ARM IS NEVER REACHED for this case: the handler checks the OpenRouter key on its own path first.
+    // The marker is what lets the Rust side assert "this one is NOT mine" instead of pretending the pure
+    // decision reproduces a gate that lives above it.
+    beforeArm: true,
+  },
+  {
+    name: "an unauthenticated request is refused before the estimate",
+    body: { model: "ds/deepseek-v4.1-flash", messages: [] },
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" }, token: "wrong" },
+    // AUTH IS THE FIRST GATE OF ALL, so this case is above the arm too — the 401 comes from
+    // `findUserByToken` before any route or key decision.
+    beforeArm: true,
+  },
+  {
+    name: "a CJK body estimates",
+    body: { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "中文内容测试" }] },
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" } },
+  },
+  {
+    name: "a body with an image payload estimates",
+    body: {
+      model: "ds/deepseek-v4.1-flash",
+      messages: [{ role: "user", content: [{ type: "image", source: { data: "A".repeat(600) } }] }],
+    },
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" } },
+  },
+  {
+    // An empty body has NO model, so the route resolves to its DEFAULT channel (`cm/`) and the arm answers
+    // for THAT kind — which is why this case's error names CMD_API_KEY rather than DeepSeek's.
+    name: "an empty body resolves to the default channel",
+    body: "",
+    opts: { keys: { DEEPSEEK_API_KEY: "sk-test" } },
+    // Same marker, different reason: no model means the DEFAULT channel (`cm/`), whose key gate is above
+    // the arm. The arm would estimate for `commandgoat`, so the two answers differ by design.
+    beforeArm: true,
+  },
+];
+
+const out = [];
+for (const c of cases) {
+  const env = envWith(c.opts.keys || {});
+  if (c.opts.env) Object.assign(env, c.opts.env);
+  const request = new Request("https://relay.example/v1/messages/count_tokens", {
+    method: "POST",
+    headers: { "x-api-key": c.opts.token ?? TOKEN, "content-type": "application/json" },
+    body: typeof c.body === "string" ? c.body : JSON.stringify(c.body),
+  });
+  // **THE PER-ISOLATE CACHE IS SHARED BY EVERY CASE IN THIS PROCESS, WHICH IS ONE ISOLATE.** The store's
+  // own test hook is the fix, and its comment says why it exists: "tests that flip global settings would
+  // otherwise read a stale cached value from an earlier test". Measured on this harness's second run: the
+  // FIRST case (no keys) cached `ukeys:u-route-test` as `{}`, and every later case with a key read the
+  // empty record back and answered 502 "not configured".
+  __clearCaches();
+  const response = await handleGateway(request, env, new URL(request.url));
+  out.push({
+    name: c.name,
+    // The Rust side needs the same three inputs the arm reads: the resolved kind, the user's key record
+    // and the raw body. The kind is what `pickRoute` answers for this model, recorded here so the port can
+    // be driven without resolving a route.
+    kind: kindOf(c.body),
+    ukeys: c.opts.keys || {},
+    env: c.opts.env || {},
+    rawText: typeof c.body === "string" ? c.body : JSON.stringify(c.body),
+    ...(c.beforeArm ? { beforeArm: true } : {}),
+    expected: {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+      body: await response.text(),
+    },
+  });
+}
+
+/** The route kind a body's model resolves to — the first path segment, which is what `pickRoute` keys on. */
+function kindOf(body) {
+  if (typeof body === "string") return "";
+  const model = String(body.model || "");
+  const prefix = model.split("/")[0] || "";
+  return (
+    {
+      ds: "deepseek",
+      qw: "qwen",
+      og: "opencode",
+      or: "openrouter",
+      nv: "nvidia",
+      gmi: "gmi",
+      cm: "commandgoat",
+      amd: "amd",
+      r4: "r4",
+    }[prefix] || ""
+  );
+}
+
+// **THE FIXTURE GOES TO A FILE, NOT TO STDOUT.** The shipping handler's log wrapper writes one JSON line
+// per request to stdout, so a `> fixtures/route-corpus.json` redirect would carry nine log lines and one
+// fixture — which is what the first run produced. Writing the file directly keeps the two apart.
+const target = new URL("./fixtures/route-corpus.json", import.meta.url);
+writeFileSync(
+  target,
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING handleGateway. Do not edit by hand.",
+      cases: out,
+    },
+    null,
+    1,
+  ) + "\n",
+);
+console.log(`route-oracle: ${out.length} case(s) written to fixtures/route-corpus.json`);

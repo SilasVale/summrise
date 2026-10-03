@@ -339,6 +339,54 @@ mod count_tokens_tests {
         m
     }
 
+    fn route_corpus() -> serde_json::Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/route-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the route corpus is committed");
+        serde_json::from_str(&text).expect("the route corpus parses")
+    }
+
+    /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED.** `fixtures/route-corpus.json` was produced by driving the
+    /// SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`), so these expectations are
+    /// what the deployed route ANSWERS rather than what a hand-written test believed.
+    ///
+    /// A case marked `beforeArm` is one where the handler answers ABOVE this arm — an OpenRouter key gate,
+    /// or the default channel an empty body resolves to. Those are asserted as "not this function's
+    /// answer", which is the honest thing for a differential to say about a gate that lives elsewhere.
+    #[test]
+    fn the_count_tokens_arm_matches_the_shipping_route() {
+        let doc = route_corpus();
+        let mut checked = 0;
+        let mut skipped = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            if case.get("beforeArm").is_some() {
+                skipped += 1;
+                continue;
+            }
+            let byok = crate::byok::extract_byok_keys(&serde_json::json!(case["ukeys"]));
+            let env = &case["env"];
+            let raw = &case["rawText"];
+            let got = count_tokens_response(case["kind"].as_str().unwrap_or(""), &byok, env, raw);
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 5,
+            "the route corpus shrank to {checked} replayable cases"
+        );
+        assert_eq!(skipped, 3, "the before-the-arm markers moved");
+    }
+
     #[test]
     fn the_four_checked_kinds_refuse_with_the_tables_own_message() {
         for kind in ["deepseek", "qwen", "amd", "r4"] {
