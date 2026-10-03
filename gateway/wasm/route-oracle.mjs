@@ -306,6 +306,10 @@ for (const c of cases) {
     ukeys: c.opts.keys || {},
     env: c.opts.env || {},
     rawText: typeof c.body === "string" ? c.body : JSON.stringify(c.body),
+    // **THE AUTH OUTCOME, RECORDED RATHER THAN RE-DERIVED.** The corpus's 401 case is the one whose token
+    // resolves to no user, and a Rust test cannot know that from the expectation without reasoning
+    // backwards from the answer it is checking.
+    authenticated: (c.opts.token ?? TOKEN) === TOKEN,
     ...(c.beforeArm ? { beforeArm: true } : {}),
     expected: {
       status: response.status,

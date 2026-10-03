@@ -320,6 +320,99 @@ pub fn count_tokens_response(
     crate::responses::json_ok(&serde_json::json!({ "input_tokens": tokens }), &[])
 }
 
+/// **THE AUTH DECISION.** `findUserByToken` is a KV read (the I/O edge); what it ANSWERS is a user or
+/// nothing, and the handler's rule is one line: "`if (!user || !user.enabled) return jsonError(401, …)`".
+///
+/// The message is the same whether the token was absent, unknown or disabled — which is deliberate: naming
+/// which of the three it was tells an attacker whether a token exists.
+///
+/// **AND THE CORPUS DOES NOT EXERCISE THE `enabled` HALF, WHICH IS A NAMED GAP RATHER THAN A COVERED ONE.**
+/// Its 401 case has NO user at all, so a port that dropped the `enabled` check would still pass every case
+/// in `route-corpus.json`. The check is here because the source has it; a case for a DISABLED user is the
+/// next thing to add to that fixture.
+pub fn auth_error(user: Option<&serde_json::Value>) -> Option<crate::responses::Built> {
+    let enabled = user
+        .and_then(|u| u.get("enabled"))
+        .and_then(|e| e.as_bool())
+        .unwrap_or(false);
+    if user.is_some() && enabled {
+        return None;
+    }
+    Some(crate::responses::json_error(
+        401,
+        "Missing or invalid x-api-key",
+        "authentication_error",
+    ))
+}
+
+/// The per-kind key gates for **`/v1/messages`**, in the source's ORDER.
+///
+/// **THE TWO ARMS HAVE DIFFERENT CHAINS AND THE ORDER IS THE CONTRACT.** This one checks `or` and `cm` (the
+/// two pure-BYOK channels that serve BOTH flows), then the ds/qw/og group, then nv/gmi/amd/r4/opencode. The
+/// chat/completions chain below checks its five passthrough kinds FIRST and its translate kinds after. A port
+/// that used one chain for both would answer a different config error for the same request — which is why
+/// the corpus carries a case per path.
+pub fn messages_key_gate(
+    kind: &str,
+    byok: &serde_json::Map<String, serde_json::Value>,
+    env: &serde_json::Value,
+) -> Option<crate::responses::Built> {
+    for checked in [
+        "openrouter",
+        "commandgoat",
+        "deepseek",
+        "qwen",
+        "opencode",
+        "nvidia",
+        "gmi",
+        "amd",
+        "r4",
+    ] {
+        if kind == checked && crate::byok::is_key_missing(checked, byok, Some(env)) {
+            return crate::responses::key_missing_error(checked);
+        }
+    }
+    None
+}
+
+/// The per-kind key gates for **`/v1/chat/completions`**, in ITS order: the five passthrough kinds first,
+/// then the three the translate path serves.
+pub fn chat_completions_key_gate(
+    kind: &str,
+    byok: &serde_json::Map<String, serde_json::Value>,
+    env: &serde_json::Value,
+) -> Option<crate::responses::Built> {
+    for checked in [
+        "nvidia",
+        "gmi",
+        "amd",
+        "opencode",
+        "r4",
+        "deepseek",
+        "openrouter",
+        "qwen",
+    ] {
+        if kind == checked && crate::byok::is_key_missing(checked, byok, Some(env)) {
+            return crate::responses::key_missing_error(checked);
+        }
+    }
+    None
+}
+
+/// The gate for a route, by which arm it is on.
+pub fn key_gate(
+    kind: &str,
+    is_chat_completions: bool,
+    byok: &serde_json::Map<String, serde_json::Value>,
+    env: &serde_json::Value,
+) -> Option<crate::responses::Built> {
+    if is_chat_completions {
+        chat_completions_key_gate(kind, byok, env)
+    } else {
+        messages_key_gate(kind, byok, env)
+    }
+}
+
 #[cfg(test)]
 mod count_tokens_tests {
     //! **THE COMPOSITION IS PINNED BY HAND, AND THE REASON IS STATED.** The `count_tokens` arm lives inside
@@ -345,28 +438,51 @@ mod count_tokens_tests {
         serde_json::from_str(&text).expect("the route corpus parses")
     }
 
-    /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED.** `fixtures/route-corpus.json` was produced by driving the
-    /// SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`), so these expectations are
-    /// what the deployed route ANSWERS rather than what a hand-written test believed.
+    /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED — ALL EIGHT CASES NOW.** `fixtures/route-corpus.json` was
+    /// produced by driving the SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`).
     ///
-    /// A case marked `beforeArm` is one where the handler answers ABOVE this arm — an OpenRouter key gate,
-    /// or the default channel an empty body resolves to. Those are asserted as "not this function's
-    /// answer", which is the honest thing for a differential to say about a gate that lives elsewhere.
+    /// IT USED TO SKIP THREE OF THEM, marked `beforeArm`: a request answered ABOVE the `count_tokens` arm —
+    /// by auth, by the OpenRouter key gate, or by the DEFAULT channel an empty body resolves to. Those are
+    /// exactly what the DISPATCH is, so the dispatch is what this now drives, in the source's order:
+    ///
+    ///     auth  ->  the per-kind key gate (per ARM, because the two chains differ)  ->  the arm
+    ///
+    /// The kind comes from the corpus for the arm cases and from `pick_route("")` for the empty body, which
+    /// is the default channel — the same answer the route gives it.
     #[test]
-    fn the_count_tokens_arm_matches_the_shipping_route() {
+    fn the_dispatch_matches_the_shipping_route() {
         let doc = route_corpus();
         let mut checked = 0;
-        let mut skipped = 0;
+        let mut seen_statuses = Vec::new();
         for case in doc["cases"].as_array().expect("cases") {
             let name = case["name"].as_str().unwrap_or("?");
-            if case.get("beforeArm").is_some() {
-                skipped += 1;
-                continue;
-            }
             let byok = crate::byok::extract_byok_keys(&serde_json::json!(case["ukeys"]));
             let env = &case["env"];
             let raw = &case["rawText"];
-            let got = count_tokens_response(case["kind"].as_str().unwrap_or(""), &byok, env, raw);
+            let kind = case["kind"].as_str().unwrap_or("");
+            // The empty model resolves to the DEFAULT channel, which `pick_route` answers.
+            let kind = if kind.is_empty() {
+                crate::routing::pick_route("", Some(env), None, "/v1/messages").kind
+            } else {
+                kind
+            };
+
+            // 1. AUTH — the first gate of all.
+            let user = if case["authenticated"].as_bool().unwrap_or(false) {
+                Some(serde_json::json!({ "id": "u", "enabled": true }))
+            } else {
+                None
+            };
+            let got = if let Some(refusal) = auth_error(user.as_ref()) {
+                refusal
+            } else if let Some(refusal) = key_gate(kind, false, &byok, env) {
+                // 2. THE KEY GATE for this arm.
+                refusal
+            } else {
+                // 3. THE ARM.
+                count_tokens_response(kind, &byok, env, raw)
+            };
+
             let want = &case["expected"];
             assert_eq!(
                 got.status,
@@ -378,13 +494,15 @@ mod count_tokens_tests {
                 want["body"].as_str().unwrap_or(""),
                 "{name}: body"
             );
+            seen_statuses.push(got.status);
             checked += 1;
         }
-        assert!(
-            checked >= 5,
-            "the route corpus shrank to {checked} replayable cases"
-        );
-        assert_eq!(skipped, 3, "the before-the-arm markers moved");
+        assert_eq!(checked, 8, "the route corpus changed size");
+        // **BOTH ANSWERS, AND BOTH REFUSAL KINDS.** A corpus that only produced 200s would prove the happy
+        // path; one that only produced 502s would miss the arm's success. The 401 is the dispatch's own.
+        assert!(seen_statuses.contains(&200), "no case estimated");
+        assert!(seen_statuses.contains(&401), "no case exercised auth");
+        assert!(seen_statuses.contains(&502), "no case exercised a key gate");
     }
 
     #[test]
