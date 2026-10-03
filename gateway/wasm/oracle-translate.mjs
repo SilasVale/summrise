@@ -77,7 +77,7 @@ import {
   reasoningMaxRawFor,
   reasoningMaxParsedFor,
 } from "../src/channels.ts";
-import { wireModelName } from "../src/upstream.ts";
+import { wireModelName, pickRoute } from "../src/upstream.ts";
 import { searchTargetFor, oxAlphaReasoningDefault } from "../src/plugins/translate.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
@@ -626,6 +626,32 @@ const jsonOkCases = [
   { name: "extra headers", data: { ok: true }, extra: { "X-Extra": "1" } },
 ];
 
+// ── the routing decision ──────────────────────────────────────────────────────────────────────────
+// `pickRoute` is exported and PURE given an env, so the oracle calls it directly — no capture, no stub. The
+// cases cover all nine prefixes on both request paths, with and without the US exit, plus the three things a
+// port of this function can lose: the F4 ENCODING, the two channels that stay DIRECT, and the default.
+const routingPickCases = [];
+const routingPrefixes = ["or", "ds", "qw", "og", "nv", "gmi", "cm", "amd", "r4"];
+for (const prefix of routingPrefixes) {
+  for (const requestPath of ["/v1/messages", "/v1/chat/completions"]) {
+    routingPickCases.push({ prefix, requestPath, usProxy: null });
+    routingPickCases.push({ prefix, requestPath, usProxy: "1" });
+  }
+}
+routingPickCases.push({ prefix: "zz", requestPath: "/v1/messages", usProxy: null });
+routingPickCases.push({ prefix: "", requestPath: "/v1/messages", usProxy: null });
+routingPickCases.push({ prefix: "or", requestPath: "", usProxy: null });
+// **THE PROTOTYPE CHAIN MUST NOT ANSWER**: `pickRoute` uses `hasOwnProperty`, so these fall to the default.
+routingPickCases.push({ prefix: "constructor", requestPath: "/v1/messages", usProxy: null });
+routingPickCases.push({ prefix: "toString", requestPath: "/v1/messages", usProxy: null });
+// **audit round F4**: a prefix is model-derived arbitrary text, so it can carry a query separator and
+// non-ASCII bytes. Both must be ENCODED into the egress URL rather than pasted into it — including for the
+// DEFAULT route, whose `via` closure still holds the unknown prefix.
+routingPickCases.push({ prefix: "a&path=/evil", requestPath: "/v1/messages", usProxy: "1" });
+routingPickCases.push({ prefix: "中文", requestPath: "/v1/messages", usProxy: "1" });
+routingPickCases.push({ prefix: "or", requestPath: "/v1/a b", usProxy: "1" });
+routingPickCases.push({ prefix: "or", requestPath: "/v1/messages", usProxy: "1", base: "https://exit.example" });
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -973,6 +999,23 @@ for (const text of b64Utf8Cases) {
     name: text.length > 20 ? `a long string (${text.length})` : JSON.stringify(text),
     input: text,
     expected: { value: encodeBase64Utf8(text) },
+  });
+}
+
+for (const c of routingPickCases) {
+  const env = {};
+  if (c.usProxy) env.US_PROXY = c.usProxy;
+  if (c.base) env.US_PROXY_BASE = c.base;
+  cases.push({
+    fn: "pick_route",
+    name: `${c.prefix || "(empty)"} on ${c.requestPath || "(empty)"}${c.usProxy ? " via the exit" : ""}${c.base ? " with a base" : ""}`,
+    input: {
+      prefix: c.prefix,
+      requestPath: c.requestPath,
+      usProxy: c.usProxy,
+      base: c.base || null,
+    },
+    expected: { value: pickRoute(c.prefix, env, c.usProxy, c.requestPath) },
   });
 }
 
