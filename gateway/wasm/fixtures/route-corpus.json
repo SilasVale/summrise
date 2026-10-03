@@ -7,6 +7,7 @@
    "ukeys": {},
    "env": {},
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+   "authenticated": true,
    "expected": {
     "status": 502,
     "headers": {
@@ -25,6 +26,7 @@
    },
    "env": {},
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+   "authenticated": true,
    "expected": {
     "status": 200,
     "headers": {
@@ -43,6 +45,7 @@
     "QWEN_API_KEY": "env-key"
    },
    "rawText": "{\"model\":\"qw/qwen3.8-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+   "authenticated": true,
    "expected": {
     "status": 200,
     "headers": {
@@ -59,6 +62,7 @@
    "ukeys": {},
    "env": {},
    "rawText": "{\"model\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+   "authenticated": true,
    "beforeArm": true,
    "expected": {
     "status": 502,
@@ -78,6 +82,7 @@
    },
    "env": {},
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[]}",
+   "authenticated": false,
    "beforeArm": true,
    "expected": {
     "status": 401,
@@ -97,6 +102,7 @@
    },
    "env": {},
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"中文内容测试\"}]}",
+   "authenticated": true,
    "expected": {
     "status": 200,
     "headers": {
@@ -115,6 +121,7 @@
    },
    "env": {},
    "rawText": "{\"model\":\"ds/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"data\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}]}]}",
+   "authenticated": true,
    "expected": {
     "status": 200,
     "headers": {
@@ -133,6 +140,7 @@
    },
    "env": {},
    "rawText": "",
+   "authenticated": true,
    "beforeArm": true,
    "expected": {
     "status": 502,
