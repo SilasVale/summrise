@@ -5551,6 +5551,8 @@ mod tests {
 
     #[tokio::test]
     async fn plugins_status_reports_stopped() {
+        // THE SAME FIXED PORT AS `playwright::manager`'s test, so the same lock: see `PORT_LOCK`.
+        let _port = crate::plugins::playwright::PORT_LOCK.lock().await;
         let resp = handle_request(req("GET", "/api/plugins/status"), state()).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let v = json_body(resp).await;
@@ -5560,6 +5562,8 @@ mod tests {
 
     #[tokio::test]
     async fn plugins_playwright_start_missing_bundle_errors() {
+        // See `PORT_LOCK`: this reaches the same status probe.
+        let _port = crate::plugins::playwright::PORT_LOCK.lock().await;
         // Dev builds carry no bundled node.exe under install_dir/playwright/
         // — start must fail loudly (500) with the path hint, not pretend
         // success. The failure happens before any spawn, so no network wait.

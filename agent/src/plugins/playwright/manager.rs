@@ -556,7 +556,10 @@ mod manager_tests {
     async fn status_tracks_fresh_external_and_released() {
         // ONE sequential test (not three): status() probes the FIXED port
         // 9229, so parallel tests holding it would flake each other.
-        // Assumes 9229 starts free (true on CI and this box).
+        // AND "SEQUENTIAL" NOW MEANS THE WHOLE CRATE: the lock is shared with the status assertions in
+        // `web/mod.rs`, which probe the same port. It used to assume 9229 starts free — true on this box
+        // and, until 2026-10-02, on CI too.
+        let _port = crate::plugins::playwright::PORT_LOCK.lock().await;
         let m = PlaywrightManager::new();
         let st = m.status().await;
         assert_eq!(st.get("running"), Some(&serde_json::json!(false)));
