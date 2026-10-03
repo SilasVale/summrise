@@ -229,6 +229,7 @@ pub mod byok;
 pub mod cors;
 pub mod rate_limit;
 pub mod redact;
+pub mod reliability;
 pub mod request_shape;
 pub mod responses;
 pub mod session;

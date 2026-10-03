@@ -59,6 +59,13 @@ import {
   sessionCookieHeader,
   clearSessionCookieHeader,
 } from "../src/auth.ts";
+import {
+  retryPolicyFor,
+  upstreamTimeoutMs,
+  ogTimeoutMs,
+  passthroughTimeoutMs,
+  isChannelDownFailure,
+} from "../src/reliability.ts";
 // The scan/rewrite family has its own module — the same one the port took its rules from.
 import {
   scanTopLevelModel,
@@ -423,6 +430,48 @@ const authSessionHeaderCases = [
 ];
 const authClearHeaderCases = [{ name: "not secure", secure: false }, { name: "secure", secure: true }];
 
+// ── the retry, timeout and failure decisions ──────────────────────────────────────────────────────
+// `Number(...)` IS THE HARD PART of the timeout arm: it is a coercion, not a parse. Every shape below is a
+// value an env can actually hold, and each one takes a DIFFERENT branch of `Number.isFinite(v) && v > 0`.
+const retryCases = [
+  { kind: "nvidia", upstreamModel: "nv/x", timeoutMs: 30000 },
+  { kind: "gmi", upstreamModel: "gmi/x", timeoutMs: 30000 },
+  { kind: "openrouter", upstreamModel: "z-ai/glm-5.2:free", timeoutMs: 30000 },
+  { kind: "openrouter", upstreamModel: "or/other", timeoutMs: 30000 },
+  { kind: "deepseek", upstreamModel: "ds/x", timeoutMs: 30000 },
+  { kind: "opencode", upstreamModel: "og/x", timeoutMs: 120000 },
+  { kind: "qwen", upstreamModel: "qw/x", timeoutMs: 30000 },
+];
+const envTimeoutCases = [
+  { name: "no env at all", env: null },
+  { name: "the key is absent", env: {} },
+  { name: "a number", env: { UPSTREAM_TIMEOUT_MS: 5000 } },
+  { name: "a numeric string", env: { UPSTREAM_TIMEOUT_MS: "5000" } },
+  { name: "a padded numeric string", env: { UPSTREAM_TIMEOUT_MS: "  12  " } },
+  { name: "a hex string", env: { UPSTREAM_TIMEOUT_MS: "0x10" } },
+  { name: "an empty string is 0 and takes the default", env: { UPSTREAM_TIMEOUT_MS: "" } },
+  { name: "null is 0 and takes the default", env: { UPSTREAM_TIMEOUT_MS: null } },
+  { name: "a non-numeric string is NaN and takes the default", env: { UPSTREAM_TIMEOUT_MS: "abc" } },
+  { name: "zero takes the default", env: { UPSTREAM_TIMEOUT_MS: 0 } },
+  { name: "a negative takes the default", env: { UPSTREAM_TIMEOUT_MS: -5 } },
+  { name: "Infinity is not finite and takes the default", env: { UPSTREAM_TIMEOUT_MS: "Infinity" } },
+  { name: "a float", env: { UPSTREAM_TIMEOUT_MS: 1500.7 } },
+  { name: "a boolean true is 1", env: { UPSTREAM_TIMEOUT_MS: true } },
+  { name: "an array of one", env: { UPSTREAM_TIMEOUT_MS: [5000] } },
+  { name: "an empty array is 0", env: { UPSTREAM_TIMEOUT_MS: [] } },
+];
+const passthroughKinds = ["opencode", "commandgoat", "amd", "deepseek", "qwen", "openrouter", "gmi", "nvidia", "r4"];
+const downFailureCases = [
+  { name: "a network error", detail: "network error: connect ECONNREFUSED" },
+  { name: "a timeout", detail: "timeout after 30000ms" },
+  { name: "a bare timeout prefix", detail: "timeout" },
+  { name: "a fast 502 does NOT count", detail: "upstream 502" },
+  { name: "a 429 does NOT count", detail: "upstream 429" },
+  { name: "a network error in the middle does not count", detail: "see network error above" },
+  { name: "an empty string", detail: "" },
+  { name: "undefined", detail: null },
+];
+
 // ── the rate-limit guard ──────────────────────────────────────────────────────────────────────────
 // THE CLOCK IS PINNED, because `Math.floor(Date.now() / 60000)` is the minute bucket and
 // `Math.floor(Date.now() / 86400000)` is the day bucket — with a moving clock only one bucket is ever
@@ -705,6 +754,46 @@ for (const c of redactCases) {
     name: c.name,
     input: { text: c.text, secrets: c.secrets },
     expected: r.threw ? { threw: true, message: r.threw } : { text: r.value },
+  });
+}
+
+for (const c of retryCases) {
+  cases.push({
+    fn: "retry_policy_for",
+    name: `${c.kind} ${c.upstreamModel}`,
+    input: { kind: c.kind, upstreamModel: c.upstreamModel, timeoutMs: c.timeoutMs },
+    expected: { value: retryPolicyFor(c.kind, c.upstreamModel, c.timeoutMs) },
+  });
+}
+for (const c of envTimeoutCases) {
+  const env = c.env === null ? undefined : c.env;
+  cases.push({
+    fn: "upstream_timeout_ms",
+    name: c.name,
+    input: { env: c.env },
+    expected: { value: upstreamTimeoutMs(env) },
+  });
+  cases.push({
+    fn: "og_timeout_ms",
+    name: c.name,
+    input: { env: c.env === null ? null : { OG_TIMEOUT_MS: c.env.UPSTREAM_TIMEOUT_MS } },
+    expected: { value: ogTimeoutMs(c.env === null ? undefined : { OG_TIMEOUT_MS: c.env.UPSTREAM_TIMEOUT_MS }) },
+  });
+}
+for (const kind of passthroughKinds) {
+  cases.push({
+    fn: "passthrough_timeout_ms",
+    name: kind,
+    input: { kind, env: {} },
+    expected: { value: passthroughTimeoutMs({}, kind) },
+  });
+}
+for (const c of downFailureCases) {
+  cases.push({
+    fn: "is_channel_down_failure",
+    name: c.name,
+    input: { detail: c.detail },
+    expected: { value: isChannelDownFailure(c.detail ?? undefined) },
   });
 }
 
