@@ -95,4 +95,71 @@ fn the_two_relays_agree_on_the_constants_they_share() {
             );
         }
     }
+
+    // 5. **THE TWO HOST TABLES, BOTH DIRECTIONS.** `github.ts` carries `UPSTREAMS` (four route types) and
+    //    `ALLOWED_REDIRECT_HOSTS` (seven), and the Rust port carries the same two under the same names —
+    //    the port's own comment even claims "the asset hosts included, which is the difference from
+    //    `git.ts`". **A CLAIM, UNTIL THIS.** Each side is checked against the other, so an entry added to
+    //    either one fails, and the COUNTS are asserted too: containment alone would pass a table that grew.
+    let ts_github = read("proxies/api-relay/api/github.ts");
+
+    // 5a. The four upstream origins, by their route type.
+    for (route, origin) in [
+        ("web", "https://github.com"),
+        ("raw", "https://raw.githubusercontent.com"),
+        ("api", "https://api.github.com"),
+        ("release", "https://github.com"),
+    ] {
+        assert!(
+            ts_github.contains(&format!("{route}: \"{origin}\",")),
+            "github.ts's UPSTREAMS lost `{route}: \"{origin}\"`"
+        );
+        assert!(
+            rust_lib.contains(&format!("(\"{route}\", \"{origin}\")")),
+            "the Rust UPSTREAMS lost `(\"{route}\", \"{origin}\")`"
+        );
+    }
+    assert_eq!(
+        rust_lib
+            .matches("(\"web\", \"https://github.com\")")
+            .count()
+            + rust_lib.matches("(\"raw\", ").count()
+            + rust_lib.matches("(\"api\", ").count()
+            + rust_lib.matches("(\"release\", ").count(),
+        4,
+        "the Rust UPSTREAMS changed size; github.ts's has four"
+    );
+
+    // 5b. The seven redirect hosts, both ways.
+    const REDIRECT_HOSTS: [&str; 7] = [
+        "github.com",
+        "www.github.com",
+        "api.github.com",
+        "raw.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    ];
+    for host in REDIRECT_HOSTS {
+        assert!(
+            ts_github.contains(&format!("\"{host}\",")),
+            "github.ts's ALLOWED_REDIRECT_HOSTS lost {host}"
+        );
+        assert!(
+            rust_lib.contains(&format!("\"{host}\",")),
+            "the Rust ALLOWED_REDIRECT_HOSTS lost {host}"
+        );
+    }
+    // **AND THE COUNT, SO A TABLE THAT GREW ON ONE SIDE FAILS.** The Rust's array is `[&str; 7]`, which the
+    // compiler already pins; this pins the TypeScript's, which nothing else does.
+    let ts_redirect_entries = ts_github
+        .split("const ALLOWED_REDIRECT_HOSTS = new Set([")
+        .nth(1)
+        .and_then(|rest| rest.split("]);").next())
+        .map(|block| block.matches('"').count() / 2)
+        .unwrap_or(0);
+    assert_eq!(
+        ts_redirect_entries, 7,
+        "github.ts's ALLOWED_REDIRECT_HOSTS has {ts_redirect_entries} entries; the Rust side has seven"
+    );
 }
