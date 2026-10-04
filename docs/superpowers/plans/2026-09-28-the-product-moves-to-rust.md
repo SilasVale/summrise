@@ -1077,6 +1077,15 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
    产出 **`ELF 64-bit LSB executable, ARM aarch64, statically linked, stripped`，3,831,200 字节** ✓
    （`ring` 是依赖树里的那个 C ✓，所以编译器与链接器都要指 ✓）。这条路**已经走到传送那一步** ✓，
    只在 `scp` 上停住 ✓——**停在上面那一行钥匙上** ✗。所以"盒子上有没有 Rust"这个问题**作废了** ✓。
+
+   **而脚本里"到盒子上才会暴露"的三处，2026-10-03 在本机预先验过了** ✓——它们在授权之后本来会是
+   第一次运行里最容易翻车的三个地方 ✓：
+   (1) `ExecStart=/opt/vrelay-rs/vrelay 127.0.0.1:$PORT` ✓——**`vrelay` 的 `argv[1]` 就是监听地址** ✓
+   （`main.rs` 的 `env::args()` ✓，默认 `127.0.0.1:8081` ✓），所以 unit 那一行是对的 ✓；
+   (2) smoke 断言 `POST /api/proxy` 回 **401** ✓——**在本机跑真的二进制量到了 401** ✓
+   （`GET /healthz` 回 200 ✓，而它启动时打印 `vrelay listening on …` ✓）；
+   (3) unit 里那行**被注释掉的 `Environment=`** ✓——整个 crate 只读**一个** env 变量
+   （`SUMMRISE_RELAY_HEADER_TIMEOUT_MS` ✓，有默认值 ✓），所以注释掉是对的 ✓。
    gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
