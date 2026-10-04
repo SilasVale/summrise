@@ -10,7 +10,12 @@
 //!
 //!   * `/api/proxy` and `/api/zen` — the two API relays: a preflight, a BYOK refusal, an upstream request
 //!     built from the plan, and the 5xx rule.
-//!   * `/api/git`, `/api/github` and `/api/gform` — the three content handlers — are NOT wired here yet.
+//!   * **`/api/git` IS WIRED** — measured 2026-10-03 by running the binary: `GET /api/git` answers 200 and
+//!     the `pathFromRest` form reaches the handler. **THIS LINE SAID ALL THREE WERE "NOT WIRED HERE YET"**,
+//!     which the dispatch below contradicts (`"git" => git(…)`), and the stale claim is corrected rather
+//!     than left standing: a header that lists a working route as missing is the same defect class as a
+//!     gate whose subject moved.
+//!   * `/api/github` and `/api/gform` — the other two content handlers — are NOT wired here yet.
 //!     Their decisions are in the crate (`parse_route`, `upstream_url`, `redirect_target`, `rewrite_body`,
 //!     the redirect caps), and what is missing is the redirect LOOP and the body rewriting at the edge;
 //!     naming that is the plan's rule for work that is not done rather than pretending the surface is
