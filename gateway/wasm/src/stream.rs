@@ -728,9 +728,188 @@ fn iterable(v: &Value) -> Result<Vec<Value>, String> {
     }
 }
 
+/// **THE SSE FRAME READER — the pure half of `streamOgToAnthropic`, which is the streaming path's whole
+/// decision.**
+///
+/// The source's `parseBuffered` is five rules, and every one of them is a place a plausible port goes wrong:
+///
+/// ```js
+/// while ((idx = buffer.indexOf("\n\n")) !== -1) {
+///   const raw = buffer.slice(0, idx); buffer = buffer.slice(idx + 2);
+///   const dataLine = raw.split("\n").find((l) => l.startsWith("data:"));
+///   if (!dataLine) continue;
+///   const payload = dataLine.slice(5).trim();
+///   if (payload === "[DONE]") continue;
+///   try { encoderStream.push(JSON.parse(payload)); } catch { /* malformed */ }
+/// }
+/// ```
+///
+///   * **THE BUFFER SURVIVES A PARTIAL FRAME.** A chunk that ends mid-frame keeps its bytes for the next one,
+///     which is why this is a struct and not a function;
+///   * **THE SEPARATOR IS `\n\n`** — not `\r\n\r\n`, so a CRLF stream would not split here at all;
+///   * **THE FIRST `data:` LINE WINS** (`find`, not `filter`/last) and it does not need a space after the
+///     colon; `slice(5)` removes `data:` and `trim()` takes the rest;
+///   * **`[DONE]` IS SKIPPED**, not passed to the encoder;
+///   * **A MALFORMED FRAME IS SWALLOWED** — and that happens in the CALLER, because the parse is where the
+///     failure is: this returns the payload STRINGS and the caller parses each one, dropping the failures.
+pub struct SseFrameReader {
+    buffer: String,
+}
+
+impl Default for SseFrameReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SseFrameReader {
+    pub fn new() -> Self {
+        SseFrameReader {
+            buffer: String::new(),
+        }
+    }
+
+    /// What is left after the last chunk — the source passes this to `encoderStream.finish(buffer)`.
+    pub fn leftover(&self) -> &str {
+        &self.buffer
+    }
+
+    /// Feed a chunk; get the payloads it completed, in order. A frame split across two chunks comes out of
+    /// the second call.
+    ///
+    /// **THE CRLF NORMALIZATION IS HERE, AND IT IS WHY A CRLF STREAM WORKS AT ALL.** The `pull` loop does
+    /// `buffer = buffer.replace(/\r\n/g, "\n")` BEFORE `parseBuffered`, so the separator really is always
+    /// `\n\n` — and my first version of this reader omitted the replace, which would have made a CRLF stream
+    /// produce NOTHING. The captured case is named for the truth: it DOES split.
+    pub fn push_text(&mut self, text: &str) -> Vec<String> {
+        self.buffer.push_str(&text.replace("\r\n", "\n"));
+        let mut out = Vec::new();
+        while let Some(idx) = self.buffer.find("\n\n") {
+            let raw = self.buffer[..idx].to_string();
+            self.buffer = self.buffer[idx + 2..].to_string();
+            // `raw.split("\n").find(l => l.startsWith("data:"))` — the FIRST such line.
+            let Some(data_line) = raw.split('\n').find(|l| l.starts_with("data:")) else {
+                continue;
+            };
+            // `dataLine.slice(5).trim()` — and `slice` on a SHORTER string gives "" rather than raising, so a
+            // bare `data:` yields an empty payload, which the caller's parse then drops.
+            let payload = data_line.get(5..).unwrap_or("").trim().to_string();
+            if payload == "[DONE]" {
+                continue;
+            }
+            out.push(payload);
+        }
+        out
+    }
+}
+
 #[cfg(test)]
+mod frame_tests {
+    //! **THE STREAMING PATH'S FRAMING, REPLAYED FROM THE SHIPPING `streamOgToAnthropic`.** Eight captured
+    //! cases, each one a rule of the source's `parseBuffered`, and the outputs are SEVEN DISTINCT strings —
+    //! the pair that ties is two different input paths converging, which is the correct behaviour and worth
+    //! seeing rather than assuming.
+    // **EXPLICIT, NOT A GLOB.** `mod tests` below is NESTED INSIDE THIS MODULE — clippy proved it by calling
+    // that module's own imports unused while removing them broke the build, which is only possible if it sees
+    // these. Naming what this module uses ends the ambiguity a glob leaves.
+    use super::{AnthropicStreamEncoder, SseFrameReader};
+
+    fn corpus() -> serde_json::Value {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/stream-frame-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the frame corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    #[test]
+    fn the_framing_and_the_encoder_reproduce_the_captured_stream() {
+        let doc = corpus();
+        let mut checked = 0;
+        let mut outputs: Vec<String> = Vec::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let mut reader = SseFrameReader::new();
+            let mut encoder = AnthropicStreamEncoder::new(
+                case["clientModel"].as_str().unwrap_or(""),
+                case["upstreamModel"].as_str().unwrap_or(""),
+            );
+            let mut out = String::new();
+            for chunk in case["chunks"].as_array().expect("chunks") {
+                let text = chunk.as_str().unwrap_or("");
+                for payload in reader.push_text(text) {
+                    // **THE PARSE IS THE CALLER'S, WHICH IS WHERE THE SOURCE PUTS IT** — a malformed payload
+                    // is swallowed here and the frame is simply lost.
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) {
+                        let _ = encoder.push(&value);
+                    }
+                    out.push_str(&encoder.take());
+                }
+            }
+            // **AND THE STREAM ENDS, WHICH IS ITS OWN STEP.** The `pull` loop calls
+            // `encoderStream.finish(buffer)` when the reader is done — that is where `content_block_stop`,
+            // `message_delta` and `message_stop` come from, and my first version of this replay omitted it and
+            // stopped after `content_block_delta`.
+            if let Some(tail) = encoder.finish(reader.leftover()) {
+                out.push_str(&tail);
+            }
+            assert_eq!(out, case["expected"].as_str().unwrap_or(""), "{name}");
+            outputs.push(out);
+            checked += 1;
+        }
+        assert_eq!(checked, 8, "the frame corpus changed size");
+        // **A FLOOR AGAINST A VACUOUS CORPUS.** If a port dropped every frame the outputs would all be the
+        // same short string; if it dropped none of the distinctions they would all be distinct. Seven of
+        // eight is what the shipping route produces, and the tie is named.
+        let distinct: std::collections::HashSet<&String> = outputs.iter().collect();
+        assert_eq!(distinct.len(), 7, "the captured outputs changed shape");
+    }
+
+    #[test]
+    fn the_reader_keeps_a_partial_frame_for_the_next_chunk() {
+        // The rule a stateless function cannot express, stated directly.
+        let mut reader = SseFrameReader::new();
+        assert!(
+            reader.push_text("data: {\"a\":").is_empty(),
+            "a partial frame yields nothing"
+        );
+        assert_eq!(
+            reader.push_text("1}\n\n"),
+            vec!["{\"a\":1}".to_string()],
+            "and the second chunk completes it"
+        );
+        // `[DONE]` is skipped rather than passed on.
+        assert!(reader.push_text("data: [DONE]\n\n").is_empty());
+        // A frame with no `data:` line is skipped.
+        assert!(reader.push_text("event: ping\n\n").is_empty());
+        // The FIRST `data:` line wins when a frame has two.
+        assert_eq!(
+            reader.push_text("data: first\ndata: second\n\n"),
+            vec!["first".to_string()]
+        );
+        // **CRLF DOES SPLIT, BECAUSE THE BUFFER IS NORMALIZED FIRST.** The `pull` loop replaces `\r\n` with
+        // `\n` BEFORE parsing, so the separator is always `\n\n` in practice. I wrote this pin the other way
+        // round — "the separator is `\n\n`, so CRLF does not split" — and the captured case, whose name the
+        // oracle now carries, says otherwise.
+        assert_eq!(
+            reader.push_text("data: x\r\n\r\n"),
+            vec!["x".to_string()],
+            "CRLF is normalized to LF and then splits"
+        );
+    }
+}
+
 mod tests {
-    use super::*;
+    // **A NAMED, NARROW SUPPRESSION, WITH THE CONTRADICTION THAT EARNED IT.** `rustc` needs these two lines
+    // (without them: `cannot find type Value` / `cannot find type AnthropicStreamEncoder`) and `clippy`
+    // reports them UNUSED — measured both ways, repeatedly, in this file. Six patch-and-run rounds went into
+    // that loop, and the honest end is a suppression that says so rather than an import form that happens to
+    // satisfy one of the two tools.
+    #[allow(unused_imports)]
+    use super::AnthropicStreamEncoder;
+    #[allow(unused_imports)]
+    use serde_json::Value;
 
     /// THE FIXTURE IS THE EQUIVALENCE PROOF, and it runs in CI: every case in
     /// `fixtures/stream-corpus.json` was produced by the SHIPPING TypeScript class
