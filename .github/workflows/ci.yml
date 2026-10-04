@@ -749,15 +749,17 @@ jobs:
       # shape whose absence it checks, and the Rust gate is checked the same way by being a `cargo test` target
       # rather than a line inside this file. Nothing replaced the step: a `cargo test` step here would compile the
       # crate a second time in a job with no Rust cache, and the `agent` job already runs it.
-      - name: main advances only by merge
-        # MAIN IS THE ONE BRANCH WHERE A MISTAKE IS EVERYONE'S. `main` had zero merge commits in its last 300 and red
-        # reached it three times (rounds 117, 128, 171), each by a status thrown away one step after it was read. The
-        # pre-commit hook refuses a non-merge commit on main locally; THIS runs server-side and cannot be bypassed with
-        # --no-verify. It is also the only half that can see a plain `git merge` that FAST-FORWARDED — which creates no
-        # commit at all, so the hook never runs and main advances linearly carrying the branch's non-merge commits.
-        run: node scripts/test/main-shape-check.mjs
+      # **THE `main advances only by merge` STEP WAS HERE, AND IT IS `agent/tests/main_shape.rs` NOW** (2026-10-03).
+      # Nothing replaced it in this file, for the reason the paragraph above gives: the Rust gate is a `cargo test`
+      # target, so the `agent` job runs it without compiling the crate a second time in a job with no Rust cache.
+      # WHAT THE STEP SAID, KEPT BECAUSE IT IS THE RULE: MAIN IS THE ONE BRANCH WHERE A MISTAKE IS EVERYONE'S. `main`
+      # had zero merge commits in its last 300 and red reached it three times (rounds 117, 128, 171), each by a status
+      # thrown away one step after it was read. The pre-commit hook refuses a non-merge commit on main locally; this
+      # runs server-side and cannot be bypassed with --no-verify. It is also the only half that can see a plain
+      # `git merge` that FAST-FORWARDED — which creates no commit at all, so the hook never runs and main advances
+      # linearly carrying the branch's non-merge commits.
       - name: main-shape works in the clone CI actually gives
-        # THE STEP ABOVE FAILED ITS FIRST CI RUN, AND NO LOCAL RUN COULD HAVE SEEN IT. `actions/checkout@v4` defaults to
+        # THE STEP THAT WAS ABOVE FAILED ITS FIRST CI RUN, AND NO LOCAL RUN COULD HAVE SEEN IT. `actions/checkout@v4` defaults to
         # `fetch-depth: 1`, so the runner is SHALLOW; git grafts the boundary commit and `git rev-list --parents -n 1 HEAD`
         # answers with the SHA ALONE for a commit that has two parents. The gate used that and refused a `main` that WAS a
         # merge. It reads the commit object now, and this step builds a real shallow clone of a real repository whose HEAD

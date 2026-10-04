@@ -93,7 +93,7 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 | artifact | what it is | what it cannot see |
 |---|---|---|
 | `scripts/hooks/main-only-by-merge` | the rule, called by `scripts/hooks/pre-commit` **after** its "is this Summrise?" guard | a plain `git merge` that FAST-FORWARDS, which creates no commit and so never runs a hook; and `--no-verify` |
-| `scripts/test/main-shape-check.mjs` | the CI gate: `main` must be at a commit with **two or more parents** | nothing — but it only runs in CI, after the push |
+| `agent/tests/main_shape.rs` | the CI gate: `main` must be at a commit with **two or more parents** | nothing — but it only runs in CI, after the push |
 | `scripts/test/main-only-by-merge.bash` | the proof: installs the rule as a throwaway repo's real pre-commit hook and runs six cases through it | nothing outside that fixture |
 | `scripts/test/main-shape-shallow.bash` | the fixture for **the clone CI actually gives**: a real `git clone --depth 1` of a repo whose HEAD is a real merge | the full-clone shape, which is the only one a developer sees |
 
@@ -266,7 +266,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `all-gates.bash`, `build-pins.bash`
 `console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `hook-finds-its-repo.bash`
-`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-check.mjs`, `main-shape-shallow.bash`
+`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-shallow.bash`
 `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `press-anchor-check.mjs`
