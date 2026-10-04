@@ -151,30 +151,110 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     let upstream = Fetch::Request(Request::new_with_init(&call.request.url, &init)?)
         .send()
         .await;
+    let mut upstream_stream = None;
+    let mut live = false;
     let answer = match upstream {
         Ok(mut res) => {
             let status = res.status_code();
             let content_type = res.headers().get("content-type")?.unwrap_or_default();
             let retry_after = res.headers().get("retry-after")?;
-            let text = res.text().await.unwrap_or_default();
-            let json = serde_json::from_str(&text).ok();
-            Some(UpstreamAnswer {
+            // **THE BODY IS TAKEN ONE WAY OR THE OTHER, NEVER BOTH.** `text()` consumes it and `stream()`
+            // hands it over live, so the question "is this a live stream?" is asked FIRST — through the same
+            // function `messages_response` uses — and the losing branch is never called.
+            live = crate::request_shape::is_live_stream(
+                call.is_translate,
+                call.wants_stream,
                 status,
-                content_type,
-                json,
-                retry_after,
-                text,
-            })
+                &content_type,
+            );
+            if live {
+                upstream_stream = res.stream().ok();
+                Some(UpstreamAnswer {
+                    status,
+                    content_type,
+                    json: None,
+                    retry_after,
+                    text: String::new(),
+                })
+            } else {
+                let text = res.text().await.unwrap_or_default();
+                let json = serde_json::from_str(&text).ok();
+                Some(UpstreamAnswer {
+                    status,
+                    content_type,
+                    json,
+                    retry_after,
+                    text,
+                })
+            }
         }
         Err(_) => None,
     };
+    if live {
+        // **THE LIVE SSE PATH — the last decision to be wired, and the transform does the work.** The upstream
+        // body is a `ByteStream`; `StreamTransform` is the `pull` loop's body as a state machine; `unfold`
+        // drives it; `Response::from_stream` sends it. Nothing here decides anything the corpus does not
+        // already pin — which is what the previous rounds were for.
+        return stream_response(upstream_stream, &call);
+    }
     match v1_finish(&call, answer.as_ref()) {
         ArmOutcome::Response(built) => to_response(built),
-        // Named, not faked: the live SSE path is its own step (see this file's header).
+        // Unreachable: `live` was asked with the same function that answers `Stream` here.
         ArmOutcome::Stream => to_response(crate::responses::json_error(
-            501,
-            "streaming is not wired yet",
+            502,
+            "the upstream body was consumed before it could be streamed",
             "api_error",
         )),
     }
+}
+
+/// Build the SSE response from a live upstream stream.
+///
+/// `upstream_stream` is `Response::stream()`'s `ByteStream` — the bytes as they arrive. Each chunk goes
+/// through `StreamTransform::on_chunk`, and the FIRST error ends the transform with `read_failed = true`,
+/// which is the branch whose sentence is "upstream stream died mid-response".
+fn stream_response(
+    upstream_stream: Option<worker::ByteStream>,
+    call: &crate::request_shape::ArmCall,
+) -> Result<Response> {
+    let Some(body) = upstream_stream else {
+        return to_response(crate::responses::json_error(
+            502,
+            "upstream returned no body",
+            "api_error",
+        ));
+    };
+    let transform = crate::stream::StreamTransform::new(&call.kind, &call.upstream_model);
+    let failed = false;
+    let stream = futures_util::stream::unfold(
+        (body, transform, failed),
+        move |(mut body, mut transform, mut failed)| async move {
+            use futures_util::StreamExt;
+            match body.next().await {
+                Some(Ok(chunk)) => {
+                    let out = transform.on_chunk(&String::from_utf8_lossy(&chunk));
+                    Some((Ok::<Vec<u8>, worker::Error>(out), (body, transform, failed)))
+                }
+                Some(Err(_)) => {
+                    failed = true;
+                    let out = transform.on_end(true);
+                    // The error branch is the LAST item: the state machine is done.
+                    Some((Ok::<Vec<u8>, worker::Error>(out), (body, transform, failed)))
+                }
+                None => {
+                    if transform.ended() {
+                        return None;
+                    }
+                    let out = transform.on_end(failed);
+                    Some((Ok(out), (body, transform, true)))
+                }
+            }
+        },
+    );
+    let mut response = Response::from_stream(stream)?;
+    // `sseResponse`'s own headers, which the string form already carries.
+    for (k, v) in crate::responses::sse_response("").headers {
+        response.headers_mut().set(&k, &v)?;
+    }
+    Ok(response)
 }
