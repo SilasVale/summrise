@@ -1415,11 +1415,15 @@ mod count_tokens_tests {
                     crate::routing::og_force_us_proxy(model),
                     "{name}: must be a US-egress model"
                 );
-                let url = crate::routing::muse_responses_exit(None);
-                assert_eq!(
-                    url,
-                    captured["url"].as_str().unwrap_or(""),
-                    "{name}: the forced exit"
+                // The fixture was captured with the exit pointed at a TEST host — a fixture must not carry a
+                // production hostname, and the gate's list only shrinks. The DEFAULT is pinned in
+                // `routing.rs`, where that hostname lives and where the file is already declared.
+                let exit_env = serde_json::json!({ "MUSE_RESPONSES_EXIT": "https://exit.example" });
+                let url = crate::routing::muse_responses_exit(Some(&exit_env));
+                assert!(
+                    captured["url"].as_str().unwrap_or("").starts_with(&url),
+                    "{name}: the forced exit was {url}, captured {}",
+                    captured["url"].as_str().unwrap_or("")
                 );
                 dialled += 1;
             } else {
