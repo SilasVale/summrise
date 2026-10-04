@@ -803,6 +803,71 @@ impl SseFrameReader {
     }
 }
 
+/// **WHAT THE STREAMER DOES WHEN THE STREAM ENDS — the `pull` loop's two endings, as a decision.**
+///
+/// The source has two ways out and each emits its OWN sentence, which is the part worth porting:
+///
+/// ```text
+///     the reader RAISED     -> "upstream stream died mid-response"   when (buffer || started) && !finished
+///     the stream was DONE   -> "upstream returned an empty/non-SSE stream"  when !started
+///     either way            -> finish(buffer), which closes the blocks and appends message_delta/message_stop
+/// ```
+///
+/// **THE CONDITIONS ARE NOT SYMMETRIC.** A read failure is only worth reporting if something was in flight —
+/// a buffer with unparsed bytes, or an encoder that had started — and the encoder must not already be
+/// finished. A CLEAN END is the opposite test: it reports only when NOTHING started, because a stream that
+/// carried any chunk at all has already emitted `message_start`.
+///
+/// AND ONE LINE OF THE SOURCE IS DEAD: the `done` branch computes
+/// `const hasDataLine = buffer.split("\n").some((l) => l.startsWith("data:"))` and then does `void hasDataLine`
+/// — a leftover from the round that merged the two endings into one sentence. It is NOT ported, and this note
+/// is where that decision lives.
+pub enum StreamEnd {
+    /// Emit this `event: error` frame, then `finish(buffer)` and close.
+    ///
+    /// This is the READ-FAILURE path: the source enqueues the error, then calls `finish`, then closes.
+    EmitError(&'static str),
+    /// Emit this `event: error` frame and CLOSE — with NO `finish`.
+    ///
+    /// **AND THIS IS THE DIFFERENCE I GOT WRONG.** The clean-end path's `!started` branch is
+    /// `controller.enqueue(error); controller.close(); return;` — it RETURNS, so no `finish(buffer)` runs and
+    /// no `message_start`/`message_delta`/`message_stop` follow. The two error paths are NOT the same shape,
+    /// and the captured bytes say so: the empty case's whole output is ONE frame.
+    EmitErrorAndStop(&'static str),
+    /// Finish and close.
+    Finish,
+}
+
+pub const STREAM_DIED: &str = "upstream stream died mid-response";
+pub const STREAM_EMPTY: &str = "upstream returned an empty/non-SSE stream";
+
+pub fn stream_end_action(
+    read_failed: bool,
+    leftover: &str,
+    started: bool,
+    finished: bool,
+) -> StreamEnd {
+    if read_failed {
+        if (!leftover.is_empty() || started) && !finished {
+            return StreamEnd::EmitError(STREAM_DIED);
+        }
+        return StreamEnd::Finish;
+    }
+    if !started {
+        // NOT `EmitError`: this path returns before `finish(buffer)`.
+        return StreamEnd::EmitErrorAndStop(STREAM_EMPTY);
+    }
+    StreamEnd::Finish
+}
+
+/// The `event: error` frame the two endings emit — `sse("error", …)` with the type `api_error`.
+pub fn stream_error_frame(message: &str) -> String {
+    format!(
+        "event: error\ndata: {}\n\n",
+        serde_json::json!({ "type": "error", "error": { "type": "api_error", "message": message } })
+    )
+}
+
 #[cfg(test)]
 mod frame_tests {
     //! **THE STREAMING PATH'S FRAMING, REPLAYED FROM THE SHIPPING `streamOgToAnthropic`.** Eight captured
@@ -812,7 +877,9 @@ mod frame_tests {
     // **EXPLICIT, NOT A GLOB.** `mod tests` below is NESTED INSIDE THIS MODULE — clippy proved it by calling
     // that module's own imports unused while removing them broke the build, which is only possible if it sees
     // these. Naming what this module uses ends the ambiguity a glob leaves.
-    use super::{AnthropicStreamEncoder, SseFrameReader};
+    use super::{
+        stream_end_action, stream_error_frame, AnthropicStreamEncoder, SseFrameReader, StreamEnd,
+    };
 
     fn corpus() -> serde_json::Value {
         let path = concat!(
@@ -830,6 +897,10 @@ mod frame_tests {
         let mut outputs: Vec<String> = Vec::new();
         for case in doc["cases"].as_array().expect("cases") {
             let name = case["name"].as_str().unwrap_or("?");
+            // The  cases belong to the endings test — this one drives the framing and the encoder only.
+            if name.starts_with("end:") {
+                continue;
+            }
             let mut reader = SseFrameReader::new();
             let mut encoder = AnthropicStreamEncoder::new(
                 case["clientModel"].as_str().unwrap_or(""),
@@ -864,6 +935,73 @@ mod frame_tests {
         // eight is what the shipping route produces, and the tie is named.
         let distinct: std::collections::HashSet<&String> = outputs.iter().collect();
         assert_eq!(distinct.len(), 7, "the captured outputs changed shape");
+    }
+
+    /// **THE TWO ENDINGS, REPLAYED.** Five captured cases and all three behaviours: a read failure AFTER data
+    /// was read emits `died mid-response`, the same failure BEFORE anything was read emits NOTHING (the
+    /// condition is `(buffer || started)`), and a clean close with nothing started emits `empty/non-SSE`.
+    #[test]
+    fn the_stream_endings_match_the_shipping_streamer() {
+        let doc = corpus();
+        let mut died = 0;
+        let mut empty = 0;
+        let mut silent = 0;
+        let mut checked = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            if !name.starts_with("end:") {
+                continue;
+            }
+            let read_failed = case["error"].as_bool().unwrap_or(false);
+            let mut reader = SseFrameReader::new();
+            let mut encoder = AnthropicStreamEncoder::new(
+                case["clientModel"].as_str().unwrap_or(""),
+                case["upstreamModel"].as_str().unwrap_or(""),
+            );
+            let mut out = String::new();
+            for chunk in case["chunks"].as_array().expect("chunks") {
+                for payload in reader.push_text(chunk.as_str().unwrap_or("")) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) {
+                        let _ = encoder.push(&value);
+                    }
+                    out.push_str(&encoder.take());
+                }
+            }
+            match stream_end_action(
+                read_failed,
+                reader.leftover(),
+                encoder.started(),
+                encoder.finished(),
+            ) {
+                StreamEnd::EmitError(message) => {
+                    out.push_str(&stream_error_frame(message));
+                    died += 1;
+                }
+                StreamEnd::EmitErrorAndStop(message) => {
+                    out.push_str(&stream_error_frame(message));
+                    empty += 1;
+                    // **NO `finish` ON THIS PATH** — the source returns here.
+                    assert_eq!(out, case["expected"].as_str().unwrap_or(""), "{name}");
+                    checked += 1;
+                    continue;
+                }
+                StreamEnd::Finish => {
+                    if read_failed {
+                        silent += 1;
+                    }
+                }
+            }
+            if let Some(tail) = encoder.finish(reader.leftover()) {
+                out.push_str(&tail);
+            }
+            assert_eq!(out, case["expected"].as_str().unwrap_or(""), "{name}");
+            checked += 1;
+        }
+        assert_eq!(checked, 5, "the ending cases changed size");
+        // **ALL THREE BEHAVIOURS ARE PRESENT, WHICH IS WHAT MAKES THE FIVE CASES WORTH HAVING.**
+        assert_eq!(died, 2, "two read failures were after data");
+        assert_eq!(empty, 2, "two closes had nothing started");
+        assert_eq!(silent, 1, "one read failure came before anything was read");
     }
 
     #[test]
