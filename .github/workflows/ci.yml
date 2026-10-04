@@ -547,6 +547,13 @@ jobs:
       # batch 6 of the P1 migration), run by the `cargo test` step in this job. Measured first: 67 + 9 exports were
       # referenced nowhere. Twenty-four of the panel's were used INSIDE their own file (drop the keyword), and three
       # were used nowhere at all — including the console's <StatusChip>, whose CSS family stayed behind for 35 lines.
+      - name: the relay deploy script's every path (stubbed, no box)
+        # **THE GATE ABOVE THIS FILE'S OWN COMMENT MADE ME ADD THIS STEP.** `build-pins.bash` refuses a
+        # `scripts/test/*` file that `ci.yml` never invokes — "a test nobody runs is the same defect class as
+        # a check that cannot fail" — and it caught this harness the round after it was written, when the
+        # umask loop's glob was the only thing reaching it. The stubs make it need nothing but bash: no
+        # docker, no musl toolchain, no box.
+        run: bash scripts/test/relay-deploy-stub.bash
       - name: every bash gate under a hostile umask
         run: |
           umask 077

@@ -12,7 +12,7 @@
 # cannot prove the box behaves — that is what the first real run is for.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"   # scripts/test/ -> the repo root
 SCRIPT="$ROOT/proxies/api-relay/deploy-rs.sh"
 WORK="$(mktemp -d -t vrelay-stub-XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
@@ -38,6 +38,26 @@ cat > "$WORK/bin/scp" <<SHIM
 printf 'scp %s\n' "\$*" >> "$CALLS"
 echo "stub-scp: ok"
 SHIM
+# **A `cargo` SHIM, SO THIS HARNESS NEEDS NOTHING BUT BASH.** The build branch calls bare `cargo`, and its
+# `[ -x "$BIN" ]` check means the shim has to LEAVE A FILE where the script expects the artifact. Without
+# this, running the harness in CI would need the 108 MB musl cross toolchain — and a gate that needs a
+# toolchain nobody has is a gate nobody runs.
+cat > "$WORK/bin/cargo" <<SHIM
+#!/usr/bin/env bash
+printf 'cargo %s\n' "\$*" >> "$CALLS"
+# Find the --target and the crate root the script cd'd into, and plant a plausible artifact.
+target=""; prev=""
+for a in "\$@"; do
+  [ "\$prev" = "--target" ] && target="\$a"
+  prev="\$a"
+done
+if [ -n "\$target" ]; then
+  mkdir -p "target/\$target/release" 2>/dev/null || true
+  printf '#!/bin/sh\necho stub-vrelay\n' > "target/\$target/release/vrelay" 2>/dev/null || true
+  chmod +x "target/\$target/release/vrelay" 2>/dev/null || true
+fi
+echo "stub-cargo: ok"
+SHIM
 cat > "$WORK/bin/docker" <<SHIM
 #!/usr/bin/env bash
 printf 'docker %s\n' "\$*" >> "$CALLS"
@@ -48,7 +68,19 @@ chmod +x "$WORK/bin/"*
 
 export PATH="$WORK/bin:$PATH"
 export VRELAY_KEY="$HOME/.ssh/vrelay.key"
-export VRELAY_MUSL_CROSS=/tmp/aarch64-linux-musl-cross/bin
+
+# **A STUB CROSS TOOLCHAIN, BECAUSE THE SCRIPT CALLS ITS TOOLS BY ABSOLUTE PATH.** `PATH` shims cannot
+# intercept `"$CROSS/aarch64-linux-musl-strip"`, and the real branch would otherwise reach for a 108 MB
+# toolchain that CI does not have — measured: without this, the harness passed here and failed in CI for a
+# reason that is not its subject. Both tools are no-ops; the `cargo` shim above is what plants the artifact.
+mkdir -p "$WORK/cross/bin"
+for tool in aarch64-linux-musl-gcc aarch64-linux-musl-strip; do
+  printf '#!/usr/bin/env bash\nprintf "cross %s\\n" "$(basename "$0")" >> "%s"\nexit 0\n' \
+    "$tool" "$WORK/calls.log" > "$WORK/cross/bin/$tool"
+  chmod +x "$WORK/cross/bin/$tool"
+done
+export VRELAY_MUSL_CROSS="$WORK/cross/bin"
+
 
 run() {
   local label="$1"; shift
