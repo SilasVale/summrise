@@ -393,6 +393,43 @@ pub fn resolve_model(
     }
 }
 
+/// **`museResponsesExit(env)` — the `/v1/responses` arm's US exit, and it has FOUR cases.**
+///
+/// ```text
+///     "vercel"   -> the relay's own /api/zen with target=og and the path encoded
+///     "zen-us"   -> the zen-us host
+///     http(s):// -> used VERBATIM (an operator pointing it anywhere)
+///     anything else, including unset -> the oracle host
+/// ```
+///
+/// **THE LAST CASE IS THE DEFAULT AND IT IS A HOST, NOT AN ERROR.** The og/muse-spark Contributor tier is
+/// responses-only upstream AND Meta region-blocks it for CN, so this arm is FORCED through a US exit whatever
+/// the setting says — which is why there is no "direct" branch here at all.
+///
+/// This function names three production hosts, and it lives in THIS file because `routing.rs` is already
+/// declared in `agent/tests/production_host.rs` for the `US_PROXY_BASE` default. A new file would have needed
+/// its own declaration, and the gate's own note says the list "may only shrink".
+pub fn muse_responses_exit(env: Option<&serde_json::Value>) -> String {
+    match env
+        .and_then(|e| e.get("MUSE_RESPONSES_EXIT"))
+        .and_then(|v| v.as_str())
+    {
+        Some("vercel") => format!(
+            "{}/api/zen?target=og&path={}",
+            us_proxy_base(env),
+            encode_uri_component("/v1/responses")
+        ),
+        Some("zen-us") => "https://zen-us.saisi.online/v1/responses".to_string(),
+        Some(v) if v.starts_with("http://") || v.starts_with("https://") => v.to_string(),
+        _ => "https://oracle.saisi.online/v1/responses".to_string(),
+    }
+}
+
+/// The og zen host's own `/v1/responses` — the exit's alternative.
+pub fn og_responses_direct() -> String {
+    "https://opencode.ai/zen/go/v1/responses".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     //! **PINNED BY HAND, WITH THE REASON.** `pickRoute` is exported and pure, so its differential is a
