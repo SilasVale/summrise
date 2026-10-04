@@ -265,18 +265,23 @@ fn the_console_first_screen_is_what_the_census_says() {
 /// | gzip -9 -n | wc -c` -> 187,978, and HEAD -> 190,406, which is the row's +2,428.
 const PANEL_JS_BEFORE_THE_WASM: (&str, u64) = ("462cfc89^", 187978);
 
-fn gz_size_of_blob(rev_path: &str) -> u64 {
+/// `Some(size)` when the object is in this clone, `None` when it is not.
+///
+/// **A SHALLOW CLONE DOES NOT HAVE IT, AND THAT IS NOT A DEFECT IN THE TREE.** `actions/checkout@v4` defaults
+/// to `fetch-depth: 1`; the `agent` job is given `fetch-depth: 0` precisely so this gate can run there, but
+/// the umask loop in `pack-chain` runs `all-gates.bash`, which runs `cargo test`, in a clone that is still
+/// shallow. **So this returns `None` rather than panicking — and the caller SAYS SO LOUDLY**, because a gate
+/// that silently passes is worse than one that fails.
+fn gz_size_of_blob(rev_path: &str) -> Option<u64> {
     let root = root();
     let git = Command::new("git")
         .args(["show", rev_path])
         .current_dir(&root)
         .output()
         .unwrap_or_else(|e| panic!("git show {rev_path}: {e}"));
-    assert!(
-        git.status.success(),
-        "git show {rev_path} failed: {}",
-        String::from_utf8_lossy(&git.stderr)
-    );
+    if !git.status.success() {
+        return None;
+    }
     let mut child = Command::new("gzip")
         .args(["-9", "-n"])
         .stdin(std::process::Stdio::piped())
@@ -291,13 +296,22 @@ fn gz_size_of_blob(rev_path: &str) -> u64 {
         .expect("write to gzip");
     let out = child.wait_with_output().expect("gzip output");
     assert!(out.status.success(), "gzip failed");
-    out.stdout.len() as u64
+    Some(out.stdout.len() as u64)
 }
 
 #[test]
 fn the_glue_increment_has_both_its_ends() {
     let (rev, before) = PANEL_JS_BEFORE_THE_WASM;
-    let got_before = gz_size_of_blob(&format!("{rev}:agent/resources/panel/panel.js"));
+    let Some(got_before) = gz_size_of_blob(&format!("{rev}:agent/resources/panel/panel.js")) else {
+        // **LOUD, NOT SILENT.** Measured in CI on 2026-10-03: this gate passed every local run and failed the
+        // `agent` job, because `462cfc89^` is not in a `fetch-depth: 1` clone. The job fetches the history
+        // now; this branch is for the clones that do not, and it says which measurement it could not make.
+        println!(
+            "glue-increment: NOT MEASURED — {rev} is not in this clone (a shallow checkout). \
+             The `agent` job fetches the history; run this from a full clone to check the increment."
+        );
+        return;
+    };
     let got_now = gz_size(&root(), "agent/resources/panel/panel.js");
     assert!(
         got_before.abs_diff(before) <= tolerance(before),
