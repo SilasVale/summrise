@@ -1017,8 +1017,8 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 |---|---|---|
 | **P0** | ✓ 完成 | `docs/superpowers/p0/`：187 个 LOGIC 导出、基线、wasm-pack 证明 |
 | **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **42 个门禁**；`scripts/test/*.mjs` 只剩 **7 个具名例外** |
-| **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary**。三样数（2026-10-03 实测 ✓）：**wasm 84,216 gz**（`agent/resources/panel/panel_logic_bg.wasm`，`index.html` **解析时预加载**所以算首屏 ✓）· **胶水 14,746 gz**（`panel-react/src/wasm/panel_logic.js`，**被打进 panel.js** ✓）· **首屏 ~359,731 gz**（panel.js 190,415 + panel.css 84,400 + wasm 84,216 + index.html ~700） |
-| **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`）。三样数（2026-10-03 实测 ✓）：**wasm 15,779 gz** · **胶水 6,792 gz** · **首屏 ~130,678 gz**（`gateway/public/` 的 js 106,438 + css 7,090 + wasm 15,779 + html 1,371） |
+| **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary**。三样数（2026-10-03 实测 ✓）：**wasm 84,216 gz**（`agent/resources/panel/panel_logic_bg.wasm`，`index.html` **解析时预加载**所以算首屏 ✓）· **胶水增量 +2,428 gz**（`panel.js` 在 wasm 落地前 187,978 gz → HEAD 190,406 gz；**它的胶水被打进 panel.js** ✓，逐家族是 **+2,149 / −104 / −280**——**迁移途中自我抵消** ✓）· **首屏 ~359,722 gz**（panel.js 190,406 + panel.css 84,400 + wasm 84,216 + index.html ~700） |
+| **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`）。三样数（2026-10-03 实测 ✓）：**wasm 15,779 gz** · **胶水增量 0（JS 上）**——**这一栏我先前记错了** ✗：控制台的 `index.html` **内联 fetch + `WebAssembly.compileStreaming`** ✓、`main.tsx` 用那个 handle ✓，所以 **bundle 里没有 wasm-bindgen 胶水**（`pkg/ui_logic.js` **不被发货** ✗）。它落地那一刻的 js gz 是 **104,059 → 104,059**，**逐字节不变** ✓ · **首屏 ~130,678 gz**（js 106,420 + css 7,090 + wasm 15,779 + html 1,371；js 此后 +2,361 gz 是**别的工作** ✓，不是迁移 ✓） |
 | **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（**20 个模块，70 测试，11 份语料**）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
 | **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**27 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
 | **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
@@ -1055,8 +1055,10 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
    而 `index` 作业的 `cargo test --manifest-path index/landing/Cargo.toml` 把"跟踪的 arm 就是这个 crate
    渲染出来的"钉住 ✓。
 
-**三样数的诚实限定** ✓：**"胶水对首屏的增量"那一栏量的是胶水自己的 gz** ✓，**不是实测增量** ✗——
-它被打进 `panel.js`/`index-*.js` ✓，而**反事实（去掉 wasm 的构建）没有量** ✗。要把它变成实测增量，
-就得构建一次没有 wasm 的面板与控制台 ✓——**那是一次独立的测量** ✓，写在这里而不是含糊过去 ✓。
+**三样数的诚实限定** ✓（2026-10-03 第二次实测后改写 ✓）：**"胶水对首屏的增量"现在是真增量** ✓——
+方法是**逐提交量同一份产物** ✓（`git show <commit>:panel.js | gzip -9` ✓），
+所以每个家族的增量都能被**任何人重跑一遍证伪** ✓。而两家的**结构不同** ✓：
+**面板把胶水打进 `panel.js`** ✓（+2,428 gz），**控制台把 wasm 内联 fetch** ✓（JS 上 0 ✓）。
+**我第一版给控制台记的"胶水 6,792 gz"是错的** ✗——那是没被发货的 `pkg/ui_logic.js` ✓。
 
 **所以这一份计划的可执行部分到此为止** ✓——**再往下走需要上面三个决定中的任意一个** ✓。
