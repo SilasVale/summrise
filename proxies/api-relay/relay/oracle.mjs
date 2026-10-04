@@ -11,6 +11,12 @@ import proxyHandler from "../api/proxy.js";
 import { tokenOk, routeOf } from "../../summrise-relay/relay.mjs";
 import zenHandler, { normalizeUpstreamPath } from "../api/zen.js";
 import gitHandler from "../api/git.ts";
+
+/** `Number(raw ?? 30000)`, with a non-finite or zero result becoming a 0 ms budget. */
+function budgetOf(raw) {
+  const n = Number(raw ?? 30000);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
 import githubHandler from "../api/github.ts";
 import gformHandler from "../api/gform.ts";
 import {
@@ -79,6 +85,24 @@ const urls = [
   "/api/git/x?a=%20b", "/api/git/x?a=+b", "/api/git/x?a=%2B", "/api/git/x?a=%2F%2F",
 ];
 const hosts = ["api.saisi.online", "localhost", "127.0.0.1:8081", "a.example:8443", "", "中文.example"];
+
+// **THE HEADER BUDGET'S COERCION — `Number(v ?? 30000)`, THE EXPRESSION `api/git.ts` RUNS AT MODULE LOAD.**
+// It cannot be driven through the handler (the constant is read once at import), so the oracle evaluates the
+// expression itself: this is the LANGUAGE's coercion rather than a reimplementation of it, which is what
+// makes it the oracle for a port that got it wrong on four of these five inputs.
+if (MODE === "budget") {
+  const values = [
+    undefined, null, "", "   ", "0", "30000", " 12 ", "1e3", "0x10", "0o10", "0b101",
+    "120abc", "12 34", "Infinity", "-5", "-Infinity", "3.5", ".5", "5.", "1e-3",
+  ];
+  const budgetCases = values.map((raw) => ({
+    name: `budget(${raw === undefined ? "undefined" : JSON.stringify(raw)})`,
+    input: { raw: raw === undefined ? null : raw, present: raw !== undefined },
+    expected: { value: budgetOf(raw) },
+  }));
+  process.stdout.write(JSON.stringify({ cases: budgetCases }, null, 1) + "\n");
+  process.exit(0);
+}
 
 const cases = [];
 let routed = 0;

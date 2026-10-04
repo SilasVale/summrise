@@ -1404,6 +1404,161 @@ pub fn git_upstream_search(search: &str) -> String {
     params.to_string()
 }
 
+/// **`Number(text)` — THE JAVASCRIPT COERCION, BECAUSE THE HEADER BUDGET GOES THROUGH IT.**
+///
+/// `api/git.ts` reads `Number(env?.SUMMRISE_RELAY_HEADER_TIMEOUT_MS ?? 30000)`, and `Number` is not a parse:
+///
+/// ```text
+///     Number("")        -> 0        Number(" 12 ")   -> 12      Number("1e3")   -> 1000
+///     Number("0x10")    -> 16       Number("0o10")   -> 8       Number("Infinity") -> Infinity
+///     Number("120abc")  -> NaN      Number("12 34")  -> NaN
+/// ```
+///
+/// **THE RUST PORT USED `v.parse::<u64>()`, AND THE TWO DISAGREE ON FOUR OF FIVE PLAUSIBLE INPUTS** —
+/// measured: `""` is 0 in JavaScript and the 30000 DEFAULT in Rust; so are `" 12 "`, `"1e3"` and `"120abc"`.
+/// A misconfigured variable therefore behaved differently in the two relays, and the port's own comment
+/// claimed the reads were equivalent. This is the JavaScript's behaviour, and `None` is `NaN`.
+pub fn js_number(text: &str) -> Option<f64> {
+    let t = text.trim();
+    if t.is_empty() {
+        // `Number("")` is 0, and `Number("   ")` is 0 too.
+        return Some(0.0);
+    }
+    let (sign, body) = match t.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, t.strip_prefix('+').unwrap_or(t)),
+    };
+    let lower = body.to_ascii_lowercase();
+    if lower == "infinity" {
+        return Some(sign * f64::INFINITY);
+    }
+    for (prefix, radix) in [("0x", 16u32), ("0o", 8), ("0b", 2)] {
+        if let Some(digits) = lower.strip_prefix(prefix) {
+            if digits.is_empty() {
+                return None;
+            }
+            // Every character has to be a digit of that radix; `Number("0x")` is NaN.
+            if !digits.chars().all(|c| c.is_digit(radix)) {
+                return None;
+            }
+            return u64::from_str_radix(digits, radix)
+                .ok()
+                .map(|v| sign * v as f64);
+        }
+    }
+    // A decimal or an exponent, and NOTHING ELSE: `"12 34"` and `"120abc"` are NaN.
+    let ok = body
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == '+' || c == '-')
+        && body.chars().filter(|c| *c == '.').count() <= 1
+        && body.chars().filter(|c| *c == 'e').count() <= 1;
+    if !ok {
+        return None;
+    }
+    body.parse::<f64>().ok().map(|v| sign * v)
+}
+
+/// `SUMMRISE_RELAY_HEADER_TIMEOUT_MS`, as the BUDGET IN MILLISECONDS — the JavaScript's expression, moved
+/// out of `main.rs` so it can be tested: `Number(raw ?? 30000)`, with a `NaN` becoming 0.
+///
+/// **THE `?? ` IS NOT A DEFAULT FOR AN EMPTY STRING.** It catches `null` and `undefined` only, so `""`
+/// reaches `Number` and becomes **0** — an instant timeout. This mirrors that, and the corpus carries the
+/// five inputs the two implementations disagreed about.
+pub fn header_budget_ms(raw: Option<&str>) -> u64 {
+    let value = match raw {
+        Some(v) => js_number(v),
+        None => Some(30000.0),
+    };
+    match value {
+        Some(v) if v.is_finite() && v > 0.0 => v as u64,
+        // `Number` gave NaN or Infinity, or the budget was 0: `Duration::from_millis` of any of those is an
+        // instant deadline, which is what the JavaScript's `AbortSignal.timeout(NaN | 0)` does too.
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    //! **THE CORPUS IS THE SHIPPING JAVASCRIPT'S OWN COERCION**, produced by
+    //! `node oracle.mjs budget > fixtures/budget-corpus.json`, and it exists because the first port of this
+    //! used `v.parse::<u64>()` and disagreed with `Number()` on four of the twenty inputs — including the one
+    //! that matters: `""` is a **0 ms** budget in JavaScript and was the 30000 default in Rust.
+    use super::*;
+
+    fn corpus() -> serde_json::Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/budget-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the budget corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    #[test]
+    fn the_header_budget_matches_the_shipping_javascript() {
+        let doc = corpus();
+        let mut checked = 0;
+        let mut distinct = std::collections::HashSet::new();
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let input = &case["input"];
+            let raw = if input["present"].as_bool().unwrap_or(false) {
+                input["raw"].as_str()
+            } else {
+                None
+            };
+            let got = header_budget_ms(raw);
+            assert_eq!(
+                got,
+                case["expected"]["value"].as_u64().unwrap_or(0),
+                "{name}"
+            );
+            distinct.insert(got);
+            checked += 1;
+        }
+        assert_eq!(checked, 20, "the budget corpus changed size");
+        // **A FLOOR AGAINST A VACUOUS CORPUS**: a port that returned one number for everything would pass
+        // twenty assertions. The shipping expression produces at least five distinct budgets here.
+        assert!(
+            distinct.len() >= 5,
+            "only {} distinct budgets — the corpus stopped distinguishing anything",
+            distinct.len()
+        );
+    }
+
+    #[test]
+    fn the_coercion_is_number_not_a_parse() {
+        // The four inputs the two implementations disagreed about, stated directly.
+        assert_eq!(
+            js_number(""),
+            Some(0.0),
+            "Number(\"\") is 0, NOT the default"
+        );
+        assert_eq!(js_number(" 12 "), Some(12.0), "Number trims");
+        assert_eq!(js_number("1e3"), Some(1000.0), "Number takes an exponent");
+        assert_eq!(js_number("0x10"), Some(16.0), "Number takes a hex prefix");
+        assert_eq!(js_number("0o10"), Some(8.0));
+        assert_eq!(js_number("0b101"), Some(5.0));
+        assert!(js_number("120abc").is_none(), "NaN");
+        assert!(js_number("12 34").is_none(), "NaN");
+        assert_eq!(js_number("Infinity"), Some(f64::INFINITY));
+        // And the budget's own shape: `?? 30000` catches null/undefined ONLY.
+        assert_eq!(header_budget_ms(None), 30000);
+        assert_eq!(
+            header_budget_ms(Some("")),
+            0,
+            "an empty string is a 0 ms budget, not the default"
+        );
+        assert_eq!(
+            header_budget_ms(Some("3.5")),
+            3,
+            "truncated, like AbortSignal.timeout"
+        );
+        assert_eq!(
+            header_budget_ms(Some("-5")),
+            0,
+            "a negative budget is not a 5 s one"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

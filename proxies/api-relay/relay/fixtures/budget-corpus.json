@@ -1,0 +1,204 @@
+{
+ "cases": [
+  {
+   "name": "budget(undefined)",
+   "input": {
+    "raw": null,
+    "present": false
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "name": "budget(null)",
+   "input": {
+    "raw": null,
+    "present": true
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "name": "budget(\"\")",
+   "input": {
+    "raw": "",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"   \")",
+   "input": {
+    "raw": "   ",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"0\")",
+   "input": {
+    "raw": "0",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"30000\")",
+   "input": {
+    "raw": "30000",
+    "present": true
+   },
+   "expected": {
+    "value": 30000
+   }
+  },
+  {
+   "name": "budget(\" 12 \")",
+   "input": {
+    "raw": " 12 ",
+    "present": true
+   },
+   "expected": {
+    "value": 12
+   }
+  },
+  {
+   "name": "budget(\"1e3\")",
+   "input": {
+    "raw": "1e3",
+    "present": true
+   },
+   "expected": {
+    "value": 1000
+   }
+  },
+  {
+   "name": "budget(\"0x10\")",
+   "input": {
+    "raw": "0x10",
+    "present": true
+   },
+   "expected": {
+    "value": 16
+   }
+  },
+  {
+   "name": "budget(\"0o10\")",
+   "input": {
+    "raw": "0o10",
+    "present": true
+   },
+   "expected": {
+    "value": 8
+   }
+  },
+  {
+   "name": "budget(\"0b101\")",
+   "input": {
+    "raw": "0b101",
+    "present": true
+   },
+   "expected": {
+    "value": 5
+   }
+  },
+  {
+   "name": "budget(\"120abc\")",
+   "input": {
+    "raw": "120abc",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"12 34\")",
+   "input": {
+    "raw": "12 34",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"Infinity\")",
+   "input": {
+    "raw": "Infinity",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"-5\")",
+   "input": {
+    "raw": "-5",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"-Infinity\")",
+   "input": {
+    "raw": "-Infinity",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"3.5\")",
+   "input": {
+    "raw": "3.5",
+    "present": true
+   },
+   "expected": {
+    "value": 3
+   }
+  },
+  {
+   "name": "budget(\".5\")",
+   "input": {
+    "raw": ".5",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  },
+  {
+   "name": "budget(\"5.\")",
+   "input": {
+    "raw": "5.",
+    "present": true
+   },
+   "expected": {
+    "value": 5
+   }
+  },
+  {
+   "name": "budget(\"1e-3\")",
+   "input": {
+    "raw": "1e-3",
+    "present": true
+   },
+   "expected": {
+    "value": 0
+   }
+  }
+ ]
+}
