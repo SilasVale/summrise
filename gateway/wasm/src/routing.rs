@@ -573,6 +573,45 @@ mod tests {
     }
 
     #[test]
+    fn the_responses_exit_has_four_cases_and_the_default_is_a_host() {
+        // **THE DEFAULT IS A HOSTNAME, WHICH IS WHY THIS PIN LIVES IN THIS FILE.** `routing.rs` is declared in
+        // `agent/tests/production_host.rs` for the `US_PROXY_BASE` default; a FIXTURE that captured this URL
+        // would have needed its own declaration, so the oracle points the exit at a test host and the real
+        // default is pinned here instead.
+        let env = |v: &str| serde_json::json!({ "MUSE_RESPONSES_EXIT": v });
+        assert_eq!(
+            muse_responses_exit(Some(&env("vercel"))),
+            "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fresponses"
+        );
+        assert_eq!(
+            muse_responses_exit(Some(&env("zen-us"))),
+            "https://zen-us.saisi.online/v1/responses"
+        );
+        // An http(s) value is used VERBATIM — an operator pointing it anywhere.
+        assert_eq!(
+            muse_responses_exit(Some(&env("https://exit.example"))),
+            "https://exit.example"
+        );
+        assert_eq!(
+            muse_responses_exit(Some(&env("http://plain.example"))),
+            "http://plain.example"
+        );
+        // Anything else — including unset, and including a NON-URL string — is the default host.
+        assert_eq!(
+            muse_responses_exit(None),
+            "https://oracle.saisi.online/v1/responses"
+        );
+        assert_eq!(
+            muse_responses_exit(Some(&env("something-else"))),
+            "https://oracle.saisi.online/v1/responses"
+        );
+        assert_eq!(
+            og_responses_direct(),
+            "https://opencode.ai/zen/go/v1/responses"
+        );
+    }
+
+    #[test]
     fn the_nine_prefixes_answer_their_own_kind_and_wire_path() {
         let cases = [
             (
