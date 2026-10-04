@@ -67,7 +67,11 @@ SHIM
 chmod +x "$WORK/bin/"*
 
 export PATH="$WORK/bin:$PATH"
-export VRELAY_KEY="$HOME/.ssh/vrelay.key"
+# **A FAKE KEY, BECAUSE CI HAS NO `~/.ssh/vrelay.key`.** The script's first act is `[ -f "$KEY" ]`, so
+# pointing at a file that exists is enough — and measured in CI, pointing at the real path made every path
+# exit 1 at that check before reaching anything this harness is about.
+: > "$WORK/vrelay.key"
+export VRELAY_KEY="$WORK/vrelay.key"
 
 # **A STUB CROSS TOOLCHAIN, BECAUSE THE SCRIPT CALLS ITS TOOLS BY ABSOLUTE PATH.** `PATH` shims cannot
 # intercept `"$CROSS/aarch64-linux-musl-strip"`, and the real branch would otherwise reach for a 108 MB
@@ -82,23 +86,46 @@ done
 export VRELAY_MUSL_CROSS="$WORK/cross/bin"
 
 
+FAILED=0
+
+# `run <label> <expected exit> [args…]` — **AND IT FAILS THE HARNESS WHEN THE EXPECTATION IS VIOLATED.**
+# The first version only PRINTED each exit code, so it exited 0 whatever happened: a gate that cannot fail,
+# which is this repository's own rule about gates. Its exit code also depended on a trailing `grep` under
+# `pipefail`, which is how CI caught both problems at once.
 run() {
-  local label="$1"; shift
+  local label="$1" want="$2"; shift 2
   : > "$CALLS"
-  echo "── $label"
-  if "$SCRIPT" "$@" > "$WORK/out.log" 2>&1; then
-    echo "   exit 0"
+  echo "── $label (expecting exit $want)"
+  local got=0
+  "$SCRIPT" "$@" > "$WORK/out.log" 2>&1 || got=$?
+  if [ "$got" != "$want" ]; then
+    echo "   FAIL: exit $got, expected $want"
+    FAILED=$((FAILED + 1))
   else
-    echo "   exit $? (non-zero)"
+    echo "   exit $got — as expected"
   fi
-  sed 's/^/   /' "$WORK/out.log" | tail -6
-  [ -s "$CALLS" ] && sed 's/^/   calls: /' "$CALLS" | head -12
+  sed 's/^/   /' "$WORK/out.log" | tail -5
+  [ -s "$CALLS" ] && sed 's/^/   calls: /' "$CALLS" | head -6
 }
 
-run "--stop" --stop
-run "the default path (local toolchain)" 
-run "--on-box" --on-box
-echo "── the smoke's assertion, with the relay answering 500"
-SMOKE_CODE=500 run "smoke expects 401, gets 500" 2>/dev/null || true
-: > "$CALLS"; if SMOKE_CODE=500 "$SCRIPT" > "$WORK/out.log" 2>&1; then echo "   exit 0 — THE ASSERTION DID NOT BITE"; else echo "   exit $? — the assertion bit"; fi
-grep -E "expected 401" "$WORK/out.log" | sed 's/^/   /' | head -2
+run "--stop" 0 --stop
+run "the default path (local toolchain)" 0
+run "--on-box" 0 --on-box
+# **THE ONE THAT MATTERS MOST**: a relay answering 500 must make the script REFUSE, not ship.
+: > "$CALLS"
+SMOKE_CODE=500 "$SCRIPT" > "$WORK/out.log" 2>&1 && smoke=0 || smoke=$?
+echo "── the smoke's assertion, with the relay answering 500 (expecting exit 1)"
+if [ "$smoke" != 1 ]; then
+  echo "   FAIL: exit $smoke — THE ASSERTION DID NOT BITE"
+  FAILED=$((FAILED + 1))
+else
+  echo "   exit 1 — the assertion bit"
+fi
+grep -E "expected 401" "$WORK/out.log" | sed 's/^/   /' | head -2 || true
+
+echo ""
+if [ "$FAILED" -gt 0 ]; then
+  echo "relay-deploy-stub: $FAILED expectation(s) violated"
+  exit 1
+fi
+echo "relay-deploy-stub: every path behaved as written (--stop, default, --on-box, and the smoke refusing a 500)"
