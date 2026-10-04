@@ -760,7 +760,7 @@ mod oracle_corpus {
         // listed 24 would prove the happy path and nothing about the merge.
         assert_eq!(
             lengths,
-            vec![24, 23, 22, 25, 24],
+            vec![24, 23, 22, 25, 26, 26, 24],
             "the listing lengths moved"
         );
     }
