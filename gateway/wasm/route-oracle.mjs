@@ -18,7 +18,7 @@
 // an upstream (this route does not).
 import { writeFileSync } from "node:fs";
 import { opencodeSessionHeader, wireModelName } from "../src/upstream.ts";
-import { advertisedIds, extraModelEntries, facetOverrides } from "../src/store/models.ts";
+import { advertisedIds, extraModelEntries, facetOverrides, disabledModels, customModels } from "../src/store/models.ts";
 import { handleGateway } from "../src/plugins/translate.ts";
 import { streamOgToAnthropic } from "../src/anthropic-translate.ts";
 import { __clearCaches } from "../src/store/cache.ts";
@@ -214,6 +214,7 @@ async function callModels(c) {
   if (c.disabled) env.KEYS.__map.set("models:disabled", JSON.stringify(c.disabled));
   if (c.custom) env.KEYS.__map.set("models:custom", JSON.stringify(c.custom));
   if (c.overrides) env.KEYS.__map.set("models:overrides", JSON.stringify(c.overrides));
+  if (c.providerRecords) env.KEYS.__map.set("providers:custom", JSON.stringify(c.providerRecords));
   const request = new Request("https://relay.example/v1/models", { method: "GET" });
   const response = await handleGateway(request, env, new URL(request.url));
   // **THE THREE REAL INPUTS, RECORDED RATHER THAN RE-DERIVED.** `advertisedIds`, `extraModelEntries` and
@@ -222,6 +223,14 @@ async function callModels(c) {
   const liveIds = await advertisedIds(env);
   const extraEntries = await extraModelEntries(env);
   const facet = await facetOverrides(env);
+  // **THE THREE STORE READS, RECORDED SO THE CHAIN THAT PRODUCES THEM IS REPLAYABLE.** `liveIds` and
+  // `extraEntries` are the OUTPUTS; without their inputs a Rust replay of `advertisedIds`/
+  // `extraModelEntries` would be comparing a function with itself.
+  const disabled = [...(await disabledModels(env))];
+  const custom = await customModels(env);
+  // `readList` is PRIVATE, so the same KV key is read here — the raw provider records are what
+  // `advertisedProviderModels` takes, and without them a Rust replay would be circular.
+  const providers = await env.KEYS.get("providers:custom", "json").catch(() => null) ?? [];
   return {
     status: response.status,
     headers: Object.fromEntries(response.headers),
@@ -229,6 +238,10 @@ async function callModels(c) {
     liveIds,
     extraEntries,
     facet,
+    // The INPUTS too, so the chain that produces `liveIds`/`extraEntries` is replayable rather than circular.
+    disabled,
+    custom,
+    providers,
   };
 }
 
@@ -628,6 +641,30 @@ const modelsCases = [
     custom: [{ id: "og/console-added", ownedBy: "opencode" }],
   },
   {
+    // **A CUSTOM PROVIDER, WHICH IS THE ONLY THING THAT EXERCISES `advertisedProviderModels`.** Its models are
+    // advertised under its prefix, and one of the two providers here has NO prefix — the case that caught
+    // `js_text(null)` returning the TEXT "null" where the source's `?? ""` gives the empty string.
+    name: "a custom provider advertises its models",
+    providerRecords: [
+      {
+        prefix: "acme/",
+        label: "Acme Cloud",
+        models: [
+          { id: "acme-chat", name: "Acme Chat", contextWindow: 128000 },
+          { id: "/leading-slash" },
+        ],
+      },
+      { prefix: "", label: "No Prefix At All", models: [{ id: "orphan" }] },
+    ],
+  },
+  {
+    // The wire already carries the prefix: `advertisedModelId` must not prepend it twice.
+    name: "a provider whose wire ALREADY carries its prefix",
+    providerRecords: [
+      { prefix: "acme", models: [{ id: "acme/chat" }, { id: "other" }] },
+    ],
+  },
+  {
     name: "a facet override decorates a built-in listing",
     overrides: [{ id: "og/deepseek-v4.1-flash", name: "Renamed by an operator", contextWindow: 200000 }],
   },
@@ -641,6 +678,9 @@ for (const c of modelsCases) {
     liveIds: r.liveIds,
     extraEntries: r.extraEntries,
     facet: r.facet,
+    disabled: r.disabled,
+    custom: r.custom,
+    providers: r.providers,
     expected: { status: r.status, headers: r.headers, body: r.body },
   });
 }
