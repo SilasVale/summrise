@@ -4,9 +4,22 @@
 //! Read this when you change this file: the mutation is how you find out whether the check can still fail at
 //! all. A gate that cannot be broken is worse than no gate.
 //!
-//! MUTATION: add a kilobyte of comments to `agent/resources/panel/panel.js` and rebuild nothing.
-//! RESULT:   the `panel.js` row fails, naming the old and new gzip sizes and the total. (Measured on the
-//!           port: the row is what catches it.)
+//! MUTATION: append **2 KB OF RANDOM BYTES** to `gateway/public/ui_logic_bg.wasm`:
+//!           `head -c 2048 /dev/urandom >> gateway/public/ui_logic_bg.wasm`
+//! RESULT:   `gateway/public/ui_logic_bg.wasm — census 15762 gz, measured 18216 gz …, tolerance ±78`, exit 1.
+//!           (Measured 2026-10-03.)
+//!
+//! **AND THE FIRST TWO MUTATIONS TRIED DID NOT BITE, WHICH IS A LESSON ABOUT THIS GATE'S SUBJECT.** Its
+//! subject is the COMPRESSED size, so a mutation has to change it:
+//!
+//!   * **one byte appended** — absorbed by the deflate stream; the gzip size did not move at all.
+//!   * **1 KB of `'A'`** — a run of one repeated byte compresses to almost nothing, so 1,024 bytes of input
+//!     changed the output by ~20.
+//!   * **2 KB from `/dev/urandom`** — incompressible, and the row failed by 2,454 bytes against a ±78 bound.
+//!
+//! A mutation for a size gate must be INCOMPRESSIBLE. The earlier version of this header prescribed "a
+//! kilobyte of comments", which is real text and compresses to a few hundred bytes — **below `panel.js`'s
+//! ±952 bound, so it would have proved nothing.**
 //!
 //! WHY IT EXISTS. The migration's P2 rows record three numbers per family — wasm gz, the glue's increment on
 //! the first screen, and the first screen's own gz — and on 2026-10-03 the third was found to be **a mix of
@@ -138,6 +151,101 @@ fn the_panel_first_screen_is_what_the_census_says() {
         "first-screen: {total} gz over {} artifact(s) — {}",
         PANEL_FIRST_SCREEN.len(),
         PANEL_FIRST_SCREEN
+            .iter()
+            .map(|a| format!("{} {}", a.path.rsplit('/').next().unwrap_or(a.path), a.gz))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+}
+
+/// **THE CONSOLE'S FIRST SCREEN**, measured 2026-10-03 with the same command. Its assets carry CONTENT HASHES
+/// in their names, so the paths cannot be pinned — the files are found by shape, and a changed hash simply
+/// means changed bytes, which the size assertion then judges.
+///
+/// **ITS ROW HAD THE SAME DISEASE AS THE PANEL'S**: `js` was measured the `-n` way and matched, while `html`,
+/// `css` and the wasm were measured WITH the filename — and every difference was exactly the basename's
+/// length plus one, which is the arithmetic that settles the cause:
+///
+/// ```text
+///     index.html          1,371 - 1,360 = 11 = "index.html" (10) + NUL
+///     index-B1XnjM77.css  7,090 - 7,071 = 19 = "index-B1XnjM77.css" (18) + NUL
+///     ui_logic_bg.wasm   15,779 - 15,762 = 17 = "ui_logic_bg.wasm" (16) + NUL
+///     index-CbfNO-ug.js 106,420 - 106,420 = 0  <- this one WAS measured with -n
+/// ```
+pub const CONSOLE_FIRST_SCREEN: [Artifact; 3] = [
+    Artifact {
+        path: "gateway/public/index.html",
+        gz: 1360,
+        what: "the document itself",
+    },
+    Artifact {
+        path: "gateway/public/ui_logic_bg.wasm",
+        gz: 15762,
+        what: "the logic crate; index.html compiles it inline, so there is no wasm-bindgen glue",
+    },
+    Artifact {
+        path: "gateway/public/assets/index-CbfNO-ug.js",
+        gz: 106420,
+        what: "the SPA bundle — the console does NOT bundle the glue, so this number is not a migration cost",
+    },
+];
+
+/// The sheet's hashed name, found by shape rather than pinned. Returns the gzip size.
+fn console_sheet_gz(root: &std::path::Path) -> (String, u64) {
+    let dir = root.join("gateway/public/assets");
+    let mut found: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("index-") && n.ends_with(".css"))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one hashed sheet under gateway/public/assets, found {found:?}"
+    );
+    let rel = format!("gateway/public/assets/{}", found[0]);
+    let gz = gz_size(root, &rel);
+    (rel, gz)
+}
+
+#[test]
+fn the_console_first_screen_is_what_the_census_says() {
+    let root = root();
+    let mut total = 0u64;
+    let mut failures: Vec<String> = Vec::new();
+    for a in &CONSOLE_FIRST_SCREEN {
+        let got = gz_size(&root, a.path);
+        total += got;
+        let tol = tolerance(a.gz);
+        if got.abs_diff(a.gz) > tol {
+            failures.push(format!(
+                "  {} — census {} gz, measured {got} gz ({}), tolerance ±{tol}",
+                a.path, a.gz, a.what
+            ));
+        }
+    }
+    // The sheet, by shape.
+    let (sheet, sheet_gz) = console_sheet_gz(&root);
+    total += sheet_gz;
+    // **THE SHEET'S NUMBER IS NOT PINNED, BECAUSE ITS NAME IS NOT STABLE** — a rebuilt sheet has a new hash
+    // and a new size, and both are legitimate. What is pinned is that it is THERE and plausible: a console
+    // sheet is tens of kilobytes, not zero and not a megabyte.
+    assert!(
+        (1000..200_000).contains(&sheet_gz),
+        "FAIL {sheet} gzips to {sheet_gz} bytes, which is not a plausible console sheet"
+    );
+    assert!(
+        failures.is_empty(),
+        "FAIL the console's first screen moved:\n{}\n\
+         Measure with: gzip -9 -nc <path> | wc -c   (the -n form: no filename, no mtime)",
+        failures.join("\n")
+    );
+    println!(
+        "console-first-screen: {total} gz over {} artifact(s) + the sheet — {}",
+        CONSOLE_FIRST_SCREEN.len(),
+        CONSOLE_FIRST_SCREEN
             .iter()
             .map(|a| format!("{} {}", a.path.rsplit('/').next().unwrap_or(a.path), a.gz))
             .collect::<Vec<_>>()
