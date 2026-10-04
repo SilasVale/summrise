@@ -47,6 +47,7 @@
 //! below any real change (the smallest artifact here is 1,360 bytes, where 0.5% is 7 bytes) and far above a
 //! zlib revision. **A gate that fails on a zlib upgrade is a gate somebody disables.**
 
+use std::io::Write;
 use std::process::Command;
 
 /// One artifact of the first screen: its path, its measured gzip size, and what it is.
@@ -251,6 +252,65 @@ fn the_console_first_screen_is_what_the_census_says() {
             .collect::<Vec<_>>()
             .join(", ")
     );
+}
+
+/// **THE GLUE'S INCREMENT, BOTH ENDS.** The P2 row publishes `+2,428 gz` for the panel — "what the wasm cost
+/// the first screen" — and it is the difference between `panel.js` before the wasm landed and now. **The
+/// second end is pinned above; this pins the first**, by reading the file out of the commit before the
+/// migration touched it. The command is the same one, and `git` is a tool every checkout has — which is the
+/// same reading that let `main-shape-check` come across.
+///
+/// **WHY IT MATTERS THAT BOTH ENDS ARE PINNED**: an increment is a claim about two numbers, and a gate that
+/// pins one of them pins half a claim. Measured 2026-10-03: `git show 462cfc89^:agent/resources/panel/panel.js
+/// | gzip -9 -n | wc -c` -> 187,978, and HEAD -> 190,406, which is the row's +2,428.
+const PANEL_JS_BEFORE_THE_WASM: (&str, u64) = ("462cfc89^", 187978);
+
+fn gz_size_of_blob(rev_path: &str) -> u64 {
+    let root = root();
+    let git = Command::new("git")
+        .args(["show", rev_path])
+        .current_dir(&root)
+        .output()
+        .unwrap_or_else(|e| panic!("git show {rev_path}: {e}"));
+    assert!(
+        git.status.success(),
+        "git show {rev_path} failed: {}",
+        String::from_utf8_lossy(&git.stderr)
+    );
+    let mut child = Command::new("gzip")
+        .args(["-9", "-n"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("gzip");
+    child
+        .stdin
+        .as_mut()
+        .expect("gzip stdin")
+        .write_all(&git.stdout)
+        .expect("write to gzip");
+    let out = child.wait_with_output().expect("gzip output");
+    assert!(out.status.success(), "gzip failed");
+    out.stdout.len() as u64
+}
+
+#[test]
+fn the_glue_increment_has_both_its_ends() {
+    let (rev, before) = PANEL_JS_BEFORE_THE_WASM;
+    let got_before = gz_size_of_blob(&format!("{rev}:agent/resources/panel/panel.js"));
+    let got_now = gz_size(&root(), "agent/resources/panel/panel.js");
+    assert!(
+        got_before.abs_diff(before) <= tolerance(before),
+        "FAIL the panel.js from {rev} gzips to {got_before}, and the row's increment starts from {before}"
+    );
+    // **THE INCREMENT ITSELF**, which is the number the P2 row publishes.
+    let increment = got_now - got_before;
+    assert_eq!(
+        increment, 2428,
+        "FAIL the panel's glue increment is {increment} gz ({before} -> {got_now}), and the P2 row says 2,428. \
+         Measure both ends with: git show <rev>:agent/resources/panel/panel.js | gzip -9 -n | wc -c"
+    );
+    println!("glue-increment: {increment} gz ({before} -> {got_now})");
 }
 
 #[test]
