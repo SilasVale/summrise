@@ -324,6 +324,43 @@ pub fn svg_root_paints(
 mod tests {
     use super::*;
 
+    /// **THE BACKTICK GUARD EXISTS BY VIRTUE OF AN IMPORT, SO THE IMPORT IS WHAT TO PIN.**
+    ///
+    /// `contrast-probe-check.mjs` says of itself: "NO SEPARATE BACKTICK CHECK, and the reason is worth
+    /// keeping. I wrote one three times and every version had a wrong premise … Then I noticed the guard
+    /// ALREADY EXISTS: **this file IMPORTS the module**, so a stray backtick inside the template makes the
+    /// import throw a SyntaxError and the whole test file fails loudly. **A hand-rolled parser for a case the
+    /// import already catches is a check that can only be wrong.**"
+    ///
+    /// **A CHECK THAT EXISTS BY ACCIDENT OF AN IMPORT IS A CHECK THAT CAN BE DELETED BY ACCIDENT.** Remove
+    /// the import — or move `PROBE_SOURCE` to a module this file does not import — and the backtick guard
+    /// disappears without a single test changing colour. This is what says so.
+    #[test]
+    fn the_javascript_still_imports_the_probe_source() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository root")
+            .join("scripts/test/contrast-probe-check.mjs");
+        let js =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert!(
+            js.contains("PROBE_SOURCE"),
+            "the .mjs no longer mentions PROBE_SOURCE at all"
+        );
+        let imports_it = js.lines().any(|l| {
+            l.trim_start().starts_with("import ")
+                && l.contains("PROBE_SOURCE")
+                && l.contains("contrast-probe.mjs")
+        });
+        assert!(
+            imports_it,
+            "scripts/test/contrast-probe-check.mjs no longer IMPORTS PROBE_SOURCE from \
+             agent/scripts/lib/contrast-probe.mjs — and that import IS its backtick guard: a stray backtick \
+             inside the template makes the import throw a SyntaxError. Without it, a broken probe passes \
+             silently. The file's own note explains why a hand-rolled replacement is worse."
+        );
+    }
+
     /// The gate's own assertions, ported one for one — these ARE the equivalence evidence, because the
     /// JavaScript version asserts exactly these numbers.
     #[test]
