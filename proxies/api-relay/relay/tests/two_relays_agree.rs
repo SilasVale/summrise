@@ -162,4 +162,60 @@ fn the_two_relays_agree_on_the_constants_they_share() {
         ts_redirect_entries, 7,
         "github.ts's ALLOWED_REDIRECT_HOSTS has {ts_redirect_entries} entries; the Rust side has seven"
     );
+
+    // 6. **THE TWO HEADER ALLOWLISTS.** `copyRequestHeaders`/`copyResponseHeaders` forward a fixed set of
+    //    names, and the corpus covers the names IT carries — so a name added to one side would be invisible
+    //    to every test in the crate. The lists are checked here the same way the host tables are.
+    const REQUEST: [&str; 7] = [
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "if-none-match",
+        "if-modified-since",
+        "range",
+        "user-agent",
+    ];
+    const RESPONSE: [&str; 11] = [
+        "accept-ranges",
+        "cache-control",
+        "content-disposition",
+        "content-encoding",
+        "content-length",
+        "content-range",
+        "content-type",
+        "etag",
+        "expires",
+        "last-modified",
+        "vary",
+    ];
+    // SLICES, because the two lists have different lengths and an array of arrays cannot hold both.
+    for (list, names) in [
+        ("REQUEST_HEADERS", &REQUEST[..]),
+        ("RESPONSE_HEADERS", &RESPONSE[..]),
+    ] {
+        for name in names {
+            assert!(
+                ts_github.contains(&format!("\"{name}\",")),
+                "github.ts's {list} lost {name}"
+            );
+            assert!(
+                rust_lib.contains(&format!("\"{name}\",")),
+                "the Rust {list} lost {name}"
+            );
+        }
+        // **AND THE COUNT**, for the reason the redirect list needed one: the Rust's arrays are
+        // fixed-length and the compiler guards those, but nothing guards the TypeScript's.
+        let ts_count = ts_github
+            .split(&format!("const {list} = ["))
+            .nth(1)
+            .and_then(|rest| rest.split("];").next())
+            .map(|block| block.matches('"').count() / 2)
+            .unwrap_or(0);
+        assert_eq!(
+            ts_count,
+            names.len(),
+            "github.ts's {list} has {ts_count} entries; the Rust side has {}",
+            names.len()
+        );
+    }
 }
