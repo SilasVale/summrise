@@ -127,7 +127,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         &og_session,
         None,
     );
-    let V1Plan::Messages(call) = plan else {
+    let V1Plan::Dial(call) = plan else {
         let V1Plan::Respond(built) = plan else {
             unreachable!()
         };
