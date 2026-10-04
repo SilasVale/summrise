@@ -204,6 +204,14 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # **THE GLUE INCREMENT IS A CLAIM ABOUT A COMMIT BEFORE THE MIGRATION TOUCHED `panel.js`**, so
+          # `first_screen.rs` needs the history to check it — `git show 462cfc89^:…`. Measured: that object
+          # is ABSENT in the default shallow clone, and the gate failed CI while passing every local run.
+          # It is this repository's oldest lesson, one level down: **the clone CI gives is not the clone a
+          # developer has.** `main_shape.rs` was written for the opposite half of the same fact — its gate
+          # reads `git cat-file -p HEAD`, which works shallow, and this one cannot.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
