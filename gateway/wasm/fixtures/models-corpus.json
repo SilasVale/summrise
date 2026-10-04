@@ -32,6 +32,8 @@
    ],
    "extraEntries": [],
    "facet": [],
+   "custom": [],
+   "providers": [],
    "expected": {
     "status": 200,
     "headers": {
@@ -74,6 +76,8 @@
    ],
    "extraEntries": [],
    "facet": [],
+   "custom": [],
+   "providers": [],
    "expected": {
     "status": 200,
     "headers": {
@@ -116,6 +120,8 @@
    ],
    "extraEntries": [],
    "facet": [],
+   "custom": [],
+   "providers": [],
    "expected": {
     "status": 200,
     "headers": {
@@ -163,6 +169,13 @@
     }
    ],
    "facet": [],
+   "custom": [
+    {
+     "id": "og/console-added",
+     "ownedBy": "opencode"
+    }
+   ],
+   "providers": [],
    "expected": {
     "status": 200,
     "headers": {
@@ -171,6 +184,152 @@
      "content-type": "application/json"
     },
     "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"},{\"id\":\"og/console-added\",\"object\":\"model\",\"created\":1785000024,\"owned_by\":\"opencode\"}]}"
+   }
+  },
+  {
+   "name": "a custom provider advertises its models",
+   "disabled": [],
+   "liveIds": [
+    "og/deepseek-v4.1-flash",
+    "og/minimax-m3",
+    "og/mimo-v2.5",
+    "og/mimo-v2.6-flash",
+    "og/ox-alpha-free",
+    "og/muse-spark-1.3-contributor",
+    "og/muse-spark-1.2-contributor",
+    "og/gpt-5.6-luna",
+    "og/openai/gpt-5.6-luna:floor[1m]",
+    "or/openai/gpt-5.6-luna:floor[1m]",
+    "or/z-ai/glm-5.2:free",
+    "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "nv/moonshotai/kimi-k3",
+    "gmi/MiniMaxAI/MiniMax-M3",
+    "gmi/MiniMaxAI/MiniMax-M2.7",
+    "or/stealth/ox-alpha",
+    "qw/qwen3.8-max-preview",
+    "qw/qwen3.8-flash",
+    "qw/deepseek-v4.1-flash",
+    "cm/meituan/LongCat-2.0:free",
+    "cm/poolside/laguna-s-2.1-free",
+    "cm/deepseek/deepseek-v4.1-flash",
+    "r4/deepseek-v4.1-flash",
+    "acme/acme-chat",
+    "acme/leading-slash"
+   ],
+   "extraEntries": [
+    {
+     "id": "acme/acme-chat",
+     "owned_by": "Acme Cloud",
+     "name": "Acme Chat",
+     "context_window": 128000
+    },
+    {
+     "id": "acme/leading-slash",
+     "owned_by": "Acme Cloud"
+    }
+   ],
+   "facet": [],
+   "custom": [],
+   "providers": [
+    {
+     "prefix": "acme/",
+     "label": "Acme Cloud",
+     "models": [
+      {
+       "id": "acme-chat",
+       "name": "Acme Chat",
+       "contextWindow": 128000
+      },
+      {
+       "id": "/leading-slash"
+      }
+     ]
+    },
+    {
+     "prefix": "",
+     "label": "No Prefix At All",
+     "models": [
+      {
+       "id": "orphan"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"},{\"id\":\"acme/acme-chat\",\"object\":\"model\",\"created\":1785000024,\"owned_by\":\"Acme Cloud\",\"name\":\"Acme Chat\",\"context_window\":128000},{\"id\":\"acme/leading-slash\",\"object\":\"model\",\"created\":1785000025,\"owned_by\":\"Acme Cloud\"}]}"
+   }
+  },
+  {
+   "name": "a provider whose wire ALREADY carries its prefix",
+   "disabled": [],
+   "liveIds": [
+    "og/deepseek-v4.1-flash",
+    "og/minimax-m3",
+    "og/mimo-v2.5",
+    "og/mimo-v2.6-flash",
+    "og/ox-alpha-free",
+    "og/muse-spark-1.3-contributor",
+    "og/muse-spark-1.2-contributor",
+    "og/gpt-5.6-luna",
+    "og/openai/gpt-5.6-luna:floor[1m]",
+    "or/openai/gpt-5.6-luna:floor[1m]",
+    "or/z-ai/glm-5.2:free",
+    "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    "nv/moonshotai/kimi-k3",
+    "gmi/MiniMaxAI/MiniMax-M3",
+    "gmi/MiniMaxAI/MiniMax-M2.7",
+    "or/stealth/ox-alpha",
+    "qw/qwen3.8-max-preview",
+    "qw/qwen3.8-flash",
+    "qw/deepseek-v4.1-flash",
+    "cm/meituan/LongCat-2.0:free",
+    "cm/poolside/laguna-s-2.1-free",
+    "cm/deepseek/deepseek-v4.1-flash",
+    "r4/deepseek-v4.1-flash",
+    "acme/chat",
+    "acme/other"
+   ],
+   "extraEntries": [
+    {
+     "id": "acme/chat",
+     "owned_by": "acme"
+    },
+    {
+     "id": "acme/other",
+     "owned_by": "acme"
+    }
+   ],
+   "facet": [],
+   "custom": [],
+   "providers": [
+    {
+     "prefix": "acme",
+     "models": [
+      {
+       "id": "acme/chat"
+      },
+      {
+       "id": "other"
+      }
+     ]
+    }
+   ],
+   "expected": {
+    "status": 200,
+    "headers": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-methods": "GET,POST,OPTIONS,DELETE,PUT",
+     "content-type": "application/json"
+    },
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"},{\"id\":\"acme/chat\",\"object\":\"model\",\"created\":1785000024,\"owned_by\":\"acme\"},{\"id\":\"acme/other\",\"object\":\"model\",\"created\":1785000025,\"owned_by\":\"acme\"}]}"
    }
   },
   {
@@ -210,6 +369,8 @@
      "contextWindow": 200000
     }
    ],
+   "custom": [],
+   "providers": [],
    "expected": {
     "status": 200,
     "headers": {
