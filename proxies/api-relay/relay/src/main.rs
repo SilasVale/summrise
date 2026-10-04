@@ -544,12 +544,14 @@ async fn forward(
 }
 
 /// `SUMMRISE_RELAY_HEADER_TIMEOUT_MS`, read ONCE — which is what the JavaScript's module-load read is.
+///
+/// **THE DECISION LIVES IN `lib.rs` NOW, BECAUSE THE FIRST VERSION OF IT WAS WRONG.** It used
+/// `v.parse::<u64>()`, and `Number(v ?? 30000)` — the expression `api/git.ts` actually runs — disagrees with
+/// that on four of the twenty inputs the corpus carries, `""` among them: a **0 ms** budget in JavaScript,
+/// and the 30000 default here. `summrise_relay::header_budget_ms` is the ported coercion, with the corpus.
 fn header_budget_from_env() -> std::time::Duration {
-    let ms = std::env::var("SUMMRISE_RELAY_HEADER_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(30_000);
-    std::time::Duration::from_millis(ms)
+    let raw = std::env::var("SUMMRISE_RELAY_HEADER_TIMEOUT_MS").ok();
+    std::time::Duration::from_millis(summrise_relay::header_budget_ms(raw.as_deref()))
 }
 
 #[tokio::main]
