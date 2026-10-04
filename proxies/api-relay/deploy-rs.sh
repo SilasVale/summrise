@@ -61,7 +61,12 @@ if [ "${1:-}" = "--stop" ]; then
 fi
 
 [ -f "$KEY" ] || { say "  !! relay ssh key not found at $KEY (VRELAY_KEY to override)" >&2; exit 1; }
-command -v docker >/dev/null 2>&1 || { say "  !! docker is how this cross-builds for aarch64" >&2; exit 1; }
+
+# **THE DOCKER CHECK USED TO SIT HERE, ABOVE THE `--on-box` BRANCH, AND THAT WAS A BUG**: `--on-box`
+# builds ON the VPS and its own comment says it "needs no cross toolchain at all" — but this line refused
+# before the branch could run, so the path that always works required a docker daemon it never used.
+# Measured 2026-10-03: this development box has no reachable docker socket, so `--on-box` died on a check
+# about a tool it does not touch. The check lives in the branch that uses docker now.
 
 if [ "${1:-}" = "--on-box" ]; then
   # **BUILD ON THE BOX**, which needs no cross toolchain at all: the VPS is aarch64, so a native
@@ -87,7 +92,32 @@ if [ "${1:-}" = "--on-box" ]; then
   ssh -i "$KEY" -o StrictHostKeyChecking=no "ubuntu@$HOST" \
     'install -m 755 /tmp/vrelay-src/relay/target/release/vrelay /tmp/vrelay'
   BIN=""
+elif [ -n "${VRELAY_MUSL_CROSS:-}" ] || command -v aarch64-linux-musl-gcc >/dev/null 2>&1 \
+   || [ -x "${VRELAY_MUSL_CROSS:-/tmp}/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc" ]; then
+  # **A THIRD PATH, MEASURED 2026-10-03: A LOCAL MUSL CROSS TOOLCHAIN.** The container path below needs a
+  # docker daemon; this one needs a tarball. It was proved end to end here — `musl.cc`'s
+  # `aarch64-linux-musl-cross.tgz` (108 MB, GCC 11.2.1), unpacked, with the two variables below — and it
+  # produced `ELF 64-bit LSB executable, ARM aarch64, statically linked, stripped` at 3,831,200 bytes.
+  # `ring` is the C in the dependency tree, which is why the compiler and the LINKER both have to be set.
+  CROSS="${VRELAY_MUSL_CROSS:-$(dirname "$(command -v aarch64-linux-musl-gcc 2>/dev/null || echo /tmp/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc)")}"
+  say "=== [build] vrelay for $TARGET (local toolchain: $CROSS) ==="
+  # **`cd "$CRATE"`, WHICH THE CONTAINER PATH GETS FROM `-w /src` AND THIS ONE DID NOT.** Running the
+  # script for the first time found it: the build ran from the repository root and answered
+  # `error: could not find Cargo.toml in /home/zss/summrise`. Nobody had run this file before, which is
+  # exactly the class of defect that running it is for.
+  ( cd "$CRATE" && \
+    CC_aarch64_unknown_linux_musl="$CROSS/aarch64-linux-musl-gcc" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$CROSS/aarch64-linux-musl-gcc" \
+      cargo build --release --target "$TARGET" --bin vrelay )
+  BIN="$CRATE/target/$TARGET/release/vrelay"
+  # The container image strips by default; match it, or the artifact differs by 1.8 MB for no reason.
+  [ -x "$CROSS/aarch64-linux-musl-strip" ] && "$CROSS/aarch64-linux-musl-strip" "$BIN"
 else
+  command -v docker >/dev/null 2>&1 || {
+    say "  !! no build path: no --on-box, no local musl cross toolchain, and no docker" >&2
+    say "     (VRELAY_MUSL_CROSS=<dir> points at an unpacked aarch64-linux-musl-cross)" >&2
+    exit 1
+  }
   say "=== [build] vrelay for $TARGET (in $IMAGE) ==="
   docker run --rm -v "$CRATE":/src -w /src "$IMAGE" \
     cargo build --release --target "$TARGET" --bin vrelay

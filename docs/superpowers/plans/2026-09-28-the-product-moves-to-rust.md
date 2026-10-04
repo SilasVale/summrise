@@ -1062,8 +1062,21 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 
        ssh ubuntu@132.226.90.175 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/vrelay.key.pub
 
-   然后 `./proxies/api-relay/deploy-rs.sh --on-box` 就能跑 ✓。**而它仍有一个未验证的前提** ✗：
-   `--on-box` 要在盒子上**构建** ✓，所以那台机器得有 Rust 工具链 ✓——**授权之后第一件事就是查它** ✓。
+   然后 `./proxies/api-relay/deploy-rs.sh` 就能跑 ✓。
+
+   **2026-10-03 更晚些：脚本被跑通了，而它里面有两个 bug** ✗——**两个都是"运行它"发现的** ✓，
+   而这脚本自己的头注释就写着 **IT HAS NEVER BEEN RUN** ✓：
+   (1) **docker 检查跑在 `--on-box` 分支之前** ✗——于是那条"**needs no cross toolchain at all**"的路
+   反而要求一个它从不使用的 docker daemon ✓；(2) **本地构建没有 `cd` 进 crate** ✗——容器那条从 `-w /src`
+   得到工作目录 ✓，本地那条没有 ✓，于是它以 `could not find Cargo.toml in /home/zss/summrise` 失败 ✓。
+   两个都修了 ✓，而脚本现在**不需要 docker** ✓。
+
+   **而且第三条构建路被量出来了** ✓：本机**不需要** docker 或盒子的 Rust 工具链 ✓——
+   `musl.cc` 的 `aarch64-linux-musl-cross.tgz`（**108 MB，GCC 11.2.1** ✓）解开后 ✓，
+   用 `CC_aarch64_unknown_linux_musl` + `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER` 两个变量 ✓，
+   产出 **`ELF 64-bit LSB executable, ARM aarch64, statically linked, stripped`，3,831,200 字节** ✓
+   （`ring` 是依赖树里的那个 C ✓，所以编译器与链接器都要指 ✓）。这条路**已经走到传送那一步** ✓，
+   只在 `scp` 上停住 ✓——**停在上面那一行钥匙上** ✗。所以"盒子上有没有 Rust"这个问题**作废了** ✓。
    gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
