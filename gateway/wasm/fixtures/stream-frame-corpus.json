@@ -3,6 +3,7 @@
  "cases": [
   {
    "name": "one complete frame",
+   "error": false,
    "chunks": [
     "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
     "data: [DONE]\n\n"
@@ -13,6 +14,7 @@
   },
   {
    "name": "a frame SPLIT across two chunks",
+   "error": false,
    "chunks": [
     "data: {\"choices\":[{\"delta\":{\"con",
     "tent\":\"split\"}}]}\n\ndata: [DONE]\n\n"
@@ -23,6 +25,7 @@
   },
   {
    "name": "a frame with NO data: line is skipped",
+   "error": false,
    "chunks": [
     "event: ping\n\n",
     "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n"
@@ -33,6 +36,7 @@
   },
   {
    "name": "TWO data: lines in one frame — the FIRST wins",
+   "error": false,
    "chunks": [
     "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\ndata: {\"choices\":[{\"delta\":{\"content\":\"second\"}}]}\n\n"
    ],
@@ -42,6 +46,7 @@
   },
   {
    "name": "a MALFORMED payload is swallowed",
+   "error": false,
    "chunks": [
     "data: {not json\n\n",
     "data: {\"choices\":[{\"delta\":{\"content\":\"after\"}}]}\n\n"
@@ -52,6 +57,7 @@
   },
   {
    "name": "CRLF DOES split, because the buffer is normalized first",
+   "error": false,
    "chunks": [
     "data: {\"choices\":[{\"delta\":{\"content\":\"crlf\"}}]}\r\n\r\n"
    ],
@@ -61,6 +67,7 @@
   },
   {
    "name": "a bare data: line yields an empty payload",
+   "error": false,
    "chunks": [
     "data:\n\n",
     "data: {\"choices\":[{\"delta\":{\"content\":\"after\"}}]}\n\n"
@@ -71,6 +78,7 @@
   },
   {
    "name": "a trailing partial frame is left in the buffer",
+   "error": false,
    "chunks": [
     "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n",
     "data: {\"choices\":["
@@ -78,6 +86,52 @@
    "clientModel": "client-model",
    "upstreamModel": "upstream-model",
    "expected": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"upstream-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  },
+  {
+   "name": "end: a read failure with a PARTIAL frame in the buffer",
+   "error": true,
+   "chunks": [
+    "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\ndata: {\"cho"
+   ],
+   "clientModel": "client-model",
+   "upstreamModel": "upstream-model",
+   "expected": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"upstream-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream stream died mid-response\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  },
+  {
+   "name": "end: a read failure with NOTHING buffered but the encoder started",
+   "error": true,
+   "chunks": [
+    "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n"
+   ],
+   "clientModel": "client-model",
+   "upstreamModel": "upstream-model",
+   "expected": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"upstream-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"a\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream stream died mid-response\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  },
+  {
+   "name": "end: a read failure before ANYTHING arrived",
+   "error": true,
+   "chunks": [],
+   "clientModel": "client-model",
+   "upstreamModel": "upstream-model",
+   "expected": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"upstream-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+  },
+  {
+   "name": "end: an EMPTY stream that closed cleanly",
+   "error": false,
+   "chunks": [],
+   "clientModel": "client-model",
+   "upstreamModel": "upstream-model",
+   "expected": "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream returned an empty/non-SSE stream\"}}\n\n"
+  },
+  {
+   "name": "end: a clean close with only NON-data frames",
+   "error": false,
+   "chunks": [
+    "event: ping\n\n"
+   ],
+   "clientModel": "client-model",
+   "upstreamModel": "upstream-model",
+   "expected": "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream returned an empty/non-SSE stream\"}}\n\n"
   }
  ]
 }

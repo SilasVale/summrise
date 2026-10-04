@@ -952,18 +952,66 @@ const streamFrameCases = [
     chunks: ['data: {"choices":[{"delta":{"content":"a"}}]}\n\n', "data: {\"choices\":["],
   },
 ];
+// ── the two ENDINGS ──────────────────────────────────────────────────────────────────────────────
+// The `pull` loop has two ways out and each emits its OWN sentence. A read failure is reported only when
+// something was in flight; a clean end only when NOTHING started.
+const streamEndCases = [
+  {
+    name: "end: a read failure with a PARTIAL frame in the buffer",
+    chunks: ['data: {"choices":[{"delta":{"content":"a"}}]}\n\ndata: {"cho'],
+    error: true,
+  },
+  {
+    name: "end: a read failure with NOTHING buffered but the encoder started",
+    chunks: ['data: {"choices":[{"delta":{"content":"a"}}]}\n\n'],
+    error: true,
+  },
+  {
+    name: "end: a read failure before ANYTHING arrived",
+    chunks: [],
+    error: true,
+  },
+  {
+    name: "end: an EMPTY stream that closed cleanly",
+    chunks: [],
+  },
+  {
+    name: "end: a clean close with only NON-data frames",
+    chunks: ["event: ping\n\n"],
+  },
+];
 const streamFrameOut = [];
-for (const c of streamFrameCases) {
-  const upstreamBody = new ReadableStream({
-    start(controller) {
-      for (const chunk of c.chunks) controller.enqueue(new TextEncoder().encode(chunk));
-      controller.close();
-    },
-  });
+for (const c of [...streamFrameCases, ...streamEndCases]) {
+  // **`start`-TIME `controller.error` DISCARDS EVERYTHING ALREADY ENQUEUED** — measured here: the read-failure
+  // cases came back with the FINISH events and NO error frame, because the reader never saw a byte, so
+  // `(buffer || started)` was false. The "died mid-response" branch needs a stream that FAILS AFTER A CHUNK WAS
+  // READ, which is what the `pull` form below builds: one chunk per pull, then an error.
+  let pulled = 0;
+  const upstreamBody = new ReadableStream(
+    c.error
+      ? {
+          pull(controller) {
+            if (pulled < c.chunks.length) {
+              controller.enqueue(new TextEncoder().encode(c.chunks[pulled++]));
+              return;
+            }
+            controller.error(new Error("upstream died"));
+          },
+        }
+      : {
+          start(controller) {
+            for (const chunk of c.chunks) controller.enqueue(new TextEncoder().encode(chunk));
+            controller.close();
+          },
+        },
+  );
   const out = streamOgToAnthropic(upstreamBody, "client-model", "upstream-model");
   const text = await new Response(out).text();
   streamFrameOut.push({
     name: c.name,
+    // **THE FLAG HAS TO TRAVEL WITH THE CASE.** My first version captured the OUTPUT of a failing stream and
+    // not the fact that it failed, so a replay could not know which branch produced those bytes.
+    error: !!c.error,
     chunks: c.chunks,
     clientModel: "client-model",
     upstreamModel: "upstream-model",
