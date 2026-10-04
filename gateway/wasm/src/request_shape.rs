@@ -588,7 +588,7 @@ pub struct UpstreamRequest {
 
 /// Everything `messages_response` needs besides the answer, owned so it can outlive `v1_plan`.
 #[derive(Debug, Clone)]
-pub struct MessagesCall {
+pub struct ArmCall {
     pub request: UpstreamRequest,
     pub is_translate: bool,
     pub wants_stream: bool,
@@ -600,10 +600,14 @@ pub struct MessagesCall {
 }
 
 /// The dispatch's answer: a response now, or a call to make first.
+///
+/// `Dial` IS ONE VARIANT FOR TWO ARMS, because their response side is IDENTICAL — both end in
+/// `relayUpstreamResult`: the non-OK path through `upstreamBodyErrorResponse`, the OK path through the
+/// forward with the CORS stamp. Only the REQUEST differs, and `ArmCall` carries which arm it was.
 #[derive(Debug)]
 pub enum V1Plan {
     Respond(crate::responses::Built),
-    Messages(Box<MessagesCall>),
+    Dial(Box<ArmCall>),
 }
 
 /// **PHASE ONE — the route match, auth, the per-arm key gate, then either the arm or a plan to dial it.**
@@ -642,9 +646,42 @@ pub fn v1_plan(
             &req.raw_text,
         ));
     }
+    if shape.is_chat_completions {
+        // **THE CHAT ARM IS A PASSTHROUGH FOR EVERY KIND** — the source says so in as many words: "the
+        // translate plugin reshapes Anthropic /v1/messages → chat/completions (the og pattern), while
+        // OpenAI-format /v1/chat/completions passes through directly". So its request is
+        // `chat_completions_request` and its response is the same forward the messages passthrough uses.
+        let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
+        let bearer = bearer.as_str().unwrap_or("");
+        let chat = chat_completions_request(
+            &req.kind,
+            upstream_model,
+            req.raw_text.as_str().unwrap_or(""),
+            Some(bearer),
+            og_session,
+            scanned,
+            Some(&req.env),
+        );
+        return V1Plan::Dial(Box::new(ArmCall {
+            request: UpstreamRequest {
+                url: route.upstream.clone(),
+                method: "POST".to_string(),
+                headers: chat.headers,
+                body: chat.body,
+                policy: chat.policy,
+            },
+            is_translate: false,
+            wants_stream: false,
+            kind: req.kind.clone(),
+            upstream_model: upstream_model.to_string(),
+            origin: String::new(),
+            request_host: None,
+            cors_configured: None,
+        }));
+    }
     if !shape.is_messages {
-        // The other two arms are ported as their own decisions and are not composed here yet — a boundary
-        // stated rather than a silent wrong answer.
+        // `/v1/responses` is ported as its own decisions and is not composed here yet — a boundary stated
+        // rather than a silent wrong answer.
         return V1Plan::Respond(crate::responses::json_error(
             501,
             "route not wired",
@@ -688,7 +725,7 @@ pub fn v1_plan(
             ),
         )
     };
-    V1Plan::Messages(Box::new(MessagesCall {
+    V1Plan::Dial(Box::new(ArmCall {
         request: UpstreamRequest {
             url: route.upstream.clone(),
             method: "POST".to_string(),
@@ -707,7 +744,7 @@ pub fn v1_plan(
 }
 
 /// **PHASE TWO — the answer the call produced becomes the response the client gets.**
-pub fn v1_finish(call: &MessagesCall, answer: Option<&UpstreamAnswer>) -> ArmOutcome {
+pub fn v1_finish(call: &ArmCall, answer: Option<&UpstreamAnswer>) -> ArmOutcome {
     let secrets: Vec<serde_json::Value> = Vec::new();
     messages_response(
         &MessagesArm {
@@ -722,6 +759,85 @@ pub fn v1_finish(call: &MessagesCall, answer: Option<&UpstreamAnswer>) -> ArmOut
         },
         answer,
     )
+}
+
+/// **THE `role: "developer"` REWRITE — a STRING replacement on the raw body, not a parse.**
+///
+/// The chat/completions arm serves OpenAI-format clients, and some of them send OpenAI's newer
+/// `{"role":"developer"}`. Every upstream here wants `system`, so the arm rewrites the raw text:
+///
+/// ```js
+/// if (forwardBody.includes('"role":"developer"')) {
+///   forwardBody = forwardBody.split('"role":"developer"').join('"role":"system"');
+/// }
+/// ```
+///
+/// **IT IS `split`/`join` ON THE RAW TEXT, SO EVERY UNESCAPED OCCURRENCE GOES AND NO PARSING HAPPENS** — and
+/// the corpus corrected me about what that means. I wrote that a body mentioning the string inside a message's
+/// CONTENT is rewritten too; **it is not**, because a JSON string value escapes its quotes, so the raw text
+/// holds `\"role\":\"developer\"` and `includes` never matches it. What the raw form DOES match is the
+/// pattern as JSON SYNTAX — at the top level or NESTED, which the second corpus case pins — so the honest
+/// statement is "every unescaped occurrence", not "every occurrence".
+pub fn rewrite_developer_role(body: &str) -> String {
+    if !body.contains("\"role\":\"developer\"") {
+        return body.to_string();
+    }
+    body.split("\"role\":\"developer\"")
+        .collect::<Vec<_>>()
+        .join("\"role\":\"system\"")
+}
+
+/// **THE `/v1/chat/completions` ARM'S REQUEST — the same pieces as the passthrough arm, with TWO
+/// differences, and both are the source's.**
+///
+/// ```text
+///     the body   rawWithModel, then the developer rewrite, then oxAlphaReasoningDefault
+///     the policy retryPolicyFor(kind, upstreamModel, ogTimeoutMs(env))
+/// ```
+///
+/// **`ogTimeoutMs`, NOT `passthroughTimeoutMs`** — the messages passthrough arm uses the latter and this one
+/// the former, which is a difference no shape-based reading would notice. The headers are
+/// `passthroughHeaders` with the same og-session extra.
+pub fn chat_completions_request(
+    kind: &str,
+    upstream_model: &str,
+    raw_text: &str,
+    bearer_key: Option<&str>,
+    og_session: &[(String, String)],
+    scanned: Option<(usize, usize)>,
+    env: Option<&serde_json::Value>,
+) -> ChatRequest {
+    let forwarded = crate::body_scan::raw_with_model(
+        raw_text,
+        &serde_json::Value::String(upstream_model.to_string()),
+        scanned,
+    );
+    let rewritten = rewrite_developer_role(&forwarded);
+    let body = crate::registry::ox_alpha_reasoning_default(kind, upstream_model, &rewritten);
+    // **NO `apiKeyHeader`, AND THE CAPTURE IS WHAT SAID SO.** The messages passthrough arm passes
+    // `passthroughApiKeyHeader(kind)` — `x-api-key` for opencode/amd — and the chat arm calls
+    // `passthroughHeaders(bearerKey, {…extra})` WITHOUT it, so its credential always rides `Authorization`.
+    // My first version copied the messages arm's call and the captured request refused it:
+    // `header authorization missing from [… ("x-api-key", "sk-og") …]`.
+    let headers = crate::session::passthrough_headers(bearer_key, None, og_session);
+    ChatRequest {
+        body,
+        headers,
+        // **`ogTimeoutMs`, NOT `passthroughTimeoutMs`** — the two arms differ here, and the difference is a
+        // number no shape-based reading would notice.
+        policy: crate::reliability::retry_policy_for(
+            kind,
+            upstream_model,
+            crate::reliability::og_timeout_ms(env),
+        ),
+    }
+}
+
+/// The chat/completions arm's request AND the policy that goes with it.
+pub struct ChatRequest {
+    pub body: String,
+    pub headers: Vec<(String, String)>,
+    pub policy: crate::reliability::RetryPolicy,
 }
 
 #[cfg(test)]
@@ -1021,6 +1137,92 @@ mod count_tokens_tests {
     ///
     /// Nothing here is a new expectation; the fixtures were captured from the TypeScript for the pieces, and
     /// this asserts that composing them changes nothing.
+    /// **THE CHAT ARM'S REQUEST, REPLAYED.** Five captured cases, and the pair that matters is the
+    /// developer-role one: a JSON string value escapes its quotes so the raw form never matches it, while a
+    /// nested key is unescaped syntax and IS rewritten. A parse-based port would get the first right and the
+    /// second wrong; a `split`/`join` port that forgot escaping would get both wrong in opposite directions.
+    #[test]
+    fn the_chat_arm_reproduces_the_captured_request() {
+        let doc = fixture("chat-corpus.json");
+        let mut checked = 0;
+        let mut rewrites = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let captured = &case["captured"];
+            let og_session: Vec<(String, String)> = case["ogSession"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let got = chat_completions_request(
+                case["kind"].as_str().unwrap_or(""),
+                case["upstreamModel"].as_str().unwrap_or(""),
+                case["rawText"].as_str().unwrap_or(""),
+                case["bearerKey"].as_str(),
+                &og_session,
+                None,
+                None,
+            );
+            assert_eq!(
+                got.body,
+                captured["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
+            for (k, v) in captured["headers"].as_object().expect("headers") {
+                let want = v.as_str().unwrap_or("");
+                if want.is_empty() {
+                    continue;
+                }
+                assert!(
+                    got.headers
+                        .iter()
+                        .any(|(hk, hv)| hk.eq_ignore_ascii_case(k) && hv == want),
+                    "{name}: header {k} missing from {:?}",
+                    got.headers
+                );
+            }
+            if got.body.contains("\"role\":\"system\"")
+                && case["rawText"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("\"role\":\"developer\"")
+            {
+                rewrites += 1;
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 5, "the chat corpus changed size");
+        // **THREE OF THE FIVE REWRITE, AND THE OTHER TWO ARE THE POINT** — one has the pattern only inside an
+        // escaped string value (untouched) and one has no pattern at all.
+        assert_eq!(rewrites, 3, "the rewrite count moved");
+    }
+
+    #[test]
+    fn the_developer_rewrite_matches_the_escaping_rule() {
+        // The rule, stated as four inputs. **THE BACKSLASHES IN THE THIRD ONE ARE THE WHOLE CASE**, and they
+        // have to be written as `\\\"` in Rust source so the VALUE holds a backslash — the first version of
+        // this test was written through a heredoc that ate them, and the assertion printed an input with no
+        // escaping left, which is a different input.
+        assert_eq!(
+            rewrite_developer_role("{\"role\":\"developer\",\"x\":1}"),
+            "{\"role\":\"system\",\"x\":1}"
+        );
+        assert_eq!(
+            rewrite_developer_role("{\"m\":{\"role\":\"developer\"}}"),
+            "{\"m\":{\"role\":\"system\"}}",
+            "an unescaped nested key IS rewritten"
+        );
+        assert_eq!(
+            rewrite_developer_role("{\"c\":\"say \\\"role\\\":\\\"developer\\\" please\"}"),
+            "{\"c\":\"say \\\"role\\\":\\\"developer\\\" please\"}",
+            "an ESCAPED occurrence is not"
+        );
+        assert_eq!(rewrite_developer_role("{\"a\":1}"), "{\"a\":1}");
+    }
+
     #[test]
     fn the_two_phases_reproduce_the_captured_request_and_response() {
         let corpus = fixture("passthrough-corpus.json");
@@ -1079,7 +1281,7 @@ mod count_tokens_tests {
                 &og_session,
                 None,
             );
-            let V1Plan::Messages(call) = plan else {
+            let V1Plan::Dial(call) = plan else {
                 panic!("{name}: a /v1/messages request must plan a call");
             };
             // 1. THE REQUEST THE PLAN BUILT IS THE ONE THE ROUTE BUILT.
@@ -1125,7 +1327,7 @@ mod count_tokens_tests {
             .expect("cases")
         {
             let name = case["name"].as_str().unwrap_or("?");
-            let call = MessagesCall {
+            let call = ArmCall {
                 request: UpstreamRequest {
                     url: "https://relay.example".to_string(),
                     method: "POST".to_string(),
