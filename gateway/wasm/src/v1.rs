@@ -20,7 +20,9 @@
 
 use worker::*;
 
-use crate::request_shape::{v1_finish, v1_plan, ArmOutcome, UpstreamAnswer, V1Plan, V1Request};
+use crate::request_shape::{
+    v1_finish, v1_plan, ArmOutcome, UpstreamAnswer, V1Plan, V1PlanInputs, V1Request,
+};
 use crate::responses::Built;
 
 /// A `Built` becomes the `Response` the runtime sends.
@@ -119,14 +121,16 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         raw_text: serde_json::json!(raw),
     };
     let og_session: Vec<(String, String)> = Vec::new();
-    let plan = v1_plan(
-        &request,
-        &resolved.route,
-        &resolved.upstream_model,
-        parsed.as_ref(),
-        &og_session,
-        None,
-    );
+    let plan = v1_plan(&V1PlanInputs {
+        req: &request,
+        route: &resolved.route,
+        model: &model,
+        prefix: &resolved.prefix,
+        upstream_model: &resolved.upstream_model,
+        parsed_body: parsed.as_ref(),
+        og_session: &og_session,
+        scanned: None,
+    });
     let V1Plan::Dial(call) = plan else {
         let V1Plan::Respond(built) = plan else {
             unreachable!()
