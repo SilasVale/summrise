@@ -189,6 +189,28 @@ fn the_two_relays_agree_on_the_constants_they_share() {
         "vary",
     ];
     // SLICES, because the two lists have different lengths and an array of arrays cannot hold both.
+    // 7. **THE ROUTES TABLE ITSELF.** The differential already drives 276 routing cases through the Rust's
+    //    own table — including the disambiguation the port's comment names ("a naive `startsWith` routes
+    //    github traffic to the git handler"), via `/api/github/o/r`. Behaviour is the stronger check, and
+    //    this is the cheap one on top of it: the corpus RECORDS the shipping table, so the five entries are
+    //    compared directly, `pathFromRest` included. A typo in a handler name would fail the cases; a table
+    //    that drifted while the cases happened not to distinguish it would fail here.
+    let corpus: serde_json::Value = serde_json::from_str(&read(
+        "proxies/api-relay/relay/fixtures/routing-corpus.json",
+    ))
+    .expect("the routing corpus parses");
+    let recorded = corpus["routes"].as_array().expect("the routes table");
+    assert_eq!(recorded.len(), 5, "the shipping route table changed size");
+    for entry in recorded {
+        let prefix = entry["prefix"].as_str().expect("a prefix");
+        let handler = entry["handler"].as_str().expect("a handler");
+        let path_from_rest = entry["pathFromRest"].as_bool().unwrap_or(false);
+        assert!(
+            rust_main.contains(&format!("(\"{prefix}\", \"{handler}\", {path_from_rest})")),
+            "the Rust routes() lost `(\"{prefix}\", \"{handler}\", {path_from_rest})`"
+        );
+    }
+
     for (list, names) in [
         ("REQUEST_HEADERS", &REQUEST[..]),
         ("RESPONSE_HEADERS", &RESPONSE[..]),
