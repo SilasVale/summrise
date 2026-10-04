@@ -192,6 +192,166 @@ mod oracle_corpus {
     }
 }
 
+/// `barePrefix(prefix)` — `String(prefix ?? "").replace(/\/+$/, "")`: the TRAILING slashes come off.
+///
+/// `String(... ?? "")` IS A COERCION, not a null check: a number becomes its digits, an object becomes
+/// `[object Object]`, and an array becomes its joined elements. The corpus carries a number.
+pub fn bare_prefix(prefix: &serde_json::Value) -> String {
+    // **`?? ""` IS NOT DECORATION, AND `js_text` IS NOT A SUBSTITUTE FOR IT.** `String(x ?? "")` maps `null`
+    // and `undefined` to the EMPTY string; `js_text` maps a JSON null to the TEXT `"null"` (it mirrors
+    // `String(x)`, which is a different expression). Measured: with the direct call, a provider whose `prefix`
+    // was absent advertised its models as `null/foo`. The corpus carries a provider with no prefix.
+    let text = if prefix.is_null() {
+        String::new()
+    } else {
+        crate::stream::js_text(prefix)
+    };
+    text.trim_end_matches('/').to_string()
+}
+
+/// `advertisedModelId(prefix, wire)` — **"prefix ONCE, never twice"**, in the source's own words.
+///
+/// The leading slashes come off the wire first, and then the prefix is prepended ONLY IF the wire does not
+/// already start with it. A provider whose models are spelled `acme/foo` under the prefix `acme` would
+/// otherwise be advertised as `acme/acme/foo`.
+pub fn advertised_model_id(prefix: &str, wire: &serde_json::Value) -> String {
+    let bare = bare_prefix(&serde_json::Value::String(prefix.to_string()));
+    let w = crate::stream::js_text(wire);
+    let w = w.trim_start_matches('/');
+    if w.starts_with(&format!("{bare}/")) {
+        w.to_string()
+    } else {
+        format!("{bare}/{w}")
+    }
+}
+
+/// `advertisedProviderModels` — every model of every CUSTOM PROVIDER, as the listing sees them.
+///
+/// A provider with no usable prefix is skipped, and so is a model whose wire id is empty after trimming. The
+/// returned records carry the PROVIDER and the MODEL too, because `extraModelEntries` reads `provider.label`
+/// and `model.contextWindow` off them.
+pub fn advertised_provider_models(providers: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for p in providers {
+        if !p.is_object() {
+            continue;
+        }
+        let prefix = bare_prefix(p.get("prefix").unwrap_or(&serde_json::Value::Null));
+        if prefix.is_empty() {
+            continue;
+        }
+        let models = match p.get("models") {
+            Some(serde_json::Value::Array(a)) => a.clone(),
+            _ => Vec::new(),
+        };
+        for m in models {
+            let wire = crate::stream::js_text(m.get("id").unwrap_or(&serde_json::Value::Null))
+                .trim()
+                .trim_start_matches('/')
+                .to_string();
+            if wire.is_empty() {
+                continue;
+            }
+            out.push(serde_json::json!({
+                "id": advertised_model_id(&prefix, &serde_json::Value::String(wire.clone())),
+                "wire": wire,
+                "provider": p,
+                "model": m,
+            }));
+        }
+    }
+    out
+}
+
+/// `advertisedIds(env)` — the built-ins minus the disabled ones, then the console-added, then the providers'.
+///
+/// **THE ORDER IS THE LISTING'S**, and the three sources are arguments here because each is a KV read.
+pub fn advertised_ids(
+    registry_ids: &[&str],
+    disabled: &[String],
+    custom_ids: &[String],
+    provider_ids: &[String],
+) -> Vec<String> {
+    let mut out: Vec<String> = registry_ids
+        .iter()
+        .filter(|id| !disabled.iter().any(|d| d == *id))
+        .map(|id| (*id).to_string())
+        .collect();
+    out.extend(custom_ids.iter().cloned());
+    out.extend(provider_ids.iter().cloned());
+    out
+}
+
+/// `extraModelEntries(env)` — the NON-BUILT-IN listing entries, in the source's two groups.
+///
+/// `owned_by` for a console-added model is its own `ownedBy`; for a provider model it is
+/// `provider.label || barePrefix(provider.prefix)`. The optional three are TRUTHINESS-guarded, so a `0`
+/// context window is dropped rather than emitted.
+pub fn extra_model_entries(
+    custom: &[serde_json::Value],
+    provided: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for m in custom {
+        let mut e = serde_json::Map::new();
+        if let Some(id) = m.get("id") {
+            e.insert("id".into(), id.clone());
+        }
+        if let Some(owner) = m.get("ownedBy") {
+            e.insert("owned_by".into(), owner.clone());
+        }
+        for (from, to) in [
+            ("name", "name"),
+            ("contextWindow", "context_window"),
+            ("maxTokens", "max_tokens"),
+        ] {
+            if let Some(v) = m.get(from).filter(|v| truthy(v)) {
+                e.insert(to.into(), v.clone());
+            }
+        }
+        out.push(serde_json::Value::Object(e));
+    }
+    for entry in provided {
+        let provider = entry.get("provider").unwrap_or(&serde_json::Value::Null);
+        let model = entry.get("model").unwrap_or(&serde_json::Value::Null);
+        let label = provider
+            .get("label")
+            .filter(|v| truthy(v))
+            .map(crate::stream::js_text)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                bare_prefix(provider.get("prefix").unwrap_or(&serde_json::Value::Null))
+            });
+        let mut e = serde_json::Map::new();
+        if let Some(id) = entry.get("id") {
+            e.insert("id".into(), id.clone());
+        }
+        e.insert("owned_by".into(), serde_json::json!(label));
+        for (from, to) in [
+            ("name", "name"),
+            ("contextWindow", "context_window"),
+            ("maxTokens", "max_tokens"),
+        ] {
+            if let Some(v) = model.get(from).filter(|v| truthy(v)) {
+                e.insert(to.into(), v.clone());
+            }
+        }
+        out.push(serde_json::Value::Object(e));
+    }
+    out
+}
+
+/// JS truthiness, for the guards above: `0`, `""`, `null` and `false` are all falsy.
+fn truthy(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+        serde_json::Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod settings_tests {
     //! The two settings rules, which are DIFFERENT and both pinned: `normalizeSetting` turns an explicit OFF
@@ -214,6 +374,106 @@ mod settings_tests {
         assert!(!global_setting_enabled(None));
         assert!(global_setting_enabled(Some("1")));
         assert!(global_setting_enabled(Some("true")));
+    }
+
+    fn models_corpus() -> serde_json::Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/models-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the models corpus is committed");
+        serde_json::from_str(&text).expect("the corpus parses")
+    }
+
+    /// **THE CATALOGUE CHAIN, REPLAYED FROM THE SHIPPING STORE.** Seven cases, and the two that matter are the
+    /// custom providers: one has a trailing slash on its prefix and a model whose id starts with one, the
+    /// other has NO prefix at all (whose models are skipped) and a wire that already carries its prefix (which
+    /// must not be prepended twice).
+    #[test]
+    fn the_catalogue_chain_matches_the_shipping_store() {
+        let doc = models_corpus();
+        let mut checked = 0;
+        let mut with_providers = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let disabled: Vec<String> = case["disabled"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let custom = case["custom"].as_array().cloned().unwrap_or_default();
+            let providers = case["providers"].as_array().cloned().unwrap_or_default();
+
+            // 1. THE PROVIDER MODELS, then the two lists that consume them.
+            let advertised = advertised_provider_models(&providers);
+            let provider_ids: Vec<String> = advertised
+                .iter()
+                .filter_map(|e| e.get("id").and_then(|i| i.as_str()).map(str::to_string))
+                .collect();
+            let custom_ids: Vec<String> = custom
+                .iter()
+                .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
+                .collect();
+            let registry_ids: Vec<&str> = crate::registry::MODEL_REGISTRY
+                .iter()
+                .map(|m| m.id)
+                .collect();
+            let got_ids = advertised_ids(&registry_ids, &disabled, &custom_ids, &provider_ids);
+            let want_ids: Vec<String> = case["liveIds"]
+                .as_array()
+                .expect("liveIds")
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            assert_eq!(got_ids, want_ids, "{name}: the advertised ids");
+
+            // 2. THE EXTRA ENTRIES.
+            let got_extra = extra_model_entries(&custom, &advertised);
+            assert_eq!(
+                serde_json::Value::Array(got_extra),
+                case["extraEntries"],
+                "{name}: the extra entries"
+            );
+            if !providers.is_empty() {
+                with_providers += 1;
+                assert!(
+                    !advertised.is_empty(),
+                    "{name}: a provider with models must advertise some"
+                );
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 7, "the models corpus changed size");
+        // **TWO OF THE SEVEN HAVE PROVIDERS, AND WITHOUT THEM `advertisedProviderModels` WOULD BE UNEXERCISED**
+        // — which is the vacuous-corpus shape this suite keeps finding.
+        assert_eq!(with_providers, 2, "the provider cases changed size");
+    }
+
+    #[test]
+    fn a_provider_with_no_usable_prefix_advertises_nothing() {
+        // **THE CASE THAT CAUGHT `js_text(null)`.** `String(x ?? "")` maps null to the EMPTY string, while
+        // `js_text` maps a JSON null to the TEXT `"null"` — so a provider whose prefix was absent advertised
+        // its models as `null/foo` before this was fixed. An empty prefix skips the provider entirely.
+        let none = serde_json::json!([{ "models": [{ "id": "orphan" }] }]);
+        assert!(advertised_provider_models(none.as_array().unwrap()).is_empty());
+        let empty = serde_json::json!([{ "prefix": "", "models": [{ "id": "orphan" }] }]);
+        assert!(advertised_provider_models(empty.as_array().unwrap()).is_empty());
+        let slashes = serde_json::json!([{ "prefix": "///", "models": [{ "id": "m" }] }]);
+        assert!(advertised_provider_models(slashes.as_array().unwrap()).is_empty());
+        // And the "prefix ONCE" rule, stated directly.
+        assert_eq!(
+            advertised_model_id("acme", &serde_json::json!("acme/chat")),
+            "acme/chat"
+        );
+        assert_eq!(
+            advertised_model_id("acme", &serde_json::json!("chat")),
+            "acme/chat"
+        );
+        assert_eq!(
+            advertised_model_id("acme/", &serde_json::json!("/chat")),
+            "acme/chat",
+            "both slashes come off and the prefix lands once"
+        );
     }
 
     #[test]
