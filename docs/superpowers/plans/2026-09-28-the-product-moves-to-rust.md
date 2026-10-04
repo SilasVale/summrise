@@ -1020,7 +1020,7 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 | **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary**。三样数（2026-10-03 实测 ✓）：**wasm 84,216 gz**（`agent/resources/panel/panel_logic_bg.wasm`，`index.html` **解析时预加载**所以算首屏 ✓）· **胶水增量 +2,428 gz**（`panel.js` 在 wasm 落地前 187,978 gz → HEAD 190,406 gz；**它的胶水被打进 panel.js** ✓，逐家族是 **+2,149 / −104 / −280**——**迁移途中自我抵消** ✓）· **首屏 ~359,722 gz**（panel.js 190,406 + panel.css 84,400 + wasm 84,216 + index.html ~700） |
 | **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`）。三样数（2026-10-03 实测 ✓）：**wasm 15,779 gz** · **胶水增量 0（JS 上）**——**这一栏我先前记错了** ✗：控制台的 `index.html` **内联 fetch + `WebAssembly.compileStreaming`** ✓、`main.tsx` 用那个 handle ✓，所以 **bundle 里没有 wasm-bindgen 胶水**（`pkg/ui_logic.js` **不被发货** ✗）。它落地那一刻的 js gz 是 **104,059 → 104,059**，**逐字节不变** ✓ · **首屏 ~130,678 gz**（js 106,420 + css 7,090 + wasm 15,779 + html 1,371；js 此后 +2,361 gz 是**别的工作** ✓，不是迁移 ✓） |
 | **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（**20 个模块，70 测试，11 份语料**）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
-| **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**27 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
+| **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**47 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由（**2026-10-03 改正**：原写 27 ✗，**那个 grep 漏了 `src/main.rs`** ✓——26 `lib.rs` + 6 `bin/srelay.rs` + 15 `main.rs` ✓） |
 | **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
 
 **而操作者 2026-09-30 的三个决定** ✓：
@@ -1046,7 +1046,14 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 **而剩下的是两件计划从一开始就写明"由操作者决定"的事** ✓（**2026-10-03 按实测改正**：第三件 P4
 **操作者已经点名"做"** ✓，而它**已经落地** ✓——上面第 1 条自己写着这件事，所以这一段原先在自相矛盾 ✓）：
 
-1. **P3 的切流**：gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
+1. **P3 的切流**（**操作者 2026-10-03 选了计划自己的第一步：先让 relay 在 VPS 上跑起来、不动 git 远端** ✓）：
+   这一步在这台机器上**做不了** ✗，三个前提都实测过：**`aarch64-linux-musl-gcc` 缺失** ✓
+   （交叉构建以 `ring@0.17.14: failed to find tool "aarch64-linux-musl-gcc"` 失败 ✓——
+   **与脚本自己记录的那次测量逐字相同** ✓）、**`~/.ssh/vrelay.key` 缺失** ✓、**docker socket 不可达** ✓。
+   而 crate 本身在主机上是健康的 ✓：**47 个测试全过** ✓。所以下一步需要三者之一：
+   **放一把钥匙到 `~/.ssh/vrelay.key`**（然后 `--on-box` 在盒子上构建 ✓，不需要交叉工具链 ✓）、
+   **给出 docker 访问** ✓、或**你自己跑那一条命令** ✓。
+   gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
    先让它跑起来、再让它当远端** ✓。
