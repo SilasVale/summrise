@@ -1016,7 +1016,7 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 | 块 | 状态 | 证据 |
 |---|---|---|
 | **P0** | ✓ 完成 | `docs/superpowers/p0/`：187 个 LOGIC 导出、基线、wasm-pack 证明 |
-| **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **42 个门禁**；`scripts/test/*.mjs` 只剩 **7 个具名例外** |
+| **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **44 个门禁**；`scripts/test/*.mjs` 只剩 **6 个具名例外**（**2026-10-03 按实测改正**：原写 42 与 7 ✗，**两个数在写下时都是真的** ✓——44 是因为 `main_shape.rs` 与 `npm_test_floor.rs` 加进来了 ✓，6 是因为 `main-shape-check.mjs` 退休了 ✓。**量它们的命令**：`ls agent/tests/*.rs | wc -l` 与 `ls scripts/test/*.mjs | wc -l` ✓） |
 | **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary**。三样数（2026-10-03 实测 ✓）：**wasm 84,216 gz**（`agent/resources/panel/panel_logic_bg.wasm`，`index.html` **解析时预加载**所以算首屏 ✓）· **胶水增量 +2,428 gz**（`panel.js` 在 wasm 落地前 187,978 gz → HEAD 190,406 gz；**它的胶水被打进 panel.js** ✓，逐家族是 **+2,149 / −104 / −280**——**迁移途中自我抵消** ✓）· **首屏 ~359,722 gz**（panel.js 190,406 + panel.css 84,400 + wasm 84,216 + index.html ~700） |
 | **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`）。三样数（2026-10-03 实测 ✓）：**wasm 15,779 gz** · **胶水增量 0（JS 上）**——**这一栏我先前记错了** ✗：控制台的 `index.html` **内联 fetch + `WebAssembly.compileStreaming`** ✓、`main.tsx` 用那个 handle ✓，所以 **bundle 里没有 wasm-bindgen 胶水**（`pkg/ui_logic.js` **不被发货** ✗）。它落地那一刻的 js gz 是 **104,059 → 104,059**，**逐字节不变** ✓ · **首屏 ~130,678 gz**（js 106,420 + css 7,090 + wasm 15,779 + html 1,371；js 此后 +2,361 gz 是**别的工作** ✓，不是迁移 ✓） |
 | **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（**20 个模块，70 测试，11 份语料**）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
@@ -1025,7 +1025,7 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 | **P1 第一个搬过来的 `.mjs`** | ✓ 已搬、待退休 | `main-shape-check.mjs` 是那 7 个里**第一个跨过来的** ✓——它**三条约束一条都不违反** ✓（读数据 ✓；spawn 的是 `git`，那是每个 checkout 都有的**工具**而不是依赖 ✓；在本仓库内可证 ✓）。移植在 `agent/tests/main_shape.rs` ✓，而**等价证明是三条**：①同样的 6 条夹具 ✓（含"**不该咬**"的那一对——`main`+1 必须拒 ✓、`change/x`+1 必须放 ✓，原注释的理由是*"一条会挡住普通分支工作的规则会在一轮内被撤掉"* ✓）；②**措辞逐字节相同** ✓（4 条消息从 `.mjs` 自己的输出抄下来 ✓，写成永久测试 ✓）；③**两个方向的变异都咬** ✓（放宽到 `>=1` → 点名"a direct commit on main" ✓；把规则套到所有分支 → 点名"ordinary branch work must never be blocked" ✓）。**而 `.mjs` 按规则留着** ✓——退休还剩三步 ✓：(1) `scripts/test/main-shape-shallow.bash:19` **指向那个 `.mjs`** ✓，它要改成建出浅克隆的 graft 并对**Rust 门禁**跑 ✓；(2) `ci.yml:758` 的那一步 ✓；(3) `AGENTS.md` 的门禁名单 ✓——**那一处会让文件变短** ✓，而它只剩 11 字节余量 ✓。 |
 | **P3 两张手工镜像的表** | ✓ 有覆盖 | `gateway/wasm` 里两张**逐字手抄**的表，2026-10-03 查过它们的证明在哪：`MODEL_REGISTRY`（24 条）**由语料整表对照** ✓——`oracle-translate.mjs` 把 TypeScript 的 `MODEL_REGISTRY` dump 成 `model_registry` 家族（1 条）加 25 条 `model_spec`，正是头注释说的 *"checked by the corpus thereafter: 24 records, every facet the source sets"* ✓；`HEALTH_CHANNELS`（20 张卡）**由 `verify.mjs` 的字节相等** ✓，而那个文件**带着自己的变异证明** ✓（删掉一个模型 id 的一个字符 → exit 1 并打印字节数 ✓），且 `ci.yml` 点名运行它 ✓。**所以两张表都不是"声称等价"，而是有能失败的东西在守** ✓。 |
 | **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**47 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由（**2026-10-03 改正**：原写 27 ✗，**那个 grep 漏了 `src/main.rs`** ✓——26 `lib.rs` + 6 `bin/srelay.rs` + 15 `main.rs` ✓） |
-| **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
+| **P4** | ✓ **已点名、已落地** | **2026-10-03 按实测改正**：这一格原写"✗ 不做（默认）" ✗，**而本文件结尾那一段自己写着"已点名、已落地"** ✓——**同一份计划自相矛盾，正是它此前记过一次的那类缺陷** ✓。**操作者点了名** ✓，`index/landing/` 在构建时渲染整份文档 ✓，而 `index` 作业的 `cargo test --manifest-path index/landing/Cargo.toml` 把"跟踪的 arm 就是这个 crate 渲染出来的"钉住 ✓。**当初的度量仍然成立** ✓：4.7× 体积换 85 行 JS——**而它不再是"默认不做"** ✓。 |
 
 **而操作者 2026-09-30 的三个决定** ✓：
 
@@ -1106,7 +1106,7 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
    先让它跑起来、再让它当远端** ✓。
-2. **P1 那 7 个 `.mjs` 的 CI 依赖**：计划写着"加不加 CI 依赖由操作者决定" ✓。
+2. **P1 那 6 个 `.mjs` 的 CI 依赖**：计划写着"加不加 CI 依赖由操作者决定" ✓（**2026-10-03 按实测改正**：原写 7 ✗，实测 **6** ✓，`ls scripts/test/*.mjs | wc -l` ✓）。**而它们现在每一个都带着精确的阻塞点** ✓，其中 `npm-test-floored` 的取舍是 (A) 与 (C) 之间那个**带数的**选择 ✓。
    （**2026-10-03 改正**：这句原写"8 个" ✓——**那是过时的数** ✗，实测是 **7** ✓，
    上面 P1 那一行已经改过来了 ✓。）
 3. ~~**P4**：只有操作者点名才做~~ ✓ **已点名、已落地** ✓——`index/landing/` 在构建时渲染整份文档 ✓，
