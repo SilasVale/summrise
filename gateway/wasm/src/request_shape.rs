@@ -472,6 +472,27 @@ pub struct UpstreamAnswer {
     pub text: String,
 }
 
+/// **IS THIS ANSWER A LIVE STREAM?** — the condition `messages_response` uses, in ONE place, because the
+/// WORKER has to ask it BEFORE it reads the body.
+///
+/// `Response::text()` consumes a body and `Response::stream()` hands it over live; a caller that guesses wrong
+/// cannot go back. So the decision is a function: the client asked to stream, the arm translates, the upstream
+/// answered 2xx, and the content type is NOT the "ignored stream: true" shape.
+///
+/// **IT IS THE SAME CONDITION `messages_response` REACHES, DELIBERATELY** — a second copy is how two surfaces
+/// come to disagree about one request.
+pub fn is_live_stream(
+    is_translate: bool,
+    wants_stream: bool,
+    status: u16,
+    content_type: &str,
+) -> bool {
+    is_translate
+        && wants_stream
+        && (200..=299).contains(&status)
+        && !crate::responses::upstream_ignored_stream(content_type)
+}
+
 /// **WHAT AN ARM ANSWERS: a response, or a request to stream.**
 ///
 /// The streaming half of the translate arm is `streamOgToAnthropic` over a live `ReadableStream`, which is
@@ -554,7 +575,12 @@ pub fn messages_response(arm: &MessagesArm, answer: Option<&UpstreamAnswer>) -> 
         ));
     }
     if wants_stream {
-        if crate::responses::upstream_ignored_stream(&answer.content_type) {
+        if !is_live_stream(
+            is_translate,
+            wants_stream,
+            answer.status,
+            &answer.content_type,
+        ) {
             // The upstream ignored `stream: true` and answered JSON — the branch whose recorded incident is
             // an EMPTY Anthropic message.
             return ArmOutcome::Response(crate::responses::stream_ignored_response(

@@ -868,6 +868,87 @@ pub fn stream_error_frame(message: &str) -> String {
     )
 }
 
+/// **THE STREAM TRANSFORM — the `pull` loop's body as a STATE MACHINE, which is what makes it testable.**
+///
+/// The source's loop, per chunk:
+///
+/// ```js
+/// buffer += decoder.decode(value, { stream: true });
+/// buffer = buffer.replace(/\r\n/g, "\n");
+/// parseBuffered();
+/// const events = encoderStream.take();
+/// if (events.length) controller.enqueue(encoder.encode(events));
+/// ```
+///
+/// and at the end, `stream_end_action` + `finish(buffer)`. Every one of those is a decision that was ported
+/// and proved; what was missing is the ORDER they run in, which is this struct. The glue around it is a
+/// `futures::stream::unfold` over the upstream's `ByteStream` and a `Response::from_stream` — no new
+/// dependency, and nothing here that needs a runtime to check.
+pub struct StreamTransform {
+    reader: SseFrameReader,
+    encoder: AnthropicStreamEncoder,
+    ended: bool,
+}
+
+impl StreamTransform {
+    pub fn new(client_model: &str, upstream_model: &str) -> Self {
+        StreamTransform {
+            reader: SseFrameReader::new(),
+            encoder: AnthropicStreamEncoder::new(client_model, upstream_model),
+            ended: false,
+        }
+    }
+
+    /// One upstream chunk in, the bytes to send out (possibly empty).
+    pub fn on_chunk(&mut self, text: &str) -> Vec<u8> {
+        if self.ended {
+            return Vec::new();
+        }
+        let mut out = String::new();
+        for payload in self.reader.push_text(text) {
+            // The parse is the CALLER's, which is where the source puts it: a malformed payload is dropped.
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) {
+                let _ = self.encoder.push(&value);
+            }
+            out.push_str(&self.encoder.take());
+        }
+        out.into_bytes()
+    }
+
+    /// The stream is over: `read_failed` says whether it ended by RAISING or by closing.
+    pub fn on_end(&mut self, read_failed: bool) -> Vec<u8> {
+        if self.ended {
+            return Vec::new();
+        }
+        self.ended = true;
+        let mut out = String::new();
+        match stream_end_action(
+            read_failed,
+            self.reader.leftover(),
+            self.encoder.started(),
+            self.encoder.finished(),
+        ) {
+            StreamEnd::EmitError(message) => {
+                out.push_str(&stream_error_frame(message));
+            }
+            StreamEnd::EmitErrorAndStop(message) => {
+                // **THE SOURCE RETURNS HERE**, so no `finish` runs and the error frame is the whole output.
+                out.push_str(&stream_error_frame(message));
+                return out.into_bytes();
+            }
+            StreamEnd::Finish => {}
+        }
+        if let Some(tail) = self.encoder.finish(self.reader.leftover()) {
+            out.push_str(&tail);
+        }
+        out.into_bytes()
+    }
+
+    pub fn ended(&self) -> bool {
+        self.ended
+    }
+}
+
 #[cfg(test)]
 mod frame_tests {
     //! **THE STREAMING PATH'S FRAMING, REPLAYED FROM THE SHIPPING `streamOgToAnthropic`.** Eight captured
@@ -879,6 +960,7 @@ mod frame_tests {
     // these. Naming what this module uses ends the ambiguity a glob leaves.
     use super::{
         stream_end_action, stream_error_frame, AnthropicStreamEncoder, SseFrameReader, StreamEnd,
+        StreamTransform,
     };
 
     fn corpus() -> serde_json::Value {
@@ -940,6 +1022,39 @@ mod frame_tests {
     /// **THE TWO ENDINGS, REPLAYED.** Five captured cases and all three behaviours: a read failure AFTER data
     /// was read emits `died mid-response`, the same failure BEFORE anything was read emits NOTHING (the
     /// condition is `(buffer || started)`), and a clean close with nothing started emits `empty/non-SSE`.
+    /// **THE STATE MACHINE, DRIVEN BY THE SAME THIRTEEN CASES.** The framing test feeds the chunks through the
+    /// pieces directly; this one feeds them through `StreamTransform` — the ORDER the `pull` loop runs them in
+    /// — and the two must agree with each other and with the capture.
+    ///
+    /// A state machine is the thing a loop's order is worth testing with: the framing test could pass with the
+    /// steps in the wrong order, and this could not.
+    #[test]
+    fn the_transform_matches_the_captured_streams() {
+        let doc = corpus();
+        let mut checked = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let mut transform = StreamTransform::new(
+                case["clientModel"].as_str().unwrap_or(""),
+                case["upstreamModel"].as_str().unwrap_or(""),
+            );
+            let mut out: Vec<u8> = Vec::new();
+            for chunk in case["chunks"].as_array().expect("chunks") {
+                out.extend(transform.on_chunk(chunk.as_str().unwrap_or("")));
+            }
+            out.extend(transform.on_end(case["error"].as_bool().unwrap_or(false)));
+            // Anything after the end is ignored, which the source's `controller.close()` does by closing.
+            assert!(
+                transform.on_end(false).is_empty(),
+                "{name}: a second end must emit nothing"
+            );
+            let got = String::from_utf8(out).expect("the transform emits UTF-8");
+            assert_eq!(got, case["expected"].as_str().unwrap_or(""), "{name}");
+            checked += 1;
+        }
+        assert_eq!(checked, 13, "the frame corpus changed size");
+    }
+
     #[test]
     fn the_stream_endings_match_the_shipping_streamer() {
         let doc = corpus();

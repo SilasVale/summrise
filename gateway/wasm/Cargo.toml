@@ -23,6 +23,17 @@ url = "2"
 # second copy of it to the module — the size measurement in the commit message is
 # the check on that claim, not this comment.
 serde_json = { version = "1", features = ["preserve_order"] }
+# ALREADY IN THE TREE (worker depends on it) — AND THE SIZE MEASUREMENT FALSIFIED THE CLAIM I FIRST WROTE
+# HERE, which was "so `unfold` costs no extra bytes". Measured on the wasm32 release artifact:
+#
+#     before this line and the streaming glue:  1,620,415 raw / 436,318 gz
+#     after:                                    1,728,730 raw / 465,331 gz
+#     delta:                                     +108,315 raw /  +29,013 gz
+#
+# Being in the lockfile is not the same as being linked: `default-features = false` keeps the executor and the
+# channels out, but the stream machinery and the glue are real bytes. The comment is the number now, because a
+# claim about size that nothing measures is the kind of sentence this repository keeps finding.
+futures-util = { version = "0.3", default-features = false }
 # `preserve_order` IS NOT OPTIONAL FOR THE TRANSLATION: serde_json's default `Map` is a BTreeMap,
 # which SORTS KEYS ALPHABETICALLY, and the translated document is compared BYTES — the key order is
 # the wire order.
