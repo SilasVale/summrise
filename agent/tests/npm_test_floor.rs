@@ -117,7 +117,7 @@ mod tests {
 
     /// **THE CORPUS, AND WHERE EACH ROW CAME FROM.** The vitest rows are the ones the original admitted it
     /// had never been tested on; the first is a real capture rather than a plausible-looking line.
-    const CORPUS: [(&str, &str, Option<u64>); 9] = [
+    const CORPUS: [(&str, &str, Option<u64>); 11] = [
         (
             "node --test, Node 24 (`ℹ pass N`)",
             "ℹ tests 12\nℹ pass 12\nℹ fail 0\n",
@@ -153,6 +153,16 @@ mod tests {
             "vitest's own summary, with the file count above it",
             " Test Files  1 passed (1)\n      Tests  1 passed (1)\n",
             Some(1),
+        ),
+        (
+            "index — CAPTURED 2026-10-03, a package with ZERO dependencies and no lockfile",
+            "\u{2139} tests 45\n\u{2139} pass 45\n\u{2139} fail 0\n",
+            Some(45),
+        ),
+        (
+            "summrise-agent-npm — CAPTURED 2026-10-03, the other zero-dependency package",
+            "\u{2139} tests 68\n\u{2139} pass 68\n\u{2139} fail 0\n",
+            Some(68),
         ),
         (
             "MUST NOT BITE: a large real-shaped node --test run",
