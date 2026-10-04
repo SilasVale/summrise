@@ -14,7 +14,7 @@
    },
    "status": 200,
    "captured": {
-    "url": "https://oracle.saisi.online/v1/responses",
+    "url": "https://exit.example/",
     "method": "POST",
     "headers": {
      "authorization": "Bearer sk-og",
@@ -37,7 +37,7 @@
    },
    "status": 200,
    "captured": {
-    "url": "https://oracle.saisi.online/v1/responses",
+    "url": "https://exit.example/",
     "method": "POST",
     "headers": {
      "authorization": "Bearer sk-og",

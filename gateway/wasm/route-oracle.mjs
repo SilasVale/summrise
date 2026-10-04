@@ -136,7 +136,10 @@ async function callPassthrough(c) {
       headers: { "x-api-key": TOKEN, "content-type": "application/json" },
       body: JSON.stringify({ ...c.body, model: c.model }),
     });
-    const response = await handleGateway(request, envWith(c.keys), new URL(request.url));
+    // A per-case env, so a capture can point an exit at a TEST host instead of a production one.
+    const env = envWith(c.keys);
+    if (c.env) Object.assign(env, c.env);
+    const response = await handleGateway(request, env, new URL(request.url));
     return { captured, status: response.status, answer: await response.text() };
   } finally {
     globalThis.fetch = realFetch;
@@ -867,7 +870,11 @@ const responsesCases = [
 ];
 const responsesOut = [];
 for (const c of responsesCases) {
-  const r = await callPassthrough(c);
+  // **THE EXIT IS POINTED AT A TEST HOST, SO THE FIXTURE CARRIES NO PRODUCTION HOSTNAME.** The DEFAULT exit is
+  // a host of ours, and `agent/tests/production_host.rs` refuses a file that names one outside its declared
+  // list — a fixture is not a good reason to grow that list, and the gate's own note says it "may only shrink".
+  // The default is pinned where it LIVES instead (`routing.rs`, already declared, has its own test).
+  const r = await callPassthrough({ ...c, env: { MUSE_RESPONSES_EXIT: "https://exit.example" } });
   responsesOut.push({
     name: c.name,
     model: c.model,
