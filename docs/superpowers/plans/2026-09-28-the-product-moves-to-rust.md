@@ -1050,9 +1050,20 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
    这一步在这台机器上**做不了** ✗，三个前提都实测过：**`aarch64-linux-musl-gcc` 缺失** ✓
    （交叉构建以 `ring@0.17.14: failed to find tool "aarch64-linux-musl-gcc"` 失败 ✓——
    **与脚本自己记录的那次测量逐字相同** ✓）、**`~/.ssh/vrelay.key` 缺失** ✓、**docker socket 不可达** ✓。
-   而 crate 本身在主机上是健康的 ✓：**47 个测试全过** ✓。所以下一步需要三者之一：
-   **放一把钥匙到 `~/.ssh/vrelay.key`**（然后 `--on-box` 在盒子上构建 ✓，不需要交叉工具链 ✓）、
-   **给出 docker 访问** ✓、或**你自己跑那一条命令** ✓。
+   而 crate 本身在主机上是健康的 ✓：**47 个测试全过** ✓。
+
+   **2026-10-03 又量了一次，而拦路者被收窄成一把钥匙** ✓：那台盒子**够得到** ✓——
+   `ssh -o BatchMode=yes -o ConnectTimeout=8 ubuntu@132.226.90.175 true` **完成了 SSH 握手**
+   （它把主机键加进了 `known_hosts` ✓），**只在授权那一步被拒** ✗（`Permission denied (publickey)` ✓）。
+   **所以网络、路由、盒子、sshd 都不是问题** ✓——**缺的是 `authorized_keys` 里的一行** ✗。
+
+   而那一行现在是现成的 ✓：`~/.ssh/vrelay.key`（ed25519 ✓，私钥 600 ✓）已经按脚本预期的路径生成 ✓，
+   指纹 `SHA256:d567GhUzvUhC4zRXjy0+yhnA59dG1ZorZ6SITcPFsbw` ✓。你要做的是**在盒子上加一行**：
+
+       ssh ubuntu@132.226.90.175 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/vrelay.key.pub
+
+   然后 `./proxies/api-relay/deploy-rs.sh --on-box` 就能跑 ✓。**而它仍有一个未验证的前提** ✗：
+   `--on-box` 要在盒子上**构建** ✓，所以那台机器得有 Rust 工具链 ✓——**授权之后第一件事就是查它** ✓。
    gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
