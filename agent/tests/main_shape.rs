@@ -82,14 +82,33 @@ const SELF_TEST: [(&str, usize, bool, &str); 6] = [
     ("change/some-work", 0, true, "a branch's first commit"),
 ];
 
+/// **THE REPOSITORY THE GATE READS, WHICH IS NOT ALWAYS THE PROCESS'S WORKING DIRECTORY.**
+///
+/// The JavaScript read the CWD, and for a hand-run gate that is right. It is wrong for the SHALLOW FIXTURE:
+/// `cargo test` runs the test binary with its working directory set to the PACKAGE ROOT, so a fixture that
+/// `cd`s into a shallow clone and runs this gate would silently measure the real repository instead — which
+/// is the one thing that fixture exists to prevent. So the path is an override, defaulting to the CWD, and
+/// `git -C` carries it. **A NAMED DIFFERENCE FROM THE ORIGINAL, WITH THE REASON IT EXISTS.**
+fn repo() -> std::path::PathBuf {
+    std::env::var("SUMMRISE_MAIN_SHAPE_REPO")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
 fn git(args: &[&str]) -> String {
+    let dir = repo();
     let out = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
         .args(args)
         .output()
         .unwrap_or_else(|e| panic!("git {}: {e}", args.join(" ")));
     assert!(
         out.status.success(),
-        "git {} failed: {}",
+        "git -C {} {} failed: {}",
+        dir.display(),
         args.join(" "),
         String::from_utf8_lossy(&out.stderr)
     );
