@@ -610,20 +610,38 @@ pub enum V1Plan {
     Dial(Box<ArmCall>),
 }
 
+/// Everything `v1_plan` needs. A struct rather than eight arguments, and the seam is unchanged: the caller
+/// resolves the model and the route, this decides what to do about them.
+pub struct V1PlanInputs<'a> {
+    pub req: &'a V1Request,
+    pub route: &'a crate::routing::RouteInfo,
+    /// The ADVERTISED id — what the client asked for, which `responses_gate` checks against the registry.
+    pub model: &'a str,
+    /// The prefix the model chain resolved, which the gate also checks.
+    pub prefix: &'a str,
+    /// The WIRE model — `wireModelName`'s answer.
+    pub upstream_model: &'a str,
+    pub parsed_body: Option<&'a serde_json::Value>,
+    pub og_session: &'a [(String, String)],
+    pub scanned: Option<(usize, usize)>,
+}
+
 /// **PHASE ONE — the route match, auth, the per-arm key gate, then either the arm or a plan to dial it.**
 ///
 /// `route` IS AN ARGUMENT because resolving it (`pick_route` over the model prefix, the KV settings and the
 /// provider records) is its own proved decision, and the worker calls it first. The four arms the handler
 /// serves are matched here; anything else is the 404 the source sends.
-pub fn v1_plan(
-    req: &V1Request,
-    route: &crate::routing::RouteInfo,
-    // The WIRE model — `wireModelName`'s answer, which the caller resolves from the advertised id.
-    upstream_model: &str,
-    parsed_body: Option<&serde_json::Value>,
-    og_session: &[(String, String)],
-    scanned: Option<(usize, usize)>,
-) -> V1Plan {
+pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
+    let V1PlanInputs {
+        req,
+        route,
+        model,
+        prefix,
+        upstream_model,
+        parsed_body,
+        og_session,
+        scanned,
+    } = *inputs;
     let shape = detect_route(&req.method, &req.path);
     if !(shape.is_count || shape.is_messages || shape.is_chat_completions || shape.is_responses) {
         return V1Plan::Respond(crate::responses::json_error(
@@ -679,9 +697,52 @@ pub fn v1_plan(
             cors_configured: None,
         }));
     }
+    if shape.is_responses {
+        // **THE GATE FIRST, THEN THE EXIT.** The arm serves one family, and the exit is FORCED for it — the
+        // Contributor tier is responses-only upstream and Meta region-blocks it for CN, so `forceUsProxy`
+        // decides between the configured exit and the og zen host's own `/v1/responses`.
+        if let Some(refusal) = responses_gate(model, upstream_model, prefix, &req.kind) {
+            return V1Plan::Respond(refusal);
+        }
+        let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
+        let bearer = bearer.as_str().unwrap_or("");
+        let request = responses_request(
+            upstream_model,
+            req.raw_text.as_str().unwrap_or(""),
+            Some(bearer),
+            og_session,
+            scanned,
+        );
+        let url = if crate::routing::og_force_us_proxy(model) {
+            crate::routing::muse_responses_exit(Some(&req.env))
+        } else {
+            crate::routing::og_responses_direct()
+        };
+        return V1Plan::Dial(Box::new(ArmCall {
+            request: UpstreamRequest {
+                url,
+                method: "POST".to_string(),
+                headers: request.headers,
+                body: request.body,
+                policy: crate::reliability::RetryPolicy {
+                    timeout_ms: crate::reliability::og_timeout_ms(Some(&req.env)),
+                    attempts: None,
+                    backoff_ms: None,
+                    retry502: None,
+                    ignore_retry_after: None,
+                },
+            },
+            is_translate: false,
+            wants_stream: false,
+            kind: req.kind.clone(),
+            upstream_model: upstream_model.to_string(),
+            origin: String::new(),
+            request_host: None,
+            cors_configured: None,
+        }));
+    }
     if !shape.is_messages {
-        // `/v1/responses` is ported as its own decisions and is not composed here yet — a boundary stated
-        // rather than a silent wrong answer.
+        // Nothing else reaches here — the four arms are all composed above.
         return V1Plan::Respond(crate::responses::json_error(
             501,
             "route not wired",
@@ -838,6 +899,78 @@ pub struct ChatRequest {
     pub body: String,
     pub headers: Vec<(String, String)>,
     pub policy: crate::reliability::RetryPolicy,
+}
+
+/// **THE `/v1/responses` GATE — TWO REFUSALS, AND THEIR TYPE IS `invalid_request`, NOT
+/// `invalid_request_error`.**
+///
+/// The arm serves exactly one family, and the source's own comment says why: "only registered
+/// og/muse-spark-* Contributor models ride this endpoint. Responses requests naming anything else are client
+/// bugs (other og/ models speak chat/completions; nothing else here is responses-native; unregistered
+/// muse-spark versions must not reach the upstream)."
+///
+/// The three conditions are checked in ONE `if`, so the first refusal covers all three, and the second
+/// catches a model that IS responses-only but did not route to opencode. Both sentences are the source's,
+/// including the em dash in the first.
+pub fn responses_gate(
+    model: &str,
+    upstream_model: &str,
+    prefix: &str,
+    kind: &str,
+) -> Option<crate::responses::Built> {
+    let advertised = crate::registry::MODEL_REGISTRY
+        .iter()
+        .any(|m| m.id == model);
+    let responses_only = crate::registry::wire_spec(upstream_model)
+        .map(|m| m.responses_only == Some(true))
+        .unwrap_or(false);
+    if !advertised || !responses_only || prefix != "og" {
+        return Some(crate::responses::json_error(
+            400,
+            &format!(
+                "Model {model} is not served via /v1/responses — only og/muse-spark-* Contributor models use this endpoint"
+            ),
+            "invalid_request",
+        ));
+    }
+    if kind != "opencode" {
+        return Some(crate::responses::json_error(
+            400,
+            &format!("/v1/responses only serves og/ models (requested {model})"),
+            "invalid_request",
+        ));
+    }
+    None
+}
+
+/// **THE `/v1/responses` ARM'S REQUEST — and its headers are its OWN.**
+///
+/// It does NOT call `passthroughHeaders`: there is no `anthropic-version` here, because the Responses API is
+/// not Anthropic's. What it sets is `Content-Type`, `Authorization` **only when there is a bearer**, and
+/// `x-opencode-session` **only when the session object has one** — two conditionals a shape-based port would
+/// flatten into unconditional sets, which would send `Authorization: Bearer ` (empty) to the upstream.
+pub fn responses_request(
+    upstream_model: &str,
+    raw_text: &str,
+    bearer_key: Option<&str>,
+    og_session: &[(String, String)],
+    scanned: Option<(usize, usize)>,
+) -> PassthroughRequest {
+    let body = crate::body_scan::raw_with_model(
+        raw_text,
+        &serde_json::Value::String(upstream_model.to_string()),
+        scanned,
+    );
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    if let Some(key) = bearer_key.filter(|k| !k.is_empty()) {
+        headers.push(("Authorization".to_string(), format!("Bearer {key}")));
+    }
+    for (k, v) in og_session {
+        if k == "x-opencode-session" && !v.is_empty() {
+            headers.push((k.clone(), v.clone()));
+        }
+    }
+    PassthroughRequest { body, headers }
 }
 
 #[cfg(test)]
@@ -1223,6 +1356,92 @@ mod count_tokens_tests {
         assert_eq!(rewrite_developer_role("{\"a\":1}"), "{\"a\":1}");
     }
 
+    /// **THE `/v1/responses` ARM, REPLAYED.** Four captured cases: two Contributor models that ride the forced
+    /// exit, and two refusals — one for a registered model that is not responses-only, one for a model that is
+    /// not registered at all. Both refusals wear `invalid_request`, NOT `invalid_request_error`, which is the
+    /// kind of one-letter difference a shape-based port would flatten.
+    #[test]
+    fn the_responses_arm_matches_the_shipping_route() {
+        let doc = fixture("responses-corpus.json");
+        let mut dialled = 0;
+        let mut refused = 0;
+        for case in doc["cases"].as_array().expect("cases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let model = case["model"].as_str().unwrap_or("");
+            let prefix = case["prefix"].as_str().unwrap_or("");
+            let upstream_model = case["upstreamModel"].as_str().unwrap_or("");
+            let kind = case["kind"].as_str().unwrap_or("");
+            // The responses fixture records `status`/`answer` for a refusal rather than an `expected` block.
+            let expected_status = case["status"].as_u64().unwrap_or(0) as u16;
+            let expected_answer = case["answer"].as_str().unwrap_or("");
+
+            // 1. THE GATE.
+            let gate = responses_gate(model, upstream_model, prefix, kind);
+            if let Some(captured) = case.get("captured") {
+                assert!(gate.is_none(), "{name}: a served model must pass the gate");
+                // 2. THE REQUEST AND THE EXIT.
+                let og_session: Vec<(String, String)> = case["ogSession"]
+                    .as_object()
+                    .map(|m| {
+                        m.iter()
+                            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let got = responses_request(
+                    upstream_model,
+                    case["rawText"].as_str().unwrap_or(""),
+                    case["bearerKey"].as_str(),
+                    &og_session,
+                    None,
+                );
+                assert_eq!(
+                    got.body,
+                    captured["body"].as_str().unwrap_or(""),
+                    "{name}: body"
+                );
+                for (k, v) in captured["headers"].as_object().expect("headers") {
+                    let want = v.as_str().unwrap_or("");
+                    assert!(
+                        got.headers
+                            .iter()
+                            .any(|(hk, hv)| hk.eq_ignore_ascii_case(k) && hv == want),
+                        "{name}: header {k} missing from {:?}",
+                        got.headers
+                    );
+                }
+                // The exit is FORCED for this family, and `og_force_us_proxy` is what decides it.
+                assert!(
+                    crate::routing::og_force_us_proxy(model),
+                    "{name}: must be a US-egress model"
+                );
+                let url = crate::routing::muse_responses_exit(None);
+                assert_eq!(
+                    url,
+                    captured["url"].as_str().unwrap_or(""),
+                    "{name}: the forced exit"
+                );
+                dialled += 1;
+            } else {
+                // 3. A REFUSAL, and its body is the captured one.
+                let refusal = gate.expect("a refused model must be refused");
+                assert_eq!(refusal.status, expected_status, "{name}");
+                assert_eq!(refusal.body, expected_answer, "{name}");
+                assert!(
+                    refusal.body.contains("\"invalid_request\""),
+                    "{name}: the type is invalid_request, not invalid_request_error"
+                );
+                assert!(
+                    !refusal.body.contains("invalid_request_error"),
+                    "{name}: and the longer spelling must NOT appear"
+                );
+                refused += 1;
+            }
+        }
+        assert_eq!(dialled, 2, "the served cases changed size");
+        assert_eq!(refused, 2, "the refusal cases changed size");
+    }
+
     #[test]
     fn the_two_phases_reproduce_the_captured_request_and_response() {
         let corpus = fixture("passthrough-corpus.json");
@@ -1252,6 +1471,13 @@ mod count_tokens_tests {
                 }
                 m
             };
+            let route_prefix = case["model"]
+                .as_str()
+                .unwrap_or("")
+                .split('/')
+                .next()
+                .unwrap_or("")
+                .to_string();
             let req = V1Request {
                 method: "POST".to_string(),
                 path: "/v1/messages".to_string(),
@@ -1273,14 +1499,16 @@ mod count_tokens_tests {
                         .collect()
                 })
                 .unwrap_or_default();
-            let plan = v1_plan(
-                &req,
-                &route,
-                case["upstreamModel"].as_str().unwrap_or(""),
-                parsed,
-                &og_session,
-                None,
-            );
+            let plan = v1_plan(&V1PlanInputs {
+                req: &req,
+                route: &route,
+                model: case["model"].as_str().unwrap_or(""),
+                prefix: &route_prefix,
+                upstream_model: case["upstreamModel"].as_str().unwrap_or(""),
+                parsed_body: parsed,
+                og_session: &og_session,
+                scanned: None,
+            });
             let V1Plan::Dial(call) = plan else {
                 panic!("{name}: a /v1/messages request must plan a call");
             };
