@@ -1016,11 +1016,11 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
 | 块 | 状态 | 证据 |
 |---|---|---|
 | **P0** | ✓ 完成 | `docs/superpowers/p0/`：187 个 LOGIC 导出、基线、wasm-pack 证明 |
-| **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **41 个门禁**；`scripts/test/*.mjs` 只剩 **8 个具名例外** |
+| **P1** | ✓ 可搬的搬完 | `agent/tests/*.rs` **42 个门禁**；`scripts/test/*.mjs` 只剩 **7 个具名例外** |
 | **P2 面板** | ✓ 收口 | `panel-logic/` **29 个模块**；`lib/`+`hooks/` 里**在 crate 里或具名 boundary** |
 | **P2 控制台** | ✓ 收口 | `gateway/ui-logic/`；五个文件在 crate，三个是**具名决定**（`keyNames`/`i18n`/`api`） |
-| **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（`translate.rs` + `stream.rs`，**两半都在**，10 测试）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
-| **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**41 个公开项、26 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
+| **P3 Worker** | ✓ 逻辑搬完 | `gateway/wasm`（**20 个模块，70 测试，11 份语料**）· `index/worker`（20）· `zen-us`（11）· `zen-go`（17） |
+| **P3 VPS** | ✓ 决策搬完 | `proxies/api-relay/relay/`：**27 个测试、9 份语料**——`api-relay` 的五个 handler 与 `summrise-relay` 的 token/路由 |
 | **P4** | ✗ 不做（默认） | 已量：4.7× 体积换 85 行 JS |
 
 **而操作者 2026-09-30 的三个决定** ✓：
@@ -1032,20 +1032,27 @@ canary 对着生产逐字节过 ✓ · 切流了 ✓ · 真机上量过了 ✓�
    而 `index` 作业跑 `cargo test --manifest-path index/landing/Cargo.toml` ✓——
    **那条测试把"跟踪的 arm 就是这个 crate 渲染出来的"钉住** ✓（变异：改 `page.rs` 一个字而不重新生成 →
    失败，并打印"Regenerate with `index/landing/build.sh`" ✓）。
-2. **P1 那 8 个例外逐个复查** ✓——**2 个能搬** ✓（`contrast-probe-check` 与 `landing-check`：
-   **它们不 spawn 任何东西** ✓，一个是解析器、一个是判官 ✓），
+2. **P1 那 8 个例外逐个复查** ✓——**1 个搬了、1 个只搬了一半** ✓（**这一行 2026-10-03 按实测改正** ✓）：
+   `landing-check` **已搬完** ✓（它不 spawn 任何东西 ✓）；
+   `contrast-probe-check` **只搬了 13 条断言** ✓（`agent/tests/contrast_probe.rs` ✓），
+   **剩下的 5 条是关于 `PROBE_SOURCE` 这个 JS 产物的** ✓——而计划的 carve-out **明确保留它**
+   （`browser_run_script` 收一个 JS 文件 ✓），所以那 5 条是**具名例外**而不是待办 ✓。
+   **原表写的"2 个能搬"是把整个文件当成了主语** ✓，而它自己的头文件早就写着为什么不是 ✓。
    **6 个不能** ✓：`console-assets-check` / `panel-sheet-freshness-check`（跑 npm 构建 ✓）、
    `console-smoke-check`（跑 smoke 脚本 ✓）、`main-shape-check`（问 git ✓）、
    `npm-test-floored`（跑 npm test ✓）、`press-anchor-check`（跑发射器 `--emit` ✓）。
 3. **P3 切流：待操作者确认对 relay 的理解** ✓（它在回答里问"relay 是什么" ✓）。
 
-**而剩下的是三件计划从一开始就写明"由操作者决定"的事** ✓：
+**而剩下的是两件计划从一开始就写明"由操作者决定"的事** ✓（**2026-10-03 按实测改正**：第三件 P4
+**操作者已经点名"做"** ✓，而它**已经落地** ✓——上面第 1 条自己写着这件事，所以这一段原先在自相矛盾 ✓）：
 
 1. **P3 的切流**：gateway 的流式路由改走 wasm ✓、relay 的 axum 二进制上 VPS ✓——
    **都是部署动作**（要凭据、要挑时间、要能回滚）✓。计划对 `api-relay` 的警告仍然成立：
    **它是本仓库自己的 push 路径** ✓，**把一个没部署过的二进制换成 git 远端之前，
    先让它跑起来、再让它当远端** ✓。
 2. **P1 那 8 个 `.mjs` 的 CI 依赖**：计划写着"加不加 CI 依赖由操作者决定" ✓。
-3. **P4**：只有操作者点名才做 ✓。
+3. ~~**P4**：只有操作者点名才做~~ ✓ **已点名、已落地** ✓——`index/landing/` 在构建时渲染整份文档 ✓，
+   而 `index` 作业的 `cargo test --manifest-path index/landing/Cargo.toml` 把"跟踪的 arm 就是这个 crate
+   渲染出来的"钉住 ✓。
 
 **所以这一份计划的可执行部分到此为止** ✓——**再往下走需要上面三个决定中的任意一个** ✓。
