@@ -969,6 +969,14 @@ jobs:
       # already carries both languages for this worker.
       - name: Test zen-us policy (Rust)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
+      # **THE HALF `cargo test` CANNOT SEE.** `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`
+      # because `#[event(fetch)]` expands to nothing on the host, so the host build compiles NONE of the
+      # entrypoint — measured 2026-10-03: the first version of that file used `Response::builder()...
+      # with_body()`, which does not exist, and the host suite was green while the target it serves did
+      # not compile. **CLIPPY AND NOT `check`, BECAUSE `all-gates.bash` EXTRACTS `cargo (test|clippy|fmt)`
+      # AND A `cargo check` STEP WOULD BE A GATE NOBODY RUNS BY HAND.**
+      - name: zen-us's entrypoint, for the target it serves
+        run: cargo clippy --manifest-path proxies/zen-us-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       # AND zen-go's TRANSLATION, which is the half of the satellite that converts a request and
       # encodes a response. A STEP IN THIS JOB, for the same reason as the one above: the plan's
       # standing rule is no new CI job, and this job already carries both languages for these workers.

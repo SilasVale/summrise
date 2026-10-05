@@ -17,6 +17,12 @@ path = "src/lib.rs"
 # A host and a fallback: the port is about the POLICY, not about the deployment, and no `worker`
 # dependency is taken until the entry point is ported — which keeps `cargo test` a plain host build.
 url = "2"
+# THE WORKER RUNTIME, TAKEN NOW BECAUSE THE ENTRY POINT IS HERE — and the paragraph this replaces said
+# it would be taken "until the entry point is ported, which keeps `cargo test` a plain host build".
+# **THAT IS STILL TRUE**: `worker.rs` is behind `#[cfg(target_arch = "wasm32")]` because `#[event(fetch)]`
+# expands to nothing on the host and panics there, so every decision in `lib.rs` still builds and tests
+# with no wasm toolchain. Pinned to the same 0.8.7 as `gateway/wasm` and `index/worker`.
+worker = "0.8.7"
 serde_json = "1"
 # SHA-256 FOR `safe_eq`, and the reason it is a dependency and not 64 hand-rolled lines is in the
 # function's own doc comment: this crate already took `url` and `serde_json` for the same reason, and
