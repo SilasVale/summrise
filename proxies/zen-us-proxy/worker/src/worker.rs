@@ -24,11 +24,11 @@
 //!     POST …/messages            the CLIENT_KEY gate's 401
 //!     anything else              404, from the envelope
 //!
-//! **AND THE THREE THAT NEED ONE, NAMED RATHER THAN APPROXIMATED**: the upstream fetches for
-//! `/models`, `/responses` and `/messages`, which need `fetchUpstreamHeaders` and `relayUpstreamError`
-//! ported first. **They are the next stage, and this file says so instead of pretending the surface is
-//! whole.** A worker that answered 501 for them would be worse than one that does not answer at all:
-//! it would make `verify.mjs` green on a request the shipping worker serves.
+//! **AND THE THREE THAT NEED ONE ARE PORTED TOO** — `/models`, `/responses` and `/messages` all reach
+//! the upstream now, through `fetch_upstream_headers` (the header budget with the signal, so the body
+//! stays untimed) and `relay_upstream_error` (the one place a provider's own words reach the client, and
+//! therefore where the credential dies). **THE SURFACE IS WHOLE**, and what is left is the byte
+//! comparison that says so: `verify.mjs`, which is possible now and was not before.
 
 use worker::*;
 
@@ -74,6 +74,54 @@ fn json_error(
     // on the host at all. **THAT IS THE ARRANGEMENT WORKING**: the target-only half is checked by
     // checking the target.
     Ok(Response::from_bytes(body.into_bytes())?
+        .with_status(status)
+        .with_headers(headers))
+}
+
+/// `relayUpstreamError(upstream, cors, secrets)` — **THE ONE PLACE A PROVIDER'S OWN WORDS REACH THE
+/// CLIENT, WHICH IS WHY THE CREDENTIAL DIES HERE.**
+///
+/// Reading the body consumes the stream, and that is correct: the error path answers with a JSON
+/// envelope rather than forwarding anything. `upstream_message` decides WHICH words (it is ported and
+/// carries a twelve-case corpus), and `redact_secrets` is what the shipping worker calls next.
+async fn relay_upstream_error(
+    up: &mut Response,
+    status: u16,
+    cors: &[(String, String)],
+    secrets: &[&str],
+) -> Result<Response> {
+    // `try { await upstream.json() } catch {}` — a body that is not JSON leaves the default, and a body
+    // that cannot be read at all leaves it too.
+    let body = up.text().await.unwrap_or_default();
+    let message = crate::upstream_message(status, &body);
+    let redacted = crate::redact_secrets(&message, secrets);
+    json_error(status, &redacted, "api_error", cors)
+}
+
+/// `new Response(upstream.body, { status, headers: { "Content-Type": …, "Cache-Control": "no-cache", …cors } })`
+/// — **the upstream's OWN content type, because it knows what it sent** (round 136's fix: a hardcoded
+/// `text/event-stream` labelled a `stream:false` JSON answer as SSE), with the SSE fallback for an
+/// upstream that says nothing.
+fn forward_upstream(
+    up: &mut Response,
+    status: u16,
+    default_type: &str,
+    cors: &[(String, String)],
+) -> Result<Response> {
+    let ctype = up
+        .headers()
+        .get("content-type")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| default_type.to_string());
+    let stream = up.stream()?;
+    let headers = Headers::new();
+    headers.set("Content-Type", &ctype)?;
+    headers.set("Cache-Control", "no-cache")?;
+    for (k, v) in cors {
+        headers.set(k, v)?;
+    }
+    Ok(Response::from_stream(stream)?
         .with_status(status)
         .with_headers(headers))
 }
@@ -158,7 +206,60 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                     &cors,
                 );
             }
-            not_ported("POST /v1/responses upstream")
+            // THE SESSION HEADER IS PART OF THE CONTRACT: zen/go's per-conversation id, forwarded from
+            // whichever of the four source headers the caller sent (`SESSION_SOURCE_HEADERS`).
+            let caller_key = bearer_key(&auth).unwrap_or_default();
+            let mut hdrs = vec![
+                ("Authorization".to_string(), format!("Bearer {caller_key}")),
+                ("Content-Type".to_string(), "application/json".to_string()),
+            ];
+            // The four source headers, in the shipping worker's own preference order, with the empty
+            // ones dropped — `sessionHeader` trims and takes the FIRST non-empty.
+            let owned: Vec<(String, String)> = crate::SESSION_SOURCE_HEADERS
+                .iter()
+                .filter_map(|name| {
+                    req.headers()
+                        .get(name)
+                        .ok()
+                        .flatten()
+                        .filter(|v| !v.trim().is_empty())
+                        .map(|v| (name.to_string(), v))
+                })
+                .collect();
+            let owned_ref: Vec<(&str, &str)> = owned
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            if let Some((name, value)) = crate::session_header(&owned_ref) {
+                hdrs.push((name.to_string(), value));
+            }
+            let mut up = fetch_upstream_headers(
+                "https://opencode.ai/zen/go/v1/responses",
+                "POST",
+                &hdrs,
+                req.inner().body(),
+            )
+            .await?;
+            let status = up.status_code();
+            if !(200..300).contains(&status) {
+                // The secrets are the WORKER's key and the CALLER's `x-api-key`, exactly as the
+                // shipping worker passes them.
+                let worker_key = env.var("OPENCODE_GO_API_KEY")?.to_string();
+                let caller_api_key = req
+                    .headers()
+                    .get("x-api-key")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                return relay_upstream_error(
+                    &mut up,
+                    status,
+                    &cors,
+                    &[worker_key.as_str(), caller_api_key.as_str()],
+                )
+                .await;
+            }
+            forward_upstream(&mut up, status, "text/event-stream; charset=utf-8", &cors)
         }
 
         // POST …/messages — `CLIENT_KEY` gated and DEFAULT-CLOSED: when the variable is unset every
@@ -179,7 +280,50 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                     &cors,
                 );
             }
-            not_ported("POST /v1/messages upstream")
+            let worker_key = env.var("OPENCODE_GO_API_KEY")?.to_string();
+            let hdrs = vec![
+                ("x-api-key".to_string(), worker_key.clone()),
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ];
+            let mut up = fetch_upstream_headers(
+                "https://opencode.ai/zen/go/v1/messages",
+                "POST",
+                &hdrs,
+                req.inner().body(),
+            )
+            .await?;
+            let status = up.status_code();
+            if !(200..300).contains(&status) {
+                // **A 5xx FROM THE UPSTREAM GETS GENERIC CLIENT TEXT AND THE DETAIL STAYS SERVER-SIDE**
+                // (`src/index.js:296-306`): the provider's own words for a 5xx are the ones most likely
+                // to carry something that should not be shown, so only a 4xx is relayed.
+                if status >= 500 {
+                    let body = up.text().await.unwrap_or_default();
+                    let detail = crate::upstream_message(status, &body);
+                    // The log line is where the detail goes — redacted, because a log is a place a
+                    // credential can leak from just as quietly.
+                    worker::console_error!(
+                        "[zen-us] upstream 5xx: {}",
+                        crate::redact_secrets(&detail, &[worker_key.as_str()])
+                    );
+                    return json_error(status, "Upstream unavailable", "api_error", &cors);
+                }
+                let caller_api_key = req
+                    .headers()
+                    .get("x-api-key")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                return relay_upstream_error(
+                    &mut up,
+                    status,
+                    &cors,
+                    &[worker_key.as_str(), caller_api_key.as_str()],
+                )
+                .await;
+            }
+            forward_upstream(&mut up, status, "text/event-stream; charset=utf-8", &cors)
         }
 
         Route::NotFound => json_error(404, "Not Found", "not_found_error", &cors),
@@ -282,17 +426,4 @@ async fn fetch_upstream_headers(
             )))
         }
     }
-}
-///
-/// **AN ARM THAT IS NAMED RATHER THAN FAKED.** The three upstream routes are not ported yet, and a
-/// 501 says exactly that — where a plausible-looking empty 200 would let `verify.mjs` pass on a request
-/// the shipping worker actually serves. **THE FAILURE IS THE HONEST ANSWER.**
-fn not_ported(what: &str) -> Result<Response> {
-    let headers = Headers::new();
-    headers.set("Content-Type", "text/plain; charset=utf-8")?;
-    Ok(
-        Response::from_bytes(format!("not ported yet: {what}").into_bytes())?
-            .with_status(501)
-            .with_headers(headers),
-    )
 }
