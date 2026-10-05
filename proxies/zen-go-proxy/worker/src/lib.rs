@@ -41,8 +41,8 @@ use serde_json::{json, Map, Value};
 
 pub use summrise_zen_us::cors_headers;
 pub use summrise_zen_us::{
-    is_loopback_host, is_loopback_origin, json_error_body, redact_secrets, request_host,
-    x_api_key_allows,
+    is_loopback_host, is_loopback_origin, json_error_body, preflight_status, redact_secrets,
+    request_host, x_api_key_allows,
 };
 
 /// `toOpenAIRequest(req, model)` — the Anthropic request, as an OpenAI chat completion.
@@ -859,6 +859,14 @@ pub fn route(method: &str, pathname: &str) -> Route {
     }
     Route::Messages
 }
+
+/// **THE I/O HALF, wasm32-ONLY, AND THE OTHER THREE WORKERS CARRY THE SAME PARAGRAPH.**
+/// `#[event(fetch)]` expands to nothing on the host and PANICS there, because there is no Worker runtime
+/// to register with. So every decision above builds and tests under a plain `cargo test`, and the
+/// entrypoint compiles only for the target it serves. **A host shim would be a second copy of the
+/// dispatch that no test runs.**
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
 
 #[cfg(test)]
 mod route_tests {

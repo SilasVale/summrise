@@ -20,6 +20,18 @@ path = "src/lib.rs"
 # satellite workers AUTONOMOUS (no shared npm package); a shared RUST crate is not a shared
 # deployment and does not couple their releases.
 summrise-zen-us = { path = "../../zen-us-proxy/worker" }
+# THE WORKER RUNTIME, TAKEN NOW BECAUSE THE ENTRY POINT IS HERE. `worker.rs` is behind
+# `#[cfg(target_arch = "wasm32")]` because `#[event(fetch)]` expands to nothing on the host and panics
+# there, so every decision above still builds and tests with no wasm toolchain at all. Same 0.8.7 as the
+# other three workers.
+worker = "0.8.7"
+# AND `web-sys` DIRECTLY: `worker::RequestInit` has no signal field, so the header budget's
+# `AbortController` can only be attached by building the `web_sys::RequestInit` here. Same 0.3.106 that
+# `worker` pins, with the four features `worker.rs` names.
+web-sys = { version = "0.3.106", features = ["Request", "RequestInit", "Headers", "AbortSignal"] }
+# THE RACE: `fetch` resolves when the HEADERS arrive, so the port has to stop WAITING at the budget
+# without stopping the BODY. Same reason and same crate as `zen-us` and `gateway/wasm`.
+futures-util = { version = "0.3", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # **`preserve_order` IS NOT OPTIONAL HERE.** serde_json's default Map is a BTreeMap, which SORTS KEYS
 # ALPHABETICALLY — so the ported objects would come back in a different order than the JavaScript's

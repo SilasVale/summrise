@@ -1014,6 +1014,11 @@ jobs:
       # AND zen-go's TRANSLATION, which is the half of the satellite that converts a request and
       # encodes a response. A STEP IN THIS JOB, for the same reason as the one above: the plan's
       # standing rule is no new CI job, and this job already carries both languages for these workers.
+      # **THE HALF `cargo test` CANNOT SEE**, for the same reason as zen-us's step above: `worker.rs` is
+      # behind `#[cfg(target_arch = "wasm32")]`, so the host build compiles none of the entrypoint. The
+      # job's toolchain already carries the target.
+      - name: zen-go's entrypoint, for the target it serves
+        run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       - name: Test zen-go translation (Rust)
         run: cargo test --manifest-path proxies/zen-go-proxy/worker/Cargo.toml
       # AND api-relay's ROUTING, which is the FIRST piece of the relay to move (2026-09-30). This one
