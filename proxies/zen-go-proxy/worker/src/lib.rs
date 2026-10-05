@@ -695,6 +695,272 @@ pub fn to_sse(res: &Value) -> String {
     out
 }
 
+/// `MAX_JSON_BYTES` — `10 * 1024 * 1024` (`src/index.js:25`), the ceiling `jsonTooLarge` compares the
+/// `content-length` header against.
+pub const MAX_JSON_BYTES: f64 = (10 * 1024 * 1024) as f64;
+
+/// **`Number(text)`, THE JAVASCRIPT COERCION, FOR THE SUBSET A HEADER CAN CARRY.**
+///
+/// `jsonTooLarge` is `Number(request.headers.get("content-length"))`, and `Number` is not a parse — the
+/// traps are all reachable from a header a caller controls:
+///
+/// ```text
+///     Number(null)      -> 0        (an ABSENT header: `headers.get` answers null)
+///     Number("")        -> 0
+///     Number("  12  ")  -> 12       (it TRIMS)
+///     Number("0x10")    -> 16       (it reads HEX)
+///     Number("1e9")     -> 1e9      (and exponents)
+///     Number("abc")     -> NaN      Number("Infinity") -> Infinity
+/// ```
+///
+/// `None` is `NaN`. This is the same function `zen-us`'s crate carries, and it is carried rather than
+/// shared **because the satellite workers are autonomous by decision** (`Cargo.toml`: "satellite workers
+/// AUTONOMOUS (no shared npm package); a shared RUST crate is not a shared …").
+pub fn js_number(text: &str) -> Option<f64> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Some(0.0);
+    }
+    let (sign, body) = match t.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, t.strip_prefix('+').unwrap_or(t)),
+    };
+    let lower = body.to_ascii_lowercase();
+    if lower == "infinity" {
+        return Some(sign * f64::INFINITY);
+    }
+    for (prefix, radix) in [("0x", 16u32), ("0o", 8), ("0b", 2)] {
+        if let Some(digits) = lower.strip_prefix(prefix) {
+            if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+                return None;
+            }
+            return u64::from_str_radix(digits, radix)
+                .ok()
+                .map(|v| sign * v as f64);
+        }
+    }
+    let ok = body
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == '+' || c == '-')
+        && body.chars().filter(|c| *c == '.').count() <= 1
+        && body.chars().filter(|c| *c == 'e').count() <= 1;
+    if !ok {
+        return None;
+    }
+    body.parse::<f64>().ok().map(|v| sign * v)
+}
+
+/// **`jsonTooLarge(request)` — `Number.isFinite(n) && n > MAX_JSON_BYTES` (`src/index.js:120-123`).**
+///
+/// **`isFinite` IS THE HALF THAT MATTERS**: `Number("abc")` is `NaN` and `Number("Infinity")` is
+/// `Infinity`, and neither is larger than the ceiling — so a caller who sends a header the platform
+/// cannot parse is NOT refused. Only a finite number above the ceiling is.
+pub fn json_too_large(content_length: Option<&str>) -> bool {
+    let n = match content_length {
+        Some(v) => js_number(v),
+        // `headers.get` answers `null` for an absent header, and `Number(null)` is 0.
+        None => Some(0.0),
+    };
+    matches!(n, Some(v) if v.is_finite() && v > MAX_JSON_BYTES)
+}
+
+/// **`POST /v1/messages/count_tokens`'s ESTIMATE, WHICH IS THE WHOLE ENDPOINT** (`src/index.js:181-190`).
+///
+/// ```text
+///     const parts = [body.system, body.tools, body.messages].filter((part) => part != null);
+///     const chars = parts.reduce((n, part) => n + JSON.stringify(part).length, 0);
+///     return jsonOk({ input_tokens: Math.ceil(chars / 4) }, cors);
+/// ```
+///
+/// **THREE TRAPS, AND THE THIRD IS INVISIBLE FROM THE JAVASCRIPT SIDE**:
+///
+///   * **`part != null` IS LOOSE.** It drops `null` and `undefined` and KEEPS `false`, `0` and `""` —
+///     so `{system: 0, messages: false}` estimates 2, not 0.
+///   * **`JSON.stringify(part).length` IS UTF-16 CODE UNITS, NOT CHARACTERS AND NOT BYTES.** Four CJK
+///     characters are 4 units; one emoji is TWO units. **A Rust port that reached for
+///     `.chars().count()` would answer 1 where JavaScript answers 2**, which is why this counts
+///     `encode_utf16`.
+///   * **THE WHOLE REQUEST IS COUNTED**, which was round 140's fix: counting only `messages` under-reported
+///     every request whose instructions live in `system` or whose tool schemas ride in `tools` — and tool
+///     schemas are frequently the largest part of an Anthropic request.
+pub fn estimate_tokens(
+    system: Option<&Value>,
+    tools: Option<&Value>,
+    messages: Option<&Value>,
+) -> u64 {
+    let mut chars = 0usize;
+    for part in [system, tools, messages].into_iter().flatten() {
+        // `JSON.stringify(part).length` — and the crate's own header records why `serde_json`'s output
+        // matches: same key order, same escapes, the same text.
+        //
+        // **NO SPECIAL CASE FOR `Value::String`, AND THE CORPUS IS WHAT SAID SO.** A first version used the
+        // raw string for that variant — a habit from `js_text`, where the raw string IS wanted — but
+        // `JSON.stringify` QUOTES a string, so `JSON.stringify("")` is `"\"\""`, two units, where the raw
+        // string is zero. The empty-string row failed by exactly that, and it is in the corpus because the
+        // loose `part != null` KEEPS an empty string.
+        let text = serde_json::to_string(part).expect("a Value is serialisable");
+        chars += text.encode_utf16().count();
+    }
+    // `Math.ceil(chars / 4)` — and `chars` is a count, so the division is the only float here.
+    chars.div_ceil(4) as u64
+}
+
+#[cfg(test)]
+mod route_decision_tests {
+    //! **THE CORPUS IS THE SHIPPING EXPRESSION'S OWN OUTPUT**, produced by running the two functions
+    //! from `proxies/zen-go-proxy/src/index.js` in Node over these inputs. **The lines ARE the shipping
+    //! code** — that is what makes this an oracle and not a second implementation.
+    use super::*;
+
+    /// `jsonTooLarge`, over the header values a caller can send. `MAX_JSON_BYTES` is 10,485,760.
+    #[test]
+    fn the_body_size_gate_matches_the_shipping_predicate() {
+        let corpus: [(Option<&str>, bool); 13] = [
+            (None, false),     // an ABSENT header: Number(null) is 0
+            (Some(""), false), // Number("") is 0
+            (Some("0"), false),
+            (Some("10485760"), false), // EXACTLY the ceiling: `>` and not `>=`
+            (Some("10485761"), true),
+            (Some("abc"), false), // NaN is not finite
+            (Some("1e9"), true),  // exponents are read
+            (Some("-1"), false),
+            (Some("  20000000  "), true), // it TRIMS
+            (Some("0x10"), false),        // hex is read: 16
+            (Some("Infinity"), false),    // NOT finite
+            (Some("10485760.5"), true),
+            (Some("NaN"), false),
+        ];
+        for (header, want) in corpus {
+            assert_eq!(json_too_large(header), want, "content-length: {header:?}");
+        }
+    }
+
+    /// One corpus row for `estimate_tokens`: the three parts the endpoint reads, and the count the
+    /// shipping expression produced. **A STRUCT AND NOT A FOUR-TUPLE**, because clippy refuses a type that
+    /// complex and because the field names are the documentation.
+    struct Estimate {
+        system: Option<Value>,
+        tools: Option<Value>,
+        messages: Option<Value>,
+        want: u64,
+    }
+
+    /// `count_tokens`, over bodies that exercise the loose comparison and the UTF-16 counting.
+    #[test]
+    fn the_token_estimate_matches_the_shipping_expression() {
+        let cases: [Estimate; 12] = [
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!([{"role": "user", "content": "hi"}])),
+                want: 8,
+            },
+            Estimate {
+                system: Some(json!("abc")),
+                tools: None,
+                messages: Some(json!([])),
+                want: 2,
+            },
+            Estimate {
+                system: Some(json!("abc")),
+                tools: Some(json!([{"a": 1}])),
+                messages: Some(json!([])),
+                want: 4,
+            },
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!([])),
+                want: 1,
+            },
+            Estimate {
+                system: None,
+                tools: None,
+                messages: None,
+                want: 0,
+            },
+            // `part != null` KEEPS 0 AND false — the loose comparison.
+            Estimate {
+                system: Some(json!(0)),
+                tools: None,
+                messages: Some(json!(false)),
+                want: 2,
+            },
+            // ...and keeps an EMPTY STRING.
+            Estimate {
+                system: Some(json!("")),
+                tools: None,
+                messages: Some(json!("")),
+                want: 1,
+            },
+            // **FOUR CJK CHARACTERS ARE FOUR UNITS** — and `.chars().count()` agrees here; the rows that
+            // separate the two countings are the emoji ones below.
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!([{"content": "中文中文"}])),
+                want: 5,
+            },
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!("x")),
+                want: 1,
+            },
+            // **ONE EMOJI IS TWO UTF-16 UNITS.** The numbers come from the oracle, not from arithmetic in
+            // my head: `JSON.stringify([{"c":"😀"}])` is 12 units and `ceil(12/4)` is 3.
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!([{"c": "😀"}])),
+                want: 3,
+            },
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!(["😀"])),
+                want: 2,
+            },
+            // **AND THIS IS THE ROW THAT ACTUALLY SEPARATES THE TWO COUNTINGS — FOUND BY A MUTATION.**
+            // Replacing `encode_utf16().count()` with `chars().count()` left all twenty tests GREEN, because
+            // `ceil(x/4)` hides a one-unit difference when both counts straddle the same quarter: one emoji
+            // is 12 units (3) and 11 chars (3). **Two emoji are 27 units (ceil = 4) and 26 chars
+            // (ceil = 3)**, so this row is the one a `.chars()` port fails. **A corpus that cannot tell two
+            // implementations apart is a corpus that has not been asked the question.**
+            Estimate {
+                system: None,
+                tools: None,
+                messages: Some(json!([{"c": "😀😀"}])),
+                want: 4,
+            },
+        ];
+        for c in &cases {
+            let got = estimate_tokens(c.system.as_ref(), c.tools.as_ref(), c.messages.as_ref());
+            assert_eq!(got, c.want, "{:?} {:?} {:?}", c.system, c.tools, c.messages);
+        }
+    }
+
+    /// The two facts that make the estimate honest, stated where a reader will find them.
+    #[test]
+    fn the_estimate_counts_utf16_units_and_not_characters() {
+        // "😀" is ONE char and TWO UTF-16 units; `JSON.stringify(["😀"]).length` is 6.
+        let one_emoji = json!(["😀"]);
+        assert_eq!(
+            serde_json::to_string(&one_emoji).unwrap().chars().count(),
+            5
+        );
+        assert_eq!(
+            serde_json::to_string(&one_emoji)
+                .unwrap()
+                .encode_utf16()
+                .count(),
+            6
+        );
+        // ceil(6/4) is 2, and the shipping expression says 2.
+        assert_eq!(estimate_tokens(None, None, Some(&one_emoji)), 2);
+    }
+}
+
 #[cfg(test)]
 // THE NAMES SHOUT WHERE THE BEHAVIOUR IS THE OPPOSITE OF WHAT A READER EXPECTS — a zero that is
 // dropped, a null that is kept, a `{}` that is truthy. The capitals are the note.
