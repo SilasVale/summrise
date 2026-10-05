@@ -266,7 +266,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `all-gates.bash`, `build-pins.bash`
 `console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `hook-finds-its-repo.bash`
-`landing-check.mjs`, `main-only-by-merge.bash`, `main-shape-shallow.bash`
+`main-only-by-merge.bash`, `main-shape-shallow.bash`, `rust-byte-checks.bash`
 `panel-design-sweep.bash`
 `npm-test-floored.mjs`, `console-assets-check.mjs`
 `press-anchor-check.mjs`

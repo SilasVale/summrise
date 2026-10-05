@@ -36,7 +36,15 @@
 # the CI job caches `~/.cargo/bin`; on this box it is already installed.
 #
 # **IT EXITS 2 WHEN IT CANNOT RUN AT ALL**, which `all-gates.bash` maps to "n/a": a host with no `cargo`
-# cannot make this judgement, and saying so is better than a green that means nothing.
+# or no wasm32 target cannot make this judgement, and saying so is better than a green that means nothing.
+#
+# ── AND THE ORDER OF THOSE TWO QUESTIONS IS A FIX, NOT A STYLE (measured 2026-10-05) ────────────
+#
+# The first version asked `command -v worker-build`, INSTALLED it when missing — a several-minute build —
+# and only THEN checked the wasm target. `pack-chain` ("npm artifact gates, no exe") has no Rust toolchain
+# at all, so the gate spent minutes building a tool it could not use and then failed that job. **THE CHEAP
+# QUESTION COMES FIRST.** Verified both ways: `env -i PATH=/usr/bin:/bin` -> exit 2 naming cargo, and a
+# stubbed `rustup` that answers nothing -> exit 2 naming the target.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
@@ -47,18 +55,22 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 2
 fi
 
+# **THE CHEAP QUESTIONS COME FIRST, AND THE ORDER IS THE FIX FOR A RED CI (measured 2026-10-05).**
+# The first version asked `command -v worker-build`, INSTALLED it when missing — a several-minute build —
+# and only THEN checked the wasm target. In `pack-chain` ("npm artifact gates, no exe") there is no Rust
+# toolchain at all, so the script spent minutes building a tool it could not use and then failed the job.
+# **A HOST THAT CANNOT MAKE THIS JUDGEMENT SHOULD SAY SO IN SECONDS, NOT AFTER AN INSTALL.**
+if ! rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; then
+  echo "  n/a the wasm32-unknown-unknown target is not installed, so nothing here can be built"
+  exit 2
+fi
+
 if ! command -v worker-build >/dev/null 2>&1; then
   echo "  installing worker-build (a few minutes; the CI job caches ~/.cargo/bin) …"
   cargo install worker-build --locked >/dev/null 2>&1 || {
     echo "  n/a could not install worker-build, so the byte comparisons cannot build" >&2
     exit 2
   }
-fi
-
-# The target the four modules are built for. Missing it is the same class of "cannot judge here".
-if ! rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; then
-  echo "  n/a the wasm32-unknown-unknown target is not installed"
-  exit 2
 fi
 
 fail=0
