@@ -1029,8 +1029,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-      - name: the four Rust/JS byte comparisons
-        run: bash scripts/test/rust-worker-byte-checks.bash
+      - name: every Rust/JS byte comparison
+        run: bash scripts/test/rust-byte-checks.bash
       - name: zen-go's entrypoint, for the target it serves
         run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       - name: Test zen-go translation (Rust)

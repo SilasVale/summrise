@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rust-worker-byte-checks — RUN THE FOUR BYTE COMPARISONS, WHICH NOTHING RAN.
+# rust-byte-checks — RUN EVERY RUST<->JS BYTE COMPARISON, WHICH NOTHING RAN.
 #
 # ── WHY THIS EXISTS (measured 2026-10-05) ───────────────────────────────────────────────────────
 #
@@ -10,6 +10,12 @@
 #     index/worker/verify.mjs                 the CDN worker's four routes
 #     proxies/zen-us-proxy/worker/verify.mjs  the zen-us satellite, 17 cases
 #     proxies/zen-go-proxy/worker/verify.mjs  the zen-go satellite, 17 cases
+#     index/landing/verify.mjs                the landing page, rendered by both renderers
+#
+# **AND ONE THAT IS DELIBERATELY NOT HERE**: `index/spike-rust-landing/verify.mjs` also runs and also
+# passes, but its own README opens "A spike, not a migration" — it answered whether the landing COULD be
+# Rust, and `index/landing/` is the answer. **A retired spike's fidelity check is a gate on an artifact
+# nobody ships**, so it is named here rather than run.
 #
 # **NOT ONE OF THEM WAS INVOKED BY `ci.yml`.** The only mention of `verify.mjs` in the workflow is a
 # COMMENT (line 58) describing the gateway's Rust half. So four checks that pass by hand had never run
@@ -56,7 +62,7 @@ if ! rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknow
 fi
 
 fail=0
-for d in gateway/wasm index/worker proxies/zen-us-proxy/worker proxies/zen-go-proxy/worker; do
+for d in gateway/wasm index/worker proxies/zen-us-proxy/worker proxies/zen-go-proxy/worker index/landing; do
   # **THE STATUS IS KEPT BY EXITING, NOT BY PRINTING** — `cmd && echo ok || echo FAIL` throws it away.
   # **`--build`, ALWAYS, AND THE FIRST RUN OF THIS SCRIPT IS WHY.** Without it the harness reuses
   # whatever `build/` happens to hold — and on 2026-10-05 that was a MUTATED build left by a mutation
@@ -75,8 +81,8 @@ rm -f /tmp/verify-$$.log
 
 if [ "$fail" -gt 0 ]; then
   echo ""
-  echo "  $fail of 4 byte comparison(s) differ — the two workers do not answer the same bytes."
+  echo "  $fail of 5 byte comparison(s) differ — the two implementations do not answer the same bytes."
   exit 1
 fi
-echo "rust-worker-byte-checks: 4 comparison(s) hold"
+echo "rust-byte-checks: 5 comparison(s) hold"
 exit 0
