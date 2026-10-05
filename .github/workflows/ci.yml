@@ -219,6 +219,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
+      # **THE LAUNCHER'S DECISIONS, AND THEN THE TARGET ITS PLATFORM CALL LIVES ON.** `summrise-exec-argv`
+      # — the crate this one is shaped after — has NO CI STEP AT ALL, so its tests have never run here.
+      # This one's do, and the Windows-target clippy is what catches a `cfg(windows)` path that does not
+      # compile: on 2026-10-03 the host `cargo test` was green while `cargo check --target
+      # x86_64-pc-windows-msvc` had never been run once. **CLIPPY AND NOT `check`, BECAUSE
+      # `all-gates.bash` EXTRACTS `cargo (test|clippy|fmt)`** — a `check` step would be a gate nobody runs.
+      - name: summrise-launch's decisions (host)
+        run: cargo test -p summrise-launch
+        working-directory: agent
+      - name: summrise-launch, for the target it is staged onto
+        run: cargo clippy -p summrise-launch --target x86_64-pc-windows-msvc -- -D warnings
+        working-directory: agent
       - name: Tests
         # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
