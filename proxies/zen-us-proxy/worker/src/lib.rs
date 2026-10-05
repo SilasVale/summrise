@@ -350,12 +350,133 @@ pub fn safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
+/// **`relayUpstreamError`'s DECISION, WHICH IS THE PART OF IT THAT IS NOT I/O.**
+///
+/// The shipping worker does:
+///
+/// ```text
+///     let message = `Upstream ${upstream.status}`;
+///     try { const err = await upstream.json(); message = err.error?.message || err.message || message; } catch {}
+///     return jsonError(upstream.status, redactSecrets(message, secrets), "api_error", cors);
+/// ```
+///
+/// **AND ITS OWN COMMENT SAYS WHY IT MATTERS**: "this is the ONE place a provider's own words reach the
+/// client on this worker, so it is where the credential must die". The redaction is the caller's (it is
+/// already ported above); what is decided here is WHICH words, and the `||` chain has three traps that a
+/// translation can walk into:
+///
+///   * **`err.error?.message` IS OPTIONAL CHAINING, NOT A CAST.** When `error` is a STRING — which
+///     providers do — `.message` is `undefined` and the chain falls through to `err.message`.
+///   * **`||` IS TRUTHINESS, NOT NULLISHNESS.** An EMPTY message falls through; so does `0`, so does
+///     `false`. Only a truthy one wins.
+///   * **A BODY THAT IS NOT JSON AT ALL** leaves the default, because `upstream.json()` throws and the
+///     `catch {}` is silent.
+///
+/// The body is passed as TEXT rather than as a parsed value because that is what the fetch hands back —
+/// and because a caller that has already consumed the stream cannot re-read it.
+pub fn upstream_message(status: u16, body: &str) -> String {
+    let fallback = format!("Upstream {status}");
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) else {
+        return fallback;
+    };
+    // `err.error?.message` — an object's `message`, and nothing else. A string `error` has no `.message`.
+    if let Some(m) = parsed
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .filter(|m| js_truthy(m))
+        .and_then(|m| m.as_str())
+    {
+        return m.to_string();
+    }
+    if let Some(m) = parsed.get("message").filter(|m| js_truthy(m)) {
+        // `||` picks the VALUE, and the value reaches `redactSecrets`, whose first act is
+        // `String(text == null ? "" : text)` — so a non-string that is truthy arrives as its JS text.
+        if let Some(s) = m.as_str() {
+            return s.to_string();
+        }
+        return js_text(m);
+    }
+    fallback
+}
+
+/// `if (x)` in JavaScript: `false`, `0`, `""`, `null`, `undefined` and `NaN` are falsy, and everything
+/// else — **including an empty object or array** — is truthy.
+fn js_truthy(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+        serde_json::Value::String(s) => !s.is_empty(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+    }
+}
+
+/// `String(value)` for the values `JSON.parse` can produce. `serde_json`'s own `to_string` is NOT this:
+/// it quotes a string (`"x"` where JavaScript gives `x`) and writes `null` for a null.
+fn js_text(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => "null".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// **THE I/O HALF, wasm32-ONLY, AND `index/worker` CARRIES THE SAME PARAGRAPH.** `#[event(fetch)]`
 /// expands to nothing on the host and PANICS there, because there is no Worker runtime to register with.
 /// So every decision above builds and tests under a plain `cargo test`, and the entrypoint compiles only
 /// for the target it serves. **A host shim would be a second copy of the dispatch that no test runs.**
 #[cfg(target_arch = "wasm32")]
 pub mod worker;
+
+#[cfg(test)]
+mod upstream_message_tests {
+    //! **THE CORPUS IS THE SHIPPING EXPRESSION'S OWN OUTPUT**, produced by running
+    //! `err.error?.message || err.message || \`Upstream 502\`` followed by
+    //! `String(text == null ? "" : text)` in Node over these twelve bodies. **The two lines are the
+    //! oracle because they ARE the shipping code** — the extraction is not reimplemented here, it is run.
+    use super::*;
+
+    const CORPUS: [(&str, &str); 12] = [
+        (r#"{"error":{"message":"bad key"}}"#, "bad key"),
+        (r#"{"message":"rate limited"}"#, "rate limited"),
+        // `error` is a STRING: `.message` on it is `undefined`, and there is no `err.message` to fall to.
+        (r#"{"error":"a string"}"#, "Upstream 502"),
+        // AN EMPTY MESSAGE IS FALSY, so `||` walks past it.
+        (r#"{"error":{"message":""}}"#, "Upstream 502"),
+        (r#"{"error":{"message":0}}"#, "Upstream 502"),
+        // A TRUTHY NON-STRING WINS, and `String()` turns it into its JavaScript text.
+        (r#"{"message":123}"#, "123"),
+        (r#"{"error":{"message":null},"message":"second"}"#, "second"),
+        ("not json", "Upstream 502"),
+        ("{}", "Upstream 502"),
+        (r#"{"error":{}}"#, "Upstream 502"),
+        (r#"{"error":{"message":false},"message":"after"}"#, "after"),
+        (r#"{"message":null}"#, "Upstream 502"),
+    ];
+
+    #[test]
+    fn the_message_matches_the_shipping_expression() {
+        let mut distinct = std::collections::HashSet::new();
+        for (body, want) in CORPUS {
+            let got = upstream_message(502, body);
+            assert_eq!(got, want, "body: {body}");
+            distinct.insert(got);
+        }
+        // **A FLOOR AGAINST A VACUOUS CORPUS**: a function that always answered the fallback would pass
+        // seven of these twelve. The shipping expression produces at least four distinct answers here.
+        assert!(
+            distinct.len() >= 4,
+            "only {} distinct messages — the corpus stopped distinguishing anything",
+            distinct.len()
+        );
+    }
+
+    #[test]
+    fn the_status_is_in_the_fallback_and_nowhere_else() {
+        assert_eq!(upstream_message(429, "{}"), "Upstream 429");
+        assert_eq!(upstream_message(500, r#"{"message":"x"}"#), "x");
+    }
+}
 
 #[cfg(test)]
 // THE NAMES SHOUT WHERE THE BEHAVIOUR IS THE OPPOSITE OF WHAT A READER EXPECTS — the two loopback
