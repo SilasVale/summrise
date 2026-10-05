@@ -976,7 +976,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # **`fetch-depth: 0`, BECAUSE ONE OF THE BYTE COMPARISONS READS A COMMIT OUT OF GIT.**
+      # `index/landing/verify.mjs` does `git show 46fa0a3f:index/src/page.js` — the page as the LIVE site
+      # rendered it — and `actions/checkout@v4` defaults to `fetch-depth: 1`, where that object does not
+      # exist at all. **IT IS THE `agent/tests/first_screen.rs` HAZARD AGAIN**: that gate failed its first
+      # CI run while passing every local one, for exactly this reason, and the `agent` job has carried
+      # `fetch-depth: 0` since. Measured 2026-10-05, wiring these harnesses into CI for the first time.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22

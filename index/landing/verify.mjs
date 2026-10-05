@@ -24,13 +24,33 @@
 // The pre-paint theme bootstrap stays inline in BOTH, because a wasm module cannot
 // run before first paint. That is not an omission; it is the finding.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { escHtml, safePageUrl } from "../src/page.js";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const GEN = fileURLToPath(new URL("target/release/gen", import.meta.url));
+
+// ── build ───────────────────────────────────────────────────────────────────────────────────────
+// **THIS HARNESS ASSUMED A PRE-BUILT `target/release/gen` AND A FULL CLONE, AND CI HAS NEITHER.**
+// Measured 2026-10-05, wiring the byte comparisons into `ci.yml` for the first time: the step that runs
+// this file went red. Two reasons, and both are the `first_screen.rs` hazard one directory over:
+//
+//   1. `GEN` is a Rust binary. `execFileSync` on a missing path throws ENOENT, and nothing built it —
+//      the harness was only ever run by an author whose `cargo build --release` had already happened.
+//   2. `git show 46fa0a3f:index/src/page.js` needs that commit's OBJECT. `actions/checkout@v4`
+//      defaults to `fetch-depth: 1`, so on a runner the object is absent entirely — the same shallow
+//      clone that made `agent/tests/first_screen.rs` fail its first CI run while passing every local one.
+//
+// **THE SECOND IS FIXED IN `ci.yml` (the job now checks out with `fetch-depth: 0`), NOT HERE** — a byte
+// comparison that falls back to the new `page.js` would compare the template against itself, which this
+// file already refuses in so many words. What is fixed HERE is the binary: it builds if it is missing,
+// and `--build` forces it.
+if (!existsSync(GEN) || process.argv.includes("--build")) {
+  console.log("  building index/landing's gen (cargo build --release) …");
+  execFileSync("cargo", ["build", "--release"], { cwd: HERE, stdio: "inherit" });
+}
 
 /** The commit whose `index/src/page.js` rendered the live page. */
 const REFERENCE_COMMIT = "46fa0a3f";
