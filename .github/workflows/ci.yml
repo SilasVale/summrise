@@ -436,6 +436,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # **THE TOOLCHAIN STEP THIS JOB NEVER HAD, AND THE TARGET IT NOW NEEDS.** The umask loop below runs
+      # `all-gates.bash`, which runs every gate `ci.yml` invokes — including `cargo test` and, since
+      # 2026-10-03, the zen-us entrypoint gate that needs `wasm32-unknown-unknown`. Measured in CI:
+      # `error[E0463]: can't find crate for `std``. So this job was compiling the whole repository on the
+      # runner's default Rust rather than the 1.98.1 the repository pins.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -955,6 +964,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # **THE TOOLCHAIN STEP THIS JOB NEVER NEEDED, AND THE TARGET IT NOW DOES.** It ran `cargo test` on the
+      # runner's default Rust; the entrypoint gate added 2026-10-03 needs `wasm32-unknown-unknown`, and
+      # measured in CI: `error[E0463]: can't find crate for `std`` — exit 101 in this job and in `pack-chain`,
+      # whose umask loop runs `all-gates.bash`. Pinning 1.98.1 is what the other three Rust jobs do, so this
+      # is also the first time this job compiles with the toolchain the repository pins.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
       - name: Test zen-go
         run: node --test
         working-directory: proxies/zen-go-proxy
