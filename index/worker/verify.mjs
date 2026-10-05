@@ -40,7 +40,8 @@
 // pinned version) and not for its bytes, and the pinned-version test below is the part that matters:
 // an unpinned proxy is the bug the worker's own comment describes at length.
 import { register } from "node:module";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // ONE LOADER, TWO WORKERS — see the header.
@@ -52,6 +53,17 @@ globalThis.addEventListener ??= () => {};
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const BUILT = fileURLToPath(new URL("build/index.js", import.meta.url));
+
+// ── build ───────────────────────────────────────────────────────────────────────────────────────
+// **THIS HARNESS ASSUMED A PRE-BUILT `build/` AND NOTHING EVER MADE ONE.** Measured 2026-10-05, on a clean
+// tree: `ENOENT: no such file or directory, open '…/index/worker/build/index_bg.wasm.mjs'` — the file it
+// writes below, into a directory that did not exist. **IT AND `gateway/wasm/verify.mjs` BOTH HAD THIS**,
+// which is why neither had ever run anywhere but its author's machine; the two satellite harnesses built
+// first, and these do now.
+if (!existsSync(BUILT) || process.argv.includes("--build")) {
+  console.log("  building with worker-build --release …");
+  execFileSync("worker-build", ["--release"], { cwd: HERE, stdio: "inherit" });
+}
 
 // The compiled module the glue expects Cloudflare's bundler to hand it (see the loader).
 writeFileSync(

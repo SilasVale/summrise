@@ -1017,6 +1017,20 @@ jobs:
       # **THE HALF `cargo test` CANNOT SEE**, for the same reason as zen-us's step above: `worker.rs` is
       # behind `#[cfg(target_arch = "wasm32")]`, so the host build compiles none of the entrypoint. The
       # job's toolchain already carries the target.
+      # **THE FOUR BYTE COMPARISONS, WHICH NOTHING RAN UNTIL NOW.** `gateway/wasm`, `index/worker` and
+      # both satellites each carry a `verify.mjs` that compares a BUILT Rust worker against the shipping
+      # JavaScript on the same request — the plan's own P3 criterion — and `ci.yml` mentioned exactly one
+      # of them, IN A COMMENT. **TWO OF THE FOUR ALSO COULD NOT RUN ON A CLEAN TREE**: they wrote
+      # `build/index_bg.wasm.mjs` without building first, and died with `ENOENT` on the directory
+      # `worker-build` had never made. Wiring them in is what found that.
+      #
+      # `cache-bin` IS WHY THIS IS AFFORDABLE: the script installs `worker-build` (a several-minute
+      # build) when it is missing, and that cache keeps `~/.cargo/bin` between runs, so it is paid once.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      - name: the four Rust/JS byte comparisons
+        run: bash scripts/test/rust-worker-byte-checks.bash
       - name: zen-go's entrypoint, for the target it serves
         run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       - name: Test zen-go translation (Rust)

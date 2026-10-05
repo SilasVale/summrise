@@ -43,7 +43,8 @@
 // and the DO's real `/check` handler — the stub answers "1"/"0" directly, which is exactly what
 // BreakerDO's `/check` returns (reliability.ts compares the TEXT to "1").
 import { register } from "node:module";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 register("./loader.mjs", import.meta.url);
@@ -60,6 +61,16 @@ const BUILT = fileURLToPath(new URL("build/index.js", import.meta.url));
 // (`agent/tests/production_host.rs`) refuses the deployment's real hostname in any file that has not
 // declared it, which is that gate doing its job rather than an inconvenience.
 const URL_UNDER_TEST = "https://console.test/api/health";
+
+// ── build ───────────────────────────────────────────────────────────────────────────────────────
+// **THIS HARNESS ASSUMED A PRE-BUILT `build/` AND NOTHING EVER MADE ONE.** Measured 2026-10-05, on a clean
+// tree: `ENOENT: no such file or directory, open '…/gateway/wasm/build/index_bg.wasm.mjs'` — the file it
+// writes below, into a directory that did not exist. `index/worker/verify.mjs` and both satellite
+// harnesses build first; this one does now too, and `--build` forces it.
+if (!existsSync(BUILT) || process.argv.includes("--build")) {
+  console.log("  building with worker-build --release …");
+  execFileSync("worker-build", ["--release"], { cwd: HERE, stdio: "inherit" });
+}
 
 // The compiled module the glue expects Cloudflare's bundler to hand it (see loader.mjs).
 writeFileSync(
