@@ -128,6 +128,14 @@ build_agent() {
       && cargo xwin build --target "$TARGET" $flags --features "$FEATURES" --bin summrise-agent )
   echo "    ok: agent/target/$TARGET/${profile}/summrise-agent.exe"
 
+  # THE STAGED LAUNCHER — a GUI-subsystem binary that starts a process with no console window and does
+  # not wait. Both scheduled tasks (SummriseDesktop, SummrisePlaywright) name it as their action
+  # instead of `wscript.exe <something>.vbs`, which is why it must be in the npm package: the device
+  # COPIES it and never builds it. Built with the same RUSTFLAGS remap as the agent, so the local box
+  # and the CI runner produce the same bytes (the dual-builder audit compares them).
+  ( cd "$ROOT/agent" && cargo xwin build --target "$TARGET" $flags -p summrise-launch )
+  echo "    ok: agent/target/$TARGET/${profile}/summrise-launch.exe"
+
   # round-330: summrise-tray + summrise-desktop (Tauri) builds removed — both are
   # RETIRED (npm CLI replaced the tray; the Electron shell replaced the
   # Tauri desktop). They cost minutes per build_agent run and never enter

@@ -95,6 +95,18 @@ touch -d '2020-01-01' "$EXE"
 # is what the refusal compares.
 SAVED_BUILD_MTIME=$(stat -c %Y "$BUILD_EXE")
 touch -d '2020-01-01' "$BUILD_EXE"
+# AND THE LAUNCHER'S TWO, FOR THE REASON THIS BLOCK ALREADY GIVES: the script's refusals are ORDERED,
+# and `summrise-launch.exe` is git-ignored build output that a fresh checkout lacks — so the
+# missing-launcher refusal fires BEFORE the stale-exe check this case is about, and the case reports
+# itself as failed while the check under test was never reached (measured: "stale exe: rc=1
+# out=::error::missing agent/summrise-agent-npm/summrise-launch.exe"). Only EXISTENCE matters here:
+# no timestamp check reads the launcher, and the byte-compare is satisfied by two empty files.
+LAUNCHER="agent/summrise-agent-npm/summrise-launch.exe"
+LAUNCHER_BUILD="agent/target/x86_64-pc-windows-msvc/release/summrise-launch.exe"
+CREATED_LAUNCHER=0
+CREATED_LAUNCHER_BUILD=0
+if [ ! -f "$LAUNCHER" ]; then : > "$LAUNCHER"; CREATED_LAUNCHER=1; fi
+if [ ! -f "$LAUNCHER_BUILD" ]; then mkdir -p "$(dirname "$LAUNCHER_BUILD")"; : > "$LAUNCHER_BUILD"; CREATED_LAUNCHER_BUILD=1; fi
 # The REAL version: with a bogus one the script refuses on the version gate first and this case
 # would prove nothing about the exe check (measured — that is exactly what the first draft did).
 WANT_VERSION=$(python3 -c "import json;print(json.load(open('agent/summrise-agent-npm/package.json'))['version'])")
@@ -109,6 +121,10 @@ out=$(bash scripts/publish-release.sh "$WANT_VERSION" --acknowledge-unreconciled
 touch -d "@$SAVED_BUILD_MTIME" "$BUILD_EXE"
 [ "$CREATED_BUILD" = "1" ] && rm -f "$BUILD_EXE"
 if [ "$CREATED_STAGED" = "1" ]; then rm -f "$EXE"; else touch -d "@$SAVED_MTIME" "$EXE"; fi
+# The launcher's two, restored the same way: a fixture that leaves files behind changes what the NEXT
+# case sees, and the worktree-clean assertion above is about exactly that class of drift.
+[ "$CREATED_LAUNCHER_BUILD" = "1" ] && rm -f "$LAUNCHER_BUILD"
+[ "$CREATED_LAUNCHER" = "1" ] && rm -f "$LAUNCHER"
 if [ "$rc" -ne 0 ] && grep -q 'predates the newest exe-input commit' <<<"$out"; then
   ok "a stale staged exe is refused, and the message names the reason"
 else

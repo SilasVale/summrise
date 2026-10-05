@@ -485,7 +485,7 @@ if ($null -ne $code) {
   $sdBody = $sdBody.Replace('__SD_DIR__', $shellDir.Replace("'","''")).Replace('__SD_LOG__', (Join-Path $DataDir 'logs\startup.log').Replace("'","''"))
   Set-Content -Path $sdPath -Value $sdBody -Encoding ASCII
   $en1 = Join-Path $InstallDir "scripts\ensure-desktop.ps1"
-  $vb1 = Join-Path $InstallDir "scripts\desktop-pulse.vbs"
+  $ln1 = Join-Path $InstallDir "scripts\summrise-launch.exe"
   $enBody = @'
 # written by `summrise setup` / `summrise desktop` / `summrise update` -- the desktop
 # shell's watchdog, run every 5 minutes by desktop-pulse.vbs under SummriseDesktop.
@@ -520,9 +520,25 @@ Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no elect
   # ALWAYS re-register (Register -Force overwrites an existing definition).
   # The old create-if-absent logic left a pre-layout-v2 task pointing at the
   # retired root "D:\Summrise\desktop-pulse.vbs" — it fired every 5 min and popped
-  # "Windows Script Host: 无法找到脚本文件". Re-registering heals the action to
-  # the scripts\ path on every install/repair.
-  $da = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ('"' + $vb1 + '"') -WorkingDirectory $InstallDir
+  # "Windows Script Host: 无法找到脚本文件". Re-registering heals the action on
+  # every install/repair.
+  #
+  # AND THE ACTION IS THE LAUNCHER NOW, NOT `wscript.exe <desktop-pulse.vbs>`. The wrapper bought
+  # exactly one property — run PowerShell hidden and do not wait — and paid for it with a dependency
+  # on a Windows component Microsoft is retiring: on a machine with no VBScript engine the task
+  # cannot run at all, so the watchdog never fires and a modal "no VBScript engine" dialog pops on
+  # EVERY five-minute trigger (measured on desktop-14rjcr8, 2026-10-05). `summrise-launch.exe` gets
+  # both properties from the platform (`#![windows_subsystem = "windows"]` + `CREATE_NO_WINDOW`).
+  # GUARDED ON THE FILE: this step runs AFTER `summrise setup`, which stages the launcher, but an
+  # older CLI would not have — and a task naming a program that is not there is Task Scheduler's
+  # `0x2`, which explains nothing to the person reading it. No launcher, no re-registration: the
+  # definition `summrise setup` wrote stays, and it is no worse than it was before this change.
+  if (Test-Path $ln1) {
+  # THE LAUNCHER'S FIRST ARGUMENT IS THE PROGRAM (`summrise-launch <program> [args…]`) — the same
+  # contract `WScript.Arguments` gave the wrapper. Without the powershell path in front, this action
+  # asks it to start a program named `-NoProfile`.
+  $psh1 = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+  $da = New-ScheduledTaskAction -Execute $ln1 -Argument ('"' + $psh1 + '" -NoProfile -ExecutionPolicy Bypass -File "' + $en1 + '"') -WorkingDirectory $InstallDir
   $dt1 = New-ScheduledTaskTrigger -AtLogOn
   $dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)
   # THE PRINCIPAL AND THE SETTINGS THE COMMENT ABOVE ALREADY CLAIMED (round 143).
@@ -551,6 +567,7 @@ Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no elect
   Register-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1, $dw1) -Principal $pr -Settings $st -Force | Out-Null
   Say "SummriseDesktop 登录任务已就绪（含修复旧版指向）"
   Start-ScheduledTask -TaskName "SummriseDesktop" -ErrorAction SilentlyContinue
+  } else { Say "SummriseDesktop 任务跳过：scripts\summrise-launch.exe 不存在（先运行 summrise setup 暂存它）" }
 } catch { Say "SummriseDesktop 任务跳过（行 $($_.InvocationInfo.ScriptLineNumber)）：$($_.Exception.Message)" }
 
 # --- 7. 桌面快捷方式（公共桌面 + 当前用户桌面；目标早已不是那个删掉的旧壳） ---

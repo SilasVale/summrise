@@ -461,6 +461,155 @@ fn the_task_has_one_definition() {
     }
 }
 
+/// THE DESKTOP TASK'S ACTION IS `summrise-launch.exe`, AND NO `.vbs` WRAPPER MAY COME BACK.
+///
+/// The wrapper bought ONE property — `WScript.Shell.Run(cmd, 0, False)`: hidden window, do not wait —
+/// and paid for it with a dependency on the VBScript engine. That engine is a deprecated
+/// Feature-on-Demand, and debloated Windows images drop it. **Measured on desktop-14rjcr8,
+/// 2026-10-05**: with no engine, `wscript.exe` cannot run the wrapper at all, so `SummriseDesktop`
+/// popped a modal `Windows Script Host: … 的脚本引擎 "VBScript"` dialog on EVERY five-minute trigger
+/// and the watchdog never ran once. `summrise-launch.exe` (agent/summrise-launch) gets the same two
+/// properties from the platform: `#![windows_subsystem = "windows"]` and `CREATE_NO_WINDOW`.
+///
+/// FOUR LINKS, because a launcher that is registered but never shipped, or shipped but never staged,
+/// fails in the same silent way the wrapper did — the task simply stops doing its job:
+///   1. neither writer registers `wscript.exe` for a task action;
+///   2. both name the launcher, at the path it derives its own log from;
+///   3. the CLI stages it out of the package, and fails loudly when the package has none;
+///   4. the package ships it and the build produces it.
+///
+/// MUTATION: put `-Execute 'wscript.exe'` back into `desktopTaskPs` in `src/summrise.ts` →
+/// RESULT: fails with "the CLI must not register wscript.exe as a task action".
+///
+/// MUTATION: delete `"summrise-launch.exe"` from `summrise-agent-npm/package.json`'s `files` →
+/// RESULT: fails with "the package must ship summrise-launch.exe".
+#[test]
+fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
+    let cli = read("summrise-agent-npm/src/summrise.ts");
+    let ps1 = read("deploy/summrise-online-setup.ps1");
+    let pkg = read("summrise-agent-npm/package.json");
+    let build = read("../scripts/build.sh");
+
+    // 1. NEITHER WRITER MAY REGISTER THE WRAPPER. Scoped to the ACTION line on purpose: both files
+    //    still use `New-Object -ComObject WScript.Shell` for SHORTCUT PROPERTIES, which is
+    //    `wshom.ocx` rather than the script engine, and a blanket "no wscript anywhere" pin would
+    //    forbid a thing that is not the defect.
+    for (text, who) in [
+        (cli.as_str(), "the CLI"),
+        (ps1.as_str(), "the online installer"),
+    ] {
+        for action in text
+            .lines()
+            .filter(|l| l.contains("New-ScheduledTaskAction"))
+        {
+            assert!(
+                !action.to_ascii_lowercase().contains("wscript"),
+                "{who} must not register wscript.exe as a task action — that dependency is the \
+                 measured defect this launcher replaced: {action}"
+            );
+        }
+    }
+
+    // 2. BOTH MUST NAME THE LAUNCHER, and at the path it derives `<install>\logs\launcher.log` from
+    //    (one directory up from its own exe), so a copy placed elsewhere logs where nobody looks.
+    //    ASSERTED BY LINE AND NOT BY SPELLING: the TypeScript writes `scripts\\summrise-launch.exe`
+    //    (a template literal needs the doubled backslash) and the PowerShell writes
+    //    `scripts\summrise-launch.exe` — a pin written against either spelling fails on the other
+    //    while the wiring is correct, which is a test reporting its host rather than the behaviour.
+    //    THE LINE MUST CARRY BOTH FACTS, because the first mention of the name in each file is the
+    //    PACKAGE source (`path.join(__dirname, "..", "summrise-launch.exe")`), which says nothing
+    //    about where the device puts it.
+    for (text, who) in [
+        (cli.as_str(), "the CLI"),
+        (ps1.as_str(), "the online installer"),
+    ] {
+        let line = text
+            .lines()
+            .find(|l| l.contains("summrise-launch.exe") && l.contains("scripts"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{who} must stage summrise-launch.exe under scripts\\ — that is where the \
+                     launcher derives <install>\\logs\\launcher.log from"
+                )
+            });
+        assert!(
+            !line.trim_start().starts_with("//") && !line.trim_start().starts_with('#'),
+            "{who} must STAGE it there, not merely mention it in a comment: {line}"
+        );
+    }
+
+    // 3. THE CLI STAGES IT, AND A MISSING ONE IS FATAL. Both scheduled tasks name the launcher, so a
+    //    device without it has two tasks that cannot start anything — the silent-watchdog failure
+    //    this change exists to end. `LAUNCHER_SRC`/`LAUNCHER_DST` are the two ends of that copy.
+    for needle in [
+        "const LAUNCHER_SRC",
+        "const LAUNCHER_DST",
+        "copyFileSync(LAUNCHER_SRC",
+    ] {
+        assert!(
+            cli.contains(needle),
+            "the CLI must stage the launcher ({needle} missing): registered-but-not-staged is the \
+             failure mode this pin is for"
+        );
+    }
+
+    // 3b. THE LAUNCHER'S FIRST ARGUMENT IS THE PROGRAM, AND THIS PIN EXISTS BECAUSE THE CHANGE GOT IT
+    //     WRONG ONCE. `summrise-launch <program> [args…]` is the wrapper's own contract —
+    //     `WScript.Arguments(0)` was the program — so an action written as `-Argument '-NoProfile …'`
+    //     asks it to start a program NAMED `-NoProfile`: the launcher exits 126, writes one line to
+    //     `logs\launcher.log`, and the watchdog never runs. That is the SAME class of silence this
+    //     whole change removes, one layer down, and a reader would never see it in the task definition.
+    for (text, who) in [
+        (cli.as_str(), "the CLI"),
+        (ps1.as_str(), "the online installer"),
+    ] {
+        for action in text
+            .lines()
+            .filter(|l| l.contains("New-ScheduledTaskAction"))
+        {
+            assert!(
+                !action.contains("-Argument ('-NoProfile")
+                    && !action.contains("-Argument '-NoProfile"),
+                "{who}: the launcher's first argument must be the PROGRAM (powershell), not a \
+                 switch — this asks it to start a program named `-NoProfile`: {action}"
+            );
+        }
+    }
+    //     …and the playwright action builds its argument one line up, so the program is asserted
+    //     there instead of on the action line.
+    let pw_args = cli
+        .lines()
+        .find(|l| l.contains("$pwArgs = "))
+        .expect("the playwright task's argument builder must still exist");
+    assert!(
+        pw_args.contains("$pwPs"),
+        "the playwright action's first argument must be the powershell path: {pw_args}"
+    );
+
+    // 4. THE PACKAGE SHIPS IT AND THE BUILD PRODUCES IT.
+    assert!(
+        pkg.contains("summrise-launch.exe"),
+        "the package must ship summrise-launch.exe: it is copied on the device, never built there"
+    );
+    assert!(
+        build.contains("-p summrise-launch"),
+        "scripts/build.sh must build the launcher for the same target the agent is built for"
+    );
+
+    // AND THE WRAPPERS THEMSELVES MUST NOT BE WRITTEN ANY MORE. `CreateObject("WScript.Shell").Run`
+    // is the wrapper's whole body — the precise marker of a generated `.vbs`, and the thing that
+    // cannot run without the engine. The retired paths still appear in the DELETION line, which is
+    // why this asserts on the body rather than on the file name.
+    assert!(
+        !cli.contains(r#"CreateObject("WScript.Shell").Run"#),
+        "the CLI must not generate a .vbs wrapper any more"
+    );
+    assert!(
+        !cli.contains("Dim sh,cmd,i"),
+        "the run-hidden wrapper's body must be gone, not merely unreferenced"
+    );
+}
+
 /// A FAILED INSTALL MUST STILL BE REMOVABLE (round 147).
 ///
 /// The NSIS script runs the setup script and, on a non-zero exit, shows a dialog and

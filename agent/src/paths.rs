@@ -353,18 +353,21 @@ fn migration_moves(install: &std::path::Path, data: &std::path::Path) -> Vec<(Pa
         comp.join("summrise-desktop-electron"),
     ));
     // scripts\
+    // `desktop-pulse.vbs` and `playwright\run-hidden.vbs` are NOT migrated any more: both scheduled
+    // tasks run `scripts\summrise-launch.exe` instead, so the wrappers are retired rather than moved
+    // (the setup/update paths delete either copy, at the root or under scripts\).
     for name in [
         "ensure-desktop.ps1",
-        "desktop-pulse.vbs",
         "start-desktop.ps1",
         "summrise-online-setup.ps1",
         "fix-tunnel.ps1",
     ] {
         moves.push((install.join(name), scripts.join(name)));
     }
-    for name in ["run-hidden.vbs", "playwright-probe.ps1"] {
-        moves.push((install.join("playwright").join(name), scripts.join(name)));
-    }
+    moves.push((
+        install.join("playwright").join("playwright-probe.ps1"),
+        scripts.join("playwright-probe.ps1"),
+    ));
     moves.push((
         install.join("shell-integration"),
         scripts.join("shell-integration"),
@@ -866,14 +869,17 @@ mod resolution_tests {
                 "I:/components/summrise-desktop-electron",
             ),
             ("I:/ensure-desktop.ps1", "I:/scripts/ensure-desktop.ps1"),
-            ("I:/desktop-pulse.vbs", "I:/scripts/desktop-pulse.vbs"),
+            // `I:/desktop-pulse.vbs` and `I:/playwright/run-hidden.vbs` are absent ON PURPOSE: both
+            // scheduled tasks run `scripts\summrise-launch.exe` now, so the wrappers are deleted by
+            // the setup/update paths rather than migrated. Asserting them here would pin a move that
+            // no longer happens — and the deletion is what the launcher crate's `is_the_old_wrapper`
+            // migration check is for.
             ("I:/start-desktop.ps1", "I:/scripts/start-desktop.ps1"),
             (
                 "I:/summrise-online-setup.ps1",
                 "I:/scripts/summrise-online-setup.ps1",
             ),
             ("I:/fix-tunnel.ps1", "I:/scripts/fix-tunnel.ps1"),
-            ("I:/playwright/run-hidden.vbs", "I:/scripts/run-hidden.vbs"),
             (
                 "I:/playwright/playwright-probe.ps1",
                 "I:/scripts/playwright-probe.ps1",

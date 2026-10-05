@@ -194,6 +194,11 @@ jobs:
           # so the two tables can be diffed line by line instead of inferred from a byte offset.
           export RUSTFLAGS="--remap-path-prefix=${GITHUB_WORKSPACE}=/src --remap-path-prefix=${HOME}=/buildhome -C link-arg=/MAP:/tmp/agent-map.txt"
           cargo xwin build -p summrise-agent --target x86_64-pc-windows-msvc --release --features terminal,keyring --bin summrise-agent
+          # THE STAGED LAUNCHER, built for the same target with the same remap: both scheduled tasks
+          # (SummriseDesktop, SummrisePlaywright) name it as their action instead of the retired
+          # `wscript.exe <…>.vbs` wrappers, and a device copies it out of this tarball rather than
+          # building it. Same RUSTFLAGS as the line above, so the two builders produce the same bytes.
+          cargo xwin build -p summrise-launch --target x86_64-pc-windows-msvc --release
           # THE SEGMENT TABLE IS THE POINT: every .text$*/.rdata$* contribution with its Start and Length.
           # Whoever compares this against the release box's map is looking for ONE line whose Start differs
           # by 0x130 -- and that line's NAME is the answer this investigation has been circling.
@@ -230,6 +235,10 @@ jobs:
           # CI uploads is the artifact CI built, and lets the release box compare against it directly.
           sha256sum target/x86_64-pc-windows-msvc/release/summrise-agent.exe
           cp target/x86_64-pc-windows-msvc/release/summrise-agent.exe summrise-agent-npm/summrise-agent.exe
+          # The launcher travels in the same tarball, and `required-in-tgz.txt` requires it: a package
+          # that registers a task naming a program it does not ship is Task Scheduler's `0x2`.
+          sha256sum target/x86_64-pc-windows-msvc/release/summrise-launch.exe
+          cp target/x86_64-pc-windows-msvc/release/summrise-launch.exe summrise-agent-npm/summrise-launch.exe
           # round-298 lesson: bin/summrise.js is a COMMITTED tsc artifact; a
           # stale copy (source changed, build not re-run) would ship the
           # old CLI. Compile it fresh — typescript + @types/node only (the

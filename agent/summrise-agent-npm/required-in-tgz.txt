@@ -14,6 +14,7 @@
 # FORMAT: one path relative to the package root per line; `#` comments and blank lines are ignored.
 # Every entry is required — absence fails the release in both builders.
 summrise-agent.exe
+summrise-launch.exe
 README.md
 bin/summrise.js
 summrise-desktop-electron/src/main.js

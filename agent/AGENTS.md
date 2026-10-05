@@ -58,6 +58,11 @@ baseline, which is why the number looks larger than the source suggests.
 # 1. bump summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-launch.exe agent/summrise-agent-npm/summrise-launch.exe
+#    BOTH EXES. The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
+#    `wscript.exe <…>.vbs` wrappers, and it is COPIED on the device, never built there — so a release
+#    without it ships tasks that cannot start. `publish-release.sh` refuses a missing or stale staged
+#    copy, and `required-in-tgz.txt` refuses a tarball without it; both fail BEFORE the upload.
 # 2. publish (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N --npm
 # 3. ONE commit that includes summrise-agent-npm/package.json and index/public/summrise-agent/version.json

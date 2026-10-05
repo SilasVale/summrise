@@ -262,8 +262,8 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   const LOGS = "C:\\ProgramData\\Summrise\\logs";
   const task = desktopTaskPs("C:\\Program Files\\Summrise", LOGS).join("\n");
   // The app's own shape, so `summrise desktop` and `summrise setup` cannot drift: logon plus a
-  // 5-minute watchdog, launched through a .vbs so no console flashes, with the guard that
-  // stops the watchdog stealing focus from whatever the operator is doing.
+  // 5-minute watchdog, launched through summrise-launch.exe so no console flashes AND no VBScript
+  // engine is needed, with the guard that stops the watchdog stealing focus from the operator.
   assert.match(task, /New-ScheduledTaskTrigger -AtLogOn/);
   assert.match(task, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
   // THE GUARD IS STILL THE FIRST THING THE WATCHDOG DOES — but it now also RECORDS what it
@@ -271,7 +271,30 @@ test("desktopTaskPs / desktopStartPs: asking for the window, and answering with 
   // desktop shell says what it did"). What must not change is that a live shell is detected
   // and nothing is started.
   assert.match(task, /Get-Process electron -ErrorAction SilentlyContinue/);
-  assert.match(task, /desktop-pulse\.vbs/);
+  // THE ACTION IS THE LAUNCHER, AND `wscript`/`.vbs` MUST NOT COME BACK. The wrapper needed a
+  // VBScript engine to run at all — a deprecated Feature-on-Demand that debloated images drop —
+  // and on a machine without one the task popped a modal "no VBScript engine" dialog every five
+  // minutes while the watchdog never ran once (measured on desktop-14rjcr8, 2026-10-05).
+  assert.match(task, /New-ScheduledTaskAction -Execute \$ln/);
+  assert.ok(
+    !/wscript/i.test(task),
+    "the desktop task must not run wscript.exe: that dependency is what this launcher replaced",
+  );
+  // AND NO `.vbs` MAY BE AN ACTION OR A WRITTEN FILE. The blanket "no `.vbs` anywhere" reading is
+  // wrong on purpose here: this builder now names both retired wrappers in the line that DELETES
+  // them, and forbidding the name would forbid the cleanup.
+  for (const action of task
+    .split("\n")
+    .filter((l) => l.includes("New-ScheduledTaskAction"))) {
+    assert.ok(
+      !/\.vbs/i.test(action),
+      `the action must name the launcher, not a wrapper: ${action}`,
+    );
+  }
+  assert.ok(
+    !/Set-Content[^\n]*\.vbs/i.test(task),
+    "this builder must not write a .vbs any more",
+  );
   assert.match(task, /Register-ScheduledTask SummriseDesktop/);
   assert.match(task, /Start-ScheduledTask -TaskName SummriseDesktop/);
 
@@ -1060,10 +1083,15 @@ test("migrateLayoutPs: mirrors paths.rs pairs, never clobbers, kills boxed node 
     ),
     "marker short-circuits re-runs (single-line guard)",
   );
-  // 24 move lines + the node-kill line + the marker write all carry the guard.
+  // 22 move lines + the node-kill line + the marker write all carry the guard. **THE NUMBER FELL
+  // FROM 26 TO 24 WHEN THE TWO `.vbs` WRAPPERS LEFT THE MAP**: `desktop-pulse.vbs` and
+  // `playwright\run-hidden.vbs` are no longer migrated — both scheduled tasks run
+  // `scripts\summrise-launch.exe`, so setup/update delete either copy instead of carrying it forward
+  // (paths.rs's plan asserts the same absence). A count that silently kept its old value here would
+  // be a gate measuring a migration that no longer happens.
   assert.equal(
     body.split("if ($summriseMg").length - 1,
-    26,
+    24,
     "every statement carries the marker guard",
   );
   assert.ok(
