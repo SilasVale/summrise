@@ -350,6 +350,13 @@ pub fn safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
+/// **THE I/O HALF, wasm32-ONLY, AND `index/worker` CARRIES THE SAME PARAGRAPH.** `#[event(fetch)]`
+/// expands to nothing on the host and PANICS there, because there is no Worker runtime to register with.
+/// So every decision above builds and tests under a plain `cargo test`, and the entrypoint compiles only
+/// for the target it serves. **A host shim would be a second copy of the dispatch that no test runs.**
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
+
 #[cfg(test)]
 // THE NAMES SHOUT WHERE THE BEHAVIOUR IS THE OPPOSITE OF WHAT A READER EXPECTS — the two loopback
 // rules, and the length sort. The capitals are the note; see the other crates' tests for the same.
