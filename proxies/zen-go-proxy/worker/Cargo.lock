@@ -576,9 +576,12 @@ dependencies = [
 name = "summrise-zen-go"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "serde",
  "serde_json",
  "summrise-zen-us",
+ "web-sys",
+ "worker",
 ]
 
 [[package]]
