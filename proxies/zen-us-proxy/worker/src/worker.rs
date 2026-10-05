@@ -118,7 +118,28 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                     &cors,
                 );
             }
-            not_ported("GET /v1/models upstream")
+            // **THE UPSTREAM HALF, WIRED — and this arm is the one that proves `fetch_upstream_headers`
+            // works, because a helper nothing calls is a helper nothing tests.** The shipping worker
+            // forwards the upstream's OWN body and status, and labels the result `application/json`
+            // rather than asking the upstream what it sent (`src/index.js:203-210`).
+            let key = env.var("OPENCODE_GO_API_KEY")?.to_string();
+            let mut up = fetch_upstream_headers(
+                "https://opencode.ai/zen/go/v1/models",
+                "GET",
+                &[("x-api-key".to_string(), key)],
+                None,
+            )
+            .await?;
+            let status = up.status_code();
+            let stream = up.stream()?;
+            let headers = Headers::new();
+            headers.set("Content-Type", "application/json")?;
+            for (k, v) in &cors {
+                headers.set(k, v)?;
+            }
+            Ok(Response::from_stream(stream)?
+                .with_status(status)
+                .with_headers(headers))
         }
 
         // POST …/responses — BYOK: the CALLER's key, and a blank one is 401 before anything else.
@@ -206,8 +227,62 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 /// `verify.mjs` could not tell the two apart** — which is exactly the kind of difference this repository
 /// says to name rather than to discover later. **THE SIGNAL IS THE PORT.**
 ///
-/// THIS FUNCTION IS NOT WRITTEN YET, and it is named here so the next stage starts from the measurement
-/// instead of repeating it.
+/// ── AND HERE IT IS, WRITTEN FROM THAT MEASUREMENT ─────────────────────────────────────────────
+///
+/// `Fetch::Request` needs a `worker::Request`, and the only way to get one carrying a SIGNAL is to build the
+/// `web_sys::Request` here — `worker::Request` has `From<web_sys::Request>`, which is the same conversion its
+/// own `new_with_init` ends with.
+///
+/// **THE `finally { clearTimeout(timer) }` IS THE `select`.** When the fetch wins, the `AbortController` is
+/// simply DROPPED — dropping one does not abort — and the body stream the caller forwards is untouched.
+/// When the budget wins, the controller is aborted and the caller gets an `Err`, which is what the shipping
+/// worker's `catch` turns into `jsonError(500, "Internal error", "api_error", cors)`.
+async fn fetch_upstream_headers(
+    url: &str,
+    method: &str,
+    headers: &[(String, String)],
+    body: Option<web_sys::ReadableStream>,
+) -> Result<Response> {
+    let ctrl = worker::AbortController::default();
+    let signal = ctrl.signal();
+
+    let init = web_sys::RequestInit::new();
+    init.set_method(method);
+    let h = web_sys::Headers::new().map_err(Error::from)?;
+    for (k, v) in headers {
+        h.set(k, v).map_err(Error::from)?;
+    }
+    init.set_headers(&h);
+    // `set_signal` is the ONE thing `worker::RequestInit` cannot carry, and it is the whole point.
+    // **`worker::AbortSignal` DEREFS TO `web_sys::AbortSignal`** (`worker-0.8.7/src/abort.rs:81`), so the
+    // coercion is what carries it across; `AbortController` has no `Deref`, and it does not need one —
+    // `abort()` consumes it here.
+    let signal_ref: &web_sys::AbortSignal = &signal;
+    init.set_signal(Some(signal_ref));
+    if let Some(b) = body.as_ref() {
+        init.set_body(b);
+    }
+
+    let inner = web_sys::Request::new_with_str_and_init(url, &init).map_err(Error::from)?;
+    let req: Request = inner.into();
+
+    // **`send(&self)` BORROWS THE `Fetch`**, so the temporary cannot be the receiver: the future holds the
+    // borrow, and `pin_mut!` holds the future.
+    let fetcher = Fetch::Request(req);
+    let fetch = fetcher.send();
+    let budget = Delay::from(std::time::Duration::from_millis(crate::HEADER_TIMEOUT_MS));
+    futures_util::pin_mut!(fetch, budget);
+    match futures_util::future::select(fetch, budget).await {
+        futures_util::future::Either::Left((result, _)) => result,
+        futures_util::future::Either::Right((_, _)) => {
+            ctrl.abort();
+            Err(Error::RustError(format!(
+                "upstream headers did not arrive within {} ms",
+                crate::HEADER_TIMEOUT_MS
+            )))
+        }
+    }
+}
 ///
 /// **AN ARM THAT IS NAMED RATHER THAN FAKED.** The three upstream routes are not ported yet, and a
 /// 501 says exactly that — where a plausible-looking empty 200 would let `verify.mjs` pass on a request

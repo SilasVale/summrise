@@ -13,6 +13,13 @@ import * as os from "os";
 import * as path from "path";
 
 const EXE_SRC = path.join(__dirname, "..", "summrise-agent.exe");
+// THE STAGED LAUNCHER — a GUI-subsystem Rust binary that starts a process with NO console window and
+// does not wait. It replaces the two `.vbs` wrappers `wscript.exe` used to run, and the reason is
+// measured: on a machine whose VBScript engine is absent (it is a deprecated Feature-on-Demand, and
+// debloated images drop it) `wscript.exe` cannot run the wrapper at all — the SummriseDesktop task
+// then popped "Windows Script Host: 无法找到脚本文件 … desktop-pulse.vbs 的脚本引擎 VBScript" EVERY
+// FIVE MINUTES and the watchdog never ran once. Measured on desktop-14rjcr8, 2026-10-05.
+const LAUNCHER_SRC = path.join(__dirname, "..", "summrise-launch.exe");
 
 // C1 (2026-08-28): the registry is the single source of truth for the install
 // dir. Resolution: $env:SUMMRISE_AGENT_DIR → HKLM\SOFTWARE\Summrise\Agent\InstallDir
@@ -47,6 +54,12 @@ const EXE_DST = path.join(DIR, "summrise-agent.exe");
 const ETC_DIR = path.join(DIR, "etc");
 const COMPONENTS_DIR = path.join(DIR, "components");
 const SCRIPTS_DIR = path.join(DIR, "scripts");
+// The launcher lives in `scripts\` BECAUSE IT DERIVES ITS OWN LOG FROM THERE: `summrise_launch::log_path`
+// walks one directory up from its own exe to find the install root and appends `logs\launcher.log`, so a
+// copy placed anywhere else would write its failures somewhere nobody looks. A scheduled task's action
+// carries a program and its arguments and nothing else — a path the launcher cannot work out for itself
+// is a path it does not have.
+const LAUNCHER_DST = path.join(SCRIPTS_DIR, "summrise-launch.exe");
 // DataDir mirrors resolveDir (registry DataDir, else %ProgramData%\Summrise) —
 // runtime logs + evidence live there, never in program files.
 function resolveDataDir() {
@@ -675,7 +688,14 @@ export function desktopTaskPs(installQ: string, logsQ: string): string[] {
     "$ErrorActionPreference = 'Stop'",
     `$q = '${installQ}'`,
     `$en = Join-Path $q 'scripts\\ensure-desktop.ps1'`,
-    `$vb = Join-Path $q 'scripts\\desktop-pulse.vbs'`,
+    `$ln = Join-Path $q 'scripts\\summrise-launch.exe'`,
+    // **THE LAUNCHER'S FIRST ARGUMENT IS THE PROGRAM** — `summrise-launch <program> [args…]`, because
+    // that is what the wrapper it replaces did with `WScript.Arguments`. An action written as
+    // `-Argument '-NoProfile …'` asks it to start a program NAMED `-NoProfile`, which fails with the
+    // launcher's own exit 126 and one line in launcher.log. The `.vbs` spelled this `powershell`
+    // (PATH-resolved); the absolute path is what the playwright task already used, and it survives a
+    // PATH that a service account does not have.
+    `$ps = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'`,
     // THE WATCHDOG'S BODY COMES FROM ITS OWN BUILDER, not from a second hand-typed copy of
     // the same one-liner. Three paths write this file — `summrise setup`, `summrise desktop`
     // and the update swap — and a copy that drifts is a copy that silently reverts the
@@ -686,8 +706,21 @@ export function desktopTaskPs(installQ: string, logsQ: string): string[] {
     ...ensureDesktopPs(`${installQ}\\scripts`, logsQ),
     `'@`,
     `Set-Content -Path $en -Value $enBody -Force`,
-    `Set-Content -Path $vb -Value ('CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "' + $en + '" & Chr(34), 0, False') -Force`,
-    `$da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb + '"') -WorkingDirectory $q`,
+    // THE TWO `.vbs` WRAPPERS ARE RETIRED, AND THIS IS WHERE THEY WERE BORN — so this is where they
+    // are removed. Deleting them is not what fixes the missing-engine dialog (repointing the action
+    // is), but a device still carrying `desktop-pulse.vbs` invites the next reader to put it back.
+    // Guarded on purpose: `$ErrorActionPreference` is `Stop` in this script, so an unguarded
+    // Remove-Item that failed would abort the registration BELOW and leave the OLD task in place —
+    // the one outcome this change must not produce.
+    `foreach ($v in @('${installQ}\\scripts\\desktop-pulse.vbs','${installQ}\\desktop-pulse.vbs','${installQ}\\scripts\\run-hidden.vbs','${installQ}\\playwright\\run-hidden.vbs')) { if (Test-Path $v) { try { Remove-Item -Force -ErrorAction Stop $v } catch {} } }`,
+    // THE ACTION IS THE LAUNCHER, NOT `wscript.exe <desktop-pulse.vbs>`. The `.vbs` existed for ONE
+    // property — `WScript.Shell.Run(cmd, 0, False)` starts PowerShell with a hidden window and without
+    // waiting — and it bought that property with a dependency on a Windows component Microsoft is
+    // retiring: on a machine with no VBScript engine the task cannot run the wrapper at all, so the
+    // watchdog never fires AND a modal "no VBScript engine" dialog pops on every trigger (measured:
+    // every five minutes, on desktop-14rjcr8). `summrise-launch.exe` gets the same two properties from
+    // the platform (`#![windows_subsystem = "windows"]` + `CREATE_NO_WINDOW`) with no engine to find.
+    `$da = New-ScheduledTaskAction -Execute $ln -Argument ('"' + $ps + '" -NoProfile -ExecutionPolicy Bypass -File "' + $en + '"') -WorkingDirectory $q`,
     `$dt1 = New-ScheduledTaskTrigger -AtLogOn`,
     `$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
     `$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest`,
@@ -696,7 +729,7 @@ export function desktopTaskPs(installQ: string, logsQ: string): string[] {
     // running task`. It was `-Minutes 10` here, and that WAS the defect.
     //
     // WHY A LIMIT KILLS A SHELL MEANT TO LIVE INDEFINITELY: this task's action is
-    // desktop-pulse.vbs -> ensure-desktop.ps1 -> start-desktop.ps1, and that last line is
+    // summrise-launch.exe -> ensure-desktop.ps1 -> start-desktop.ps1, and that last line is
     // `& electron.exe .` -- the PowerShell CALL OPERATOR, which WAITS. The PowerShell the task
     // launched therefore stays alive for as long as the shell does, as the shell's PARENT, and
     // Task Scheduler enforces ExecutionTimeLimit on that process tree. Ten minutes after every
@@ -1077,11 +1110,12 @@ export function migrateLayoutPs(q: string, dq: string): string[] {
     ["playwright", `${comp}\\playwright`, "d"],
     ["summrise-desktop-electron", `${comp}\\summrise-desktop-electron`, "d"],
     ["ensure-desktop.ps1", `${scr}\\ensure-desktop.ps1`, "f"],
-    ["desktop-pulse.vbs", `${scr}\\desktop-pulse.vbs`, "f"],
+    // `desktop-pulse.vbs` and `playwright\run-hidden.vbs` USED TO BE MIGRATED HERE. They are retired
+    // now — both scheduled tasks run `scripts\summrise-launch.exe` instead — so there is nothing to
+    // carry forward: the setup/update paths delete either copy wherever it sits (root or scripts\).
     ["start-desktop.ps1", `${scr}\\start-desktop.ps1`, "f"],
     ["summrise-online-setup.ps1", `${scr}\\summrise-online-setup.ps1`, "f"],
     ["fix-tunnel.ps1", `${scr}\\fix-tunnel.ps1`, "f"],
-    ["playwright\\run-hidden.vbs", `${scr}\\run-hidden.vbs`, "f"],
     ["playwright\\playwright-probe.ps1", `${scr}\\playwright-probe.ps1`, "f"],
     ["shell-integration", `${scr}\\shell-integration`, "d"],
     ["installer.log", `${logs}\\installer.log`, "f"],
@@ -2528,6 +2562,51 @@ const commands = {
         process.exit(1);
       }
     }
+    // THE LAUNCHER IS STAGED HERE, AND A MISSING ONE IS FATAL RATHER THAN SKIPPED: both scheduled
+    // tasks name it as their action, so a device without it would have two tasks that cannot start
+    // anything — the silent-watchdog failure this binary was written to end. `summrise-launch.exe` is
+    // a few KB with no dependencies; it is copied, never built, on the device.
+    if (!fs.existsSync(LAUNCHER_SRC)) {
+      console.error(
+        "setup: summrise-launch.exe missing from package:",
+        LAUNCHER_SRC,
+      );
+      process.exit(1);
+    }
+    fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
+    {
+      // A pulse may be running this very instant, and Windows locks a running image against
+      // replacement — the same race the agent exe has, with the same answer.
+      let staged = false;
+      for (let i = 0; i < 12; i++) {
+        try {
+          fs.copyFileSync(LAUNCHER_SRC, LAUNCHER_DST);
+          staged = true;
+          break;
+        } catch (e: any) {
+          if (
+            e?.code !== "EBUSY" &&
+            e?.code !== "EPERM" &&
+            e?.code !== "EACCES"
+          ) {
+            console.error("setup: launcher copy failed:", e?.message || e);
+            process.exit(1);
+          }
+          try {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);
+          } catch {
+            /* best-effort sleep */
+          }
+        }
+      }
+      if (!staged) {
+        console.error(
+          "setup: FATAL -- could not stage summrise-launch.exe into scripts\\. The desktop and " +
+            "playwright tasks both run it, so setup cannot leave it out.",
+        );
+        process.exit(1);
+      }
+    }
     // B2: stage the boxed playwright bundle (node_modules ONLY — node.exe is
     // NOT bundled; the system node detected below runs it). Single small
     // artifact in the npm package, Summrise version-locked.
@@ -3482,6 +3561,21 @@ const commands = {
       }
       fs.mkdirSync(DIR, { recursive: true });
       fs.copyFileSync(EXE_SRC, path.join(DIR, "summrise-agent.new.exe"));
+      // THE LAUNCHER TRAVELS WITH THE UPDATE, for the reason this whole change exists: a device
+      // updating from a version that registered `wscript.exe <desktop-pulse.vbs>` has no launcher,
+      // and the swap below repoints both tasks at one. A task naming a program that is not there is
+      // Task Scheduler's `0x2` (ERROR_FILE_NOT_FOUND) — a status with no explanation attached.
+      // Staged as `.new` because a five-minute pulse may be running the current copy at this instant,
+      // and Windows locks a running image against replacement.
+      if (!fs.existsSync(LAUNCHER_SRC)) {
+        console.error("launcher missing from package:", LAUNCHER_SRC);
+        throw new Error("launcher missing from package: " + LAUNCHER_SRC);
+      }
+      fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
+      fs.copyFileSync(
+        LAUNCHER_SRC,
+        path.join(SCRIPTS_DIR, "summrise-launch.new.exe"),
+      );
       // stage-l: ship the Electron desktop shell's main/preload alongside —
       // the desktop app (components\summrise-desktop-electron) loads these sources;
       // without the sync, new menu/command features never reach the device.
@@ -3516,7 +3610,6 @@ const commands = {
     // components\playwright\. The old-layout gate keeps migrating devices
     // refreshed too (migration carries the files over regardless).
     const pwDir = PW_DIR;
-    const vbsPath = path.join(SCRIPTS_DIR, "run-hidden.vbs");
     // round-246 (browser-display audit C3) + round-257 + round-263:
     // ONE-BROWSER — the AI must drive the SAME browser the user watches:
     // the Electron desktop embedded WebContentsView (CDP 9333). The
@@ -3525,25 +3618,14 @@ const commands = {
     // launcher that attaches to the DESKTOP view (9333) and falls back to a
     // private headless only when the desktop is down (agent restart window).
     // The bridge chromium (9223) tier was removed in round-263.
+    //
+    // `run-hidden.vbs` USED TO BE WRITTEN HERE and is gone: it quoted argv[0] and argv[1] and appended
+    // every later argument RAW, so an argument with a space or a quote changed the command line the
+    // child parsed — and it needed a VBScript engine to run at all. `summrise-launch.exe` takes the
+    // program and its arguments as an argv and lets the platform quote them once, correctly.
     const probePath = path.join(SCRIPTS_DIR, "playwright-probe.ps1");
     fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
     if (fs.existsSync(pwDir) || fs.existsSync(path.join(DIR, "playwright"))) {
-      // round-143: ASCII-only VBS (no em-dash, no Unicode). VBScript on
-      // Windows uses the system locale; non-ASCII in comments corrupts the
-      // file and causes "unterminated string constant" (800A0409). Use chr(34)
-      // to produce literal double-quotes without string-escaping issues.
-      fs.writeFileSync(
-        vbsPath,
-        [
-          "Dim sh,cmd,i",
-          'Set sh=CreateObject("WScript.Shell")',
-          'cmd=chr(34) & WScript.Arguments(0) & chr(34) & " " & chr(34) & WScript.Arguments(1) & chr(34)',
-          "For i=2 To WScript.Arguments.Count-1",
-          '  cmd=cmd & " " & WScript.Arguments(i)',
-          "Next",
-          "sh.Run cmd,0,False",
-        ].join("\r\n"),
-      );
       // round-246 (C3) + round-257 + round-263: the probe launcher
       // (playwrightProbePs, unit-tested).
       fs.writeFileSync(probePath, playwrightProbePs().join("\r\n"));
@@ -3601,6 +3683,12 @@ const commands = {
       "$ok=$false",
       `foreach($i in 1..12){ try { Copy-Item -Force -ErrorAction Stop '${q}\\summrise-agent.new.exe' '${q}\\summrise-agent.exe'; $ok=$true; break } catch { Start-Sleep -Milliseconds 800 } }`,
       `"[$(Get-Date -Format o)] copy ok=$ok" | ${log}`,
+      // The launcher goes in BEFORE either task is re-registered below: both name it as their action,
+      // so a swap that repointed them at a program still called `.new` would leave two tasks that
+      // cannot start. Same 12-try loop, because a pulse can be running it.
+      `$lok=$false`,
+      `foreach($i in 1..12){ try { Copy-Item -Force -ErrorAction Stop '${q}\\scripts\\summrise-launch.new.exe' '${q}\\scripts\\summrise-launch.exe'; $lok=$true; break } catch { Start-Sleep -Milliseconds 800 } }`,
+      `"[$(Get-Date -Format o)] launcher ok=$lok" | ${log}`,
       // round-298: .summrise-release is only written when the copy provably
       // completed (a failed swap keeps the device on the OLD exe — the
       // marker must not lie). The marker is what agent_update compares.
@@ -3609,6 +3697,7 @@ const commands = {
       // move the displayed version either).
       ...uninstallVersionPs(q, relVer),
       `Remove-Item -Force -ErrorAction SilentlyContinue '${q}\\summrise-agent.new.exe'`,
+      `Remove-Item -Force -ErrorAction SilentlyContinue '${q}\\scripts\\summrise-launch.new.exe'`,
       // stage-l: swap the desktop shell sources (main/preload) with retry —
       // the running Electron may hold them briefly.
       `foreach($df in @('main.js','preload.js','url-policy.js')){ $ds='${q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) { $ok2=$false; foreach($i in 1..8){ try { Copy-Item -Force -ErrorAction Stop $ds ('${q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break } catch { Start-Sleep -Milliseconds 500 } }; Remove-Item -Force -ErrorAction SilentlyContinue $ds; "[$(Get-Date -Format o)] desk $df ok=$ok2" | ${log} } }`,
@@ -3645,10 +3734,11 @@ const commands = {
       //    mirroring SummriseAgent's proven -Once + -RepetitionInterval pattern).
       //  - the pulse must NOT start a second electron while one is alive
       //    (second-instance focuses the window = focus steal every 5 min) —
-      //    the guarded ensure-desktop.ps1 checks Get-Process first, and the
-      //    wscript wrapper runs it with no console flash.
+      //    the guarded ensure-desktop.ps1 checks Get-Process first, and
+      //    summrise-launch.exe starts it with no console flash and no script engine.
       `$en1 = '${q}\\scripts\\ensure-desktop.ps1'`,
-      `$vb1 = '${q}\\scripts\\desktop-pulse.vbs'`,
+      `$ln1 = '${q}\\scripts\\summrise-launch.exe'`,
+      `$pwsh1 = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'`,
       // THE SAME BUILDER `setup` USES, and this is the path that matters most: an update is
       // the ONLY mechanism that reaches a machine already installed, so a watchdog written
       // here from a second, hand-typed copy would silently overwrite the instrumented one on
@@ -3658,9 +3748,14 @@ const commands = {
       ...ensureDesktopPs(`${q}\\scripts`, qd),
       `'@`,
       `Set-Content -Path $en1 -Value $enBody -Force`,
-      `Set-Content -Path $vb1 -Value 'CreateObject("WScript.Shell").Run "powershell -NoProfile -ExecutionPolicy Bypass -File " & Chr(34) & "${q}\\scripts\\ensure-desktop.ps1" & Chr(34), 0, False' -Force`,
-      `if ($null -ne (Get-ScheduledTask -TaskName 'SummriseDesktop' -ErrorAction SilentlyContinue)) {`,
-      `  $da = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"' + $vb1 + '"') -WorkingDirectory '${q}'`,
+      // The retired wrappers go with the action that used them. Best-effort: a `.vbs` nothing runs is
+      // inert, and this line must not be able to abort a swap that is otherwise fine.
+      `foreach ($v in @('${q}\\scripts\\desktop-pulse.vbs','${q}\\desktop-pulse.vbs','${q}\\scripts\\run-hidden.vbs','${q}\\playwright\\run-hidden.vbs')) { if (Test-Path $v) { try { Remove-Item -Force -ErrorAction Stop $v } catch {} } }`,
+      // The same launcher `setup` registers, and this is the path that MIGRATES an installed fleet:
+      // a device whose task still runs `wscript.exe <desktop-pulse.vbs>` is repointed here, which is
+      // what removes both the missing-engine dialog and the dependency that caused it.
+      `if ((Test-Path $ln1) -and ($null -ne (Get-ScheduledTask -TaskName 'SummriseDesktop' -ErrorAction SilentlyContinue))) {`,
+      `  $da = New-ScheduledTaskAction -Execute $ln1 -Argument ('"' + $pwsh1 + '" -NoProfile -ExecutionPolicy Bypass -File "' + $en1 + '"') -WorkingDirectory '${q}'`,
       `  $dt1 = New-ScheduledTaskTrigger -AtLogOn`,
       `  $dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
       // AND THE SETTINGS, WHICH IS THE HALF THAT REACHES A MACHINE ALREADY INSTALLED.
@@ -3696,12 +3791,12 @@ const commands = {
         `${q}\\components\\summrise-desktop-electron`,
         log,
       ),
-      // round-143: re-register SummrisePlaywright via the wscript/VBS wrapper so
-      // node.exe no longer allocates a visible console. Idempotent — task may
-      // not exist (older install paths), so wrap in try/catch.
-      `$pwVbs = '${q}\\scripts\\run-hidden.vbs'`,
+      // round-143 + 2026-10-05: re-register SummrisePlaywright against summrise-launch.exe so
+      // node.exe no longer allocates a visible console — and so the task no longer needs a VBScript
+      // engine to start at all. Idempotent — task may not exist (older install paths), so try/catch.
+      `$pwLn = '${q}\\scripts\\summrise-launch.exe'`,
       `$pwProbe = '${q}\\scripts\\playwright-probe.ps1'`,
-      `if ((Test-Path $pwVbs) -and (Test-Path $pwProbe)) {`,
+      `if ((Test-Path $pwLn) -and (Test-Path $pwProbe)) {`,
       `  $pwNode = '${q}\\components\\playwright\\node.exe'`,
       `  $pwCli  = '${q}\\components\\playwright\\node_modules\\@playwright\\mcp\\cli.js'`,
       `  if ((Test-Path $pwNode) -and (Test-Path $pwCli)) {`, // parens: bare -and is a param parse error
@@ -3718,8 +3813,11 @@ const commands = {
       // actions on 9229 drive the SAME browser the user watches (no more
       // invisible private headless).
       `    $pwPs = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'`,
-      `    $pwArgs = '"' + $pwVbs + '" "' + $pwPs + '" -NoProfile -File "' + $pwProbe + '" "' + $pwNode + '" "' + $pwCli + '"'`,
-      `    $pwAction = New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\\wscript.exe') -Argument $pwArgs`,
+      // argv[0] IS THE PROGRAM — the launcher starts `$pwPs` with everything after it as its arguments,
+      // so the wrapper's own path is not in this list any more. Every argument reaches CreateProcessW as
+      // one argv entry, so a path with a space survives (the `.vbs` appended its later arguments raw).
+      `    $pwArgs = '"' + $pwPs + '" -NoProfile -File "' + $pwProbe + '" "' + $pwNode + '" "' + $pwCli + '"'`,
+      `    $pwAction = New-ScheduledTaskAction -Execute $pwLn -Argument $pwArgs`,
       `    $pwBoot = New-ScheduledTaskTrigger -AtLogOn`,
       `    $pwWatch = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)`,
       `    $pwSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable`,

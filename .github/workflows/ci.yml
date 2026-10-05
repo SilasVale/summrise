@@ -898,14 +898,18 @@ jobs:
           n=0
           while IFS= read -r F; do
             case "$F" in ''|'#'*) continue ;; esac
+            # The two Windows exes, and only they: this job has no cargo-xwin, so both are absent
+            # from the tgz it packs. The job name says so, and build-pins.bash checks that every
+            # exception here stays documented.
             [ "$F" = "summrise-agent.exe" ] && continue
+            [ "$F" = "summrise-launch.exe" ] && continue
             if ! grep -qE "(^|/)${F}$" /tmp/tgz-list-ci.txt; then
               echo "::error::packed tgz missing required file: $F"
               exit 1
             fi
             n=$((n+1))
           done < "$REQUIRED_IN_TGZ"
-          echo "pack content check OK ($n files, exe excluded — no xwin in this job)"
+          echo "pack content check OK ($n files, both exes excluded — no xwin in this job)"
       # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
       # package has zero dependencies and no lockfile, so npm ci would
       # fail with EUSAGE. `npm test` (node --test over node builtins) runs

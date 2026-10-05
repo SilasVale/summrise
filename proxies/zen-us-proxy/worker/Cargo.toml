@@ -23,6 +23,18 @@ url = "2"
 # expands to nothing on the host and panics there, so every decision in `lib.rs` still builds and tests
 # with no wasm toolchain. Pinned to the same 0.8.7 as `gateway/wasm` and `index/worker`.
 worker = "0.8.7"
+# **AND `web-sys` DIRECTLY, WHICH IS THE WHOLE FINDING OF THE PREVIOUS ROUND.** `worker::RequestInit`
+# has NO signal field and its conversion into `web_sys::RequestInit` sets five things and no signal — read
+# at `worker-0.8.7/src/request_init.rs:12` and `:66`. The header budget is a `finally` in the shipping
+# JavaScript (`clearTimeout` once the headers arrive) and the SIGNAL is what makes it that rather than a
+# whole-fetch budget, so the init has to be built here. Same 0.3.106 `worker` pins, with the four features
+# this file names.
+web-sys = { version = "0.3.106", features = ["Request", "RequestInit", "Headers", "AbortSignal"] }
+# THE RACE, AND WHY IT IS A DEPENDENCY: `fetch` resolves when the HEADERS arrive, so the port has to stop
+# WAITING at the budget without stopping the BODY — and `select` is what makes the two outcomes explicit
+# rather than a shared flag two tasks poll. `gateway/wasm` already takes it for the same kind of reason, and
+# its `Cargo.toml` carries the measured size delta (+108,315 raw / +29,013 gz).
+futures-util = { version = "0.3", default-features = false }
 serde_json = "1"
 # SHA-256 FOR `safe_eq`, and the reason it is a dependency and not 64 hand-rolled lines is in the
 # function's own doc comment: this crate already took `url` and `serde_json` for the same reason, and

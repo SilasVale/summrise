@@ -439,7 +439,7 @@ belongs beside it — and a command that merely CORRELATES with the number is no
 ```bash
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
-cp agent/target/x86_64-pc-windows-msvc/release/summrise-agent.exe agent/summrise-agent-npm/summrise-agent.exe
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-{agent,launch}.exe agent/summrise-agent-npm/
 #    DRY RUN FIRST if unsure: ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no
 #    credentials, changes nothing, seconds.
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):

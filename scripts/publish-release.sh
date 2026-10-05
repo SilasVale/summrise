@@ -280,6 +280,15 @@ if [ ! -f "$NPM_DIR/summrise-agent.exe" ]; then
   exit 1
 fi
 
+# AND THE LAUNCHER, FOR THE SAME REASON AND ONE MORE. Same reason: it is built here and copied on the
+# device, so a stale or absent staged copy ships a tarball whose scheduled tasks cannot start. One
+# more: `required-in-tgz.txt` requires it, so a release missing it would fail later anyway — failing
+# HERE names the command that fixes it.
+if [ ! -f "$NPM_DIR/summrise-launch.exe" ]; then
+  echo "::error::missing $NPM_DIR/summrise-launch.exe — build + stage it first" >&2
+  exit 1
+fi
+
 # P1-1 exe provenance (fail-closed): a stale exe used to sail through this
 # script straight onto the CDN. The canonical cross-compile output must
 # exist, the staged copy must BE that output (byte-identical — a hand
@@ -294,6 +303,18 @@ fi
 if ! cmp -s "$EXE_BUILD" "$NPM_DIR/summrise-agent.exe"; then
   echo "::error::staged $NPM_DIR/summrise-agent.exe != fresh $EXE_BUILD — re-stage and retry:" >&2
   echo "  cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
+  exit 1
+fi
+# The launcher is held to the same byte-for-byte rule: a hand-copied or stale one is a device whose
+# tasks run a binary nobody built from this tree.
+LAUNCHER_BUILD="agent/target/x86_64-pc-windows-msvc/release/summrise-launch.exe"
+if [ ! -f "$LAUNCHER_BUILD" ]; then
+  echo "::error::missing $LAUNCHER_BUILD — cross-compile first: ./scripts/build.sh agent" >&2
+  exit 1
+fi
+if ! cmp -s "$LAUNCHER_BUILD" "$NPM_DIR/summrise-launch.exe"; then
+  echo "::error::staged $NPM_DIR/summrise-launch.exe != fresh $LAUNCHER_BUILD — re-stage and retry:" >&2
+  echo "  cp $LAUNCHER_BUILD $NPM_DIR/summrise-launch.exe" >&2
   exit 1
 fi
 SRC_TS=$(git log -1 --format=%ct -- agent/src agent/build.rs agent/resources/panel-react agent/resources/panel agent/Cargo.toml agent/Cargo.lock)
@@ -320,7 +341,7 @@ EXE_TS=$(stat -c %Y "$EXE_BUILD")
 NOW_TS=$(date +%s)
 if [ "$EXE_TS" -lt "$SRC_TS" ]; then
   echo "::error::$EXE_BUILD predates the newest exe-input commit ($(date -u -d "@$SRC_TS" +%Y-%m-%dT%H:%M:%SZ)) — rebuild, re-stage, retry:" >&2
-  echo "  ./scripts/build.sh agent && cp $EXE_BUILD $NPM_DIR/summrise-agent.exe" >&2
+  echo "  ./scripts/build.sh agent && cp $EXE_BUILD $NPM_DIR/summrise-agent.exe && cp $LAUNCHER_BUILD $NPM_DIR/summrise-launch.exe" >&2
   exit 1
 fi
 # THE STAGED EXE MUST CARRY AN ICON, AND THIS IS THE ONLY PLACE THAT CAN ASK (rounds 65-71 of the standing goal).

@@ -10,6 +10,7 @@
     "README.md",
     "bin/",
     "summrise-agent.exe",
+    "summrise-launch.exe",
     "summrise-desktop-electron/src/main.js",
     "summrise-desktop-electron/src/preload.js",
     "summrise-desktop-electron/src/url-policy.js",

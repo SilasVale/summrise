@@ -350,6 +350,12 @@ pub fn safe_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
+/// `HEADER_TIMEOUT_MS` — the budget the shipping worker gives the UPSTREAM's response HEADERS, and nothing
+/// else. `src/index.js:64`: `const HEADER_TIMEOUT_MS = 30000;`. It lives here rather than in `worker.rs`
+/// because it is a number the JavaScript states and the port has to agree with, and because `worker.rs` is
+/// wasm32-only — a constant nothing can test on the host is a constant that drifts.
+pub const HEADER_TIMEOUT_MS: u64 = 30000;
+
 /// **`relayUpstreamError`'s DECISION, WHICH IS THE PART OF IT THAT IS NOT I/O.**
 ///
 /// The shipping worker does:
