@@ -1,0 +1,21 @@
+[package]
+name = "summrise-launch"
+version.workspace = true
+edition = "2021"
+description = "Start a process with NO console window, and do not wait — the Rust replacement for the two .vbs wrappers wscript.exe used to run"
+license = "Apache-2.0"
+publish = false
+
+# No dependencies, deliberately, for the reason `summrise-exec-argv` gives in the same words: this
+# binary is staged onto a machine that may have no toolchain, no package manager and no network, so
+# it must be a single artifact whose behaviour is readable in one sitting. It also runs every five
+# minutes under a scheduled task, so a dependency tree would be a start-up cost paid forever.
+[dependencies]
+
+[[bin]]
+name = "summrise-launch"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_launch"
+path = "src/lib.rs"
