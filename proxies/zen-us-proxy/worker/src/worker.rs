@@ -165,6 +165,50 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
 }
 
+/// **`fetchUpstreamHeaders`, AND THE ANSWER TO THE QUESTION THE PORT LEFT OPEN — MEASURED, NOT GUESSED.**
+///
+/// The shipping worker's decision is the timer discipline:
+///
+/// ```text
+///     const ctrl = new AbortController();
+///     const timer = setTimeout(() => ctrl.abort(), HEADER_TIMEOUT_MS);
+///     try { return await fetch(url, { ...init, signal: ctrl.signal }); }
+///     finally { clearTimeout(timer); }
+/// ```
+///
+/// **THE SIGNAL IS THE WHOLE POINT, AND THE `finally` IS THE OTHER HALF.** `fetch()` resolves when the
+/// HEADERS arrive, so clearing the timer there leaves the returned BODY stream untimed — which is what lets
+/// a caller forward `upstream.body` for minutes. "`AbortSignal.timeout` on the whole fetch would also abort
+/// the body mid-stream once the budget expires — **the Vercel bug this worker avoids**."
+///
+/// ── AND THE PRIMARY SOURCE SAYS `worker`'s WRAPPER CANNOT CARRY IT ────────────────────────────
+///
+/// Read in `worker-0.8.7` itself rather than assumed:
+///
+///   * `worker::AbortController` EXISTS (`src/abort.rs`: "An interface that allows you to abort in-flight
+///     Fetch requests"), and `worker` enables the `AbortController`/`AbortSignal` web-sys features.
+///   * **`worker::RequestInit` HAS NO SIGNAL FIELD** (`src/request_init.rs:12`): `body`, `headers`, `cf`,
+///     `method`, `redirect`, `cache` — and nothing else.
+///   * **AND ITS `From<&RequestInit> for web_sys::RequestInit` SETS FIVE THINGS AND NO SIGNAL**
+///     (`src/request_init.rs:66`): headers, method, redirect, cache, body.
+///
+/// **SO THE FAITHFUL PORT BUILDS THE `web_sys::RequestInit` ITSELF AND CALLS `set_signal`.** That needs
+/// `web-sys` with the `RequestInit` and `AbortSignal` features as a DIRECT dependency of this crate — the
+/// crate already takes `worker`'s features transitively, but a direct `web_sys::RequestInit` is this
+/// crate's own use and its own declaration.
+///
+/// ── AND THE CHEAPER ALTERNATIVE, WITH THE DIFFERENCE NAMED ─────────────────────────────────────
+///
+/// Racing `worker::Delay` against the fetch needs no `web-sys` and no signal — **but on timeout it stops
+/// WAITING without ABORTING, so the upstream request stays in flight.** The client sees the same bytes
+/// either way (`ctrl.abort()` rejects the fetch, the handler's `catch` answers
+/// `jsonError(500, "Internal error", "api_error", cors)` — measured, `src/index.js:317-320`), **so
+/// `verify.mjs` could not tell the two apart** — which is exactly the kind of difference this repository
+/// says to name rather than to discover later. **THE SIGNAL IS THE PORT.**
+///
+/// THIS FUNCTION IS NOT WRITTEN YET, and it is named here so the next stage starts from the measurement
+/// instead of repeating it.
+///
 /// **AN ARM THAT IS NAMED RATHER THAN FAKED.** The three upstream routes are not ported yet, and a
 /// 501 says exactly that — where a plausible-looking empty 200 would let `verify.mjs` pass on a request
 /// the shipping worker actually serves. **THE FAILURE IS THE HONEST ANSWER.**
