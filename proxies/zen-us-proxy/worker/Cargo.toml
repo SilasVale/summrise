@@ -45,3 +45,17 @@ sha2 = "0.10"
 # NO [profile.release] OVERRIDES ON PURPOSE, the same reason as the CDN worker: the deployed module
 # is what `worker-build --release` produces with the default profile, so the size is the number a
 # naive migration gets, not a tuned best case.
+
+[features]
+# **THE WASM HALF IS A FEATURE, AND IT IS ON BY DEFAULT — WHICH IS THE PART THAT MATTERS.**
+# `zen-go` DEPENDS ON THIS CRATE for the policy functions they share (`Cargo.toml` there documents the
+# decision), and both crates export a `#[event(fetch)]` entrypoint. Building `zen-go` for wasm32 therefore
+# compiled BOTH entrypoints into one module and wasm-bindgen refused it, measured:
+#
+#     error: the name `fetch` is exported by multiple crates in this build
+#
+# The host build never sees it, because `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`. So the
+# entrypoint is gated on a feature that is ON here (this crate's own worker build needs it) and OFF for a
+# dependent that has its own — `zen-go` takes this crate with `default-features = false`.
+default = ["worker"]
+worker = []
