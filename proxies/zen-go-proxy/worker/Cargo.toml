@@ -19,7 +19,12 @@ path = "src/lib.rs"
 # they already have, in the `[::1]` case `summrise-zen-us`'s header documents. ADR 0003 keeps the
 # satellite workers AUTONOMOUS (no shared npm package); a shared RUST crate is not a shared
 # deployment and does not couple their releases.
-summrise-zen-us = { path = "../../zen-us-proxy/worker" }
+# `default-features = false` BECAUSE BOTH CRATES EXPORT A `fetch` ENTRYPOINT. With the sibling's `worker`
+# feature on, building this crate for wasm32 compiled BOTH `#[event(fetch)]` exports into one module and
+# wasm-bindgen refused it — measured: `error: the name \`fetch\` is exported by multiple crates in this
+# build`. The host build never sees it, because both modules are behind `#[cfg(target_arch = "wasm32")]`.
+# **THIS IS THE COST OF THE SHARED CRATE, AND IT IS PAID HERE RATHER THAN BY COPYING THE POLICY AGAIN.**
+summrise-zen-us = { path = "../../zen-us-proxy/worker", default-features = false }
 # THE WORKER RUNTIME, TAKEN NOW BECAUSE THE ENTRY POINT IS HERE. `worker.rs` is behind
 # `#[cfg(target_arch = "wasm32")]` because `#[event(fetch)]` expands to nothing on the host and panics
 # there, so every decision above still builds and tests with no wasm toolchain at all. Same 0.8.7 as the

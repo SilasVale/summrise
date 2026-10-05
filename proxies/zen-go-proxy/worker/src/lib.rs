@@ -793,6 +793,17 @@ pub fn estimate_tokens(
 ) -> u64 {
     let mut chars = 0usize;
     for part in [system, tools, messages].into_iter().flatten() {
+        // **`part != null` IS LOOSE, AND `null` IS ONE OF THE TWO THINGS IT DROPS.** `flatten()` removes
+        // the `None`s — an ABSENT key — and this removes an explicit JSON `null`, which is `Some(Null)`
+        // and which the JavaScript's `!= null` also drops. **`0`, `false` and `""` ARE KEPT.**
+        //
+        // **FOUND BY THE BYTE COMPARISON, NOT BY THE CORPUS.** The corpus rows for this passed `None`
+        // where they should have passed `Some(json!(null))`, so all twenty tests were green while the
+        // worker answered `{"input_tokens":2}` where the shipping JavaScript answers `{"input_tokens":0}`.
+        // A corpus is written by the same hand that wrote the port; `verify.mjs` is not.
+        if part.is_null() {
+            continue;
+        }
         // `JSON.stringify(part).length` — and the crate's own header records why `serde_json`'s output
         // matches: same key order, same escapes, the same text.
         //
@@ -957,7 +968,7 @@ mod route_decision_tests {
     /// `count_tokens`, over bodies that exercise the loose comparison and the UTF-16 counting.
     #[test]
     fn the_token_estimate_matches_the_shipping_expression() {
-        let cases: [Estimate; 12] = [
+        let cases: [Estimate; 13] = [
             Estimate {
                 system: None,
                 tools: None,
@@ -986,6 +997,15 @@ mod route_decision_tests {
                 system: None,
                 tools: None,
                 messages: None,
+                want: 0,
+            },
+            // **AN EXPLICIT JSON `null` IS DROPPED TOO** — the row the corpus was missing, added after
+            // `verify.mjs` found the divergence the corpus could not: `{system: null, messages: null}` is
+            // `{"input_tokens":0}` in the shipping worker.
+            Estimate {
+                system: Some(json!(null)),
+                tools: Some(json!(null)),
+                messages: Some(json!(null)),
                 want: 0,
             },
             // `part != null` KEEPS 0 AND false — the loose comparison.

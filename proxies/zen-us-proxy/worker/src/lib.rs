@@ -431,7 +431,7 @@ fn js_text(v: &serde_json::Value) -> String {
 /// expands to nothing on the host and PANICS there, because there is no Worker runtime to register with.
 /// So every decision above builds and tests under a plain `cargo test`, and the entrypoint compiles only
 /// for the target it serves. **A host shim would be a second copy of the dispatch that no test runs.**
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "worker"))]
 pub mod worker;
 
 #[cfg(test)]
