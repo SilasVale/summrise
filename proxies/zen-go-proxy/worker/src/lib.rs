@@ -40,7 +40,10 @@
 use serde_json::{json, Map, Value};
 
 pub use summrise_zen_us::cors_headers;
-pub use summrise_zen_us::{is_loopback_host, is_loopback_origin, redact_secrets, request_host};
+pub use summrise_zen_us::{
+    is_loopback_host, is_loopback_origin, json_error_body, redact_secrets, request_host,
+    x_api_key_allows,
+};
 
 /// `toOpenAIRequest(req, model)` — the Anthropic request, as an OpenAI chat completion.
 ///
@@ -803,6 +806,104 @@ pub fn estimate_tokens(
     }
     // `Math.ceil(chars / 4)` — and `chars` is a count, so the division is the only float here.
     chars.div_ceil(4) as u64
+}
+
+/// `VERIFY_PATH` (`src/index.js:13`) — the Anthropic-native route. **THE PREFIX IS THE WHOLE POINT**:
+/// every arm below is an `endsWith`, so this also matches `/anything/else/v1/messages`.
+pub const VERIFY_PATH: &str = "/v1/messages";
+
+/// `COUNT_PATH` (`src/index.js:14`) — the estimate. **IT DOES NOT END WITH `VERIFY_PATH`**, because
+/// `/v1/messages/count_tokens` ends with `count_tokens` — which is why the JavaScript's two arms cannot
+/// shadow each other however they are ordered, and why this table's order is the JavaScript's rather
+/// than a correctness requirement.
+pub const COUNT_PATH: &str = "/v1/messages/count_tokens";
+
+/// `HEADER_TIMEOUT_MS` (`src/index.js:22`) — the upstream's response HEADERS, and nothing else.
+pub const HEADER_TIMEOUT_MS: u64 = 30000;
+
+/// The five arms of `zen-go`'s dispatch, in the JavaScript's own order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// `OPTIONS *` — the CORS preflight.
+    Preflight,
+    /// `GET …/models` — the model list.
+    Models,
+    /// `POST …/count_tokens` — the estimate.
+    CountTokens,
+    /// `POST …/v1/messages` — the translation, or the native pass-through.
+    Messages,
+    /// Anything else.
+    NotFound,
+}
+
+/// **`route(method, pathname)`, AND THE ONE THING THIS TABLE DOES NOT CARRY: THE GATE.**
+///
+/// `zen-go`'s JavaScript checks `CLIENT_KEY` **BEFORE the route table** — one gate over every path,
+/// including the ones that do not exist — where `zen-us`'s checks it per arm. **That is a structural
+/// difference, not an ordering one**, so it cannot live in a table that answers "which route is this";
+/// the entrypoint applies it first, and the corpus below pins the table alone.
+pub fn route(method: &str, pathname: &str) -> Route {
+    if method == "OPTIONS" {
+        return Route::Preflight;
+    }
+    if method == "GET" && pathname.ends_with("/models") {
+        return Route::Models;
+    }
+    if method == "POST" && pathname.ends_with(COUNT_PATH) {
+        return Route::CountTokens;
+    }
+    // **THE LAST ARM IS THE JAVASCRIPT'S NEGATION** — `if (!(POST && endsWith(VERIFY_PATH))) return 404`
+    // — phrased positively, because a positive arm reads as a list and a negation reads as a trap.
+    if !(method == "POST" && pathname.ends_with(VERIFY_PATH)) {
+        return Route::NotFound;
+    }
+    Route::Messages
+}
+
+#[cfg(test)]
+mod route_tests {
+    //! **THE CORPUS IS THE SHIPPING `endsWith` CHAIN'S OWN BEHAVIOUR**, and every row is a path that a
+    //! caller can actually send. The rows that matter are the ones where `endsWith` is not `==`:
+    //! a prefix in front of the path, and the `count_tokens` path that does NOT end with the messages
+    //! path.
+    use super::*;
+
+    #[test]
+    fn the_route_table_matches_the_shipping_chain() {
+        let corpus: [(&str, &str, Route); 14] = [
+            ("OPTIONS", "/v1/messages", Route::Preflight),
+            ("OPTIONS", "/anything", Route::Preflight),
+            ("GET", "/v1/models", Route::Models),
+            // `endsWith`, NOT equality — the JavaScript matches this too.
+            ("GET", "/zen/go/v1/models", Route::Models),
+            ("POST", "/v1/models", Route::NotFound),
+            ("GET", "/v1/messages", Route::NotFound),
+            ("POST", COUNT_PATH, Route::CountTokens),
+            (
+                "POST",
+                "/zen/go/v1/messages/count_tokens",
+                Route::CountTokens,
+            ),
+            // **THE PAIR THAT CANNOT SHADOW EACH OTHER**, whichever arm is written first.
+            ("POST", VERIFY_PATH, Route::Messages),
+            ("POST", "/zen/go/v1/messages", Route::Messages),
+            ("POST", "/nope", Route::NotFound),
+            ("GET", "/nope", Route::NotFound),
+            ("DELETE", "/v1/messages", Route::NotFound),
+            ("", "", Route::NotFound),
+        ];
+        for (method, path, want) in corpus {
+            assert_eq!(route(method, path), want, "{method} {path}");
+        }
+    }
+
+    #[test]
+    fn the_count_path_does_not_end_with_the_messages_path() {
+        // The fact the two arms rest on, asserted rather than assumed: if this were ever true, the
+        // order of the table would decide which route a count_tokens request got.
+        assert!(!COUNT_PATH.ends_with(VERIFY_PATH));
+        assert!(COUNT_PATH.ends_with("/count_tokens"));
+    }
 }
 
 #[cfg(test)]
