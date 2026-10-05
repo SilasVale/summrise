@@ -447,7 +447,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # **`fetch-depth: 0`, BECAUSE THIS JOB RUNS EVERY `scripts/test/*.bash` UNDER A HOSTILE UMASK.**
+      # One of them — `rust-byte-checks.bash` — runs `index/landing/verify.mjs`, which reads its reference
+      # out of git with `git show 46fa0a3f:index/src/page.js`. `actions/checkout@v4` defaults to
+      # `fetch-depth: 1`, where that object does not exist: measured on a `--depth 1` clone,
+      # `git show 46fa0a3f:…` exits 128 with `fatal: invalid object name '46fa0a3f'`.
+      #
+      # **AND IT IS THE SECOND JOB THAT NEEDED THIS FOR THE SAME COMMIT** — `proxies` got it for the byte
+      # comparison step it invokes by name; this job gets it because its loop reaches that same gate
+      # through a glob. Both were measured red before the depth was added.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # **THE TOOLCHAIN STEP THIS JOB NEVER HAD, AND THE TARGET IT NOW NEEDS.** The umask loop below runs
       # `all-gates.bash`, which runs every gate `ci.yml` invokes — including `cargo test` and, since
       # 2026-10-03, the zen-us entrypoint gate that needs `wasm32-unknown-unknown`. Measured in CI:

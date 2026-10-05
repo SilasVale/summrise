@@ -82,7 +82,16 @@
 
 **做什么**：`proxies` → `index` → `gateway`（最小到最承重）。
 **3.0 必须先做**：**量冷启动**——Workers 上 wasm 每 isolate 要实例化，**可能比 JS 慢**。同一个路由，JS 与 wasm 各测 p50/p99 与冷启动。
-**判据**：同请求新旧响应**字节可比** ＋ 自己的 smoke 绿（`landing-check` / `production-host-check`）。
+**判据**：同请求新旧响应**字节可比** ＋ 自己的 smoke 绿。
+**判据的落地（2026-10-05 实测）**：**五个 `verify.mjs` 各自实现它 ✓，而它们直到这天之前没有一个被 CI 调用** ✗——
+`ci.yml` 里唯一提到 `verify.mjs` 的地方是一句**注释**。现在是 `scripts/test/rust-byte-checks.bash`：
+`gateway/wasm`（`/api/health` ✓）· `index/worker` ✓ · `proxies/zen-us-proxy/worker`（17 例 ✓）·
+`proxies/zen-go-proxy/worker`（17 例 ✓）· `index/landing`（两个渲染器 ✓）。**而且它接进 CI 的第一次运行就找出三件事** ✗：
+两个 harness **写 `build/index_bg.wasm.mjs` 却从不构建** ✗、落地页那个**依赖一个没人构建的 `target/release/gen`** ✗、
+**并且用 `git show 46fa0a3f` 读参照物 ✓，而 `actions/checkout@v4` 默认的 `fetch-depth: 1` 里那个对象不存在** ✗
+（实测：`--depth 1` 克隆里 `git rev-list --count HEAD` 是 1 ✓，`git show` 退 128 ✓，`fatal: invalid object name` ✓）。
+**旧名 `landing-check` 不存在** ✗——落地页的检查是它自己的 `verify.mjs` 与
+`cargo test --manifest-path index/landing/Cargo.toml`；`production-host-check` 现在是 `agent/tests/production_host.rs` ✓。
 **停止条件**：冷启动明显变差 → **只搬 `proxies`**。
 **依赖**：P2 的经验（wasm 构建链已通）。
 
@@ -752,7 +761,9 @@ round 134 找到的那个缺陷** ✓——**只比正文的话，这个移植�
 **已按字节对上游 JS 证过**：清单推导（38）✓ · 页面边界（644，含 495 次**拿真实文档**的整页渲染）✓ ·
 路由表（52，含全部近似路径）✓。
 **已构建**：模块只 import 那两样 ✓。
-**尚未**：**这个模块还没有被执行过** ✗。**`verify.mjs` 是下一步，而它需要的绑定现在是量出来的而不是猜的** ✓✓：
+**已证（2026-10-05 更正）**：**这个模块现在被执行过了 ✓**——`proxies/zen-go-proxy/worker/verify.mjs`
+跑 `worker-build --release` 的产物与发货 JS，**17 个用例逐字节相同（含"上游请求"那一行）✓**，
+而**变异（把门挪到路由表之后）咬掉其中一条 ✓**。**而它需要的绑定当初是量出来的而不是猜的** ✓✓：
 `EnvBinding::get` 按构造函数名 duck-type ✓，**所以 env 桩就是 `class Fetcher` 和 `class R2Bucket`**
 （worker-0.8.7 `env.rs:148` ✓）——**gateway 自己的 `verify.mjs` 已经是这么给 Durable Object 打桩的** ✓。
 
