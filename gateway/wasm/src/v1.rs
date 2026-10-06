@@ -221,6 +221,33 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         .unwrap_or("")
         .to_string();
 
+    // **A BODY THAT IS NOT JSON IS A 500 WHERE THE SOURCE PARSES IT — MEASURED, NOT REASONED.**
+    //
+    // `translate.ts` parses `rawText` in the POST arms and lets a `JSON.parse` throw reach the front door's
+    // catch (`jsonError(500, "Internal error", "api_error")`). `serde_json::from_str(...).ok()` SWALLOWED that:
+    // the model resolved to `""`, the prefix to `""`, and the request fell through to the DEFAULT channel.
+    // Measured 2026-10-06 on the built worker — a body of `{not json`, and an EMPTY body, both answered
+    // **`502 config_error — "CMD_API_KEY not configured — add your Command Code key in the console"`**, a
+    // diagnosis pointing an operator at a channel they never asked for, where the shipping route answers
+    // `500 {"type":"error","error":{"type":"api_error","message":"Internal error"}}`.
+    //
+    // **THE TWO EXEMPTIONS ARE MEASURED TOO**: `count_tokens` answers identically on both sides with a
+    // malformed body (it never parses), and a GET carries no body to parse — so this rule is scoped to the
+    // three POST arms and leaves both alone. `[]` also parses, and stays on its normal path.
+    let shape_for_body = crate::request_shape::detect_route(method.as_ref(), &path);
+    if parsed.is_none()
+        && (shape_for_body.is_messages
+            || shape_for_body.is_chat_completions
+            || shape_for_body.is_responses)
+    {
+        console_error!("[gateway] unhandled: the request body is not JSON");
+        return to_response(crate::responses::json_error(
+            500,
+            "Internal error",
+            "api_error",
+        ));
+    }
+
     // **THE RETIRED GATE IS NOT HERE ANY MORE, AND THAT IS A FIX RATHER THAN A TIDY-UP.** It ran at this
     // point — before the token was read — so a retired id sent with NO token answered **400** where the
     // shipping gateway answers **401**, because `handleGatewayImpl` authenticates, matches the route and only

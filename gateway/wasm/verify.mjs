@@ -1007,6 +1007,249 @@ for (const [i, c] of CASES.entries()) {
       upstream: { body: "boom", type: "text/plain", status: 500 },
     },
     {
+      name: "POST /v1/messages, an IMAGE with VISION_MODEL naming a CUSTOM provider",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: {
+        body: JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "a picture" }, finish_reason: "stop" }],
+        }),
+        type: "application/json",
+        status: 200,
+      },
+      // `VISION_MODEL` is operator-configurable and may name a CUSTOM provider's model — the reason the source
+      // resolves the describe's route through `resolveRoute` rather than `pickRoute` ("pickRoute would not know
+      // the prefix and would silently fall through to the DEFAULT channel").
+      env: { VISION_MODEL: "acme/acme-vision" },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-vision", vision: true }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, with an IMAGE (the pass is skipped)",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: "POST /v1/chat/completions, with an IMAGE (the pass is messages-only)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, an IMAGE to a custom provider WITHOUT vision",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "acme/acme-text",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: {
+        body: JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "described" }, finish_reason: "stop" }],
+        }),
+        type: "application/json",
+        status: 200,
+      },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-text" }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "GET /v1/models, with a CUSTOM provider in KV",
+      req: ["GET", "/v1/models"],
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [
+              { id: "acme-chat", name: "Acme Chat", contextWindow: 128000, maxTokens: 8192, vision: true },
+            ],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/messages, og with a [1m] bracket suffix",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash[1m]", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/chat/completions, a retired model",
+      req: ["POST", "/v1/chat/completions", { model: "ds/deepseek-v4-flash", messages: [] }],
+    },
+    {
+      name: "POST /v1/messages, with an Origin the deployment ALLOWS",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      headers: { origin: "https://console.test" },
+      env: { CONSOLE_ORIGINS: "https://console.test" },
+    },
+    {
+      name: "POST /v1/messages, with an Origin the deployment does NOT allow",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      headers: { origin: "https://evil.test" },
+      env: { CONSOLE_ORIGINS: "https://console.test" },
+    },
+    {
+      name: "POST /v1/messages, BOTH token spellings (x-api-key wins)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      token: "both",
+    },
+    {
+      // **THE THREE BODY CASES, AND THE ONE THAT MUST NOT BITE.** The source parses `rawText` in the POST arms
+      // and lets a `JSON.parse` throw reach the front door's catch (500 "Internal error"); this worker used to
+      // swallow the failure and answer the DEFAULT channel's `502 config_error — "CMD_API_KEY not configured"`,
+      // a diagnosis pointing an operator at a channel they never asked for. `count_tokens` never parses, so it
+      // is the exemption that proves the rule is scoped rather than blanket.
+      name: "POST /v1/messages, a MALFORMED JSON body",
+      req: ["POST", "/v1/messages", null],
+      rawBody: "{not json",
+    },
+    {
+      name: "POST /v1/messages, an EMPTY body",
+      req: ["POST", "/v1/messages", null],
+      rawBody: "",
+    },
+    {
+      name: "POST /v1/messages/count_tokens with a MALFORMED body",
+      req: ["POST", "/v1/messages/count_tokens", null],
+      rawBody: "{not json",
+    },
+    {
+      name: "POST /v1/messages, a JSON body that is an ARRAY",
+      req: ["POST", "/v1/messages", null],
+      rawBody: "[]",
+    },
+    {
+      name: "POST /v1/responses, og/muse-spark-1.2-contributor with MUSE_RESPONSES_EXIT set",
+      req: ["POST", "/v1/responses", { model: "og/muse-spark-1.2-contributor", input: "hi" }],
+      upstream: {
+        body: JSON.stringify({ id: "r1", output: [] }),
+        type: "application/json",
+        status: 200,
+      },
+      env: { MUSE_RESPONSES_EXIT: "https://exit.test" },
+    },
+    {
+      name: "POST /v1/messages, settings:US_PROXY a truthy non-1 value",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "settings:US_PROXY": "true" },
+    },
+    {
+      name: "POST /v1/messages, ds (passthrough) with a MALFORMED body",
+      req: ["POST", "/v1/messages", null],
+      rawBody: "{not json",
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a
@@ -1096,12 +1339,19 @@ for (const [i, c] of CASES.entries()) {
 
   const buildRequest = (c) => {
     const [method, path, body] = c.req;
-    const headers = { "content-type": "application/json" };
+    const headers = { "content-type": "application/json", ...(c.headers ?? {}) };
     if (c.token !== null) headers["x-api-key"] = c.token ?? TOKEN;
+    // `token: "both"` is not a token: it is the case that sends BOTH spellings, and the precedence between them
+    // is what is being measured.
+    if (c.token === "both") {
+      headers["x-api-key"] = TOKEN;
+      headers["authorization"] = "Bearer tok-other";
+    }
     return new Request(`https://console.test${path}`, {
       method,
       headers,
-      ...(body ? { body: JSON.stringify(body) } : {}),
+      // `rawBody` is for the cases whose body is NOT JSON — the request has to carry the bytes as written.
+      ...(c.rawBody ? { body: c.rawBody } : body ? { body: JSON.stringify(body) } : {}),
     });
   };
 
