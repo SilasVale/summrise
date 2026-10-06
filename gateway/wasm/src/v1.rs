@@ -1,9 +1,15 @@
 //! THE `/v1` FRONT DOOR — the glue between `worker::Fetch`/KV and the ported decisions.
 //!
 //! WHY THIS FILE EXISTS AND WHY IT IS THIS SHORT. Every decision on this path was ported and proved
-//! separately: the route match, auth, the per-arm key gates, the model chain, the two-phase dispatch and the
-//! response shaping. What is left is the I/O — four KV reads, one upstream call — and this file is that, so
-//! that the parts that CAN be proved in-process stay free of `worker::`.
+//! separately: **auth, the route match, the retired check**, the per-arm key gates, the model chain, the
+//! two-phase dispatch and the response shaping. What is left is the I/O — four KV reads, one upstream call —
+//! and this file is that, so that the parts that CAN be proved in-process stay free of `worker::`.
+//!
+//! **THE ORDER OF THOSE DECISIONS IS PART OF THE PORT, AND IT WAS WRONG HERE UNTIL 2026-10-06** — this
+//! header listed "the route match" first and the file ran the retired check before the token was read. Both
+//! are the reverse of `handleGatewayImpl`, which authenticates (401), matches the route (404), and only then
+//! reads `retiredModelHint` (400). The fix is in `request_shape.rs` (`v1_plan`/`v1_dispatch`) and the
+//! measurement is `fixtures/front-door-corpus.json`.
 //!
 //! THE KEYS IT READS, each matching `store/`'s own:
 //!
@@ -134,13 +140,22 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         .unwrap_or("")
         .to_string();
 
-    // THE RETIRED GATE, BEFORE ANY ROUTING — it refuses rather than redirects.
-    if let Some(hint) = crate::routing::retired_model_hint(&model) {
-        return to_response(crate::routing::retired_model_error(&model, hint));
-    }
+    // **THE RETIRED GATE IS NOT HERE ANY MORE, AND THAT IS A FIX RATHER THAN A TIDY-UP.** It ran at this
+    // point — before the token was read — so a retired id sent with NO token answered **400** where the
+    // shipping gateway answers **401**, because `handleGatewayImpl` authenticates, matches the route and only
+    // THEN reads `retiredModelHint` (400). It lives in `v1_plan` now, in that position, with
+    // `fixtures/front-door-corpus.json` as the measurement. The model is still resolved here because the
+    // plan takes it as an argument.
 
     // AUTH: the token names a uid, the uid names a user, and the user's `enabled` is the gate's business.
-    let token = req.headers().get("x-api-key")?.unwrap_or_default();
+    // **THE TOKEN HAS TWO DOORS AND THIS READ ONE UNTIL 2026-10-06** — `x-api-key`, then
+    // `Authorization: Bearer`, which is the spelling OpenAI-compatible clients send. The rule is a pure
+    // decision (`request_shape::effective_token`) and `fixtures/auth-header-corpus.json` is its measurement.
+    let headers = req.headers();
+    let token = crate::request_shape::effective_token(
+        headers.get("x-api-key").ok().flatten().as_deref(),
+        headers.get("authorization").ok().flatten().as_deref(),
+    );
     let user = match kv_text(&env, &format!("token:{token}")).await {
         Some(uid) => kv_text(&env, &format!("user:{uid}"))
             .await

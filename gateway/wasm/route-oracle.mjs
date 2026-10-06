@@ -4,7 +4,18 @@
 // the real `handleGateway` from `plugins/translate.ts` with a FAKE env, and records what came back — status,
 // headers and body — as a fixture the Rust side replays.
 //
-//   cd gateway/wasm && node route-oracle.mjs > fixtures/route-corpus.json
+//   cd gateway/wasm && node route-oracle.mjs
+//
+// **IT WRITES THE FIXTURES ITSELF — THERE IS NO REDIRECT**, and the line above used to say
+// `> fixtures/route-corpus.json`. That instruction was wrong twice over: the handler's log wrapper prints one
+// JSON line per request to stdout, so a redirect would have carried eleven log lines and one fixture (which is
+// what the first run produced), and there are now ELEVEN fixtures rather than one.
+//
+// THE FIXTURES, each with one subject: `route-corpus.json` (the count_tokens arm), `front-door-corpus.json`
+// (the ORDER of the gates above the arm — auth, the route match, the retired check), `auth-header-corpus.json`
+// (the two spellings of the token), `passthrough-corpus.json`, `chat-corpus.json`, `responses-corpus.json`,
+// `stream-ignored-corpus.json`, `non-stream-corpus.json`, `upstream-failure-corpus.json`,
+// `models-corpus.json`, `stream-frame-corpus.json`.
 //
 // WHY A FAKE ENV IS ENOUGH FOR THIS ROUTE: the `count_tokens` arm estimates LOCALLY (the upstream count
 // endpoint was dropped on 2026-08-12 because it cost a round-trip on every Claude Code turn), so nothing on
@@ -361,6 +372,188 @@ for (const c of cases) {
     },
   });
 }
+
+// ── THE FRONT DOOR'S ORDER ───────────────────────────────────────────────────────────────────────
+// **THE NINE CASES ABOVE ALL RIDE ONE SHAPE — `POST /v1/messages/count_tokens` — SO NONE OF THEM CAN SEE
+// THE ORDER OF THE GATES ABOVE THE ARM.** Measured on 2026-10-06 against the deployed `vale-gate-wasm`:
+// `GET /v1/messages` and `POST /v1/models` answered **404** where the shipping gateway answers **401**,
+// and every case in `route-corpus.json` was green through it. The shipping order, read in
+// `handleGatewayImpl`:
+//
+//     GET …/models (public, 200) -> auth (401) -> admin cutover -> rate limit -> route match (404)
+//       -> the body scan -> the retired check (400) -> the key gate -> the arm
+//
+// The three boundaries below are the ones a port can invert while every served-path case still passes:
+// auth against the route match, and the retired check against both.
+const orderCases = [
+  {
+    name: "GET /v1/messages, NO token — auth answers before the route match",
+    method: "GET",
+    path: "/v1/messages",
+    token: "wrong",
+  },
+  {
+    name: "GET /v1/messages, a valid token — the route match answers 404",
+    method: "GET",
+    path: "/v1/messages",
+  },
+  {
+    name: "POST /v1/models, NO token — auth answers before the route match",
+    method: "POST",
+    path: "/v1/models",
+    token: "wrong",
+  },
+  {
+    name: "POST /v1/models, a valid token — the route match answers 404",
+    method: "POST",
+    path: "/v1/models",
+  },
+  {
+    name: "DELETE /v1/messages, NO token — a method the route does not take",
+    method: "DELETE",
+    path: "/v1/messages",
+    token: "wrong",
+  },
+  {
+    name: "DELETE /v1/messages, a valid token — the route match answers 404",
+    method: "DELETE",
+    path: "/v1/messages",
+  },
+  {
+    // **THE RETIRED CHECK IS BELOW AUTH IN THE SOURCE, AND THIS PAIR IS WHAT SAYS SO.** The wasm worker
+    // checked it BEFORE the token was even read, so a retired model with no token answered 400 where the
+    // shipping gateway answers 401 — the same inversion as the route match, one gate further down.
+    name: "a RETIRED model with NO token — auth still answers first",
+    method: "POST",
+    path: "/v1/messages",
+    token: "wrong",
+    model: "ds/deepseek-v4-flash",
+  },
+  {
+    name: "a RETIRED model with a valid token — the retired check answers 400",
+    method: "POST",
+    path: "/v1/messages",
+    model: "ds/deepseek-v4-flash",
+  },
+];
+
+const orderOut = [];
+for (const c of orderCases) {
+  const body = { model: c.model || "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] };
+  __clearCaches();
+  const request = new Request(`https://relay.example${c.path}`, {
+    method: c.method,
+    headers: { "x-api-key": c.token ?? TOKEN, "content-type": "application/json" },
+    // A GET with a body is not a thing; the route reads the body only after the route match anyway.
+    ...(c.method === "GET" ? {} : { body: JSON.stringify(body) }),
+  });
+  const response = await handleGateway(request, envWith({ DEEPSEEK_API_KEY: "sk-test" }), new URL(request.url));
+  orderOut.push({
+    name: c.name,
+    // **THE METHOD AND THE PATH TRAVEL WITH THE CASE**, which the count_tokens corpus does not need and
+    // this one is nothing but: the replay's inputs ARE the method and the path.
+    method: c.method,
+    path: c.path,
+    kind: kindOf(body),
+    ukeys: { DEEPSEEK_API_KEY: "sk-test" },
+    env: {},
+    rawText: c.method === "GET" ? "" : JSON.stringify(body),
+    // The same rule as above: a token that resolves to no user is recorded as no user, rather than
+    // re-derived from the expectation.
+    user: (c.token ?? TOKEN) === TOKEN ? { id: "u-route-test", enabled: true } : null,
+    expected: {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+      body: await response.text(),
+    },
+  });
+}
+writeFileSync(
+  new URL("./fixtures/front-door-corpus.json", import.meta.url),
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING handleGateway. Do not edit by hand.",
+      cases: orderOut,
+    },
+    null,
+    1,
+  ) + "\n",
+);
+
+// ── THE TOKEN'S TWO DOORS ────────────────────────────────────────────────────────────────────────
+// **`handleGatewayImpl` ACCEPTS TWO SPELLINGS OF THE SAME CREDENTIAL, AND THE WASM WORKER READ ONE.**
+// The source's own comment says why both exist — *"x-api-key = the user's gateway token; also accept
+// Authorization: Bearer (OpenAI-compatible clients like DSH send Bearer, not x-api-key)"* — and the rule
+// has three parts that a one-line port gets wrong in three different ways:
+//
+//     const token = request.headers.get("x-api-key") || "";      // an EMPTY one falls through
+//     const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";   // the exact scheme, and a space
+//     const effectiveToken = token || bearerToken;               // x-api-key WINS, wrong or not
+//
+// `GET /v1/messages` is the probe rather than an assertion about internals: with a token that resolves it
+// answers 404 (the route match), and without one 401 — so the status IS the answer to "did the token
+// resolve", which is the whole of this decision.
+const authHeaderCases = [
+  { name: "x-api-key alone", headers: { "x-api-key": TOKEN } },
+  { name: "Authorization: Bearer alone", headers: { authorization: `Bearer ${TOKEN}` } },
+  {
+    name: "both, and the x-api-key WINS even though it is the wrong one",
+    headers: { "x-api-key": "wrong", authorization: `Bearer ${TOKEN}` },
+  },
+  {
+    name: "an EMPTY x-api-key falls through to Bearer",
+    headers: { "x-api-key": "", authorization: `Bearer ${TOKEN}` },
+  },
+  { name: "a lowercase scheme is NOT Bearer", headers: { authorization: `bearer ${TOKEN}` } },
+  { name: "no space after the scheme", headers: { authorization: `Bearer${TOKEN}` } },
+  { name: "Bearer with an empty token", headers: { authorization: "Bearer " } },
+  { name: "no header at all", headers: {} },
+  { name: "a token that resolves to nothing", headers: { "x-api-key": "wrong" } },
+];
+
+const authHeaderOut = [];
+for (const c of authHeaderCases) {
+  __clearCaches();
+  // The body is carried but never read: the route match answers before the body scan on this path.
+  const request = new Request("https://relay.example/v1/messages", {
+    method: "GET",
+    headers: { "content-type": "application/json", ...c.headers },
+  });
+  const response = await handleGateway(request, envWith({ DEEPSEEK_API_KEY: "sk-test" }), new URL(request.url));
+  // **WHAT THE TOKEN RESOLVED TO, RECORDED RATHER THAN RE-DERIVED** — the same rule the route corpus uses
+  // for its 401 case. The oracle knows which spelling it sent, so it can say whether the store would have
+  // found the user; a Rust test cannot know that from the status alone without reasoning backwards.
+  const sent = c.headers["x-api-key"] || c.headers.authorization || "";
+  const effective = c.headers["x-api-key"] ? c.headers["x-api-key"] : sent.startsWith("Bearer ") ? sent.slice(7) : "";
+  authHeaderOut.push({
+    name: c.name,
+    headers: c.headers,
+    // The headers as the WIRE spells them, because the port reads them by name.
+    xApiKey: c.headers["x-api-key"] ?? null,
+    authorization: c.headers.authorization ?? null,
+    tokenResolves: effective === TOKEN,
+    user: effective === TOKEN ? { id: UID, enabled: true } : null,
+    expected: {
+      status: response.status,
+      headers: Object.fromEntries(response.headers),
+      body: await response.text(),
+    },
+  });
+}
+writeFileSync(
+  new URL("./fixtures/auth-header-corpus.json", import.meta.url),
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING handleGateway. Do not edit by hand.",
+      // **THE TOKEN THE FAKE KV HOLDS**, recorded so the replay can ask "did these headers name it"
+      // without hard-coding a string the fixture owns.
+      validToken: TOKEN,
+      cases: authHeaderOut,
+    },
+    null,
+    1,
+  ) + "\n",
+);
 
 /** The route kind a body's model resolves to — the first path segment, which is what `pickRoute` keys on. */
 function kindOf(body) {
@@ -1069,4 +1262,4 @@ writeFileSync(
     1,
   ) + "\n",
 );
-console.log(`route-oracle: ${out.length} count_tokens case(s) and ${passthroughOut.length} request case(s) and ${streamIgnoredOut.length} stream-ignored and ${nonStreamOut.length} non-stream and ${modelsOut.length} models and ${failureOut.length} failure and ${chatOut.length} chat and ${responsesOut.length} responses and ${streamFrameOut.length} stream-frame case(s) written`);
+console.log(`route-oracle: ${out.length} count_tokens and ${orderOut.length} front-door order and ${authHeaderOut.length} auth-header case(s) and ${passthroughOut.length} request case(s) and ${streamIgnoredOut.length} stream-ignored and ${nonStreamOut.length} non-stream and ${modelsOut.length} models and ${failureOut.length} failure and ${chatOut.length} chat and ${responsesOut.length} responses and ${streamFrameOut.length} stream-frame case(s) written`);

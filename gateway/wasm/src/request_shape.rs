@@ -326,10 +326,12 @@ pub fn count_tokens_response(
 /// The message is the same whether the token was absent, unknown or disabled — which is deliberate: naming
 /// which of the three it was tells an attacker whether a token exists.
 ///
-/// **AND THE CORPUS DOES NOT EXERCISE THE `enabled` HALF, WHICH IS A NAMED GAP RATHER THAN A COVERED ONE.**
-/// Its 401 case has NO user at all, so a port that dropped the `enabled` check would still pass every case
-/// in `route-corpus.json`. The check is here because the source has it; a case for a DISABLED user is the
-/// next thing to add to that fixture.
+/// **AND THE CORPUS NOW EXERCISES THE `enabled` HALF — THIS PARAGRAPH SAID IT DID NOT.** It was written when
+/// the fixture's only 401 case had NO user at all, so a port that dropped the `enabled` check would have
+/// passed every case; `route-corpus.json` carries *"a DISABLED user is refused even with a valid token and
+/// key"* and `the_disabled_half_of_the_auth_check_is_exercised` asserts both shapes separately. The stale
+/// sentence is corrected rather than deleted, because a comment claiming a gap that is closed is the same
+/// defect as one claiming coverage that is not there.
 pub fn auth_error(user: Option<&serde_json::Value>) -> Option<crate::responses::Built> {
     let enabled = user
         .and_then(|u| u.get("enabled"))
@@ -343,6 +345,37 @@ pub fn auth_error(user: Option<&serde_json::Value>) -> Option<crate::responses::
         "Missing or invalid x-api-key",
         "authentication_error",
     ))
+}
+
+/// **`effectiveToken` — THE TWO SPELLINGS OF THE SAME CREDENTIAL, IN THE SOURCE'S ORDER.**
+///
+/// `handleGatewayImpl` reads three lines, and each one is a rule:
+///
+/// ```text
+///     const token = request.headers.get("x-api-key") || "";                  // an EMPTY one falls through
+///     const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";   // the exact scheme, and a space
+///     const effectiveToken = token || bearerToken;                           // x-api-key WINS, wrong or not
+/// ```
+///
+/// **THE WORKER READ ONLY THE FIRST LINE UNTIL 2026-10-06, AND THAT IS NOT A MISSING CONVENIENCE**: the
+/// source's own comment says why the second exists — *"also accept Authorization: Bearer (OpenAI-compatible
+/// clients like DSH send Bearer, not x-api-key)"* — so a client that works against the shipping gateway
+/// would have been answered 401 by the cutover. `fixtures/auth-header-corpus.json` is the measurement: nine
+/// header shapes driven through the shipping handler, two of which (`Bearer` alone, and an EMPTY `x-api-key`
+/// beside a `Bearer`) resolve there and did not resolve here.
+///
+/// **`||` IS NOT `??`**: an empty `x-api-key` falls through to the bearer and a WRONG one does not. The
+/// corpus carries both, because they are one character apart in the source and opposite in behaviour.
+pub fn effective_token(x_api_key: Option<&str>, authorization: Option<&str>) -> String {
+    let token = x_api_key.unwrap_or_default();
+    if !token.is_empty() {
+        return token.to_string();
+    }
+    authorization
+        .unwrap_or_default()
+        .strip_prefix("Bearer ")
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// The per-kind key gates for **`/v1/messages`**, in the source's ORDER.
@@ -415,15 +448,27 @@ pub fn key_gate(
 
 /// **THE `/v1` DISPATCH — the shape the worker's `fetch` will call, with its I/O results as arguments.**
 ///
-/// Every piece is ported and proved; what this adds is the ORDER they run in, which the source fixes and the
-/// route corpus now covers end to end:
+/// Every piece is ported and proved; what this adds is the ORDER they run in — **AND THIS ORDER WAS WRONG
+/// UNTIL 2026-10-06.** It said *"the route match (404 …) -> auth (401)"*, which is the reverse of the source:
 ///
 /// ```text
-///     the route match (404 for a path this handler does not serve)
-///       ->  auth (401)
-///         ->  the per-ARM key gate (the two chains differ)
-///           ->  the arm itself
+///     auth (401)
+///       ->  the route match (404 for a path this handler does not serve)
+///         ->  the retired check (400)
+///           ->  the per-ARM key gate (the two chains differ)
+///             ->  the arm itself
 /// ```
+///
+/// **`handleGatewayImpl` READS, IN THIS ORDER**: the public `GET …/models` arm, then the token
+/// (`findUserByToken`, and `!user || !user.enabled` is the 401), the admin cutover, the rate limit, then
+/// `detectRoute` — *"if (!(isCount || isMessages || isChatCompletions || isResponses)) return jsonError(404,
+/// "Not Found", "not_found_error")"* — then the body scan, `retiredModelHint` (400), the key gate and the
+/// arm. **A port that matched the route FIRST answered 404 to `GET /v1/messages` and `POST /v1/models`
+/// where the shipping gateway answers 401**, and every case in `route-corpus.json` was green through it,
+/// because all nine of those cases ride one served shape.
+///
+/// `fixtures/front-door-corpus.json` is that boundary, driven from the same shipping handler; the eight
+/// cases below are what says which side of the route match auth sits on.
 ///
 /// `kind` IS AN ARGUMENT because resolving it — `pick_route` over the model prefix, the KV settings and the
 /// provider records — is its own proved decision, and the worker calls it first.
@@ -440,13 +485,25 @@ pub struct V1Request {
 
 /// The dispatch. Returns the response the handler would send.
 pub fn v1_dispatch(req: &V1Request) -> crate::responses::Built {
+    // **AUTH IS ABOVE THE ROUTE MATCH**, and the pair is what makes the 404 a request with a VALID token
+    // gets rather than the first thing every request meets. See the struct's note for the source's order.
+    if let Some(refusal) = auth_error(req.user.as_ref()) {
+        return refusal;
+    }
     let shape = detect_route(&req.method, &req.path);
     if !(shape.is_count || shape.is_messages || shape.is_chat_completions || shape.is_responses) {
         // `jsonError(404, "Not Found", "not_found_error")` — the arm this handler does not serve.
         return crate::responses::json_error(404, "Not Found", "not_found_error");
     }
-    if let Some(refusal) = auth_error(req.user.as_ref()) {
-        return refusal;
+    // **THE RETIRED CHECK IS BELOW BOTH, AND THE WORKER HAD IT ABOVE BOTH.** It ran before the token was
+    // read, so a retired id with no token answered 400 where the shipping gateway answers 401. The model
+    // comes from the RAW TEXT through the ported scan — the same input the source reads
+    // (`scanTopLevelModel(rawText)`) — rather than from a parse.
+    let raw = req.raw_text.as_str().unwrap_or_default();
+    if let Some(model) = crate::body_scan::scan_top_level_model(raw).model {
+        if let Some(hint) = crate::routing::retired_model_hint(&model) {
+            return crate::routing::retired_model_error(&model, hint);
+        }
     }
     if let Some(refusal) = key_gate(&req.kind, shape.is_chat_completions, &req.byok, &req.env) {
         return refusal;
@@ -652,11 +709,14 @@ pub struct V1PlanInputs<'a> {
     pub scanned: Option<(usize, usize)>,
 }
 
-/// **PHASE ONE — the route match, auth, the per-arm key gate, then either the arm or a plan to dial it.**
+/// **PHASE ONE — auth, the route match, the retired check, the per-arm key gate, then either the arm or a
+/// plan to dial it.**
 ///
 /// `route` IS AN ARGUMENT because resolving it (`pick_route` over the model prefix, the KV settings and the
 /// provider records) is its own proved decision, and the worker calls it first. The four arms the handler
-/// serves are matched here; anything else is the 404 the source sends.
+/// serves are matched here; anything else is the 404 the source sends — **and the 404 comes after auth and
+/// before the retired check**, which is `handleGatewayImpl`'s order rather than the one this function ran
+/// until 2026-10-06 (see `v1_dispatch`'s note; `fixtures/front-door-corpus.json` is the measurement).
 pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
     let V1PlanInputs {
         req,
@@ -668,6 +728,9 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         og_session,
         scanned,
     } = *inputs;
+    if let Some(refusal) = auth_error(req.user.as_ref()) {
+        return V1Plan::Respond(refusal);
+    }
     let shape = detect_route(&req.method, &req.path);
     if !(shape.is_count || shape.is_messages || shape.is_chat_completions || shape.is_responses) {
         return V1Plan::Respond(crate::responses::json_error(
@@ -676,8 +739,12 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
             "not_found_error",
         ));
     }
-    if let Some(refusal) = auth_error(req.user.as_ref()) {
-        return V1Plan::Respond(refusal);
+    // **THE RETIRED CHECK, IN ITS SOURCE POSITION**: below auth, below the route match, above the key gate.
+    // The worker had it above BOTH, which is why a retired id with no token answered 400 where the
+    // shipping gateway answers 401. `model` is already the resolved advertised id, so no scan is needed here
+    // — the scan belongs to `v1_dispatch`, whose only input is the raw text.
+    if let Some(hint) = crate::routing::retired_model_hint(model) {
+        return V1Plan::Respond(crate::routing::retired_model_error(model, hint));
     }
     if let Some(refusal) = key_gate(&req.kind, shape.is_chat_completions, &req.byok, &req.env) {
         return V1Plan::Respond(refusal);
@@ -1026,8 +1093,14 @@ mod count_tokens_tests {
 
     /// **THE ROUTE'S OWN DIFFERENTIAL, REPLAYED — ALL NINE CASES.** `fixtures/route-corpus.json` was
     /// produced by driving the SHIPPING `handleGateway` with a fake KV (`gateway/wasm/route-oracle.mjs`), and
-    /// this drives `v1_dispatch` — the same order the source runs: the route match, auth, the per-arm key
-    /// gate, then the arm.
+    /// this drives `v1_dispatch` — the same order the source runs: **auth, the route match, the retired
+    /// check**, the per-arm key gate, then the arm.
+    ///
+    /// **AND THIS COMMENT SAID "THE ROUTE MATCH, AUTH" UNTIL 2026-10-06**, which was the port's order rather
+    /// than the source's — the defect `the_front_door_orders_auth_above_the_route_match` now covers. It is
+    /// corrected here because a comment that states the order is a claim, and this one was the wrong one.
+    /// **THESE NINE CASES CANNOT SEE THAT ORDER**: every one of them rides `POST
+    /// /v1/messages/count_tokens`, a shape the route serves, so they are green either way.
     ///
     /// **IT USED TO SKIP THREE CASES** marked `beforeArm`: a request answered ABOVE the `count_tokens` arm by
     /// auth, by the OpenRouter key gate, or by the DEFAULT channel an empty body resolves to. Those are what
@@ -1084,6 +1157,135 @@ mod count_tokens_tests {
         assert!(seen_statuses.contains(&200), "no case estimated");
         assert!(seen_statuses.contains(&401), "no case exercised auth");
         assert!(seen_statuses.contains(&502), "no case exercised a key gate");
+    }
+
+    /// **THE FRONT DOOR'S ORDER, REPLAYED — EIGHT CASES, AND THE ONES THAT FAILED BEFORE THE FIX.**
+    ///
+    /// MUTATION: swap the first two blocks of `v1_dispatch` — `detect_route`'s 404 back above
+    ///           `auth_error` — and run this test.
+    /// RESULT:   the four no-token cases and the retired pair fail with `404` (or `400`) against the
+    ///           shipping `401`, naming the case:
+    ///             GET /v1/messages, NO token — auth answers before the route match: status
+    ///             left: 404   right: 401
+    ///           measured 2026-10-06, which is also how the live divergence was found: the deployed
+    ///           `vale-gate-wasm` answered 404 to `GET /v1/messages` while `route-corpus.json` was green.
+    ///
+    /// **WHY A SECOND CORPUS RATHER THAN MORE CASES IN THE FIRST**: every case in `route-corpus.json` rides
+    /// one served shape (`POST /v1/messages/count_tokens`), so none of them can see the order of the gates
+    /// ABOVE the arm — the replay hard-codes that method and path, and the fixture does not carry them.
+    /// This one carries both, which is the whole of its subject.
+    #[test]
+    fn the_front_door_orders_auth_above_the_route_match() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/front-door-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the front-door corpus is committed");
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
+        let cases = doc["cases"].as_array().expect("cases");
+        let mut seen = Vec::new();
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let user = if case["user"].is_null() {
+                None
+            } else {
+                Some(case["user"].clone())
+            };
+            let got = v1_dispatch(&V1Request {
+                method: case["method"].as_str().unwrap_or("POST").to_string(),
+                path: case["path"].as_str().unwrap_or("").to_string(),
+                user,
+                kind: case["kind"].as_str().unwrap_or("").to_string(),
+                byok: crate::byok::extract_byok_keys(&serde_json::json!(case["ukeys"])),
+                env: case["env"].clone(),
+                raw_text: case["rawText"].clone(),
+            });
+            let want = &case["expected"];
+            assert_eq!(
+                got.status,
+                want["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+            assert_eq!(got.body, want["body"].as_str().unwrap_or(""), "{name}: body");
+            seen.push(got.status);
+        }
+        assert_eq!(cases.len(), 8, "the front-door corpus changed size");
+        // **THE THREE ANSWERS THE ORDER PRODUCES, EACH ASSERTED.** A corpus of 401s alone would pass for a
+        // port that refused everything; 404s alone would pass for one that never authenticated; and the 400
+        // is the retired check, which is the gate this file moved as well.
+        assert_eq!(seen.iter().filter(|s| **s == 401).count(), 4, "the no-token half");
+        assert_eq!(seen.iter().filter(|s| **s == 404).count(), 3, "the route match");
+        assert_eq!(seen.iter().filter(|s| **s == 400).count(), 1, "the retired check");
+    }
+
+    /// **THE TOKEN'S TWO DOORS, REPLAYED — NINE HEADER SHAPES FROM THE SHIPPING HANDLER.**
+    ///
+    /// MUTATION: in `effective_token`, drop the `authorization` half — return `x_api_key.unwrap_or_default()`
+    ///           — and run this test.
+    /// RESULT:   the two shapes that ride the bearer fail, naming the case:
+    ///             Authorization: Bearer alone: the token the headers name
+    ///             left: false   right: true
+    ///             an EMPTY x-api-key falls through to Bearer: the token the headers name
+    ///           measured 2026-10-06, which is the shape the worker was in: `v1.rs` read `x-api-key` alone.
+    ///
+    /// **THE REPLAY IS THE WHOLE CHAIN, WITH THE KV AS A RECORDED FACT**: the headers go through the ported
+    /// `effective_token`, and whether that token is the one the fixture's fake KV holds decides the user —
+    /// which is the only input `v1_dispatch` needs to produce the status the shipping handler produced. A
+    /// test that took the recorded `tokenResolves` and skipped the port would assert the fixture against
+    /// itself.
+    #[test]
+    fn the_token_has_two_doors_and_the_first_wins() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/auth-header-corpus.json");
+        let text = std::fs::read_to_string(path).expect("the auth-header corpus is committed");
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
+        let valid = doc["validToken"].as_str().expect("the fixture names its token");
+        let cases = doc["cases"].as_array().expect("cases");
+        let mut through_the_bearer = 0;
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let token = effective_token(case["xApiKey"].as_str(), case["authorization"].as_str());
+            let port_says_user = token == valid;
+            let want_user = case["tokenResolves"].as_bool().unwrap_or(false);
+            assert_eq!(
+                port_says_user, want_user,
+                "{name}: the token the headers name"
+            );
+            // **THE BEARER HALF IS COUNTED BY THE HEADER THAT CARRIED IT, NOT BY AN ABSENT `x-api-key`**:
+            // the second shape that rides the bearer is an EMPTY `x-api-key`, which IS present. The first
+            // version of this counter asked for `is_null()` and found one case where the fixture has two.
+            if !case["authorization"].is_null() && want_user {
+                through_the_bearer += 1;
+            }
+            let user = if port_says_user {
+                let u = case["user"].clone();
+                if u.is_null() {
+                    None
+                } else {
+                    Some(u)
+                }
+            } else {
+                None
+            };
+            let got = v1_dispatch(&V1Request {
+                method: "GET".to_string(),
+                path: "/v1/messages".to_string(),
+                user,
+                kind: "deepseek".to_string(),
+                byok: serde_json::Map::new(),
+                env: serde_json::json!({}),
+                raw_text: serde_json::json!(""),
+            });
+            assert_eq!(
+                got.status,
+                case["expected"]["status"].as_u64().unwrap_or(0) as u16,
+                "{name}: status"
+            );
+        }
+        assert_eq!(cases.len(), 9, "the auth-header corpus changed size");
+        // **BOTH SPELLINGS ARE IN THE FIXTURE**, so a port that dropped either one fails above rather than
+        // passing on a corpus that only ever sent the one it reads.
+        assert!(through_the_bearer >= 2, "the bearer half is not covered");
+        assert!(
+            cases.iter().any(|c| !c["xApiKey"].is_null()),
+            "the x-api-key half is not covered"
+        );
     }
 
     #[test]
