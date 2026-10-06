@@ -912,11 +912,11 @@ for (const [i, c] of CASES.entries()) {
       },
     },
     {
-      // **THE ONE CASE THAT STILL DIFFERS, DECLARED RATHER THAN OMITTED.** `translate-vision.ts` (313 lines)
-      // is not ported: the shipping route describes an image with `og/mimo-v2.5` first and replaces the block
-      // with text, so it makes TWO upstream calls where this worker makes one. Measured 2026-10-06. Leaving
-      // the case out would have made the sweep's number look better than it is; putting it in without this
-      // flag would redden `main`. So it is here, it is counted separately, and the summary names it.
+      // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
+      // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
+      // both sides now make TWO upstream calls with the same bodies. It was carried here with a
+      // `knownDifference` flag while the port was missing — declared rather than omitted, because leaving it out
+      // would have made the number look better than it was — and the flag is gone because the case passes.
       name: "POST /v1/messages, og, an IMAGE content block",
       req: [
         "POST",
@@ -939,7 +939,6 @@ for (const [i, c] of CASES.entries()) {
         },
       ],
       upstream: { body: JSON_OK, type: "application/json", status: 200 },
-      knownDifference: "vision preprocessing (translate-vision.ts) is not ported yet",
     },
     {
       name: "POST /v1/messages, a CUSTOM provider record with vision:true",

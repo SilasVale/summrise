@@ -108,7 +108,9 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   **切流的判据现在是一条数**：`verify.mjs` 的**分歧扫描**（同一份 KV/env/stub 上游/记录型 BreakerDO，发货前门 vs 构建
   产物，逐案比状态、正文、头、抓到的上游请求与 DO 调用序列）。2026-10-06 首跑 **11/18**，7 处不同归成四个家族——
   熔断的读侧（`channelDegradedError`）、写侧（`/trip` 与 `/reset`）、按 arm 分的失败信封、每 token 限流；四个都补完后
-  **19/19 相同**。**"还要多久"就是这条数到 0 的距离**，不是日期。
+  **29/29 相同、0 处已知差异（2026-10-06）**。**"还要多久"就是这条数到 0 的距离**，不是日期——而这条数现在到 0 了：
+  剩下的只有部署动作（zone route、回滚、操作者点头）。最后关掉的是**视觉预处理**（`translate-vision.ts` 313 行：
+  `VISION_MODEL` 描述图片、块换成文字、用户级 SHA-256 KV 缓存 7 天、十个后端表、失败必须失败请求）。
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
 - **A3 切流后删除** `gateway/src` 的 `/v1` 半边（~4,407 行）——**先证明等价，再删**。
