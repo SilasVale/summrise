@@ -204,6 +204,15 @@ fn json(body: String, status: u16) -> Result<Response> {
 /// `jsonError(404, "Not Found", "not_found_error")` produces. It is here so the worker's behaviour
 /// is defined for every request rather than only for the route it moved; it is NOT part of the
 /// route, and the byte comparison in `verify.mjs` does not claim it.
+/// `new Response(null, { headers })` — an EMPTY 200 carrying only headers.
+fn empty_with_headers(headers: Vec<(String, String)>) -> Result<Response> {
+    let h = Headers::new();
+    for (k, v) in &headers {
+        h.set(k, v)?;
+    }
+    Ok(Response::empty()?.with_status(200).with_headers(h))
+}
+
 fn not_found() -> Result<Response> {
     json(
         r#"{"type":"error","error":{"type":"not_found_error","message":"Not Found"}}"#.to_string(),
@@ -214,6 +223,33 @@ fn not_found() -> Result<Response> {
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
+
+    // **THE GLOBAL PREFLIGHT, AND IT IS FIRST FOR TWO REASONS.** The shipping front door does the same in
+    // the same place — `if (request.method === "OPTIONS") return new Response(null, { headers:
+    // corsHeadersFor(request, env) })` — and a live comparison is what showed it was missing here:
+    //
+    //     OPTIONS /v1/messages   wasm 404 (and 30 SECONDS with a body)   ts 200 in 0.86s
+    //
+    // **THE HANG IS THE REASON IT IS NOT MERELY A MISSING HEADER.** An `OPTIONS` that fell through to
+    // `not_found()` never read the request body, and the runtime waited on it — so a browser's preflight,
+    // which is the one request every cross-origin call makes first, was the one request this worker could
+    // not answer. A 404 that hangs is worse than a 404.
+    //
+    // **THE BODY IS NOT READ HERE, WHICH IS THE POINT**: the answer is empty and the headers are the whole
+    // of it, exactly as the source's `new Response(null, …)`.
+    if req.method() == Method::Options {
+        let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+        let host = url.host_str().unwrap_or_default().to_string();
+        let configured = env.var("CONSOLE_HOST").ok().map(|v| v.to_string());
+        // **NO `retain` HERE, AND THE SOURCE SAYS WHY**: `corsHeadersFor` "starts from a fresh set that
+        // never had an ACAO, so 'not allowed' means 'do not add one'" — the delete-the-origin branch
+        // belongs to `stampCors`, which is handed the UPSTREAM's headers. A first version of this copied
+        // that branch here and clippy was right to refuse it: it was a case-insensitive comparison the
+        // helper had already made unnecessary.
+        let headers = crate::cors::cors_headers_for(&origin, Some(&host), configured.as_deref());
+        return empty_with_headers(headers);
+    }
+
     // `path === "/api/health"` — an EXACT match, which is what `index.ts` compares. A prefix match
     // here would answer for paths the deployed front door does not route to this handler.
     if req.method() == Method::Get && url.path() == "/api/health" {
