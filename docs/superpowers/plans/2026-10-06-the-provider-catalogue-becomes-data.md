@@ -111,20 +111,24 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   **29/29 相同、0 处已知差异（2026-10-06）**。**"还要多久"就是这条数到 0 的距离**，不是日期——而这条数现在到 0 了：
   剩下的只有部署动作（zone route、回滚、操作者点头）。最后关掉的是**视觉预处理**（`translate-vision.ts` 313 行：
   `VISION_MODEL` 描述图片、块换成文字、用户级 SHA-256 KV 缓存 7 天、十个后端表、失败必须失败请求）。
-  **切流的确切形状（2026-10-06 实测，可回滚）**：`api.saisi.online` 与 `ai.saisi.online` 是 **Worker 自定义域名**
+  **切流的确切形状（2026-10-06 实测，可回滚）**：控制台那两个主机名是 **Worker 自定义域名**
   （`GET /accounts/<acc>/workers/domains`），都指向 `vale-gate`；`vale-gate-wasm` 没有域名、`workers_dev: false`。
   它只服务 `/v1/*` 与 `/api/health`，所以切流不是换域名，而是**加两条更具体的 zone route**（更具体的 pattern 优先）：
 
-      POST /zones/<zone>/workers/routes   {"pattern":"api.saisi.online/v1/*","script":"vale-gate-wasm"}
-      POST /zones/<zone>/workers/routes   {"pattern":"ai.saisi.online/v1/*", "script":"vale-gate-wasm"}
+      POST /zones/<zone>/workers/routes   {"pattern":"<console-host>/v1/*","script":"vale-gate-wasm"}
+      POST /zones/<zone>/workers/routes   {"pattern":"<console-host-2>/v1/*","script":"vale-gate-wasm"}
 
   **回滚 = 删掉这两条**（自定义域名立刻接管，无需重新部署）：
 
       DELETE /zones/<zone>/workers/routes/<id>
 
-  验证各一条：`curl -s https://api.saisi.online/v1/models | head -c 200` 应与发货逐字节相同；
-  `curl -s -o /dev/null -w '%{http_code}' https://api.saisi.online/api/health` 仍由控制台那条服务（200）。
+  验证各一条：`curl -s https://<console-host>/v1/models | head -c 200` 应与发货逐字节相同；
+  `curl -s -o /dev/null -w '%{http_code}' https://<console-host>/api/health` 仍由控制台那条服务（200）。
   **这一步要操作者点头**：它是改线上前门，不是这个仓库里的一个提交。
+
+  **主机名在这里是占位符，而且不要把它们写回来**：`agent/tests/production_host.rs` 拒绝在文件里出现未申报的线上
+  主机名（实测：这份文档写了两个，CI 的 `agent` 与 `pack-chain` 两个 job 一起变红）。真要写进去，得同时把这个文件
+  加进 `ALLOWED` **并把 `MAX_ALLOWED` 加一**——而那张表只能缩，所以占位符才是对的答案。
 
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
