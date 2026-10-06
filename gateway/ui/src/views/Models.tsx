@@ -53,15 +53,25 @@ import { barePrefix, laneClass } from "../lib/lane.ts";
  *  `reasoningEffort` (fixed below). */
 const providerEntry = (
   id: string,
-  form: { name: string; contextWindow: string; maxTokens: string; reasoningEffort: string },
-  carry?: ProviderModelDraft,
+  form: {
+    name: string;
+    contextWindow: string;
+    maxTokens: string;
+    reasoningEffort: string;
+    vision: boolean;
+  },
+  _carry?: ProviderModelDraft,
 ) => ({
   id,
   ...(form.name.trim() ? { name: form.name.trim() } : {}),
   ...(form.contextWindow.trim() ? { contextWindow: Number(form.contextWindow) } : {}),
   ...(form.maxTokens.trim() ? { maxTokens: Number(form.maxTokens) } : {}),
   ...(form.reasoningEffort ? { reasoningEffort: form.reasoningEffort } : {}),
-  ...(carry?.input ? { input: carry.input } : {}),
+  // **THE DRAFT DECIDES, AND UNCHECKING IS A DECISION TOO.** This used to carry `carry?.input` verbatim, so a
+  // provider model that declared `input: [text, image]` kept it through every re-post and the editor could
+  // never turn it OFF. The POST replaces the whole `models` array, so omitting the field is how "unset" is
+  // spelled — and the server derives `vision` from `input` on the way in.
+  ...(form.vision ? { input: ["text", "image"] } : {}),
 });
 
 /** An entry nobody touched, carried through a re-post VERBATIM.
@@ -154,8 +164,20 @@ export default function ModelsView() {
     contextWindow: "",
     maxTokens: "",
     reasoningEffort: "" as "" | "low" | "medium" | "high" | "max",
+    vision: false,
   });
-  const [newProvider, setNewProvider] = useState({ prefix: "", label: "", baseURL: "", api: "", apiKey: "" });
+  // **TWO KEY SPELLINGS, AND DSH'S IS THE FIRST ONE.** `apiKeyEnv` names a deployed Worker secret (DSH's own
+  // settings.yaml spelling); `apiKey` is an inline value stored in KV. The server refuses BOTH in one record —
+  // "two key sources cannot both be the one this provider sends" — so the form carries both fields and the
+  // server is the judge of the pair.
+  const [newProvider, setNewProvider] = useState({
+    prefix: "",
+    label: "",
+    baseURL: "",
+    api: "",
+    apiKey: "",
+    apiKeyEnv: "",
+  });
   const [newModel, setNewModel] = useState("");
   // The probe result is keyed by prefix so a stale answer cannot be shown against a
   // row the user has since opened.
@@ -294,6 +316,7 @@ export default function ModelsView() {
       contextWindow: f?.contextWindow ? String(f.contextWindow) : "",
       maxTokens: f?.maxTokens ? String(f.maxTokens) : "",
       reasoningEffort: (f?.reasoningEffort as typeof facetDraft.reasoningEffort) ?? "",
+      vision: f?.vision === true,
     });
     setEditFacets(id);
   }, []);
@@ -407,9 +430,17 @@ export default function ModelsView() {
         api: newProvider.api,
         models: [],
         ...(newProvider.apiKey.trim() ? { apiKey: newProvider.apiKey.trim() } : {}),
+        ...(newProvider.apiKeyEnv.trim() ? { apiKeyEnv: newProvider.apiKeyEnv.trim() } : {}),
       });
       toast(t("models.added"));
-      setNewProvider({ prefix: "", label: "", baseURL: "", api: apis[0] || "", apiKey: "" });
+      setNewProvider({
+        prefix: "",
+        label: "",
+        baseURL: "",
+        api: apis[0] || "",
+        apiKey: "",
+        apiKeyEnv: "",
+      });
       setOpen(bare + "/");
       await load();
     } catch (err) {
@@ -436,8 +467,10 @@ export default function ModelsView() {
           models: [
             ...p.models.map(preserveEntry),
             // The same form-built entry the editor writes, so the add row and the facet
-            // editor cannot drift into two shapes for the store that owns both.
-            providerEntry(id, draft),
+            // editor cannot drift into two shapes for the store that owns both. **THE ADD ROW HAS NO VISION
+            // CONTROL** — a model added here is declared text-only, and the facet editor is where declared
+            // vision is turned on afterwards (the same place its other facets are edited).
+            providerEntry(id, { ...draft, vision: false }),
           ],
         });
         setNewModel("");
@@ -570,6 +603,10 @@ export default function ModelsView() {
       contextWindow: m.contextWindow,
       maxTokens: m.maxTokens,
       reasoningEffort: m.reasoningEffort,
+      // The stored record carries `vision` (the server derives it from `input`), and the WIRE form the API
+      // returns may spell it either way — both are read, because a control that opens unchecked on a model
+      // that declares vision would clear it on the next save.
+      vision: m.vision === true || m.input?.includes("image") === true,
     };
   };
 
@@ -844,6 +881,24 @@ export default function ModelsView() {
                           ))}
                         </select>
                       </label>
+                      {/* **DECLARED VISION EXISTS ONLY ON A CUSTOM PROVIDER'S MODEL.** The gateway's own
+                          models are text-only and their facets live in the console's store, which has no such
+                          field — offering the control there would be a switch that silently does nothing. */}
+                      {providers.some((p) => editFacets.startsWith(p.prefix)) && (
+                        <label className="prov-facets-check">
+                          <input
+                            type="checkbox"
+                            checked={facetDraft.vision}
+                            onChange={(e) =>
+                              setFacetDraft({ ...facetDraft, vision: e.target.checked })
+                            }
+                          />
+                          <span>
+                            {t("models.visionLabel")}{" "}
+                            <em className="muted">{t("models.visionHint")}</em>
+                          </span>
+                        </label>
+                      )}
                       <div className="prov-facets-actions">
                         <button
                           type="button"
@@ -1107,6 +1162,17 @@ export default function ModelsView() {
                     type="password"
                     value={newProvider.apiKey}
                     onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
+                  />
+                </label>
+                <label>
+                  <span>
+                    {t("models.apiKeyEnv")} <em className="muted">{t("models.keyEnvHint")}</em>
+                  </span>
+                  <input
+                    className="form-input"
+                    placeholder="SUMMRISE_API_KEY"
+                    value={newProvider.apiKeyEnv}
+                    onChange={(e) => setNewProvider({ ...newProvider, apiKeyEnv: e.target.value })}
                   />
                 </label>
               </div>

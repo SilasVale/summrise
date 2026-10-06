@@ -39,6 +39,8 @@ export interface ProviderView {
     maxTokens?: number;
     reasoningEffort?: string;
     input?: string[];
+    /** The server derives this from `input: [text, image]` and stores it — DSH's declared vision. */
+    vision?: boolean;
   }[];
   /** Fully-qualified ids this provider contributes to /v1/models. */
   advertised: string[];
@@ -56,6 +58,10 @@ export interface ModelFacets {
   maxTokens?: number;
   /** Default when the client sends none; the client's own value always wins. */
   reasoningEffort?: string;
+  /** **THE MODEL SEES IMAGES ITSELF** (DSH's `input: [text, image]`, stored as `vision: true`).
+   *  It exists only on a CUSTOM PROVIDER's model — the gateway's own models are text-only — and it is what
+   *  tells the gateway NOT to describe the picture first (`preprocessImages` short-circuits on it). */
+  vision?: boolean;
 }
 
 /** What a probe found. `notOffered` is a CHECK, never a verdict: the router

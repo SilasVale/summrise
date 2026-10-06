@@ -2720,6 +2720,21 @@ body[data-theme="dark"] .note.tip {
   font-variant-numeric: tabular-nums;
 }
 
+/* Declared vision: a CHECKBOX, so it reads as a row rather than as a field — the grid's
+   `label` rule stacks its children, which would put the caption above the box. */
+.prov-facets-check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.prov-facets-check input {
+  flex: none;
+}
+.prov-facets-check span {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* The facet editor's buttons sit on the grid's last row rather than inside a label. */
 .prov-facets-actions {
   grid-column: 1 / -1;
