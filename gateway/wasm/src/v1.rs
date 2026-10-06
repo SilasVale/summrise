@@ -33,12 +33,20 @@
 //! measurement that shows which half is really left is the one this round added** (`verify.mjs`'s
 //! "the deployment's own key reaches the upstream" section, plus the streaming cases beside it).
 
+use std::sync::Mutex;
+
 use worker::*;
 
 use crate::request_shape::{
     v1_finish, v1_plan, ArmOutcome, UpstreamAnswer, V1Plan, V1PlanInputs, V1Request,
 };
 use crate::responses::Built;
+
+/// **THE PER-TOKEN RATE LIMIT'S COUNTERS — THE SOURCE'S MODULE-LEVEL `Map`s, AS STATE.** Per isolate, exactly
+/// like the JavaScript's: `checkRateLimit` keeps `__rlMin`/`__rlDay` in module scope and never touches KV, so a
+/// second isolate starts its own count. `rate_limit.rs` holds the decision (already corpus-tested); this is the
+/// instance the request path uses.
+static RATE_LIMIT: Mutex<Option<crate::rate_limit::RateLimitState>> = Mutex::new(None);
 
 /// A `Built` becomes the `Response` the runtime sends.
 pub fn to_response(built: Built) -> Result<Response> {
@@ -226,6 +234,26 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()),
         None => None,
     };
+    // **THE RATE LIMIT — THE SOURCE'S POSITION (after auth, before the route match) AND ITS OWN STATE.**
+    // Measured 2026-10-06, both sides driven with the same KV: the shipping route answers `429` on the 49th
+    // POST of a minute for one token, and this worker answered 200 fifty times out of fifty, because nothing
+    // called the ported guard. It is the only thing between a token and an unbounded bill.
+    let now_ms = Date::now().as_millis() as i64;
+    let rate_refusal = {
+        // A poisoned lock must not take the worker down: the counters are a budget, not a ledger.
+        let mut guard = RATE_LIMIT.lock().unwrap_or_else(|e| e.into_inner());
+        guard.get_or_insert_with(Default::default).check(
+            env.kv("KEYS").is_ok(),
+            method.as_ref(),
+            &path,
+            &token,
+            now_ms,
+        )
+    };
+    if let Some(built) = rate_refusal {
+        return to_response(built);
+    }
+
     // **THE USER'S OWN KEYS, IN THE SHAPE THE STORE WRITES — WHICH IS NOT THE SHAPE THE GATES READ.**
     // `store.ts` documents the record: "`ukeys:<id>` → that user's own backend keys
     // `{DEEPSEEK_API_KEY, OPENCODE_GO_API_KEY, OPENROUTER_API_KEY}`", and `translate.ts`'s `extractByokKeys`
@@ -327,6 +355,19 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         return to_response(built);
     };
 
+    // **THE og CIRCUIT, BEFORE THE DIAL** — `channelDegradedError`'s position: after the arm's key gate (which
+    // is inside the plan) and before the upstream call, so a degraded channel fails fast with the sentence
+    // clients already classify as transient instead of hanging on a channel that is not answering. Measured
+    // 2026-10-06: with the BreakerDO reporting degraded, the shipping route answered this 502 and this worker
+    // dialled anyway (200 from the stub upstream).
+    if call.kind == "opencode" && crate::og_degraded(&env).await {
+        return to_response(crate::responses::json_error(
+            502,
+            "og: circuit open (recent upstream failures, try again in ~1 min)",
+            "api_error",
+        ));
+    }
+
     // PHASE TWO'S I/O: one upstream call.
     let mut init = RequestInit::new();
     init.with_method(Method::Post);
@@ -341,10 +382,17 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         .send()
         .await;
     let mut upstream_stream = None;
-    let mut live = false;
+    // Declared, not initialised: the `Err` arm returns, so the only path that reads it assigns it.
+    let live;
     let answer = match upstream {
         Ok(mut res) => {
             let status = res.status_code();
+            // **A REAL 2xx RESETS THE CONSECUTIVE-FAILURE COUNT** — "otherwise yesterday's blips would combine
+            // with today's to trip" — and the reset is a DO call this worker never made (measured: `[]` where
+            // the shipping route called `["/check", "/reset"]`).
+            if call.kind == "opencode" && (200..=299).contains(&status) {
+                crate::record_channel_success(&env).await;
+            }
             let content_type = res.headers().get("content-type")?.unwrap_or_default();
             let retry_after = res.headers().get("retry-after")?;
             // **THE BODY IS TAKEN ONE WAY OR THE OTHER, NEVER BOTH.** `text()` consumes it and `stream()`
@@ -377,7 +425,24 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
                 })
             }
         }
-        Err(_) => None,
+        Err(e) => {
+            // **A FETCH THAT THREW IS NOT A RESPONSE, AND THE SOURCE SHAPES IT DIFFERENTLY.** The detail is
+            // `network error: <message>`; the body is the ARM's envelope (`${label}: ${detail}` for the
+            // translate arm, `upstream 502 (kind): …` for the passthrough ones); and for og it is a BREAKER
+            // TRIP, because a hard network error is one of the two signals `recordChannelFailure` counts —
+            // "a fast 5xx/429 (retries exhausted) is the upstream being flaky, not dead — it must NOT trip".
+            let detail = format!("network error: {}", js_error_message(&e));
+            if call.kind == "opencode" {
+                crate::record_channel_failure(&env).await;
+            }
+            let label = crate::responses::translate_label(&call.kind, None);
+            return to_response(crate::request_shape::upstream_fetch_failure(
+                &call.kind,
+                call.is_translate,
+                &label,
+                &detail,
+            ));
+        }
     };
     if live {
         // **THE LIVE SSE PATH — the last decision to be wired, and the transform does the work.** The upstream
@@ -395,6 +460,19 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             "api_error",
         )),
     }
+}
+
+/// **`e.message`, NOT `String(e)` — AND THE DIFFERENCE IS IN A BODY CLIENTS PARSE.**
+///
+/// The source's detail is `` `network error: ${e.message}` `` — the message WITHOUT the class prefix — while
+/// `worker::Error`'s `Display` prints `Error: <message>` for a JS-thrown error. Measured on the built worker
+/// 2026-10-06 with the same thrown `new Error("network down")`: the shipping route answered
+/// `og: network error: network down` (89 B) and this worker `og: network error: Error: network down` (96 B).
+/// Stripping the prefix reproduces `e.message` — including for a message that itself starts with `Error: `,
+/// where the runtime prints the prefix twice.
+fn js_error_message(e: &worker::Error) -> String {
+    let text = e.to_string();
+    text.strip_prefix("Error: ").unwrap_or(&text).to_string()
 }
 
 /// Build the SSE response from a live upstream stream.
