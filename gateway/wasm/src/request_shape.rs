@@ -625,15 +625,17 @@ pub fn messages_response(arm: &MessagesArm, answer: Option<&UpstreamAnswer>) -> 
         cors_configured,
         secrets,
     } = *arm;
+    let label = crate::responses::translate_label(kind, None);
     let Some(answer) = answer else {
-        // The fetch itself failed: the status is the inspection's own when it looks like one.
-        return ArmOutcome::Response(crate::responses::upstream_fetch_failed(
+        // **THE FETCH ITSELF FAILED, AND THE ENVELOPE IS THE ARM'S** — see `upstream_fetch_failure`. The
+        // status is the inspection's own when it looks like one.
+        return ArmOutcome::Response(upstream_fetch_failure(
             kind,
-            None,
+            is_translate,
+            &label,
             "fetch failed",
         ));
     };
-    let label = crate::responses::translate_label(kind, None);
     if !(200..=299).contains(&answer.status) {
         return ArmOutcome::Response(crate::responses::upstream_body_error(
             answer.status,
@@ -960,6 +962,24 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
 }
 
 /// **PHASE TWO — the answer the call produced becomes the response the client gets.**
+/// **THE FAILURE'S ENVELOPE DEPENDS ON THE ARM, AND THAT IS NOT A DETAIL OF STYLE.** The translate arm
+/// answers `${label}: ${detail}`; the passthrough arms answer `upstream ${status} (${kind}): ${detail}`.
+/// One function so both the plan's own fallback (`v1_finish` with no answer) and the I/O path (`v1.rs`, which
+/// is where a real runtime error message exists) make the SAME decision — and so a Rust test can pin both arms
+/// without a worker.
+pub fn upstream_fetch_failure(
+    kind: &str,
+    is_translate: bool,
+    label: &str,
+    detail: &str,
+) -> crate::responses::Built {
+    if is_translate {
+        crate::responses::translate_failure(label, detail)
+    } else {
+        crate::responses::upstream_fetch_failed(kind, None, detail)
+    }
+}
+
 pub fn v1_finish(call: &ArmCall, answer: Option<&UpstreamAnswer>) -> ArmOutcome {
     let secrets: Vec<serde_json::Value> = Vec::new();
     messages_response(
@@ -1145,6 +1165,59 @@ mod count_tokens_tests {
             m.insert((*k).to_string(), serde_json::json!(v));
         }
         m
+    }
+
+    /// **THE FAILURE'S ENVELOPE IS THE ARM'S — MEASURED ON THE BUILT WORKER, PINNED HERE.**
+    ///
+    /// MUTATION: make `upstream_fetch_failure` ignore `is_translate` (return `upstream_fetch_failed` for both).
+    /// RESULT:   the first case fails with `upstream 502 (opencode): network error: x` where the shipping route
+    ///           answers `og: network error: x` — the difference the divergence sweep found on 2026-10-06
+    ///           (`89B` against `96B`, and the 96 also carried the runtime's `Error: ` prefix).
+    ///
+    /// The label is COMPUTED by `translate_label`, so this pins the second rule too: an `opencode` route labels
+    /// its errors `og:`, a `commandgoat` route `cm:`, a custom one its own prefix.
+    #[test]
+    fn the_failure_envelope_depends_on_the_arm() {
+        let cases = [
+            // kind, is_translate, detail, the expected message
+            ("opencode", true, "network error: x", "og: network error: x"),
+            ("commandgoat", true, "network error: x", "cm: network error: x"),
+            (
+                "custom",
+                true,
+                "timeout after 30000ms",
+                "custom: timeout after 30000ms",
+            ),
+            ("opencode", true, "", "og: upstream 502"),
+            (
+                "opencode",
+                false,
+                "network error: x",
+                "upstream 502 (opencode): network error: x",
+            ),
+            (
+                "nvidia",
+                false,
+                "network error: x",
+                "upstream 502 (nvidia): network error: x",
+            ),
+        ];
+        for (kind, is_translate, detail, want) in cases {
+            let label = crate::responses::translate_label(kind, None);
+            let got = upstream_fetch_failure(kind, is_translate, &label, detail);
+            let body: serde_json::Value = serde_json::from_str(&got.body).expect("JSON");
+            assert_eq!(got.status, 502, "{kind}/{is_translate}: status");
+            assert_eq!(
+                body["error"]["message"].as_str().unwrap_or(""),
+                want,
+                "{kind}/{is_translate}: message"
+            );
+            assert_eq!(
+                body["error"]["type"].as_str().unwrap_or(""),
+                "api_error",
+                "{kind}/{is_translate}: type"
+            );
+        }
     }
 
     fn route_corpus() -> serde_json::Value {

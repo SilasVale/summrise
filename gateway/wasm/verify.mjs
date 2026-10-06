@@ -629,6 +629,408 @@ for (const [i, c] of CASES.entries()) {
   bad += providerBad;
 }
 
+// ── THE DIVERGENCE SWEEP — the number that answers "how much longer" ─────────────────────────────
+// **EVERY CUTOVER BLOCKER FOUND SINCE THE TAKEOVER WAS FOUND THE SAME WAY**: drive the SHIPPING front door and
+// the BUILT worker with the same inputs and compare. What was missing was the SUMMARY, so "are we done?" was a
+// feeling rather than a count. This is that matrix — same KV, same env, the same stubbed upstream and a
+// RECORDING BreakerDO, comparing status, body, headers, the captured upstream request and the DO call log.
+//
+// Measured 2026-10-06, first run: **11/18 identical**. The seven differences were four families — the breaker's
+// read side (`channelDegradedError`), its write side (`/trip` and `/reset`), the per-arm failure envelope, and
+// the per-token rate limit — and the sections above now pin each of them individually. This section is what
+// keeps them at zero: **0 DIFFERENT IS THE EXIT CRITERION FOR THE CUTOVER.**
+{
+  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+
+  const UID = "u-sweep";
+  const TOKEN = "tok-sweep";
+  const JSON_OK = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  const SSE_OK = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
+
+  // **THE NAME IS THE BINDING CHECK**, so this class shadows verify.mjs's own `DurableObjectNamespace` (which
+  // takes only `check`) with one that also records the paths. A stub called `RecordingBreaker` makes every DO
+  // read on the wasm side fail silently — `read_breaker` returns Err and its caller's `unwrap_or(false)` says
+  // "not degraded" — which is how this section's first run reported four breaker differences that were the
+  // harness's, not the worker's.
+  class DurableObjectNamespace {
+    constructor(check, calls) {
+      this.check = check;
+      this.calls = calls;
+    }
+    idFromName(name) {
+      return { name };
+    }
+    get() {
+      const self = this;
+      return {
+        fetch: async (url) => {
+          self.calls.push(typeof url === "string" ? url : (url?.url ?? "[request]"));
+          return new Response(self.check, { status: 200 });
+        },
+      };
+    }
+  }
+
+  const kvFor = (extra = {}) => {
+    const map = new Map([
+      [`token:${TOKEN}`, UID],
+      [`user:${UID}`, JSON.stringify({ id: UID, enabled: true })],
+      [
+        `ukeys:${UID}`,
+        JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og", DEEPSEEK_API_KEY: "sk-user-ds" }),
+      ],
+      ...Object.entries(extra),
+    ]);
+    return {
+      async get(key, type) {
+        if (!map.has(key)) return null;
+        const v = map.get(key);
+        if (type === "json" && typeof v === "string") {
+          try {
+            return JSON.parse(v);
+          } catch {
+            return null;
+          }
+        }
+        return v;
+      },
+      async put(k, v) {
+        map.set(k, v);
+      },
+      async delete(k) {
+        map.delete(k);
+      },
+      async list({ prefix = "" } = {}) {
+        return {
+          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+
+  const SWEEP = [
+    { name: "GET /api/health", req: ["GET", "/api/health"] },
+    { name: "GET /v1/models", req: ["GET", "/v1/models"] },
+    { name: "GET /v1/messages, no token", req: ["GET", "/v1/messages"], token: null },
+    {
+      name: "POST /v1/messages, no token",
+      req: ["POST", "/v1/messages", { model: "og/deepseek-v4.1-flash", messages: [] }],
+      token: null,
+    },
+    {
+      name: "POST /v1/messages, bad token",
+      req: ["POST", "/v1/messages", { model: "og/deepseek-v4.1-flash", messages: [] }],
+      token: "wrong",
+    },
+    {
+      name: "POST /v1/messages, og, upstream JSON 200",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, og, stream:true, upstream SSE",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: { body: SSE_OK, type: "text/event-stream", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, ds (passthrough), upstream 200",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, og, upstream 503",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: "upstream down", type: "text/plain", status: 503 },
+    },
+    {
+      name: "POST /v1/messages, og, upstream 500",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: "upstream exploded", type: "text/plain", status: 500 },
+    },
+    {
+      name: "POST /v1/messages, og, HARD network error",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { throws: true },
+    },
+    {
+      name: "POST /v1/messages, og, breaker DEGRADED",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      breaker: "1",
+    },
+    {
+      name: "POST /v1/messages, retired model",
+      req: ["POST", "/v1/messages", { model: "ds/deepseek-v4-flash", messages: [] }],
+    },
+    {
+      name: "POST /v1/messages/count_tokens",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+      ],
+    },
+    {
+      name: "POST /v1/chat/completions, og",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    { name: "OPTIONS /v1/messages", req: ["OPTIONS", "/v1/messages"] },
+    { name: "GET /foo/v1/messages (outside the prefix)", req: ["GET", "/foo/v1/messages"] },
+    {
+      name: "POST /v1/messages, a CUSTOM provider record",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "acme/acme-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+  ];
+
+  const buildRequest = (c) => {
+    const [method, path, body] = c.req;
+    const headers = { "content-type": "application/json" };
+    if (c.token !== null) headers["x-api-key"] = c.token ?? TOKEN;
+    return new Request(`https://console.test${path}`, {
+      method,
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  };
+
+  const stubUpstream = (c, capture) => {
+    if (!c.upstream) {
+      globalThis.fetch = async () => {
+        throw new Error("the sweep has no upstream for this case");
+      };
+      return;
+    }
+    globalThis.fetch = async (url, init = {}) => {
+      const req = new Request(url, init);
+      capture.push({
+        url: req.url,
+        method: req.method,
+        auth: req.headers.get("authorization") ?? null,
+        body: await req.text(),
+      });
+      if (c.upstream.throws) throw new Error("network down");
+      const bytes = new TextEncoder().encode(c.upstream.body);
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: c.upstream.status,
+        headers: { "content-type": c.upstream.type },
+      });
+    };
+  };
+
+  const realFetch = globalThis.fetch;
+  let sweepSame = 0;
+  const sweepDifferent = [];
+  for (const [i, c] of SWEEP.entries()) {
+    const shipCalls = [];
+    const shipBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
+    stubUpstream(c, shipCalls);
+    __clearDegradedCache();
+    // The KV cache is per-isolate module state with a TTL: without this, the case that ADDS a
+    // `providers:custom` record reads the absence the cases before it cached.
+    __clearCaches();
+    let shipStatus = 0;
+    let shipBody = "";
+    let shipHeaders = [];
+    try {
+      const env = {
+        KEYS: kvFor(c.kv),
+        BREAKER: shipBreaker,
+        DO_AUTH: "stub",
+        CONSOLE_HOST: "console.test",
+        CONSOLE_ORIGINS: "https://console.test",
+      };
+      const res = await shippingDoor.fetch(buildRequest(c), env, {});
+      shipStatus = res.status;
+      shipBody = await res.text();
+      shipHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+    } catch (e) {
+      shipBody = `THREW ${e}`;
+    }
+    globalThis.fetch = realFetch;
+
+    const wasmCalls = [];
+    const wasmBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
+    stubUpstream(c, wasmCalls);
+    const worker = await import(`${pathToFileURL(BUILT).href}?sweep=${i}`);
+    const instance = new worker.default();
+    instance.env = { KEYS: kvFor(c.kv), BREAKER: wasmBreaker, DO_AUTH: "stub" };
+    instance.ctx = {};
+    let wasmStatus = 0;
+    let wasmBody = "";
+    let wasmHeaders = [];
+    try {
+      const res = await instance.fetch(buildRequest(c));
+      wasmStatus = res.status;
+      wasmBody = await res.text();
+      wasmHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+    } catch (e) {
+      wasmBody = `THREW ${e}`;
+    }
+    globalThis.fetch = realFetch;
+
+    const notes = [];
+    if (shipStatus !== wasmStatus) notes.push(`status ${shipStatus} vs ${wasmStatus}`);
+    if (shipBody !== wasmBody) {
+      notes.push(
+        `body ${shipBody.length}B vs ${wasmBody.length}B :: ship ${JSON.stringify(shipBody.slice(0, 70))} :: wasm ${JSON.stringify(wasmBody.slice(0, 70))}`,
+      );
+    }
+    if (JSON.stringify(shipHeaders) !== JSON.stringify(wasmHeaders)) notes.push("headers differ");
+    if (JSON.stringify(shipCalls) !== JSON.stringify(wasmCalls)) {
+      notes.push(`upstream calls ${shipCalls.length} vs ${wasmCalls.length}`);
+    }
+    if (JSON.stringify(shipBreaker.calls) !== JSON.stringify(wasmBreaker.calls)) {
+      notes.push(
+        `breaker ${JSON.stringify(shipBreaker.calls)} vs ${JSON.stringify(wasmBreaker.calls)}`,
+      );
+    }
+    if (notes.length === 0) {
+      sweepSame++;
+    } else {
+      sweepDifferent.push({ name: c.name, notes });
+    }
+  }
+
+  // ── and the per-token rate limit, which needs its own budget rather than one request ───────────
+  {
+    const rlToken = "tok-sweep-rate";
+    const rlKv = () => {
+      const k = kvFor();
+      return k;
+    };
+    const rlRequest = () =>
+      new Request("https://console.test/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": rlToken, "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        }),
+      });
+    const seed = async (keys) => {
+      await keys.put(`token:${rlToken}`, UID);
+      await keys.put(`user:${UID}`, JSON.stringify({ id: UID, enabled: true }));
+      await keys.put(`ukeys:${UID}`, JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og" }));
+    };
+    let shipFirst429 = null;
+    {
+      const keys = rlKv();
+      await seed(keys);
+      __clearCaches();
+      const env = { KEYS: keys, BREAKER: new DurableObjectNamespace("0", []), DO_AUTH: "stub" };
+      for (let n = 1; n <= 50; n++) {
+        stubUpstream({ upstream: { body: JSON_OK, type: "application/json", status: 200 } }, []);
+        const res = await shippingDoor.fetch(rlRequest(), env, {});
+        if (res.status === 429 && shipFirst429 === null) shipFirst429 = n;
+        await res.text();
+      }
+      globalThis.fetch = realFetch;
+    }
+    let wasmFirst429 = null;
+    {
+      const keys = rlKv();
+      await seed(keys);
+      const worker = await import(`${pathToFileURL(BUILT).href}?sweep=rate`);
+      const instance = new worker.default();
+      instance.env = { KEYS: keys, BREAKER: new DurableObjectNamespace("0", []), DO_AUTH: "stub" };
+      instance.ctx = {};
+      for (let n = 1; n <= 50; n++) {
+        stubUpstream({ upstream: { body: JSON_OK, type: "application/json", status: 200 } }, []);
+        const res = await instance.fetch(rlRequest());
+        if (res.status === 429 && wasmFirst429 === null) wasmFirst429 = n;
+        await res.text();
+      }
+      globalThis.fetch = realFetch;
+    }
+    if (shipFirst429 === wasmFirst429 && shipFirst429 !== null) {
+      sweepSame++;
+    } else {
+      sweepDifferent.push({
+        name: "the per-token rate limit (50 POSTs in one minute)",
+        notes: [`first 429 at ${shipFirst429} vs ${wasmFirst429}`],
+      });
+    }
+  }
+
+  const total = SWEEP.length + 1;
+  console.log(
+    `  the divergence sweep, shipping front door against the built worker: ${sweepSame}/${total} identical`,
+  );
+  for (const d of sweepDifferent) {
+    console.log(`      FAIL ${d.name}`);
+    for (const n of d.notes) console.log(`           ${n}`);
+  }
+  bad += sweepDifferent.length;
+}
+
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
 const size = (p) => execSync(`gzip -9 -c '${p}' | wc -c`, { encoding: "utf8" }).trim();

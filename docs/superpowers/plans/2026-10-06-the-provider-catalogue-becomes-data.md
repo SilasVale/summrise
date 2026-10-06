@@ -105,6 +105,10 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 
 - **A1 切流①**（gateway 流式路由 → wasm）：前置已在本会话补齐并实测——前门顺序、两种 token 拼写、env 输入、
   BYOK 记录形状、每请求 CORS；流式响应与发货路由 **3/3 逐字节相同**。剩下是部署动作（zone route、回滚、操作者点头）。
+  **切流的判据现在是一条数**：`verify.mjs` 的**分歧扫描**（同一份 KV/env/stub 上游/记录型 BreakerDO，发货前门 vs 构建
+  产物，逐案比状态、正文、头、抓到的上游请求与 DO 调用序列）。2026-10-06 首跑 **11/18**，7 处不同归成四个家族——
+  熔断的读侧（`channelDegradedError`）、写侧（`/trip` 与 `/reset`）、按 arm 分的失败信封、每 token 限流；四个都补完后
+  **19/19 相同**。**"还要多久"就是这条数到 0 的距离**，不是日期。
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
 - **A3 切流后删除** `gateway/src` 的 `/v1` 半边（~4,407 行）——**先证明等价，再删**。

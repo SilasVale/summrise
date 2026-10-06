@@ -120,6 +120,29 @@ pub fn key_missing_error(kind: &str) -> Option<Built> {
         .map(|(_, msg)| json_error(502, msg, "config_error"))
 }
 
+/// **THE TRANSLATE ARM'S OWN FAILURE ENVELOPE — `${label}: ${detail}` — AND IT IS NOT
+/// `upstreamFetchFailedResponse`'s.**
+///
+/// `translate.ts` carries BOTH shapes, and its own comment says so: "the og/cm arm answers
+/// `${label}: ${detail || upstream N}`" while the passthrough arms answer `upstream ${status} (${kind}):
+/// ${detail}`. MEASURED 2026-10-06 on a hard network error: the shipping route answered
+/// `og: network error: network down` and this worker answered `upstream 502 (opencode): …`, because the
+/// worker used one envelope for every arm.
+///
+/// `detail || "upstream 502"` is JS TRUTHINESS: an empty detail takes the fallback.
+pub fn translate_failure(label: &str, detail: &str) -> Built {
+    let detail = if detail.is_empty() {
+        "upstream 502"
+    } else {
+        detail
+    };
+    json_error(
+        502,
+        &format!("{label}: {detail}"),
+        error_type_for_status(502),
+    )
+}
+
 /// `providerKeyMissingError(provider)`: the 502 for a CUSTOM provider, which names the provider and the
 /// exact thing an operator has to set.
 ///

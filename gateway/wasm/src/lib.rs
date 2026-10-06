@@ -150,7 +150,7 @@ const DEGRADED_CACHE_TTL_MS: u64 = 5000;
 /// the TTL, otherwise the DO — and `false` when the read FAILS, which is the TypeScript's `catch`
 /// (`console.error("[breaker] check failed: …")` then `return false`). A failed read must not be
 /// reported as a healthy channel NOR as a tripped one.
-async fn og_degraded(env: &Env) -> bool {
+pub(crate) async fn og_degraded(env: &Env) -> bool {
     let now = Date::now().as_millis();
     if let Ok(cache) = DEGRADED_CACHE.lock() {
         if let Some((at, value)) = *cache {
@@ -168,6 +168,34 @@ async fn og_degraded(env: &Env) -> bool {
 
 /// `breakerStub(env).fetch("https://breaker/check", { headers: breakerHeaders(env) })` → `"1"`.
 async fn read_breaker(env: &Env) -> Result<bool> {
+    Ok(breaker_call(env, "/check").await?.unwrap_or_default() == "1")
+}
+
+/// **THE WRITE SIDE OF THE BREAKER — AND IT WAS MISSING ENTIRELY.** `recordChannelFailure` /
+/// `recordChannelSuccess` are calls to the DO (`/trip`, `/reset`), and this worker made neither: measured
+/// 2026-10-06 with a DO stub that records every path it is asked for, a SUCCESSFUL og request made the
+/// shipping route call `["/check", "/reset"]` while this worker called `[]`, and a hard network error made it
+/// call `["/check", "/trip"]` against `[]`. The consequence at cutover is not cosmetic: the circuit would
+/// never open on new failures nor close on new successes, so the health card and the fail-fast guard would
+/// both be reading state that only the old worker still maintained.
+pub(crate) async fn record_channel_failure(env: &Env) -> bool {
+    // `recordChannelFailure` invalidates the 5 s cache immediately — "otherwise this isolate's health checks
+    // keep reporting ok for up to 5s after a trip".
+    if let Ok(mut cache) = DEGRADED_CACHE.lock() {
+        *cache = Some((0, false));
+    }
+    breaker_call(env, "/trip").await.is_ok()
+}
+
+/// `recordChannelSuccess` → `/reset`. It does NOT touch the cache in the source (only the failure path does).
+pub(crate) async fn record_channel_success(env: &Env) -> bool {
+    breaker_call(env, "/reset").await.is_ok()
+}
+
+/// `breakerStub(env).fetch("https://breaker<path>", { headers: breakerHeaders(env) })` — the check, the trip
+/// and the reset differ only in the path. `Ok(None)` is the TypeScript's `catch`: a DO that cannot be reached
+/// is logged there and swallowed, never surfaced as a request failure.
+async fn breaker_call(env: &Env, path: &str) -> Result<Option<String>> {
     let namespace = env.durable_object("BREAKER")?;
     let stub = namespace.id_from_name("og")?.get_stub()?;
 
@@ -177,10 +205,10 @@ async fn read_breaker(env: &Env) -> Result<bool> {
     }
     let mut init = RequestInit::new();
     init.with_headers(headers);
-    let request = Request::new_with_init("https://breaker/check", &init)?;
+    let request = Request::new_with_init(&format!("https://breaker{path}"), &init)?;
 
     let mut response = stub.fetch_with_request(request).await?;
-    Ok(response.text().await? == "1")
+    Ok(Some(response.text().await?))
 }
 
 /// A JSON response with the headers `jsonOk` sets (`http.ts`).
