@@ -1060,12 +1060,9 @@ pub fn chat_completions_request(
         body,
         headers,
         // **`ogTimeoutMs`, NOT `passthroughTimeoutMs`** — the two arms differ here, and the difference is a
-        // number no shape-based reading would notice.
-        policy: crate::reliability::retry_policy_for(
-            kind,
-            upstream_model,
-            crate::reliability::og_timeout_ms(env),
-        ),
+        // number no shape-based reading would notice. And the POLICY is this arm's own (`chat_retry_policy`),
+        // not the shared table's: see its doc comment for the source's reason.
+        policy: chat_retry_policy(env),
     }
 }
 
@@ -2403,19 +2400,24 @@ mod passthrough_differential {
                     // that cannot fail, which this test was until a mutation proved it: routing the arm
                     // through the shared table changed the answer and the assertion stayed green.
                     //
-                    // WHAT IT MUST BE: og's 120 s budget with FOUR attempts and a 502 retry, for EVERY kind
-                    // this arm serves. The shared table would answer `{timeoutMs}` alone for a kind that is
-                    // not nv/gmi — the "silently drop to the plain budget" the round-77 review caught.
+                    // **WHAT IT MUST BE WAS SETTLED BY MEASUREMENT, NOT BY READING, ON 2026-10-06**: this
+                    // block used to assert FOUR attempts and a 502 retry — the CHAT arm's policy — and the
+                    // source passes the translate arm `{ timeoutMs: ogTimeoutMs(env) }` alone. The divergence
+                    // sweep is what decided it: against a 503 the shipping route dialled ONCE (this worker,
+                    // with the chat arm's numbers, dialled four) and against a 429 it dialled THREE (this
+                    // worker four). So: og's budget, `fetchWithRetry`'s own defaults for everything else.
                     assert_eq!(r.policy.timeout_ms, 120_000.0, "{name}: og's budget");
-                    assert_eq!(r.policy.attempts, Some(4), "{name}: four attempts");
-                    assert_eq!(r.policy.retry502, Some(true), "{name}: and a 502 retry");
+                    assert_eq!(r.policy.attempts, None, "{name}: the default 3, not 4");
+                    assert_eq!(r.policy.retry502, None, "{name}: and NO 502 retry");
                     assert_eq!(r.policy.backoff_ms, None, "{name}");
                     assert_eq!(r.policy.ignore_retry_after, None, "{name}");
-                    assert_ne!(
-                        r.policy,
-                        crate::reliability::retry_policy_for("deepseek", wire, 120_000.0),
-                        "{name}: this must NOT be the shared table's answer"
+                    // And the CHAT arm's policy is a different one, which is the whole point of the split.
+                    assert_eq!(
+                        chat_retry_policy(None).attempts,
+                        Some(4),
+                        "{name}: the chat arm keeps its four attempts"
                     );
+                    assert_eq!(chat_retry_policy(None).retry502, Some(true), "{name}");
                     PassthroughRequest {
                         body: r.body,
                         headers: r.headers,
@@ -2496,6 +2498,26 @@ pub struct TranslateRequest {
 
 /// The uniform policy this arm uses for every kind it serves.
 pub fn translate_retry_policy(env: Option<&serde_json::Value>) -> crate::reliability::RetryPolicy {
+    // **THE SOURCE PASSES `{ timeoutMs: ogTimeoutMs(env) }` AND NOTHING ELSE** — every other field takes
+    // `fetchWithRetry`'s own default, so `attempts` is 3 and `retry502` is FALSE: a 502/503 is "the upstream
+    // being flaky" and is handed straight back to the client.
+    //
+    // **THIS FUNCTION USED TO CARRY THE CHAT ARM'S NUMBERS** (`attempts: 4, retry502: true`) — the two arms'
+    // policies had been swapped, which no shape-based reading would notice and the divergence sweep did, on
+    // 2026-10-06: a 503 made the shipping route dial ONCE and this worker FOUR times, a 429 three against four.
+    crate::reliability::RetryPolicy {
+        timeout_ms: crate::reliability::og_timeout_ms(env),
+        attempts: None,
+        backoff_ms: None,
+        retry502: None,
+        ignore_retry_after: None,
+    }
+}
+
+/// **THE CHAT ARM'S POLICY IS ITS OWN, AND ITS COMMENT SAYS WHY**: "Deliberately NOT the shared table: this arm
+/// serves every kind but uses one uniform policy (attempts + retry502 for all) — routing it through
+/// `retryPolicyFor` would silently drop non-nv/gmi kinds to the plain budget (3 attempts, no retry502)."
+pub fn chat_retry_policy(env: Option<&serde_json::Value>) -> crate::reliability::RetryPolicy {
     crate::reliability::RetryPolicy {
         timeout_ms: crate::reliability::og_timeout_ms(env),
         attempts: Some(4),

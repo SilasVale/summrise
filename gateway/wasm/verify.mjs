@@ -821,6 +821,163 @@ for (const [i, c] of CASES.entries()) {
     { name: "OPTIONS /v1/messages", req: ["OPTIONS", "/v1/messages"] },
     { name: "GET /foo/v1/messages (outside the prefix)", req: ["GET", "/foo/v1/messages"] },
     {
+      name: "POST /v1/messages, og, upstream 429 (does it retry?)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: "slow down", type: "text/plain", status: 429, retryAfter: "1" },
+    },
+    {
+      name: "POST /v1/messages, og, upstream 429 with a JSON body",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: {
+        body: JSON.stringify({ error: { message: "slow down", type: "rate_limit_error" } }),
+        type: "application/json",
+        status: 429,
+        retryAfter: "3",
+      },
+    },
+    {
+      name: "POST /v1/messages, og, upstream 503 (NOT retried: the billing guard)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: "upstream down", type: "text/plain", status: 503 },
+    },
+    {
+      name: "POST /v1/messages, og, upstream 502 with Retry-After",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: "bad gateway", type: "text/plain", status: 502, retryAfter: "7" },
+    },
+    {
+      name: "POST /v1/messages, og, upstream that NEVER answers (OG_TIMEOUT_MS=1500)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { hangs: true },
+      env: { OG_TIMEOUT_MS: "1500" },
+      deadlineMs: 8000,
+    },
+    {
+      name: "POST /v1/messages, nv (translate branch), upstream 200",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "nv/meta/llama-3.3-70b-instruct", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/responses, og/muse-spark-1.2-contributor",
+      req: ["POST", "/v1/responses", { model: "og/muse-spark-1.2-contributor", input: "hi" }],
+      upstream: {
+        body: JSON.stringify({
+          id: "r1",
+          output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }],
+        }),
+        type: "application/json",
+        status: 200,
+      },
+    },
+    {
+      name: "POST /v1/messages, og, upstream SSE with an IN-BAND error",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: {
+        body: 'data: {"error":{"message":"upstream died","type":"api_error"}}\n\n',
+        type: "text/event-stream",
+        status: 200,
+      },
+    },
+    {
+      // **THE ONE CASE THAT STILL DIFFERS, DECLARED RATHER THAN OMITTED.** `translate-vision.ts` (313 lines)
+      // is not ported: the shipping route describes an image with `og/mimo-v2.5` first and replaces the block
+      // with text, so it makes TWO upstream calls where this worker makes one. Measured 2026-10-06. Leaving
+      // the case out would have made the sweep's number look better than it is; putting it in without this
+      // flag would redden `main`. So it is here, it is counted separately, and the summary names it.
+      name: "POST /v1/messages, og, an IMAGE content block",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      knownDifference: "vision preprocessing (translate-vision.ts) is not ported yet",
+    },
+    {
+      name: "POST /v1/messages, a CUSTOM provider record with vision:true",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "acme/acme-chat",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat", vision: true }],
+          },
+        ]),
+      },
+    },
+    {
       name: "POST /v1/messages, a CUSTOM provider record",
       req: [
         "POST",
@@ -870,6 +1027,19 @@ for (const [i, c] of CASES.entries()) {
         body: await req.text(),
       });
       if (c.upstream.throws) throw new Error("network down");
+      if (c.upstream.hangs) {
+        // **A HANGING STUB MUST STILL HONOR THE ABORT SIGNAL**, or it measures nothing: the first version of
+        // this case returned a never-settling promise and ignored `init.signal`, so the SHIPPING side hung too
+        // and the case reported "identical" for two sides that both never answered.
+        return new Promise((_, reject) => {
+          const signal = init.signal;
+          if (signal && typeof signal.addEventListener === "function") {
+            signal.addEventListener("abort", () =>
+              reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" })),
+            );
+          }
+        });
+      }
       const bytes = new TextEncoder().encode(c.upstream.body);
       const stream = new ReadableStream({
         start(controller) {
@@ -877,16 +1047,23 @@ for (const [i, c] of CASES.entries()) {
           controller.close();
         },
       });
-      return new Response(stream, {
-        status: c.upstream.status,
-        headers: { "content-type": c.upstream.type },
-      });
+      const headers = { "content-type": c.upstream.type };
+      if (c.upstream.retryAfter) headers["retry-after"] = c.upstream.retryAfter;
+      return new Response(stream, { status: c.upstream.status, headers });
     };
+  };
+
+  // **A HANGING UPSTREAM CANNOT BE WAITED OUT FOREVER**: this is how long the harness gives each side, so a
+  // hang is a MEASUREMENT ("HUNG") rather than a hung harness.
+  const withDeadline = async (work, ms) => {
+    if (!ms) return work();
+    return Promise.race([work(), new Promise((resolve) => setTimeout(() => resolve("HUNG"), ms))]);
   };
 
   const realFetch = globalThis.fetch;
   let sweepSame = 0;
   const sweepDifferent = [];
+  const sweepKnown = [];
   for (const [i, c] of SWEEP.entries()) {
     const shipCalls = [];
     const shipBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
@@ -905,11 +1082,17 @@ for (const [i, c] of CASES.entries()) {
         DO_AUTH: "stub",
         CONSOLE_HOST: "console.test",
         CONSOLE_ORIGINS: "https://console.test",
+        ...(c.env ?? {}),
       };
-      const res = await shippingDoor.fetch(buildRequest(c), env, {});
-      shipStatus = res.status;
-      shipBody = await res.text();
-      shipHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+      const res = await withDeadline(() => shippingDoor.fetch(buildRequest(c), env, {}), c.deadlineMs);
+      if (res === "HUNG") {
+        shipStatus = -1;
+        shipBody = "HUNG";
+      } else {
+        shipStatus = res.status;
+        shipBody = await res.text();
+        shipHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+      }
     } catch (e) {
       shipBody = `THREW ${e}`;
     }
@@ -920,16 +1103,21 @@ for (const [i, c] of CASES.entries()) {
     stubUpstream(c, wasmCalls);
     const worker = await import(`${pathToFileURL(BUILT).href}?sweep=${i}`);
     const instance = new worker.default();
-    instance.env = { KEYS: kvFor(c.kv), BREAKER: wasmBreaker, DO_AUTH: "stub" };
+    instance.env = { KEYS: kvFor(c.kv), BREAKER: wasmBreaker, DO_AUTH: "stub", ...(c.env ?? {}) };
     instance.ctx = {};
     let wasmStatus = 0;
     let wasmBody = "";
     let wasmHeaders = [];
     try {
-      const res = await instance.fetch(buildRequest(c));
-      wasmStatus = res.status;
-      wasmBody = await res.text();
-      wasmHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+      const res = await withDeadline(() => instance.fetch(buildRequest(c)), c.deadlineMs);
+      if (res === "HUNG") {
+        wasmStatus = -1;
+        wasmBody = "HUNG";
+      } else {
+        wasmStatus = res.status;
+        wasmBody = await res.text();
+        wasmHeaders = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+      }
     } catch (e) {
       wasmBody = `THREW ${e}`;
     }
@@ -953,6 +1141,14 @@ for (const [i, c] of CASES.entries()) {
     }
     if (notes.length === 0) {
       sweepSame++;
+      if (c.knownDifference) {
+        console.log(`      FIXED ${c.name} — remove it from the known-difference list`);
+      }
+    } else if (c.knownDifference) {
+      // **A KNOWN DIFFERENCE IS COUNTED SEPARATELY, AND IT STAYS VISIBLE.** It is not a pass (the number says
+      // how many cases match, and this is not one) and it is not a failure of `main` (the port it waits for is
+      // named work, not a regression).
+      sweepKnown.push({ name: c.name, why: c.knownDifference });
     } else {
       sweepDifferent.push({ name: c.name, notes });
     }
@@ -1022,11 +1218,14 @@ for (const [i, c] of CASES.entries()) {
 
   const total = SWEEP.length + 1;
   console.log(
-    `  the divergence sweep, shipping front door against the built worker: ${sweepSame}/${total} identical`,
+    `  the divergence sweep, shipping front door against the built worker: ${sweepSame}/${total} identical, ${sweepKnown.length} known difference(s)`,
   );
   for (const d of sweepDifferent) {
     console.log(`      FAIL ${d.name}`);
     for (const n of d.notes) console.log(`           ${n}`);
+  }
+  for (const k of sweepKnown) {
+    console.log(`      KNOWN ${k.name} — ${k.why}`);
   }
   bad += sweepDifferent.length;
 }

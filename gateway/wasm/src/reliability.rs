@@ -129,6 +129,95 @@ pub fn retry_policy_for(kind: &str, upstream_model: &str, timeout_ms: f64) -> Re
     }
 }
 
+/// `fetchWithRetry`'s own defaults — the destructuring defaults in its options object, not a table.
+pub const DEFAULT_ATTEMPTS: i64 = 3;
+pub const DEFAULT_BACKOFF_MS: f64 = 750.0;
+pub const DEFAULT_MAX_WAIT_MS: f64 = 10_000.0;
+
+/// `mayRetry5xx(status)`: "Treat 502/503 as retryable — caller asserts the upstream rejects BEFORE processing,
+/// so re-sending cannot double-bill a BYOK key. Other 5xx stay gated by `idempotent`."
+pub fn may_retry_5xx(status: u16, idempotent: bool, retry502: bool) -> bool {
+    if status == 502 || status == 503 {
+        idempotent || retry502
+    } else {
+        idempotent
+    }
+}
+
+/// What `fetchWithRetry` does with ONE response — and the two details it can carry.
+///
+/// **THE DETAIL IS CLIENT-VISIBLE**: the arms put it in the error body when there is no response to normalize
+/// (`${label}: ${detail}`), so "upstream 500 (not retried — POST may have been billed)" is a sentence a user
+/// reads, and its exact spelling is part of the port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetryDecision {
+    /// Wait, then try again. The detail is what the source sets before continuing.
+    Retry { detail: String },
+    /// Hand this response back. An empty detail is the source's `{ response: last, detail: "" }`.
+    Stop { detail: String },
+}
+
+/// The loop's decision for a response, in the source's own order — and the ORDER is the behaviour.
+///
+/// `ok || !(status >= 500 || status === 429)` stops on everything the caller must see (a 4xx that is not 429,
+/// and every 2xx); then the retryable branch (429 always, 5xx per `mayRetry5xx`); then the "billing guard"
+/// detail for a 5xx that may have been processed already.
+pub fn retry_decision(
+    status: u16,
+    attempt: i64,
+    attempts: i64,
+    idempotent: bool,
+    retry502: bool,
+) -> RetryDecision {
+    let ok = (200..=299).contains(&status);
+    if ok || !(status >= 500 || status == 429) {
+        return RetryDecision::Stop {
+            detail: String::new(),
+        };
+    }
+    if status == 429 || (status >= 500 && may_retry_5xx(status, idempotent, retry502)) {
+        let detail = format!("upstream {status} (retried {attempt}/{attempts})");
+        return if attempt < attempts {
+            RetryDecision::Retry { detail }
+        } else {
+            RetryDecision::Stop { detail }
+        };
+    }
+    if attempt >= attempts {
+        return RetryDecision::Stop {
+            detail: format!("upstream {status} (retried {attempt}/{attempts})"),
+        };
+    }
+    RetryDecision::Stop {
+        detail: format!("upstream {status} (not retried — POST may have been billed)"),
+    }
+}
+
+/// `retryWaitMs()` — with the clock's two inputs as ARGUMENTS: `jitter` (`Math.floor(Math.random() * 200)`)
+/// and the upstream's `retry-after`, which is read off the response the loop just got.
+///
+/// `Number(last?.headers?.get?.("retry-after"))` is a COERCION: an absent header is `Number(undefined)` = NaN,
+/// and `Number.isFinite(ra) && ra > 0` then refuses it — so a header of `"0"`, `"-5"` or `"later"` all fall
+/// back to the ladder. Everything is clamped to `maxWaitMs` so "a huge header can't stall the request".
+pub fn retry_wait_ms(
+    ignore_retry_after: bool,
+    retry_after: Option<&str>,
+    backoff_ms: f64,
+    attempt: i64,
+    jitter: f64,
+    max_wait_ms: f64,
+) -> f64 {
+    if ignore_retry_after {
+        return (backoff_ms + jitter).min(max_wait_ms);
+    }
+    let ra = match retry_after {
+        Some(raw) => crate::reliability::js_number(&serde_json::Value::String(raw.to_string())),
+        None => f64::NAN,
+    };
+    let ra_ms = if ra.is_finite() && ra > 0.0 { ra * 1000.0 } else { 0.0 };
+    (ra_ms.max(backoff_ms * attempt as f64) + jitter).min(max_wait_ms)
+}
+
 /// The shared body of `upstreamTimeoutMs` and `ogTimeoutMs`: `Number.isFinite(v) && v > 0 ? v : DEFAULT`.
 ///
 /// **THE ORDER IS THE SEMANTICS.** `Number.isFinite` refuses `Infinity` and `NaN` alike, and `v > 0`
@@ -238,6 +327,102 @@ mod oracle_corpus {
             m.insert("ignoreRetryAfter".into(), serde_json::json!(v));
         }
         serde_json::Value::Object(m)
+    }
+
+    /// **THE RETRY LOOP'S TWO DECISIONS, PINNED AGAINST THE MEASURED BEHAVIOUR OF THE SHIPPING ROUTE.**
+    ///
+    /// MUTATION: swap the two arms' policies back (`translate_retry_policy` answering `attempts: Some(4),
+    ///           retry502: Some(true)`).
+    /// RESULT:   the 503 case below stops being "not retried" and the 429 case's last attempt becomes 4 — which
+    ///           is exactly what the divergence sweep measured on 2026-10-06 before the swap was fixed: a 503
+    ///           made the shipping route dial ONCE and this worker FOUR times, a 429 three against four.
+    #[test]
+    fn the_retry_decision_is_the_sources_order() {
+        use RetryDecision::{Retry, Stop};
+        // The translate arm's policy: `{ timeoutMs }` alone, so 3 attempts and no 502 retry.
+        let translate = crate::request_shape::translate_retry_policy(None);
+        let attempts = translate.attempts.unwrap_or(DEFAULT_ATTEMPTS);
+        let retry502 = translate.retry502.unwrap_or(false);
+        assert_eq!(attempts, 3, "the source's default");
+        assert!(!retry502, "and no 502 retry");
+
+        // A 2xx stops with an empty detail.
+        assert_eq!(
+            retry_decision(200, 1, attempts, false, retry502),
+            Stop {
+                detail: String::new()
+            }
+        );
+        // A 4xx that is not 429 stops the same way.
+        assert_eq!(
+            retry_decision(404, 1, attempts, false, retry502),
+            Stop {
+                detail: String::new()
+            }
+        );
+        // A 429 retries, and the detail names the attempt.
+        assert_eq!(
+            retry_decision(429, 1, attempts, false, retry502),
+            Retry {
+                detail: "upstream 429 (retried 1/3)".to_string()
+            }
+        );
+        // Its LAST attempt stops with the same sentence.
+        assert_eq!(
+            retry_decision(429, 3, attempts, false, retry502),
+            Stop {
+                detail: "upstream 429 (retried 3/3)".to_string()
+            }
+        );
+        // **A 5xx IS NOT RETRIED — "a 5xx AFTER the upstream processed the request may have billed the user's
+        // BYOK key" — and the sentence says so.**
+        for status in [500, 502, 503] {
+            assert_eq!(
+                retry_decision(status, 1, attempts, false, retry502),
+                Stop {
+                    detail: format!("upstream {status} (not retried — POST may have been billed)")
+                },
+                "status {status}"
+            );
+        }
+        // The CHAT arm's policy is the other one, and there a 503 IS retried.
+        let chat = crate::request_shape::chat_retry_policy(None);
+        assert_eq!(chat.attempts, Some(4));
+        assert_eq!(
+            retry_decision(503, 1, 4, false, true),
+            Retry {
+                detail: "upstream 503 (retried 1/4)".to_string()
+            }
+        );
+        // And `may_retry_5xx`'s own edge: 502/503 follow the flag, every other 5xx follows `idempotent`.
+        assert!(may_retry_5xx(502, false, true));
+        assert!(!may_retry_5xx(502, false, false));
+        assert!(may_retry_5xx(500, true, false));
+        assert!(!may_retry_5xx(500, false, true));
+    }
+
+    /// `retryWaitMs()` — the ladder, the header, the clamp and the two `Number.isFinite` refusals.
+    #[test]
+    fn the_retry_wait_is_the_sources_arithmetic() {
+        // The legacy ladder: `backoffMs * attempt`, plus jitter, clamped.
+        assert_eq!(retry_wait_ms(false, None, 750.0, 1, 0.0, 10_000.0), 750.0);
+        assert_eq!(retry_wait_ms(false, None, 750.0, 2, 199.0, 10_000.0), 1699.0);
+        // A `Retry-After` LARGER than the ladder wins...
+        assert_eq!(retry_wait_ms(false, Some("5"), 750.0, 1, 0.0, 10_000.0), 5000.0);
+        // ...and a smaller one loses to it.
+        assert_eq!(retry_wait_ms(false, Some("1"), 750.0, 3, 0.0, 10_000.0), 2250.0);
+        // **`Number.isFinite(ra) && ra > 0` REFUSES THESE**, so each falls back to the ladder.
+        for bad in ["0", "-5", "later", ""] {
+            assert_eq!(
+                retry_wait_ms(false, Some(bad), 750.0, 1, 0.0, 10_000.0),
+                750.0,
+                "retry-after {bad:?}"
+            );
+        }
+        // A huge header cannot stall the request: `Math.min(..., maxWaitMs)`.
+        assert_eq!(retry_wait_ms(false, Some("600"), 750.0, 1, 0.0, 10_000.0), 10_000.0);
+        // `ignoreRetryAfter` — the OpenRouter lottery's pacing — ignores the header entirely.
+        assert_eq!(retry_wait_ms(true, Some("5"), 300.0, 1, 10.0, 10_000.0), 310.0);
     }
 
     #[test]
