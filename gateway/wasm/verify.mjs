@@ -912,6 +912,101 @@ for (const [i, c] of CASES.entries()) {
       },
     },
     {
+      name: "POST /v1/messages, og, US_PROXY=1 in the ENV",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      env: { US_PROXY: "1" },
+    },
+    {
+      name: "POST /v1/messages, og, settings:US_PROXY=1 in KV",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "settings:US_PROXY": "1" },
+    },
+    {
+      // The KV setting WINS over the env var — `getGlobalSetting(kv, env)`'s precedence, and a case where the
+      // two disagree is the only way to see which one the chain reads.
+      name: "POST /v1/messages, og, the KV setting OFF beats the env ON",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      env: { US_PROXY: "1" },
+      kv: { "settings:US_PROXY": "0" },
+    },
+    {
+      name: "POST /v1/messages, og/muse-spark-1.2-contributor (FORCED US exit)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "og/muse-spark-1.2-contributor", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      // **THE CASE THAT FOUND A MISSING ENV NAME**: with the allowlist set, the shipping route makes ONE call
+      // (the model sees images itself) and this worker made TWO, because `VISION_CAPABLE_MODELS` was not among
+      // the names `v1.rs` read off the worker. Same shape as the provider `apiKeyEnv` a round earlier.
+      name: "POST /v1/messages, an IMAGE to a model on VISION_CAPABLE_MODELS",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/mimo-v2.5",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      env: { VISION_CAPABLE_MODELS: "og/mimo-v2.5" },
+    },
+    {
+      // A failed describe FAILS the request (round-119) — both sides answer 500 "Internal error".
+      name: "POST /v1/messages, an IMAGE with the describe FAILING (upstream 500)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+                },
+                { type: "text", text: "what is this" },
+              ],
+            },
+          ],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: "boom", type: "text/plain", status: 500 },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a

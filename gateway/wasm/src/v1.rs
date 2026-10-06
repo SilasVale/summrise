@@ -86,7 +86,7 @@ async fn kv_text(env: &Env, key: &str) -> Option<String> {
 ///
 /// `US_PROXY` IS NOT IN THIS LIST because it is not read straight off the worker: the KV setting
 /// `settings:US_PROXY` takes precedence over the var, and that precedence is its own proved decision.
-const ENV_KEYS: [&str; 11] = [
+const ENV_KEYS: [&str; 13] = [
     // the channel keys, in `BYOK_CHANNELS`' own order
     "OPENCODE_GO_API_KEY",
     "DEEPSEEK_API_KEY",
@@ -100,6 +100,14 @@ const ENV_KEYS: [&str; 11] = [
     "MUSE_RESPONSES_EXIT",
     "OG_TIMEOUT_MS",
     "UPSTREAM_TIMEOUT_MS",
+    // **AND THE VISION SUBSYSTEM'S TWO, WHICH WERE MISSING UNTIL THE SWEEP FOUND THEM.** They are the
+    // operator's own names (`VISION_MODEL`, `VISION_CAPABLE_MODELS`), and a fixed list has to be told about
+    // them: measured 2026-10-06, with `VISION_CAPABLE_MODELS=og/mimo-v2.5` the shipping route made ONE upstream
+    // call (the model sees images itself, so the pass short-circuits) and this worker made TWO — it described
+    // the picture because the allowlist it read was EMPTY. Same failure shape as the provider `apiKeyEnv` a
+    // round earlier: a name the list cannot know.
+    "VISION_MODEL",
+    "VISION_CAPABLE_MODELS",
 ];
 
 /// The env object `handle` hands the ported decisions: every name above that the worker actually carries.
