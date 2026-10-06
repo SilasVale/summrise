@@ -62,16 +62,20 @@ async fn kv_json<T: serde::de::DeserializeOwned + Default>(env: &Env, key: &str)
 /// `path.endsWith("/models")` and rewrites `/models` to `/v1/models` before calling its handler, but the
 /// listing never reads the path — so matching either spelling here is the same decision, made once.
 pub fn is_v1_route(method: &Method, path: &str) -> bool {
+    // **THE SHIPPING FRONT DOOR ROUTES BY PREFIX AND THEN AUTHENTICATES.** `index.ts` is
+    // `if (!path.startsWith("/v1/")) return 404` and hands everything else to `handleGateway`, which checks
+    // the token BEFORE it looks at the method or the path. So `GET /v1/messages` — a method that route does
+    // not take — answers **401** there and answered **404** here, and so did `POST /v1/models`. A live
+    // comparison measured both; this predicate was the cause.
+    //
+    // **AND `starts_with`, NOT `ends_with`, BECAUSE THE SOURCE IS A PREFIX TEST.** The four `ends_with`
+    // forms this replaces also matched `/foo/v1/messages`, which the shipping front door answers 404 — a
+    // second divergence the same comparison would have found on a path nobody sends. The arms below still
+    // match by suffix, which is correct for them: they are choosing among paths that already passed here.
     if method == &Method::Get && path.ends_with("/models") {
         return true;
     }
-    if method != &Method::Post {
-        return false;
-    }
-    path.ends_with("/v1/messages")
-        || path.ends_with("/v1/messages/count_tokens")
-        || path.ends_with("/v1/chat/completions")
-        || path.ends_with("/v1/responses")
+    path.starts_with("/v1/")
 }
 
 /// The front door for `/v1/*`.
