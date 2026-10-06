@@ -209,6 +209,114 @@ pub fn bare_prefix(prefix: &serde_json::Value) -> String {
     text.trim_end_matches('/').to_string()
 }
 
+/// **`providerForPrefix(env, prefix)` — THE CUSTOM-PROVIDER LOOKUP, AND THE HALF THAT WAS MISSING.**
+///
+/// `store/providers.ts` is the console's custom-provider feature, and `upstream.ts`'s `resolveRoute` consults it
+/// BETWEEN the built-in table and the default route:
+///
+/// ```text
+///     isBuiltInPrefix(prefix)          -> pickRoute(…)          a built-in always wins
+///     providerForPrefix(env, prefix)   -> providerRoute(provider)
+///     otherwise                        -> pickRoute(…)          the default channel
+/// ```
+///
+/// **THIS CRATE HAD THE LISTING HALF AND NOT THE ROUTING HALF** — `advertised_provider_models` below made
+/// `/v1/models` advertise `acme/acme-chat` while `routing.rs`'s `resolve_model` consulted the built-in table
+/// only. Measured 2026-10-06 on the built worker: a request for a custom provider's model answered
+/// **`502 config_error — "CMD_API_KEY not configured — add your Command Code key"`** where the shipping route
+/// dialled `POST https://acme.test/v1/chat/completions` with `Bearer sk-acme-inline`. That is the exact failure
+/// `providerRoute`'s own comment refuses: *"AN UNROUTABLE RECORD IS AN ERROR ROUTE, NEVER THE DEFAULT CHANNEL …
+/// it would dial a built-in upstream under a different provider's name."*
+///
+/// The match is on the BARE prefix (trailing slashes off both sides), and the FIRST record wins — the same
+/// linear scan the source does.
+pub fn provider_for_prefix(
+    providers: &[serde_json::Value],
+    prefix: &str,
+) -> Option<serde_json::Value> {
+    let bare = bare_prefix(&serde_json::Value::String(prefix.to_string()));
+    if bare.is_empty() {
+        return None;
+    }
+    providers
+        .iter()
+        .find(|p| {
+            bare_prefix(p.get("prefix").unwrap_or(&serde_json::Value::Null)) == bare
+        })
+        .cloned()
+}
+
+/// `providerKey(env, p)` — the provider's OWN credential: the inline `apiKey`, else the named Worker binding.
+///
+/// **THE TRUTHINESS IS THE SOURCE'S, AND IT IS TWO DIFFERENT OPERATORS**: `if (p.apiKey)` skips an empty
+/// string, and `env?.[p.apiKeyEnv] ?? ""` maps BOTH `undefined` and `null` to the empty string — so an
+/// `apiKeyEnv` naming a binding this deployment does not carry answers `""`, which the caller turns into the
+/// "no provider key" 502 rather than sending a headerless request.
+pub fn provider_key(env: &serde_json::Value, provider: Option<&serde_json::Value>) -> String {
+    let Some(p) = provider else {
+        return String::new();
+    };
+    let inline = p.get("apiKey").unwrap_or(&serde_json::Value::Null);
+    if crate::translate::truthy_js(inline) {
+        return crate::stream::js_text(inline);
+    }
+    let name = p.get("apiKeyEnv").unwrap_or(&serde_json::Value::Null);
+    if crate::translate::truthy_js(name) {
+        let binding = crate::stream::js_text(name);
+        let value = env.get(&binding).unwrap_or(&serde_json::Value::Null);
+        // `?? ""` — an absent binding and an explicit null are the same answer.
+        return if value.is_null() {
+            String::new()
+        } else {
+            crate::stream::js_text(value)
+        };
+    }
+    String::new()
+}
+
+/// `providerModelVision(p, wire)` — does the record declare this WIRE model as seeing images itself?
+/// (DSH's `input: [text, image]`.) `===` on both sides: an id of another type never matches, and `vision`
+/// must be the boolean `true`.
+pub fn provider_model_vision(provider: Option<&serde_json::Value>, wire: &str) -> bool {
+    let Some(models) = provider
+        .and_then(|p| p.get("models"))
+        .and_then(|m| m.as_array())
+    else {
+        return false;
+    };
+    models.iter().any(|m| {
+        m.get("id")
+            .map(|id| id.as_str() == Some(wire))
+            .unwrap_or(false)
+            && m.get("vision") == Some(&serde_json::Value::Bool(true))
+    })
+}
+
+/// **THE BINDING NAMES THE RECORDS POINT AT — AND WHY THEY CANNOT LIVE IN A FIXED LIST.**
+///
+/// `providerKey` reads `env[p.apiKeyEnv]`: an ARBITRARY binding name chosen by whoever registered the provider,
+/// so it is not one of the names `v1.rs`'s `ENV_KEYS` carries. **MEASURED, AND IT WAS THIS PORT'S OWN FIRST
+/// BUG**: the built worker answered `502 — "acme/: no provider key"` for a record whose `apiKeyEnv` named a
+/// binding the worker DID carry, because the env object handed to the plan had been built from the fixed list
+/// alone. `verify.mjs`'s "a NAMED binding's value rides Bearer" is the case that caught it.
+///
+/// The names are returned in order, deduplicated, and only when truthy — the same `if (p.apiKeyEnv)` the key
+/// resolution makes.
+pub fn provider_key_env_names(providers: &[serde_json::Value]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in providers {
+        let raw = p.get("apiKeyEnv").unwrap_or(&serde_json::Value::Null);
+        if !crate::translate::truthy_js(raw) {
+            continue;
+        }
+        let name = crate::stream::js_text(raw);
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 /// `advertisedModelId(prefix, wire)` — **"prefix ONCE, never twice"**, in the source's own words.
 ///
 /// The leading slashes come off the wire first, and then the prefix is prepended ONLY IF the wire does not

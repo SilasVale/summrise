@@ -265,8 +265,40 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // a request the deployment's own key would have served, and `bearer_key_for` sends an empty bearer.
     let env_json = env_json(&env, us_proxy_setting);
 
+    // **THE CUSTOM PROVIDERS, WHICH ARE DATA AND THEREFORE THE CALLER'S READ** — `resolve_model` is pure, so the
+    // records it consults come from here. An absent or malformed key is an empty list, which is what an
+    // untouched deployment has (and what `readList` answers in the source).
+    let providers: Vec<serde_json::Value> = kv_json(&env, "providers:custom").await;
+    // **AND THEIR `apiKeyEnv` BINDINGS RIDE THE SAME OBJECT**, because that name is the provider's own choice
+    // rather than one of `ENV_KEYS`: the source reads `env[p.apiKeyEnv]` per request, and a fixed list cannot
+    // know it. Measured — this port's first version answered `502 — "acme/: no provider key"` for a record
+    // whose named binding the worker carried, and `verify.mjs`'s named-binding case is what caught it.
+    let mut env_json = env_json;
+    if let Some(map) = env_json.as_object_mut() {
+        for name in crate::store::provider_key_env_names(&providers) {
+            if let Ok(value) = env.var(&name) {
+                let text = value.to_string();
+                if !text.is_empty() {
+                    map.insert(name, serde_json::json!(text));
+                }
+            }
+        }
+    }
+
     // THE CHAIN: the model -> the route, then the two-phase dispatch.
-    let resolved = crate::routing::resolve_model(&model, us_proxy_setting, &path, Some(&env_json));
+    let resolved = crate::routing::resolve_model(
+        &model,
+        us_proxy_setting,
+        &path,
+        Some(&env_json),
+        &providers,
+    );
+    // **`route.type === "error"` — ANSWERED, NEVER DIALED.** The source puts this check in the same place: after
+    // auth, the route match and the retired check, and before every key decision, because an unroutable record
+    // must not reach a channel's key gate and be reported as that channel's problem.
+    if let Some(reason) = &resolved.unroutable {
+        return to_response(crate::responses::json_error(502, reason, "config_error"));
+    }
     let request = V1Request {
         method: method.to_string(),
         path: path.clone(),
@@ -286,6 +318,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         parsed_body: parsed.as_ref(),
         og_session: &og_session,
         scanned: None,
+        provider: resolved.provider.as_ref(),
     });
     let V1Plan::Dial(call) = plan else {
         let V1Plan::Respond(built) = plan else {

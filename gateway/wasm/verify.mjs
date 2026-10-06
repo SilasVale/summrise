@@ -533,6 +533,102 @@ for (const [i, c] of CASES.entries()) {
   bad += doorBad;
 }
 
+// ── THE CUSTOM PROVIDER'S REQUEST, THROUGH THE BUILT WORKER ──────────────────────────────────────
+// **THE DECISION IS PINNED IN RUST AND THE WIRING IS PINNED HERE**, for the reason the token's two doors are:
+// `resolve_model`/`provider_key` are pure and their eleven cases replay in `routing.rs`, but what the WORKER
+// reads off KV (`providers:custom`) and hands the plan is on the other side of the `worker::Env` boundary.
+// Measured 2026-10-06 on the built worker before this port: a request for a custom provider's model answered
+// `502 config_error — "CMD_API_KEY not configured — add your Command Code key"` and made NO upstream call,
+// while the shipping route dialled `https://acme.test/v1/chat/completions` with `Bearer sk-acme-inline` — the
+// default channel, which is the failure `providerRoute`'s own comment refuses.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/provider-request-corpus.json", import.meta.url)), "utf8"),
+  );
+  let providerBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    const kvMap = new Map([
+      ["token:tok-route-test", "u-route-test"],
+      ["user:u-route-test", JSON.stringify({ id: "u-route-test", enabled: true })],
+      ["providers:custom", JSON.stringify(c.providers)],
+    ]);
+    const KEYS = {
+      async get(key) {
+        return kvMap.has(key) ? kvMap.get(key) : null;
+      },
+      async put(key, value) {
+        kvMap.set(key, value);
+      },
+      async delete(key) {
+        kvMap.delete(key);
+      },
+      async list() {
+        return { keys: [...kvMap.keys()].map((name) => ({ name })), list_complete: true };
+      },
+    };
+    const realFetch = globalThis.fetch;
+    let captured = null;
+    globalThis.fetch = async (url, init = {}) => {
+      const req = new Request(url, init);
+      captured = { url: req.url, method: req.method, headers: {}, body: "" };
+      for (const [k, v] of req.headers.entries()) captured.headers[k] = v;
+      captured.body = await req.text();
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    let status = 0;
+    let body = "";
+    try {
+      const worker = await import(`${pathToFileURL(BUILT).href}?provider=${i}`);
+      const instance = new worker.default();
+      // The case's env names (an `apiKeyEnv` binding) ride the worker's env, which is where a secret lives.
+      instance.env = { ...envFor("0"), KEYS, ...c.env };
+      instance.ctx = {};
+      const res = await instance.fetch(
+        new Request("https://console.test/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": "tok-route-test", "content-type": "application/json" },
+          body: c.rawText,
+        }),
+      );
+      status = res.status;
+      body = await res.text();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    let ok;
+    if (c.captured) {
+      ok =
+        captured !== null &&
+        status === 200 &&
+        captured.url === c.captured.url &&
+        captured.method === c.captured.method &&
+        captured.body === c.captured.body &&
+        (captured.headers.authorization ?? captured.headers.Authorization) ===
+          (c.captured.headers.authorization ?? c.captured.headers.Authorization);
+    } else {
+      ok = captured === null && status === c.status && body === c.answer;
+    }
+    if (!ok) providerBad++;
+    console.log(
+      `      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${status}, upstream ${captured ? captured.url : "NO CALL"}`,
+    );
+    if (!ok && c.captured) {
+      console.log(`          shipping: ${c.captured.method} ${c.captured.url} (${c.captured.body.slice(0, 70)})`);
+      console.log(`          wasm:     ${captured ? `${captured.method} ${captured.url} (${captured.body.slice(0, 70)})` : "NO CALL"} ${body.slice(0, 70)}`);
+    }
+  }
+  console.log(
+    `  the custom provider's request, through the built worker: ${corpus.cases.length - providerBad}/${corpus.cases.length}`,
+  );
+  bad += providerBad;
+}
+
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
 const size = (p) => execSync(`gzip -9 -c '${p}' | wc -c`, { encoding: "utf8" }).trim();

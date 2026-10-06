@@ -730,6 +730,10 @@ pub struct V1PlanInputs<'a> {
     pub parsed_body: Option<&'a serde_json::Value>,
     pub og_session: &'a [(String, String)],
     pub scanned: Option<(usize, usize)>,
+    /// **THE CUSTOM-PROVIDER RECORD THIS ROUTE CAME FROM**, when it came from one. The credential and the
+    /// per-model facets live on the record rather than in `BYOK_CHANNELS`, so the plan needs it here — the same
+    /// reason the source carries `provider` on its `RouteInfo`.
+    pub provider: Option<&'a serde_json::Value>,
 }
 
 /// **PHASE ONE — auth, the route match, the retired check, the per-arm key gate, then either the arm or a
@@ -750,6 +754,7 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         parsed_body,
         og_session,
         scanned,
+        provider,
     } = *inputs;
     if let Some(refusal) = auth_error(req.user.as_ref()) {
         return V1Plan::Respond(refusal);
@@ -772,6 +777,20 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
     if let Some(refusal) = key_gate(&req.kind, shape.is_chat_completions, &req.byok, &req.env) {
         return V1Plan::Respond(refusal);
     }
+    // **A CUSTOM PROVIDER'S CREDENTIAL COMES FROM ITS OWN RECORD, NOT FROM `BYOK_CHANNELS`.** The source:
+    // `route.kind === "custom" ? providerKey(env, route.provider) : bearerKeyFor(env, byok, kind)` — and
+    // `keyMissingError`'s table is keyed by BUILT-IN kinds, so the gate above says nothing about a custom one
+    // (`isKeyMissing` answers `false` for an unknown kind, by design). An empty key is this 502, which names
+    // the provider and what to set, rather than a headerless request that comes back as a bare upstream 401.
+    let custom_key = if req.kind == "custom" {
+        let key = crate::store::provider_key(&req.env, provider);
+        if key.is_empty() {
+            return V1Plan::Respond(crate::responses::provider_key_missing_error(provider));
+        }
+        Some(key)
+    } else {
+        None
+    };
     if shape.is_count {
         return V1Plan::Respond(count_tokens_response(
             &req.kind,
@@ -785,8 +804,15 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         // translate plugin reshapes Anthropic /v1/messages → chat/completions (the og pattern), while
         // OpenAI-format /v1/chat/completions passes through directly". So its request is
         // `chat_completions_request` and its response is the same forward the messages passthrough uses.
-        let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
-        let bearer = bearer.as_str().unwrap_or("");
+        // A custom provider's key is its record's; every other kind's is BYOK-then-env.
+        let bearer = match &custom_key {
+            Some(key) => key.clone(),
+            None => crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind)
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        };
+        let bearer = bearer.as_str();
         let chat = chat_completions_request(
             &req.kind,
             upstream_model,
@@ -820,8 +846,15 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         if let Some(refusal) = responses_gate(model, upstream_model, prefix, &req.kind) {
             return V1Plan::Respond(refusal);
         }
-        let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
-        let bearer = bearer.as_str().unwrap_or("");
+        // A custom provider's key is its record's; every other kind's is BYOK-then-env.
+        let bearer = match &custom_key {
+            Some(key) => key.clone(),
+            None => crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind)
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        };
+        let bearer = bearer.as_str();
         let request = responses_request(
             upstream_model,
             req.raw_text.as_str().unwrap_or(""),
@@ -867,8 +900,14 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
     }
     // `/v1/messages`: the bearer key, the request the upstream receives, and the retry policy that goes with
     // the ARM — the two chains differ, which the translate arm's own comment records.
-    let bearer = crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind);
-    let bearer = bearer.as_str().unwrap_or("");
+    let bearer = match &custom_key {
+        Some(key) => key.clone(),
+        None => crate::byok::bearer_key_for(&req.env, &req.byok, &req.kind)
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+    };
+    let bearer = bearer.as_str();
     let wants_stream = parsed_body
         .and_then(|b| b.get("stream"))
         .map(|v| v == &serde_json::Value::Bool(true))
@@ -1763,6 +1802,9 @@ mod count_tokens_tests {
                 parsed_body: parsed,
                 og_session: &og_session,
                 scanned: None,
+                // The corpus these cases come from is the built-in route's; a custom provider's record is
+                // driven by `routing.rs`'s own tests and by `provider-corpus.json`.
+                provider: None,
             });
             let V1Plan::Dial(call) = plan else {
                 panic!("{name}: a /v1/messages request must plan a call");
