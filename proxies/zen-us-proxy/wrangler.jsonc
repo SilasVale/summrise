@@ -1,6 +1,11 @@
 {
   "name": "zen-us-proxy",
-  "main": "src/index.js",
+  // **THE ENTRY POINT IS THE RUST BUILD, AND `src/index.js` IS STILL HERE ON PURPOSE.**
+  // The plan's rule is that the old half is not deleted until the new one is proven equal to it byte for
+  // byte, and `worker/verify.mjs` is what proves it — it drives the `worker-build` output against
+  // `src/index.js` on the same request, 17 cases. **Deleting the JS now would delete the oracle**, so it
+  // stays until the comparison has nothing left to compare.
+  "main": "worker/build/index.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
   // 2026-08-26: custom_domains is ignored by wrangler 4 and was never bound
