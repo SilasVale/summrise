@@ -1,6 +1,10 @@
 {
   "name": "opencode-go-proxy",
-  "main": "src/index.js",
+  // **THE ENTRY POINT IS THE RUST BUILD, AND `src/index.js` STAYS ON PURPOSE.**
+  // `worker/verify.mjs` proves the two equal — 17 cases, the upstream request included — by driving the
+  // `worker-build` output against `src/index.js`. **The JS is the oracle, so deleting it now would delete
+  // the proof.** It goes when the comparison has nothing left to compare.
+  "main": "worker/build/index.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
   "custom_domains": ["opencode.saisi.online"],
