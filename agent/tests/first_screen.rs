@@ -173,7 +173,7 @@ fn the_panel_first_screen_is_what_the_census_says() {
 ///     ui_logic_bg.wasm   15,779 - 15,762 = 17 = "ui_logic_bg.wasm" (16) + NUL
 ///     index-CbfNO-ug.js 106,420 - 106,420 = 0  <- this one WAS measured with -n
 /// ```
-pub const CONSOLE_FIRST_SCREEN: [Artifact; 3] = [
+pub const CONSOLE_FIRST_SCREEN: [Artifact; 2] = [
     Artifact {
         path: "gateway/public/index.html",
         gz: 1360,
@@ -184,12 +184,35 @@ pub const CONSOLE_FIRST_SCREEN: [Artifact; 3] = [
         gz: 15762,
         what: "the logic crate; index.html compiles it inline, so there is no wasm-bindgen glue",
     },
-    Artifact {
-        path: "gateway/public/assets/index-CbfNO-ug.js",
-        gz: 106420,
-        what: "the SPA bundle — the console does NOT bundle the glue, so this number is not a migration cost",
-    },
 ];
+
+/// **THE SPA BUNDLE'S SIZE, PINNED — ITS NAME IS NOT.** A console edit re-hashes the file
+/// (`index-CbfNO-ug.js` -> `index-DAMlHm4x.js` on 2026-10-06, for the two provider-form fields that round
+/// added), and a pinned NAME turns every UI change into a red `agent` job whose message is "No such file or
+/// directory" rather than a size. So the file is found BY SHAPE — the way `console_sheet_gz` already finds the
+/// stylesheet — and what is asserted is the number the census is about: 106,420 -> 106,826 gz, measured with
+/// `gzip -9 -nc <file> | wc -c`.
+pub const CONSOLE_BUNDLE_GZ: u64 = 106826;
+
+/// The bundle's hashed name, found by shape rather than pinned. Returns the gzip size.
+fn console_bundle_gz(root: &std::path::Path) -> (String, u64) {
+    let dir = root.join("gateway/public/assets");
+    let mut found: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("index-") && n.ends_with(".js"))
+        .collect();
+    found.sort();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one hashed bundle under gateway/public/assets, found {found:?}"
+    );
+    let rel = format!("gateway/public/assets/{}", found[0]);
+    let gz = gz_size(root, &rel);
+    (rel, gz)
+}
 
 /// The sheet's hashed name, found by shape rather than pinned. Returns the gzip size.
 fn console_sheet_gz(root: &std::path::Path) -> (String, u64) {
@@ -230,6 +253,15 @@ fn the_console_first_screen_is_what_the_census_says() {
     // The sheet, by shape.
     let (sheet, sheet_gz) = console_sheet_gz(&root);
     total += sheet_gz;
+    // The bundle, by shape — its SIZE is what this census pins.
+    let (bundle, bundle_gz) = console_bundle_gz(&root);
+    total += bundle_gz;
+    let bundle_tol = tolerance(CONSOLE_BUNDLE_GZ);
+    if bundle_gz.abs_diff(CONSOLE_BUNDLE_GZ) > bundle_tol {
+        failures.push(format!(
+            "  {bundle} — census {CONSOLE_BUNDLE_GZ} gz, measured {bundle_gz} gz (the SPA bundle), tolerance ±{bundle_tol}"
+        ));
+    }
     // **THE SHEET'S NUMBER IS NOT PINNED, BECAUSE ITS NAME IS NOT STABLE** — a rebuilt sheet has a new hash
     // and a new size, and both are legitimate. What is pinned is that it is THERE and plausible: a console
     // sheet is tens of kilobytes, not zero and not a megabyte.
