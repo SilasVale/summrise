@@ -165,6 +165,69 @@ for (const [i, c] of CASES.entries()) {
   if (!ok) bad++;
 }
 
+// ── THE TOKEN'S TWO DOORS, DRIVEN THROUGH THE BUILT WORKER ───────────────────────────────────────
+// **THE CORPUS TEST IN `request_shape.rs` PROVES THE RULE; THIS PROVES THE WIRING.** `effective_token` is a
+// pure function and its nine shipping shapes are replayed in Rust — but the line that CALLS it is in
+// `v1.rs`, on the other side of the `worker::Env` boundary, and a port that computed the right token and
+// then read `x-api-key` anyway would pass that test and answer 401 to every OpenAI-compatible client.
+// Measured 2026-10-06: the worker DID read `x-api-key` alone, and the live comparison could not see it —
+// a live check needs a VALID token, and this box does not hold one.
+//
+// **THE KV IS A MAP, WHICH IS WHAT MAKES THIS REACHABLE AT ALL.** `KvStore::from_this` does not duck-type
+// the binding the way `DurableObjectNamespace` is duck-typed; it reads `get`/`put`/`list`/`delete` off the
+// object (`worker-0.8.7/src/kv/mod.rs:63`), and `kv.get(key).text()` calls `get(key, {type:"text"})` and
+// awaits the result. An async function over a `Map` is therefore the whole stub.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/auth-header-corpus.json", import.meta.url)), "utf8"),
+  );
+  const valid = corpus.validToken;
+  const uid = "u-route-test";
+  const map = new Map([
+    [`token:${valid}`, uid],
+    [`user:${uid}`, JSON.stringify({ id: uid, enabled: true })],
+  ]);
+  const KEYS = {
+    async get(key) {
+      return map.has(key) ? map.get(key) : null;
+    },
+    async put(key, value) {
+      map.set(key, value);
+    },
+    async delete(key) {
+      map.delete(key);
+    },
+    async list() {
+      return { keys: [...map.keys()].map((name) => ({ name })), list_complete: true };
+    },
+  };
+  const authEnv = { ...envFor("0"), KEYS };
+  let authBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    // A fresh module instance per case, for the same reason as above: the store caches in isolate state.
+    const worker = await import(`${pathToFileURL(BUILT).href}?auth=${i}`);
+    const instance = new worker.default();
+    instance.env = authEnv;
+    instance.ctx = {};
+    const headers = { "content-type": "application/json" };
+    if (c.xApiKey !== null) headers["x-api-key"] = c.xApiKey;
+    if (c.authorization !== null) headers.authorization = c.authorization;
+    const res = await instance.fetch(
+      new Request("https://console.test/v1/messages", { method: "GET", headers }),
+    );
+    const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
+    const ok = res.status === c.expected.status && body === c.expected.body;
+    if (!ok) authBad++;
+    console.log(
+      `      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${res.status} (shipping ${c.expected.status})`,
+    );
+  }
+  console.log(
+    `  the token's two doors, through the built worker: ${corpus.cases.length - authBad}/${corpus.cases.length}`,
+  );
+  bad += authBad;
+}
+
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
 const size = (p) => execSync(`gzip -9 -c '${p}' | wc -c`, { encoding: "utf8" }).trim();
