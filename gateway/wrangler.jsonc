@@ -38,7 +38,7 @@
     {
       "tag": "v3-route",
       "new_sqlite_classes": ["RouteDO"]
-    },
+      }
   ],
   "assets": {
     "directory": "./public",
