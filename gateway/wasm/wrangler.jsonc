@@ -22,7 +22,26 @@
   // breaker's state. `reliability.ts`: `env.BREAKER.get(env.BREAKER.idFromName("og"))`.
   "durable_objects": {
     "bindings": [{ "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" }]
-  }
+  },
+  // **THE ONE VAR THE SHIPPING WORKER SETS AND THIS ONE DID NOT, AND IT IS NOT COSMETIC.** `vale-gate`
+  // carries `UPSTREAM_TIMEOUT_MS = 120000`; the crate's own default for it is **30 s**
+  // (`reliability.rs`: `UPSTREAM_TIMEOUT_MS = 30_000`), so without this line the cutover would cut every
+  // non-og channel at 30 s where the shipping route allows 120 — a long-thinking request answered as a
+  // timeout. Read through the API on 2026-10-06, when the rest of the two bindings were compared:
+  //
+  //     vale-gate       CONSOLE_HOST, UPSTREAM_TIMEOUT_MS=120000, VISION_*, ACCESS_*, and 15 secrets
+  //     vale-gate-wasm  none of those; 10 secrets
+  //
+  // **AND IT IS IN THE CONFIG RATHER THAN SET BY HAND, BECAUSE A HAND-SET VAR IS DROPPED BY THE NEXT
+  // `wrangler deploy`** — this file is the record, and the deploy is what applies it.
+  //
+  // THE SECRETS THIS WORKER IS STILL MISSING ARE NAMED WHERE THE CUTOVER CAN ACT ON THEM: `AMD_API_KEY`,
+  // `CMD_API_KEY`, `GMI_API_KEY` and `R4_API_KEY` are secrets on `vale-gate` and absent here, so those four
+  // channels would answer the "not configured — add your own key in the console" config error for every user
+  // without a key of their own. **A SECRET CANNOT BE READ BACK THROUGH THE API**, so this is the operator's
+  // step (`wrangler secret put <NAME> --name vale-gate-wasm`), not a line in this file — and it is the
+  // cutover's, not follow-up work.
+  "vars": { "UPSTREAM_TIMEOUT_MS": "120000" }
   // `DO_AUTH` is a SECRET on the deployed worker (`wrangler secret put DO_AUTH`), not a var: it is
   // read here for the same reason `breakerHeaders` reads it — the DO refuses an unauthenticated
   // `/check`, and a refused read is `false`, which would report og healthy while its circuit is
