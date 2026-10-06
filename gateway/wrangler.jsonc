@@ -1,5 +1,5 @@
 {
-  "name": "vale-gate",
+  "name": "summrise-gate",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
@@ -22,6 +22,14 @@
       }
     ]
   },
+  // **THE MIGRATION HISTORY IS SHORTER THAN `vale-gate`'S, AND IT HAS TO BE.** A `deleted_classes`
+  // migration can only apply to a worker that HAD the class: `wrangler deploy` on the new name answered
+  // `Cannot apply deleted_classes migration to non-existent class PluginHubDO` (measured 2026-10-05).
+  // `summrise-gate` never had `PluginHubDO`, so `v4-delete-plugin-hub` is dropped here and the two
+  // `new_sqlite_classes` entries carry the fresh history. **A CONSEQUENCE, STATED RATHER THAN DISCOVERED
+  // LATER: the Durable Objects start EMPTY** — `BREAKER` and `ROUTE` are per-script storage, so the route
+  // table and the breaker state re-learn from scratch. There is no way to bind the old ones: the IDs are
+  // readable but the storage belongs to the script.
   "migrations": [
     {
       "tag": "v1-breaker",
@@ -31,10 +39,6 @@
       "tag": "v3-route",
       "new_sqlite_classes": ["RouteDO"]
     },
-    {
-      "tag": "v4-delete-plugin-hub",
-      "deleted_classes": ["PluginHubDO"]
-    }
   ],
   "assets": {
     "directory": "./public",
