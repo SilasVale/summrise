@@ -204,7 +204,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     }
 
     let raw = req.text().await?;
-    let parsed: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
+    // `mut` because the VISION PASS rewrites `messages` in place before the plan sees it.
+    let mut parsed: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
     let model = parsed
         .as_ref()
         .and_then(|b| b.get("model"))
@@ -263,6 +264,14 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // `502 config_error — not configured — add your own key in the console` with NO upstream call, while the
     // shape only the TESTS build (`{"deepseek": "sk-user-ds"}`) reached the upstream with `Bearer sk-user-ds`.
     // The replay in `route-corpus.json`'s test always applied this step; production did not.
+    // The user id, kept because the vision pass needs it TWICE: the cache key's user scope and the zen session
+    // header (`opencodeSessionHeader(undefined, uid)`).
+    let uid = user
+        .as_ref()
+        .and_then(|u| u.get("id"))
+        .and_then(|i| i.as_str())
+        .unwrap_or("")
+        .to_string();
     let byok = match user
         .as_ref()
         .and_then(|u| u.get("id"))
@@ -327,6 +336,58 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     if let Some(reason) = &resolved.unroutable {
         return to_response(crate::responses::json_error(502, reason, "config_error"));
     }
+    // **THE VISION PASS — `preprocessImages`, IN THE SOURCE'S PLACE** (after the route is resolved, before the
+    // arm's key gates) **AND WITH ITS OWN PROXY READ**: the describe's US exit comes from the KV setting ALONE
+    // (`getGlobalSetting(env, "US_PROXY")`), never the request path's `US_PROXY` env fallback — with the proxy
+    // on, a describe that went direct turned every image into a failure marker for US users (round-119).
+    //
+    // **A FAILED DESCRIBE IS A 500, NOT A FABRICATED DESCRIPTION**: the source throws, the front door's catch
+    // answers `jsonError(500, "Internal error", "api_error")`, and that is what this returns.
+    if let Some(body) = parsed.as_mut() {
+        let shape = crate::request_shape::detect_route(method.as_ref(), &path);
+        if shape.is_messages {
+            let declared_vision = resolved.route.kind == "custom"
+                && crate::store::provider_model_vision(
+                    resolved.provider.as_ref(),
+                    &resolved.upstream_model,
+                );
+            let vision_proxy = crate::store::global_setting_enabled(
+                kv_text(&env, "settings:US_PROXY").await.as_deref(),
+            );
+            let inputs = crate::vision::VisionInputs {
+                model: &model,
+                upstream_model: &resolved.upstream_model,
+                uid: &uid,
+                declared_vision,
+                byok: &byok,
+                us_proxy_setting: vision_proxy,
+                providers: &providers,
+                env: &env_json,
+                timeout_ms: crate::reliability::upstream_timeout_ms(Some(&env_json)),
+            };
+            let messages = body
+                .get("messages")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            match crate::vision::preprocess_images(&env, &messages, &inputs).await {
+                Ok((rewritten, true)) => {
+                    if let Some(obj) = body.as_object_mut() {
+                        obj.insert("messages".to_string(), rewritten);
+                    }
+                }
+                Ok((_, false)) => {}
+                Err(e) => {
+                    console_error!("[gateway] unhandled: {e}");
+                    return to_response(crate::responses::json_error(
+                        500,
+                        "Internal error",
+                        "api_error",
+                    ));
+                }
+            }
+        }
+    }
+
     let request = V1Request {
         method: method.to_string(),
         path: path.clone(),
