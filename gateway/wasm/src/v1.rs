@@ -23,6 +23,15 @@
 //! AND ONE THING IT DOES NOT DO YET, NAMED RATHER THAN HIDDEN: the true-streaming path. `v1_finish` answers
 //! `ArmOutcome::Stream` for a real SSE upstream, and this file returns a **501** for it — the ported encoder
 //! exists (`stream.rs`), but wiring a live `ReadableStream` through it is its own step with its own proof.
+//!
+//! **THAT PARAGRAPH WAS TRUE WHEN IT WAS WRITTEN AND IS NOT TRUE NOW (corrected 2026-10-06).** The live path
+//! is `stream_response` below — `Response::stream()`, `StreamTransform::on_chunk`, `unfold`,
+//! `Response::from_stream`, and `sseResponse`'s headers — and the `ArmOutcome::Stream` arm above it is the
+//! UNREACHABLE one ("the upstream body was consumed before it could be streamed"), not a 501 this file
+//! answers. A comment that names a gap which has since closed is the same defect as one that claims coverage
+//! that is not there, so it is corrected here rather than left to mislead the next reader — **and the
+//! measurement that shows which half is really left is the one this round added** (`verify.mjs`'s
+//! "the deployment's own key reaches the upstream" section, plus the streaming cases beside it).
 
 use worker::*;
 
@@ -46,6 +55,61 @@ pub fn to_response(built: Built) -> Result<Response> {
 async fn kv_text(env: &Env, key: &str) -> Option<String> {
     let kv = env.kv("KEYS").ok()?;
     kv.get(key).text().await.ok().flatten()
+}
+
+/// **EVERY ENV INPUT THE PORTED DECISIONS READ, READ OFF THE WORKER.**
+///
+/// The pure layer reads these out of the object `handle` hands it: `byok.rs`'s `BYOK_CHANNELS` env column
+/// (seven names — `nvidia` and `gmi` deliberately have no deployment fallback), `routing.rs`'s
+/// `US_PROXY_BASE` and `MUSE_RESPONSES_EXIT`, and `reliability.rs`'s two timeout budgets.
+///
+/// **UNTIL 2026-10-06 THAT OBJECT WAS `{"US_PROXY": …}` ALONE, AND THE MEASUREMENT IS WHAT SAYS SO.** With a
+/// valid token, no user key in KV, and the deployment's own `DEEPSEEK_API_KEY` in the worker's env, the BUILT
+/// worker answered `502 config_error — "DEEPSEEK_API_KEY not configured — add your own key in the console"`
+/// and made **no upstream call at all**, while the shipping `handleGateway` on the same three inputs called
+/// `api.deepseek.com`, `token-plan.ap-southeast-1.maas.aliyuncs.com` and `opencode.ai` with
+/// `Bearer sk-env-…`. Every user without a key of their own — which is what the deployment's keys exist for —
+/// would have met that at the cutover, on every channel at once.
+///
+/// **`var` READS SECRETS TOO**, which is why one call covers both: workers-rs's own doc for it is "Get an
+/// environment variable defined in the [vars] section of your wrangler.toml **or a secret defined using
+/// `wrangler secret` as a plaintext value**". Absent names are omitted rather than inserted as `null`, which
+/// is what the source's `env.NAME === undefined` means to `isKeyMissing` and to `bearerKeyFor`.
+///
+/// `US_PROXY` IS NOT IN THIS LIST because it is not read straight off the worker: the KV setting
+/// `settings:US_PROXY` takes precedence over the var, and that precedence is its own proved decision.
+const ENV_KEYS: [&str; 11] = [
+    // the channel keys, in `BYOK_CHANNELS`' own order
+    "OPENCODE_GO_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "QWEN_API_KEY",
+    "OPENROUTER_API_KEY",
+    "CMD_API_KEY",
+    "AMD_API_KEY",
+    "R4_API_KEY",
+    // the routing layer's two, and the two timeout budgets
+    "US_PROXY_BASE",
+    "MUSE_RESPONSES_EXIT",
+    "OG_TIMEOUT_MS",
+    "UPSTREAM_TIMEOUT_MS",
+];
+
+/// The env object `handle` hands the ported decisions: every name above that the worker actually carries.
+fn env_json(env: &Env, us_proxy_setting: bool) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for name in ENV_KEYS {
+        if let Ok(value) = env.var(name) {
+            let text = value.to_string();
+            if !text.is_empty() {
+                map.insert(name.to_string(), serde_json::json!(text));
+            }
+        }
+    }
+    map.insert(
+        "US_PROXY".to_string(),
+        serde_json::json!(if us_proxy_setting { "1" } else { "0" }),
+    );
+    serde_json::Value::Object(map)
 }
 
 /// The same read, for the keys that hold a JSON ARRAY — `models:disabled`, `models:custom`,
@@ -162,17 +226,29 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()),
         None => None,
     };
+    // **THE USER'S OWN KEYS, IN THE SHAPE THE STORE WRITES — WHICH IS NOT THE SHAPE THE GATES READ.**
+    // `store.ts` documents the record: "`ukeys:<id>` → that user's own backend keys
+    // `{DEEPSEEK_API_KEY, OPENCODE_GO_API_KEY, OPENROUTER_API_KEY}`", and `translate.ts`'s `extractByokKeys`
+    // turns those ENV-STYLE names into the short fields the gates look up (`deepseek`, `opencodeGo`, …).
+    // **THIS FILE HANDED THE RAW RECORD STRAIGHT TO THE GATE UNTIL 2026-10-06**, so a user's own key was
+    // invisible: measured on the built worker, `{"DEEPSEEK_API_KEY": "sk-user-ds"}` answered
+    // `502 config_error — not configured — add your own key in the console` with NO upstream call, while the
+    // shape only the TESTS build (`{"deepseek": "sk-user-ds"}`) reached the upstream with `Bearer sk-user-ds`.
+    // The replay in `route-corpus.json`'s test always applied this step; production did not.
     let byok = match user
         .as_ref()
         .and_then(|u| u.get("id"))
         .and_then(|i| i.as_str())
     {
-        Some(uid) => kv_text(&env, &format!("ukeys:{uid}"))
-            .await
-            .and_then(|t| {
-                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()
-            })
-            .unwrap_or_default(),
+        Some(uid) => {
+            let raw = kv_text(&env, &format!("ukeys:{uid}"))
+                .await
+                .and_then(|t| {
+                    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()
+                })
+                .unwrap_or_default();
+            crate::byok::extract_byok_keys(&serde_json::Value::Object(raw))
+        }
         None => serde_json::Map::new(),
     };
 
@@ -184,9 +260,10 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         )
         .as_deref(),
     );
-    let env_json = serde_json::json!({
-        "US_PROXY": if us_proxy_setting { "1" } else { "0" },
-    });
+    // **THE REST OF THE ENV, WHICH USED TO BE MISSING ENTIRELY** — see `ENV_KEYS`. The channel keys, the two
+    // routing names and the two timeout budgets are read off the worker here; without them `key_gate` refuses
+    // a request the deployment's own key would have served, and `bearer_key_for` sends an empty bearer.
+    let env_json = env_json(&env, us_proxy_setting);
 
     // THE CHAIN: the model -> the route, then the two-phase dispatch.
     let resolved = crate::routing::resolve_model(&model, us_proxy_setting, &path, Some(&env_json));
