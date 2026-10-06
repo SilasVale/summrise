@@ -745,6 +745,266 @@ writeFileSync(
   ) + "\n",
 );
 
+// ── THE CUSTOM PROVIDERS, FROM THE SHIPPING CHAIN ────────────────────────────────────────────────
+// `store/providers.ts` is the console's custom-provider feature and `upstream.ts`'s `resolveRoute` consults it
+// BETWEEN the built-in table and the default route. The wasm crate had the LISTING half only, so a request for
+// a custom provider's model fell to the default channel and answered `502 config_error — "CMD_API_KEY not
+// configured"` (measured on the built worker) where this chain dials the provider's own `baseURL`.
+//
+// Each case drives the SHIPPING functions — `resolveRoute`, `providerKey`, `providerModelVision` — and records
+// what they answered, so the Rust side replays the whole decision rather than a paraphrase of it.
+const { resolveRoute, providerRoute } = await import("../src/upstream.ts");
+const { providerKey, providerModelVision } = await import("../src/store/providers.ts");
+
+const ACME = {
+  prefix: "acme/",
+  label: "Acme Cloud",
+  baseURL: "https://acme.test/v1",
+  api: "openai-completions",
+  apiKey: "sk-acme-inline",
+  models: [
+    { id: "acme-chat", name: "Acme Chat", contextWindow: 128000, maxTokens: 8192, vision: true },
+    { id: "acme-text", name: "Acme Text" },
+  ],
+};
+
+const providerCases = [
+  {
+    name: "a custom prefix routes to its own baseURL, kind custom, translate",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [ACME],
+  },
+  {
+    name: "the record's trailing slash does not matter",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, prefix: "acme" }],
+  },
+  {
+    name: "a BUILT-IN prefix wins over a custom record claiming it",
+    prefix: "og",
+    wire: "deepseek-v4.1-flash",
+    providers: [{ ...ACME, prefix: "og/" }],
+  },
+  {
+    name: "no record and no built-in falls to the DEFAULT channel",
+    prefix: "zzz",
+    wire: "whatever",
+    providers: [ACME],
+  },
+  {
+    name: "an api this gateway does not serve is an ERROR route, never the default",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, api: "anthropic-messages" }],
+  },
+  {
+    name: "a record with no baseURL is an ERROR route too",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, baseURL: "" }],
+  },
+  {
+    name: "an absent api is an ERROR route (JSON.stringify(undefined))",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, api: undefined }],
+  },
+  {
+    name: "the FIRST record with a prefix wins",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, baseURL: "https://first.test/v1" }, { ...ACME, baseURL: "https://second.test/v1" }],
+  },
+  {
+    name: "a provider whose key comes from a NAMED binding",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, apiKey: undefined, apiKeyEnv: "ACME_API_KEY" }],
+    env: { ACME_API_KEY: "sk-from-env" },
+  },
+  {
+    name: "a named binding this deployment does not carry answers the empty string",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, apiKey: undefined, apiKeyEnv: "MISSING_KEY" }],
+  },
+  {
+    name: "a record with NO key at all",
+    prefix: "acme",
+    wire: "acme-chat",
+    providers: [{ ...ACME, apiKey: undefined }],
+  },
+];
+
+const providerOut = [];
+for (const c of providerCases) {
+  __clearCaches();
+  const env = envWith({});
+  env.KEYS.__map.set("providers:custom", JSON.stringify(c.providers));
+  if (c.env) Object.assign(env, c.env);
+  const model = `${c.prefix}/${c.wire}`;
+  const route = await resolveRoute(env, c.prefix, null, "/v1/messages");
+  const provider = c.providers.find(
+    (p) => String(p.prefix ?? "").replace(/\/$/, "") === c.prefix,
+  );
+  providerOut.push({
+    name: c.name,
+    // The inputs the replay needs, recorded rather than re-derived: the model string, the records, and the env
+    // names the key resolution reads (the VALUES are recorded too — the replay's env is a JSON object).
+    model,
+    providers: c.providers,
+    env: c.env || {},
+    expected: {
+      // `RouteInfo` minus `provider` (a record, not a value to compare) — plus the reason an error route carries.
+      type: route.type,
+      kind: route.kind,
+      stripPrefix: route.stripPrefix,
+      upstream: route.upstream,
+      reason: route.reason ?? null,
+      // `providerKey(env, provider)` for the record this prefix matched, and the vision facet for both models.
+      providerKey: provider ? providerKey(env, provider) : "",
+      visionOf: {
+        "acme-chat": provider ? providerModelVision(provider, "acme-chat") : false,
+        "acme-text": provider ? providerModelVision(provider, "acme-text") : false,
+      },
+      // The route `providerRoute` alone answers, for the error arm's sentence.
+      providerRouteReason: provider ? (providerRoute(provider).reason ?? null) : null,
+    },
+  });
+}
+writeFileSync(
+  new URL("./fixtures/provider-corpus.json", import.meta.url),
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING resolveRoute/providerKey/providerModelVision.",
+      cases: providerOut,
+    },
+    null,
+    1,
+  ) + "\n",
+);
+
+// ── THE CUSTOM PROVIDER'S REQUEST, RECORDED FROM THE SHIPPING ROUTE ──────────────────────────────
+// The corpus above pins the DECISION (which route, which key, which vision facet); this pins the WIRING — the
+// upstream request the worker actually builds, captured with `fetch` stubbed, which is where the defect lived:
+// the built worker answered `502 config_error — "CMD_API_KEY not configured"` and made NO CALL, while the
+// shipping route dialled the provider's own `baseURL` with the provider's own key.
+//
+// The cases are the three the source's own comment distinguishes: a provider with an INLINE key, one whose key
+// is a NAMED binding, and one with NO key at all — the last of which must answer the 502 that names what to set
+// rather than sending a headerless request.
+const providerRequestCases = [
+  {
+    name: "an inline key rides Bearer to the provider's own baseURL",
+    providers: [
+      {
+        prefix: "acme/",
+        label: "Acme Cloud",
+        baseURL: "https://acme.test/v1",
+        api: "openai-completions",
+        apiKey: "sk-acme-inline",
+        models: [{ id: "acme-chat", name: "Acme Chat", contextWindow: 128000 }],
+      },
+    ],
+    model: "acme/acme-chat",
+    env: {},
+  },
+  {
+    name: "a NAMED binding's value rides Bearer",
+    providers: [
+      {
+        prefix: "acme/",
+        label: "Acme Cloud",
+        baseURL: "https://acme.test/v1",
+        api: "openai-completions",
+        apiKeyEnv: "ACME_API_KEY",
+        models: [{ id: "acme-chat" }],
+      },
+    ],
+    model: "acme/acme-chat",
+    env: { ACME_API_KEY: "sk-from-env" },
+  },
+  {
+    name: "NO key at all answers the 502 that names what to set, and makes NO call",
+    providers: [
+      {
+        prefix: "acme/",
+        label: "Acme Cloud",
+        baseURL: "https://acme.test/v1",
+        api: "openai-completions",
+        models: [{ id: "acme-chat" }],
+      },
+    ],
+    model: "acme/acme-chat",
+    env: {},
+  },
+];
+
+const providerRequestOut = [];
+for (const c of providerRequestCases) {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = async (url, init = {}) => {
+    const req = new Request(url, init);
+    captured = { url: req.url, method: req.method, headers: {}, body: "" };
+    for (const [k, v] of req.headers.entries()) captured.headers[k] = v;
+    captured.body = await req.text();
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    __clearCaches();
+    const env = envWith({});
+    env.KEYS.__map.set("providers:custom", JSON.stringify(c.providers));
+    Object.assign(env, c.env);
+    const request = new Request("https://relay.example/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: c.model,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 16,
+      }),
+    });
+    const response = await handleGateway(request, env, new URL(request.url));
+    providerRequestOut.push({
+      name: c.name,
+      providers: c.providers,
+      model: c.model,
+      env: c.env,
+      rawText: JSON.stringify({
+        model: c.model,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 16,
+      }),
+      // **THE CAPTURED REQUEST IS THE EXPECTATION** when one was made; otherwise the 502's status and body.
+      ...(captured
+        ? { captured }
+        : { noUpstreamCall: true, status: response.status, answer: await response.text() }),
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+writeFileSync(
+  new URL("./fixtures/provider-request-corpus.json", import.meta.url),
+  JSON.stringify(
+    {
+      note: "Generated by gateway/wasm/route-oracle.mjs from the SHIPPING handleGateway, fetch stubbed.",
+      cases: providerRequestOut,
+    },
+    null,
+    1,
+  ) + "\n",
+);
+
 /** The route kind a body's model resolves to — the first path segment, which is what `pickRoute` keys on. */
 function kindOf(body) {
   if (typeof body === "string") return "";
@@ -1452,4 +1712,4 @@ writeFileSync(
     1,
   ) + "\n",
 );
-console.log(`route-oracle: ${out.length} count_tokens and ${orderOut.length} front-door order and ${authHeaderOut.length} auth-header and ${liveOut.length} live-stream and ${doorOut.length} front-door case(s) and ${passthroughOut.length} request case(s) and ${streamIgnoredOut.length} stream-ignored and ${nonStreamOut.length} non-stream and ${modelsOut.length} models and ${failureOut.length} failure and ${chatOut.length} chat and ${responsesOut.length} responses and ${streamFrameOut.length} stream-frame case(s) written`);
+console.log(`route-oracle: ${out.length} count_tokens and ${orderOut.length} front-door order and ${authHeaderOut.length} auth-header and ${liveOut.length} live-stream and ${doorOut.length} front-door and ${providerOut.length} provider and ${providerRequestOut.length} provider-request case(s) and ${passthroughOut.length} request case(s) and ${streamIgnoredOut.length} stream-ignored and ${nonStreamOut.length} non-stream and ${modelsOut.length} models and ${failureOut.length} failure and ${chatOut.length} chat and ${responsesOut.length} responses and ${streamFrameOut.length} stream-frame case(s) written`);

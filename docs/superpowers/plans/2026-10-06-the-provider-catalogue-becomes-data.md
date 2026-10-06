@@ -60,26 +60,41 @@ providers:
         maxTokens: 128000
 ```
 
-Summrise 今天有 `providers:custom`（`store/providers.ts`），记录是
-`{ prefix, label, models[{ id, name, contextWindow, maxTokens, input }] }` —— **缺 `api`、`baseURL`、`apiKeyEnv` 三个字段**，
-所以一个自定义提供商的上游仍由 `upstream.ts` 的内置表决定（`resolveRoute` 的三段：内置表 → 自定义 → 默认出口）。
+**这一行原先写错了，2026-10-06 按实测改正**：Summrise 的 `providers:custom`（`store/providers.ts`）**已经有** DSH 的
+那几个字段——记录是 `{ prefix, label, baseURL, api, apiKeyEnv?, apiKey?, models[{ id, name, vision?, contextWindow,
+maxTokens, reasoningEffort? }] }`，而 `upstream.ts` 的 `resolveRoute` 本来就是三段：内置表 → 自定义 → 默认出口。
 
-**B 就是把那三个字段补上，让一个 provider 自描述**；然后内置表里没人用的部分可以整段删除，因为留下来的项就是这张表的第一条记录。
+**真正缺的是 Rust 侧的那一半**：`gateway/wasm/src/store.rs` 只搬了**列表**那一半（`advertised_provider_models`，
+所以 `/v1/models` 会广告 `acme/acme-chat`），而 `routing.rs` 的 `resolve_model` **只查内置表**。所以一个自定义提供商的
+模型会被广告、然后被拨到默认渠道——**正是 `providerRoute` 自己的注释拒绝的那种失败**（"AN UNROUTABLE RECORD IS AN
+ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream under a different provider's name"）。
+
+实测（2026-10-06，构建产物 + 同一份 KV，两侧都 stub 掉 `fetch` 抓请求）：
+
+```text
+    发货:  POST https://acme.test/v1/chat/completions   Bearer sk-acme-inline
+    wasm:  502 config_error — "CMD_API_KEY not configured — add your Command Code key"，NO CALL
+```
+
+**所以 B 的第一步不是"补三个字段"，而是把这个分支搬过去**（已完成，见 A 段的记录）；补字段是第二步，因为记录本身
+已经够自描述了。
 
 ### 落地顺序（每条一个分支、一组语料）
 
-1. **Rust 侧类型与读取**：`gateway/wasm/src/store.rs` 增加 provider 记录的读写（KV 键沿用 `providers:custom`，
-   记录升级为含 `api`/`baseURL`/`apiKeyEnv` 的形状；旧记录缺字段时按内置表回退，一个提交）。
-2. **路由自描述**：`routing.rs` 的 `resolve_model` 在自定义提供商分支上使用记录里的 `baseURL`/`api`；
-   `bearer_key_for` 使用 `apiKeyEnv`。差分语料：同一模型的**上游 URL、方法、Bearer、正文**，与今天逐字节相同。
-3. **控制台**：`Models.tsx` 的提供商表单补齐三个字段，读写的仍是同一条记录；`ui-logic`（Rust）里加校验。
-4. **删死目录**：**每删一个渠道，先量它没人用**——
+1. ~~**Rust 侧读取与路由**~~ **已完成（2026-10-06）**：`store.rs` 的 `provider_for_prefix`/`provider_key`/
+   `provider_model_vision`/`provider_key_env_names`，`routing.rs` 的 `is_built_in_prefix`/`provider_route`/
+   `resolve_model` 三分支，`v1.rs` 读 `providers:custom` 并把每个记录的 `apiKeyEnv` 绑定读进 env。
+   语料：`provider-corpus.json`（11 例，发货链）与 `provider-request-corpus.json`（3 例，抓到的上游请求）。
+   **实测过的坑**：`apiKeyEnv` 是记录自选的**任意绑定名**，固定名单读不到它——`verify.mjs` 的
+   "a NAMED binding's value rides Bearer" 抓到了这一版自己的 bug。
+2. **控制台**：`Models.tsx` 的提供商表单与 `ui-logic`（Rust）对齐这条记录；今天的表单已经是同一形状，只差核对。
+3. **删死目录**：**每删一个渠道，先量它没人用**——
    - KV：有没有 `ukeys:*` 记录带该渠道的键（`wrangler kv key list` / 控制台）；
    - 日志：`journalctl -u vrelay` 与 worker 的访问日志里该前缀的出现次数；
    - 操作者确认一次。
    然后一个家族一个提交：渠道 → 它的健康卡 → 它的 BYOK 键位 → 它的测试与语料。
-5. **判据**（每条都能失败）：
-   - `og/` 的每条路由/翻译/流式用例逐字节等价（现有 `verify.mjs` + 11 份语料 + `front-door-cors-corpus.json`）；
+4. **判据**（每条都能失败）：
+   - `og/` 的每条路由/翻译/流式用例逐字节等价（现有 `verify.mjs` + 语料 + `front-door-cors-corpus.json`）；
    - `/v1/models` 对**在用**模型的输出与今天逐字节相同（`models-corpus.json` 重生成后比较）；
    - `HEALTH_CHANNELS` 从 21 张卡降到在用集合，且 `/api/health` 的字节与新表一致；
    - 门禁全绿，`cargo test -p summrise-gate-wasm` 的用例数只增不减。

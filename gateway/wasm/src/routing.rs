@@ -35,6 +35,90 @@ pub struct RouteInfo {
     pub upstream: String,
 }
 
+/// `ROUTE_TABLE`'s keys — **"does the BUILT-IN route table own this prefix?"** (`isBuiltInPrefix`).
+///
+/// It is a list rather than a lookup over `pick_route`'s arms because the ORDER is the contract: a built-in
+/// prefix is decided by `pick_route` even when a custom provider claims the same prefix, and only a prefix the
+/// table does not own may reach `provider_for_prefix`.
+pub fn is_built_in_prefix(prefix: &str) -> bool {
+    matches!(
+        prefix,
+        "or" | "ds" | "qw" | "og" | "nv" | "gmi" | "cm" | "amd" | "r4"
+    )
+}
+
+/// `SUPPORTED_PROVIDER_APIS` — the dialects a custom provider may declare, and the path each one APPENDS to
+/// its `baseURL`.
+///
+/// **THE JOIN IS DSH'S, DELIBERATELY** (`upstream.ts`'s own note): `baseURL` is a PREFIX and the dialect's path
+/// is appended — what the OpenAI SDK does with `baseURL` — which is why DSH's settings can name the gateway
+/// itself as a provider. One dialect today; a second is a row here plus its translator.
+pub const SUPPORTED_PROVIDER_APIS: [(&str, &str); 1] = [("openai-completions", "/chat/completions")];
+
+/// `JSON.stringify(provider?.api)` as a template literal renders it — `undefined` for an absent field, the
+/// quoted string for a string, `null` for an explicit null. It rides inside the unroutable sentence, so it is
+/// part of the bytes a client receives.
+fn js_json_stringify(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None => "undefined".to_string(),
+        Some(value) => serde_json::to_string(value).unwrap_or_else(|_| "undefined".to_string()),
+    }
+}
+
+/// `providerRoute(provider)` — a custom provider's route, or the reason it must NOT be dialled.
+///
+/// **AN UNROUTABLE RECORD IS AN ERROR ROUTE, NEVER THE DEFAULT CHANNEL** — the source's own words, and the
+/// failure they name is exactly what this crate did: a request for a custom provider's model fell through to
+/// the default channel and answered `502 config_error — "CMD_API_KEY not configured"` (measured 2026-10-06 on
+/// the built worker) where the shipping route dialled the provider's own `baseURL`.
+///
+/// Returns the route and, for the error arm, the sentence the client gets:
+/// `custom provider <prefix|?> cannot be routed: <api> is not a protocol this gateway serves (see
+/// store/providers.ts)`.
+pub fn provider_route(provider: &serde_json::Value) -> (RouteInfo, Option<String>) {
+    let base = provider
+        .get("baseURL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let api = provider.get("api").and_then(|v| v.as_str()).unwrap_or("");
+    let join = SUPPORTED_PROVIDER_APIS
+        .iter()
+        .find(|(name, _)| *name == api)
+        .map(|(_, path)| *path);
+    match join {
+        Some(path) if !base.is_empty() => (
+            RouteInfo {
+                is_translate: true,
+                kind: "custom",
+                strip_prefix: true,
+                upstream: format!("{base}{path}"),
+            },
+            None,
+        ),
+        _ => {
+            // `provider?.prefix || "?"` — the truthiness of the RAW value, then its text.
+            let raw = provider.get("prefix").unwrap_or(&serde_json::Value::Null);
+            let name = if crate::translate::truthy_js(raw) {
+                crate::stream::js_text(raw)
+            } else {
+                "?".to_string()
+            };
+            (
+                RouteInfo {
+                    is_translate: false,
+                    kind: "custom",
+                    strip_prefix: true,
+                    upstream: String::new(),
+                },
+                Some(format!(
+                    "custom provider {name} cannot be routed: {} is not a protocol this gateway serves (see store/providers.ts)",
+                    js_json_stringify(provider.get("api"))
+                )),
+            )
+        }
+    }
+}
+
 /// `VERIFY_PATH` — the path an Anthropic-format upstream serves.
 const VERIFY_PATH: &str = "/v1/messages";
 const CHAT_PATH: &str = "/v1/chat/completions";
@@ -357,14 +441,26 @@ pub struct ResolvedModel {
     pub route: RouteInfo,
     /// The name the upstream is asked for — `wireModelName` over the stripped, bracket-free id.
     pub upstream_model: String,
+    /// The custom-provider record this route came from, when it came from one. The request path needs it for
+    /// the credential (`store::provider_key`) and for the per-model facets (`store::provider_model_vision`),
+    /// which is why the source carries `provider` on its `RouteInfo` too.
+    pub provider: Option<serde_json::Value>,
+    /// `providerRoute`'s ERROR arm: the sentence to answer with. `None` means the route is dialable.
+    pub unroutable: Option<String>,
 }
 
-/// The chain, with the US-proxy SETTING as an argument (the KV read is the caller's).
+/// The chain, with the US-proxy SETTING as an argument (the KV read is the caller's), and the custom-provider
+/// records as data for the same reason.
+///
+/// **THE ORDER IS THE SOURCE'S, AND IT IS THE WHOLE POINT OF THIS FUNCTION**: a built-in prefix is decided by
+/// `pick_route` FIRST, then a custom provider, then `pick_route` again as the default channel — so a custom
+/// record can never shadow a built-in, and a prefix nobody owns still reaches the default rather than 404ing.
 pub fn resolve_model(
     model: &str,
     us_proxy_setting: bool,
     request_path: &str,
     env: Option<&serde_json::Value>,
+    providers: &[serde_json::Value],
 ) -> ResolvedModel {
     // `model.split("/")[0] || ""` — JS's `|| ""` only matters for an EMPTY first segment, which is what a
     // leading slash gives.
@@ -374,7 +470,15 @@ pub fn resolve_model(
     } else {
         None
     };
-    let route = pick_route(&prefix, env, us_proxy, request_path);
+    let provider = if is_built_in_prefix(&prefix) {
+        None
+    } else {
+        crate::store::provider_for_prefix(providers, &prefix)
+    };
+    let (route, unroutable) = match &provider {
+        Some(p) => provider_route(p),
+        None => (pick_route(&prefix, env, us_proxy, request_path), None),
+    };
     let stripped = if route.strip_prefix {
         // `effectiveModel.slice(prefix.length + 1)` — the prefix AND its slash.
         model
@@ -390,6 +494,8 @@ pub fn resolve_model(
         prefix,
         route,
         upstream_model,
+        provider,
+        unroutable,
     }
 }
 
@@ -497,6 +603,86 @@ mod tests {
         );
     }
 
+    /// **THE CUSTOM PROVIDERS, REPLAYED — ELEVEN CASES FROM THE SHIPPING CHAIN.**
+    ///
+    /// MUTATION: delete the `provider_for_prefix` branch in `resolve_model` (leave `pick_route` alone) and run
+    ///           this test.
+    /// RESULT:   the eight routable cases fail with the DEFAULT channel's route, which is exactly what the
+    ///           built worker did before the port — measured live as
+    ///           `502 config_error — "CMD_API_KEY not configured"` where the shipping route dialled
+    ///           `https://acme.test/v1/chat/completions` with `Bearer sk-acme-inline`.
+    ///
+    /// **THE ORDER IS THE SUBJECT, NOT THE LOOKUP**: one case gives a built-in prefix a custom record claiming
+    /// it (the built-in must win), and one gives a prefix nobody owns (the DEFAULT channel, not a 404).
+    #[test]
+    fn the_custom_providers_match_the_shipping_chain() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/provider-corpus.json"
+        );
+        let text = std::fs::read_to_string(path).expect("the provider corpus is committed");
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
+        let cases = doc["cases"].as_array().expect("cases");
+        let mut routable = 0;
+        let mut unroutable = 0;
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or("?");
+            let providers: Vec<serde_json::Value> =
+                case["providers"].as_array().cloned().unwrap_or_default();
+            let env = case["env"].clone();
+            let model = case["model"].as_str().unwrap_or("");
+            let got = resolve_model(model, false, "/v1/messages", Some(&env), &providers);
+            let want = &case["expected"];
+            let want_type = want["type"].as_str().unwrap_or("");
+            assert_eq!(
+                got.route.is_translate,
+                want_type == "translate",
+                "{name}: is_translate"
+            );
+            assert_eq!(got.route.kind, want["kind"].as_str().unwrap_or(""), "{name}: kind");
+            assert_eq!(
+                got.route.strip_prefix,
+                want["stripPrefix"].as_bool().unwrap_or(false),
+                "{name}: stripPrefix"
+            );
+            assert_eq!(
+                got.route.upstream,
+                want["upstream"].as_str().unwrap_or(""),
+                "{name}: upstream"
+            );
+            // `route.type === "error"` is `unroutable`, and the sentence is the client's bytes.
+            assert_eq!(
+                got.unroutable.as_deref(),
+                want["reason"].as_str(),
+                "{name}: the unroutable sentence"
+            );
+            if got.unroutable.is_some() {
+                unroutable += 1;
+            } else {
+                routable += 1;
+            }
+            // The credential and the vision facet come off the record the prefix matched — the same lookup the
+            // request path does, so this asserts the lookup itself and not a second copy of it.
+            let provider = crate::store::provider_for_prefix(&providers, &got.prefix);
+            assert_eq!(
+                crate::store::provider_key(&env, provider.as_ref()),
+                want["providerKey"].as_str().unwrap_or(""),
+                "{name}: providerKey"
+            );
+            for (wire, want_vision) in want["visionOf"].as_object().expect("visionOf") {
+                assert_eq!(
+                    crate::store::provider_model_vision(provider.as_ref(), wire),
+                    want_vision.as_bool().unwrap_or(false),
+                    "{name}: vision of {wire}"
+                );
+            }
+        }
+        assert_eq!(cases.len(), 11, "the provider corpus changed size");
+        // **BOTH ARMS ARE COVERED**, or the corpus would pass for a port that routed everything (or nothing).
+        assert_eq!(routable, 8, "the routable half");
+        assert_eq!(unroutable, 3, "the error-route half");
+    }
+
     fn corpus() -> serde_json::Value {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -539,6 +725,9 @@ mod tests {
                 input["usProxySetting"].as_bool().unwrap_or(false),
                 input["requestPath"].as_str().unwrap_or(""),
                 None,
+                // The route corpus drives the BUILT-IN table; a custom provider's records are its own
+                // corpus (`provider-corpus.json`) and its own test below.
+                &[],
             );
             assert_eq!(
                 got.prefix,
