@@ -614,8 +614,17 @@ pub fn upstream_body_error(
             }
         }
     }
-    if let Some(ra) = retry_after {
-        extra.push(("retry-after", ra));
+    // **`retry-after` RIDES ONLY THE JSON BRANCH — AND THAT IS THE SOURCE'S STRUCTURE, NOT AN OVERSIGHT.**
+    // In `upstreamBodyErrorResponse` the header is read INSIDE the `try` that parses the upstream's error body
+    // (`translate.ts`: `const ra = upstream.headers?.get?.("retry-after"); if (ra) extra = {...}` sits after
+    // `await upstream.json()`), so a NON-JSON error body falls to the `catch` and carries no `retry-after` at
+    // all. MEASURED 2026-10-06 on a text/plain 429 with `Retry-After: 1`: the shipping answer had no such
+    // header and this worker's did — a pacing header the old route deliberately does not send. The JSON case
+    // matched on both sides, which is what makes this the CONDITION and not the header.
+    if json.is_some() {
+        if let Some(ra) = retry_after {
+            extra.push(("retry-after", ra));
+        }
     }
     json_error_with(status, &message, kind, &extra)
 }

@@ -378,14 +378,83 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     }
     init.with_headers(headers);
     init.with_body(Some(call.request.body.clone().into()));
-    let upstream = Fetch::Request(Request::new_with_init(&call.request.url, &init)?)
-        .send()
-        .await;
+    // **THE RETRY LOOP — `fetchWithRetry`, WHICH THIS WORKER NEVER RAN, AND THE POLICY WAS ALREADY HERE.**
+    // `v1_plan` computes the arm's `RetryPolicy` and puts it on the request; nothing read it, so a 429 was
+    // answered on the first try where the shipping route retries it. Measured 2026-10-06 on a 429 stub:
+    // **3 upstream calls against 1**. The loop below is the source's, including the two details it can carry
+    // (they ride the error body when there is no response to normalize) and the "billing guard" that refuses
+    // to re-send a POST which may already have been processed.
+    let policy = call.request.policy.clone();
+    let attempts = policy
+        .attempts
+        .unwrap_or(crate::reliability::DEFAULT_ATTEMPTS);
+    let backoff_ms = policy
+        .backoff_ms
+        .map(|b| b as f64)
+        .unwrap_or(crate::reliability::DEFAULT_BACKOFF_MS);
+    let retry502 = policy.retry502.unwrap_or(false);
+    let ignore_retry_after = policy.ignore_retry_after.unwrap_or(false);
+    let mut attempt: i64 = 1;
+    let mut detail = String::new();
+    let mut upstream: Option<Response> = None;
+    while attempt <= attempts {
+        match fetch_with_timeout(&call.request.url, &init, policy.timeout_ms).await {
+            Err(FetchFailure::Timeout) => {
+                detail = format!("timeout after {}ms", policy.timeout_ms);
+                break;
+            }
+            Err(FetchFailure::Network(e)) => {
+                detail = format!("network error: {}", js_error_message(&e));
+                break;
+            }
+            Ok(res) => {
+                let status = res.status_code();
+                match crate::reliability::retry_decision(status, attempt, attempts, false, retry502) {
+                    crate::reliability::RetryDecision::Stop { detail: d } => {
+                        detail = d;
+                        upstream = Some(res);
+                        break;
+                    }
+                    crate::reliability::RetryDecision::Retry { detail: d } => {
+                        detail = d;
+                        let retry_after = res.headers().get("retry-after")?;
+                        let wait = crate::reliability::retry_wait_ms(
+                            ignore_retry_after,
+                            retry_after.as_deref(),
+                            backoff_ms,
+                            attempt,
+                            js_sys::Math::random() * 200.0,
+                            crate::reliability::DEFAULT_MAX_WAIT_MS,
+                        );
+                        Delay::from(std::time::Duration::from_millis(wait.max(0.0) as u64)).await;
+                        attempt += 1;
+                    }
+                }
+            }
+        }
+    }
+    // **NO RESPONSE AFTER THE LOOP IS THE ARM'S FAILURE, NOT A `None` ANSWER** — and the trip condition is the
+    // source's: only a hard network error or a timeout counts ("a fast 5xx/429 is the upstream being flaky, not
+    // dead — it must NOT trip").
+    let Some(mut res) = upstream else {
+        if call.kind == "opencode"
+            && (detail.starts_with("network error") || detail.starts_with("timeout"))
+        {
+            crate::record_channel_failure(&env).await;
+        }
+        let label = crate::responses::translate_label(&call.kind, None);
+        return to_response(crate::request_shape::upstream_fetch_failure(
+            &call.kind,
+            call.is_translate,
+            &label,
+            &detail,
+        ));
+    };
     let mut upstream_stream = None;
-    // Declared, not initialised: the `Err` arm returns, so the only path that reads it assigns it.
+    // Declared, not initialised: the failure path returns above, so the only path that reads it assigns it.
     let live;
-    let answer = match upstream {
-        Ok(mut res) => {
+    let answer = {
+        {
             let status = res.status_code();
             // **A REAL 2xx RESETS THE CONSECUTIVE-FAILURE COUNT** — "otherwise yesterday's blips would combine
             // with today's to trip" — and the reset is a DO call this worker never made (measured: `[]` where
@@ -425,24 +494,6 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
                 })
             }
         }
-        Err(e) => {
-            // **A FETCH THAT THREW IS NOT A RESPONSE, AND THE SOURCE SHAPES IT DIFFERENTLY.** The detail is
-            // `network error: <message>`; the body is the ARM's envelope (`${label}: ${detail}` for the
-            // translate arm, `upstream 502 (kind): …` for the passthrough ones); and for og it is a BREAKER
-            // TRIP, because a hard network error is one of the two signals `recordChannelFailure` counts —
-            // "a fast 5xx/429 (retries exhausted) is the upstream being flaky, not dead — it must NOT trip".
-            let detail = format!("network error: {}", js_error_message(&e));
-            if call.kind == "opencode" {
-                crate::record_channel_failure(&env).await;
-            }
-            let label = crate::responses::translate_label(&call.kind, None);
-            return to_response(crate::request_shape::upstream_fetch_failure(
-                &call.kind,
-                call.is_translate,
-                &label,
-                &detail,
-            ));
-        }
     };
     if live {
         // **THE LIVE SSE PATH — the last decision to be wired, and the transform does the work.** The upstream
@@ -459,6 +510,42 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             "the upstream body was consumed before it could be streamed",
             "api_error",
         )),
+    }
+}
+
+/// Why a fetch produced no response — the two things `fetchWithTimeout` distinguishes.
+enum FetchFailure {
+    /// The source's `TimeoutError`: `fetchWithTimeout` aborts at `ms` and renames the `AbortError`.
+    Timeout,
+    /// Everything else: the runtime's own error, whose `e.message` is what the detail carries.
+    Network(worker::Error),
+}
+
+/// **`fetchWithTimeout(url, init, ms)` — AND ITS ONE DIFFERENCE FROM THE SOURCE IS RECORDED, NOT HIDDEN.**
+///
+/// The source aborts the request through an `AbortController`'s signal; `workers-rs` 0.8.7's `RequestInit`
+/// exposes no signal at all (`request_init.rs` has headers, method, redirect, cache, body and cf only), so this
+/// RACES the fetch against a `Delay` instead. **The client sees the same thing at the same moment** — the
+/// answer is `timeout after <ms>ms` and the circuit's trip condition matches — while the upstream request
+/// itself is not cancelled; the platform's own limit ends it. Measured before this existed: with
+/// `OG_TIMEOUT_MS=1500` and a stub upstream that never answers, the shipping route answered
+/// `502 og: timeout after 1500ms` and this worker **never answered at all** (the harness's 8 s deadline).
+async fn fetch_with_timeout(
+    url: &str,
+    init: &RequestInit,
+    timeout_ms: f64,
+) -> std::result::Result<Response, FetchFailure> {
+    let request = Request::new_with_init(url, init).map_err(FetchFailure::Network)?;
+    // A `let` BINDING, not a temporary: `pin_mut!` borrows it, and `Fetch::Request(request).send()` in the
+    // `let fetch = …` position frees the `Fetch` at the end of that statement.
+    let fetcher = Fetch::Request(request);
+    let fetch = fetcher.send();
+    let delay = Delay::from(std::time::Duration::from_millis(timeout_ms.max(0.0) as u64));
+    futures_util::pin_mut!(fetch);
+    futures_util::pin_mut!(delay);
+    match futures_util::future::select(fetch, delay).await {
+        futures_util::future::Either::Left((result, _)) => result.map_err(FetchFailure::Network),
+        futures_util::future::Either::Right((_, _)) => Err(FetchFailure::Timeout),
     }
 }
 
