@@ -42,8 +42,29 @@ async fn kv_text(env: &Env, key: &str) -> Option<String> {
     kv.get(key).text().await.ok().flatten()
 }
 
-/// `GET /v1/models`'s advertised set is not wired here — the four `/v1` arms the handler serves are.
+/// The same read, for the keys that hold a JSON ARRAY — `models:disabled`, `models:custom`,
+/// `providers:custom`, `models:overrides`. **AN ABSENT KEY IS AN EMPTY LIST AND NOT AN ERROR**, which is
+/// what `readList` does in the shipping store: a deployment nobody has configured lists the registry.
+async fn kv_json<T: serde::de::DeserializeOwned + Default>(env: &Env, key: &str) -> T {
+    match kv_text(env, key).await {
+        Some(text) => serde_json::from_str(&text).unwrap_or_default(),
+        None => T::default(),
+    }
+}
+
+/// **`GET …/models` IS WIRED NOW.** This comment used to say it was not — "`GET /v1/models`'s advertised
+/// set is not wired here" — and a live comparison is what turned that from a known gap into a measured one:
+/// the wasm answered **404** where the shipping gateway answered **200**, on both `/v1/models` and
+/// `/models`. The listing itself was already ported (`responses::models_listing`, replayed by
+/// `fixtures/models-corpus.json`); what was missing was this predicate and the arm below.
+///
+/// **`ends_with`, NOT EQUALITY, AND NO PATH REWRITE IS NEEDED**: the shipping route tests
+/// `path.endsWith("/models")` and rewrites `/models` to `/v1/models` before calling its handler, but the
+/// listing never reads the path — so matching either spelling here is the same decision, made once.
 pub fn is_v1_route(method: &Method, path: &str) -> bool {
+    if method == &Method::Get && path.ends_with("/models") {
+        return true;
+    }
     if method != &Method::Post {
         return false;
     }
@@ -61,6 +82,45 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     if !is_v1_route(&method, &path) {
         return Response::error("Not Found", 404);
     }
+    // **`GET …/models` — PUBLIC, AND BEFORE THE AUTH GATE.** The shipping route says so in as many words:
+    // "public, no auth required (DSH/OpenAI clients list models first)". Putting it after the gate would
+    // make every client's first request a 401, which is a behaviour the live comparison would have caught
+    // and a code review would not.
+    if method == Method::Get && path.ends_with("/models") {
+        let disabled: Vec<String> = kv_json(&env, "models:disabled").await;
+        let custom: Vec<serde_json::Value> = kv_json(&env, "models:custom").await;
+        let providers: Vec<serde_json::Value> = kv_json(&env, "providers:custom").await;
+        let override_records: Vec<serde_json::Value> = kv_json(&env, "models:overrides").await;
+
+        let registry_ids: Vec<&str> = crate::registry::MODEL_REGISTRY.iter().map(|m| m.id).collect();
+        let custom_ids: Vec<String> = custom
+            .iter()
+            .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
+            .collect();
+        let provided = crate::store::advertised_provider_models(&providers);
+        let provider_ids: Vec<String> = provided
+            .iter()
+            .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
+            .collect();
+
+        let live = crate::store::advertised_ids(&registry_ids, &disabled, &custom_ids, &provider_ids);
+        let extra = crate::store::extra_model_entries(&custom, &provided);
+        let overrides: serde_json::Map<String, serde_json::Value> = override_records
+            .iter()
+            .filter_map(|o| {
+                o.get("id")
+                    .and_then(|i| i.as_str())
+                    .map(|i| (i.to_string(), o.clone()))
+            })
+            .collect();
+        return to_response(crate::responses::models_listing(
+            &crate::registry::MODEL_REGISTRY,
+            &live,
+            &extra,
+            &overrides,
+        ));
+    }
+
     let raw = req.text().await?;
     let parsed: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
     let model = parsed
