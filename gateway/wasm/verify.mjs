@@ -675,9 +675,9 @@ for (const [i, c] of CASES.entries()) {
     }
   }
 
-  const kvFor = (extra = {}) => {
+  const kvFor = (extra = {}, token = TOKEN) => {
     const map = new Map([
-      [`token:${TOKEN}`, UID],
+      [`token:${token}`, UID],
       [`user:${UID}`, JSON.stringify({ id: UID, enabled: true })],
       [
         `ukeys:${UID}`,
@@ -1352,6 +1352,113 @@ for (const [i, c] of CASES.entries()) {
       upstream: { body: JSON_OK, type: "application/json", status: 200 },
     },
     {
+      name: "POST /v1/messages, web_search with US_PROXY=1 (the swap keeps the exit)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          tool_choice: { type: "tool", name: "web_search" },
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      env: { US_PROXY: "1" },
+    },
+    {
+      name: "POST /v1/messages, web_search on a TRANSLATE-only model (the forced swap)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/mimo-v2.5",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          tool_choice: { type: "tool", name: "web_search" },
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, a SEARCH-ONLY body (one tool, no tool_choice)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, a custom provider whose baseURL carries a PATH",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "acme/acme-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/openai/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/messages, a custom provider with an UNSUPPORTED api (the error route)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "acme/acme-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "anthropic-messages",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/messages, a custom provider model spelled WITH the prefix twice",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "acme/acme/acme-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a
@@ -1439,14 +1546,14 @@ for (const [i, c] of CASES.entries()) {
     },
   ];
 
-  const buildRequest = (c) => {
+  const buildRequest = (c, token = TOKEN) => {
     const [method, path, body] = c.req;
     const headers = { "content-type": "application/json", ...(c.headers ?? {}) };
-    if (c.token !== null) headers["x-api-key"] = c.token ?? TOKEN;
+    if (c.token !== null) headers["x-api-key"] = c.token ?? token;
     // `token: "both"` is not a token: it is the case that sends BOTH spellings, and the precedence between them
     // is what is being measured.
     if (c.token === "both") {
-      headers["x-api-key"] = TOKEN;
+      headers["x-api-key"] = token;
       headers["authorization"] = "Bearer tok-other";
     }
     return new Request(`https://console.test${path}`, {
@@ -1514,6 +1621,12 @@ for (const [i, c] of CASES.entries()) {
   const sweepDifferent = [];
   const sweepKnown = [];
   for (const [i, c] of SWEEP.entries()) {
+    // **A UNIQUE TOKEN PER CASE, AND THE REASON IS THE RATE LIMIT**: the shipping side's counters live in ONE
+    // process (`__rlMin` is module state) while the wasm side gets a FRESH module instance per case (the
+    // `?sweep=N` import) — so with a shared token the shipping side hit its 48/minute budget around case 49 and
+    // reported two "divergences" that were the harness's own asymmetry. The rate limit has its own case, with
+    // its own token and its own 50 requests.
+    const token = `tok-sweep-${i}`;
     const shipCalls = [];
     const shipBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
     stubUpstream(c, shipCalls);
@@ -1526,14 +1639,14 @@ for (const [i, c] of CASES.entries()) {
     let shipHeaders = [];
     try {
       const env = {
-        KEYS: kvFor(c.kv),
+        KEYS: kvFor(c.kv, token),
         BREAKER: shipBreaker,
         DO_AUTH: "stub",
         CONSOLE_HOST: "console.test",
         CONSOLE_ORIGINS: "https://console.test",
         ...(c.env ?? {}),
       };
-      const res = await withDeadline(() => shippingDoor.fetch(buildRequest(c), env, {}), c.deadlineMs);
+      const res = await withDeadline(() => shippingDoor.fetch(buildRequest(c, token), env, {}), c.deadlineMs);
       if (res === "HUNG") {
         shipStatus = -1;
         shipBody = "HUNG";
@@ -1552,13 +1665,13 @@ for (const [i, c] of CASES.entries()) {
     stubUpstream(c, wasmCalls);
     const worker = await import(`${pathToFileURL(BUILT).href}?sweep=${i}`);
     const instance = new worker.default();
-    instance.env = { KEYS: kvFor(c.kv), BREAKER: wasmBreaker, DO_AUTH: "stub", ...(c.env ?? {}) };
+    instance.env = { KEYS: kvFor(c.kv, token), BREAKER: wasmBreaker, DO_AUTH: "stub", ...(c.env ?? {}) };
     instance.ctx = {};
     let wasmStatus = 0;
     let wasmBody = "";
     let wasmHeaders = [];
     try {
-      const res = await withDeadline(() => instance.fetch(buildRequest(c)), c.deadlineMs);
+      const res = await withDeadline(() => instance.fetch(buildRequest(c, token)), c.deadlineMs);
       if (res === "HUNG") {
         wasmStatus = -1;
         wasmBody = "HUNG";

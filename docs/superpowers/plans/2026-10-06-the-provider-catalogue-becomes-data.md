@@ -132,7 +132,28 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
-- **A3 切流后删除** `gateway/src` 的 `/v1` 半边（~4,407 行）——**先证明等价，再删**。
+- **A3 切流后删除** `gateway/src` 的 `/v1` 半边——**先证明等价，再删**。等价已经证明（分歧扫描 64/64、0 处已知差异），
+  删除清单是 2026-10-06 按**导入图实测**的，不是估的：
+
+  | 删（只被 `/v1` 用到） | 行数 | 谁还引用它 |
+  |---|---|---|
+  | `gateway/src/plugins/translate.ts` | 1,696 | 只有 `index.ts`（前门） |
+  | `gateway/src/anthropic-translate.ts` | 798 | `translate.ts`、`translate-vision.ts` |
+  | `gateway/src/body-scan.ts` | 379 | `translate.ts` |
+  | `gateway/src/plugins/translate-vision.ts` | 313 | `translate.ts` |
+  | **合计** | **3,186** | |
+
+  **留下的（看着像 `/v1`、其实控制台在用）**：
+  - `gateway/src/plugins/model-route.ts`（111 行）——它唯一的**导入者**是 `translate.ts`，但它的**导出**被控制台读：
+    `plugins/auth.ts` 通过插件上下文取 `resolveAutoModel` 给 `GET /api/me/route` 用（`optionalApi(ctx,"translate")`，
+    取不到就是 `null`）。删之前要把它接到直接 import，否则那条控制台路由会静默降级。
+  - `upstream.ts`（489）、`reliability.ts`（456）、`channels.ts`（655）、`store/providers.ts`（542）——`tooling.ts`
+    的健康/路由信息、`BreakerDO` 的导出、健康卡与模型注册表都要它们。
+
+  **删完要做的事**：`index.ts` 去掉 translate 插件、`translateHandleGateway` 与 `/v1` 分派（`/v1/*` 由 zone route
+  交给 wasm worker）；`index.ts` 的那三个 re-export 改指 `plugins/model-route.ts` 与 `reliability.ts`；测试里
+  **只**为 `/v1` 存在的那几个随之删除（实测 18 个测试文件碰到这半边，同时覆盖共享模块的留下）；`route-oracle.mjs`
+  随之退役（它驱动的就是这份 TS），`verify.mjs` 的比较端从"发货 TS"变成"已录语料"。
 - **A4 JS 账（2026-10-06 接手时 → 2026-10-06 本轮，`git ls-files` + 逐文件行数）**：
 
   | | 接手时 | 现在 | Δ |
