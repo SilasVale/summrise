@@ -1250,6 +1250,108 @@ for (const [i, c] of CASES.entries()) {
       upstream: { body: JSON_OK, type: "application/json", status: 200 },
     },
     {
+      name: "POST /v1/messages, a STREAM whose body DIES mid-response",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: {
+        body: 'data: {"choices":[{"delta":{"content":"par"}}]}\n\n',
+        type: "text/event-stream",
+        status: 200,
+        truncate: true,
+      },
+    },
+    {
+      name: "POST /v1/messages, a STREAM that ends WITHOUT [DONE]",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: {
+        body: 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+        type: "text/event-stream",
+        status: 200,
+      },
+    },
+    {
+      name: "POST /v1/messages, an upstream SSE with a 200 but an EMPTY body",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: { body: "", type: "text/event-stream", status: 200 },
+    },
+    {
+      name: "POST /v1/messages, stream:true but the upstream answers JSON (the ignore path)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          stream: true,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
+      name: "POST /v1/messages/count_tokens with a TOOLS body",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          tools: [
+            {
+              name: "read_file",
+              description: "read a file",
+              input_schema: { type: "object", properties: { path: { type: "string" } } },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      // **THE og/ SEARCH PATH.** A forced `web_search` makes the shipping route dial zen's own
+      // `/v1/messages` — a PASSTHROUGH, because the server-side tool is not executed on the
+      // chat/completions translation this route otherwise uses. Measured 2026-10-06: this worker used to dial
+      // `/v1/chat/completions` and answer a reshaped Anthropic message, so web search was broken in a way no
+      // status code shows.
+      name: "POST /v1/messages, a body with web_search declared (the native search path)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "og/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a
@@ -1388,7 +1490,10 @@ for (const [i, c] of CASES.entries()) {
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(bytes);
-          controller.close();
+          // `truncate` is a stream that DIES: the reader gets an error instead of a close, which is the
+          // mid-response failure the SSE transform's `on_end(true)` branch exists for.
+          if (c.upstream.truncate) controller.error(new Error("upstream stream died"));
+          else controller.close();
         },
       });
       const headers = { "content-type": c.upstream.type };

@@ -211,7 +211,9 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         ));
     }
 
-    let raw = req.text().await?;
+    // `mut`: the search swap REBUILDS it (`rawText = JSON.stringify(body)`), because the passthrough arm
+    // forwards this text with the model swapped in place.
+    let mut raw = req.text().await?;
     // `mut` because the VISION PASS rewrites `messages` in place before the plan sees it.
     let mut parsed: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
     let model = parsed
@@ -358,7 +360,9 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     }
 
     // THE CHAIN: the model -> the route, then the two-phase dispatch.
-    let resolved = crate::routing::resolve_model(
+    // `mut`: the og/ SEARCH SWAP below rewrites the route and the wire model, which is what the source does
+    // to its own `route` object before the arm reads it.
+    let mut resolved = crate::routing::resolve_model(
         &model,
         us_proxy_setting,
         &path,
@@ -371,6 +375,78 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     if let Some(reason) = &resolved.unroutable {
         return to_response(crate::responses::json_error(502, reason, "config_error"));
     }
+    // **THE og/ SEARCH PATH — THE SWAP TO ZEN'S NATIVE `/v1/messages`, AND IT WAS MISSING ENTIRELY.**
+    //
+    // Measured 2026-10-06 on the built worker: a request forcing `web_search` made the shipping route dial
+    // `https://opencode.ai/zen/go/v1/**messages**` (a PASSTHROUGH — zen executes the server-side tool) and hand
+    // the upstream's bytes back verbatim, while this worker dialled `/v1/**chat/completions**` (the translate
+    // path) and answered a reshaped Anthropic message. The tool is NOT executed on the translation, so web
+    // search was broken here in a way no status code shows.
+    //
+    // The source's three steps, in its own order: a SEARCH-ONLY body (exactly one tool, no `tool_choice`) gets
+    // the force INJECTED first; a forced `tool_choice` then selects the search target; and the swap happens
+    // unless the route is ALREADY that passthrough. `searchTargetFor` keeps a caller's search-capable model and
+    // forces every other og/ model to the version-less `deepseek-flash` lane, because the translate-only models
+    // fabricate a query and return no `web_search_tool_result` (verified 2026-08-13).
+    //
+    // The US exit is PRESERVED rather than bypassed (round-116): a swap that set the raw constant "silently
+    // bypassed the US exit that pickRoute's via() had chosen — direct zen is exactly what US_PROXY exists to
+    // avoid".
+    let us_proxy_for_search =
+        crate::routing::og_force_us_proxy(&model) || us_proxy_setting;
+    let mut model = model;
+    if resolved.route.kind == "opencode" {
+        if let Some(body) = parsed.as_mut() {
+            if crate::request_shape::is_search_only_request(body) {
+                if let Some(obj) = body.as_object_mut() {
+                    obj.insert(
+                        "tool_choice".to_string(),
+                        serde_json::json!({ "type": "tool", "name": "web_search" }),
+                    );
+                }
+            }
+        }
+    }
+    let forced_search = parsed
+        .as_ref()
+        .map(|b| {
+            crate::request_shape::is_forced_web_search(
+                b.get("tool_choice").unwrap_or(&serde_json::Value::Null),
+            )
+        })
+        .unwrap_or(false);
+    if forced_search && resolved.route.kind == "opencode" {
+        let target = crate::registry::search_target_for(&model, &resolved.upstream_model);
+        let already_native = !resolved.route.is_translate
+            && resolved.route.upstream == crate::routing::OG_ZEN_ANTHROPIC;
+        if !already_native {
+            model = target.model;
+            resolved.upstream_model = target.wire_model.clone();
+            if let Some(body) = parsed.as_mut() {
+                if let Some(obj) = body.as_object_mut() {
+                    obj.insert(
+                        "model".to_string(),
+                        serde_json::json!(target.wire_model.clone()),
+                    );
+                }
+                // The passthrough forwards the RAW text with the model swapped in place, so the rebuilt body is
+                // what the arm reads — and both now name the same wire slug.
+                raw = serde_json::to_string(body).unwrap_or_else(|_| raw.clone());
+            }
+            resolved.route.is_translate = false;
+            resolved.route.upstream = if us_proxy_for_search {
+                format!(
+                    "{}/api/zen?target=og&path={}",
+                    crate::routing::us_proxy_base(Some(&env_json)),
+                    crate::routing::encode_uri_component("/v1/messages")
+                )
+            } else {
+                crate::routing::OG_ZEN_ANTHROPIC.to_string()
+            };
+            resolved.route.kind = "opencode";
+        }
+    }
+
     // **THE VISION PASS — `preprocessImages`, IN THE SOURCE'S PLACE** (after the route is resolved, before the
     // arm's key gates) **AND WITH ITS OWN PROXY READ**: the describe's US exit comes from the KV setting ALONE
     // (`getGlobalSetting(env, "US_PROXY")`), never the request path's `US_PROXY` env fallback — with the proxy

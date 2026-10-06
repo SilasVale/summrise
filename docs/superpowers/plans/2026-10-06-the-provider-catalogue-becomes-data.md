@@ -133,7 +133,27 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
 - **A3 切流后删除** `gateway/src` 的 `/v1` 半边（~4,407 行）——**先证明等价，再删**。
-- **A4** 上表每一块的判定写进提交信息；"留"的每一块都要有一句"为什么它必须是 JS"。
+- **A4 JS 账（2026-10-06 接手时 → 2026-10-06 本轮，`git ls-files` + 逐文件行数）**：
+
+  | | 接手时 | 现在 | Δ |
+  |---|---|---|---|
+  | Rust | 114,808 行 / 217 文件 | **116,377 行 / 218 文件** | **+1,569 / +1** |
+  | JS 家族（TS+TSX+JS+MJS+CJS） | ~153,800 行 / 571 文件 | **155,180 行 / 571 文件** | **+1,380 / 0** |
+
+  **JS 这一会话是涨的，涨在哪必须写在表上**（这不是"没有新增 JS"，是"新增的每一行都落在具名例外里"）：
+
+  | 涨在哪 | Δ | 属于哪个例外 |
+  |---|---|---|
+  | `gateway/wasm/`（`verify.mjs` + `route-oracle.mjs`） | **+1,301** | 驱动 JS+wasm 产物的 harness（切流后 oracle 退役） |
+  | `gateway/ui/`（提供商表单 + i18n + CSS） | **+79** | 浏览器 UI |
+
+  其余目录这一会话**没动**：`gateway/src` 14,057（发货 TS 半边，A3 切流后删）、`gateway/test` 20,251、
+  `agent/resources` 42,505、`agent/scripts` 8,910、`agent/summrise-agent-npm` 13,741、Electron 4,207、
+  `proxies/api-relay` 3,916。
+
+  **判据的主语**：`gateway/wasm` 里那 5,074 行 JS 家族**全部**是两个 harness（+ `loader.mjs`），没有一行产品逻辑；
+  Rust 侧同期 +1,569 行里，`vision.rs`（一个完整特性）与四份新语料/回放是主体。**切流删掉 `gateway/src` 的 /v1 半边
+  之后，`route-oracle.mjs` 与它驱动的差分一起退役**，这条数会掉。
 - **A5（待点头）** `agent/scripts` 的 sweep 驱动与判据（~8,909 行 .mjs）→ Rust。成本：一个构建阶段 + Node↔Rust 边界；
   `agent/src/plugins/design/` 已是在产品里做同一件事的 Rust 先例。
 - **A6（待点头，第二阶段）** 控制台 `/api/*` 与插件（~9,650 行 TS）→ wasm：同一个 worker、同一个目标，理论可搬；
