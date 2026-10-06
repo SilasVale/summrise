@@ -501,7 +501,9 @@ for (const [i, c] of CASES.entries()) {
     };
     instance.ctx = {};
     const res = await instance.fetch(
-      new Request(`https://api.saisi.online${c.path}`, {
+      // The fixture's own test host: `agent/tests/production_host.rs` refuses a tracked file that names
+      // a deployment hostname outside its declared list, and a fixture is not a reason to grow that list.
+      new Request(`https://console.test${c.path}`, {
         method: c.method,
         headers: {
           origin: c.origin,

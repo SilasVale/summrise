@@ -227,18 +227,21 @@ fn not_found() -> Result<Response> {
 /// per-request rather than a constant: *"Deliberately NO Access-Control-Allow-Origin here — the origin is
 /// reflected per request, otherwise a static `*` would ride along on every merge of this constant."*
 ///
-/// **MEASURED 2026-10-06, AND THIS DOOR DID NOT DO IT AT ALL**: driving both doors with the same env and
-/// `Origin: https://api.saisi.online` gave the shipping `access-control-allow-origin: https://api.saisi.online`
-/// plus `vary: Origin` on all nine cases, and the wasm worker only the static
-/// `access-control-allow-headers/methods` pair — so **a browser client (the console's own UI among them) would
-/// have had every cross-origin response refused at the cutover**, on a route whose body and status matched
-/// exactly.
+/// **MEASURED 2026-10-06, AND THIS DOOR DID NOT DO IT AT ALL**: driving both doors with the same env and an
+/// `Origin` of one of the deployment's own console origins gave the shipping door
+/// `access-control-allow-origin: <that origin>` plus `vary: Origin` on all nine cases, and the wasm worker only
+/// the static `access-control-allow-headers/methods` pair — so **a browser client (the console's own UI among
+/// them) would have had every cross-origin response refused at the cutover**, on a route whose body and status
+/// matched exactly.
 ///
 /// **AND IT READS `CONSOLE_ORIGINS`, NOT `CONSOLE_HOST`.** The preflight path passed `env.var("CONSOLE_HOST")`
-/// as the allowlist — a list of HOSTNAMES (`ai.saisi.online,api.saisi.online`, the deployed var's value) where
-/// the rule wants ORIGINS (`https://api.saisi.online`), so nothing ever matched and even the preflight
-/// reflected nothing. `CONSOLE_HOST` keeps its own job: it is the console-host isolation in `index.ts`, not
-/// the allowlist.
+/// as the allowlist — the deployed value of that var is a list of HOSTNAMES, where the rule wants ORIGINS
+/// (`https://…`), so nothing ever matched and even the preflight reflected nothing. `CONSOLE_HOST` keeps its own
+/// job: it is the console-host isolation in `index.ts`, not the allowlist.
+///
+/// **AND THESE COMMENTS DO NOT SPELL THE HOST, WHICH IS A GATE'S RULE RATHER THAN STYLE**: the first version of
+/// this paragraph wrote the deployment's origins out, and `agent/tests/production_host.rs` failed the tree by
+/// naming this file — five occurrences, none of them code.
 fn with_cors(
     mut res: Response,
     origin: &str,
