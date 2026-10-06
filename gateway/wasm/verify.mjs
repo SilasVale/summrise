@@ -228,6 +228,309 @@ for (const [i, c] of CASES.entries()) {
   bad += authBad;
 }
 
+// ── THE DEPLOYMENT'S OWN KEY REACHES THE UPSTREAM ────────────────────────────────────────────────
+// **THE PURE LAYER READS A FIXED SET OF NAMES OUT OF `env`, AND `v1.rs` HANDED IT `{"US_PROXY"}` ALONE.**
+// Measured 2026-10-06 on the built worker, with a valid token, NO user key in KV, and the deployment's own
+// `DEEPSEEK_API_KEY` in the worker's env: `502 config_error — "DEEPSEEK_API_KEY not configured — add your own
+// key in the console"`, and **no upstream call at all** — while the shipping `handleGateway` on the same three
+// inputs called `api.deepseek.com`, `token-plan.ap-southeast-1.maas.aliyuncs.com` and `opencode.ai` with
+// `Bearer sk-env-…`. Every user without a key of their own would have met that at the cutover.
+//
+// **WHY THIS SECTION IS HERE RATHER THAN IN A RUST TEST**: the gap was not in a decision — every decision is
+// proved by its own corpus — it was in the WIRING, on the other side of the `worker::Env` boundary. A Rust
+// test drives `key_gate`/`bearer_key_for` with an env object it builds itself, so it cannot see what
+// `v1.rs` actually reads; this drives the built worker with the real `Env` lookup and stubs `fetch`, which
+// makes the difference visible as a CAPTURED UPSTREAM REQUEST.
+//
+// **AND THE FOURTH CASE MUST NOT BITE**: `nvidia` deliberately has NO deployment fallback (`BYOK_CHANNELS`
+// carries the `None`), so a `nv/` request with no user key must still answer the config error and make no
+// call. A fix that plumbed the env by inventing a key would pass the first three cases and fail this one.
+{
+  // **`let`, DECLARED BEFORE `KEYS`, AND THAT IS NOT STYLE.** The first version declared `kvMap` with `const`
+  // INSIDE the loop below, so `KEYS`' closure resolved the name in THIS block, found nothing, and every
+  // request came back 401 "Missing or invalid x-api-key" — the stub threw, `kv_text` swallowed it into
+  // `None`, and the measurement looked like a broken token rather than a broken harness.
+  let kvMap = new Map();
+  const KEYS = {
+    async get(key) {
+      return kvMap.has(key) ? kvMap.get(key) : null;
+    },
+    async put(key, value) {
+      kvMap.set(key, value);
+    },
+    async delete(key) {
+      kvMap.delete(key);
+    },
+    async list() {
+      return { keys: [...kvMap.keys()].map((name) => ({ name })), list_complete: true };
+    },
+  };
+  const cases = [
+    {
+      model: "ds/deepseek-v4.1-flash",
+      key: "DEEPSEEK_API_KEY",
+      value: "sk-env-deepseek",
+      host: "api.deepseek.com",
+      label: "ds/ rides the deployment's DEEPSEEK_API_KEY",
+    },
+    {
+      model: "qw/qwen3.8-flash",
+      key: "QWEN_API_KEY",
+      value: "sk-env-qwen",
+      host: "token-plan.ap-southeast-1.maas.aliyuncs.com",
+      label: "qw/ rides the deployment's QWEN_API_KEY",
+    },
+    {
+      model: "og/deepseek-v4.1-flash",
+      key: "OPENCODE_GO_API_KEY",
+      value: "sk-env-opencode",
+      host: "opencode.ai",
+      label: "og/ rides the deployment's OPENCODE_GO_API_KEY",
+    },
+    {
+      model: "nv/nvidia/llama-3.3-nemotron",
+      key: null,
+      value: null,
+      host: null,
+      label: "nv/ has NO deployment fallback and must still refuse",
+      mustNotReach: true,
+    },
+    {
+      // **THE USER'S OWN KEY, IN THE SHAPE THE STORE WRITES** — and with NO env key in play, so the only
+      // source that can serve this request is `ukeys:<uid>`. `v1.rs` handed that record to the gate raw until
+      // 2026-10-06, and this case is what that cost: `502 config_error`, no upstream call.
+      model: "ds/deepseek-v4.1-flash",
+      key: null,
+      value: null,
+      host: "api.deepseek.com",
+      label: "the user's OWN key, in the store's shape (DEEPSEEK_API_KEY)",
+      userKey: { DEEPSEEK_API_KEY: "sk-user-ds" },
+      wantBearer: "Bearer sk-user-ds",
+    },
+  ];
+  const realFetch = globalThis.fetch;
+  let keyBad = 0;
+  for (const [i, c] of cases.entries()) {
+    // The KV is the token and the user record only — NO `ukeys:<uid>`, which is the case under test.
+    kvMap = new Map([
+      ["token:tok-verify", "u-verify"],
+      ["user:u-verify", JSON.stringify({ id: "u-verify", enabled: true })],
+      ...(c.userKey ? [["ukeys:u-verify", JSON.stringify(c.userKey)]] : []),
+    ]);
+    let captured = null;
+    globalThis.fetch = async (url, init = {}) => {
+      const req = new Request(url, init);
+      captured = { url: req.url, method: req.method, headers: {} };
+      for (const [k, v] of req.headers.entries()) captured.headers[k] = v;
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const worker = await import(`${pathToFileURL(BUILT).href}?envkey=${i}`);
+    const instance = new worker.default();
+    instance.env = {
+      ...envFor("0"),
+      KEYS,
+      ...(c.key ? { [c.key]: c.value } : {}),
+    };
+    instance.ctx = {};
+    let status = 0;
+    let body = "";
+    try {
+      const res = await instance.fetch(
+        new Request("https://console.test/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": "tok-verify", "content-type": "application/json" },
+          body: JSON.stringify({
+            model: c.model,
+            messages: [{ role: "user", content: "hi" }],
+            max_tokens: 16,
+          }),
+        }),
+      );
+      status = res.status;
+      body = Buffer.from(await res.arrayBuffer()).toString("utf8");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const auth = captured ? captured.headers.authorization ?? captured.headers.Authorization ?? "-" : "-";
+    const ok = c.mustNotReach
+      ? captured === null && status === 502 && body.includes("not configured")
+      : captured !== null &&
+        status === 200 &&
+        auth === (c.wantBearer ?? `Bearer ${c.value}`) &&
+        captured.url.includes(c.host);
+    if (!ok) keyBad++;
+    console.log(`      ${ok ? "ok  " : "FAIL"} ${c.label} — status ${status}, upstream ${captured ? auth : "NO CALL"}`);
+  }
+  console.log(
+    `  the deployment's own key, through the built worker: ${cases.length - keyBad}/${cases.length}`,
+  );
+  bad += keyBad;
+}
+
+// ── THE LIVE SSE RESPONSE, BYTE FOR BYTE AGAINST THE SHIPPING ROUTE ──────────────────────────────
+// **THE TRANSFORM WAS PINNED AND THE WIRING AROUND IT WAS NOT.** `stream-frame-corpus.json` drives
+// `streamOgToAnthropic` directly; it cannot see the response's status, its headers, or whether the bytes
+// survive `Response::from_stream`. `fixtures/stream-response-corpus.json` is the shipping `handleGateway`
+// driven with a stubbed `text/event-stream` upstream, and this drives the BUILT worker with the same request
+// and the same upstream bytes and compares all three — which is the plan's P3 criterion on the half whose
+// wiring was still unproven.
+//
+// **AND THE KEY RIDES KV IN THE SHAPE THE STORE WRITES** (`{DEEPSEEK_API_KEY: …}`), which is the second thing
+// this round found: `v1.rs` handed the raw record to a gate that reads `extractByokKeys`' SHORT fields, so a
+// user's own key was invisible — measured on the built worker, `502 config_error` and no upstream call, while
+// the shape only the tests build reached the upstream. A fixture that recorded the short fields would have
+// hidden it, so the corpus carries what the console writes.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/stream-response-corpus.json", import.meta.url)), "utf8"),
+  );
+  let liveBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    const kvMap = new Map([
+      ["token:tok-live", "u-live"],
+      ["user:u-live", JSON.stringify({ id: "u-live", enabled: true })],
+      ["ukeys:u-live", JSON.stringify(c.ukeys)],
+    ]);
+    const KEYS = {
+      async get(key) {
+        return kvMap.has(key) ? kvMap.get(key) : null;
+      },
+      async put(key, value) {
+        kvMap.set(key, value);
+      },
+      async delete(key) {
+        kvMap.delete(key);
+      },
+      async list() {
+        return { keys: [...kvMap.keys()].map((name) => ({ name })), list_complete: true };
+      },
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      const chunk = new TextEncoder().encode(c.upstreamBody);
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": c.upstreamType } });
+    };
+    let status = 0;
+    let contentType = "";
+    let body = "";
+    try {
+      const worker = await import(`${pathToFileURL(BUILT).href}?live=${i}`);
+      const instance = new worker.default();
+      // No env keys at all: the ONLY key in play is the user's own, so a gate that cannot see it refuses.
+      instance.env = { ...envFor("0"), KEYS };
+      instance.ctx = {};
+      const res = await instance.fetch(
+        new Request("https://console.test/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": "tok-live", "content-type": "application/json" },
+          body: c.rawText,
+        }),
+      );
+      status = res.status;
+      contentType = res.headers.get("content-type") ?? "";
+      body = await res.text();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const ok = status === c.expected.status && body === c.expected.body;
+    if (!ok) liveBad++;
+    console.log(
+      `      ${ok ? "ok  " : "FAIL"} ${c.name} — ${status} ${body.length} B (shipping ${c.expected.status} ${c.expected.body.length} B, ${JSON.stringify(c.expected.contentType)})`,
+    );
+  }
+  console.log(`  the live SSE response, through the built worker: ${corpus.cases.length - liveBad}/${corpus.cases.length}`);
+  bad += liveBad;
+}
+
+// ── THE FRONT DOOR, REPLAYED: status, EVERY header, and the body ─────────────────────────────────
+// **THE SECTION ABOVE DRIVES ROUTES; THIS ONE DRIVES THE DOOR.** `index.ts` owns the global OPTIONS preflight,
+// the `withCors` stamp that reflects an allowlisted `Origin`, and the 404 for a path outside `/v1/` — and
+// `fixtures/front-door-cors-corpus.json` is those nine cases recorded from the shipping door itself.
+//
+// Measured 2026-10-06: the wasm door answered only the static `access-control-allow-headers/methods` pair where
+// the shipping door also sent `access-control-allow-origin: <origin>` + `vary: Origin`, so **a browser client
+// would have had every cross-origin response refused at the cutover** — on routes whose status and body
+// matched exactly. The preflight was worse than missing: it passed `env.var("CONSOLE_HOST")` as the ALLOWLIST,
+// a list of hostnames where the rule wants origins, so nothing ever matched.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/front-door-cors-corpus.json", import.meta.url)), "utf8"),
+  );
+  const TOKEN = "tok-route-test";
+  let doorBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    const kvMap = new Map([
+      [`token:${TOKEN}`, "u-route-test"],
+      ["user:u-route-test", JSON.stringify({ id: "u-route-test", enabled: true })],
+      ["ukeys:u-route-test", JSON.stringify({ DEEPSEEK_API_KEY: "sk-user-ds" })],
+    ]);
+    const KEYS = {
+      async get(key) {
+        return kvMap.has(key) ? kvMap.get(key) : null;
+      },
+      async put(key, value) {
+        kvMap.set(key, value);
+      },
+      async delete(key) {
+        kvMap.delete(key);
+      },
+      async list() {
+        return { keys: [...kvMap.keys()].map((name) => ({ name })), list_complete: true };
+      },
+    };
+    const worker = await import(`${pathToFileURL(BUILT).href}?door=${i}`);
+    const instance = new worker.default();
+    instance.env = {
+      ...envFor("0"),
+      KEYS,
+      CONSOLE_HOST: corpus.consoleHost,
+      CONSOLE_ORIGINS: corpus.consoleOrigins,
+      UPSTREAM_TIMEOUT_MS: "120000",
+    };
+    instance.ctx = {};
+    const res = await instance.fetch(
+      new Request(`https://api.saisi.online${c.path}`, {
+        method: c.method,
+        headers: {
+          origin: c.origin,
+          "content-type": "application/json",
+          ...(c.method === "POST" ? { "x-api-key": c.token ?? TOKEN } : {}),
+        },
+        ...(c.body ? { body: JSON.stringify({ model: "ds/deepseek-v4.1-flash", messages: [] }) } : {}),
+      }),
+    );
+    const body = await res.text();
+    const headers = [...res.headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
+    const ok =
+      res.status === c.expected.status &&
+      body === c.expected.body &&
+      JSON.stringify(headers) === JSON.stringify(c.expected.headers);
+    if (!ok) doorBad++;
+    console.log(`      ${ok ? "ok  " : "FAIL"} ${c.name} — ${res.status}`);
+    if (!ok) {
+      const missing = c.expected.headers.filter((h) => !headers.includes(h));
+      const extra = headers.filter((h) => !c.expected.headers.includes(h));
+      if (missing.length) console.log(`          missing: ${JSON.stringify(missing)}`);
+      if (extra.length) console.log(`          extra:   ${JSON.stringify(extra)}`);
+      if (body !== c.expected.body) console.log(`          body differs: ${JSON.stringify(body.slice(0, 90))}`);
+    }
+  }
+  console.log(`  the front door, through the built worker: ${corpus.cases.length - doorBad}/${corpus.cases.length}`);
+  bad += doorBad;
+}
+
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
 const size = (p) => execSync(`gzip -9 -c '${p}' | wc -c`, { encoding: "utf8" }).trim();

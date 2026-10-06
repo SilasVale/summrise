@@ -538,6 +538,29 @@ pub struct UpstreamAnswer {
 ///
 /// **IT IS THE SAME CONDITION `messages_response` REACHES, DELIBERATELY** — a second copy is how two surfaces
 /// come to disagree about one request.
+///
+/// ── AND `is_translate` IS THE HALF THAT IS STILL WRONG, MEASURED 2026-10-06 ──────────────────────
+///
+/// **THE SOURCE FORWARDS A PASSTHROUGH BODY LIVE, WHATEVER IT IS**: `relayUpstreamResult` ends
+/// `return new Response(upstream.body, { status: upstream.status, headers })` for every non-opencode arm. This
+/// predicate requires `is_translate`, so a `ds/` (passthrough) `stream: true` request takes the BUFFERED branch
+/// — `res.text().await` — and can only answer once the upstream has finished.
+///
+/// **THE BYTES ARE IDENTICAL EITHER WAY, WHICH IS WHY NO BYTE COMPARISON HAS CAUGHT IT**; the timing is not.
+/// Measured with an upstream that holds its second chunk for 1500 ms, both sides' first byte timed from BEFORE
+/// the fetch (timing it after the fetch scored the buffered side 0 ms, because the wait had already happened
+/// inside it):
+///
+/// ```text
+///     shipping: fetch   31 ms, first byte at   31 ms   (88 B)
+///     wasm:     fetch 1522 ms, first byte at 1523 ms   (139 B)
+/// ```
+///
+/// So `stream: true` on a passthrough channel delivers nothing until the model has finished — the one thing a
+/// streaming client is asking not to happen. **THE NEXT STEP IS NAMED HERE RATHER THAN STARTED IN THIS
+/// COMMIT**: the passthrough branch must return the upstream's stream with the same headers the buffered
+/// forward produces, which means `ArmOutcome::Stream` has to carry them (the CORS stamp is a decision, and the
+/// I/O must not re-derive it).
 pub fn is_live_stream(
     is_translate: bool,
     wants_stream: bool,

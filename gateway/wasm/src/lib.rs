@@ -220,8 +220,54 @@ fn not_found() -> Result<Response> {
     )
 }
 
+/// **`withCors` — THE PER-REQUEST STAMP, APPLIED TO EVERY RESPONSE THE DOOR SENDS.**
+///
+/// The shipping front door wraps every one of its returns in it (`index.ts`: `withCors(request, …)` on the
+/// health route, the tooling routes, the dispatch and both 404s), and its own comment says why the stamp is
+/// per-request rather than a constant: *"Deliberately NO Access-Control-Allow-Origin here — the origin is
+/// reflected per request, otherwise a static `*` would ride along on every merge of this constant."*
+///
+/// **MEASURED 2026-10-06, AND THIS DOOR DID NOT DO IT AT ALL**: driving both doors with the same env and
+/// `Origin: https://api.saisi.online` gave the shipping `access-control-allow-origin: https://api.saisi.online`
+/// plus `vary: Origin` on all nine cases, and the wasm worker only the static
+/// `access-control-allow-headers/methods` pair — so **a browser client (the console's own UI among them) would
+/// have had every cross-origin response refused at the cutover**, on a route whose body and status matched
+/// exactly.
+///
+/// **AND IT READS `CONSOLE_ORIGINS`, NOT `CONSOLE_HOST`.** The preflight path passed `env.var("CONSOLE_HOST")`
+/// as the allowlist — a list of HOSTNAMES (`ai.saisi.online,api.saisi.online`, the deployed var's value) where
+/// the rule wants ORIGINS (`https://api.saisi.online`), so nothing ever matched and even the preflight
+/// reflected nothing. `CONSOLE_HOST` keeps its own job: it is the console-host isolation in `index.ts`, not
+/// the allowlist.
+fn with_cors(
+    mut res: Response,
+    origin: &str,
+    host: Option<&str>,
+    configured: Option<&str>,
+) -> Result<Response> {
+    if crate::cors::is_allowed_origin(origin, host, configured) {
+        let headers = res.headers_mut();
+        headers.set("Access-Control-Allow-Origin", origin)?;
+        headers.set("Vary", "Origin")?;
+    }
+    Ok(res)
+}
+
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+    // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
+    // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
+    let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+    let host = req
+        .url()
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()));
+    let configured = env.var("CONSOLE_ORIGINS").ok().map(|v| v.to_string());
+    let res = route(req, env).await?;
+    with_cors(res, &origin, host.as_deref(), configured.as_deref())
+}
+
+async fn route(req: Request, env: Env) -> Result<Response> {
     let url = req.url()?;
 
     // **THE GLOBAL PREFLIGHT, AND IT IS FIRST FOR TWO REASONS.** The shipping front door does the same in
@@ -240,7 +286,10 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     if req.method() == Method::Options {
         let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
         let host = url.host_str().unwrap_or_default().to_string();
-        let configured = env.var("CONSOLE_HOST").ok().map(|v| v.to_string());
+        // **`CONSOLE_ORIGINS`, WHICH IS THE NAME THE SOURCE READS** (`allowedOrigins(env)` is
+        // `env.CONSOLE_ORIGINS`). This passed `CONSOLE_HOST` until 2026-10-06 — a list of hostnames where the
+        // rule wants origins — so `is_allowed_origin` never matched and even the preflight reflected nothing.
+        let configured = env.var("CONSOLE_ORIGINS").ok().map(|v| v.to_string());
         // **NO `retain` HERE, AND THE SOURCE SAYS WHY**: `corsHeadersFor` "starts from a fresh set that
         // never had an ACAO, so 'not allowed' means 'do not add one'" — the delete-the-origin branch
         // belongs to `stampCors`, which is handed the UPSTREAM's headers. A first version of this copied
