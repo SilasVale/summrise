@@ -119,6 +119,12 @@ pub fn provider_route(provider: &serde_json::Value) -> (RouteInfo, Option<String
     }
 }
 
+/// **`OG_ZEN_ANTHROPIC` — ZEN'S OWN `/v1/messages`, AND THE ONLY UPSTREAM THAT EXECUTES THE SERVER-SIDE
+/// `web_search` TOOL.** The search swap below rewrites an og/ route to this passthrough because "the
+/// server-side tool is not executed on the chat/completions translation this route otherwise uses"
+/// (round-46 Medium #3).
+pub const OG_ZEN_ANTHROPIC: &str = "https://opencode.ai/zen/go/v1/messages";
+
 /// `VERIFY_PATH` — the path an Anthropic-format upstream serves.
 const VERIFY_PATH: &str = "/v1/messages";
 const CHAT_PATH: &str = "/v1/chat/completions";
@@ -152,7 +158,7 @@ fn via(
 /// **THE UNRESERVED SET IS THE SPEC'S**: `A-Z a-z 0-9 - _ . ! ~ * ' ( )`. Everything else becomes
 /// `%XX` in UPPERCASE hex, and a non-ASCII character is escaped BYTE BY BYTE from its UTF-8 encoding —
 /// which is what the JavaScript does, and the corpus carries a non-ASCII prefix.
-fn encode_uri_component(s: &str) -> String {
+pub fn encode_uri_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         let c = b as char;
