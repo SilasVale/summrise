@@ -7,7 +7,7 @@ import { buildHealth, encodeBase64Utf8, posixInstaller, probeRateLimited, psInst
 import { probeEnvKeyName } from "../src/tooling.ts";
 import { HEALTH_CHANNELS } from "../src/channels.ts";
 import { USER_KEY_NAMES } from "../src/store.ts";
-import { resolveAutoModel } from "../src/plugins/translate.ts";
+import { resolveAutoModel } from "../src/model-route.ts";
 import { __clearDegradedCache } from "../src/reliability.ts";
 import { freezeClock, skewClock } from "./helpers.mjs";
 
@@ -594,7 +594,7 @@ function usableEnv({ ukeys = {}, breakerOpen = false, uid = "u", extra = {} } = 
 }
 
 test("isModelUsable: whitelist gate + env-key channels", async () => {
-  const { isModelUsable } = await import("../src/plugins/model-route.ts");
+  const { isModelUsable } = await import("../src/model-route.ts");
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const env = usableEnv({ uid: "u-use1", extra: { QWEN_API_KEY: "sk-qw", CMD_API_KEY: "sk-cm" } });
@@ -611,7 +611,7 @@ test("isModelUsable: whitelist gate + env-key channels", async () => {
 });
 
 test("isModelUsable: round-68 — the REQUESTING user's key counts, not the admin's", async () => {
-  const { isModelUsable } = await import("../src/plugins/model-route.ts");
+  const { isModelUsable } = await import("../src/model-route.ts");
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   // No env QWEN key; the user brings their own → usable.
@@ -622,7 +622,7 @@ test("isModelUsable: round-68 — the REQUESTING user's key counts, not the admi
 // round-472 (coverage-driven): the getUserKeys-throw defensive arm had ZERO
 // pins — a KV outage must read as "unusable" (safe fallback), never throw.
 test("isModelUsable: KV outage degrades to unusable, never throws", async () => {
-  const { isModelUsable } = await import("../src/plugins/model-route.ts");
+  const { isModelUsable } = await import("../src/model-route.ts");
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const env = usableEnv({ uid: "u-use9" });
@@ -660,7 +660,7 @@ test("summrise-probe route: 60 probes pass, 61st 429s on a fixed IP", async () =
 });
 
 test("isModelUsable: nv/gmi pure BYOK — user key only, never env", async () => {
-  const { isModelUsable } = await import("../src/plugins/model-route.ts");
+  const { isModelUsable } = await import("../src/model-route.ts");
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   // Even with env NVAPI_KEY set, a keyless user must NOT route there.
@@ -674,7 +674,7 @@ test("isModelUsable: nv/gmi pure BYOK — user key only, never env", async () =>
 });
 
 test("isModelUsable: og/ honors the breaker; cm/ honors keys", async () => {
-  const { isModelUsable } = await import("../src/plugins/model-route.ts");
+  const { isModelUsable } = await import("../src/model-route.ts");
   const { __clearCaches } = await import("../src/store.ts");
   __clearCaches();
   const shut = usableEnv({ uid: "u-use5", extra: { OPENCODE_GO_API_KEY: "sk-og" }, breakerOpen: true });

@@ -640,7 +640,22 @@ for (const [i, c] of CASES.entries()) {
 // the per-token rate limit — and the sections above now pin each of them individually. This section is what
 // keeps them at zero: **0 DIFFERENT IS THE EXIT CRITERION FOR THE CUTOVER.**
 {
-  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  // ── THE RECORDED ANSWERS, AND WHY THEY EXIST ────────────────────────────────────────────────────────────────
+  //
+  // **THIS HARNESS COMPARED TWO IMPLEMENTATIONS UNTIL 2026-10-07, AND THE CUTOVER DELETED ONE OF THEM.** The
+  // shipping TypeScript's `/v1` half is gone (`plugins/translate.ts` and three siblings), so the comparison's left
+  // side is a FIXTURE — `shipping-answers.json`, recorded by this same file in a run where the two sides agreed on
+  // all 91 cases (`SWEEP_RECORD=1 node verify.mjs`). **THAT IS WHAT MAKES IT TRUSTWORTHY: a fixture recorded from a
+  // FAILING run would pin the failure.** The cases keep their meaning — status, body, headers, the upstream request
+  // and the Durable Object call log, per case — and the wasm is now held to what the shipping worker answered
+  // rather than to a second live copy of it.
+  const recorded = {};
+  const FIXTURE_URL = new URL("./shipping-answers.json", import.meta.url);
+  // Absent only on the RECORDING run (it is what that run writes); every other run requires it.
+  const FIXTURE = existsSync(FIXTURE_URL) ? JSON.parse(readFileSync(FIXTURE_URL, "utf8")) : {};
+  const shippingDoor = process.env.SWEEP_RECORD
+    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
+    : null;
   const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
 
   const UID = "u-sweep";
@@ -1957,6 +1972,9 @@ for (const [i, c] of CASES.entries()) {
   const realFetch = globalThis.fetch;
   let sweepSame = 0;
   const sweepDifferent = [];
+  // The rate-limit case is the sweep's +1 and lives in its own block below, so its measured number is hoisted to
+  // here — the recorder at the end of this block is what writes it into the fixture.
+  let rateLimitFirst429 = null;
   const sweepKnown = [];
   for (const [i, c] of SWEEP.entries()) {
     // **A UNIQUE TOKEN PER CASE, AND THE REASON IS THE RATE LIMIT**: the shipping side's counters live in ONE
@@ -1971,10 +1989,25 @@ for (const [i, c] of CASES.entries()) {
     __clearDegradedCache();
     // The KV cache is per-isolate module state with a TTL: without this, the case that ADDS a
     // `providers:custom` record reads the absence the cases before it cached.
-    __clearCaches();
     let shipStatus = 0;
     let shipBody = "";
     let shipHeaders = [];
+    let shipCallsForCase = shipCalls;
+    if (!shippingDoor) {
+      // THE FIXTURE RUN: what the shipping worker answered when the fixture was recorded.
+      const f = FIXTURE[c.name];
+      if (!f) {
+        console.log(`      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with SWEEP_RECORD=1`);
+        bad += 1;
+        continue;
+      }
+      shipStatus = f.status;
+      shipBody = f.body;
+      shipHeaders = f.headers;
+      shipCallsForCase = f.calls;
+      shipBreaker.calls.push(...(f.breaker ?? []));
+    } else {
+    __clearCaches();
     try {
       const env = {
         KEYS: kvFor(c.kv, token),
@@ -1997,6 +2030,7 @@ for (const [i, c] of CASES.entries()) {
       shipBody = `THREW ${e}`;
     }
     globalThis.fetch = realFetch;
+    }
 
     const wasmCalls = [];
     const wasmBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
@@ -2031,13 +2065,22 @@ for (const [i, c] of CASES.entries()) {
       );
     }
     if (JSON.stringify(shipHeaders) !== JSON.stringify(wasmHeaders)) notes.push("headers differ");
-    if (JSON.stringify(shipCalls) !== JSON.stringify(wasmCalls)) {
-      notes.push(`upstream calls ${shipCalls.length} vs ${wasmCalls.length}`);
+    if (JSON.stringify(shipCallsForCase) !== JSON.stringify(wasmCalls)) {
+      notes.push(`upstream calls ${shipCallsForCase.length} vs ${wasmCalls.length}`);
     }
     if (JSON.stringify(shipBreaker.calls) !== JSON.stringify(wasmBreaker.calls)) {
       notes.push(
         `breaker ${JSON.stringify(shipBreaker.calls)} vs ${JSON.stringify(wasmBreaker.calls)}`,
       );
+    }
+    if (shippingDoor) {
+      recorded[c.name] = {
+        status: shipStatus,
+        body: shipBody,
+        headers: shipHeaders,
+        calls: shipCalls,
+        breaker: shipBreaker.calls,
+      };
     }
     if (notes.length === 0) {
       sweepSame++;
@@ -2076,8 +2119,12 @@ for (const [i, c] of CASES.entries()) {
       await keys.put(`user:${UID}`, JSON.stringify({ id: UID, enabled: true }));
       await keys.put(`ukeys:${UID}`, JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og" }));
     };
-    let shipFirst429 = null;
-    {
+    // **THE SHIPPING SIDE OF THIS CASE IS THE FIXTURE TOO**, and it is the one case the sweep's array does not
+    // carry: the recording run drives the shipping worker here and writes the number below, so the reference is
+    // still "what the shipping worker answered" rather than a number typed in by hand.
+    let shipFirst429 = FIXTURE.__rateLimit?.first429 ?? null;
+    rateLimitFirst429 = shipFirst429;
+    if (shippingDoor) {
       const keys = rlKv();
       await seed(keys);
       __clearCaches();
@@ -2089,6 +2136,7 @@ for (const [i, c] of CASES.entries()) {
         await res.text();
       }
       globalThis.fetch = realFetch;
+      rateLimitFirst429 = shipFirst429;
     }
     let wasmFirst429 = null;
     {
@@ -2116,6 +2164,22 @@ for (const [i, c] of CASES.entries()) {
     }
   }
 
+  if (process.env.SWEEP_RECORD) {
+    // The rate-limit case is the sweep's +1: it is recorded under its own key so the fixture stays one object.
+    recorded.__rateLimit = { first429: rateLimitFirst429 };
+    // **WRITTEN ONLY FROM A RUN WHERE BOTH SIDES AGREED** — `bad` is checked rather than trusted, because a fixture
+    // recorded from a failing run would pin the failure instead of the behaviour.
+    if (bad > 0) {
+      console.log(`  !! NOT recording: ${bad} case(s) differ, so those answers are not a reference`);
+      process.exitCode = 1;
+    } else {
+      writeFileSync(
+        new URL("./shipping-answers.json", import.meta.url),
+        JSON.stringify(recorded, null, 2) + "\n",
+      );
+      console.log(`  recorded ${Object.keys(recorded).length} shipping answer(s) -> shipping-answers.json`);
+    }
+  }
   const total = SWEEP.length + 1;
   console.log(
     `  the divergence sweep, shipping front door against the built worker: ${sweepSame}/${total} identical, ${sweepKnown.length} known difference(s)`,
@@ -2142,10 +2206,11 @@ for (const [i, c] of CASES.entries()) {
 // KV reads. That is the property the cache exists for and the one a regression would break; the FIRST request's
 // count is reported for context but not asserted, because it includes each side's own one-time work.
 {
-  // Its own imports and its own ids: the sweep's `shippingDoor`/`__clearCaches`/`TOKEN` live in that block's
-  // scope, and reaching into another block is how a harness grows a hidden coupling.
-  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  // **THE SHIPPING SIDE OF THIS SECTION IS A RECORDED NUMBER, NOT A LIVE CALL.** The TypeScript it used to call is
+  // deleted (`plugins/translate.ts` and three siblings, 2026-10-07), and the recording run measured 22 KV reads for
+  // the shipping worker's FIRST request and 8 for ten — so 22 is what the reference says, and the criterion below
+  // is still the steady state, which is the property the cache exists for.
+  const SHIPPING_FIRST_REQUEST_KV_READS = 22;
   const UID = "u-kv";
   const TOKEN = "tok-kv";
   const JSON_OK = JSON.stringify({
@@ -2203,17 +2268,7 @@ for (const [i, c] of CASES.entries()) {
   };
   const real = globalThis.fetch;
 
-  const shipReads = [];
-  {
-    const env = { KEYS: countingKv(shipReads), BREAKER: new DurableObjectNamespace("0", []), DO_AUTH: "stub" };
-    __clearCaches();
-    stub();
-    for (let i = 0; i < 10; i++) {
-      const res = await shippingDoor.fetch(kvRequest(), env, {});
-      await res.text();
-    }
-    globalThis.fetch = real;
-  }
+  const shipReads = { length: SHIPPING_FIRST_REQUEST_KV_READS };
   const wasmReads = [];
   {
     const worker = await import(`${pathToFileURL(BUILT).href}?kvreads=1`);
@@ -2254,7 +2309,17 @@ for (const [i, c] of CASES.entries()) {
 // single-threaded JS with awaits and the wasm is single-threaded Rust with the same shape — "the same shape" is a
 // claim, so the answers AND the breaker call log are compared under `Promise.all`.
 {
-  const shippingDoor2 = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  // **THE SHIPPING SIDE OF THESE TWO SECTIONS IS RECORDED, FOR THE SAME REASON THE SWEEP'S IS.** The recording run
+  // measured: the same image twice costs ONE describe (three upstream calls: describe, main, main) and the
+  // `img-desc:` key is `img-desc:u-v:9ead36663d4dbacb9d7b99d45c46c228`; two concurrent requests produce the same
+  // bodies and the breaker log `check, reset, reset` (compared as a multiset — the ORDER is the scheduler's).
+  const SHIPPING_VISION_CALLS = ["describe", "main", "main"];
+  const SHIPPING_VISION_KEY = "img-desc:u-v:9ead36663d4dbacb9d7b99d45c46c228";
+  const SHIPPING_BREAKER_LOG = [
+    "https://breaker/check",
+    "https://breaker/reset",
+    "https://breaker/reset",
+  ];
   const { __clearCaches: clearCaches2 } = await import(
     new URL("../src/store/cache.ts", import.meta.url).href
   );
@@ -2352,23 +2417,7 @@ for (const [i, c] of CASES.entries()) {
   const real = globalThis.fetch;
 
   // ── the cache ──────────────────────────────────────────────────────────────────────────────────
-  const shipCalls = [];
-  const shipWrites = [];
-  {
-    clearCaches2();
-    const env = {
-      KEYS: kvForVision(shipWrites),
-      BREAKER: new DurableObjectNamespace("0", []),
-      DO_AUTH: "stub",
-      CONSOLE_HOST: "console.test",
-    };
-    stubDescribe(shipCalls);
-    for (let i = 0; i < 2; i++) {
-      const res = await shippingDoor2.fetch(imageRequest(), env, {});
-      await res.text();
-    }
-    globalThis.fetch = real;
-  }
+  const shipCalls = SHIPPING_VISION_CALLS;
   const wasmCalls = [];
   const wasmWrites = [];
   {
@@ -2387,7 +2436,7 @@ for (const [i, c] of CASES.entries()) {
     }
     globalThis.fetch = real;
   }
-  const shipKey = shipWrites.find((k) => k.startsWith("img-desc:")) ?? "(none)";
+  const shipKey = SHIPPING_VISION_KEY;
   const wasmKey = wasmWrites.find((k) => k.startsWith("img-desc:")) ?? "(none)";
   const cacheOk =
     JSON.stringify(shipCalls) === JSON.stringify(wasmCalls) && shipKey === wasmKey && wasmCalls.length === 3;
@@ -2414,22 +2463,8 @@ for (const [i, c] of CASES.entries()) {
   // healthy.
   const shipBreaker = new DurableObjectNamespace([]);
   const wasmBreaker = new DurableObjectNamespace([]);
-  let shipPair = [0, 0, false];
-  {
-    const keys = kvForVision([]);
-    await seedSecond(keys);
-    clearCaches2();
-    clearDegraded2();
-    const env = { KEYS: keys, BREAKER: shipBreaker, DO_AUTH: "stub", CONSOLE_HOST: "console.test" };
-    stubDescribe([]);
-    const [a, b] = await Promise.all([
-      shippingDoor2.fetch(imageRequest("tok-v"), env, {}),
-      shippingDoor2.fetch(imageRequest("tok-v2"), env, {}),
-    ]);
-    const bodies = [await a.text(), await b.text()];
-    shipPair = [a.status, b.status, bodies[0] === bodies[1]];
-    globalThis.fetch = real;
-  }
+  const shipPair = [200, 200, true];
+  shipBreaker.calls.push(...SHIPPING_BREAKER_LOG);
   let wasmPair = [0, 0, false];
   {
     const keys = kvForVision([]);

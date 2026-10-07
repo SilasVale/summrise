@@ -142,7 +142,7 @@ export function makeEnv({
   }
   for (const [id, rec] of Object.entries(users)) seed(`user:${id}`, rec);
   for (const [k, v] of Object.entries(kv)) seed(k, v);
-  return {
+  const env = {
     CONSOLE_HOST: "x",
     KEYS: {
       async get(k) {
@@ -166,10 +166,28 @@ export function makeEnv({
         return { keys };
       },
     },
+    // **THE RUST FRONT DOOR'S BINDING, STUBBED — AND IT RECORDS WHAT IT WAS ASKED FOR.** `index.ts` forwards
+    // `/v1/*` (and the `/models`, `/chat/completions` aliases) to `env.WASM_GATE`; the TypeScript implementation is
+    // deleted, so a test env without this binding gets the front door's loud 503 — which is correct behaviour and
+    // useless as a test of the alias. The stub answers a fixed model list AND pushes every request it receives onto
+    // `_frontDoor`, so a test can assert the PATH the alias rewrote rather than only that something answered.
+    WASM_GATE: {
+      async fetch(request) {
+        const url = new URL(request.url);
+        env._frontDoor.push(`${request.method} ${url.pathname}`);
+        return new Response(
+          JSON.stringify({ object: "list", data: [{ id: "og/deepseek-v4.1-flash", object: "model" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    },
     // Test hooks: raw map for seed/inspection assertions, expiry map for
-    // reproducing expired-but-unreaped KV list() entries.
+    // reproducing expired-but-unreaped KV list() entries, and the front door's
+    // request log.
     _kv: map,
     _expiry: expiry,
+    _frontDoor: [],
     ...extra,
   };
+  return env;
 }

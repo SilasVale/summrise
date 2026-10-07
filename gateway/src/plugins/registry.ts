@@ -18,11 +18,14 @@
  * DIRECTORY CONTRACT (layering review 2026-09-06): plugins/ holds (1) the
  * route plugins themselves, (2) this framework, and (3) each plugin's
  * EXCLUSIVE collaborator modules — device-proxy.ts (devices only),
- * translate-vision.ts + model-route.ts (translate only), models-probe.ts
- * (admin only). A module with two live consumers is NOT a private
- * collaborator: it belongs in src/ as foundation. Currently every
- * collaborator has exactly one consumer, which is what keeps them here;
- * revisit on the first second consumer.
+ * models-probe.ts (admin only). A module with two live consumers is NOT a
+ * private collaborator: it belongs in src/ as foundation.
+ *
+ * **AND THE RULE MOVED A MODULE AT THE CUTOVER (2026-10-07), WHICH IS THE FIRST TIME IT HAS.** `model-route.ts` was
+ * listed here as "translate only"; when the TypeScript `/v1` half was deleted it gained a second live consumer
+ * (`index.ts` re-exports `resolveAutoModel`, and `plugins/auth.ts` imports it directly for `GET /api/me/route`),
+ * so it moved to `src/model-route.ts`. `translate-vision.ts` left the list the other way — its only consumer was
+ * deleted with the half. The list is derived by `test/plugin-collaborators.test.mjs`, and that test is what said so.
  *
  * round-184: `models-probe.ts` was MISSING from this list while satisfying its
  * rule (verified by consumer grep: device-proxy←devices, translate-vision and

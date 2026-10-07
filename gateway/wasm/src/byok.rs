@@ -15,7 +15,7 @@
 /// field map, and the kind -> ENV-KEY map where `nv` and `gmi` deliberately have NO deployment fallback.
 /// A shared source that cannot say "this channel has no env key" would be a loss of information, which is
 /// why the `null` is carried rather than inferred.
-const BYOK_CHANNELS: [(&str, &str, Option<&str>); 9] = [
+pub(crate) const BYOK_CHANNELS: [(&str, &str, Option<&str>); 9] = [
     (
         "opencode",
         "OPENCODE_GO_API_KEY",

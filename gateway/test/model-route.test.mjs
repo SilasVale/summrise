@@ -9,7 +9,7 @@ import {
   isModelUsable,
   CHANNEL_KEY_RULES,
   registerChannelKey,
-} from "../src/plugins/model-route.ts";
+} from "../src/model-route.ts";
 import { __clearDegradedCache } from "../src/reliability.ts";
 import { MODELS } from "../src/channels.ts";
 import { USER_KEY_NAMES } from "../src/store.ts";

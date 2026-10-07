@@ -21,18 +21,8 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/anthropic-translate.ts",
-      "path": "files/summrise-gate/src/anthropic-translate.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/auth.ts",
       "path": "files/summrise-gate/src/auth.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/body-scan.ts",
-      "path": "files/summrise-gate/src/body-scan.ts",
       "group": "summrise-gate"
     },
     {
@@ -73,6 +63,11 @@
     {
       "name": "src/mcp.ts",
       "path": "files/summrise-gate/src/mcp.ts",
+      "group": "summrise-gate"
+    },
+    {
+      "name": "src/model-route.ts",
+      "path": "files/summrise-gate/src/model-route.ts",
       "group": "summrise-gate"
     },
     {
@@ -136,11 +131,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/plugins/model-route.ts",
-      "path": "files/summrise-gate/src/plugins/model-route.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/plugins/models-probe.ts",
       "path": "files/summrise-gate/src/plugins/models-probe.ts",
       "group": "summrise-gate"
@@ -148,16 +138,6 @@
     {
       "name": "src/plugins/registry.ts",
       "path": "files/summrise-gate/src/plugins/registry.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/translate-vision.ts",
-      "path": "files/summrise-gate/src/plugins/translate-vision.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/translate.ts",
-      "path": "files/summrise-gate/src/plugins/translate.ts",
       "group": "summrise-gate"
     },
     {

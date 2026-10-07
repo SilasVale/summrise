@@ -62,12 +62,20 @@ test("byok: translate-vision derives the NINE and keeps the TENTH", async () => 
   // behind it. A naive full-table derivation drops it, and the failure is silent —
   // VISION_BACKENDS[kind] would be undefined and every describe against a custom provider
   // would answer "视觉模型后端不支持".
+  // **THE CONSUMER IS `gateway/wasm/src/vision.rs` NOW** — the deleted `plugins/translate-vision.ts` was the
+  // TypeScript half of the same table, and the invariant crossed the boundary unchanged: the nine BYOK channels are
+  // DERIVED from the one source, and `custom` — a route kind with no BYOK channel behind it — survives explicitly.
   const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../src/plugins/translate-vision.ts", import.meta.url), "utf8");
-  assert.match(src, /BYOK_CHANNELS\.map/, "the nine must be derived");
-  assert.match(src, /custom:\s*\{\s*key:\s*""/, "and `custom` must survive, explicitly");
+  const full = await readFile(new URL("../../gateway/wasm/src/vision.rs", import.meta.url), "utf8");
+  // **THE `#[cfg(test)]` MODULE IS CUT OFF BEFORE THE "MUST NOT RE-TYPE" CHECK, AND THAT IS NOT A LOOPHOLE.**
+  // The Rust tests PIN the derived values (`assert_eq!(vision_backend("nvidia"), Some(("NVAPI_KEY", "openai")))`),
+  // which is the opposite of re-typing the source: a test that spells the expected answer is what makes the
+  // derivation checkable. What must not carry them is the CODE.
+  const src = full.split("#[cfg(test)]")[0];
+  assert.match(src, /BYOK_CHANNELS/, "the nine must be derived from the one table");
+  assert.match(src, /"custom"/, "and `custom` must survive, explicitly");
   const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
-  assert.deepEqual(leaked, [], `translate-vision must not re-type these: ${leaked.join(", ")}`);
+  assert.deepEqual(leaked, [], `vision.rs must not re-type these: ${leaked.join(", ")}`);
 });
 
 test("byok: the console's key status names WHICH credential is in force", async () => {
@@ -117,7 +125,7 @@ test("byok: CHANNEL_KEY_RULES derives — and stays MUTABLE for registerChannelK
   // envKey null — the distinction round 188 called the deletion criterion), and the object
   // stays a plain mutable one, because registerChannelKey writes into it and the test suite
   // registers `zz-test-ocp` through it.
-  const { CHANNEL_KEY_RULES, registerChannelKey } = await import("../src/plugins/model-route.ts");
+  const { CHANNEL_KEY_RULES, registerChannelKey } = await import("../src/model-route.ts");
   for (const c of BYOK_CHANNELS) {
     assert.deepEqual(
       CHANNEL_KEY_RULES[c.prefix],
@@ -132,7 +140,7 @@ test("byok: CHANNEL_KEY_RULES derives — and stays MUTABLE for registerChannelK
   assert.equal(CHANNEL_KEY_RULES[probe].userKey, "ZZ_PROBE_KEY", "still extensible");
   delete CHANNEL_KEY_RULES[probe];
   const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../src/plugins/model-route.ts", import.meta.url), "utf8");
+  const src = await readFile(new URL("../src/model-route.ts", import.meta.url), "utf8");
   const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
   assert.deepEqual(leaked, [], `model-route must not re-type these: ${leaked.join(", ")}`);
 });

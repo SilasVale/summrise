@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 47] = [
+const ALLOWED: [(&str, &str); 45] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -78,7 +78,6 @@ const ALLOWED: [(&str, &str); 47] = [
     // out of the file; the alternative would be to leave the Rust port's default empty and pass the two
     // origins in from TypeScript, which is a different design and not this one.
     ("gateway/wasm/src/cors.rs", "the same allowed-origins list as gateway/src/http.ts, ported to Rust"),
-    ("gateway/wasm/oracle-translate.mjs", "the oracle drives the SHIPPING TypeScript, so its CORS cases spell the origins the list holds"),
     ("gateway/wasm/fixtures/translate-corpus.json", "the generated corpus those cases produced: the same origins, recorded"),
     // ADDED 2026-10-02, same branch: `device.rs` is the Rust port of `device-fetch.ts`'s host rules, and
     // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
@@ -133,7 +132,6 @@ const ALLOWED: [(&str, &str); 47] = [
     ("gateway/src/auth.ts", "a comment explaining why a device panel is same-site with the console"),
     ("gateway/src/channels.ts", "the AI channel defaults (oracle/zen-us/zen-go) a deployment ships with"),
     ("gateway/src/upstream.ts", "the upstream provider defaults those channels point at"),
-    ("gateway/src/plugins/translate.ts", "the translate plugin's exit default"),
     ("gateway/src/store/", "store defaults that name the deployment's own hosts"),
     (".github/workflows/release.yml", "the release job that must reach the live CDN and gateway"),
     // ── tests whose SUBJECT is the hostname rule ──
@@ -181,7 +179,7 @@ const ALLOWED: [(&str, &str); 47] = [
 // which is the same production hostname `device-fetch.ts` names. Raised by ONE, with the reason beside it.
 // 46 -> 47 the same day, for the routing decision: `routing.rs` carries the US_PROXY_BASE default, the same
 // production hostname `upstream.ts` names. Raised by ONE, with the reason beside it.
-const MAX_ALLOWED: usize = 47;
+const MAX_ALLOWED: usize = 45;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -373,7 +371,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 47"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 45"),
         "{}",
         ok.stdout
     );
