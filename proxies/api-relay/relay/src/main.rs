@@ -149,10 +149,15 @@ async fn dispatch(State(relay): State<Relay>, mut req: axum::extract::Request) -
         "proxy" => proxy(State(relay), req).await,
         "zen" => zen(State(relay), req).await,
         "git" => git(State(relay), req).await,
-        // `/api/github` and `/api/gform` ARE ROUTES OF THE SHIPPING RELAY AND ARE NOT WIRED HERE YET:
-        // their decisions are in the crate and proved, and whether they are needed at all is a question
-        // the operator is answering from the relay's own access log. A 404 is the honest answer from a
-        // binary that does not serve them.
+        "github" => github(State(relay), req).await,
+        // `/api/gform` IS A ROUTE OF THE SHIPPING RELAY AND IS NOT WIRED HERE YET: its decisions (the body
+        // rewriter and its helpers) are in the crate and proved, and the wiring is the next piece of work. A
+        // 404 is the honest answer from a binary that does not serve it.
+        //
+        // **AND `/api/github` USED TO BE IN THIS COMMENT, WHICH SAID THE OPERATOR WAS ANSWERING "whether they
+        // are needed at all" FROM THE RELAY'S ACCESS LOG.** That question is answerable by probe, and the probe
+        // says they ARE: `GET /api/github?path=%2Fx` answers **400 `{"error":"unsupported GitHub route"}`** on
+        // the live relay — a ROUTE, not a 404 — so a binary without it would drop a route that serves today.
         _ => json_response(404, "not found"),
     }
 }
@@ -451,6 +456,170 @@ async fn git(State(relay): State<Relay>, req: axum::extract::Request) -> Respons
         redirects += 1;
         current = target.unwrap_or(current);
     }
+}
+
+/// `/api/github` — the read-mostly GitHub proxy, WIRED 2026-10-07.
+///
+/// **THE DECISIONS WERE ALREADY IN THE CRATE; ONLY THE SHELL WAS MISSING.** `safe_path`, `parse_route`,
+/// `upstream_url`, `copy_request_headers`, `copy_response_headers`, `redirect_target`, `redirect_cap` and
+/// `method_allowed` were all ported and proved, and the route answered 404 with a comment saying the operator was
+/// deciding from the access log whether it was needed. The probe above settles it: the live relay answers 400 for
+/// this route, so it is needed.
+///
+/// THE THREE DELIBERATE DIFFERENCES from `git` are the crate's own notes: `safe_path` does not refuse `//` (the
+/// ORIGIN guard handles a protocol-relative path here), `redirect_target` allows seven hosts rather than one, and
+/// the two header allowlists are this handler's.
+async fn github(State(relay): State<Relay>, req: axum::extract::Request) -> Response {
+    let (parts, _body) = req.into_parts();
+    let uri = parts.uri.clone();
+    let method = parts.method.as_str().to_string();
+    // The preflight is answered BEFORE the method gate, and with the handler's own three headers.
+    if method == "OPTIONS" {
+        let mut headers = HeaderMap::new();
+        headers.insert("access-control-allow-origin", HeaderValue::from_static("*"));
+        headers.insert(
+            "access-control-allow-methods",
+            HeaderValue::from_static("GET, HEAD, OPTIONS"),
+        );
+        headers.insert(
+            "access-control-allow-headers",
+            HeaderValue::from_static("Accept, Range, If-None-Match, If-Modified-Since"),
+        );
+        return (StatusCode::OK, headers).into_response();
+    }
+    match summrise_relay::method_allowed("github", &method) {
+        Ok(true) => {}
+        Ok(false) => return github_error("method not allowed", 405),
+        Err(e) => return github_error(&e, 500),
+    }
+    let query = uri.query().unwrap_or("");
+    let path = summrise_relay::FormParams::parse(query)
+        .entries()
+        .into_iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+    let Some((base, tail)) = summrise_relay::parse_route(Some(&path)) else {
+        return github_error("unsupported GitHub route", 400);
+    };
+    let Ok(composed) = summrise_relay::upstream_url(&base, &tail) else {
+        return github_error(
+            &summrise_relay::upstream_url(&base, &tail).unwrap_err(),
+            400,
+        );
+    };
+    // The caller's own query MINUS the parameter this relay consumed — the same rule as `git`, and the reason
+    // `?path=` never reaches GitHub.
+    let search = github_upstream_search(query);
+    let mut current = if search.is_empty() {
+        composed
+    } else {
+        format!("{composed}?{search}")
+    };
+    let headers = request_headers(&parts.headers);
+    let plan = summrise_relay::copy_request_headers(&headers);
+
+    let mut redirects = 0u32;
+    loop {
+        let dialled = relay.dial(&current);
+        let mut request = relay
+            .client
+            .request(reqwest::Method::GET, &dialled);
+        if method == "HEAD" {
+            request = request.header("x-relay-method", "HEAD");
+        }
+        for (k, v) in &plan {
+            request = request.header(k, v);
+        }
+        let response = match send(&relay, request).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[vrelay-github] {e}");
+                return github_error("GitHub upstream unavailable", 502);
+            }
+        };
+        let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let target = summrise_relay::redirect_target(&location, &current);
+        if target.is_none() || !(300..400).contains(&status) {
+            // 5xx: GENERIC client text, detail in the log — the contract the two .js handlers share.
+            if status >= 500 {
+                let detail = response.text().await.unwrap_or_default();
+                eprintln!(
+                    "[vrelay-github] upstream {status}: {}",
+                    &detail.chars().take(500).collect::<String>()
+                );
+                return github_error("GitHub upstream unavailable", status);
+            }
+            let entries: Vec<(String, String)> = response
+                .headers()
+                .iter()
+                .filter_map(|(k, v)| {
+                    v.to_str()
+                        .ok()
+                        .map(|v| (k.as_str().to_string(), v.to_string()))
+                })
+                .collect();
+            let plain = summrise_relay::collect_response_headers(&entries, &[]);
+            let mut pairs: Vec<(String, String)> = plain
+                .as_object()
+                .map(|o| {
+                    o.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            pairs.push(("access-control-allow-origin".to_string(), "*".to_string()));
+            return (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                build_headers(&pairs, &[]),
+                Body::from_stream(response.bytes_stream()),
+            )
+                .into_response();
+        }
+        if redirects >= summrise_relay::redirect_cap("github").unwrap_or(5) {
+            return github_error("too many GitHub redirects", 502);
+        }
+        redirects += 1;
+        current = target.unwrap_or(current);
+    }
+}
+
+/// The caller's query minus `path` — the github handler's own rule (`upstream.searchParams.delete("path")`),
+/// kept here rather than in the crate because it is the shell's business what it consumed.
+fn github_upstream_search(query: &str) -> String {
+    summrise_relay::FormParams::parse(query)
+        .entries()
+        .into_iter()
+        .filter(|(k, _)| k != "path")
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// `github.ts`'s `bad()`: JSON with a charset and **`no-store`** — the ONE error responder of the three that set
+/// no cache policy at all until round 117, which is why it is spelled out here.
+fn github_error(message: &str, status: u16) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    headers.insert(
+        "cache-control",
+        HeaderValue::from_static("no-store, max-age=0, must-revalidate"),
+    );
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+        headers,
+        serde_json::json!({ "error": message }).to_string(),
+    )
+        .into_response()
 }
 
 /// `git.ts`'s own `errorResponse`: JSON with a charset, **and `no-store`** — an error that a CDN caches
