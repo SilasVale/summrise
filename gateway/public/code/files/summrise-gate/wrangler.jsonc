@@ -1,4 +1,19 @@
 {
+  // **THE NAME WAS WRONG, AND IT HAD BEEN SILENTLY WRONG FOR NINE DAYS — MEASURED 2026-10-07.**
+  //
+  // This file said `summrise-gate` while the console's CUSTOM DOMAINS point at **`vale-gate`**:
+  //
+  //     api.saisi.online  -> vale-gate      (modified 2026-09-28T10:59:45)
+  //     ai.saisi.online   -> vale-gate
+  //
+  // So every `./scripts/build.sh gateway` updated a worker nothing routes to, and **the live console has been
+  // frozen at its 2026-09-28 build while nine commits touched `gateway/src` or `gateway/ui`** — including the
+  // console's provider form. The name is the live worker's now. (`summrise-gate` still exists as a worker with no
+  // traffic; it is not deleted here, because deleting a script is not this change's business.)
+  //
+  // THE DO MIGRATIONS BELOW ARE ADDITIVE ONLY (`new_sqlite_classes`), so a deploy whose tags already match the
+  // deployed state is a no-op for them; a mismatch fails the deploy BEFORE it changes the worker, which is the
+  // safe direction.
   "name": "vale-gate",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
@@ -10,6 +25,19 @@
       "id": "a1fb10da621b411caeda6d98c060bbea"
     }
   ],
+  // ── THE CUTOVER'S ONE LINK: /v1/* IS SERVED BY THE RUST WORKER ────────────────────────────────────────────────
+  //
+  // **A SERVICE BINDING RATHER THAN A ZONE ROUTE, AND THAT IS A MEASUREMENT.** The plan said "two zone routes on the
+  // console hosts"; adding one and watching Cloudflare's own analytics for the day showed the route was INERT —
+  //
+  //     vale-gate       550 requests
+  //     vale-gate-wasm    3 requests   (the three were this box's `wrangler dev --remote` probes)
+  //
+  // — because these hostnames are Worker CUSTOM DOMAINS, and a custom domain serves the whole host: `api.saisi.online`
+  // is the console page (200, text/html, 1,391 B) as well as the API, so repointing it would take the console away with
+  // it. A service binding keeps ONE hostname, one DNS record and one Access policy, leaves the console's own routes
+  // alone, and gives the cutover a one-line rollback: delete this binding (or the `WASM_GATE` branch in
+  // `src/index.ts`) and the next deploy serves /v1 from TypeScript again.
   "durable_objects": {
     "bindings": [
       {
@@ -22,20 +50,39 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1-breaker",
-      "new_sqlite_classes": ["BreakerDO"]
-    },
-    {
-      "tag": "v3-route",
-      "new_sqlite_classes": ["RouteDO"]
-    },
-    {
-      "tag": "v4-delete-plugin-hub",
-      "deleted_classes": ["PluginHubDO"]
-    }
-  ],
+  // **THE HISTORY IS `vale-gate`'S OWN AGAIN, AND THE PARAGRAPH THAT USED TO SIT HERE WAS THE BUG'S OWN
+  // DESCRIPTION.** It said the history was "shorter than `vale-gate`'s, and it has to be", because the 2026-10-05
+  // rename to `summrise-gate` could not apply `v4-delete-plugin-hub` — `deleted_classes` only applies to a worker
+  // that HAD the class, and the NEW worker never had `PluginHubDO`. **THE RENAME WAS THE MISTAKE, NOT THE
+  // MIGRATION**: the console's custom domains kept pointing at `vale-gate`, so the new worker was deployed to and
+  // never routed to, and the consequence the old paragraph accepted as a trade — "the Durable Objects start
+  // EMPTY" — was a consequence of moving to a worker nobody used.
+  //
+  // Measured 2026-10-07 on the attempt to deploy this file to `vale-gate`: the API refused with
+  // `Cannot apply new-sqlite-class migration to class 'BreakerDO' that is already depended on by existing Durable
+  // Objects [code: 10074]` and warned that the published script's tag `v4-delete-plugin-hub` was missing here —
+  // i.e. it tried to RE-APPLY the whole history because the list did not match. **IT FAILED BEFORE CHANGING THE
+  // SCRIPT**, which is the safe direction, and the tag is restored below.
+  // **NO `migrations` KEY, AND THAT IS THE FIX RATHER THAN AN OMISSION.** The history below was restored in the
+  // attempt to make this file deployable to `vale-gate` again, and BOTH shapes failed at the API:
+  //
+  //     with  v1-breaker, v3-route          -> Cannot apply new-sqlite-class migration to class 'BreakerDO' that is
+  //                                            already depended on by existing Durable Objects [code: 10074]
+  //     with  v1-breaker, v3-route, v4-…    -> Cannot apply deleted_classes migration to non-existent class PluginHubDO
+  //
+  // The first warning said why: the published script's tag `v4-delete-plugin-hub` "was not found in your
+  // wrangler.jsonc file ... **Applying all available migrations to the script**" — a list that does not match the
+  // published one makes wrangler re-apply the WHOLE history, and every tag in it has already been applied.
+  //
+  // **A MIGRATION LIST IS FOR CHANGING CLASSES; THIS DEPLOY CHANGES NONE.** The bindings below are unchanged and
+  // the classes are unchanged, so the deploy needs no migration at all — and Cloudflare keeps the published tag
+  // (`v4-delete-plugin-hub`) as it is. A future class is added by writing a new tag HERE, which is the moment the
+  // key earns its place:
+  //
+  //     "migrations": [ { "tag": "v5-…", "new_sqlite_classes": ["…"] } ]
+  //
+  // The history this file used to carry, for the record: `v1-breaker` (new_sqlite_classes BreakerDO),
+  // `v3-route` (new_sqlite_classes RouteDO), `v4-delete-plugin-hub` (deleted_classes PluginHubDO).
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -50,7 +97,16 @@
   // Domain), so a fetch would be exactly the case the docs warn about. The binding also
   // takes the upload endpoint off the public internet: nothing but this worker can call
   // it, because `workers_dev` is false and no route is declared for it.
-  "services": [{ "binding": "RELAY", "service": "summrise-relay" }],
+  // **TWO SERVICE BINDINGS NOW, AND THE SECOND IS THE CUTOVER'S.** `RELAY` is the file relay the console has always
+  // had; `WASM_GATE` is the Rust front door — see the long note above `durable_objects` for why this is a binding
+  // rather than the zone route the plan first described (the console hosts are CUSTOM DOMAINS, and a route on them
+  // is inert: measured, 550 requests to `vale-gate` against 3 to `vale-gate-wasm`).
+  // (no trailing comma: the CORS test parses this file with a strict JSON parser, and a JSONC-only trailing comma
+  // is a syntax error there — measured, `SyntaxError: Unexpected token ']'`)
+  "services": [
+    { "binding": "RELAY", "service": "summrise-relay" },
+    { "binding": "WASM_GATE", "service": "vale-gate-wasm" }
+  ],
   "vars": {
     "CONSOLE_HOST": "ai.saisi.online,api.saisi.online",
     // Browser tool chain: cold-start chromium (~20s) + device SPA loading make the 30s default bound to time out
