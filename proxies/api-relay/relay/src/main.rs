@@ -552,7 +552,7 @@ async fn github(State(relay): State<Relay>, req: axum::extract::Request) -> Resp
                 let detail = response.text().await.unwrap_or_default();
                 eprintln!(
                     "[vrelay-github] upstream {status}: {}",
-                    &detail.chars().take(500).collect::<String>()
+                    detail.chars().take(500).collect::<String>()
                 );
                 return github_error("GitHub upstream unavailable", status);
             }
@@ -1129,11 +1129,11 @@ mod tests {
         // crate and proved; whether they are needed at all is the operator's question, so a binary that
         // does not serve them says so with the entry's own 404 shape rather than something else's.
         let relay = relay_at("http://127.0.0.1:1".to_string());
-        for path in [
-            "/api/github?path=%2Fweb%2Fo",
-            "/api/gform?path=%2Fdocs%2Fx",
-            "/nope",
-        ] {
+        // **`/api/github` CAME OUT OF THIS LIST ON 2026-10-07, AND ITS OWN ASSERTION IS NOW THE OPPOSITE.**
+        // The probe that settled it: the live relay answers 400 `{"error":"unsupported GitHub route"}` for this
+        // exact request — a ROUTE, not a 404 — so the binary serving it is the behaviour that matches, and this
+        // test would have pinned the divergence.
+        for path in ["/api/gform?path=%2Fdocs%2Fx", "/nope"] {
             let (status, _, body) = call(
                 relay.clone(),
                 Request::builder()
