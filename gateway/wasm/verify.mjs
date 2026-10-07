@@ -2447,14 +2447,28 @@ for (const [i, c] of CASES.entries()) {
     wasmPair = [a.status, b.status, bodies[0] === bodies[1]];
     globalThis.fetch = real;
   }
+  // **THE BREAKER LOG IS COMPARED AS A MULTISET, AND THAT IS THE CRITERION RATHER THAN A CONVENIENCE.**
+  //
+  // Measured 2026-10-07: this section passed locally and failed in CI, on the same commit, with the same worker —
+  // because two requests in flight at once race for the breaker's 5 s cache, and whether BOTH call `check` or only
+  // the first one does is decided by the scheduler. The shipping (JS) and the wasm (Rust) interleave differently
+  // on a slower machine, so the SEQUENCES diverged while every observable answer stayed equal.
+  //
+  // **A SEQUENCE UNDER `Promise.all` IS THE SCHEDULER'S, NOT THE PORT'S** — asserting it asserts the runner, which
+  // is the failure this repository has recorded four times under other names ("a gate that cannot see its own
+  // premise"). What the port owes is the same SET of calls and the same answers; the order is measured here and
+  // reported, not required.
+  const shipLog = [...shipBreaker.calls].sort();
+  const wasmLog = [...wasmBreaker.calls].sort();
   const concOk =
-    JSON.stringify(shipPair) === JSON.stringify(wasmPair) &&
-    JSON.stringify(shipBreaker.calls) === JSON.stringify(wasmBreaker.calls);
+    JSON.stringify(shipPair) === JSON.stringify(wasmPair) && JSON.stringify(shipLog) === JSON.stringify(wasmLog);
   console.log(
-    `  two requests at once, through the built worker: statuses ${wasmPair[0]}/${wasmPair[1]}, breaker calls ${JSON.stringify(wasmBreaker.calls)} (shipping ${JSON.stringify(shipBreaker.calls)})`,
+    `  two requests at once, through the built worker: statuses ${wasmPair[0]}/${wasmPair[1]}, breaker calls ${JSON.stringify(wasmBreaker.calls)} (shipping ${JSON.stringify(shipBreaker.calls)}) — compared as a multiset`,
   );
   if (!concOk) {
-    console.log("      FAIL two concurrent requests must produce the same answers and the same breaker log");
+    console.log(
+      "      FAIL two concurrent requests must produce the same answers and the same set of breaker calls",
+    );
     bad += 1;
   }
 }
