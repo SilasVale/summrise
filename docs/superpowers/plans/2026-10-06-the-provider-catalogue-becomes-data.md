@@ -175,6 +175,26 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   **判据的主语**：`gateway/wasm` 里那 5,074 行 JS 家族**全部**是两个 harness（+ `loader.mjs`），没有一行产品逻辑；
   Rust 侧同期 +1,569 行里，`vision.rs`（一个完整特性）与四份新语料/回放是主体。**切流删掉 `gateway/src` 的 /v1 半边
   之后，`route-oracle.mjs` 与它驱动的差分一起退役**，这条数会掉。
+
+  **覆盖表（2026-10-06，`verify.mjs` 的 83 个案例按 渠道 × arm 数出来）**——`·` 是**没有被比较过**的格子：
+
+  | 渠道 | `/v1/messages` | `/v1/chat/completions` | `/v1/responses` | `count_tokens` |
+  |---|---|---|---|---|
+| `og/` | 34 | 2 | 2 | 3 |
+| `ds/` | 2 | 2 | **·** | 1 |
+| `qw/` | 1 | 1 | **·** | 1 |
+| `or/` | 1 | 1 | **·** | **·** |
+| `nv/` | 2 | 1 | **·** | 1 |
+| `gmi/` | 2 | 1 | **·** | 1 |
+| `cm/` | 1 | 1 | **·** | 1 |
+| `amd/` | 1 | 1 | **·** | 1 |
+| `r4/` | 1 | 1 | **·** | 1 |
+| `acme/` | 6 | 1 | **·** | 1 |
+
+  **剩下的 10 个空格里，9 个是 `/v1/responses`**——那条 arm 只服务 og 的 muse 模型（源码："Serves
+  og/muse-spark-1.2/1.3-contributor ONLY"），所以别的渠道没有案例是**正确**的覆盖，不是缺口；`or/` 的
+  `count_tokens` 是唯一真的空格。**这张表是"89/89"的正确读法**：它说的是"这 83 个已命名的案例里没有分歧"，
+  不是"移植完成了"——`gmi/` 的翻译分支就是在 64/64 看起来完整的时候被这张表找出来的。
 - **A5（待点头）** `agent/scripts` 的 sweep 驱动与判据（~8,909 行 .mjs）→ Rust。成本：一个构建阶段 + Node↔Rust 边界；
   `agent/src/plugins/design/` 已是在产品里做同一件事的 Rust 先例。
 - **A6（待点头，第二阶段）** 控制台 `/api/*` 与插件（~9,650 行 TS）→ wasm：同一个 worker、同一个目标，理论可搬；
