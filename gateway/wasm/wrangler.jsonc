@@ -20,6 +20,20 @@
   // BreakerDO instance the deployed console worker uses — without it, the binding would have to
   // name a class defined in THIS script, and the health card would be reporting a different
   // breaker's state. `reliability.ts`: `env.BREAKER.get(env.BREAKER.idFromName("og"))`.
+  // **THE KV BINDING, AND WITHOUT IT THIS WORKER CANNOT ANSWER AT ALL — MEASURED 2026-10-07 ON REAL WORKERD.**
+  //
+  // `wrangler dev --remote` (the real runtime, the real bindings) listed what the script actually gets:
+  //
+  //     env.BREAKER (BreakerDO, defined in vale-gate)   Durable Object
+  //     env.UPSTREAM_TIMEOUT_MS ("120000")              Environment Variable
+  //
+  // — and **no `KEYS`**. Every request reads KV (the token, the user, the user's keys, `settings:US_PROXY`,
+  // `providers:custom`), so every request died at the binding and the dev proxy reported it as
+  // `Network connection lost`. **THE NODE HARNESS CANNOT SEE THIS**: `verify.mjs` injects a fake `KEYS`, so the
+  // divergence sweep was 90/90 while the deployed script had nothing to read. The same class of gap as
+  // `UPSTREAM_TIMEOUT_MS` (see below), one binding over — and the same id as the console worker, because the
+  // two must read the SAME KV: the records the console writes are what this worker routes on.
+  "kv_namespaces": [{ "binding": "KEYS", "id": "a1fb10da621b411caeda6d98c060bbea" }],
   "durable_objects": {
     "bindings": [{ "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" }]
   },
@@ -41,7 +55,24 @@
   // without a key of their own. **A SECRET CANNOT BE READ BACK THROUGH THE API**, so this is the operator's
   // step (`wrangler secret put <NAME> --name vale-gate-wasm`), not a line in this file — and it is the
   // cutover's, not follow-up work.
-  "vars": { "UPSTREAM_TIMEOUT_MS": "120000" }
+  // **THE VARS THE PORTED DECISIONS READ, TAKEN FROM THE SHIPPING WORKER'S OWN CONFIG.** `wrangler.jsonc` in
+  // `gateway/` is the live console worker's; this list is every var it sets that THIS crate reads, compared one
+  // by one (its `ACCESS_*` three are the console's auth and are read nowhere in `src/` — checked, not assumed):
+  //
+  //     CONSOLE_HOST           the CORS stamp on every response
+  //     VISION_MODEL           `cm/deepseek/deepseek-v4.1-flash` — NOT the crate's default (`og/mimo-v2.5`)
+  //     VISION_CAPABLE_MODELS  the five-model allowlist — the crate's default is a different list
+  //     UPSTREAM_TIMEOUT_MS    120000, where the crate's own default is 30 s
+  //
+  // **EACH ONE IS A DIVERGENCE IF IT IS MISSING, AND NONE OF THEM IS VISIBLE TO A HARNESS THAT INJECTS ITS OWN
+  // ENV** — the sweep passes `CONSOLE_HOST: "console.test"` and the vision vars explicitly, so it measured the
+  // decisions and never the deployment. The secrets this worker still needs are named below.
+  "vars": {
+    "CONSOLE_HOST": "ai.saisi.online,api.saisi.online",
+    "UPSTREAM_TIMEOUT_MS": "120000",
+    "VISION_MODEL": "cm/deepseek/deepseek-v4.1-flash",
+    "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash, r4/deepseek-v4.1-flash, og/mimo-v2.6-flash"
+  }
   // `DO_AUTH` is a SECRET on the deployed worker (`wrangler secret put DO_AUTH`), not a var: it is
   // read here for the same reason `breakerHeaders` reads it — the DO refuses an unauthenticated
   // `/check`, and a refused read is `false`, which would report og healthy while its circuit is
