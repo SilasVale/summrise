@@ -1565,6 +1565,217 @@ for (const [i, c] of CASES.entries()) {
       kv: { "ukeys:u-sweep": JSON.stringify({ CMD_API_KEY: "sk-cm-user" }) },
     },
     {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, ds/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ DEEPSEEK_API_KEY: "sk-ds-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, qw/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "qw/qwen3.8-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ QWEN_API_KEY: "sk-qw-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, or/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "or/z-ai/glm-5.2:free", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ OPENROUTER_API_KEY: "sk-or-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, nv/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "nv/nvidia/nemotron-3-ultra-550b-a55b", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ NVAPI_KEY: "sk-nv-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, gmi/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "gmi/MiniMaxAI/MiniMax-M3", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ GMI_API_KEY: "sk-gmi-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, cm/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "cm/deepseek/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ CMD_API_KEY: "sk-cm-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, amd/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "amd/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ AMD_API_KEY: "sk-amd-user" }) },
+    },
+    {
+      // **THE COVERAGE GRID NAMED THIS HOLE**: `/v1/chat/completions` had cases for og and ds only, and this arm
+      // carries a PER-CHANNEL header rule (`apiKeyHeader` is `x-api-key` for opencode and amd, absent for the
+      // rest) — a rule no other case exercises for the other seven channels.
+      name: "POST /v1/chat/completions, r4/ (the uniform chat arm)",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "r4/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ R4_API_KEY: "sk-r4-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, cm/ (a non-og channel)",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        {
+          model: "cm/deepseek/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ CMD_API_KEY: "sk-cm-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, a CUSTOM provider model",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "acme/acme-chat", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/chat/completions, a CUSTOM provider model",
+      req: [
+        "POST",
+        "/v1/chat/completions",
+        { model: "acme/acme-chat", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: {
+        "providers:custom": JSON.stringify([
+          {
+            prefix: "acme/",
+            label: "Acme",
+            baseURL: "https://acme.test/v1",
+            api: "openai-completions",
+            apiKey: "sk-acme",
+            models: [{ id: "acme-chat" }],
+          },
+        ]),
+      },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, ds/",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "ds/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ DEEPSEEK_API_KEY: "sk-ds-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, qw/",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "qw/qwen3.8-flash", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ QWEN_API_KEY: "sk-qw-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, nv/ (pure BYOK)",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "nv/nvidia/nemotron-3-ultra-550b-a55b", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ NVAPI_KEY: "sk-nv-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, gmi/ (pure BYOK)",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "gmi/MiniMaxAI/MiniMax-M3", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ GMI_API_KEY: "sk-gmi-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, amd/",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "amd/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ AMD_API_KEY: "sk-amd-user" }) },
+    },
+    {
+      name: "POST /v1/messages/count_tokens, r4/",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "r4/deepseek-v4.1-flash", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ R4_API_KEY: "sk-r4-user" }) },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a
