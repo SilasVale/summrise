@@ -264,8 +264,10 @@ export default {
       // WHY A SERVICE BINDING AND NOT A ZONE ROUTE (the plan's first shape, corrected by measurement): these
       // hostnames are Worker CUSTOM DOMAINS, and a route on a custom domain is INERT. Cloudflare's own analytics for
       // the day read `vale-gate 550 requests / vale-gate-wasm 3` while a route for `/v1/models` existed, and
-      // `api.saisi.online/` answers the console page (200, text/html, 1,391 B) — so repointing the custom domain
-      // would take the console with it. A binding keeps one hostname and one Access policy.
+      // the PUBLIC console host answers the console page (200, text/html) — so repointing the custom domain would
+      // take the console with it. A binding keeps one hostname and one Access policy. (The hostnames themselves are
+      // written in exactly one file, `wrangler.jsonc`, because `agent/tests/production_host.rs` is a ratchet over
+      // which files may name them; the live worker's name is there too.)
       //
       // NOTHING IS RE-STAMPED ON THE FORWARDED RESPONSE: the Rust worker applies the per-request CORS itself, and
       // the corpus pins those headers (`front-door-cors-corpus.json`); wrapping it here would add a second opinion.
