@@ -154,6 +154,21 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   （oracle 驱动发货 TS、二进制跑 Rust、逐字节比）已经在仓库里，所以这是一次"搬到差分全绿为止"的活，不是探索。
   relay 自己的测试现在是绿的：`cargo test` 28 + 6 + 15 = **49 passed** ✓。
 
+- **`gform` 的接线清单（2026-10-07 逐项核对，判据仍是 `differential.mjs` 到 14/14）。**
+  `/api/github` 已经接上（差分 12/14 → **13/14** ✓），`gform` 是最后一条。**已经搬好、已被证明的**：
+  `GFORM_UPSTREAMS`（8 个上游 ✓）、`rewrite_body` ✓、`rewritable` ✓、`set_cookie_values` ✓、
+  `form_decode`/`form_encode` ✓，以及**通用的** `upstream_url(base, path)` ✓（它收 base 作参数，所以直接可用）。
+  **还缺的四块**（都是小件，但每一件都必须逐字对上，否则差分不会到 14/14）：
+
+  | 缺什么 | 为什么不能复用现有的 | 量 |
+  |---|---|---|
+  | `GFORM_ALLOWED_REDIRECT_HOSTS`（8 个 Google 主机）+ `gform_redirect_target` | `redirect_target` 带的是 **GitHub 的 7 个主机** ✗ | ~20 行 |
+  | `gform_parse_route` | crate 的 `parse_route` 用 **github 的 `UPSTREAMS`** ✗（gform 是 gle/docs/www/gstatic/ssl-gstatic/fontscss/fonts/usercontent 八个） | ~15 行 |
+  | gform 自己的 `copy_request_headers` / `copy_response_headers` | 两份白名单与 github 的**不同** ✗（请求侧多 `content-type`、少 `accept-encoding`；响应侧是它自己的 5 项） | ~10 行 |
+  | 外壳 `gform()` | 方法闸门是 GET/HEAD/**POST** ✗（github 只有 GET/HEAD）；还有 reCAPTCHA 的 cookie 规则（`www.google.com` + `/recaptcha/` 前缀：请求侧透传调用者的 `cookie`、响应侧**追加全部** `set-cookie`）、304 空体、`MAX_REWRITE_BYTES = 10 MiB` 以上跳过改写直接流、5xx 通用文案 | ~120 行 |
+
+  **合计约 165 行**，每一块都有差分里的对应案例在盯着 ✓——所以这是"搬到 14/14 为止"，不是探索 ✓。
+
 - **B 的删除清单：每个渠道的"没人用"证据（2026-10-07 实测），以及删掉它会发生什么。**
   目标是"每删一个渠道先量它没人用（KV 的 ukeys 记录 + 访问日志 + 操作者确认）"——**访问日志这一项拿不到**：
   网关的 `observability` 是关的，所以能拿到的只有 KV 与操作者的确认，下面就是这两样：
