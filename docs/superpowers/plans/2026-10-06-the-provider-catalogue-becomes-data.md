@@ -210,6 +210,34 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   Rust 侧同期 +1,569 行里，`vision.rs`（一个完整特性）与四份新语料/回放是主体。**切流删掉 `gateway/src` 的 /v1 半边
   之后，`route-oracle.mjs` 与它驱动的差分一起退役**，这条数会掉。
 
+  **A4 的账，2026-10-07 复测（A3 删完之后）**——同一套规则：`.rs` 不计 `target/`，JS 家族是
+  `.mjs/.js/.cjs/.ts/.tsx` 不计 `node_modules/`，**镜像单列**（它是生成出来的副本，不是源码）：
+
+  | | 接手时（10-06） | 现在（10-07） | Δ |
+  |---|---|---|---|
+  | Rust | 114,808 / 217 | **116,642 / 218** | **+1,834 / +1** |
+  | JS 家族（含镜像） | ~155,180 / 571 | **142,885 / 530** | **−12,295 / −41** |
+  | JS 家族（不含镜像） | ~139,300 | **126,998 / 523** | **−12,302** |
+
+  **这 −12,295 行就是 A3**：3,186 行实现（`plugins/translate.ts` 等四个文件）+ 3,454 行 oracle（`route-oracle.mjs`
+  与两个 `oracle*.mjs`）+ 5,432 行测试（13 个主题就是那半边的文件），再减去改指时加回来的注释与
+  `frontDoor()`（`gateway/src` 只掉了 3,144 而不是 3,186，差的就是这些）。
+
+  | 目录 | 行数 | 为什么是 JS/TS（或为什么它不再是） |
+  |---|---|---|
+  | `gateway/src` | 10,913 | Cloudflare Workers 跑 V8；**但 `/v1` 半边已经不在里面了**——只剩前门 4 行分派 + 控制台 `/api/*`（A6 的候选） |
+  | `gateway/ui` | 9,775 | 浏览器 UI（TS/TSX，零 `.js`） |
+  | `gateway/wasm` | **2,583** | **只剩 harness**（`verify.mjs` 等），一行产品逻辑都没有；oracle 随被删的 TS 一起退役了 |
+  | `agent/scripts` | 8,909 | 判据 + Playwright 驱动：驱动必须留 JS（浏览器），**判据是 A5 的候选** |
+  | `agent/resources/panel-react` | 42,404 | 浏览器 UI |
+  | `agent/summrise-agent-npm` | 13,741 | npm 是 CLI 的交付方式 |
+  | `agent/summrise-desktop-electron` | 4,207 | Electron 壳 |
+  | `index` / `proxies` | 6,085 / 7,819 | CDN worker 与卫星 worker（Workers 运行时）——**其中 Rust 的部分已经在 Rust 里** |
+  | `gateway/public/code/files` | 15,887 | **生成物**：Source Viewer 的镜像（`sync-code-viewer.sh` 生成，随源文件一起变） |
+
+  **判据的主语没变**：`gateway/wasm` 的 2,583 行 JS 全是 harness（驱动 JS+wasm 产物 ✓，是目标里写明的例外）；
+  `gateway/src` 的 10,913 行里已经**没有 `/v1` 逻辑**——那部分现在在 Rust 里跑在生产上 ✓。
+
   **覆盖表（2026-10-06，`verify.mjs` 的 83 个案例按 渠道 × arm 数出来）**——`·` 是**没有被比较过**的格子：
 
   | 渠道 | `/v1/messages` | `/v1/chat/completions` | `/v1/responses` | `count_tokens` |
