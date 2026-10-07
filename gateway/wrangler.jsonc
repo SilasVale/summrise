@@ -1,5 +1,20 @@
 {
-  "name": "summrise-gate",
+  // **THE NAME WAS WRONG, AND IT HAD BEEN SILENTLY WRONG FOR NINE DAYS — MEASURED 2026-10-07.**
+  //
+  // This file said `summrise-gate` while the console's CUSTOM DOMAINS point at **`vale-gate`**:
+  //
+  //     api.saisi.online  -> vale-gate      (modified 2026-09-28T10:59:45)
+  //     ai.saisi.online   -> vale-gate
+  //
+  // So every `./scripts/build.sh gateway` updated a worker nothing routes to, and **the live console has been
+  // frozen at its 2026-09-28 build while nine commits touched `gateway/src` or `gateway/ui`** — including the
+  // console's provider form. The name is the live worker's now. (`summrise-gate` still exists as a worker with no
+  // traffic; it is not deleted here, because deleting a script is not this change's business.)
+  //
+  // THE DO MIGRATIONS BELOW ARE ADDITIVE ONLY (`new_sqlite_classes`), so a deploy whose tags already match the
+  // deployed state is a no-op for them; a mismatch fails the deploy BEFORE it changes the worker, which is the
+  // safe direction.
+  "name": "vale-gate",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
@@ -35,24 +50,39 @@
       }
     ]
   },
-  // **THE MIGRATION HISTORY IS SHORTER THAN `vale-gate`'S, AND IT HAS TO BE.** A `deleted_classes`
-  // migration can only apply to a worker that HAD the class: `wrangler deploy` on the new name answered
-  // `Cannot apply deleted_classes migration to non-existent class PluginHubDO` (measured 2026-10-05).
-  // `summrise-gate` never had `PluginHubDO`, so `v4-delete-plugin-hub` is dropped here and the two
-  // `new_sqlite_classes` entries carry the fresh history. **A CONSEQUENCE, STATED RATHER THAN DISCOVERED
-  // LATER: the Durable Objects start EMPTY** — `BREAKER` and `ROUTE` are per-script storage, so the route
-  // table and the breaker state re-learn from scratch. There is no way to bind the old ones: the IDs are
-  // readable but the storage belongs to the script.
-  "migrations": [
-    {
-      "tag": "v1-breaker",
-      "new_sqlite_classes": ["BreakerDO"]
-    },
-    {
-      "tag": "v3-route",
-      "new_sqlite_classes": ["RouteDO"]
-      }
-  ],
+  // **THE HISTORY IS `vale-gate`'S OWN AGAIN, AND THE PARAGRAPH THAT USED TO SIT HERE WAS THE BUG'S OWN
+  // DESCRIPTION.** It said the history was "shorter than `vale-gate`'s, and it has to be", because the 2026-10-05
+  // rename to `summrise-gate` could not apply `v4-delete-plugin-hub` — `deleted_classes` only applies to a worker
+  // that HAD the class, and the NEW worker never had `PluginHubDO`. **THE RENAME WAS THE MISTAKE, NOT THE
+  // MIGRATION**: the console's custom domains kept pointing at `vale-gate`, so the new worker was deployed to and
+  // never routed to, and the consequence the old paragraph accepted as a trade — "the Durable Objects start
+  // EMPTY" — was a consequence of moving to a worker nobody used.
+  //
+  // Measured 2026-10-07 on the attempt to deploy this file to `vale-gate`: the API refused with
+  // `Cannot apply new-sqlite-class migration to class 'BreakerDO' that is already depended on by existing Durable
+  // Objects [code: 10074]` and warned that the published script's tag `v4-delete-plugin-hub` was missing here —
+  // i.e. it tried to RE-APPLY the whole history because the list did not match. **IT FAILED BEFORE CHANGING THE
+  // SCRIPT**, which is the safe direction, and the tag is restored below.
+  // **NO `migrations` KEY, AND THAT IS THE FIX RATHER THAN AN OMISSION.** The history below was restored in the
+  // attempt to make this file deployable to `vale-gate` again, and BOTH shapes failed at the API:
+  //
+  //     with  v1-breaker, v3-route          -> Cannot apply new-sqlite-class migration to class 'BreakerDO' that is
+  //                                            already depended on by existing Durable Objects [code: 10074]
+  //     with  v1-breaker, v3-route, v4-…    -> Cannot apply deleted_classes migration to non-existent class PluginHubDO
+  //
+  // The first warning said why: the published script's tag `v4-delete-plugin-hub` "was not found in your
+  // wrangler.jsonc file ... **Applying all available migrations to the script**" — a list that does not match the
+  // published one makes wrangler re-apply the WHOLE history, and every tag in it has already been applied.
+  //
+  // **A MIGRATION LIST IS FOR CHANGING CLASSES; THIS DEPLOY CHANGES NONE.** The bindings below are unchanged and
+  // the classes are unchanged, so the deploy needs no migration at all — and Cloudflare keeps the published tag
+  // (`v4-delete-plugin-hub`) as it is. A future class is added by writing a new tag HERE, which is the moment the
+  // key earns its place:
+  //
+  //     "migrations": [ { "tag": "v5-…", "new_sqlite_classes": ["…"] } ]
+  //
+  // The history this file used to carry, for the record: `v1-breaker` (new_sqlite_classes BreakerDO),
+  // `v3-route` (new_sqlite_classes RouteDO), `v4-delete-plugin-hub` (deleted_classes PluginHubDO).
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
