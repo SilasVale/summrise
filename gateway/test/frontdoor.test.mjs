@@ -10,23 +10,44 @@ import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 const env = () => makeBaseEnv({});
 
 test("bare /models aliases to /v1/models (public model list)", async () => {
-  const a = await worker.fetch(new Request("https://x/models"), env());
-  const b = await worker.fetch(new Request("https://x/v1/models"), env());
+  // **THE ASSERTION IS THE PATH THE FRONT DOOR WAS ASKED FOR, NOT THE BODY.** Since the cutover, `/v1/*` is
+  // forwarded to the Rust worker through `WASM_GATE`; the stub in `helpers.mjs` records every request it receives,
+  // so this pins the ALIAS — `/models` must arrive as `/v1/models` — which is the property the branch owns. The
+  // body is the Rust worker's, and its bytes are pinned by the 91-case fixture sweep.
+  const e = env();
+  const a = await worker.fetch(new Request("https://x/models"), e);
   assert.equal(a.status, 200);
+  assert.deepEqual(e._frontDoor, ["GET /v1/models"], "the alias must rewrite the path on the way through");
   const ja = await a.json();
-  const jb = await b.json();
-  assert.deepEqual(ja, jb);
   assert.ok(Array.isArray(ja.data) && ja.data.length > 0, "model list must be non-empty");
+
+  const e2 = env();
+  await worker.fetch(new Request("https://x/v1/models"), e2);
+  assert.deepEqual(e2._frontDoor, ["GET /v1/models"]);
 });
 
 test("bare /chat/completions aliases to /v1/chat/completions transparently", async () => {
   const body = JSON.stringify({ model: "ds/deepseek-chat", messages: [] });
   const mk = (p) =>
     new Request(`https://x${p}`, { method: "POST", headers: { "content-type": "application/json" }, body });
-  const a = await worker.fetch(mk("/chat/completions"), env());
-  const b = await worker.fetch(mk("/v1/chat/completions"), env());
+  const e1 = env();
+  const e2 = env();
+  const a = await worker.fetch(mk("/chat/completions"), e1);
+  const b = await worker.fetch(mk("/v1/chat/completions"), e2);
   assert.equal(a.status, b.status);
   assert.deepEqual(await a.json(), await b.json());
+  assert.deepEqual(e1._frontDoor, e2._frontDoor, "both spellings must reach the front door as one path");
+});
+
+test("WITHOUT the binding the front door says so, loudly", async () => {
+  // The TypeScript implementation is deleted, so a deployment without `WASM_GATE` cannot serve the API. A 404
+  // would read like a routing mistake; this is a 503 that names the missing binding.
+  const e = env();
+  delete e.WASM_GATE;
+  const res = await worker.fetch(new Request("https://x/v1/models"), e);
+  assert.equal(res.status, 503);
+  const body = await res.json();
+  assert.match(body.error.message, /WASM_GATE/);
 });
 
 test("plain-http request 308-redirects to https (never serves the Secure cookie over http)", async () => {

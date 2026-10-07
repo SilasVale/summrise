@@ -109,25 +109,38 @@ pub fn image_cache_key(uid: &str, digest_hex: &str, data_len: usize) -> String {
 /// own record, so the `key` column is unused. A naive "derive the whole table" would drop the entry and every
 /// describe against a custom provider would answer "视觉模型后端不支持".
 pub fn vision_backend(kind: &str) -> Option<(&'static str, &'static str)> {
-    // (kind, user-key field, shape) — the same nine rows `store/byok.ts` carries.
-    const TABLE: [(&str, &str, &str); 9] = [
-        ("opencode", "OPENCODE_GO_API_KEY", "openai"),
-        ("deepseek", "DEEPSEEK_API_KEY", "anthropic"),
-        ("qwen", "QWEN_API_KEY", "anthropic"),
-        ("openrouter", "OPENROUTER_API_KEY", "anthropic"),
-        ("nvidia", "NVAPI_KEY", "openai"),
-        ("gmi", "GMI_API_KEY", "openai"),
-        ("commandgoat", "CMD_API_KEY", "openai"),
-        ("amd", "AMD_API_KEY", "anthropic"),
-        ("r4", "R4_API_KEY", "anthropic"),
+    // **THE SHAPE IS THIS MODULE'S FACT; THE KEY NAME IS NOT.** The first port wrote the nine key names out
+    // again in a `TABLE` here, and `byok.rs`'s own header says what that costs: its table is "the ONE canonical
+    // copy of a mapping that was previously written out FIVE times". `gateway/test/byok.test.mjs` caught the
+    // second copy across the language boundary — its assertion is "the nine must be derived, and absent from the
+    // consumer" — so the key column is DERIVED from `REQUIRED_KEY_BY_KIND` and only the dialect stays here.
+    const SHAPES: [(&str, &str); 9] = [
+        ("opencode", "openai"),
+        ("deepseek", "anthropic"),
+        ("qwen", "anthropic"),
+        ("openrouter", "anthropic"),
+        ("nvidia", "openai"),
+        ("gmi", "openai"),
+        ("commandgoat", "openai"),
+        ("amd", "anthropic"),
+        ("r4", "anthropic"),
     ];
     if kind == "custom" {
+        // The TENTH: a route KIND with no BYOK channel behind it, so its key column is unused (see the doc above).
         return Some(("", "openai"));
     }
-    TABLE
+    // **THE ENV-KEY COLUMN, NOT THE USER-BLOB FIELD.** `byok.rs` carries both: `BYOK_CHANNELS` is
+    // (kind, ENV KEY NAME, env fallback) and `REQUIRED_KEY_BY_KIND` is (kind, the field `extractByokKeys` spells
+    // in the user's blob) — `OPENCODE_GO_API_KEY` against `opencodeGo`. The vision pass reads the ENV KEY, and the
+    // Rust test that pins this table said so on the first attempt ("left: opencodeGo").
+    let key = crate::byok::BYOK_CHANNELS
         .iter()
         .find(|(k, _, _)| *k == kind)
-        .map(|(_, key, shape)| (*key, *shape))
+        .map(|(_, env_key, _)| *env_key)?;
+    SHAPES
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, shape)| (key, *shape))
 }
 
 /// `crypto.subtle.digest("SHA-256", …)`, hex, first 16 bytes — **THE SOURCE'S OWN API, THROUGH THE SAME WEB

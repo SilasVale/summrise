@@ -11,7 +11,7 @@
  *   ensurePluginCtx()  builds the plugin context once per isolate:
  *                      auth / devices / mcp / translate / admin plugins own
  *                      every /api/* route + /mcp + /v1/* (see src/plugins/)
- *   handleGateway()    thin wrapper over the translate plugin's /v1 impl
+ *   frontDoor()        /v1/* -> the Rust worker's service binding (the TypeScript impl is deleted)
  *
  * The public CLI-facing tooling surface (GET /api/health, POST
  * /api/summrise-probe + its rate limiter, the /api/summrise-* installer payloads)
@@ -58,7 +58,6 @@ import authPlugin from "./plugins/auth.ts";
 import { csrfCookieViolation } from "./auth.ts";
 import devicesPlugin from "./plugins/devices.ts";
 import mcpPlugin from "./plugins/mcp.ts";
-import translatePlugin, { handleGateway as translateHandleGateway } from "./plugins/translate.ts";
 import adminPlugin from "./plugins/admin.ts";
 
 // Re-exported for tooling/tests that target the front door surface.
@@ -66,7 +65,10 @@ import adminPlugin from "./plugins/admin.ts";
 // wrangler binds the Durable Object classes from here.
 export { BreakerDO } from "./reliability.ts";
 export { RouteDO } from "./route-do.ts";
-export { resolveAutoModel, isModelUsable } from "./plugins/translate.ts";
+// **THESE TWO MOVED OUT OF THE DELETED `/v1` HALF.** They were re-exported from `plugins/translate.ts`, which the
+// cutover deleted; `plugins/model-route.ts` is where they have lived since the structure refactor, and the console
+// reads one of them (`plugins/auth.ts` for `GET /api/me/route`), so the path is direct now.
+export { resolveAutoModel, isModelUsable } from "./model-route.ts";
 
 /**
  * Plugin context: built once per isolate with the shared helpers; every
@@ -82,36 +84,8 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [
-    authPlugin,
-    devicesPlugin,
-    mcpPlugin,
-    translatePlugin,
-    adminPlugin,
-  ]);
+  registerPlugins(__pluginCtx, [authPlugin, devicesPlugin, mcpPlugin, adminPlugin]);
   return __pluginCtx;
-}
-
-/** /v1/* entry — dispatches through the plugin table, then the translate impl. */
-export async function handleGateway(request: Request, env: any, url: URL) {
-  const pctx = ensurePluginCtx();
-  if (pctx.routes.length) {
-    const hit = dispatch(
-      pctx,
-      request.method,
-      url.pathname,
-      request,
-      env,
-      url,
-      url.protocol === "https:",
-    );
-    if (hit !== null) return withCors(request, await hit, env);
-  }
-  // No plugin matched (e.g. /v1/<unknown>) — the translate impl owns the
-  // same 404/405 semantics the inline dispatcher had.
-  // withCors: per-request reflect-if-allowlisted (default-closed otherwise).
-  const res = await translateHandleGateway(request, env, url);
-  return withCors(request, res, env);
 }
 
 /**
@@ -124,6 +98,28 @@ export async function handleGateway(request: Request, env: any, url: URL) {
 function wasmGate(env: any): { fetch: (r: Request) => Promise<Response> } | null {
   const binding = env?.WASM_GATE;
   return binding && typeof binding.fetch === "function" ? binding : null;
+}
+
+/**
+ * THE `/v1` FRONT DOOR — THE BINDING, OR A LOUD 503.
+ *
+ * **THE TYPESCRIPT IMPLEMENTATION IS DELETED (2026-10-07)**, so there is no fallback to fall back to: a deployment
+ * without the `WASM_GATE` binding is a deployment that cannot serve the API, and saying so is better than a 404
+ * that reads like a routing mistake. `request` is passed separately from the URL-bearing request because the
+ * aliases (`/models`, `/chat/completions`) rewrite the path on the way through.
+ */
+async function frontDoor(original: Request, env: any, request: Request): Promise<Response> {
+  const gate = wasmGate(env);
+  if (gate) return await gate.fetch(request);
+  return withCors(
+    original,
+    jsonError(
+      503,
+      "the Rust front door is not bound to this deployment (WASM_GATE) — the TypeScript implementation was deleted at the cutover",
+      "api_error",
+    ),
+    env,
+  );
 }
 
 export default {
@@ -238,8 +234,7 @@ export default {
       if ((path === "/models" || path === "/chat/completions") && request.method !== "OPTIONS") {
         const v1Url = new URL(url);
         v1Url.pathname = "/v1" + path;
-        if (wasmGate(env)) return await wasmGate(env)!.fetch(new Request(v1Url, request));
-        return await handleGateway(request, env, v1Url);
+        return await frontDoor(request, env, new Request(v1Url, request));
       }
 
       // ---- Static page (Workers Assets): non-/v1/ paths → ai domain only ----
@@ -278,9 +273,7 @@ export default {
       // reports every channel `ok:true`, because it reports whether the MODELS answer, not whether the KEYS are
       // present. `og/`, the channel in use, has its secret on both workers. `wrangler secret put <NAME> --name
       // vale-gate-wasm` closes the gap.
-      if (wasmGate(env)) return await wasmGate(env)!.fetch(request);
-      // (handleGateway already applies withCors; re-stamping is idempotent.)
-      return await handleGateway(request, env, url);
+      return await frontDoor(request, env, request);
     } catch (error) {
       // Never echo raw error internals to clients (logged server-side).
       console.error("[gateway] unhandled:", error);

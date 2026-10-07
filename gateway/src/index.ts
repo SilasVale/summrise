@@ -68,7 +68,7 @@ export { RouteDO } from "./route-do.ts";
 // **THESE TWO MOVED OUT OF THE DELETED `/v1` HALF.** They were re-exported from `plugins/translate.ts`, which the
 // cutover deleted; `plugins/model-route.ts` is where they have lived since the structure refactor, and the console
 // reads one of them (`plugins/auth.ts` for `GET /api/me/route`), so the path is direct now.
-export { resolveAutoModel, isModelUsable } from "./plugins/model-route.ts";
+export { resolveAutoModel, isModelUsable } from "./model-route.ts";
 
 /**
  * Plugin context: built once per isolate with the shared helpers; every
@@ -84,12 +84,7 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [
-    authPlugin,
-    devicesPlugin,
-    mcpPlugin,
-    adminPlugin,
-  ]);
+  registerPlugins(__pluginCtx, [authPlugin, devicesPlugin, mcpPlugin, adminPlugin]);
   return __pluginCtx;
 }
 

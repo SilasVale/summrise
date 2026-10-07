@@ -38,7 +38,7 @@ import {
   isResponsesOnlyModel,
   routeModelsFor,
 } from "../src/channels.ts";
-import { AUTO_FALLBACK_LADDER, DEFAULT_ROUTE_MODEL } from "../src/plugins/model-route.ts";
+import { AUTO_FALLBACK_LADDER, DEFAULT_ROUTE_MODEL } from "../src/model-route.ts";
 
 const channelOf = (id) => id.slice(0, id.indexOf("/"));
 const strippedOf = (id) => id.slice(id.indexOf("/") + 1);
@@ -280,27 +280,30 @@ test("the responses-only facet matches what /v1/responses actually serves", () =
 test("the facets the registry owns are actually CONSULTED (no dead data)", () => {
   // A facet nothing reads is worse than no facet: it documents behaviour that
   // does not happen. Each is checked against the module that must use it.
-  const translate = readFileSync(
-    new URL("../src/plugins/translate.ts", import.meta.url),
-    "utf8",
-  );
-  for (const helper of [
-    "isResponsesOnlyModel",
-    "reasoningMaxRawFor",
-    "reasoningMaxParsedFor",
-  ]) {
+  // **THE CONSUMER IS THE RUST WORKER NOW.** This test read `src/plugins/translate.ts`, which the cutover deleted;
+  // the facets are consumed by the ported request path, so the file it reads moved across the language boundary
+  // with the behaviour. The assertion is unchanged in meaning: a facet nothing reads is dead data.
+  // Both files of the ported request path: the registry DECLARES the facets, the request path CONSULTS them, and
+  // the assertion is about the pair (a facet nothing reads is dead data wherever it is declared).
+  const translate =
+    readFileSync(new URL("../../gateway/wasm/src/registry.rs", import.meta.url), "utf8") +
+    readFileSync(new URL("../../gateway/wasm/src/request_shape.rs", import.meta.url), "utf8");
+  // The names are the RUST ones now — the facets crossed the language boundary with the request path, and the
+  // registry's own doc comments carry the mapping (`isResponsesOnlyModel` -> the responses-only facet read by the
+  // routing layer, `reasoningMaxRawFor`/`reasoningMaxParsedFor` -> `reasoning_max_raw_for`/`_parsed_for`).
+  for (const helper of ["responses_only", "reasoning_max_raw_for", "reasoning_max_parsed_for"]) {
     assert.ok(
       translate.includes(helper),
-      `${helper} is exported but translate.ts never calls it — dead facet`,
+      `${helper} is exported but the Rust request path never calls it — dead facet`,
     );
   }
   // The hardcoded spellings the registry replaced must NOT come back.
   assert.ok(
-    !translate.includes('startsWith("muse-spark-")'),
+    !translate.includes('starts_with("muse-spark-")'),
     "the muse-spark string test is back — it belongs in the registry",
   );
   assert.ok(
-    !translate.includes('upstreamModel === "ox-alpha-free"'),
+    !translate.includes('"ox-alpha-free"'),
     "the ox-alpha-free string test is back — it belongs in the registry",
   );
   assert.ok(

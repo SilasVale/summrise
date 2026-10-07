@@ -51,7 +51,7 @@ import { OG_ZEN_CHAT, usProxyBase } from "../channels.ts";
 import { opencodeSessionHeader } from "../upstream.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import type { PluginContext } from "./registry.ts";
-import { optionalApi } from "./registry.ts";
+import { resolveAutoModel } from "../model-route.ts";
 
 const AUTH_BASE = "/api/auth";
 const ME_BASE = "/api/me";
@@ -280,7 +280,7 @@ async function meGet(request: Request, env: any): Promise<Response> {
 }
 
 // Per-user route selection (Claude Code model=auto)
-// resolveAutoModel comes from the translate plugin via setup (module-level
+// resolveAutoModel is imported directly from model-route.ts (module-level
 // so the route handler can call it — handlers don't receive plugin context).
 let resolveRouteModel: ((env: any, uid: string) => Promise<string>) | null = null;
 
@@ -772,15 +772,15 @@ export async function testKey(env: any, name: string, key: string): Promise<Resp
 
 export default {
   name: "auth",
-  deps: ["translate"],
   setup(ctx: PluginContext) {
-    // meGetRoute resolves the effective model via the translate plugin's
-    // resolveAutoModel (dep registered before this setup runs).
-    // SOLID Round-2: typed soft-dep read — same null-fallback semantics as
-    // the old `(ctx.api?.translate as any)?.resolveAutoModel || null`.
-    resolveRouteModel =
-      optionalApi<{ resolveAutoModel?: (...args: any[]) => any }>(ctx, "translate")
-        ?.resolveAutoModel || null;
+    // **`meGetRoute` RESOLVES THE EFFECTIVE MODEL THROUGH A DIRECT IMPORT NOW.** It used to read
+    // `ctx.api.translate.resolveAutoModel` — a soft dependency on the translate plugin, with a null fallback. That
+    // plugin was DELETED at the cutover (its `/v1` half is the Rust worker's), and a soft dependency that resolves
+    // to null is exactly the silent degradation this repository keeps finding: `GET /api/me/route` would have gone
+    // on answering, with `effective` silently equal to the stored model. `plugins/model-route.ts` is where the
+    // function has lived since the structure refactor, and it is imported directly, so a missing export is a build
+    // error rather than a quiet null.
+    resolveRouteModel = resolveAutoModel;
     // Exact method+path match, same as the index.js if/else chain (the
     // registry's route() helper does prefix matching — exact here so
     // /api/me never swallows /api/me/route etc.). Order mirrors index.js.

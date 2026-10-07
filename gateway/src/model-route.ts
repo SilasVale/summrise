@@ -1,15 +1,18 @@
 /**
  * model-route — per-user auto-model resolution (structure refactor: extracted
- * verbatim from plugins/translate.ts). translate.ts re-exports these so the
- * existing consumers keep their import paths: src/index.ts's `export {
- * resolveAutoModel, isModelUsable }`, auth.ts's cross-plugin
- * `ctx.api.translate.resolveAutoModel`, and health.test.mjs's direct import.
+ * verbatim from plugins/translate.ts).
+ *
+ * **IT MOVED FROM `plugins/` TO `src/` AT THE CUTOVER (2026-10-07), BECAUSE ITS CONSUMER COUNT CHANGED.** The
+ * contract in `plugins/registry.ts` says a module with two live consumers is foundation rather than a private
+ * collaborator: `index.ts` re-exports `resolveAutoModel`/`isModelUsable` and `plugins/auth.ts` imports
+ * `resolveAutoModel` directly for `GET /api/me/route`, where it used to read it out of the deleted translate
+ * plugin's context.
  */
 
-import { isAdvertised } from "../store/models.ts";
-import { getUserKeys, getUserRoute } from "../store.ts";
-import { isChannelDegraded } from "../reliability.ts";
-import { BYOK_CHANNELS } from "../store/byok.ts";
+import { isAdvertised } from "./store/models.ts";
+import { getUserKeys, getUserRoute } from "./store.ts";
+import { isChannelDegraded } from "./reliability.ts";
+import { BYOK_CHANNELS } from "./store/byok.ts";
 
 /** Model usable for routing? In the whitelist, (og) breaker not open, AND
  *  the REQUESTING user's key for that channel is configured — a channel
