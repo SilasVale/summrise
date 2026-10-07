@@ -818,6 +818,90 @@ fn copy_allowlisted(names: &[&str], headers: &Map<String, Value>) -> Vec<(String
     combine(out)
 }
 
+// ── THE `api/gform` ROUTE'S OWN GATE DECISIONS ──────────────────────────────────────────────────
+//
+// **THE THREE THINGS THE GITHUB VERSIONS CANNOT SERVE**, and each one is why the handler has its own copy rather
+// than a shared one: the redirect allowlist is EIGHT GOOGLE HOSTS (github's seven are all GitHub's), the upstream
+// table is gform's own eight prefixes, and the two header allowlists differ from github's in both directions
+// (`content-type` in, `accept-encoding` out; a five-header response list).
+
+/// `ALLOWED_REDIRECT_HOSTS` from `api/gform.ts` — the Google hosts, and `forms.gle` is the one that makes the
+/// redirect loop load-bearing: a short link's whole purpose is to be followed.
+const GFORM_ALLOWED_REDIRECT_HOSTS: [&str; 8] = [
+    "forms.gle",
+    "docs.google.com",
+    "www.google.com",
+    "www.gstatic.com",
+    "ssl.gstatic.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "lh3.googleusercontent.com",
+];
+
+/// `REQUEST_HEADERS` from `api/gform.ts`. **NO `accept-encoding`**, and the file says why: the upstream then
+/// returns identity-encoded bytes, which is what makes `response.text()` safe to rewrite.
+const GFORM_REQUEST_HEADERS: [&str; 6] = [
+    "accept",
+    "accept-language",
+    "content-type",
+    "if-none-match",
+    "if-modified-since",
+    "user-agent",
+];
+
+/// `RESPONSE_HEADERS` from `api/gform.ts` — five, where github copies eleven.
+const GFORM_RESPONSE_HEADERS: [&str; 5] = [
+    "cache-control",
+    "content-type",
+    "etag",
+    "expires",
+    "last-modified",
+];
+
+/// `redirectTarget(response, currentUrl)` for gform — the same shape as `redirect_target` with the Google list.
+pub fn gform_redirect_target(location: &str, current: &str) -> Option<String> {
+    if location.is_empty() {
+        return None;
+    }
+    let target = url::Url::parse(current).ok()?.join(location).ok()?;
+    if target.scheme() == "https" && target.host_str().is_some_and(|h| GFORM_ALLOWED_REDIRECT_HOSTS.contains(&h))
+    {
+        Some(target.to_string())
+    } else {
+        None
+    }
+}
+
+/// `parseRoute(?path)` for gform — `parse_route` with `GFORM_UPSTREAMS`.
+pub fn gform_parse_route(value: Option<&str>) -> Option<(String, String)> {
+    let value = value?;
+    if value.is_empty() || !safe_path(value) {
+        return None;
+    }
+    let slash = value[1..].find('/').map(|i| i + 1)?;
+    let kind = &value[1..slash];
+    let path = &value[slash..];
+    let base = GFORM_UPSTREAMS
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, base)| *base)?;
+    if safe_path(path) {
+        Some((base.to_string(), path.to_string()))
+    } else {
+        None
+    }
+}
+
+/// `copyRequestHeaders(request)` for gform.
+pub fn gform_request_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(&GFORM_REQUEST_HEADERS, headers)
+}
+
+/// `copyResponseHeaders(response)` for gform.
+pub fn gform_response_headers(headers: &Map<String, Value>) -> Vec<(String, String)> {
+    copy_allowlisted(&GFORM_RESPONSE_HEADERS, headers)
+}
+
 /// `redirectTarget(location, currentUrl)` — an allowlisted `https:` host, resolved against the current
 /// URL.
 pub fn redirect_target(location: &str, current: &str) -> Option<String> {
