@@ -1459,6 +1459,112 @@ for (const [i, c] of CASES.entries()) {
       },
     },
     {
+      // **THE REMAINING BUILT-IN CHANNELS, WHICH THE SWEEP HAD NEVER TOUCHED.** Until this case set, only
+      // og/ds/nv/cm and the custom providers were exercised end-to-end — the other five prefixes had no case
+      // at all, and the `gmi/` one below is what found the nv/gmi translate branch.
+      name: "POST /v1/messages, nv/ WITH a user key (the nv/gmi translate branch)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "nv/nvidia/nemotron-3-ultra-550b-a55b",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ NVAPI_KEY: "sk-nv-user" }) },
+    },
+    {
+      name: "POST /v1/messages, or/ (openrouter, BYOK)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "or/z-ai/glm-5.2:free", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ OPENROUTER_API_KEY: "sk-or-user" }) },
+    },
+    {
+      name: "POST /v1/messages, qw/ (qwen, BYOK)",
+      req: [
+        "POST",
+        "/v1/messages",
+        { model: "qw/qwen3.8-flash", messages: [{ role: "user", content: "hi" }], max_tokens: 8 },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ QWEN_API_KEY: "sk-qw-user" }) },
+    },
+    {
+      name: "POST /v1/messages, gmi/ (pure BYOK, the translate branch)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "gmi/MiniMaxAI/MiniMax-M3",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ GMI_API_KEY: "sk-gmi-user" }) },
+    },
+    {
+      name: "POST /v1/messages, gmi/ with NO user key (the key gate)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "gmi/MiniMaxAI/MiniMax-M3",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      env: { GMI_API_KEY: "sk-gmi-env" },
+    },
+    {
+      name: "POST /v1/messages, r4/ (anthropic-shape passthrough)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "r4/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ R4_API_KEY: "sk-r4-user" }) },
+    },
+    {
+      name: "POST /v1/messages, amd/ (anthropic-shape passthrough)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "amd/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ AMD_API_KEY: "sk-amd-user" }) },
+    },
+    {
+      name: "POST /v1/messages, cm/ (commandgoat, BYOK)",
+      req: [
+        "POST",
+        "/v1/messages",
+        {
+          model: "cm/deepseek/deepseek-v4.1-flash",
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 8,
+        },
+      ],
+      upstream: { body: JSON_OK, type: "application/json", status: 200 },
+      kv: { "ukeys:u-sweep": JSON.stringify({ CMD_API_KEY: "sk-cm-user" }) },
+    },
+    {
       // **THIS WAS THE ONE KNOWN DIFFERENCE, AND IT IS FIXED** — `translate-vision.ts` is ported: the image is
       // described with `VISION_MODEL` (default `og/mimo-v2.5`) and the block is replaced by the description, so
       // both sides now make TWO upstream calls with the same bodies. It was carried here with a

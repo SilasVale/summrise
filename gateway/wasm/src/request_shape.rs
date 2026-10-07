@@ -914,7 +914,19 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         .and_then(|b| b.get("stream"))
         .map(|v| v == &serde_json::Value::Bool(true))
         .unwrap_or(false);
-    let (body, headers, policy) = if route.is_translate {
+    // **THE nv/gmi TRANSLATE BRANCH — A THIRD CASE, AND IT WAS MISSING ENTIRELY.** Their ROUTE type is
+    // "passthrough" (their upstreams are OpenAI-compatible chat/completions endpoints), but `translate.ts` gives
+    // them a DEDICATED arm that translates BOTH ways "so Anthropic-only clients (Claude Code) can ride these
+    // channels via /v1/messages": `toOpenAIRequest` on the way out and `openAIUpstreamToAnthropicResponse` on
+    // the way back. Measured 2026-10-06 on the built worker with a `gmi/` model and a user key: the shipping
+    // route sent `…,"stream":false,"max_tokens":8` and answered an Anthropic message (259 B), while this worker
+    // sent the raw Anthropic body with the model swapped and handed the upstream's OpenAI JSON back verbatim
+    // (134 B) — a client that speaks Anthropic would have parsed nothing.
+    //
+    // The policy is this arm's OWN (`{ timeoutMs, attempts: 4, retry502: true }`), deliberately not the shared
+    // table — "routing it through retryPolicyFor would silently drop non-nv/gmi kinds to the plain budget".
+    let nv_gmi_translate = req.kind == "nvidia" || req.kind == "gmi";
+    let (body, headers, policy) = if route.is_translate || nv_gmi_translate {
         let r = translate_request(
             bearer,
             parsed_body.unwrap_or(&serde_json::Value::Null),
@@ -922,7 +934,12 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
             Some(&req.env),
             og_session,
         );
-        (r.body, r.headers, r.policy)
+        let policy = if nv_gmi_translate {
+            chat_retry_policy(Some(&req.env))
+        } else {
+            r.policy
+        };
+        (r.body, r.headers, policy)
     } else {
         let r = passthrough_request(
             &req.kind,
@@ -951,7 +968,9 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
             body,
             policy,
         },
-        is_translate: route.is_translate,
+        // The RESPONSE side follows the same branch: nv/gmi answer through `openAIUpstreamToAnthropicResponse`,
+        // which is what `is_translate` selects in `v1_finish`.
+        is_translate: route.is_translate || nv_gmi_translate,
         wants_stream,
         kind: req.kind.clone(),
         upstream_model: upstream_model.to_string(),
