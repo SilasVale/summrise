@@ -396,7 +396,7 @@
     ],
     "calls": [
       {
-        "url": "https://oracle.saisi.online/v1/responses",
+        "url": "https://fnv:ccf1bd3f/v1/responses",
         "method": "POST",
         "auth": "Bearer sk-user-og",
         "body": "{\"model\":\"muse-spark-1.2-contributor\",\"input\":\"hi\"}"
@@ -439,7 +439,7 @@
     ],
     "calls": [
       {
-        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "url": "https://fnv:6d5ab979/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
         "method": "POST",
         "auth": "Bearer sk-user-og",
         "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
@@ -460,7 +460,7 @@
     ],
     "calls": [
       {
-        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "url": "https://fnv:6d5ab979/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
         "method": "POST",
         "auth": "Bearer sk-user-og",
         "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
@@ -502,7 +502,7 @@
     ],
     "calls": [
       {
-        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "url": "https://fnv:6d5ab979/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
         "method": "POST",
         "auth": "Bearer sk-user-og",
         "body": "{\"model\":\"muse-spark-1.2-contributor\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
@@ -814,7 +814,7 @@
     ],
     "calls": [
       {
-        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "url": "https://fnv:6d5ab979/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
         "method": "POST",
         "auth": "Bearer sk-user-og",
         "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
@@ -962,7 +962,7 @@
     ],
     "calls": [
       {
-        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fmessages",
+        "url": "https://fnv:6d5ab979/api/zen?target=og&path=%2Fv1%2Fmessages",
         "method": "POST",
         "auth": null,
         "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"web_search\"}}"
