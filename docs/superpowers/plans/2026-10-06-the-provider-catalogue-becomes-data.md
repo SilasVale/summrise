@@ -130,6 +130,30 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   主机名（实测：这份文档写了两个，CI 的 `agent` 与 `pack-chain` 两个 job 一起变红）。真要写进去，得同时把这个文件
   加进 `ALLOWED` **并把 `MAX_ALLOWED` 加一**——而那张表只能缩，所以占位符才是对的答案。
 
+- **A2 的真实状态（2026-10-07 复测）：不是"只差 authorized_keys 一行"，而是二进制还差两条活着的路由。**
+  SSH 仍然被拒（`Permission denied (publickey)` ✓ 那一行确实还没加），但更要紧的是**本机的差分**：
+
+  ```
+  proxies/api-relay/relay $ node differential.mjs
+    differential: 12/14 byte-identical, 2 route-not-wired, 0 unexplained
+  ```
+
+  两条"没接线"的是 `/api/github` 与 `/api/gform`——**而它们在 VPS 上是活的**（直接量）：
+
+  | 探针 | 活的 vrelay | Rust 二进制 |
+  |---|---|---|
+  | `GET /api/github?path=%2Fx` | **400** `{"error":"unsupported GitHub route"}`（路由存在，只是路径不对） | **route not wired** ✗ |
+  | `GET /api/gform?path=%2Fx` | **400** `{"error":"unsupported Google route"}` | **route not wired** ✗ |
+
+  **所以照现在这样部署会打断两条正在服务的路由** ✓。仓库自己的测试也写着这件事
+  （`relay/tests/two_relays_agree.rs:194`："github traffic to the git handler, via `/api/github/o/r`. Behaviour
+  is the stronger check"）✓。
+
+  **要做的事是明确的、而且有现成的判据**：把 `api/github.ts`（231 行）与 `api/gform.ts`（350 行）搬进
+  `relay/src/lib.rs`（现有 2,862 行），**判据就是 `differential.mjs` 从 12/14 变成 14/14** ✓——这套差分
+  （oracle 驱动发货 TS、二进制跑 Rust、逐字节比）已经在仓库里，所以这是一次"搬到差分全绿为止"的活，不是探索。
+  relay 自己的测试现在是绿的：`cargo test` 28 + 6 + 15 = **49 passed** ✓。
+
 - **B 的删除清单：每个渠道的"没人用"证据（2026-10-07 实测），以及删掉它会发生什么。**
   目标是"每删一个渠道先量它没人用（KV 的 ukeys 记录 + 访问日志 + 操作者确认）"——**访问日志这一项拿不到**：
   网关的 `observability` 是关的，所以能拿到的只有 KV 与操作者的确认，下面就是这两样：
