@@ -150,9 +150,9 @@ async fn dispatch(State(relay): State<Relay>, mut req: axum::extract::Request) -
         "zen" => zen(State(relay), req).await,
         "git" => git(State(relay), req).await,
         "github" => github(State(relay), req).await,
-        // `/api/gform` IS A ROUTE OF THE SHIPPING RELAY AND IS NOT WIRED HERE YET: its decisions (the body
-        // rewriter and its helpers) are in the crate and proved, and the wiring is the next piece of work. A
-        // 404 is the honest answer from a binary that does not serve it.
+        "gform" => gform(State(relay), req).await,
+        // Every route the shipping relay declares is wired now — the 404 is for paths that match no prefix at
+        // all, which is what `entry.mjs` answers too.
         //
         // **AND `/api/github` USED TO BE IN THIS COMMENT, WHICH SAID THE OPERATOR WAS ANSWERING "whether they
         // are needed at all" FROM THE RELAY'S ACCESS LOG.** That question is answerable by probe, and the probe
@@ -588,6 +588,240 @@ async fn github(State(relay): State<Relay>, req: axum::extract::Request) -> Resp
         redirects += 1;
         current = target.unwrap_or(current);
     }
+}
+
+/// `/api/gform` — the Google Forms proxy, WIRED 2026-10-07, the last of the five routes.
+///
+/// **THE PIECES THE GITHUB HANDLER COULD NOT LEND IT** are all in the crate now: `gform_redirect_target` (eight
+/// Google hosts where github's seven are GitHub's), `gform_parse_route` (gform's own upstream table),
+/// `gform_request_headers`/`gform_response_headers` (its two allowlists), and the body rewriter that was ported
+/// first (`rewrite_body`, `rewritable`, `set_cookie_values`).
+///
+/// THE TWO RULES THAT ARE THIS HANDLER'S ALONE, both about reCAPTCHA and both in the shipping file's comments:
+/// a `www.google.com/recaptcha/…` request forwards the CALLER'S `cookie` upstream (the session is the caller's),
+/// and the response appends ALL of the upstream's `set-cookie` values rather than the first — a reCAPTCHA session
+/// is several cookies, and keeping one breaks it.
+async fn gform(State(relay): State<Relay>, req: axum::extract::Request) -> Response {
+    // `MAX_REWRITE_BYTES`: above this the body streams UNREWRITTEN rather than being buffered — the file's own
+    // rule, and the reason is that the rewrite needs the whole body in memory.
+    const MAX_REWRITE_BYTES: u64 = 10 * 1024 * 1024;
+    let (parts, body) = req.into_parts();
+    let uri = parts.uri.clone();
+    let method = parts.method.as_str().to_string();
+    match summrise_relay::method_allowed("gform", &method) {
+        Ok(true) => {}
+        Ok(false) => return gform_error("method not allowed", 405),
+        Err(e) => return gform_error(&e, 500),
+    }
+    let query = uri.query().unwrap_or("");
+    let path = summrise_relay::FormParams::parse(query)
+        .entries()
+        .into_iter()
+        .find(|(k, _)| k == "path")
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+    let Some((base, tail)) = summrise_relay::gform_parse_route(Some(&path)) else {
+        return gform_error("unsupported Google route", 400);
+    };
+    let Ok(composed) = summrise_relay::upstream_url(&base, &tail) else {
+        return gform_error(
+            &summrise_relay::upstream_url(&base, &tail).unwrap_err(),
+            400,
+        );
+    };
+    let search = gform_upstream_search(query);
+    let mut current = if search.is_empty() {
+        composed
+    } else {
+        format!("{composed}?{search}")
+    };
+    let headers = request_headers(&parts.headers);
+    let plan = summrise_relay::gform_request_headers(&headers);
+    // The caller's own origin: the body rewriter builds proxy URLs from it, so it must be THIS deployment's.
+    let origin = summrise_relay::request_host(&current);
+    let incoming_origin = parts
+        .headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .map(|h| format!("https://{h}"))
+        .unwrap_or_else(|| format!("https://{origin}"));
+    let caller_cookie = parts
+        .headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let mut stream = Some(body.into_data_stream());
+
+    let mut redirects = 0u32;
+    loop {
+        let dialled = relay.dial(&current);
+        let mut request = relay
+            .client
+            .request(reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET), &dialled);
+        for (k, v) in &plan {
+            request = request.header(k, v);
+        }
+        // THE reCAPTCHA RULE: only that path gets the caller's cookie, and only on `www.google.com`.
+        if is_recaptcha(&current) && !caller_cookie.is_empty() {
+            request = request.header("cookie", &caller_cookie);
+        }
+        if method == "POST" {
+            if let Some(stream) = stream.take() {
+                request = request.body(reqwest::Body::wrap_stream(stream));
+            }
+        }
+        let response = match send(&relay, request).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[vrelay-gform] {e}");
+                return gform_error("Google upstream unavailable", 502);
+            }
+        };
+        let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let target = summrise_relay::gform_redirect_target(&location, &current);
+        if (300..400).contains(&status) {
+            if target.is_none() {
+                return gform_error("redirect to a non-Google host refused", 502);
+            }
+            if redirects >= summrise_relay::redirect_cap("gform").unwrap_or(5) {
+                return gform_error("too many Google redirects", 502);
+            }
+            redirects += 1;
+            current = target.unwrap_or(current);
+            continue;
+        }
+        // 5xx: GENERIC client text, detail in the log.
+        if status >= 500 {
+            let detail = response.text().await.unwrap_or_default();
+            eprintln!(
+                "[vrelay-gform] upstream {status}: {}",
+                detail.chars().take(500).collect::<String>()
+            );
+            return gform_error("Google upstream unavailable", status);
+        }
+        let entries: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| {
+                v.to_str()
+                    .ok()
+                    .map(|v| (k.as_str().to_string(), v.to_string()))
+            })
+            .collect();
+        let set_cookies: Vec<String> = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|v| v.to_str().ok().map(|s| s.to_string()))
+            .collect();
+        // The copier takes the JS-headers SHAPE (a map), which is what the crate's allowlist walk reads —
+        // `request_headers` produces one for the request side; the response side needs it built from axum's.
+        let response_map: serde_json::Map<String, serde_json::Value> = entries
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+        let plain = summrise_relay::gform_response_headers(&response_map);
+        let mut pairs: Vec<(String, String)> = plain;
+        if is_recaptcha(&current) {
+            // ALL of them, as an ARRAY — `set_cookie_values` is the crate's port of that rule.
+            for value in summrise_relay::set_cookie_values(&set_cookies, &entries) {
+                pairs.push(("set-cookie".to_string(), value));
+            }
+        }
+        // A 304 carries no body, and the shipping handler returns an EMPTY one rather than the upstream's.
+        if status == 304 {
+            return (
+                StatusCode::NOT_MODIFIED,
+                build_headers(&pairs, &[]),
+                Body::empty(),
+            )
+                .into_response();
+        }
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        if summrise_relay::rewritable(content_type.as_deref()) {
+            let declared = response
+                .headers()
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+            if declared.is_some_and(|n| n > MAX_REWRITE_BYTES) {
+                return (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                    build_headers(&pairs, &[]),
+                    Body::from_stream(response.bytes_stream()),
+                )
+                    .into_response();
+            }
+            let is_html = content_type
+                .as_deref()
+                .map(|c| c.starts_with("text/html"))
+                .unwrap_or(false);
+            let text = response.text().await.unwrap_or_default();
+            let rewritten =
+                summrise_relay::rewrite_body(&text, &incoming_origin, is_html).unwrap_or(text);
+            return (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                build_headers(&pairs, &[]),
+                rewritten,
+            )
+                .into_response();
+        }
+        return (
+            StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+            build_headers(&pairs, &[]),
+            Body::from_stream(response.bytes_stream()),
+        )
+            .into_response();
+    }
+}
+
+/// `upstream.hostname === "www.google.com" && upstream.pathname.startsWith("/recaptcha/")` — the gate that
+/// decides whether the caller's cookie goes out and whether every `set-cookie` comes back.
+fn is_recaptcha(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        u.host_str() == Some("www.google.com") && u.path().starts_with("/recaptcha/")
+    })
+}
+
+/// The caller's query minus `path` — gform's own copy of the rule, for the same reason github has one.
+fn gform_upstream_search(query: &str) -> String {
+    summrise_relay::FormParams::parse(query)
+        .entries()
+        .into_iter()
+        .filter(|(k, _)| k != "path")
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// `gform.ts`'s `bad()` — JSON with a charset and `no-store`, the same shape as `github_error`.
+fn gform_error(message: &str, status: u16) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
+    headers.insert(
+        "cache-control",
+        HeaderValue::from_static("no-store, max-age=0, must-revalidate"),
+    );
+    (
+        StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+        headers,
+        serde_json::json!({ "error": message }).to_string(),
+    )
+        .into_response()
 }
 
 /// The caller's query minus `path` — the github handler's own rule (`upstream.searchParams.delete("path")`),
@@ -1129,11 +1363,12 @@ mod tests {
         // crate and proved; whether they are needed at all is the operator's question, so a binary that
         // does not serve them says so with the entry's own 404 shape rather than something else's.
         let relay = relay_at("http://127.0.0.1:1".to_string());
-        // **`/api/github` CAME OUT OF THIS LIST ON 2026-10-07, AND ITS OWN ASSERTION IS NOW THE OPPOSITE.**
-        // The probe that settled it: the live relay answers 400 `{"error":"unsupported GitHub route"}` for this
-        // exact request — a ROUTE, not a 404 — so the binary serving it is the behaviour that matches, and this
-        // test would have pinned the divergence.
-        for path in ["/api/gform?path=%2Fdocs%2Fx", "/nope"] {
+        // **BOTH ROUTES CAME OUT OF THIS LIST ON 2026-10-07, AND THE PROBE IS WHY.** The live relay answers 400
+        // `{"error":"unsupported GitHub route"}` and 400 `{"error":"unsupported Google route"}` for these exact
+        // requests — ROUTES, not 404s — so a binary serving them is the behaviour that matches and this test
+        // would have pinned the divergence. What is left is a path that matches NO prefix, which is what the
+        // shipping entry answers 404 to as well.
+        for path in ["/nope", "/api/nothing?path=%2Fx"] {
             let (status, _, body) = call(
                 relay.clone(),
                 Request::builder()
