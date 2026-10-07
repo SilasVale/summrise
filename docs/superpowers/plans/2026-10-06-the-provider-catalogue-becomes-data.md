@@ -130,6 +130,40 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   主机名（实测：这份文档写了两个，CI 的 `agent` 与 `pack-chain` 两个 job 一起变红）。真要写进去，得同时把这个文件
   加进 `ALLOWED` **并把 `MAX_ALLOWED` 加一**——而那张表只能缩，所以占位符才是对的答案。
 
+- **切流前最后一张表：部署层还缺什么，以及每一处缺口的实测答复（2026-10-07，在 workerd 上量的）。**
+
+  `vale-gate-wasm` 比 `vale-gate` 少四个 secret。**每个缺口的答复是量出来的，不是推断的**（本地 KV 里种一个
+  无渠道 key 的用户，再请求那个渠道）：
+
+  | 缺的 secret | 渠道 | 候选 worker 实际答什么 | `/api/health` 看得出来吗 |
+  |---|---|---|---|
+  | `CMD_API_KEY` | `cm/` | **502** `config_error: CMD_API_KEY not configured — add your Command Code key in the console` | **看不出来**（cm 的 3 张卡都 `ok:true`） |
+  | `GMI_API_KEY` | `gmi/` | **502** `config_error: GMI_API_KEY not configured — add your GMI Cloud key in the console` | **看不出来**（gmi 的 2 张卡都 `ok:true`） |
+  | `R4_API_KEY` | `r4/` | **502** `config_error: R4_API_KEY not configured — add your own r4.codes key in the console` | **看不出来**（r4 的 1 张卡 `ok:true`） |
+  | `AMD_API_KEY` | `amd/` | **502** `config_error: AMD_API_KEY not configured — add your AMD Radeon Cloud (rc-…) key in the console` | **看不出来**（amd 在健康里**没有卡**） |
+  | `DO_AUTH` | 熔断读 | 读被拒 → `false`，于是 og 卡在**熔断已开**时仍报 `ok:true`（`reliability.ts` 自己的注释） | **看不出来**——这正是它说的那句 |
+
+  **判据的主语**：`/api/health` 报的是"这些模型通不通"，不是"这些 key 在不在"——所以**带着四个缺失的 secret
+  切流，健康面会 20/20 全绿，而其中三个渠道对每个没有自带 key 的用户答 502**。这不是健康卡的缺陷（改它就会
+  偏离发货行为），是切流清单上必须先做的一步：`wrangler secret put <NAME> --name vale-gate-wasm`。
+
+- **切流前最强的一条证据：发货前台（活的）与候选 worker（workerd 上）逐字节相同。** 公开的那个 console host
+  可以直接量（另一个在 Cloudflare Access 后面，`/v1/*` 会 302/403）——**两个主机名都不写在这里**：
+  `agent/tests/production_host.rs` 是一道**棘轮**，它只允许主机名出现在**一个已声明**的文件里（
+  `gateway/wrangler.jsonc`），本轮我在本文件里写了两次、又在 `gateway/wasm/wrangler.jsonc` 里写了一次，两次都被它
+  拒（第二次是 CI 拒的）。主机名一律写成 `<console-host>`：
+
+  | 探针 | 活的发货 TS | workerd 上的候选 | |
+  |---|---|---|---|
+  | `GET /v1/models`（无 token） | 200，**2,268 B** | 200，2,268 B | **逐字节相同** |
+  | `POST /v1/messages`（错 token） | 401，**97 B** | 401，97 B | **逐字节相同** |
+  | `OPTIONS /v1/messages`（预检） | 200，`access-control-allow-origin: https://<console-host>`，`Vary: Origin` | 同 | **相同** |
+  | `GET /api/health` | 200，**1,228 B** | 200，1,228 B | **逐字节相同** |
+
+  **这一组和分歧扫描是两回事**：扫描比的是"同一台 Node harness 里的两份实现"，这四条比的是**真实部署与候选**，
+  中间没有 harness（`cmp` 逐字节，不是长度相等）。四条都是不需要 token 的路径——带 token 的路径没有操作者的
+  token 就不能这样量，那部分仍由扫描与语料负责。
+
 - **A2 切流②**（relay 的 axum 二进制上 VPS）：本机跑通、六条路由 curl 过；只卡在盒子 `132.226.90.175` 的
   `authorized_keys` 一行。
 - **A3 切流后删除** `gateway/src` 的 `/v1` 半边——**先证明等价，再删**。等价已经证明（分歧扫描 64/64、0 处已知差异），
