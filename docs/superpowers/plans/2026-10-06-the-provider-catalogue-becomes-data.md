@@ -130,6 +130,22 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   主机名（实测：这份文档写了两个，CI 的 `agent` 与 `pack-chain` 两个 job 一起变红）。真要写进去，得同时把这个文件
   加进 `ALLOWED` **并把 `MAX_ALLOWED` 加一**——而那张表只能缩，所以占位符才是对的答案。
 
+- **② 的目标形状：逐字段核对（2026-10-07）。** 目标说的是"照 DSH 的 provider 记录"——所以这张表**逐字段**回答，
+  每一行都给出它在哪里被实现、以及哪条测量证明它真的在起作用：
+
+  | DSH 的字段 | 我们的拼写 | 实现处 | 证明它在起作用的测量 |
+  |---|---|---|---|
+  | `apiKeyEnv` | `apiKeyEnv` ✓ | `store/providers.ts` 的类型 + `store.rs` 的 `provider_key_env_names`（**逐记录动态读**，因为绑定名是任意的） | 扫描案例 "a NAMED binding's value rides Bearer"（3/3）：记录里写 `apiKeyEnv: ACME_TEST_KEY`，上游收到的就是那个绑定的值 |
+  | `api` | `api` ✓ | `routing.rs` 的 `SUPPORTED_PROVIDER_APIS`（`openai-completions` → `/chat/completions`） | 案例 "a custom provider with an UNSUPPORTED api（the error route）"：不支持的方言走错误路由，**不是**静默回退 |
+  | `baseURL` | `baseURL` ✓ | `routing.rs` 的 `provider_route`（**前缀**语义，方言的路径追加在后面——"OpenAI SDK 对 baseURL 做的事"） | 案例 "a custom provider whose baseURL carries a PATH"：`https://acme.test/openai/v1` + `/chat/completions` 拼出来的 URL 两边逐字节相同 |
+  | `models[{id,name,contextWindow,maxTokens}]` | 同名字段 ✓（+ `vision`、`reasoningEffort`） | `store.rs` 的 `advertised_provider_models` + `/v1/models` | `GET /v1/models` 无 token 2,268 字节，**三种环境逐字节相同**（发货 TS、Node harness、真 workerd） |
+  | 默认模型选择 | `resolveAutoModel` + `models:overrides` + `settings:` | `src/model-route.ts`（A3 后从 `plugins/` 搬到 `src/`） | `plugins.test.mjs` 的 "me/route: … GET shows stored + effective"（44 条健康/路由断言里的两条） |
+
+  **所以②的"形状"部分是完成的**：记录自描述（前缀、标签、方言、上游根、key 的来源、模型清单与显示属性），
+  Rust 侧读它、路由它、广告它，控制台写它。**剩下的是操作者那一半**：把不用的渠道删掉（B 的删除清单）——
+  那需要先量"没人用"，而访问日志在网关侧是关掉的（`observability: false`），所以判据只能是
+  KV 的 `ukeys` 记录 + 操作者的确认。
+
 - **切流前最后一张表：部署层还缺什么，以及每一处缺口的实测答复（2026-10-07，在 workerd 上量的）。**
 
   `vale-gate-wasm` 比 `vale-gate` 少四个 secret。**每个缺口的答复是量出来的，不是推断的**（本地 KV 里种一个
