@@ -1722,6 +1722,16 @@ for (const [i, c] of CASES.entries()) {
       },
     },
     {
+      // **THE PUBLIC CATALOGUE, MEASURED THREE WAYS.** `/v1/models` answers without a token (2,268 bytes), and
+      // the number is the same in the shipping route, in this worker under the Node harness, AND on real workerd
+      // through `wrangler dev` — which is the cross-check that says the harness's KV/DO shims do not distort this
+      // path. It is also the case the plan's B-criteria name: "the `/v1/models` output for the models in use is
+      // byte-for-byte unchanged".
+      name: "GET /v1/models with NO token (the public catalogue)",
+      req: ["GET", "/v1/models", null],
+      token: null,
+    },
+    {
       // The last real hole in the coverage grid (the other nine empty cells are `/v1/responses`, which serves
       // og's muse models only).
       name: "POST /v1/messages/count_tokens, or/ (openrouter, BYOK)",
