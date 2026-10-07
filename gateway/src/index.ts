@@ -114,6 +114,18 @@ export async function handleGateway(request: Request, env: any, url: URL) {
   return withCors(request, res, env);
 }
 
+/**
+ * THE RUST FRONT DOOR'S BINDING, READ ONCE AND TYPED.
+ *
+ * `WASM_GATE` is the service binding declared in `wrangler.jsonc`; `undefined` when it is absent (a local
+ * `wrangler dev` without the sibling worker, a test env, or the rollback) — and every call site falls back to
+ * `handleGateway`, so the TypeScript path stays live and reachable for as long as the binding is gone.
+ */
+function wasmGate(env: any): { fetch: (r: Request) => Promise<Response> } | null {
+  const binding = env?.WASM_GATE;
+  return binding && typeof binding.fetch === "function" ? binding : null;
+}
+
 export default {
   async fetch(request: Request, env: any) {
     // Auth-core audit MED-1: global CSRF gate for cookie-authed mutations
@@ -219,9 +231,14 @@ export default {
       }
 
       // ---- OpenAI-compatible alias: /models → /v1/models, /chat/completions → /v1/chat/completions ----
+      //
+      // **THE ALIAS GOES TO THE SAME PLACE `/v1/*` DOES** — leaving it on the TypeScript path while `/v1/*` moved
+      // would make one client's two spellings of the same call answer from two implementations, which is the
+      // divergence this whole migration exists to remove.
       if ((path === "/models" || path === "/chat/completions") && request.method !== "OPTIONS") {
         const v1Url = new URL(url);
         v1Url.pathname = "/v1" + path;
+        if (wasmGate(env)) return await wasmGate(env)!.fetch(new Request(v1Url, request));
         return await handleGateway(request, env, v1Url);
       }
 
@@ -236,6 +253,30 @@ export default {
       }
 
       // ---- /v1/* gateway (both domains) ----
+      //
+      // ── THE CUTOVER: `/v1/*` IS SERVED BY THE RUST WORKER ────────────────────────────────────────────────
+      //
+      // **AND THE ROLLBACK IS THE BINDING.** Delete `WASM_GATE` from `wrangler.jsonc` (or this branch) and the next
+      // deploy serves `/v1` from `handleGateway` again — no DNS change, no Access change, no data migration: both
+      // implementations read the same KV, write the same Durable Object and were measured byte-for-byte equal on
+      // 91 differential cases plus the four tokenless paths against this live host.
+      //
+      // WHY A SERVICE BINDING AND NOT A ZONE ROUTE (the plan's first shape, corrected by measurement): these
+      // hostnames are Worker CUSTOM DOMAINS, and a route on a custom domain is INERT. Cloudflare's own analytics for
+      // the day read `vale-gate 550 requests / vale-gate-wasm 3` while a route for `/v1/models` existed, and
+      // `api.saisi.online/` answers the console page (200, text/html, 1,391 B) — so repointing the custom domain
+      // would take the console with it. A binding keeps one hostname and one Access policy.
+      //
+      // NOTHING IS RE-STAMPED ON THE FORWARDED RESPONSE: the Rust worker applies the per-request CORS itself, and
+      // the corpus pins those headers (`front-door-cors-corpus.json`); wrapping it here would add a second opinion.
+      //
+      // THE ONE KNOWN GAP, MEASURED AND ACCEPTED: `vale-gate-wasm` is missing four channel secrets
+      // (`AMD_API_KEY`, `CMD_API_KEY`, `GMI_API_KEY`, `R4_API_KEY`), so those four prefixes answer
+      // `502 config_error: <NAME> not configured` to a user who has no key of their own — while `/api/health`
+      // reports every channel `ok:true`, because it reports whether the MODELS answer, not whether the KEYS are
+      // present. `og/`, the channel in use, has its secret on both workers. `wrangler secret put <NAME> --name
+      // vale-gate-wasm` closes the gap.
+      if (wasmGate(env)) return await wasmGate(env)!.fetch(request);
       // (handleGateway already applies withCors; re-stamping is idempotent.)
       return await handleGateway(request, env, url);
     } catch (error) {
