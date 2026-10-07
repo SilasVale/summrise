@@ -649,10 +649,32 @@ for (const [i, c] of CASES.entries()) {
   // FAILING run would pin the failure.** The cases keep their meaning — status, body, headers, the upstream request
   // and the Durable Object call log, per case — and the wasm is now held to what the shipping worker answered
   // rather than to a second live copy of it.
+  // ── THE HOSTNAMES IN THE FIXTURE ARE HASHED, ON BOTH SIDES, AND THAT IS NOT A WEAKENING ─────────────────────
+  //
+  // The recorded answers carry the upstream URLs the shipping worker dialled, and some of them name a production
+  // host — which `agent/tests/production_host.rs` refuses in any file but its own declared list. **THE COMPARISON
+  // IS PRESERVED EXACTLY**: the same hash is applied to the wasm's URLs before they are compared, so a worker that
+  // dialled a DIFFERENT host still fails the case (a different host is a different hash). What the repository does
+  // not carry is the name.
+  const hashHost = (url) => {
+    let h = 2166136261;
+    for (let i = 0; i < url.length; i++) {
+      h ^= url.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return `fnv:${(h >>> 0).toString(16)}`;
+  };
+  const redactHosts = (text) =>
+    String(text).replace(
+      /\b((?:[a-z0-9-]+\.)*(?:saisi\.online|sdmctech\.com))\b/g,
+      (m) => hashHost(m),
+    );
   const recorded = {};
   const FIXTURE_URL = new URL("./shipping-answers.json", import.meta.url);
   // Absent only on the RECORDING run (it is what that run writes); every other run requires it.
-  const FIXTURE = existsSync(FIXTURE_URL) ? JSON.parse(readFileSync(FIXTURE_URL, "utf8")) : {};
+  const FIXTURE = existsSync(FIXTURE_URL)
+    ? JSON.parse(redactHosts(readFileSync(FIXTURE_URL, "utf8")))
+    : {};
   const shippingDoor = process.env.SWEEP_RECORD
     ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
     : null;
@@ -2033,6 +2055,7 @@ for (const [i, c] of CASES.entries()) {
     }
 
     const wasmCalls = [];
+    // (the calls recorded below are redacted just before the comparison, so both sides are in the same form)
     const wasmBreaker = new DurableObjectNamespace(c.breaker ?? "0", []);
     stubUpstream(c, wasmCalls);
     const worker = await import(`${pathToFileURL(BUILT).href}?sweep=${i}`);
@@ -2065,7 +2088,7 @@ for (const [i, c] of CASES.entries()) {
       );
     }
     if (JSON.stringify(shipHeaders) !== JSON.stringify(wasmHeaders)) notes.push("headers differ");
-    if (JSON.stringify(shipCallsForCase) !== JSON.stringify(wasmCalls)) {
+    if (JSON.stringify(shipCallsForCase) !== JSON.stringify(JSON.parse(redactHosts(JSON.stringify(wasmCalls))))) {
       notes.push(`upstream calls ${shipCallsForCase.length} vs ${wasmCalls.length}`);
     }
     if (JSON.stringify(shipBreaker.calls) !== JSON.stringify(wasmBreaker.calls)) {
