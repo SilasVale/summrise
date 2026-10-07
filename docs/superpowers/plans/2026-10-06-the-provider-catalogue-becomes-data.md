@@ -130,6 +130,31 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   主机名（实测：这份文档写了两个，CI 的 `agent` 与 `pack-chain` 两个 job 一起变红）。真要写进去，得同时把这个文件
   加进 `ALLOWED` **并把 `MAX_ALLOWED` 加一**——而那张表只能缩，所以占位符才是对的答案。
 
+- **B 的删除清单：每个渠道的"没人用"证据（2026-10-07 实测），以及删掉它会发生什么。**
+  目标是"每删一个渠道先量它没人用（KV 的 ukeys 记录 + 访问日志 + 操作者确认）"——**访问日志这一项拿不到**：
+  网关的 `observability` 是关的，所以能拿到的只有 KV 与操作者的确认，下面就是这两样：
+
+  | 渠道 | 有人的 BYOK key 吗（生产 KV 的 `ukeys:` 记录） | 部署的 env secret | 健康卡 | 删掉的后果 |
+  |---|---|---|---|---|
+  | `og/` | **有**（`ukeys:admin`） | ✓ 两个 worker 都有 | 6 | **在用（操作者 2026-10-06 明确）**——不动 |
+  | `ds/` | **有**（admin、test） | ✓ | 0 | 有人的 key 会失效 |
+  | `or/` | **有**（admin、test） | ✓ | 4 | 同上 |
+  | `nv/` | **有**（admin） | ✓ | 1 | 同上 |
+  | `cm/` | **有**（admin） | ✓ | 3 | 同上（而且它是 `/api/health` 的 `recommended`） |
+  | `qw/` | **没有** | ✓ | 3 | **只影响"用部署的 key"这条路径**——而操作者说没人用 |
+  | `gmi/` | **没有** | ✓（vale-gate）/ ✗（wasm） | 2 | 同上 |
+  | `amd/` | **没有** | ✓（vale-gate）/ ✗（wasm） | 0 | 同上 |
+  | `r4/` | **没有** | ✓（vale-gate）/ ✗（wasm） | 1 | 同上 |
+
+  **读法**：生产 KV 里只有两条 `ukeys` 记录（`admin`、`test`），它们持有 5 个渠道的 key
+  （`CMD_API_KEY`、`DEEPSEEK_API_KEY`、`NVAPI_KEY`、`OPENCODE_GO_API_KEY`、`OPENROUTER_API_KEY`）——
+  **`qw/`、`gmi/`、`amd/`、`r4/` 在任何记录里都没有 key**，所以它们今天能服务只可能靠部署的 env secret，
+  而操作者说只有 `og/` 在用。**这四个是唯一"删了不会让谁的 key 失效"的候选**，可以一轮一个（渠道 → 健康卡 →
+  BYOK 键位 → 测试与语料），四个加起来 6 张健康卡（3+2+0+1）。
+
+  **另外五个（og/ds/or/nv/cm）需要操作者一句话**：它们的 key 在 KV 里，删掉就等于让那个人的 key 失效——
+  如果那些 key 是当初试过就没再用的，说一声就一起删；如果还在用，就留着。
+
 - **② 的目标形状：逐字段核对（2026-10-07）。** 目标说的是"照 DSH 的 provider 记录"——所以这张表**逐字段**回答，
   每一行都给出它在哪里被实现、以及哪条测量证明它真的在起作用：
 
