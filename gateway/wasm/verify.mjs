@@ -1722,6 +1722,17 @@ for (const [i, c] of CASES.entries()) {
       },
     },
     {
+      // The last real hole in the coverage grid (the other nine empty cells are `/v1/responses`, which serves
+      // og's muse models only).
+      name: "POST /v1/messages/count_tokens, or/ (openrouter, BYOK)",
+      req: [
+        "POST",
+        "/v1/messages/count_tokens",
+        { model: "or/z-ai/glm-5.2:free", messages: [{ role: "user", content: "hi" }] },
+      ],
+      kv: { "ukeys:u-sweep": JSON.stringify({ OPENROUTER_API_KEY: "sk-or-user" }) },
+    },
+    {
       name: "POST /v1/messages/count_tokens, ds/",
       req: [
         "POST",
@@ -2216,6 +2227,224 @@ for (const [i, c] of CASES.entries()) {
   );
   if (!ok) {
     console.log(`      FAIL the wasm read ${wasmFirst} KV key(s) for ten requests — the per-isolate cache is gone`);
+    bad += 1;
+  }
+}
+
+// ── TWO DIMENSIONS A SINGLE REQUEST CANNOT SHOW: THE VISION CACHE, AND CONCURRENCY ────────────────
+// **1. THE `img-desc:` CACHE.** The client re-sends the same base64 image every turn, so the source caches the
+// DESCRIPTION (7 days, keyed `img-desc:<uid>:<sha256(model:data)[0..16]>`). Two requests with the same image must
+// make THREE upstream calls — describe, main, main — not four: the describe is the expensive half, and a missing
+// cache is a vision call per turn per user. **THE CACHE KEY IS COMPARED TOO**, which is what makes the WebCrypto
+// SHA-256 in `vision.rs` a measurement rather than a choice: the source derives it with `crypto.subtle.digest`,
+// and the key is visible in the KV writes.
+//
+// **2. CONCURRENCY.** The rate-limit counters and the breaker's 5 s cache are per-isolate STATE, and two requests
+// in flight at once are where a port that mutated shared state in the wrong order would show it. The shipping is
+// single-threaded JS with awaits and the wasm is single-threaded Rust with the same shape — "the same shape" is a
+// claim, so the answers AND the breaker call log are compared under `Promise.all`.
+{
+  const shippingDoor2 = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  const { __clearCaches: clearCaches2 } = await import(
+    new URL("../src/store/cache.ts", import.meta.url).href
+  );
+  const { __clearDegradedCache: clearDegraded2 } = await import(
+    new URL("../src/reliability.ts", import.meta.url).href
+  );
+
+  // **AND THE CLASS MUST BE NAMED `DurableObjectNamespace`.** workers-rs duck-types a DO binding on
+  // `constructor.name === "DurableObjectNamespace"` (`worker-0.8.7/src/env.rs:148`), so a stub with any other
+  // name is REJECTED and every DO call silently disappears — which is exactly what this section measured on its
+  // first run: the shipping logged `["https://breaker/reset","https://breaker/reset"]` and the wasm logged `[]`.
+  // The trap is in the plan document; the stub below is shadowing the module-level class for that reason.
+  class DurableObjectNamespace {
+    constructor(calls) {
+      this.calls = calls;
+    }
+    idFromName() {
+      return {};
+    }
+    get() {
+      const { calls } = this;
+      return {
+        fetch: async (url) => {
+          calls.push(typeof url === "string" ? url : (url?.url ?? "[request]"));
+          return new Response("0");
+        },
+      };
+    }
+  }
+  const IMAGE =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const DESCRIBE_OK = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "一只猫" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  const MAIN_OK = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  const kvForVision = (writes) => {
+    const map = new Map([
+      ["token:tok-v", "u-v"],
+      ["user:u-v", JSON.stringify({ id: "u-v", enabled: true })],
+      ["ukeys:u-v", JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og" })],
+    ]);
+    return {
+      async get(key) {
+        return map.has(key) ? map.get(key) : null;
+      },
+      async put(key, value) {
+        writes.push(key);
+        map.set(key, value);
+      },
+      async delete(key) {
+        map.delete(key);
+      },
+      async list({ prefix = "" } = {}) {
+        return {
+          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+  const imageRequest = (token = "tok-v") =>
+    new Request("https://console.test/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": token, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "og/deepseek-v4.1-flash",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/png", data: IMAGE } },
+              { type: "text", text: "what is this" },
+            ],
+          },
+        ],
+        max_tokens: 8,
+      }),
+    });
+  const stubDescribe = (calls) => {
+    globalThis.fetch = async (url, init = {}) => {
+      const body = await new Request(url, init).text();
+      const describe = body.includes('"max_tokens":1500');
+      calls.push(describe ? "describe" : "main");
+      return new Response(describe ? DESCRIBE_OK : MAIN_OK, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  };
+  const real = globalThis.fetch;
+
+  // ── the cache ──────────────────────────────────────────────────────────────────────────────────
+  const shipCalls = [];
+  const shipWrites = [];
+  {
+    clearCaches2();
+    const env = {
+      KEYS: kvForVision(shipWrites),
+      BREAKER: new DurableObjectNamespace("0", []),
+      DO_AUTH: "stub",
+      CONSOLE_HOST: "console.test",
+    };
+    stubDescribe(shipCalls);
+    for (let i = 0; i < 2; i++) {
+      const res = await shippingDoor2.fetch(imageRequest(), env, {});
+      await res.text();
+    }
+    globalThis.fetch = real;
+  }
+  const wasmCalls = [];
+  const wasmWrites = [];
+  {
+    const worker = await import(`${pathToFileURL(BUILT).href}?visioncache=1`);
+    const instance = new worker.default();
+    instance.env = {
+      KEYS: kvForVision(wasmWrites),
+      BREAKER: new DurableObjectNamespace("0", []),
+      DO_AUTH: "stub",
+    };
+    instance.ctx = {};
+    stubDescribe(wasmCalls);
+    for (let i = 0; i < 2; i++) {
+      const res = await instance.fetch(imageRequest());
+      await res.text();
+    }
+    globalThis.fetch = real;
+  }
+  const shipKey = shipWrites.find((k) => k.startsWith("img-desc:")) ?? "(none)";
+  const wasmKey = wasmWrites.find((k) => k.startsWith("img-desc:")) ?? "(none)";
+  const cacheOk =
+    JSON.stringify(shipCalls) === JSON.stringify(wasmCalls) && shipKey === wasmKey && wasmCalls.length === 3;
+  console.log(
+    `  the vision describe cache, through the built worker: upstream ${JSON.stringify(wasmCalls)} (shipping ${JSON.stringify(shipCalls)}), key ${wasmKey === shipKey ? "identical" : `DIFFERENT (${shipKey} vs ${wasmKey})`}`,
+  );
+  if (!cacheOk) {
+    console.log(
+      "      FAIL the same image twice must cost one describe, and the cache key must match the source's",
+    );
+    bad += 1;
+  }
+
+  // ── concurrency ────────────────────────────────────────────────────────────────────────────────
+  const seedSecond = async (keys) => {
+    await keys.put("token:tok-v2", "u-v2");
+    await keys.put("user:u-v2", JSON.stringify({ id: "u-v2", enabled: true }));
+    await keys.put("ukeys:u-v2", JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og" }));
+  };
+  // **A RECORDING STUB, BECAUSE THE FIRST VERSION OF THIS SECTION COMPARED `undefined` TO `undefined`.** The
+  // module-level `DurableObjectNamespace` takes only the verdict and records nothing, so `breaker.calls` was
+  // absent on both sides and the comparison passed while measuring nothing — the failure mode this file has
+  // recorded three times. The breaker's call log is the observable: `check` then `reset` when the upstream is
+  // healthy.
+  const shipBreaker = new DurableObjectNamespace([]);
+  const wasmBreaker = new DurableObjectNamespace([]);
+  let shipPair = [0, 0, false];
+  {
+    const keys = kvForVision([]);
+    await seedSecond(keys);
+    clearCaches2();
+    clearDegraded2();
+    const env = { KEYS: keys, BREAKER: shipBreaker, DO_AUTH: "stub", CONSOLE_HOST: "console.test" };
+    stubDescribe([]);
+    const [a, b] = await Promise.all([
+      shippingDoor2.fetch(imageRequest("tok-v"), env, {}),
+      shippingDoor2.fetch(imageRequest("tok-v2"), env, {}),
+    ]);
+    const bodies = [await a.text(), await b.text()];
+    shipPair = [a.status, b.status, bodies[0] === bodies[1]];
+    globalThis.fetch = real;
+  }
+  let wasmPair = [0, 0, false];
+  {
+    const keys = kvForVision([]);
+    await seedSecond(keys);
+    const worker = await import(`${pathToFileURL(BUILT).href}?concurrent=1`);
+    const instance = new worker.default();
+    instance.env = { KEYS: keys, BREAKER: wasmBreaker, DO_AUTH: "stub" };
+    instance.ctx = {};
+    stubDescribe([]);
+    const [a, b] = await Promise.all([
+      instance.fetch(imageRequest("tok-v")),
+      instance.fetch(imageRequest("tok-v2")),
+    ]);
+    const bodies = [await a.text(), await b.text()];
+    wasmPair = [a.status, b.status, bodies[0] === bodies[1]];
+    globalThis.fetch = real;
+  }
+  const concOk =
+    JSON.stringify(shipPair) === JSON.stringify(wasmPair) &&
+    JSON.stringify(shipBreaker.calls) === JSON.stringify(wasmBreaker.calls);
+  console.log(
+    `  two requests at once, through the built worker: statuses ${wasmPair[0]}/${wasmPair[1]}, breaker calls ${JSON.stringify(wasmBreaker.calls)} (shipping ${JSON.stringify(shipBreaker.calls)})`,
+  );
+  if (!concOk) {
+    console.log("      FAIL two concurrent requests must produce the same answers and the same breaker log");
     bad += 1;
   }
 }
