@@ -1,0 +1,1510 @@
+{
+  "GET /api/health": {
+    "status": 200,
+    "body": "{\"channels\":[{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-max-preview\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-flash\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/deepseek-v4.1-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/deepseek-v4.1-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/gpt-5.6-luna\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/mimo-v2.5\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/mimo-v2.6-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/ox-alpha-free\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/muse-spark-1.3-contributor\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/openai/gpt-5.6-luna:floor[1m]\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/z-ai/glm-5.2:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/stealth/ox-alpha\"},{\"id\":\"nv\",\"ok\":true,\"model\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M3\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M2.7\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/deepseek/deepseek-v4.1-flash\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/meituan/LongCat-2.0:free\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/poolside/laguna-s-2.1-free\"},{\"id\":\"r4\",\"ok\":true,\"model\":\"r4/deepseek-v4.1-flash\"}],\"recommended\":{\"channel\":\"cm\",\"model\":\"cm/deepseek/deepseek-v4.1-flash\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "GET /v1/models": {
+    "status": 200,
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "GET /v1/messages, no token": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, no token": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, bad token": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, og, upstream JSON 200": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og, stream:true, upstream SSE": {
+    "status": 200,
+    "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, ds (passthrough), upstream 200": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "method": "POST",
+        "auth": "Bearer sk-user-ds",
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, og, upstream 503": {
+    "status": 503,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: Upstream 503\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, upstream 500": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: Upstream 500\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, HARD network error": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: network error: network down\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/trip"
+    ]
+  },
+  "POST /v1/messages, og, breaker DEGRADED": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: circuit open (recent upstream failures, try again in ~1 min)\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, retired model": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Model ds/deepseek-v4-flash was retired on 2026-09-10 — the DeepSeek V4 Flash line is superseded by V4.1 Flash. Use cm/deepseek/deepseek-v4.1-flash instead.\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens": {
+    "status": 200,
+    "body": "{\"input_tokens\":20}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, og": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "OPTIONS /v1/messages": {
+    "status": 200,
+    "body": "",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "GET /foo/v1/messages (outside the prefix)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, og, upstream 429 (does it retry?)": {
+    "status": 429,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"og: Upstream 429\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, upstream 429 with a JSON body": {
+    "status": 429,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"og: slow down\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "retry-after: 3"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, upstream 503 (NOT retried: the billing guard)": {
+    "status": 503,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: Upstream 503\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, upstream 502 with Retry-After": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: Upstream 502\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check"
+    ]
+  },
+  "POST /v1/messages, og, upstream that NEVER answers (OG_TIMEOUT_MS=1500)": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"og: timeout after 1500ms\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/trip"
+    ]
+  },
+  "POST /v1/messages, nv (translate branch), upstream 200": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"NVAPI_KEY not configured — add your NVIDIA build.nvidia.com key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/responses, og/muse-spark-1.2-contributor": {
+    "status": 200,
+    "body": "{\"id\":\"r1\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://oracle.saisi.online/v1/responses",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"muse-spark-1.2-contributor\",\"input\":\"hi\"}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og, upstream SSE with an IN-BAND error": {
+    "status": 200,
+    "body": "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream mid-stream error: upstream died\"}}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og, US_PROXY=1 in the ENV": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og, settings:US_PROXY=1 in KV": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og, the KV setting OFF beats the env ON": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, og/muse-spark-1.2-contributor (FORCED US exit)": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"muse-spark-1.2-contributor\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"muse-spark-1.2-contributor\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, an IMAGE to a model on VISION_CAPABLE_MODELS": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mimo-v2.5\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"mimo-v2.5\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"what is this\"}]}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, an IMAGE with the describe FAILING (upstream 500)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"mimo-v2.5\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"请用中文详细描述这张图片的内容，包括所有可见文字（OCR）、界面元素、布局。若是截图或表格，请逐行说明关键内容。只输出描述，不要额外说明。\"}]}],\"stream\":false,\"max_tokens\":1500}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, an IMAGE with VISION_MODEL naming a CUSTOM provider": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"a picture\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-vision\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"请用中文详细描述这张图片的内容，包括所有可见文字（OCR）、界面元素、布局。若是截图或表格，请逐行说明关键内容。只输出描述，不要额外说明。\"}]}],\"stream\":false,\"max_tokens\":1500}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[图片内容描述]\\na picture\\nwhat is this\"}]}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages/count_tokens, with an IMAGE (the pass is skipped)": {
+    "status": 200,
+    "body": "{\"input_tokens\":42}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, with an IMAGE (the pass is messages-only)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}}]}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, an IMAGE to a custom provider WITHOUT vision": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"acme-text\",\"content\":[{\"type\":\"text\",\"text\":\"described\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"mimo-v2.5\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"请用中文详细描述这张图片的内容，包括所有可见文字（OCR）、界面元素、布局。若是截图或表格，请逐行说明关键内容。只输出描述，不要额外说明。\"}]}],\"stream\":false,\"max_tokens\":1500}"
+      },
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-text\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[图片内容描述]\\ndescribed\\nwhat is this\"}]}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "GET /v1/models, with a CUSTOM provider in KV": {
+    "status": 200,
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"},{\"id\":\"acme/acme-chat\",\"object\":\"model\",\"created\":1785000024,\"owned_by\":\"Acme\",\"name\":\"Acme Chat\",\"context_window\":128000,\"max_tokens\":8192}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, og with a [1m] bracket suffix": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/chat/completions, a retired model": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Model ds/deepseek-v4-flash was retired on 2026-09-10 — the DeepSeek V4 Flash line is superseded by V4.1 Flash. Use cm/deepseek/deepseek-v4.1-flash instead.\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, with an Origin the deployment ALLOWS": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "access-control-allow-origin: https://console.test",
+      "content-type: application/json",
+      "vary: Origin"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, with an Origin the deployment does NOT allow": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, BOTH token spellings (x-api-key wins)": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, a MALFORMED JSON body": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, an EMPTY body": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens with a MALFORMED body": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"CMD_API_KEY not configured — add your Command Code key in the console\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, a JSON body that is an ARRAY": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"CMD_API_KEY not configured — add your Command Code key in the console\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/responses, og/muse-spark-1.2-contributor with MUSE_RESPONSES_EXIT set": {
+    "status": 200,
+    "body": "{\"id\":\"r1\",\"output\":[]}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://exit.test/",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"muse-spark-1.2-contributor\",\"input\":\"hi\"}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, settings:US_PROXY a truthy non-1 value": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fchat%2Fcompletions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, ds (passthrough) with a MALFORMED body": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, a STREAM whose body DIES mid-response": {
+    "status": 200,
+    "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, a STREAM that ends WITHOUT [DONE]": {
+    "status": 200,
+    "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, an upstream SSE with a 200 but an EMPTY body": {
+    "status": 200,
+    "body": "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream returned an empty/non-SSE stream\"}}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, stream:true but the upstream answers JSON (the ignore path)": {
+    "status": 200,
+    "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\",\"thinking\":\"\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "cache-control: no-cache",
+      "content-type: text/event-stream; charset=utf-8"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages/count_tokens with a TOOLS body": {
+    "status": 200,
+    "body": "{\"input_tokens\":53}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, a body with web_search declared (the native search path)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/messages",
+        "method": "POST",
+        "auth": null,
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"web_search\"}}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, web_search with US_PROXY=1 (the swap keeps the exit)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://v.saisi.online/api/zen?target=og&path=%2Fv1%2Fmessages",
+        "method": "POST",
+        "auth": null,
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"web_search\"}}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, web_search on a TRANSLATE-only model (the forced swap)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/messages",
+        "method": "POST",
+        "auth": null,
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"web_search\"}}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, a SEARCH-ONLY body (one tool, no tool_choice)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/messages",
+        "method": "POST",
+        "auth": null,
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8,\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],\"tool_choice\":{\"type\":\"tool\",\"name\":\"web_search\"}}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, a custom provider whose baseURL carries a PATH": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"acme-chat\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/openai/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, a custom provider with an UNSUPPORTED api (the error route)": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"custom provider acme/ cannot be routed: \\\"anthropic-messages\\\" is not a protocol this gateway serves (see store/providers.ts)\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, a custom provider model spelled WITH the prefix twice": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"acme/acme-chat\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme/acme-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, nv/ WITH a user key (the nv/gmi translate branch)": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"nvidia/nemotron-3-ultra-550b-a55b\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-nv-user",
+        "body": "{\"model\":\"nvidia/nemotron-3-ultra-550b-a55b\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, or/ (openrouter, BYOK)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://openrouter.ai/api/v1/messages",
+        "method": "POST",
+        "auth": "Bearer sk-or-user",
+        "body": "{\"model\":\"z-ai/glm-5.2:free\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, qw/ (qwen, BYOK)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages",
+        "method": "POST",
+        "auth": "Bearer sk-qw-user",
+        "body": "{\"model\":\"qwen3.8-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, gmi/ (pure BYOK, the translate branch)": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"MiniMaxAI/MiniMax-M3\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.gmi-serving.com/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-gmi-user",
+        "body": "{\"model\":\"MiniMaxAI/MiniMax-M3\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, gmi/ with NO user key (the key gate)": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"GMI_API_KEY not configured — add your GMI Cloud key in the console\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, r4/ (anthropic-shape passthrough)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.r4.codes/v1/messages",
+        "method": "POST",
+        "auth": "Bearer sk-r4-user",
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, amd/ (anthropic-shape passthrough)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://developer.amd.com.cn/radeon/api/v1/messages",
+        "method": "POST",
+        "auth": null,
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, cm/ (commandgoat, BYOK)": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek/deepseek-v4.1-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.commandcode.ai/provider/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-cm-user",
+        "body": "{\"model\":\"deepseek/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, ds/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "method": "POST",
+        "auth": "Bearer sk-ds-user",
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, qw/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-qw-user",
+        "body": "{\"model\":\"qwen3.8-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, or/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-or-user",
+        "body": "{\"model\":\"z-ai/glm-5.2:free\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, nv/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-nv-user",
+        "body": "{\"model\":\"nvidia/nemotron-3-ultra-550b-a55b\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, gmi/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.gmi-serving.com/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-gmi-user",
+        "body": "{\"model\":\"MiniMaxAI/MiniMax-M3\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, cm/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.commandcode.ai/provider/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-cm-user",
+        "body": "{\"model\":\"deepseek/deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, amd/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-amd-user",
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, r4/ (the uniform chat arm)": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://api.r4.codes/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-r4-user",
+        "body": "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, cm/ (a non-og channel)": {
+    "status": 200,
+    "body": "{\"input_tokens\":22}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, a CUSTOM provider model": {
+    "status": 200,
+    "body": "{\"input_tokens\":18}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/chat/completions, a CUSTOM provider model": {
+    "status": 200,
+    "body": "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "GET /v1/models with NO token (the public catalogue)": {
+    "status": 200,
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"og/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000000,\"owned_by\":\"opencode\"},{\"id\":\"og/minimax-m3\",\"object\":\"model\",\"created\":1785000001,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.5\",\"object\":\"model\",\"created\":1785000002,\"owned_by\":\"opencode\"},{\"id\":\"og/mimo-v2.6-flash\",\"object\":\"model\",\"created\":1785000003,\"owned_by\":\"opencode\"},{\"id\":\"og/ox-alpha-free\",\"object\":\"model\",\"created\":1785000004,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.3-contributor\",\"object\":\"model\",\"created\":1785000005,\"owned_by\":\"opencode\"},{\"id\":\"og/muse-spark-1.2-contributor\",\"object\":\"model\",\"created\":1785000006,\"owned_by\":\"opencode\"},{\"id\":\"og/gpt-5.6-luna\",\"object\":\"model\",\"created\":1785000007,\"owned_by\":\"opencode\"},{\"id\":\"og/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000008,\"owned_by\":\"opencode\"},{\"id\":\"or/openai/gpt-5.6-luna:floor[1m]\",\"object\":\"model\",\"created\":1785000009,\"owned_by\":\"openrouter\"},{\"id\":\"or/z-ai/glm-5.2:free\",\"object\":\"model\",\"created\":1785000010,\"owned_by\":\"openrouter\"},{\"id\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\",\"object\":\"model\",\"created\":1785000011,\"owned_by\":\"openrouter\"},{\"id\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\",\"object\":\"model\",\"created\":1785000012,\"owned_by\":\"nvidia\"},{\"id\":\"nv/moonshotai/kimi-k3\",\"object\":\"model\",\"created\":1785000013,\"owned_by\":\"nvidia\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M3\",\"object\":\"model\",\"created\":1785000014,\"owned_by\":\"gmi\"},{\"id\":\"gmi/MiniMaxAI/MiniMax-M2.7\",\"object\":\"model\",\"created\":1785000015,\"owned_by\":\"gmi\"},{\"id\":\"or/stealth/ox-alpha\",\"object\":\"model\",\"created\":1785000016,\"owned_by\":\"openrouter\"},{\"id\":\"qw/qwen3.8-max-preview\",\"object\":\"model\",\"created\":1785000017,\"owned_by\":\"qwen\"},{\"id\":\"qw/qwen3.8-flash\",\"object\":\"model\",\"created\":1785000018,\"owned_by\":\"qwen\"},{\"id\":\"qw/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000019,\"owned_by\":\"qwen\"},{\"id\":\"cm/meituan/LongCat-2.0:free\",\"object\":\"model\",\"created\":1785000020,\"owned_by\":\"command-code\"},{\"id\":\"cm/poolside/laguna-s-2.1-free\",\"object\":\"model\",\"created\":1785000021,\"owned_by\":\"command-code\"},{\"id\":\"cm/deepseek/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000022,\"owned_by\":\"command-code\"},{\"id\":\"r4/deepseek-v4.1-flash\",\"object\":\"model\",\"created\":1785000023,\"owned_by\":\"r4\"}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, or/ (openrouter, BYOK)": {
+    "status": 200,
+    "body": "{\"input_tokens\":19}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, ds/": {
+    "status": 200,
+    "body": "{\"input_tokens\":20}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, qw/": {
+    "status": 200,
+    "body": "{\"input_tokens\":18}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, nv/ (pure BYOK)": {
+    "status": 200,
+    "body": "{\"input_tokens\":23}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, gmi/ (pure BYOK)": {
+    "status": 200,
+    "body": "{\"input_tokens\":20}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, amd/": {
+    "status": 200,
+    "body": "{\"input_tokens\":20}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages/count_tokens, r4/": {
+    "status": 200,
+    "body": "{\"input_tokens\":20}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [],
+    "breaker": []
+  },
+  "POST /v1/messages, og, an IMAGE content block": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-flash\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"mimo-v2.5\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"请用中文详细描述这张图片的内容，包括所有可见文字（OCR）、界面元素、布局。若是截图或表格，请逐行说明关键内容。只输出描述，不要额外说明。\"}]}],\"stream\":false,\"max_tokens\":1500}"
+      },
+      {
+        "url": "https://opencode.ai/zen/go/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-user-og",
+        "body": "{\"model\":\"deepseek-flash\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[图片内容描述]\\nok\\nwhat is this\"}]}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": [
+      "https://breaker/check",
+      "https://breaker/reset"
+    ]
+  },
+  "POST /v1/messages, a CUSTOM provider record with vision:true": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"acme-chat\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-chat\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgo=\"}},{\"type\":\"text\",\"text\":\"what is this\"}]}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "POST /v1/messages, a CUSTOM provider record": {
+    "status": 200,
+    "body": "{\"type\":\"message\",\"role\":\"assistant\",\"model\":\"acme-chat\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "calls": [
+      {
+        "url": "https://acme.test/v1/chat/completions",
+        "method": "POST",
+        "auth": "Bearer sk-acme",
+        "body": "{\"model\":\"acme-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false,\"max_tokens\":8}"
+      }
+    ],
+    "breaker": []
+  },
+  "__rateLimit": {
+    "first429": 49
+  }
+}
