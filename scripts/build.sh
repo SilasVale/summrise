@@ -5,6 +5,7 @@
 #   ./scripts/build.sh agent [debug]   # build summrise-agent (tray/Tauri desktop retired)
 #   ./scripts/build.sh command [debug] # legacy alias for `agent`
 #   ./scripts/build.sh gateway         # deploy the Summrise Gate worker
+#   ./scripts/build.sh gateway-wasm    # deploy the Rust front door (reads CONSOLE_HOST from gateway/wrangler.jsonc)
 #   ./scripts/build.sh index           # deploy the Summrise Index worker
 #   ./scripts/build.sh proxies         # deploy the satellite proxy workers (zen-go / zen-us)
 #   ./scripts/build.sh api-relay       # build + deploy the VPS api relay (vrelay @ Oracle box)
@@ -365,10 +366,45 @@ deploy_api_relay() {
   echo "  ok: vrelay deployed + 401-gate smoke passed"
 }
 
+
+# ── THE RUST FRONT DOOR'S DEPLOY, AND THE ONE VAR THAT CANNOT LIVE IN ITS CONFIG ────────────────────────────────
+#
+# `gateway/wasm/` is the Rust half of the front door and `gateway/` is the shipping worker. Both need
+# `CONSOLE_HOST`, and **THE RATCHET IN `agent/tests/production_host.rs` SAYS THE HOSTNAME MAY BE NAMED IN ONE
+# DECLARED PLACE** — its own message is "the list is a debt with owners, not a permission: it may only shrink",
+# so the wasm's config cannot carry a second copy and this function reads the value out of the file that already
+# has the declaration. Measured 2026-10-07: putting the value in `gateway/wasm/wrangler.jsonc` turned CI red on
+# `no_undeclared_file_names_a_production_host` (2 occurrences), and the local `all-gates` run had NOT caught it
+# because the agent's `cargo test` was already failing on three playwright tests in this environment.
+#
+# **A HAND-SET VAR IS DROPPED BY THE NEXT `wrangler deploy`** — the same sentence `gateway/wasm/wrangler.jsonc`
+# carries about `UPSTREAM_TIMEOUT_MS` — so the var has to travel with the deploy, and `--var` is how it does.
+# The value is read from the declared config rather than typed here: one place, no drift.
+deploy_wasm_gateway() {
+  local dir="gateway/wasm" name="Summrise Gate (wasm)"
+  require_cf_token "$name" || return 1
+  echo "=== [deploy] ${name} (${dir}/) ==="
+  local console_host
+  console_host=$(python3 - "$ROOT/gateway/wrangler.jsonc" <<'PY'
+import json, re, sys
+raw = open(sys.argv[1], encoding="utf-8").read()
+# JSONC: strip line comments, then parse. The file's comments are prose with backticks and quotes in them,
+# which is exactly why this is a parser step and not a grep.
+data = json.loads(re.sub(r"//[^\n]*", "", raw))
+print(data["vars"]["CONSOLE_HOST"])
+PY
+) || { echo "  !! could not read CONSOLE_HOST from gateway/wrangler.jsonc" >&2; return 1; }
+  [ -n "$console_host" ] || { echo "  !! CONSOLE_HOST is empty in gateway/wrangler.jsonc" >&2; return 1; }
+  echo "  CONSOLE_HOST: read from gateway/wrangler.jsonc (${#console_host} chars)"
+  # The build itself is wrangler's `build.command` (`worker-build --release`), so a missing toolchain fails here.
+  ( cd "$ROOT/$dir" && npx wrangler deploy --var "CONSOLE_HOST:${console_host}" )
+}
+
 cmd="${1:-agent}"
 case "$cmd" in
   agent|command)  build_agent "${2:-release}" ;;
   gateway)  deploy_worker gateway "Summrise Gate" ;;
+  gateway-wasm)  deploy_wasm_gateway ;;
   # ── AND READING `deploy_worker` SAYS THE CHECK DOES NOT BELONG HERE (rounds 101-103) ────────────────────────────
   # Round 101 found the CDN serving `live-panel-probe.js` a release behind what was committed, and its smoke — which
   # checks `/api/version` — passed throughout, because a served FILE is not covered by an API smoke. Round 102 recorded

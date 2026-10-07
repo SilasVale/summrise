@@ -59,16 +59,23 @@
   // `gateway/` is the live console worker's; this list is every var it sets that THIS crate reads, compared one
   // by one (its `ACCESS_*` three are the console's auth and are read nowhere in `src/` — checked, not assumed):
   //
-  //     CONSOLE_HOST           the CORS stamp on every response
+  //     CONSOLE_HOST           the CORS stamp on every response — **AND IT IS NOT IN THIS FILE, DELIBERATELY**
   //     VISION_MODEL           `cm/deepseek/deepseek-v4.1-flash` — NOT the crate's default (`og/mimo-v2.5`)
   //     VISION_CAPABLE_MODELS  the five-model allowlist — the crate's default is a different list
   //     UPSTREAM_TIMEOUT_MS    120000, where the crate's own default is 30 s
   //
-  // **EACH ONE IS A DIVERGENCE IF IT IS MISSING, AND NONE OF THEM IS VISIBLE TO A HARNESS THAT INJECTS ITS OWN
-  // ENV** — the sweep passes `CONSOLE_HOST: "console.test"` and the vision vars explicitly, so it measured the
-  // decisions and never the deployment. The secrets this worker still needs are named below.
+  // **`CONSOLE_HOST` IS THE ONE VALUE THAT CANNOT BE WRITTEN HERE.** `agent/tests/production_host.rs` is a
+  // RATCHET over which files may name a production host, and its own refusal says why: "the list is a debt with
+  // owners, not a permission: it may only shrink". Measured 2026-10-07 — putting the value in this file turned CI
+  // red on `no_undeclared_file_names_a_production_host` (2 occurrences) — so the hostname stays in the ONE file
+  // that already declares it (`gateway/wrangler.jsonc`) and `./scripts/build.sh gateway-wasm` reads it there and
+  // passes it as `--var`. **A HAND-SET VAR WOULD BE DROPPED BY THE NEXT DEPLOY** (the same sentence this file
+  // carries about `UPSTREAM_TIMEOUT_MS`), which is why the deploy command is the thing that carries it.
+  //
+  // **EACH OF THE REMAINING THREE IS A DIVERGENCE IF IT IS MISSING, AND NONE OF THEM IS VISIBLE TO A HARNESS
+  // THAT INJECTS ITS OWN ENV** — the sweep passes the vision vars explicitly, so it measured the decisions and
+  // never the deployment. The secrets this worker still needs are named below.
   "vars": {
-    "CONSOLE_HOST": "ai.saisi.online,api.saisi.online",
     "UPSTREAM_TIMEOUT_MS": "120000",
     "VISION_MODEL": "cm/deepseek/deepseek-v4.1-flash",
     "VISION_CAPABLE_MODELS": "deepseek-flash, cm/deepseek/deepseek-v4.1-flash, qw/deepseek-v4.1-flash, r4/deepseek-v4.1-flash, og/mimo-v2.6-flash"
