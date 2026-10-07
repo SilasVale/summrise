@@ -10,6 +10,19 @@
       "id": "a1fb10da621b411caeda6d98c060bbea"
     }
   ],
+  // ── THE CUTOVER'S ONE LINK: /v1/* IS SERVED BY THE RUST WORKER ────────────────────────────────────────────────
+  //
+  // **A SERVICE BINDING RATHER THAN A ZONE ROUTE, AND THAT IS A MEASUREMENT.** The plan said "two zone routes on the
+  // console hosts"; adding one and watching Cloudflare's own analytics for the day showed the route was INERT —
+  //
+  //     vale-gate       550 requests
+  //     vale-gate-wasm    3 requests   (the three were this box's `wrangler dev --remote` probes)
+  //
+  // — because these hostnames are Worker CUSTOM DOMAINS, and a custom domain serves the whole host: `api.saisi.online`
+  // is the console page (200, text/html, 1,391 B) as well as the API, so repointing it would take the console away with
+  // it. A service binding keeps ONE hostname, one DNS record and one Access policy, leaves the console's own routes
+  // alone, and gives the cutover a one-line rollback: delete this binding (or the `WASM_GATE` branch in
+  // `src/index.ts`) and the next deploy serves /v1 from TypeScript again.
   "durable_objects": {
     "bindings": [
       {
@@ -54,7 +67,16 @@
   // Domain), so a fetch would be exactly the case the docs warn about. The binding also
   // takes the upload endpoint off the public internet: nothing but this worker can call
   // it, because `workers_dev` is false and no route is declared for it.
-  "services": [{ "binding": "RELAY", "service": "summrise-relay" }],
+  // **TWO SERVICE BINDINGS NOW, AND THE SECOND IS THE CUTOVER'S.** `RELAY` is the file relay the console has always
+  // had; `WASM_GATE` is the Rust front door — see the long note above `durable_objects` for why this is a binding
+  // rather than the zone route the plan first described (the console hosts are CUSTOM DOMAINS, and a route on them
+  // is inert: measured, 550 requests to `vale-gate` against 3 to `vale-gate-wasm`).
+  // (no trailing comma: the CORS test parses this file with a strict JSON parser, and a JSONC-only trailing comma
+  // is a syntax error there — measured, `SyntaxError: Unexpected token ']'`)
+  "services": [
+    { "binding": "RELAY", "service": "summrise-relay" },
+    { "binding": "WASM_GATE", "service": "vale-gate-wasm" }
+  ],
   "vars": {
     "CONSOLE_HOST": "ai.saisi.online,api.saisi.online",
     // Browser tool chain: cold-start chromium (~20s) + device SPA loading make the 30s default bound to time out
