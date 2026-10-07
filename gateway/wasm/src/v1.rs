@@ -65,6 +65,49 @@ async fn kv_text(env: &Env, key: &str) -> Option<String> {
     kv.get(key).text().await.ok().flatten()
 }
 
+/// **THE PROVIDER LIST, THROUGH THE SAME CACHE** — the source's `readList` is cached, and `providers:` is on the
+/// short-TTL list for a reason its own comment gives: "a deleted or re-pointed provider must stop being dialled
+/// within a minute on every isolate, not within a day."
+async fn providers_cached(env: &Env) -> Vec<serde_json::Value> {
+    let now = Date::now().as_millis() as i64;
+    if let Some(hit) = crate::store::cached_get("providers:custom", now) {
+        return serde_json::from_value(hit).unwrap_or_default();
+    }
+    let value: Vec<serde_json::Value> = kv_json(env, "providers:custom").await;
+    crate::store::cache_put(
+        "providers:custom",
+        serde_json::to_value(&value).unwrap_or(serde_json::Value::Null),
+        now,
+    );
+    value
+}
+
+/// **THE REQUEST PATH'S KV READ — THROUGH THE PER-ISOLATE CACHE, WHICH IS WHAT DECOUPLES KV VOLUME FROM REQUEST
+/// VOLUME.** The source reads users, keys, settings and the provider list through `store/cache.ts`; this worker
+/// read KV directly and paid for it. Measured 2026-10-06 with a counting KV stub, ten requests on one isolate:
+/// **shipping 8 reads (0.8/request), wasm 60 (6.0/request)** — the same responses, seven and a half times the KV
+/// operations, which is latency and cost rather than bytes, and therefore invisible to every case in the
+/// divergence sweep.
+///
+/// A MISS IS CACHED TOO (`cset` stores `null`), so a token that does not exist is not re-read on every request
+/// that presents it — the source's "no zombie lookups".
+async fn kv_text_cached(env: &Env, key: &str) -> Option<String> {
+    let now = Date::now().as_millis() as i64;
+    if let Some(hit) = crate::store::cached_get(key, now) {
+        return hit.as_str().map(|s| s.to_string());
+    }
+    let value = kv_text(env, key).await;
+    crate::store::cache_put(
+        key,
+        match &value {
+            Some(text) => serde_json::Value::String(text.clone()),
+            None => serde_json::Value::Null,
+        },
+        now,
+    );
+    value
+}
+
 /// **EVERY ENV INPUT THE PORTED DECISIONS READ, READ OFF THE WORKER.**
 ///
 /// The pure layer reads these out of the object `handle` hands it: `byok.rs`'s `BYOK_CHANNELS` env column
@@ -179,7 +222,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     if method == Method::Get && path.ends_with("/models") {
         let disabled: Vec<String> = kv_json(&env, "models:disabled").await;
         let custom: Vec<serde_json::Value> = kv_json(&env, "models:custom").await;
-        let providers: Vec<serde_json::Value> = kv_json(&env, "providers:custom").await;
+        let providers: Vec<serde_json::Value> = providers_cached(&env).await;
         let override_records: Vec<serde_json::Value> = kv_json(&env, "models:overrides").await;
 
         let registry_ids: Vec<&str> = crate::registry::MODEL_REGISTRY.iter().map(|m| m.id).collect();
@@ -266,8 +309,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         headers.get("x-api-key").ok().flatten().as_deref(),
         headers.get("authorization").ok().flatten().as_deref(),
     );
-    let user = match kv_text(&env, &format!("token:{token}")).await {
-        Some(uid) => kv_text(&env, &format!("user:{uid}"))
+    let user = match kv_text_cached(&env, &format!("token:{token}")).await {
+        Some(uid) => kv_text_cached(&env, &format!("user:{uid}"))
             .await
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()),
         None => None,
@@ -315,7 +358,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         .and_then(|i| i.as_str())
     {
         Some(uid) => {
-            let raw = kv_text(&env, &format!("ukeys:{uid}"))
+            let raw = kv_text_cached(&env, &format!("ukeys:{uid}"))
                 .await
                 .and_then(|t| {
                     serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()
@@ -329,7 +372,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // THE SETTINGS the chain reads: `settings:US_PROXY` with the Worker var as its fallback.
     let us_proxy_setting = crate::store::global_setting_enabled(
         crate::store::get_global_setting(
-            kv_text(&env, "settings:US_PROXY").await.as_deref(),
+            kv_text_cached(&env, "settings:US_PROXY").await.as_deref(),
             env.var("US_PROXY").ok().map(|v| v.to_string()).as_deref(),
         )
         .as_deref(),
@@ -342,7 +385,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // **THE CUSTOM PROVIDERS, WHICH ARE DATA AND THEREFORE THE CALLER'S READ** — `resolve_model` is pure, so the
     // records it consults come from here. An absent or malformed key is an empty list, which is what an
     // untouched deployment has (and what `readList` answers in the source).
-    let providers: Vec<serde_json::Value> = kv_json(&env, "providers:custom").await;
+    let providers: Vec<serde_json::Value> = providers_cached(&env).await;
     // **AND THEIR `apiKeyEnv` BINDINGS RIDE THE SAME OBJECT**, because that name is the provider's own choice
     // rather than one of `ENV_KEYS`: the source reads `env[p.apiKeyEnv]` per request, and a fixed list cannot
     // know it. Measured — this port's first version answered `502 — "acme/: no provider key"` for a record
@@ -463,7 +506,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
                     &resolved.upstream_model,
                 );
             let vision_proxy = crate::store::global_setting_enabled(
-                kv_text(&env, "settings:US_PROXY").await.as_deref(),
+                kv_text_cached(&env, "settings:US_PROXY").await.as_deref(),
             );
             let inputs = crate::vision::VisionInputs {
                 model: &model,
