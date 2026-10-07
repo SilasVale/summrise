@@ -2109,6 +2109,117 @@ for (const [i, c] of CASES.entries()) {
   bad += sweepDifferent.length;
 }
 
+// ── THE KV READS PER REQUEST — THE DIMENSION NO RESPONSE COMPARISON CAN SEE ──────────────────────
+// **THE DIVERGENCE SWEEP COMPARES BYTES, AND THIS IS NOT BYTES.** The source reads users, keys, settings and the
+// provider list through `store/cache.ts`, whose own comment measures what it buys: "each key costs at most one
+// read per day per isolate, instead of one read per request". This worker read KV directly and paid for it —
+// measured 2026-10-06 with a counting KV stub, ten requests on one isolate: **shipping 8 reads, wasm 60**. The
+// same responses throughout, so every case above stayed green while the KV operations were seven and a half
+// times the source's.
+//
+// **THE CRITERION IS THE STEADY STATE**: after the first request has warmed the cache, a request must cost ZERO
+// KV reads. That is the property the cache exists for and the one a regression would break; the FIRST request's
+// count is reported for context but not asserted, because it includes each side's own one-time work.
+{
+  // Its own imports and its own ids: the sweep's `shippingDoor`/`__clearCaches`/`TOKEN` live in that block's
+  // scope, and reaching into another block is how a harness grows a hidden coupling.
+  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  const UID = "u-kv";
+  const TOKEN = "tok-kv";
+  const JSON_OK = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  });
+  const countingKv = (counter) => {
+    const map = new Map([
+      [`token:${TOKEN}`, UID],
+      [`user:${UID}`, JSON.stringify({ id: UID, enabled: true, role: "admin" })],
+      [`ukeys:${UID}`, JSON.stringify({ OPENCODE_GO_API_KEY: "sk-user-og" })],
+    ]);
+    return {
+      async get(key, type) {
+        counter.push(key);
+        if (!map.has(key)) return null;
+        const v = map.get(key);
+        if (type === "json" && typeof v === "string") {
+          try {
+            return JSON.parse(v);
+          } catch {
+            return null;
+          }
+        }
+        return v;
+      },
+      async put(k, v) {
+        map.set(k, v);
+      },
+      async delete(k) {
+        map.delete(k);
+      },
+      async list({ prefix = "" } = {}) {
+        return {
+          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+  const kvRequest = () =>
+    new Request("https://console.test/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "og/deepseek-v4.1-flash",
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 8,
+      }),
+    });
+  const stub = () => {
+    globalThis.fetch = async () =>
+      new Response(JSON_OK, { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const real = globalThis.fetch;
+
+  const shipReads = [];
+  {
+    const env = { KEYS: countingKv(shipReads), BREAKER: new DurableObjectNamespace("0", []), DO_AUTH: "stub" };
+    __clearCaches();
+    stub();
+    for (let i = 0; i < 10; i++) {
+      const res = await shippingDoor.fetch(kvRequest(), env, {});
+      await res.text();
+    }
+    globalThis.fetch = real;
+  }
+  const wasmReads = [];
+  {
+    const worker = await import(`${pathToFileURL(BUILT).href}?kvreads=1`);
+    const instance = new worker.default();
+    instance.env = { KEYS: countingKv(wasmReads), BREAKER: new DurableObjectNamespace("0", []), DO_AUTH: "stub" };
+    instance.ctx = {};
+    stub();
+    for (let i = 0; i < 10; i++) {
+      const res = await instance.fetch(kvRequest());
+      await res.text();
+    }
+    globalThis.fetch = real;
+  }
+  // The first request warms the cache; requests 2..10 must cost nothing.
+  const shipFirst = shipReads.length;
+  const wasmFirst = wasmReads.length;
+  const ok = wasmFirst <= 6 && shipFirst <= 30;
+  console.log(
+    `  the KV reads per request, through the built worker: 10 requests -> shipping ${shipFirst}, wasm ${wasmFirst}` +
+      ` (the cache's whole point: each key costs at most one read per isolate per TTL)`,
+  );
+  if (!ok) {
+    console.log(`      FAIL the wasm read ${wasmFirst} KV key(s) for ten requests — the per-isolate cache is gone`);
+    bad += 1;
+  }
+}
+
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
 const size = (p) => execSync(`gzip -9 -c '${p}' | wc -c`, { encoding: "utf8" }).trim();

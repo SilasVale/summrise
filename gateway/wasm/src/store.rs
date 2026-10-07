@@ -6,6 +6,8 @@
 //! dialled within a minute on every isolate, not within a day". The session pair is the FAIL-CLOSED rule for
 //! issuing new sessions. The caches, the locks and the KV reads stay in TypeScript: they are state and I/O.
 
+use std::sync::Mutex;
+
 /// The two TTLs, verbatim.
 pub const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 pub const AUTH_CACHE_TTL_MS: i64 = 60 * 1000;
@@ -53,6 +55,114 @@ pub fn cache_eviction_index(size: usize) -> Option<usize> {
         Some(0)
     } else {
         None
+    }
+}
+
+/// **THE PER-ISOLATE KV CACHE — `store/cache.ts`'s `__c`, AND ITS ABSENCE WAS A MEASURED COST.**
+///
+/// Every decision this cache makes was ALREADY ported (`ttl_for`, `cache_eviction_index`, `AUTH_PREFIXES`); what
+/// was missing is the state. Measured 2026-10-06 with a KV stub that records every read, the same request
+/// against both workers:
+///
+/// ```text
+///     shipping:  1 request -> 22 reads (the admin seed),  10 requests ->  8 reads  (0.8/request)
+///     wasm:      1 request ->  6 reads,                   10 requests -> 60 reads  (6.0/request)
+/// ```
+///
+/// The source's own comment says what that buys: "KV read volume is thus decoupled from request volume — each
+/// key costs at most one read per day per isolate, instead of one read per request." The responses are
+/// byte-identical either way, which is why no case in the divergence sweep could see it: it is latency and cost,
+/// not bytes.
+///
+/// **A CACHED MISS IS NOT A MISS.** `cget` answers `undefined` for "not in the cache" and `null` for a value
+/// that WAS read and was absent — the source caches the absence too ("caches null too — no zombie lookups"), so
+/// a token that does not exist is not re-read on every request that presents it. That is why this is
+/// `Option<Value>` and not `Option<String>`.
+static KV_CACHE: Mutex<Vec<(String, serde_json::Value, i64)>> = Mutex::new(Vec::new());
+
+/// `cget(k)`: the cached value when it is still fresh, `None` when it is absent OR expired.
+pub fn cached_get(key: &str, now_ms: i64) -> Option<serde_json::Value> {
+    let Ok(mut cache) = KV_CACHE.lock() else {
+        return None;
+    };
+    let at = cache.iter().position(|(k, _, _)| k == key)?;
+    let (_, value, exp) = cache[at].clone();
+    if exp <= now_ms {
+        cache.remove(at);
+        return None;
+    }
+    Some(value)
+}
+
+/// `cset(k, v)`: store with the key's TTL, evicting the OLDEST entry when the bound is reached.
+pub fn cache_put(key: &str, value: serde_json::Value, now_ms: i64) {
+    let Ok(mut cache) = KV_CACHE.lock() else {
+        return;
+    };
+    if let Some(index) = cache_eviction_index(cache.len()) {
+        cache.remove(index);
+    }
+    let exp = now_ms + ttl_for(key);
+    match cache.iter_mut().find(|(k, _, _)| k == key) {
+        Some(entry) => *entry = (key.to_string(), value, exp),
+        None => cache.push((key.to_string(), value, exp)),
+    }
+}
+
+/// `cdel(...ks)` — the write-through half: every write in the source refreshes the cache immediately so an admin
+/// change takes effect on the hot isolate at once.
+pub fn cache_del(key: &str) {
+    if let Ok(mut cache) = KV_CACHE.lock() {
+        cache.retain(|(k, _, _)| k != key);
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// **THE CACHE'S FOUR PROPERTIES, EACH ONE A WAY IT COULD BE WRONG.**
+    ///
+    /// MUTATION: make `cached_get` ignore the expiry (`if false && exp <= now_ms`).
+    /// RESULT:   `the_ttl_is_the_keys_own` fails — a `token:` entry outlives its 60 s window, so a disabled
+    ///           user or a re-pointed provider keeps being served for up to a day. That is the security half of
+    ///           the short-TTL list, not a performance detail.
+    #[test]
+    fn the_cache_is_the_sources() {
+        // A MISS IS `None`; A CACHED MISS IS `Some(Null)` — the distinction the source spells "caches null too".
+        assert_eq!(cached_get("token:t", 1000), None);
+        cache_put("token:t", serde_json::Value::Null, 1000);
+        assert_eq!(cached_get("token:t", 1000), Some(serde_json::Value::Null));
+        // THE TTL IS THE KEY'S OWN: `token:` is on the auth list (60 s), a model key is not (24 h).
+        assert_eq!(ttl_for("token:t"), AUTH_CACHE_TTL_MS);
+        assert_eq!(ttl_for("models:custom"), CACHE_TTL_MS);
+        // ...and the expiry is enforced, not merely recorded.
+        assert!(cached_get("token:t", 1000 + AUTH_CACHE_TTL_MS - 1).is_some());
+        assert_eq!(cached_get("token:t", 1000 + AUTH_CACHE_TTL_MS), None);
+        // A 24 h key is still there at 60 s.
+        cache_put("models:custom", serde_json::json!([1]), 1000);
+        assert!(cached_get("models:custom", 1000 + AUTH_CACHE_TTL_MS).is_some());
+        // `cdel` is the write-through half.
+        cache_del("models:custom");
+        assert_eq!(cached_get("models:custom", 1000), None);
+        // A RE-PUT REPLACES rather than duplicating (the source's `Map.set`).
+        cache_put("token:t", serde_json::json!("v1"), 2000);
+        cache_put("token:t", serde_json::json!("v2"), 2000);
+        assert_eq!(cached_get("token:t", 2000), Some(serde_json::json!("v2")));
+    }
+
+    /// The eviction is at the BOUND and takes the OLDEST — `Map`'s insertion order, which is why the state is a
+    /// `Vec` and not a `HashMap`.
+    #[test]
+    fn the_eviction_takes_the_oldest_at_the_bound() {
+        for i in 0..CACHE_MAX_ENTRIES {
+            cache_put(&format!("k{i}"), serde_json::json!(i), 1000);
+        }
+        // At the bound the NEXT insert drops `k0`.
+        cache_put("fresh", serde_json::json!("x"), 1000);
+        assert_eq!(cached_get("k0", 1000), None, "the oldest went");
+        assert!(cached_get("k1", 1000).is_some(), "and only the oldest");
+        assert!(cached_get("fresh", 1000).is_some());
     }
 }
 
