@@ -17,6 +17,10 @@ const path = require("path");
 const crypto = require("crypto");
 
 const P = require("./pieces.cjs");
+// THE PLAN IS RUST (agent/sweep-plan/), embedded by the emitter. This module only PLACES what it was
+// given: `kind(...)` returns the surfaces the plan named, `open` performs the browser calls a surface's
+// fields describe, and `wants(name)` is a lookup in the plan's own map.
+const { planRuntime } = require("./plan-runtime.cjs");
 
 const ROOT = process.env.SUMMRISE_SWEEP_ROOT || P.config.root;
 const REPORT_PATH = process.env.SUMMRISE_SWEEP_REPORT || P.config.reportPath;
@@ -38,9 +42,9 @@ const pressDelta = P.passes.pressDelta;
 const pressPass = P.passes.pressPass;
 const idlePass = P.passes.idlePass;
 const motionPass = P.passes.motionPass;
-const PASSES = P.config.passes;
-const wants = (name) => !PASSES.length || PASSES.includes("all") || PASSES.includes(name);
-const PAGES = ["installer", "npm-only"];
+const PLAN = planRuntime(P.plan, () => Date.now());
+const kind = (k) => PLAN.kind(k);
+const wants = (name) => PLAN.wants(name);
 
 (async () => {
   const { acquireBrowser } = require(process.env.SUMMRISE_BROWSER_HELPER);
@@ -73,13 +77,14 @@ const PAGES = ["installer", "npm-only"];
     const type = ext === ".js" ? "text/javascript" : ext === ".css" ? "text/css" : ext === ".wasm" ? "application/wasm" : ext === ".png" ? "image/png" : ext === ".svg" ? "image/svg+xml" : "text/html; charset=utf-8";
     return route.fulfill({ status: 200, contentType: type, headers: { "cache-control": "no-store" }, body: fs.readFileSync(full) });
   });
-  for (const scheme of ["light", "dark"]) {
-    await page.emulateMedia({ colorScheme: scheme });
-    for (const label of PAGES) {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto("http://summrise.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
+  // BOTH STATES, BOTH SCHEMES — the scheme is EMULATED, so the plan carries it as a step the payload
+  // performs (`open` applies `media` and, for the first page of a scheme, the scheme itself is a `pre`).
+  for (const S of kind('page')) {
+    {
+      const scheme = S.theme;
+      const where = S.page;
+      await PLAN.open(S, page);
       await page.waitForTimeout(1200);
-      const where = label + "@1440" + (scheme === "dark" ? "-dark" : "");
       report.themeChecks.push({ page: where, intended: scheme, scheme: await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches) });
       if (wants("contrast")) {
         const rows = await page.evaluate(PROBE);
@@ -100,21 +105,31 @@ const PAGES = ["installer", "npm-only"];
       }
     }
   }
-  if (wants("reflow")) {
-    for (const width of [640, 320]) {
-      await page.setViewportSize({ width, height: 800 });
-      for (const label of PAGES) {
-        await page.goto("http://summrise.test/" + label + ".html?cb=" + Date.now(), { waitUntil: "load" });
-        await page.waitForTimeout(900);
-        report.reflow.push({ page: label + "@" + width, width, density: "landing", theme: "light", ...(await page.evaluate(REFLOW, SELECTOR)) });
-      }
-    }
+  // The viewport is set once per WIDTH and the two pages are walked at it — which is what the plan's
+  // `set_viewport` says, and what the payload has always done.
+  for (const S of kind('reflow')) {
+    await PLAN.open(S, page);
+    await page.waitForTimeout(900);
+    report.reflow.push({ page: S.page, width: S.viewport.width, density: "landing", theme: "light", ...(await page.evaluate(REFLOW, SELECTOR)) });
   }
-  if (wants("motion")) {
-    report.motion.push(await motionPass(page, async () => {
-      await page.goto("http://summrise.test/installer.html?cb=" + Date.now(), { waitUntil: "load" });
+  // THE MOTION PAIR, FROM THE PLAN: two surfaces — the preference unset and then emulated. THE
+  // EMULATION ITSELF IS `motionPass`'S (it is the shared pass's own two-state contract), so the render
+  // here NAVIGATES and the plan records what the pass does. NO VIEWPORT IS SET: the pass measures at
+  // whatever the previous block left, which is what it has always done and what `set_viewport: false`
+  // in the plan says.
+  {
+    const motionSurfaces = kind('motion');
+    let renderIx = 0;
+    const render = async () => {
+      const s = motionSurfaces[renderIx++];
+      if (!s) throw new Error('the plan carries fewer motion surfaces than the pass renders');
+      await page.goto(PLAN.url(s), { waitUntil: "load" });
       await page.waitForTimeout(1500);
-    }, { page: "installer", width: 1440, density: "landing", theme: "light" }));
+    };
+    const first = motionSurfaces[0];
+    if (first) {
+      report.motion.push(await motionPass(page, render, { page: "installer", width: 1440, density: "landing", theme: "light" }));
+    }
   }
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report));
   console.log(JSON.stringify({ rows: report.rows.length, surfaces: report.surfaces.length, names: report.names.length, press: report.press.length }));

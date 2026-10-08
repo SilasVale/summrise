@@ -54,6 +54,13 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// **THE RATCHET.** The number of `LOGIC` files today; it may only fall. When it reaches 0 the criterion is met and
 /// the class is empty — which is the day `assert_eq!(logic.len(), MAX_LOGIC)` stops being a cap and starts being
 /// the sentence the criterion was always meant to be.
+///
+/// UNCHANGED BY SLICE 1 OF LANDING 2b, and that is the honest reading: the plan moved out of the payloads into
+/// Rust, but the payload FILES are still here (the driving is a later slice), so no file left this class. The two
+/// JavaScript halves the landing ADDED — `agent/scripts/lib/sweep-plan.mjs`, which runs the plan binary at emit
+/// time, and `agent/scripts/lib/sweep/plan-runtime.cjs`, which places what the plan gave it — are BOUNDARY
+/// exceptions to the `agent/scripts/` rule, so they never entered it. A cap lowered for files that never joined
+/// the class would be finished work wearing a budget.
 const MAX_LOGIC: usize = 151;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing

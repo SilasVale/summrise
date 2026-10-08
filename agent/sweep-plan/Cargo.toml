@@ -1,0 +1,21 @@
+[package]
+name = "summrise-sweep-plan"
+version.workspace = true
+edition = "2021"
+description = "The design sweeps' PLAN: which surfaces are visited (density x path x viewport x theme x mode), which passes run on each, and which passes are wanted at all given --passes. Ported out of agent/scripts/lib/sweep/*.cjs."
+
+[[bin]]
+name = "summrise-sweep-plan"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_sweep_plan"
+path = "src/lib.rs"
+
+[dependencies]
+# `preserve_order` matters for the same reason it does in `summrise-sweep-judge` and `summrise-cli`:
+# `wants` is a map the page's payload indexes by pass name, and the SURFACE ORDER is the order the
+# report's rows are written in — a BTreeMap would silently reorder both, and the report is compared
+# byte for byte by the sweeps' own equivalence bar.
+serde_json = { version = "1", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }
