@@ -35,8 +35,34 @@ use std::path::PathBuf;
 
 use summrise_relay_worker::{
     build_content_disposition, decide_claim, encode_uri_component, gen_token_from, js_number,
-    js_trim, sha256_matches, Claim, TOKEN_CHARS, UNAVAILABLE,
+    js_trim, json_string, sha256_matches, Claim, TOKEN_CHARS, UNAVAILABLE,
 };
+
+/// **THE ESCAPER, AGAINST THE VALUES `JSON.stringify` TREATS DIFFERENTLY FROM A NAIVE QUOTER** — and the
+/// two rows that are boundaries rather than escapes: a C0 control becomes `\u0001`, while DEL and
+/// U+2028 are emitted RAW by both serializers. The pairs are the answer `node -e 'console.log(JSON.
+/// stringify(...))'` gives for each input.
+///
+/// This exists because the hole it closes was measured in the ENVELOPE rather than here (see
+/// `json_string`'s own header): four recorded cases answer differently without it, and this table is
+/// where a reader learns which characters that means.
+#[test]
+fn json_string_escapes_the_way_javascripts_stringify_does() {
+    let table: [(&str, &str); 9] = [
+        ("plain.txt", r#""plain.txt""#),
+        ("a\"b.txt", r#""a\"b.txt""#),
+        ("a\\b.txt", r#""a\\b.txt""#),
+        ("a\nb.txt", r#""a\nb.txt""#),
+        ("a\tb.txt", r#""a\tb.txt""#),
+        ("a\u{1}b.txt", r#""a\u0001b.txt""#),
+        ("a\u{7f}b.txt", "\"a\u{7f}b.txt\""),
+        ("a\u{2028}b.txt", "\"a\u{2028}b.txt\""),
+        ("报告.pdf", "\"报告.pdf\""),
+    ];
+    for (input, want) in table {
+        assert_eq!(json_string(input), want, "input {input:?}");
+    }
+}
 
 fn corpus() -> serde_json::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pure-corpus.json");

@@ -316,6 +316,25 @@ pub fn sha256_matches(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// **A JSON STRING LITERAL, ESCAPED THE WAY `JSON.stringify` ESCAPES ONE — quotes included.**
+///
+/// The worker's envelopes are hand-built `format!`s because key order is bytes in this response, and a
+/// `serde_json::Map` sorts its keys. That decision is right and it left one hole: every value that comes
+/// from a CLIENT (a filename, a `PUBLIC_BASE` an operator set) was interpolated raw. **MEASURED
+/// 2026-10-08, AFTER THE JAVASCRIPT ORACLE WAS DELETED**: `PUT /api/upload?name=a%22b.txt` answered 200
+/// with the body `…"filename":"a"b.txt",…` — 229 bytes, not JSON, at the one place the caller learns its
+/// token — where the shipping `JSON.stringify` answered `a\"b.txt` at 230. The differential could not see
+/// it because none of its four name cases carried a character that needs escaping; the cases are recorded
+/// from the oracle now, and `tests/pure.rs` holds the escaping itself.
+///
+/// **IT IS `serde_json`'S ESCAPER, NOT A SECOND IMPLEMENTATION**: `JSON.stringify` and `serde_json` agree
+/// on every valid UTF-8 string — both leave DEL and U+2028/U+2029 raw, both write `\u00XX` for the C0
+/// controls that have no short form, and Rust strings cannot hold the lone surrogates where JavaScript
+/// would differ.
+pub fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 /// **THE TOKEN GENERATOR'S DECISION, SEPARATED FROM ITS RANDOMNESS.**
 ///
 /// The shipping `genToken` draws 32 bytes at a time from `crypto.getRandomValues` and keeps a byte only

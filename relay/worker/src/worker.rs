@@ -28,7 +28,7 @@
 //! ── THE MUTATION THAT MUST FAIL THIS FILE'S COMPANION ────────────────────────────────────────────
 //!
 //! MUTATION: forward the claim request WITHOUT setting `x-do-auth` when `DO_AUTH` is configured.
-//! RESULT:   `tests/worker_differential.rs` fails the DO_AUTH case on the `forwarded` row — the response
+//! RESULT:   `tests/differential.rs` fails the DO_AUTH case on the `forwarded` row — the response
 //!           bytes are identical (the stub answers the same either way), which is exactly why that row
 //!           exists. The mutation is written into the corpus's own case list, and the row is what catches
 //!           it.
@@ -36,7 +36,7 @@
 use sha2::{Digest, Sha256};
 use worker::*;
 
-use crate::{build_content_disposition, claim_token, gen_token_from, js_trim};
+use crate::{build_content_disposition, claim_token, gen_token_from, js_trim, json_string};
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// The multipart framing (boundary + part headers) rides on top of the file bytes, so the pre-screen
@@ -184,15 +184,19 @@ async fn raw_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Response>
     let stored = match stored {
         Ok(o) => o,
         Err(e) => {
-            return json(502, format!(r#"{{"error":"r2 put failed: {e}"}}"#));
+            return error_json(502, &format!("r2 put failed: {e}"));
         }
     };
     let size = stored.as_ref().map(|o| o.size() as f64).unwrap_or(declared);
+    // **EVERY CLIENT-SUPPLIED STRING GOES THROUGH `json_string`**, because this envelope is a hand-built
+    // `format!` and the value can carry anything the caller typed: measured 2026-10-08, `?name=a%22b.txt`
+    // answered `"filename":"a"b.txt"` — a 200 whose body is not JSON, where `JSON.stringify` answered
+    // `a\"b.txt`. The URL is assembled BEFORE it is escaped, since only the whole value is a JSON string.
+    let download_url = json_string(&format!("{}/files/{token}", public_base(env, url)));
+    let name = json_string(&base);
     let body = format!(
-        r#"{{"token":"{token}","url":"{base}/files/{token}","size":{},"filename":"{base_name}","expiresAt":"{iso}","note":"{NOTE}"}}"#,
+        r#"{{"token":"{token}","url":{download_url},"size":{},"filename":{name},"expiresAt":"{iso}","note":"{NOTE}"}}"#,
         size as u64,
-        base = public_base(env, url),
-        base_name = base,
         iso = iso_from_ms(expires_at),
     );
     json(200, body)
@@ -261,10 +265,11 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         // answers 500 with `String(err)`.
         return error_json(500, &e.to_string());
     }
+    let download_url = json_string(&format!("{}/files/{token}", public_base(env, url)));
+    let filename = json_string(&filename);
     let body = format!(
-        r#"{{"token":"{token}","url":"{base}/files/{token}","size":{},"filename":"{filename}","expiresAt":"{iso}","note":"{NOTE}"}}"#,
+        r#"{{"token":"{token}","url":{download_url},"size":{},"filename":{filename},"expiresAt":"{iso}","note":"{NOTE}"}}"#,
         bytes.len(),
-        base = public_base(env, url),
         iso = iso_from_ms(expires_at),
     );
     json(200, body)

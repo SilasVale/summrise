@@ -9,11 +9,15 @@
 
 use worker::*;
 
-use crate::UNAVAILABLE;
+use crate::{json_string, UNAVAILABLE};
 
 /// `{"error":"…"}` with `content-type: application/json` — the shape every refusal in this worker uses.
+/// **THE MESSAGE IS ESCAPED**, because not all of them are ours: the upload arms interpolate
+/// `String(err)` from the runtime, and a quote in a binding's error is a body a device-side reader
+/// cannot parse. The recorded rows happened to carry no quote, which is why this was latent rather than
+/// measured — named here rather than left to the next reader to rediscover.
 pub fn error_json(status: u16, message: &str) -> Result<Response> {
-    json(status, format!(r#"{{"error":"{message}"}}"#))
+    json(status, format!(r#"{{"error":{}}}"#, json_string(message)))
 }
 
 pub fn json(status: u16, body: String) -> Result<Response> {

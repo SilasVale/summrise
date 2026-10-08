@@ -410,6 +410,112 @@
       "label": "GET / — this worker is the file relay, and everything else is 404 JSON",
       "method": "GET",
       "path": "/"
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a DOUBLE QUOTE must not break the answer's JSON envelope",
+      "method": "PUT",
+      "path": "/api/upload?name=a%22b.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a BACKSLASH (JSON.stringify escapes it; a format! must too)",
+      "method": "PUT",
+      "path": "/api/upload?name=a%5Cb.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a NEWLINE: the envelope must carry \\n, never a raw control byte",
+      "method": "PUT",
+      "path": "/api/upload?name=a%0Ab.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "POST /api/upload, multipart — the part's filename carries a DOUBLE QUOTE",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "re\"port.pdf",
+          "type": "application/pdf",
+          "bytes": "the file bytes"
+        }
+      },
+      "contentLength": 200,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "POST /api/upload, multipart — the part's filename carries a BACKSLASH",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "a\\b.pdf",
+          "type": "application/pdf",
+          "bytes": "the file bytes"
+        }
+      },
+      "contentLength": 200,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload — a C0 control in the filename: JSON.stringify writes \\u0001, and so must the envelope",
+      "method": "PUT",
+      "path": "/api/upload?name=a%01b.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload — DEL (U+007F) in the filename: BOTH serializers leave it RAW, which is the boundary",
+      "method": "PUT",
+      "path": "/api/upload?name=a%7Fb.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
     }
   ]
 }

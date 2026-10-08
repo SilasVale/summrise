@@ -29,8 +29,9 @@
 //! invisible to the plan and visible to the criterion.
 //!
 //! **AND IT IS CUT OVER — 2026-10-08, the same day the finding was made.** `relay/wrangler.jsonc` names
-//! `worker/build/index.js` now and the JavaScript it replaced is deleted (1,377 lines of source and suite,
-//! plus the two recorders that imported it), so the entry that stood here is gone and `MAX_STILL_JS` came
+//! `worker/build/index.js` now and the JavaScript it replaced is deleted (1,459 lines of source and suite,
+//! plus 329 more of recorders and manifest — 1,788 across twelve files), so the entry that stood here is
+//! gone and `MAX_STILL_JS` came
 //! down with it. **THE DIRECTION OF THAT MOVE IS THE POINT**: the declaration existed for as long as the
 //! cutover took, and the second mutation below is the one that made removing it mechanical rather than
 //! remembered — a gate whose list can only shrink is a gate that cannot hide finished work.

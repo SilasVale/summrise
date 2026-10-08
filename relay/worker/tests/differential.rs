@@ -144,13 +144,22 @@ fn ops(v: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// **THE ROW THAT PINS THE INSTANCE NAME, WHICH IS THE PRECONDITION OF "EXACTLY ONE DOWNLOAD".**
+///
+/// The guarantee itself is the runtime's (one instance's requests are delivered strictly one at a time),
+/// so no stub can show it — but what a stub CAN see, and what this row exists for, is that the worker
+/// forwards to the instance NAMED BY THE TOKEN. Forward to any other name and two claims for one file
+/// land on two instances, both win, and the file downloads twice, while every response stays byte
+/// identical. `bindings-stub.mjs` records the name for both namespace shapes and the corpus carries it;
+/// until 2026-10-08 this function dropped it, so that mutation was invisible to every gate here.
 fn forwarded(v: &serde_json::Value) -> Vec<String> {
     v.as_array()
         .map(|a| {
             a.iter()
                 .map(|f| {
                     format!(
-                        "{} {} | {}",
+                        "{} {} {} | {}",
+                        f["name"].as_str().unwrap_or_default(),
                         f["method"].as_str().unwrap_or_default(),
                         f["path"].as_str().unwrap_or_default(),
                         f["headers"]
@@ -296,5 +305,26 @@ fn a_stored_object_whose_metadata_moved_is_not_a_pass() {
         ops(&want),
         ops(&got),
         "the R2 row must see the header that was stored"
+    );
+}
+
+/// The third proof, and the one whose absence was a real hole (found in review, 2026-10-08): the row
+/// must see WHICH INSTANCE the claim was forwarded to. `files/t` and `files/t2` answer identically and
+/// are different one-time locks.
+#[test]
+fn a_claim_forwarded_to_another_instance_is_not_a_pass() {
+    let named = serde_json::json!([{"name": "files/t", "method": "GET", "path": "/files/t",
+        "headers": ["content-type: application/json"]}]);
+    let other = serde_json::json!([{"name": "files/other", "method": "GET", "path": "/files/t",
+        "headers": ["content-type: application/json"]}]);
+    assert_ne!(
+        forwarded(&named),
+        forwarded(&other),
+        "the row must see the instance the worker addressed, not only the path it asked for"
+    );
+    assert!(
+        forwarded(&named)[0].starts_with("files/t GET /files/t"),
+        "the instance name leads the row: {}",
+        forwarded(&named)[0]
     );
 }
