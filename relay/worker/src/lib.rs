@@ -1,23 +1,27 @@
-//! THE FILE RELAY'S PURE DECISIONS, IN RUST — the half of `relay/src/index.js` and `relay/src/claim.js`
-//! that is a FUNCTION OF ITS INPUTS rather than of R2, the Durable Object or the network.
+//! THE FILE RELAY'S PURE DECISIONS, IN RUST — the half of the worker (once `relay/src/index.js` and
+//! `relay/src/claim.js`) that is a FUNCTION OF ITS INPUTS rather than of R2, the Durable Object or the
+//! network. **THE JAVASCRIPT IS GONE (2026-10-08)**: this crate's differential proved the port equal to
+//! it byte for byte — 30 worker cases and 20 claim cases, five rows each — and the files were deleted
+//! with the corpora kept as the record.
 //!
-//! ── WHY THIS SPLIT, AND WHY IT COMES FIRST ──────────────────────────────────────────────────────
+//! ── WHY THIS SPLIT, AND WHY IT CAME FIRST ───────────────────────────────────────────────────────
 //!
-//! The worker is 558 lines of JavaScript across two files. Two thirds of it is I/O: an R2 put with
+//! The worker was 558 lines of JavaScript across two files. Two thirds of it is I/O: an R2 put with
 //! metadata, an R2 get-then-delete inside a Durable Object, a streamed body, a `crypto.subtle` digest.
 //! **THE REST IS DECISIONS** — a `Content-Disposition` header built from a client-supplied filename, a
 //! four-branch one-time-claim rule, a token generator, a digest regex — and decisions are what a corpus
-//! can pin. So the port lands in the order this repository uses for every worker: the decisions first,
-//! with a corpus recorded from the shipping implementation, and the entry point second
-//! (`worker.rs` + `#[event(fetch)]`, next round).
+//! can pin. So the port landed in the order this repository uses for every worker: the decisions first,
+//! with a corpus recorded from the shipping implementation, and the entry point second.
 //!
-//! ── THE CORPUS, AND WHO RECORDED IT ─────────────────────────────────────────────────────────────
+//! ── THE CORPUS, AND WHAT IT IS NOW ──────────────────────────────────────────────────────────────
 //!
-//! `pure-corpus.json` was recorded by `record-pure.mjs` — a script that IMPORTS THE SHIPPING
-//! JAVASCRIPT and asks it these same questions (31 filenames, 220 claim states, 10 digests, the token
-//! shape). `tests/pure.rs` compares this file's answers against the functions below. **THE ORACLE IS
-//! THE IMPLEMENTATION THAT IS STILL SERVING `agent.saisi.online/files/*`**, which is the strongest
-//! form this comparison can take, and it retires with the JavaScript when the cutover deletes it.
+//! `pure-corpus.json` was recorded by `record-pure.mjs` — a script that IMPORTED THE SHIPPING
+//! JAVASCRIPT and asked it these same questions (31 filenames, 220 claim states, 10 digests, the token
+//! shape). `tests/pure.rs` compares this file's answers against the functions below. **THE ORACLE WAS
+//! THE IMPLEMENTATION SERVING `agent.saisi.online/files/*`, WHICH IS THE STRONGEST FORM THIS
+//! COMPARISON COULD TAKE — AND THE CORPUS IS THE RECORD NOW**: the recorder retired with the cutover,
+//! and the `source` blob hashes at the top of the file name the exact bytes it was recorded from (they
+//! still resolve through this repository's history).
 //!
 //! ── THE THREE TRAPS THE CORPUS EXISTS FOR ───────────────────────────────────────────────────────
 //!
@@ -60,12 +64,29 @@
 
 use serde_json::Value;
 
+/// The claim Durable Object — the class the worker's download route forwards into.
+#[cfg(target_arch = "wasm32")]
+pub mod claim_do;
 /// **THE ENTRY POINT, AND IT IS wasm32-ONLY ON PURPOSE.** `#[event(fetch)]` expands to nothing on the
 /// host, so the host build compiles none of `worker.rs` — which is exactly why the CI job carries a
 /// `cargo clippy --target wasm32-unknown-unknown` step for this crate, and why the differential drives
 /// `worker-build`'s output rather than a host binary.
 #[cfg(target_arch = "wasm32")]
+pub mod envelopes;
+#[cfg(target_arch = "wasm32")]
 pub mod worker;
+
+/// `^/files/([A-Za-z0-9_-]{16,64})$` — **ONE DEFINITION, TWO CALLERS**: the worker decides whether to
+/// forward a download, and the Durable Object decides whether the request it received names a claim. They
+/// must agree, and the first version of this port had the pattern written out twice.
+pub fn claim_token(path: &str) -> Option<&str> {
+    let token = path.strip_prefix("/files/")?;
+    let ok = (16..=64).contains(&token.len())
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    ok.then_some(token)
+}
 
 /// The alphabet `genToken` draws from, in the shipping implementation's order.
 pub const TOKEN_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -293,6 +314,25 @@ pub fn decide_claim(exists: bool, expires_at_raw: Option<&Value>, now_ms: f64) -
 /// `SHA256_RE = /^[0-9a-f]{64}$/i` — the anchored, case-insensitive digest shape.
 pub fn sha256_matches(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// **A JSON STRING LITERAL, ESCAPED THE WAY `JSON.stringify` ESCAPES ONE — quotes included.**
+///
+/// The worker's envelopes are hand-built `format!`s because key order is bytes in this response, and a
+/// `serde_json::Map` sorts its keys. That decision is right and it left one hole: every value that comes
+/// from a CLIENT (a filename, a `PUBLIC_BASE` an operator set) was interpolated raw. **MEASURED
+/// 2026-10-08, AFTER THE JAVASCRIPT ORACLE WAS DELETED**: `PUT /api/upload?name=a%22b.txt` answered 200
+/// with the body `…"filename":"a"b.txt",…` — 229 bytes, not JSON, at the one place the caller learns its
+/// token — where the shipping `JSON.stringify` answered `a\"b.txt` at 230. The differential could not see
+/// it because none of its four name cases carried a character that needs escaping; the cases are recorded
+/// from the oracle now, and `tests/pure.rs` holds the escaping itself.
+///
+/// **IT IS `serde_json`'S ESCAPER, NOT A SECOND IMPLEMENTATION**: `JSON.stringify` and `serde_json` agree
+/// on every valid UTF-8 string — both leave DEL and U+2028/U+2029 raw, both write `\u00XX` for the C0
+/// controls that have no short form, and Rust strings cannot hold the lone surrogates where JavaScript
+/// would differ.
+pub fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
 }
 
 /// **THE TOKEN GENERATOR'S DECISION, SEPARATED FROM ITS RANDOMNESS.**

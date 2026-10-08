@@ -470,6 +470,160 @@
       "body": "{\"error\":\"not found\"}",
       "r2": [],
       "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a DOUBLE QUOTE must not break the answer's JSON envelope",
+      "method": "PUT",
+      "path": "/api/upload?name=a%22b.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 230,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"a\\\"b.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"ab.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a BACKSLASH (JSON.stringify escapes it; a format! must too)",
+      "method": "PUT",
+      "path": "/api/upload?name=a%5Cb.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 227,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"b.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"b.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — a filename carrying a NEWLINE: the envelope must carry \\n, never a raw control byte",
+      "method": "PUT",
+      "path": "/api/upload?name=a%0Ab.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 230,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"a\\nb.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"ab.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, multipart — the part's filename carries a DOUBLE QUOTE",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 235,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":14,\"filename\":\"re\\\"port.pdf\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 14,
+          "contentType": "application/pdf",
+          "contentDisposition": "attachment; filename=\"report.pdf\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, multipart — the part's filename carries a BACKSLASH",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 231,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":14,\"filename\":\"a\\\\b.pdf\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 14,
+          "contentType": "application/pdf",
+          "contentDisposition": "attachment; filename=\"ab.pdf\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — a C0 control in the filename: JSON.stringify writes \\u0001, and so must the envelope",
+      "method": "PUT",
+      "path": "/api/upload?name=a%01b.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 234,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"a\\u0001b.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"ab.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — DEL (U+007F) in the filename: BOTH serializers leave it RAW, which is the boundary",
+      "method": "PUT",
+      "path": "/api/upload?name=a%7Fb.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 229,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"ab.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"ab.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
     }
   ]
 }

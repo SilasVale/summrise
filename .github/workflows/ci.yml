@@ -1091,35 +1091,26 @@ jobs:
       - name: Dry-run zen-us
         run: wrangler deploy --dry-run
         working-directory: proxies/zen-us-proxy
-      # **THE FILE RELAY — AND UNTIL THIS STEP, NOTHING RAN IT (measured 2026-10-08).**
-      # `relay/` is a Cloudflare worker (`summrise-relay`, the `/files/*` route) with 7 test files and 558
-      # lines of source, and `ci.yml` had NO step for it: the suites under `proxies/` run, the worker under
-      # `index/` runs, and this one was in neither — `node --test` in `relay/` answers `fail 0` by hand and
-      # answered nothing at all in CI. **A GATE NOBODY RUNS IS A GATE NOBODY HAS**, which is the sentence
-      # `rust-byte-checks.bash` was written for.
+      # **THE FILE RELAY — AND UNTIL THESE STEPS, NOTHING RAN IT (measured 2026-10-08).**
+      # `relay/` is a Cloudflare worker (`summrise-relay`, the `/files/*` route), and `ci.yml` had NO step
+      # for it: the suites under `proxies/` run, the worker under `index/` runs, and this one was in
+      # neither — `node --test` in `relay/` answers `fail 0` by hand and answered nothing at all in CI.
+      # **A GATE NOBODY RUNS IS A GATE NOBODY HAS**, which is the sentence `rust-byte-checks.bash` was
+      # written for.
       #
       # IT IS IN THIS JOB RATHER THAN A NEW ONE (the plan's standing rule is no new CI job), and the job's
       # NAME is the only thing that does not say so: this is the job that already carries the other
       # workers' `node --test` suites, their wrangler dry-runs and their cargo tests.
       #
-      # THE CORPUS CHECK IS THE ONE THAT EXPIRES. `worker/record-pure.mjs` imports the SHIPPING
-      # JavaScript and records what it answers; `--check` re-records and refuses a difference, so a change
-      # to `relay/src/*.js` that the Rust port does not follow fails HERE rather than at the cutover. When
-      # the cutover deletes that JavaScript (the plan's order: prove, cut over, delete) this step retires
-      # with it, and `worker/pure-corpus.json` becomes the record the way `shipping-answers.json` did.
+      # **AND TWO OF THE STEPS THAT STOOD HERE EXPIRED WITH THE 2026-10-08 CUTOVER, WHICH IS WHAT THEY
+      # SAID THEY WOULD DO**: `node --test` ran the JavaScript suite and the syntax gate checked the two
+      # source files, and both the suite and the sources are deleted — the port they were proving is now
+      # the entry point, and the corpus check that re-recorded from the shipping JavaScript retired with
+      # the file it recorded from. **The Rust differential is what carries the proof now**: it drives the
+      # BUILT module and compares it against `worker/*-corpus.json`, the answers recorded on a run where
+      # both implementations agreed.
       - name: Dry-run the file relay
         run: wrangler deploy --dry-run
-        working-directory: relay
-      - name: Test the file relay
-        run: node --test
-        working-directory: relay
-      - name: Syntax-gate the file relay
-        run: |
-          node --check src/index.js
-          node --check src/claim.js
-        working-directory: relay
-      - name: The file relay's corpus still matches the shipping JavaScript
-        run: node worker/record-pure.mjs --check
         working-directory: relay
       - name: The file relay's decision half (Rust)
         run: cargo test --manifest-path relay/worker/Cargo.toml

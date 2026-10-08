@@ -1,9 +1,9 @@
 //! THE FILE RELAY'S ENTRY POINT, IN RUST — the routing, the upload screening, and the claim forward.
 //!
 //! This is the second half of the port whose decisions landed in `lib.rs` (the header builder, the claim
-//! rule, the token generator, `Number()`). What is here is what the shipping `relay/src/index.js` does at
-//! the edge of the world: three routes, the credential, the multipart and raw upload arms, and the
-//! forward into the claim Durable Object.
+//! rule, the token generator, `Number()`). What is here is what the shipping `relay/src/index.js` did at
+//! the edge of the world (that file is deleted; the corpus is the record): three routes, the credential,
+//! the multipart and raw upload arms, and the forward into the claim Durable Object.
 //!
 //! ── THE FOUR THINGS THAT ARE EASY TO GET WRONG, EACH ONE MEASURED OR ARGUED ─────────────────────
 //!
@@ -28,7 +28,7 @@
 //! ── THE MUTATION THAT MUST FAIL THIS FILE'S COMPANION ────────────────────────────────────────────
 //!
 //! MUTATION: forward the claim request WITHOUT setting `x-do-auth` when `DO_AUTH` is configured.
-//! RESULT:   `tests/worker_differential.rs` fails the DO_AUTH case on the `forwarded` row — the response
+//! RESULT:   `tests/differential.rs` fails the DO_AUTH case on the `forwarded` row — the response
 //!           bytes are identical (the stub answers the same either way), which is exactly why that row
 //!           exists. The mutation is written into the corpus's own case list, and the row is what catches
 //!           it.
@@ -36,7 +36,7 @@
 use sha2::{Digest, Sha256};
 use worker::*;
 
-use crate::{build_content_disposition, decide_claim, gen_token_from, js_trim, Claim, UNAVAILABLE};
+use crate::{build_content_disposition, claim_token, gen_token_from, js_trim, json_string};
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// The multipart framing (boundary + part headers) rides on top of the file bytes, so the pre-screen
@@ -44,26 +44,9 @@ const MAX_BYTES: u64 = 100 * 1024 * 1024;
 const CL_MARGIN: u64 = 64 * 1024;
 const NOTE: &str = "one-time download: file is deleted after first access or 24h";
 
-fn json(status: u16, body: String) -> Result<Response> {
-    let headers = Headers::new();
-    headers.set("content-type", "application/json")?;
-    Ok(Response::from_bytes(body.into_bytes())?
-        .with_status(status)
-        .with_headers(headers))
-}
-
-fn error_json(status: u16, message: &str) -> Result<Response> {
-    // `{"error":"…"}` — the shipping envelope, with the message unescaped because every call site passes
-    // a fixed string or a value that has already been reduced (a filename's basename, an error's text).
-    json(status, format!(r#"{{"error":"{message}"}}"#))
-}
-
-fn too_large() -> Result<Response> {
-    json(
-        413,
-        format!(r#"{{"error":"file too large (max {MAX_BYTES} bytes)"}}"#),
-    )
-}
+/// The envelopes live in `envelopes.rs` — one definition for this module and the claim object, which
+/// answer the same three JSON shapes.
+use crate::envelopes::{error_json, json, too_large, unavailable};
 
 /// `safeEq(a, b)` — SHA-256 both sides to fixed 32-byte digests, then fold XOR across every byte without
 /// short-circuiting. **The digest is what removes the length early-exit**, which is why the shipping
@@ -155,7 +138,7 @@ async fn raw_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Response>
         return error_json(400, "invalid content-length");
     }
     if declared > MAX_BYTES as f64 {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let raw_name = url
         .query_pairs()
@@ -201,15 +184,19 @@ async fn raw_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Response>
     let stored = match stored {
         Ok(o) => o,
         Err(e) => {
-            return json(502, format!(r#"{{"error":"r2 put failed: {e}"}}"#));
+            return error_json(502, &format!("r2 put failed: {e}"));
         }
     };
     let size = stored.as_ref().map(|o| o.size() as f64).unwrap_or(declared);
+    // **EVERY CLIENT-SUPPLIED STRING GOES THROUGH `json_string`**, because this envelope is a hand-built
+    // `format!` and the value can carry anything the caller typed: measured 2026-10-08, `?name=a%22b.txt`
+    // answered `"filename":"a"b.txt"` — a 200 whose body is not JSON, where `JSON.stringify` answered
+    // `a\"b.txt`. The URL is assembled BEFORE it is escaped, since only the whole value is a JSON string.
+    let download_url = json_string(&format!("{}/files/{token}", public_base(env, url)));
+    let name = json_string(&base);
     let body = format!(
-        r#"{{"token":"{token}","url":"{base}/files/{token}","size":{},"filename":"{base_name}","expiresAt":"{iso}","note":"{NOTE}"}}"#,
+        r#"{{"token":"{token}","url":{download_url},"size":{},"filename":{name},"expiresAt":"{iso}","note":"{NOTE}"}}"#,
         size as u64,
-        base = public_base(env, url),
-        base_name = base,
         iso = iso_from_ms(expires_at),
     );
     json(200, body)
@@ -230,7 +217,7 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         return error_json(411, "content-length required");
     }
     if js_number_header(&declared_raw) > (MAX_BYTES + CL_MARGIN) as f64 {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let form = match req.form_data().await {
         Ok(f) => f,
@@ -248,7 +235,7 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         Err(_) => return error_json(400, "invalid multipart body"),
     };
     if bytes.len() as u64 > MAX_BYTES {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let Some(disposition) = build_content_disposition(&filename) else {
         return error_json(400, "invalid filename");
@@ -278,25 +265,17 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         // answers 500 with `String(err)`.
         return error_json(500, &e.to_string());
     }
+    let download_url = json_string(&format!("{}/files/{token}", public_base(env, url)));
+    let filename = json_string(&filename);
     let body = format!(
-        r#"{{"token":"{token}","url":"{base}/files/{token}","size":{},"filename":"{filename}","expiresAt":"{iso}","note":"{NOTE}"}}"#,
+        r#"{{"token":"{token}","url":{download_url},"size":{},"filename":{filename},"expiresAt":"{iso}","note":"{NOTE}"}}"#,
         bytes.len(),
-        base = public_base(env, url),
         iso = iso_from_ms(expires_at),
     );
     json(200, body)
 }
 
 /// `^/files/([A-Za-z0-9_-]{16,64})$`
-fn claim_token(path: &str) -> Option<&str> {
-    let token = path.strip_prefix("/files/")?;
-    let ok = (16..=64).contains(&token.len())
-        && token
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    ok.then_some(token)
-}
-
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
@@ -356,21 +335,4 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     // This worker is the FILE RELAY; the download site stays on the CDN worker (ADR 0010, D6).
     error_json(404, "not found")
-}
-
-/// The 503 envelope an R2/DO outage must surface as — never an uncaught throw, which the platform
-/// answers with its own HTML 500 that no device-side reader parses.
-fn unavailable() -> Result<Response> {
-    json(UNAVAILABLE.status, UNAVAILABLE.body.to_string())
-}
-
-/// The claim rule and the response shaping the DO will use — declared here so the compiler proves the
-/// import list stays honest until the DO class lands (`src/claim_do.rs`, next step).
-#[allow(dead_code)]
-fn claim_decision_for(
-    exists: bool,
-    expires_at_raw: Option<&serde_json::Value>,
-    now_ms: f64,
-) -> Claim {
-    decide_claim(exists, expires_at_raw, now_ms)
 }

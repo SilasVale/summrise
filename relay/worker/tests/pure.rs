@@ -1,11 +1,11 @@
-//! THE FILE RELAY'S DECISION HALF, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERS.
+//! THE FILE RELAY'S DECISION HALF, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERED.
 //!
-//! `pure-corpus.json` was recorded by `record-pure.mjs` — which imports `relay/src/index.js` and
-//! `relay/src/claim.js` and asks them 31 filenames, 220 claim states and 10 digests — and this test
-//! drives the Rust functions over the same inputs and compares the answers. **THE ORACLE IS THE
+//! `pure-corpus.json` was recorded by `record-pure.mjs` — which imported `relay/src/index.js` and
+//! `relay/src/claim.js` and asked them 31 filenames, 220 claim states and 10 digests — and this test
+//! drives the Rust functions over the same inputs and compares the answers. **THE ORACLE WAS THE
 //! IMPLEMENTATION STILL SERVING THE FILE RELAY'S ROUTE**, which is the strongest form this comparison
-//! can take; when the cutover deletes that JavaScript the corpus becomes the record, the way
-//! `shipping-answers.json` did for the satellites.
+//! could take; **the cutover deleted that JavaScript on 2026-10-08 and the corpus is the record now**,
+//! the way `shipping-answers.json` is for the satellites.
 //!
 //! ── THE THREE MUTATIONS THAT MUST FAIL THIS GATE (all measured; the crate's own header argues them)
 //!
@@ -22,8 +22,12 @@
 //!           rest, which is the bias the shipping implementation's comment describes.
 //!
 //! AND ONE THAT MUST NOT FAIL, WHICH IS WHY IT IS WRITTEN DOWN: the corpus's `source` blobs pin the two
-//! JavaScript files this was recorded from. A port that drifted would be caught by the comparison; a
-//! RECORDER that drifted is caught by `node record-pure.mjs --check`, which CI runs beside this test.
+//! JavaScript files this was recorded from, and those files are DELETED — so the pin is a pointer into
+//! this repository's history rather than at the tree (`git cat-file blob 3afc456c…`). **A RECORDER THAT
+//! DRIFTED USED TO BE CAUGHT BY `node record-pure.mjs --check`, WHICH NO LONGER EXISTS**: the
+//! comparison it ran was against the implementation it recorded from, and that implementation is gone.
+//! From here the corpus changes only by a deliberate re-record, and the pin is what says from which
+//! bytes.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -31,14 +35,41 @@ use std::path::PathBuf;
 
 use summrise_relay_worker::{
     build_content_disposition, decide_claim, encode_uri_component, gen_token_from, js_number,
-    js_trim, sha256_matches, Claim, TOKEN_CHARS, UNAVAILABLE,
+    js_trim, json_string, sha256_matches, Claim, TOKEN_CHARS, UNAVAILABLE,
 };
+
+/// **THE ESCAPER, AGAINST THE VALUES `JSON.stringify` TREATS DIFFERENTLY FROM A NAIVE QUOTER** — and the
+/// two rows that are boundaries rather than escapes: a C0 control becomes `\u0001`, while DEL and
+/// U+2028 are emitted RAW by both serializers. The pairs are the answer `node -e 'console.log(JSON.
+/// stringify(...))'` gives for each input.
+///
+/// This exists because the hole it closes was measured in the ENVELOPE rather than here (see
+/// `json_string`'s own header): four recorded cases answer differently without it, and this table is
+/// where a reader learns which characters that means.
+#[test]
+fn json_string_escapes_the_way_javascripts_stringify_does() {
+    let table: [(&str, &str); 9] = [
+        ("plain.txt", r#""plain.txt""#),
+        ("a\"b.txt", r#""a\"b.txt""#),
+        ("a\\b.txt", r#""a\\b.txt""#),
+        ("a\nb.txt", r#""a\nb.txt""#),
+        ("a\tb.txt", r#""a\tb.txt""#),
+        ("a\u{1}b.txt", r#""a\u0001b.txt""#),
+        ("a\u{7f}b.txt", "\"a\u{7f}b.txt\""),
+        ("a\u{2028}b.txt", "\"a\u{2028}b.txt\""),
+        ("报告.pdf", "\"报告.pdf\""),
+    ];
+    for (input, want) in table {
+        assert_eq!(json_string(input), want, "input {input:?}");
+    }
+}
 
 fn corpus() -> serde_json::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pure-corpus.json");
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "cannot read {}: {e} — run `node record-pure.mjs`",
+            "cannot read {}: {e} — the corpus is the record since the 2026-10-08 cutover; it is \
+             regenerated deliberately, never by a script that no longer exists",
             path.display()
         )
     });

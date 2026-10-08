@@ -109,7 +109,16 @@ pub fn repo_root(manifest_dir: &str) -> PathBuf {
 ///
 /// So this always builds. `worker-build` is incremental, so the cost after the first run is a few seconds,
 /// and the alternative is a green gate that measured something other than the tree.
+///
+/// **AND ONE BUILD AT A TIME.** `cargo test` runs a binary's tests on parallel threads, and the file
+/// relay's two differentials each call this — measured 2026-10-08 on a cold tree: two concurrent
+/// `worker-build` runs in one directory clobbered `build/.tmp`, one exited non-zero, and the harness
+/// reported `worker-build failed in relay/worker`, which is a red CI that is NOT a defect. A process-wide
+/// lock is enough because cargo runs test BINARIES one after another; the poison case is recovered rather
+/// than propagated, since a panic in the other test says nothing about this build.
 pub fn build(crate_dir: &Path) {
+    static BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = BUILD.lock().unwrap_or_else(|e| e.into_inner());
     println!("  building with worker-build --release …");
     let status = Command::new("worker-build")
         .arg("--release")

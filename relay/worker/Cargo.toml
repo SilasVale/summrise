@@ -3,7 +3,7 @@ name = "summrise-relay-worker"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The file relay's pure decisions, in Rust — the half of relay/src/{index,claim}.js that is a function of its inputs rather than of R2, the Durable Object or the network."
+description = "The file relay, in Rust — routes, screening, uploads, the claim Durable Object forward, and the pure decisions the differential pins. The JavaScript it replaced (relay/src/{index,claim}.js) was deleted on 2026-10-08 once the corpora proved the port byte for byte."
 
 # **TWO HALVES, AND THEY COMPILE IN DIFFERENT WORLDS.** `lib.rs` (the decisions) is a plain host build —
 # `cargo test` runs it — and `worker.rs` is `#[cfg(target_arch = "wasm32")]`, because `#[event(fetch)]`

@@ -1,15 +1,18 @@
-//! THE FILE RELAY'S ENTRY POINT, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERS — over the whole
-//! `/files/*` surface, with the same stubs on both sides.
+//! THE FILE RELAY, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERED — both halves of it: the
+//! worker's `/files/*` surface, and the claim Durable Object it forwards into. Same stubs, same case
+//! lists, same rows.
 //!
-//! `worker-corpus.json` was recorded by `record-worker.mjs`, which drives `relay/src/index.js` — **the
-//! worker still serving the route** — through `gateway/wasm/bindings-stub.mjs` and the case list in
-//! `worker-cases.json`. This test drives the BUILT RUST worker (`worker-build`'s output) through
+//! `worker-corpus.json` was recorded by `record-worker.mjs`, which drove `relay/src/index.js` — **the
+//! worker that was then still serving the route** — through `gateway/wasm/bindings-stub.mjs` and the
+//! case list in `worker-cases.json`. **BOTH JAVASCRIPT FILES ARE DELETED (2026-10-08, the cutover): the
+//! corpus is the record now, and the blob hashes in its `source` map name the bytes it was recorded
+//! from.** This test drives the BUILT RUST worker (`worker-build`'s output) through
 //! `gateway/wasm/run-cases.mjs` with the same stubs and the same cases, and compares five rows per case:
 //!
 //!     status · sorted headers · body bytes · **the R2 operations, in order** · **the request the claim
 //!     DO received**
 //!
-//! **THE LAST TWO ARE THE ONES A RESPONSE-ONLY CHECK CANNOT SEE**, and they are why the corpus is worth
+//! **THE LAST TWO ARE THE ONES A RESPONSE-ONLY CHECK CANNOT SEE**, and they are why the corpus was worth
 //! recording: an upload that stored the wrong `Content-Disposition`, or a claim forward that dropped the
 //! internal credential, answers the same bytes as one that did neither.
 //!
@@ -59,19 +62,36 @@ fn spec(cases: &serde_json::Value) -> serde_json::Value {
             if let Some(b) = c.get("bindings") {
                 o["bindings"] = b.clone();
             }
+            // **A SURFACE MAY NAME A CLASS RATHER THAN THE DEFAULT ENTRY** — `claim-cases.json` drives the
+            // claim Durable Object directly, so the comparison is against the shipping DO and not only
+            // against the worker that forwards to it.
+            if let Some(e) = cases.get("entry") {
+                o["entry"] = e.clone();
+            }
             o
         })
         .collect();
-    serde_json::json!({ "host": cases["host"], "env": cases["env"], "cases": list })
+    // **THE SPEC-LEVEL `bindings` TRAVELS TOO.** Dropping it is what made the claim object answer
+    // *"Binding `TEMP_FILES` is undefined"* for the cases that declare no world of their own: the case
+    // wants an EMPTY BUCKET (`/files/<token>` for an object that is not there), and a missing binding is a
+    // different failure from a missing object.
+    let mut out = serde_json::json!({ "host": cases["host"], "env": cases["env"], "cases": list });
+    if let Some(b) = cases.get("bindings") {
+        out["bindings"] = b.clone();
+    }
+    out
 }
 
-fn run() -> Vec<serde_json::Value> {
+fn run(cases_file: &str) -> Vec<serde_json::Value> {
     let crate_dir = PathBuf::from(CRATE);
     let root = repo_root(CRATE);
     build(&crate_dir);
-    let cases = read_json("worker-cases.json");
-    let spec_path =
-        std::env::temp_dir().join(format!("relay-worker-spec-{}.json", std::process::id()));
+    let cases = read_json(cases_file);
+    let spec_path = std::env::temp_dir().join(format!(
+        "relay-spec-{}-{}.json",
+        std::process::id(),
+        cases_file.trim_end_matches(".json")
+    ));
     fs::write(
         &spec_path,
         serde_json::to_vec(&spec(&cases)).expect("a spec"),
@@ -124,13 +144,22 @@ fn ops(v: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// **THE ROW THAT PINS THE INSTANCE NAME, WHICH IS THE PRECONDITION OF "EXACTLY ONE DOWNLOAD".**
+///
+/// The guarantee itself is the runtime's (one instance's requests are delivered strictly one at a time),
+/// so no stub can show it — but what a stub CAN see, and what this row exists for, is that the worker
+/// forwards to the instance NAMED BY THE TOKEN. Forward to any other name and two claims for one file
+/// land on two instances, both win, and the file downloads twice, while every response stays byte
+/// identical. `bindings-stub.mjs` records the name for both namespace shapes and the corpus carries it;
+/// until 2026-10-08 this function dropped it, so that mutation was invisible to every gate here.
 fn forwarded(v: &serde_json::Value) -> Vec<String> {
     v.as_array()
         .map(|a| {
             a.iter()
                 .map(|f| {
                     format!(
-                        "{} {} | {}",
+                        "{} {} {} | {}",
+                        f["name"].as_str().unwrap_or_default(),
                         f["method"].as_str().unwrap_or_default(),
                         f["path"].as_str().unwrap_or_default(),
                         f["headers"]
@@ -158,11 +187,11 @@ fn strings(v: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[test]
-fn the_port_answers_the_recorded_shipping_bytes_over_the_whole_files_surface() {
-    let corpus = read_json("worker-corpus.json");
+/// The comparison, once: five rows per case over a case list and its recorded answers.
+fn compare(name: &str, cases_file: &str, corpus_file: &str) {
+    let corpus = read_json(corpus_file);
     let expected = corpus["cases"].as_array().expect("a cases array");
-    let observed = run();
+    let observed = run(cases_file);
     assert_eq!(
         expected.len(),
         observed.len(),
@@ -232,7 +261,20 @@ fn the_port_answers_the_recorded_shipping_bytes_over_the_whole_files_surface() {
             }
         }
     }
-    verdict("relay-worker", expected.len(), bad);
+    verdict(name, expected.len(), bad);
+}
+
+#[test]
+fn the_port_answers_the_recorded_shipping_bytes_over_the_whole_files_surface() {
+    compare("relay-worker", "worker-cases.json", "worker-corpus.json");
+}
+
+#[test]
+fn the_claim_object_decides_and_deletes_like_the_shipping_one() {
+    // **THE ROWS THAT MATTER HERE ARE THE BUCKET OPERATIONS.** A claim that served the bytes without
+    // deleting the key answers a byte-identical response and hands the file out twice; only the `r2`
+    // row sees the difference.
+    compare("relay-claim", "claim-cases.json", "claim-corpus.json");
 }
 
 fn clip(s: &str) -> String {
@@ -263,5 +305,26 @@ fn a_stored_object_whose_metadata_moved_is_not_a_pass() {
         ops(&want),
         ops(&got),
         "the R2 row must see the header that was stored"
+    );
+}
+
+/// The third proof, and the one whose absence was a real hole (found in review, 2026-10-08): the row
+/// must see WHICH INSTANCE the claim was forwarded to. `files/t` and `files/t2` answer identically and
+/// are different one-time locks.
+#[test]
+fn a_claim_forwarded_to_another_instance_is_not_a_pass() {
+    let named = serde_json::json!([{"name": "files/t", "method": "GET", "path": "/files/t",
+        "headers": ["content-type: application/json"]}]);
+    let other = serde_json::json!([{"name": "files/other", "method": "GET", "path": "/files/t",
+        "headers": ["content-type: application/json"]}]);
+    assert_ne!(
+        forwarded(&named),
+        forwarded(&other),
+        "the row must see the instance the worker addressed, not only the path it asked for"
+    );
+    assert!(
+        forwarded(&named)[0].starts_with("files/t GET /files/t"),
+        "the instance name leads the row: {}",
+        forwarded(&named)[0]
     );
 }

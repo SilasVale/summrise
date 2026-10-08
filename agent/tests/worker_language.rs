@@ -21,12 +21,20 @@
 //! hides.
 //!
 //! WHAT IT FOUND ON ITS FIRST RUN (2026-10-08): **`summrise-relay`, the file-relay worker, is production
-//! JavaScript and it is in NO item of either plan.** `relay/src/index.js` serves the file relay's
+//! JavaScript and it is in NO item of either plan.** `relay/src/index.js` served the file relay's
 //! `/files/*` route (a zone route on the agent hostname, which this gate does not spell out — the
 //! production-hostname ratchet in `production_host.rs` counts every literal)
 //! (a zone route) and the gateway reaches its upload leg through the `RELAY` service binding. A2 is
 //! `proxies/api-relay` (the VPS relay) and P3's second half was the two satellites — so this worker was
 //! invisible to the plan and visible to the criterion.
+//!
+//! **AND IT IS CUT OVER — 2026-10-08, the same day the finding was made.** `relay/wrangler.jsonc` names
+//! `worker/build/index.js` now and the JavaScript it replaced is deleted (1,459 lines of source and suite,
+//! plus 329 more of recorders and manifest — 1,788 across twelve files), so the entry that stood here is
+//! gone and `MAX_STILL_JS` came
+//! down with it. **THE DIRECTION OF THAT MOVE IS THE POINT**: the declaration existed for as long as the
+//! cutover took, and the second mutation below is the one that made removing it mechanical rather than
+//! remembered — a gate whose list can only shrink is a gate that cannot hide finished work.
 //!
 //! MUTATION: point a Rust-backed config at a tracked JavaScript file — in `proxies/zen-us-proxy/wrangler.jsonc`,
 //!           set `"main": "../../gateway/wasm/run-cases.mjs"`.
@@ -37,8 +45,9 @@
 //!               declared in STILL_JS
 //!             FIX: cut it over to its Rust module, or declare its name in STILL_JS with the item that will.
 //!
-//! MUTATION (the direction that makes the list shrink): cut `summrise-relay` over — set its `main` to
-//!           `worker/build/index.js` — and LEAVE its declaration in place.
+//! MUTATION (the direction that makes the list shrink, and the one that fired for real): cut
+//!           `summrise-relay` over — set its `main` to `worker/build/index.js` — and LEAVE its declaration
+//!           in place.
 //! RESULT:   exit 101 —
 //!             these declarations are stale — the worker no longer names a JavaScript source:
 //!               summrise-relay
@@ -56,24 +65,15 @@ use std::collections::BTreeSet;
 
 /// **THE DECLARED EXCEPTIONS: production workers whose entry is still JavaScript, each with the item that
 /// moves it.** The list may only shrink; a new entry needs a sentence saying which cutover removes it.
-const STILL_JS: [(&str, &str); 2] = [
-    (
-        "summrise-gate",
-        "THE CONSOLE WORKER, AND A6 IS ITS ITEM: `src/index.ts` is the /api/* surface the plan moves to \
-         wasm in the second phase. Until that cutover the console is TypeScript by design — \
-         `gateway/wrangler.jsonc` carries the same sentence next to the name.",
-    ),
-    (
-        "summrise-relay",
-        "**THE FILE-RELAY WORKER, AND THIS ENTRY IS A FINDING RATHER THAN A PLAN ITEM** — see this file's \
-         header: `relay/src/index.js` serves the `/files/*` zone route and the gateway's upload leg \
-         reaches it through the RELAY binding, and neither plan names it. It is the next item once the \
-         operator's nods arrive.",
-    ),
-];
+const STILL_JS: [(&str, &str); 1] = [(
+    "summrise-gate",
+    "THE CONSOLE WORKER, AND A6 IS ITS ITEM: `src/index.ts` is the /api/* surface the plan moves to \
+     wasm in the second phase. Until that cutover the console is TypeScript by design — \
+     `gateway/wrangler.jsonc` carries the same sentence next to the name.",
+)];
 
 /// The cap follows the list down and never up: a declaration removed without this number moving fails.
-const MAX_STILL_JS: usize = 2;
+const MAX_STILL_JS: usize = 1;
 
 /// A FLOOR, not a claim: the scan must see the configs that exist today.
 const MIN_CONFIGS: usize = 6;
@@ -193,11 +193,15 @@ fn only_declared_workers_still_name_a_javascript_source() {
 fn a_generated_glue_file_is_not_a_javascript_worker() {
     let tracked: BTreeSet<String> = common::git_ls_files_all().into_iter().collect();
     // The Rust-backed workers' entries: `.js` paths that `worker-build` generates, and NOT tracked.
+    // **`relay` JOINED THIS LIST WITH ITS CUTOVER (2026-10-08)** — it stood in the other list below
+    // while `src/index.js` was its entry, and moving it here is the premise change this test exists to
+    // make visible rather than silent.
     for (dir, main) in [
         ("proxies/zen-us-proxy", "worker/build/index.js"),
         ("proxies/zen-go-proxy", "worker/build/index.js"),
         ("index", "worker/build/index.js"),
         ("gateway/wasm", "build/index.js"),
+        ("relay", "worker/build/index.js"),
     ] {
         assert!(
             is_js_source(main),
@@ -208,12 +212,13 @@ fn a_generated_glue_file_is_not_a_javascript_worker() {
             "{dir}/{main} is TRACKED, so this test's premise moved and the gate would flag it"
         );
     }
-    // ...and the two declared workers' entries ARE tracked sources.
-    for (dir, main) in [("relay", "src/index.js"), ("gateway", "src/index.ts")] {
-        assert!(is_js_source(main));
-        assert!(
-            tracked.contains(common::resolve(dir, main).as_str()),
-            "{dir}/{main} should be a tracked source"
-        );
-    }
+    // ...and the one declared worker's entry IS a tracked source. **A LOOP UNTIL 2026-10-08**, when
+    // `relay` left it (and `clippy::single_element_loop` refused the one-element version — the lint is
+    // what noticed, which is worth keeping in mind the next time this list is expected to shrink).
+    let (dir, main) = ("gateway", "src/index.ts");
+    assert!(is_js_source(main));
+    assert!(
+        tracked.contains(common::resolve(dir, main).as_str()),
+        "{dir}/{main} should be a tracked source"
+    );
 }

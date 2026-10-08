@@ -1,0 +1,382 @@
+{
+  "source": {
+    "relay/src/claim.js": "15eff8b87a177796ca67670575e15cfaf74fd70a"
+  },
+  "host": "https://relay.test",
+  "cases": [
+    {
+      "label": "a file that is there and in date — served, and the key deleted BEFORE the body streams",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment; filename=\"a.pdf\"",
+        "content-type: application/pdf"
+      ],
+      "bytes": 14,
+      "body": "the file bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a file with NO metadata at all — the legacy shape the rule fails OPEN on",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 12,
+      "body": "legacy bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "an EMPTY expiresAt string is 'no deadline' rather than a corrupt one",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a deadline in the past — 410, and the object is deleted rather than left to accumulate",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 410,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"file expired\"}",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a CORRUPT deadline — 410 (fail closed), which is the rule that tightened the old fail-open one",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 410,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"file expired\"}",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a deadline that is not a string at all — jsonSafe's metadata is strings, and anything else is corrupt",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 410,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"file expired\"}",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "the file is NOT in the bucket — 404 already-downloaded, which is what a second claim sees",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 48,
+      "body": "{\"error\":\"file not found or already downloaded\"}",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a deadline exactly now — SERVES, because the comparison is strict (`ts < now`)",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "the object has NO httpMetadata — the two header defaults the shipping DO falls back to",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "the R2 get itself fails — the 503 envelope, never an uncaught throw",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 503,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 35,
+      "body": "{\"error\":\"temporarily unavailable\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "the R2 delete fails on a serve — 503, and the bytes are NOT handed over",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 503,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 35,
+      "body": "{\"error\":\"temporarily unavailable\"}",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "DO_AUTH configured and the internal header MISSING — 401",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "DO_AUTH configured and the header WRONG (same length) — 401",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "DO_AUTH configured and the header RIGHT — served",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "DO_AUTH configured, the header RIGHT BUT A DIFFERENT LENGTH — 401, which is the early exit the fold removes",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "no DO_AUTH configured — the compatibility gate passes an absent credential",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment",
+        "content-type: application/octet-stream"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [
+        {
+          "op": "get",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        },
+        {
+          "op": "delete",
+          "key": "files/AAAABBBBCCCCDDDDEEEEFF"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "a path the instance does not name — plain-text Not Found, the one non-JSON refusal",
+      "method": "GET",
+      "path": "/nope",
+      "status": 404,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 9,
+      "body": "Not Found",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "a token that is too short for the pattern — plain-text Not Found",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDD",
+      "status": 404,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 9,
+      "body": "Not Found",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "a POST to the claim route — plain-text Not Found",
+      "method": "POST",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 404,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 9,
+      "body": "Not Found",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "a character outside the token alphabet — plain-text Not Found",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEE!FF",
+      "status": 404,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 9,
+      "body": "Not Found",
+      "r2": [],
+      "forwarded": []
+    }
+  ]
+}

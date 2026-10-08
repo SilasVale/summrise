@@ -8,6 +8,7 @@
 #   ./scripts/build.sh gateway-wasm    # deploy the Rust front door (reads CONSOLE_HOST from gateway/wrangler.jsonc)
 #   ./scripts/build.sh index           # deploy the Summrise Index worker
 #   ./scripts/build.sh proxies         # deploy the satellite proxy workers (zen-go / zen-us)
+#   ./scripts/build.sh relay           # deploy the file relay (summrise-relay, the Rust /files/* worker)
 #   ./scripts/build.sh api-relay       # build + deploy the VPS api relay (vrelay @ Oracle box)
 #   ./scripts/build.sh deploy          # build agent + deploy gateway/index
 #
@@ -342,6 +343,46 @@ deploy_proxy() {
   fi
 }
 
+# **THE FILE RELAY, CUT OVER TO ITS RUST MODULE (A7).** `summrise-relay` serves the `/files/*` zone route
+# and the gateway's upload leg reaches it through the `RELAY` service binding, and until this round it had
+# NO deploy path in this file — it was the one worker whose `wrangler deploy` was typed by hand, which is
+# how a cutover gets skipped rather than performed. It is its own command rather than a step in `deploy`,
+# for the same reason `gateway-wasm` is: the entry point changed implementation, and swapping the worker
+# behind a one-time-download URL is an act somebody takes deliberately (with `wrangler rollback`, or a
+# redeploy of the previous commit, as the way back).
+deploy_relay() {
+  local dir="relay" name="Summrise Relay"
+  require_cf_token "$name" || return 1
+  echo "=== [deploy] ${name} (${dir}/) ==="
+  # The build is wrangler's own `build.command` (`worker-build --release worker`), so a checkout without
+  # the toolchain fails HERE rather than with a path error about a main that nothing generated.
+  # **AND THE TOKEN TRAVELS WITH THE COMMAND**: in a non-interactive shell wrangler refuses without it, and
+  # it refuses AFTER the build — measured 2026-10-08 on the wasm front door's path, which is why
+  # `scripts/test/release-lib.bash` refuses a `wrangler deploy` in this file that lacks the prefix.
+  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler deploy ) || return 1
+  echo "  ok: $name deployed"
+  # **THE SMOKE IS THE DOWNLOAD LEG, END TO END, AND IT NEEDS NO UPLOAD.** A token that names no object
+  # must answer the claim Durable Object's own 404 envelope — which proves three things at once: the zone
+  # route reached THIS worker, the worker addressed the DO instance named by the token, and the DO read
+  # the bucket. The recorded answer is in `relay/worker/worker-corpus.json` (case 23); `{"error":"not
+  # found"}` instead would mean the route never arrived (`/files/` is shorter than a token, case 25).
+  local url="https://agent.saisi.online/files/AAAABBBBCCCCDDDDEEEEFF"
+  # THE BODY GOES TO A FILE, NOT THROUGH `-w '\n%{http_code}'` — that shape splits on the LAST newline,
+  # so a body ending in one (or carrying one) would be read as a status code, and the smoke would refuse a
+  # deployment that is fine. Measured on the synthetic outputs before this was written: the trick parses
+  # the live answer correctly and mis-parses a body with a trailing newline.
+  local out code body
+  out="$(mktemp)"
+  code="$(curl -s -m 30 -o "$out" -w '%{http_code}' "$url" || true)"
+  body="$(cat "$out" 2>/dev/null || true)"
+  rm -f "$out"
+  if [[ "$code" != "404" || "$body" != '{"error":"file not found or already downloaded"}' ]]; then
+    echo "  !! $name smoke FAILED: want 404 + the claim DO's envelope, got ${code:-<curl error>}: ${body:0:120}" >&2
+    return 1
+  fi
+  echo "  ok: $name smoke — /files/* reached the worker and its claim DO ($url)"
+}
+
 deploy_api_relay() {
   # VPS api relay (vrelay @ Oracle box): zen/or egress, git+github mirrors,
   # gform, muse /v1/responses exit. Builds from proxies/api-relay (the former
@@ -435,6 +476,10 @@ case "$cmd" in
   index)    deploy_worker index "Summrise Index" ;;
   proxies)  deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
   api-relay) deploy_api_relay ;;
+  # THE FILE RELAY (the `/files/*` worker). Its own command, like `gateway-wasm`: the entry point changed
+  # implementation in A7, so the deploy that swaps it is taken deliberately rather than as a side effect of
+  # a full-stack `deploy`.
+  relay)    deploy_relay ;;
   # THE RUST RELAY, ALONGSIDE RATHER THAN INSTEAD (block ④). The plan's own warning is the reason this is
   # a separate command: `api-relay` is this repository's push path, so the binary runs on a port of its
   # own FIRST, and the cutover is a deliberate act somebody takes after reading its smoke. See
@@ -452,5 +497,5 @@ case "$cmd" in
   # P0-2: full-stack preflight FIRST — a missing toolchain piece or token
   # aborts here, never mid-chain as a half-deployed stack (&& serial).
   deploy)   preflight_deploy && build_agent "${2:-release}" && deploy_worker gateway "Summrise Gate" && deploy_worker index "Summrise Index" && deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
-  *) echo "usage: $0 [agent|gateway|index|proxies|api-relay|vrelay-rs|deploy]"; exit 1 ;;
+  *) echo "usage: $0 [agent|gateway|gateway-wasm|index|proxies|relay|api-relay|vrelay-rs|deploy]"; exit 1 ;;
 esac

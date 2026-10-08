@@ -1,0 +1,303 @@
+{
+  "_comment": "THE CLAIM DURABLE OBJECT'S CASES, AS DATA — read by `tests/differential.rs`, which drives the Rust class through `gateway/wasm/run-cases.mjs` and compares it against `claim-corpus.json`: the answers the shipping `TempClaimDO` gave, recorded before the 2026-10-08 cutover deleted it. Each case names the class with `entry`, so the two implementations were compared DIRECTLY rather than only through the worker that forwards to them. The host is not a production hostname.",
+  "host": "https://relay.test",
+  "env": {
+    "DO_AUTH": ""
+  },
+  "entry": "TempClaimDO",
+  "cases": [
+    {
+      "label": "a file that is there and in date — served, and the key deleted BEFORE the body streams",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "the file bytes",
+              "contentType": "application/pdf",
+              "contentDisposition": "attachment; filename=\"a.pdf\"",
+              "customMetadata": {
+                "expiresAt": "1700086400000"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "a file with NO metadata at all — the legacy shape the rule fails OPEN on",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "legacy bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "an EMPTY expiresAt string is 'no deadline' rather than a corrupt one",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes",
+              "customMetadata": {
+                "expiresAt": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "a deadline in the past — 410, and the object is deleted rather than left to accumulate",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "stale bytes",
+              "customMetadata": {
+                "expiresAt": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "a CORRUPT deadline — 410 (fail closed), which is the rule that tightened the old fail-open one",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes",
+              "customMetadata": {
+                "expiresAt": "abc"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "a deadline that is not a string at all — jsonSafe's metadata is strings, and anything else is corrupt",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes",
+              "customMetadata": {
+                "expiresAt": "NaN"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "the file is NOT in the bucket — 404 already-downloaded, which is what a second claim sees",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF"
+    },
+    {
+      "label": "a deadline exactly now — SERVES, because the comparison is strict (`ts < now`)",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes",
+              "customMetadata": {
+                "expiresAt": "1700000000000"
+              }
+            }
+          }
+        },
+        "nowMs": 1700000000000
+      }
+    },
+    {
+      "label": "the object has NO httpMetadata — the two header defaults the shipping DO falls back to",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes",
+              "contentType": null,
+              "contentDisposition": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "the R2 get itself fails — the 503 envelope, never an uncaught throw",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "throws": "get"
+        }
+      }
+    },
+    {
+      "label": "the R2 delete fails on a serve — 503, and the bytes are NOT handed over",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          },
+          "throws": "delete"
+        }
+      }
+    },
+    {
+      "label": "DO_AUTH configured and the internal header MISSING — 401",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "DO_AUTH configured and the header WRONG (same length) — 401",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "headers": {
+        "x-do-auth": "do-secret-124"
+      },
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "DO_AUTH configured and the header RIGHT — served",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "headers": {
+        "x-do-auth": "do-secret-123"
+      },
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "DO_AUTH configured, the header RIGHT BUT A DIFFERENT LENGTH — 401, which is the early exit the fold removes",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "headers": {
+        "x-do-auth": "do-secret-1234"
+      },
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "no DO_AUTH configured — the compatibility gate passes an absent credential",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "r2": {
+          "objects": {
+            "files/AAAABBBBCCCCDDDDEEEEFF": {
+              "body": "bytes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "a path the instance does not name — plain-text Not Found, the one non-JSON refusal",
+      "method": "GET",
+      "path": "/nope"
+    },
+    {
+      "label": "a token that is too short for the pattern — plain-text Not Found",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDD"
+    },
+    {
+      "label": "a POST to the claim route — plain-text Not Found",
+      "method": "POST",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "body": {
+        "kind": "stream",
+        "bytes": "x"
+      },
+      "contentLength": 1
+    },
+    {
+      "label": "a character outside the token alphabet — plain-text Not Found",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEE!FF"
+    }
+  ],
+  "bindings": {
+    "r2": {
+      "objects": {}
+    },
+    "do": {
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": ""
+      }
+    }
+  }
+}
