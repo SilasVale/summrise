@@ -1,0 +1,75 @@
+# THE BOUNDARY MANIFEST — every tracked JavaScript/TypeScript file, and what it is.
+#
+# One rule per line:  CLASS | pattern | reason | producer
+#
+#   CLASS     LOGIC (must become Rust, counted and capped) · BOUNDARY (a platform call, decides nothing)
+#             · RENDERING (places what it was given) · GENERATED (a build step produces it)
+#   pattern   repo-relative. A trailing `/` matches the whole tree; anything else is one exact file.
+#             THE MOST SPECIFIC (LONGEST) MATCHING PATTERN WINS, so the order of these lines never decides.
+#   reason    what it is, in one line — the thing a reviewer checks
+#   producer  REQUIRED for GENERATED: the path of the thing that produces the file, checked to exist
+#
+# The gate is agent/tests/js_boundary_inventory.rs. LOGIC is the work that is left; its cap only falls.
+
+# ── GENERATED ─────────────────────────────────────────────────────────────────────────────────────────────────
+GENERATED | agent/resources/panel/ | the panel SPA as shipped — embedded into the agent with include_str! | agent/resources/panel-react
+GENERATED | agent/resources/panel/vendor/ | xterm, vendored into the built panel | agent/resources/panel-react
+GENERATED | agent/resources/panel-react/src/wasm/panel_logic.js | wasm-bindgen's glue for the panel's logic crate | agent/resources/panel-logic
+GENERATED | agent/resources/panel-react/src/wasm/panel_logic.d.ts | wasm-bindgen's types for the panel's logic crate | agent/resources/panel-logic
+GENERATED | gateway/ui/src/wasm/ui_logic.js | wasm-bindgen's glue for the console's logic crate | gateway/ui-logic
+GENERATED | gateway/ui/src/wasm/ui_logic.d.ts | wasm-bindgen's types for the console's logic crate | gateway/ui-logic
+GENERATED | gateway/public/assets/ | the built console bundle, served by the console worker | gateway/ui
+GENERATED | gateway/public/code/files/ | the Source Viewer's byte-for-byte mirror of tracked sources | gateway/scripts/sync-code-viewer.sh
+GENERATED | index/public/summrise-agent/landing/ | the landing arms, rendered by the Rust crate at build time | index/landing/build.sh
+GENERATED | index/public/summrise-agent/ | the emitted probes and the e2e bundle, written by `--emit` | agent/scripts
+GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
+GENERATED | agent/summrise-agent-npm/bin/ | tsc output of src/summrise.ts — the CLI npm executes | agent/summrise-agent-npm/src
+GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
+GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
+GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
+GENERATED | agent/summrise-desktop-electron/src/url-policy.js | tsc output of url-policy.ts | agent/summrise-desktop-electron/src/url-policy.ts
+GENERATED | index/spike-rust-landing/dist/ | wasm-pack output of the landing spike | index/spike-rust-landing
+
+# ── RENDERING: a browser view, and its own tests ─────────────────────────────────────────────────────────────
+RENDERING | agent/resources/panel-react/src/ | the panel's view layer — TSX, styles, and the tests that render them
+RENDERING | agent/resources/panel-react/ | the panel's build config (vite, tsc, eslint)
+RENDERING | gateway/ui/src/ | the console's view layer — TSX, routes, styles
+RENDERING | gateway/ui/test/ | the console view's tests
+RENDERING | gateway/ui/ | the console's build config
+RENDERING | gateway/ | the console worker's build config
+
+# ── BOUNDARY: a platform call, and it decides nothing ────────────────────────────────────────────────────────
+BOUNDARY | agent/resources/panel-react/src/lib/ | the panel's data boundary — fetch, storage, DOM reads, and the seams that call the logic crate
+BOUNDARY | agent/resources/panel-react/src/hooks/ | the panel's SSE/fetch hooks — a transport, not a decision
+BOUNDARY | agent/resources/panel-react/src/wasm/panelLogic.ts | the hand-written seam onto the panel's logic crate
+BOUNDARY | agent/resources/panel-react/scripts/ | the panel's CSS build tooling
+BOUNDARY | gateway/ui/src/wasm/consoleLogic.ts | the hand-written seam onto the console's logic crate
+BOUNDARY | gateway/ui/scripts/ | the console's build tooling
+BOUNDARY | gateway/scripts/ | the console worker's build/deploy tooling
+BOUNDARY | gateway/wasm/ | harnesses that execute the built JS+wasm worker and diff it against the shipping one
+BOUNDARY | index/worker/ | the same harness shape for the index worker
+BOUNDARY | index/landing/ | harnesses that render and verify the landing crate's output
+BOUNDARY | index/spike-rust-landing/ | the landing spike's measure/verify harness
+BOUNDARY | agent/summrise-workspace-dsh/ | the DSH plugin package — a plugin must be JS; the agent owns the connections
+BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
+BOUNDARY | agent/scripts/e2e/ | the device e2e bundle: the page-side half runs where browser_run_script runs
+BOUNDARY | .agents/skills/setup-ts-deep-modules/ | a tooling config for the skill, not product code
+BOUNDARY | docs/superpowers/p0/ | the P0 measurement harness — historical evidence, and a deletion candidate
+BOUNDARY | proxies/api-relay/relay/ | the relay crate's own harness
+BOUNDARY | proxies/summrise-relay/ | the retired relay worker's harness, kept for the differential
+
+# ── LOGIC: the work that is left ─────────────────────────────────────────────────────────────────────────────
+LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)
+LOGIC | scripts/test/ | six gates that spawn a toolchain (landing 3)
+LOGIC | agent/summrise-agent-npm/src/ | the CLI's decisions (landing 4)
+LOGIC | agent/summrise-agent-npm/test/ | the CLI's suite, ported with it (landing 4)
+LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's decisions — url-policy, ports, auth, certs (landing 6)
+LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with it (landing 6)
+LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
+LOGIC | gateway/test/ | the console worker's suite (landing 5)
+LOGIC | gateway/config/ | the provider catalogue as TypeScript, becoming data (B)
+LOGIC | index/src/ | the index worker's entry and page policy (landing 5)
+LOGIC | index/test/ | the index worker's suite (landing 5)
+LOGIC | proxies/api-relay/api/ | the api-relay oracle half — A2 (landing 5)
+LOGIC | proxies/api-relay/server/ | the api-relay server's decisions (landing 5)
+LOGIC | scripts/ | the root build/release tooling (landing 3)
