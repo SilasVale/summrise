@@ -357,11 +357,29 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   ⑤ 删除 **1,788 行／12 个文件**（558 源码 ＋ 901 测试 ＋ 323 录制器 ＋ 6 package.json）✓——
   **而三条早先的提交把删除清单写成 "1,377 = 407+151+819" ✗：测试是 901 而不是 819**，本条按 `git show HEAD:<file> | wc -l` 改正 ✓。
   **ratchet 的 STILL_JS 因此从 2 降到 1** ✓（只剩 `summrise-gate` = A6），而 `MAX_STILL_JS` 同步降到 1 ✓。
-  **剩下的只有部署动作**（`./scripts/build.sh relay`，它带着自己的 smoke：一个不指向任何对象的 token 必须回 claim DO
-  自己的 404 信封 ✓），**那需要操作者的点头** ✓——它换掉的是 `/files/*` 后面那个 worker，也就是每台设备
-  `system_file_upload`／`download` 走的那条路 ✓。
+  **而部署也做了（2026-10-08，操作者点头：先合并推送、CI 绿了再部署）** ✓✓——**命令是 `./scripts/build.sh relay`** ✓
+  （它带着自己的 smoke：一个不指向任何对象的 token 必须回 claim DO 自己的 404 信封 ✓）。
+  **量的结果** ✓：`Total Upload: 606.52 KiB / gzip 208.49 KiB`（JavaScript 那份是 11.56 KiB）、
+  `Worker Startup Time: 2 ms`、三个绑定都在（`TEMP_CLAIM` DO／`TEMP_FILES` R2／`PUBLIC_BASE`）✓、
+  路由 `agent.saisi.online/files/*` 重新挂上 ✓、**Version ID `e70ab5b7-259e-4dd9-b894-5a1ba99dd2dd`** ✓
+  （回滚：`wrangler rollback`，或退回上一个部署 `84cddea6-6582-4cc9-948c-93568b67e70e`）✓、
+  **两个 secret 一个不少** ✓（`DO_AUTH`、`UPLOAD_KEY`——同一个 worker 名原地换实现，所以它们本该留着 ✓）。
+  **而 cutover 前后是逐字节可比的** ✓：同一组探针在部署前（JS）与部署后（Rust）答同样的东西 ——
+  `/files/<22 字符 token>` 两次都是 `404` ＋ `{"error":"file not found or already downloaded"}`（48 B，**claim DO 自己的信封** ✓）·
+  `/files/short` 两次都是 `404` ＋ `{"error":"not found"}`（21 B）✓；部署后另外逐条对过语料里的形状：
+  **16 字符 token 到 DO** ✓、**65 字符退回路由的 404** ✓、**`POST /files/<token>` 是 `{"error":"not found"}`** ✓、
+  **`GET /api/upload` 是纯文本 `Not Found`** ✓（这是那个 worker 唯一的非 JSON 拒绝 ✓）。
+  **而 CI 是绿的** ✓：`b000cf56` 的 10 个 job 全 success（其中 `gateway` 那个 job 上一轮红在一个与本迁移无关的
+  flake 上 —— `gateway/wasm` 的两个缓存测试共用一个进程级缓存却在并行线程上跑，5 次里红 2 次，
+  已用 test-only guard 修掉并单独合并 ✓）。
+  剩下没有做的，**具名而不是暗示** ✓：评审提出的两条 Minor（`public_base` 不 trim、回退时丢非默认端口；
+  `js_number_header` 自己重新推导 `Number()` 而不是复用已在语料里钉过的 `js_number`）——
+  两条在部署配置下都够不到（`PUBLIC_BASE` 在生产里是设好的整串、端口是默认的；`content-length` 合规客户端不会发 `0x10`），
+  但它们是**与被删 oracle 的差异**，所以记在这里而不是删掉 ✓。
   **而差分能看见与看不见的东西都写下来了** ✓：**看不见的是 DO 的串行化**（两个并发 claim 不会都赢是**运行时**的保证，
-  没有 stub 能证明它 ✓）——JavaScript 里那对测试随删除消失，所以这句话现在是平台契约 ＋ Rust 类保持那个形状 ✓。
+  没有 stub 能证明它 ✓）——JavaScript 里那对测试随删除消失，所以这句话现在是平台契约 ＋ Rust 类保持那个形状 ✓；
+  **而`forwarded` 那一行现在钉住了实例名** ✓✓（评审发现它此前只比 method／path／headers：把 `files/<token>` 换成任何
+  别的名字，响应逐字节不变而"只下载一次"会静默失效 —— 变异实测：三个用例在 `forwarded` 行上红 ✓）。
 
 ---
 
