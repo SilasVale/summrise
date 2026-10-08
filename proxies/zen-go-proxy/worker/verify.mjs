@@ -20,10 +20,20 @@
 //
 // ── WHAT THE TWO SIDES ARE ──────────────────────────────────────────────────────────────────────
 //
-//   old — `proxies/zen-go-proxy/src/index.js` AS PUBLISHED, imported from its real path (a `data:` URL
-//         cannot host it: it has no hierarchy for a relative import to resolve against).
+//   old — `shipping-answers.json`: what `proxies/zen-go-proxy/src/index.js` answered, RECORDED by this
+//         file on a run where both sides agreed on all 17 cases (`SWEEP_RECORD=1 node verify.mjs
+//         --build`). **THE JAVASCRIPT ITSELF IS DELETED (2026-10-08)**, which is what the fixture is
+//         for: the port replaced it, and a differential whose left side is gone has to hold the
+//         answers rather than re-run the implementation. Recording in a run where the two AGREED is
+//         what makes this a reference rather than a pinned failure.
 //   new — `build/index.js`, the module `worker-build --release` produced, driven through its real
 //         `fetch` entrypoint with the same env and the same request.
+//
+// **RE-RECORDING IS NOT A LOCAL OPERATION ANY MORE**, and it is named rather than implied: with the
+// shipping half deleted, `SWEEP_RECORD=1` needs `src/index.js` back (`git show <sha>:proxies/
+// zen-go-proxy/src/index.js`), and a changed case list therefore needs a deliberate re-record rather
+// than a silent one. The fixture carries each case's method and path so a stale one is REFUSED with
+// that sentence instead of compared against the wrong row.
 //
 // ── AND THE UPSTREAM IS STUBBED BY REPLACING THE GLOBAL `fetch` ─────────────────────────────────
 //
@@ -36,7 +46,7 @@
 // WHAT IT DOES NOT COVER, STATED RATHER THAN IMPLIED: the real upstream's behaviour is replaced by fixed
 // answers. This compares the two IMPLEMENTATIONS against the same upstream, not against the provider.
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -257,20 +267,66 @@ async function shape(resp) {
   };
 }
 
-// ── the old side: the JavaScript the VPS runs, FROM A FILE ──────────────────────────────────────
-const { default: jsWorker } = await import(new URL("../src/index.js", import.meta.url).href);
+// ── the old side: THE RECORDED ANSWERS, VALIDATED BEFORE ANY CASE RUNS ─────────────────────────
+//
+// A fixture that belongs to a DIFFERENT case list is refused here, by name, rather than compared row by
+// row against the wrong answer: `method` and `path` travel with every entry, so an inserted or
+// reordered case is a sentence instead of a silent mismatch.
+const FIXTURE = new URL("./shipping-answers.json", import.meta.url);
+const RECORD = !!process.env.SWEEP_RECORD;
+
+let recorded = null;
+if (RECORD) {
+  console.log("  RECORDING: this run writes the fixture, and needs the shipping half (`../src/index.js`)");
+} else {
+  recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
+  const stale = (why) => {
+    console.error(
+      `\nshipping-answers.json is not this case list: ${why}\n` +
+        `  It is RECORDED, so it can only be made where the shipping half is: put ` +
+        `proxies/zen-go-proxy/src/index.js back from git history and run\n` +
+        `      SWEEP_RECORD=1 node verify.mjs --build\n` +
+        `  (see this file's header — the fixture is the left side now, and a changed list needs a ` +
+        `deliberate re-record, not a silent one.)`,
+    );
+    process.exit(2);
+  };
+  if (recorded.cases.length !== CASES.length) {
+    stale(`it holds ${recorded.cases.length} case(s), CASES has ${CASES.length}`);
+  }
+  for (const [i, c] of CASES.entries()) {
+    const r = recorded.cases[i];
+    if (r.method !== c.method || r.path !== c.path) {
+      stale(`entry ${i} is ${r.method} ${r.path}, CASES[${i}] is ${c.method} ${c.path}`);
+    }
+  }
+}
+
+// **`src/index.js` IS IMPORTED IN RECORD MODE ONLY.** It is deleted from the tree, so every other run
+// reads the fixture — which is the state this harness exists in now.
+const shippingFetch = RECORD
+  ? (await import(new URL("../src/index.js", import.meta.url).href)).default.fetch
+  : null;
 
 let bad = 0;
+const fresh = [];
 for (const [i, c] of CASES.entries()) {
   const url = HOST + c.path;
   const init = { method: c.method, headers: c.headers || {} };
   if (c.body !== undefined) init.body = c.body;
 
-  OVERRIDE = c.override || null;
-  upstream = null;
-  const jsResp = await jsWorker.fetch(new Request(url, init), ENV);
-  const jsShape = await shape(jsResp);
-  const jsUpstream = upstream;
+  let jsShape, jsUpstream;
+  if (RECORD) {
+    OVERRIDE = c.override || null;
+    upstream = null;
+    jsShape = await shape(await shippingFetch(new Request(url, init), ENV));
+    jsUpstream = upstream;
+    fresh.push({ label: c.label, method: c.method, path: c.path, ...jsShape, upstream: jsUpstream });
+  } else {
+    const r = recorded.cases[i];
+    jsShape = { status: r.status, headers: r.headers, bytes: r.bytes, body: r.body };
+    jsUpstream = r.upstream;
+  }
 
   OVERRIDE = c.override || null;
   upstream = null;
@@ -310,6 +366,21 @@ for (const [i, c] of CASES.entries()) {
       console.log(`        rust: ${JSON.stringify(got).slice(0, 300)}`);
     }
   }
+}
+
+// **A FIXTURE RECORDED FROM A RUN WHERE THE TWO SIDES DISAGREE IS A PINNED FAILURE, NOT A REFERENCE.**
+// So the recording run refuses to write one — the only way `shipping-answers.json` can exist is a run
+// that proved the port equal to the implementation it replaced.
+if (RECORD) {
+  if (bad > 0) {
+    console.error(
+      `\nREFUSING TO RECORD: ${bad} of ${CASES.length} case(s) differ. Fix the port (or the harness) ` +
+        `first — a fixture written from a disagreement pins the disagreement.`,
+    );
+    process.exit(1);
+  }
+  writeFileSync(FIXTURE, `${JSON.stringify({ cases: fresh }, null, 2)}\n`);
+  console.log(`  recorded ${fresh.length} shipping answer(s) -> shipping-answers.json`);
 }
 
 console.log(

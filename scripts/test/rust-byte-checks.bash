@@ -12,6 +12,13 @@
 #     proxies/zen-go-proxy/worker/verify.mjs  the zen-go satellite, 17 cases
 #     index/landing/verify.mjs                the landing page, rendered by both renderers
 #
+# **TWO OF THE FIVE HAVE A RECORDED LEFT SIDE NOW, AND THAT IS THE MIGRATION'S OWN SHAPE (2026-10-08).**
+# The satellites' JavaScript was proven equal and then DELETED, so their harnesses compare the port
+# against `shipping-answers.json` — what that implementation answered, recorded on a run where the two
+# sides agreed (`SWEEP_RECORD=1`). The comparison they drive is unchanged; what changed is that its left
+# side is a fixture rather than a live second implementation, which is also what lets the check run on a
+# tree that no longer contains one.
+#
 # **AND ONE THAT IS DELIBERATELY NOT HERE**: `index/spike-rust-landing/verify.mjs` also runs and also
 # passes, but its own README opens "A spike, not a migration" — it answered whether the landing COULD be
 # Rust, and `index/landing/` is the answer. **A retired spike's fidelity check is a gate on an artifact

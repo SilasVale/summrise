@@ -1,7 +1,10 @@
 //! A COMMENT THAT ASSERTS PARITY IS NOT A COMPARISON.
 //!
-//! Five files carry the same CORS allowlist: the gateway — which EXPORTS it and lets config override it
-//! — and four proxies that restate it. Every copy's comment says it matches the others ("the console
+//! Four files carry the same CORS allowlist: the gateway — which EXPORTS it and lets config override it
+//! — and three copies that restate it: the relay's two JS handlers, and **ONE** Rust copy that serves
+//! both satellites. (It was two copies until 2026-10-08; the port collapsed them, because `zen-go`'s
+//! crate depends on `zen-us`'s and re-exports `cors_headers`, and a rule that exists once cannot drift
+//! from itself.) Every copy's comment says it matches the others ("the console
 //! origins used in this repo"), and NOTHING compared them. The one test whose name claims to be the
 //! guard (`proxies/api-relay/api/test/proxy-gate.test.mjs:53`, "CORS matrix on the autonomous copy
 //! (drift guard vs gateway http.ts)") imports `../proxy.js` and no gateway file at all — it checks the
@@ -40,11 +43,18 @@ use common::{chars, find_seq};
 use std::fs;
 
 const OWNER: &str = "gateway/src/http.ts";
-const COPIES: [&str; 4] = [
-    "proxies/api-relay/api/zen.js",
-    "proxies/api-relay/api/proxy.js",
-    "proxies/zen-go-proxy/src/index.js",
-    "proxies/zen-us-proxy/src/index.js",
+
+/// **(file, how to find its list).** The list SHRANK from four copies to three on 2026-10-08, when the
+/// satellites' JavaScript halves were deleted — and it shrank by TWO while gaining one, which is the
+/// part worth reading: `zen-go` and `zen-us` each carried their own JS copy (which this gate existed to
+/// keep in step), and the port keeps **one**, because `zen-go`'s crate depends on `zen-us`'s and
+/// re-exports `cors_headers`. ADR 0003 keeps the satellites autonomous as DEPLOYMENTS; a shared Rust
+/// crate is not a shared deployment. **A rule that exists once cannot drift from itself**, so the
+/// migration removed a copy rather than porting it.
+const COPIES: [(&str, &str); 3] = [
+    ("proxies/api-relay/api/zen.js", "js"),
+    ("proxies/api-relay/api/proxy.js", "js"),
+    ("proxies/zen-us-proxy/worker/src/lib.rs", "rust"),
 ];
 
 struct Streams {
@@ -53,13 +63,9 @@ struct Streams {
     failed: bool,
 }
 
-/// The string literals inside the first `new Set([...])` that follows `ALLOWED_ORIGINS`, sorted.
-fn origins_of(src: &str) -> Option<Vec<String>> {
-    let c = chars(src);
-    let at = find_seq(&c, "ALLOWED_ORIGINS", 0)?;
-    let set = find_seq(&c, "new Set([", at)?;
-    let end = find_seq(&c, "])", set)?;
-    let body = &c[set..end];
+/// The quoted strings inside a slice, in order — shared by both readers, because the two languages
+/// differ only in where the slice STARTS.
+fn quoted(body: &[char]) -> Vec<String> {
     let mut out = Vec::new();
     let mut i = 0;
     while let Some(open) = find_seq(body, "\"", i) {
@@ -71,6 +77,30 @@ fn origins_of(src: &str) -> Option<Vec<String>> {
         }
         i = close + 1;
     }
+    out
+}
+
+/// The string literals inside the first `new Set([...])` that follows `ALLOWED_ORIGINS`, sorted.
+fn origins_of(src: &str) -> Option<Vec<String>> {
+    let c = chars(src);
+    let at = find_seq(&c, "ALLOWED_ORIGINS", 0)?;
+    let set = find_seq(&c, "new Set([", at)?;
+    let end = find_seq(&c, "])", set)?;
+    let mut out = quoted(&c[set..end]);
+    out.sort();
+    Some(out)
+}
+
+/// **THE RUST COPY, AND ITS SHAPE IS NOT THE JS's** — `pub const ALLOWED_ORIGINS: [&str; 2] = ["…"];`.
+/// The anchor is `= [`, not the first `[`: the TYPE's bracket comes first in a Rust const, and anchoring
+/// on it would slice `&str; 2` and read zero origins from a file that has two. `]` ends the slice (there
+/// is no `])` in Rust), and no comment can be inside it.
+fn origins_of_rust(src: &str) -> Option<Vec<String>> {
+    let c = chars(src);
+    let at = find_seq(&c, "ALLOWED_ORIGINS", 0)?;
+    let eq = find_seq(&c, "= [", at)?;
+    let end = find_seq(&c, "]", eq)?;
+    let mut out = quoted(&c[eq..end]);
     out.sort();
     Some(out)
 }
@@ -81,13 +111,17 @@ fn origins_of(src: &str) -> Option<Vec<String>> {
 /// emptied Set is reported as "disagrees with the owner, missing: …" rather than as a renamed copy.
 /// (The JS has no try/catch around its reads, so a MISSING copy file is an uncaught ENOENT there and a
 /// finding here; that difference is stated in the header.)
-fn read_origins(rel: &str) -> Option<Vec<String>> {
+fn read_origins(rel: &str, form: &str) -> Option<Vec<String>> {
     let text = fs::read_to_string(common::repo().join(rel)).ok()?;
-    origins_of(&text)
+    if form == "rust" {
+        origins_of_rust(&text)
+    } else {
+        origins_of(&text)
+    }
 }
 
 fn check() -> Streams {
-    let owner = match read_origins(OWNER) {
+    let owner = match read_origins(OWNER, "js") {
         Some(o) if o.len() >= 2 => o,
         _ => {
             return Streams {
@@ -102,8 +136,8 @@ fn check() -> Streams {
 
     let mut stderr = String::new();
     let mut bad = 0;
-    for f in COPIES {
-        let got = match read_origins(f) {
+    for (f, form) in COPIES {
+        let got = match read_origins(f, form) {
             Some(g) => g,
             None => {
                 stderr.push_str(&format!(
@@ -201,6 +235,29 @@ fn the_slice_is_the_set_and_the_urls_survive_it() {
     assert_eq!(origins_of(after).expect("an allowlist").len(), 2);
     // A file that does not mention the name at all is `None`, not an empty allowlist.
     assert!(origins_of("const x = 1;").is_none());
+}
+
+/// **THE RUST READER'S OWN PROOF, AND THE TRAP IT IS WRITTEN AGAINST.** A Rust const's FIRST bracket is
+/// the TYPE's (`[&str; 2]`), so an anchor on `[` slices `&str; 2` and answers `Some(vec![])` — an EMPTY
+/// allowlist, which this gate reports as a disagreement rather than as a reader that cannot read. The
+/// first assertion is what fails if that anchor is ever "simplified".
+#[test]
+fn the_rust_reader_anchors_on_the_value_and_not_on_the_type() {
+    let src =
+        "pub const ALLOWED_ORIGINS: [&str; 2] = [\"https://a.example\", \"https://b.example\"];";
+    assert_eq!(
+        origins_of_rust(src).expect("an allowlist"),
+        vec![
+            "https://a.example".to_string(),
+            "https://b.example".to_string()
+        ]
+    );
+    // The slice ends at `]`, so a comment after the const cannot contribute an origin.
+    let after = "pub const ALLOWED_ORIGINS: [&str; 1] = [\"https://a.example\"];\n// https://comment.example\n";
+    assert_eq!(origins_of_rust(after).expect("an allowlist").len(), 1);
+    // A file that does not mention the name is `None`, not an empty allowlist.
+    assert!(origins_of_rust("pub const ALLOWED: [&str; 1] = [\"https://a.example\"];").is_none());
+    assert!(origins_of_rust("const x = 1;").is_none());
 }
 
 #[test]

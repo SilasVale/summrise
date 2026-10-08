@@ -1,0 +1,302 @@
+{
+  "cases": [
+    {
+      "label": "no key, on a path NO ROUTE NAMES — the gate runs first",
+      "method": "GET",
+      "path": "/nope",
+      "status": 401,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 97,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+      "upstream": null
+    },
+    {
+      "label": "the preflight — answered BEFORE the gate",
+      "method": "OPTIONS",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS"
+      ],
+      "bytes": 0,
+      "body": "",
+      "upstream": null
+    },
+    {
+      "label": "the preflight, on a path no route names",
+      "method": "OPTIONS",
+      "path": "/anything",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS"
+      ],
+      "bytes": 0,
+      "body": "",
+      "upstream": null
+    },
+    {
+      "label": "GET /v1/models with no key",
+      "method": "GET",
+      "path": "/v1/models",
+      "status": 401,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 97,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+      "upstream": null
+    },
+    {
+      "label": "GET /v1/models, wrong key",
+      "method": "GET",
+      "path": "/v1/models",
+      "status": 401,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 97,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing or invalid x-api-key\"}}",
+      "upstream": null
+    },
+    {
+      "label": "a path no route names, WITH the key",
+      "method": "POST",
+      "path": "/nope",
+      "status": 404,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 73,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+      "upstream": null
+    },
+    {
+      "label": "GET on the messages path — not a POST",
+      "method": "GET",
+      "path": "/v1/messages",
+      "status": 404,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 73,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+      "upstream": null
+    },
+    {
+      "label": "GET /v1/models, gated and served",
+      "method": "GET",
+      "path": "/v1/models",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"data\":[{\"id\":\"m\"}]}",
+      "upstream": {
+        "method": "GET",
+        "path": "/zen/go/v1/models",
+        "headers": [
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    },
+    {
+      "label": "count_tokens — system + tools + messages, all three counted",
+      "method": "POST",
+      "path": "/v1/messages/count_tokens",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 18,
+      "body": "{\"input_tokens\":8}",
+      "upstream": null
+    },
+    {
+      "label": "count_tokens — null parts are dropped by the loose comparison",
+      "method": "POST",
+      "path": "/v1/messages/count_tokens",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 18,
+      "body": "{\"input_tokens\":0}",
+      "upstream": null
+    },
+    {
+      "label": "messages NATIVE + stream — the raw request goes up, SSE comes back",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "cache-control: no-cache",
+        "content-type: text/event-stream; charset=utf-8"
+      ],
+      "bytes": 53,
+      "body": "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/messages",
+        "headers": [
+          "anthropic-version: 2023-06-01",
+          "content-type: application/json",
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    },
+    {
+      "label": "messages NATIVE, the retired alias, not streamed — JSON, and no Cache-Control",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 53,
+      "body": "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/messages",
+        "headers": [
+          "anthropic-version: 2023-06-01",
+          "content-type: application/json",
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    },
+    {
+      "label": "messages TRANSLATED + stream — toOpenAIRequest up, toSSE back",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "cache-control: no-cache",
+        "content-type: text/event-stream; charset=utf-8"
+      ],
+      "bytes": 796,
+      "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"chatcmpl-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"other-model\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"hi\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/chat/completions",
+        "headers": [
+          "authorization: Bearer worker-key-1234567890",
+          "content-type: application/json"
+        ]
+      }
+    },
+    {
+      "label": "messages TRANSLATED, not streamed — toAnthropicResponse, jsonOk",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 268,
+      "body": "{\"id\":\"chatcmpl-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"other-model\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/chat/completions",
+        "headers": [
+          "authorization: Bearer worker-key-1234567890",
+          "content-type: application/json"
+        ]
+      }
+    },
+    {
+      "label": "messages with NO model — the deepseek-flash default",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 200,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 53,
+      "body": "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/messages",
+        "headers": [
+          "anthropic-version: 2023-06-01",
+          "content-type: application/json",
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    },
+    {
+      "label": "a 4xx that ECHOES THE WORKER'S KEY — it must be redacted",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 400,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 69,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"bad key ***\"}}",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/messages",
+        "headers": [
+          "anthropic-version: 2023-06-01",
+          "content-type: application/json",
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    },
+    {
+      "label": "a 5xx — generic client text, the detail stays server-side",
+      "method": "POST",
+      "path": "/v1/messages",
+      "status": 503,
+      "headers": [
+        "access-control-allow-headers: *",
+        "access-control-allow-methods: GET,POST,OPTIONS",
+        "content-type: application/json"
+      ],
+      "bytes": 78,
+      "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Upstream unavailable\"}}",
+      "upstream": {
+        "method": "POST",
+        "path": "/zen/go/v1/messages",
+        "headers": [
+          "anthropic-version: 2023-06-01",
+          "content-type: application/json",
+          "x-api-key: worker-key-1234567890"
+        ]
+      }
+    }
+  ]
+}

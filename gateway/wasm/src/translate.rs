@@ -25,8 +25,11 @@
 //!
 //! ## AND `sse` + `toSSE` ARE A **THIRD** COPY
 //!
-//! `sse` is byte-identical in three places now: here, in `zen-go-proxy/src/index.js` and in
-//! `zen-us-proxy/src/index.js`. **`toSSE` is NOT identical in any of them** — the gateway's
+//! `sse` is byte-identical in TWO places now: here, and `zen-go-proxy/worker/src/lib.rs` — measured
+//! 2026-10-08, the two bodies hash the same (`a8208522dd1bc1a3`). It was three while each satellite kept
+//! its own JavaScript copy; those were deleted that day, and `zen-us` never had an `sse` at all because
+//! it does not translate. **`toSSE` is NOT identical in the two** (same measurement: 142 lines against
+//! 73) — the gateway's
 //! `content_block_start` empties the block (`{...block, text: "", thinking: "", input: {}}`, round-96's
 //! fix for a double-emit) and emits a `signature_delta` after a `thinking_delta`; the satellites send
 //! the block as it is and no signature.

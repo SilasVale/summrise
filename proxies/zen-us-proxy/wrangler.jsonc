@@ -1,10 +1,11 @@
 {
   "name": "zen-us-proxy",
-  // **THE ENTRY POINT IS THE RUST BUILD, AND `src/index.js` IS STILL HERE ON PURPOSE.**
-  // The plan's rule is that the old half is not deleted until the new one is proven equal to it byte for
-  // byte, and `worker/verify.mjs` is what proves it — it drives the `worker-build` output against
-  // `src/index.js` on the same request, 17 cases. **Deleting the JS now would delete the oracle**, so it
-  // stays until the comparison has nothing left to compare.
+  // **THE ENTRY POINT IS THE RUST BUILD, AND THE JAVASCRIPT IS GONE (2026-10-08).**
+  // `worker/verify.mjs` proved the port equal to `src/index.js` byte for byte — 17 cases, the upstream
+  // requests included — and the JS was then deleted, with the comparison moved onto
+  // `worker/shipping-answers.json`: the answers that same harness RECORDED on a run where both sides
+  // agreed. **The oracle is a fixture now**, so this directory carries one implementation rather than
+  // two, and the differential still fails if the port moves.
   "main": "worker/build/index.js",
   // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES — MEASURED 2026-10-08.**
   // `worker/build/` is gitignored (its own `.gitignore` is `*`), so on a clean checkout the entry point

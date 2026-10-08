@@ -36,14 +36,20 @@ use std::fs;
 const CANONICAL: u64 = 30000;
 
 /// [file, how to find the number, whether an env override is allowed here]
+///
+/// **THE TWO SATELLITE SITES ARE RUST FILES SINCE 2026-10-08**, when their JavaScript halves were
+/// deleted: the consts did not move, they were PORTED, and the gate follows the implementation rather
+/// than the language it used to be written in. Both crates still declare their OWN const — `zen-go`
+/// re-exports `zen-us`'s CORS policy but not its timeout — so this is still seven independently
+/// editable sites, which is the risk the gate exists for.
 const SITES: [(&str, &str, bool); 7] = [
     ("proxies/api-relay/api/git.ts", "env", true),
     ("proxies/api-relay/api/github.ts", "env", true),
     ("proxies/api-relay/api/gform.ts", "env", true),
     ("proxies/api-relay/api/zen.js", "const", false),
     ("proxies/api-relay/api/proxy.js", "const", false),
-    ("proxies/zen-go-proxy/src/index.js", "const", false),
-    ("proxies/zen-us-proxy/src/index.js", "const", false),
+    ("proxies/zen-go-proxy/worker/src/lib.rs", "rust", false),
+    ("proxies/zen-us-proxy/worker/src/lib.rs", "rust", false),
 ];
 
 struct Streams {
@@ -93,6 +99,19 @@ fn const_timeout(src: &str) -> Option<u64> {
     (c.get(after) == Some(&';')).then_some(n)
 }
 
+/// **`pub const HEADER_TIMEOUT_MS: u64 = (\d+);` — the Rust form, and the TYPE ANNOTATION is what makes
+/// it a different pattern rather than the same one with a prefix.** The JS `const` matcher is anchored on
+/// `const HEADER_TIMEOUT_MS = `, which the Rust line does not contain (`: u64` sits between), so reusing
+/// it would read nothing from a ported file and the FLOOR below would be the only thing to notice.
+fn rust_timeout(src: &str) -> Option<u64> {
+    let c = chars(src);
+    let at = find_seq(&c, "pub const HEADER_TIMEOUT_MS: u64 = ", 0)?;
+    let j = at + "pub const HEADER_TIMEOUT_MS: u64 = ".chars().count();
+    let n = digits_at(&c, j)?;
+    let after = j + n.to_string().len();
+    (c.get(after) == Some(&';')).then_some(n)
+}
+
 fn check() -> Streams {
     let root = common::repo();
     let mut bad: Vec<String> = Vec::new();
@@ -104,16 +123,20 @@ fn check() -> Streams {
             ));
             continue;
         };
-        let value = if form == "env" {
-            env_timeout(&src)
-        } else {
-            const_timeout(&src)
+        let value = match form {
+            "env" => env_timeout(&src),
+            "rust" => rust_timeout(&src),
+            _ => const_timeout(&src),
         };
         let Some(value) = value else {
+            // The third column is part of the sentence: a site an operator can move is read with the env
+            // form, and a site that is hardcoded is read with its language's const form.
             bad.push(format!(
                 "{file}: no header timeout found (expected {})",
                 if env_ok {
                     "the env form"
+                } else if form == "rust" {
+                    "the Rust const"
                 } else {
                     "a module const"
                 }
@@ -215,6 +238,29 @@ fn both_forms_are_read_and_a_stale_pattern_is_not_a_pass() {
         Some(30000)
     );
     assert_eq!(const_timeout("const HEADER_TIMEOUT_MS = 3000x;"), None);
+    // **AND THE RUST FORM IS A DIFFERENT PATTERN RATHER THAN THE SAME ONE WITH A PREFIX** — the trap
+    // this pair of assertions exists for. `const_timeout` cannot read the ported line (the type
+    // annotation sits where its ` = ` is), so reusing it would read NOTHING from a Rust site and only the
+    // floor would notice; and `rust_timeout` cannot read the JS line, so neither can stand in for the
+    // other.
+    assert_eq!(
+        rust_timeout("pub const HEADER_TIMEOUT_MS: u64 = 30000;"),
+        Some(30000)
+    );
+    assert_eq!(rust_timeout("const HEADER_TIMEOUT_MS = 30000;"), None);
+    assert_eq!(
+        const_timeout("pub const HEADER_TIMEOUT_MS: u64 = 30000;"),
+        None
+    );
+    // A renamed or retyped const is not a pass either, and the digit run stops where `(\d+)` stops.
+    assert_eq!(
+        rust_timeout("pub const HEADER_TIMEOUT_MS: u32 = 30000;"),
+        None
+    );
+    assert_eq!(
+        rust_timeout("pub const HEADER_TIMEOUT_MS: u64 = 3000x;"),
+        None
+    );
 }
 
 #[test]

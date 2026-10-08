@@ -2,7 +2,8 @@
 //!
 //! ## What is here and what is not
 //!
-//! `proxies/zen-us-proxy/src/index.js` is 339 lines, and the parts that touch a network or a request are
+//! `proxies/zen-us-proxy/src/index.js` was 339 lines — **deleted 2026-10-08; this crate and `worker.rs`
+//! are its port** — and the parts that touch a network or a request were
 //! not portable: the upstream fetch, the streaming relay, the Durable-Object session header and the
 //! constant-time key comparison (SHA-256, which is not available in this crate's host build). **What IS
 //! portable is the policy** — which origins may be reflected, and what is scrubbed out of an error
