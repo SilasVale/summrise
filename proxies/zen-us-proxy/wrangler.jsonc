@@ -1,11 +1,13 @@
 {
   "name": "zen-us-proxy",
   // **THE ENTRY POINT IS THE RUST BUILD, AND THE JAVASCRIPT IS GONE (2026-10-08).**
-  // `worker/verify.mjs` proved the port equal to `src/index.js` byte for byte — 17 cases, the upstream
-  // requests included — and the JS was then deleted, with the comparison moved onto
-  // `worker/shipping-answers.json`: the answers that same harness RECORDED on a run where both sides
-  // agreed. **The oracle is a fixture now**, so this directory carries one implementation rather than
-  // two, and the differential still fails if the port moves.
+  // The harness proved the port equal to `src/index.js` byte for byte — 17 cases, the upstream requests
+  // included — and the JS was then deleted, with the comparison moved onto
+  // `worker/shipping-answers.json`: the answers that harness RECORDED on a run where both sides agreed.
+  // **The oracle is a fixture now**, so this directory carries one implementation rather than two, and the
+  // differential still fails if the port moves: it is `worker/tests/differential.rs` (a Rust test), and
+  // `gateway/wasm/run-cases.mjs` is the only JavaScript left in the loop, because executing the built wasm
+  // module needs a JS engine.
   "main": "worker/build/index.js",
   // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES — MEASURED 2026-10-08.**
   // `worker/build/` is gitignored (its own `.gitignore` is `*`), so on a clean checkout the entry point
@@ -14,10 +16,10 @@
   //
   //     ✘ ERROR The entry-point file at "worker/build/index.js" was not found.
   //
-  // CI only ever got away with it by ORDER: `scripts/test/rust-byte-checks.bash` runs `verify.mjs` earlier
-  // in the same job, and that harness builds when `build/` is missing — a deploy that depends on a test
-  // having run first is the same defect class as a check nobody runs. `gateway/wasm/wrangler.jsonc` carries
-  // this key for the same reason; the crate here is one directory down, which is what the argument is for
+  // CI only ever got away with it by ORDER: the byte-comparison harness in the same job built the module as
+  // a side effect — a deploy that depends on a test having run first is the same defect class as a check
+  // nobody runs. `gateway/wasm/wrangler.jsonc` carries this key for the same reason; the crate here is one
+  // directory down, which is what the argument is for
   // (`worker-build`'s PATH is "the path to the Rust crate", and its output lands in `<crate>/build/`).
   "build": { "command": "worker-build --release worker" },
   "compatibility_date": "2026-08-01",

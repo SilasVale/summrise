@@ -1022,17 +1022,33 @@ jobs:
           targets: wasm32-unknown-unknown
       # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
       # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
-      # implementation — and both files were deleted after `worker/verify.mjs` proved the port equal to
-      # them byte for byte on 17 cases each. **The differential did not go with them**: its left side is
-      # `worker/shipping-answers.json` now, the answers that harness recorded on a run where both sides
-      # agreed, and `rust-byte-checks.bash` below is what runs it.
+      # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
+      # cases each.
+      #
+      # **AND THE PROOF IS A RUST TEST NOW.** Those harnesses were ~400-line `.mjs` files doing three jobs
+      # at once: running the built wasm module, holding the cases, and judging the bytes. **ONLY THE FIRST
+      # NEEDS JAVASCRIPT** — it is `gateway/wasm/run-cases.mjs`, a runner that takes a spec and prints what
+      # the module did — and the other two are `proxies/zen-{us,go}-proxy/worker/tests/differential.rs`,
+      # run by the two `cargo test` steps below. The expected bytes are `worker/shipping-answers.json`:
+      # what the shipping JavaScript answered, recorded on a run where both sides agreed on all 17 cases.
       #
       # THE zen-us POLICY IS IN RUST (block ④, 2026-09-29): the origin allowlist, the loopback rule and
       # the secret redaction live in `proxies/zen-us-proxy/worker`, and the two Rust gates that read them
       # — `agent/tests/proxy_cors_parity.rs` and `agent/tests/proxy_timeout_parity.rs` — were re-pointed
       # at those sources in the same change rather than left reading a file that no longer exists.
       # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job.
-      - name: Test zen-us policy (Rust)
+      #
+      # **THE CACHE-BIN STEP COMES FIRST NOW, AND THAT IS AN ORDERING REQUIREMENT RATHER THAN A
+      # PREFERENCE.** `rust-byte-checks.bash` is what INSTALLS `worker-build` when it is missing (a
+      # several-minute build, cached between runs), and the differentials below SPAWN it: `worker-build`'s
+      # output is exactly what `run-cases.mjs` executes. Where the step used to sit — after `Test zen-us` —
+      # a cold cache meant the first differential ran with no toolchain to build the module it drives.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      - name: every Rust/JS byte comparison
+        run: bash scripts/test/rust-byte-checks.bash
+      - name: Test zen-us (policy + the differential)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
       # **THE HALF `cargo test` CANNOT SEE.** `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`
       # because `#[event(fetch)]` expands to nothing on the host, so the host build compiles NONE of the
@@ -1048,23 +1064,9 @@ jobs:
       # **THE HALF `cargo test` CANNOT SEE**, for the same reason as zen-us's step above: `worker.rs` is
       # behind `#[cfg(target_arch = "wasm32")]`, so the host build compiles none of the entrypoint. The
       # job's toolchain already carries the target.
-      # **THE FOUR BYTE COMPARISONS, WHICH NOTHING RAN UNTIL NOW.** `gateway/wasm`, `index/worker` and
-      # both satellites each carry a `verify.mjs` that compares a BUILT Rust worker against the shipping
-      # JavaScript on the same request — the plan's own P3 criterion — and `ci.yml` mentioned exactly one
-      # of them, IN A COMMENT. **TWO OF THE FOUR ALSO COULD NOT RUN ON A CLEAN TREE**: they wrote
-      # `build/index_bg.wasm.mjs` without building first, and died with `ENOENT` on the directory
-      # `worker-build` had never made. Wiring them in is what found that.
-      #
-      # `cache-bin` IS WHY THIS IS AFFORDABLE: the script installs `worker-build` (a several-minute
-      # build) when it is missing, and that cache keeps `~/.cargo/bin` between runs, so it is paid once.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-bin: true
-      - name: every Rust/JS byte comparison
-        run: bash scripts/test/rust-byte-checks.bash
       - name: zen-go's entrypoint, for the target it serves
         run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
-      - name: Test zen-go translation (Rust)
+      - name: Test zen-go (translation + the differential)
         run: cargo test --manifest-path proxies/zen-go-proxy/worker/Cargo.toml
       # AND api-relay's ROUTING, which is the FIRST piece of the relay to move (2026-09-30). This one
       # is not a Worker at all — `proxies/README.md` says it in its own words ("api-relay is separate —

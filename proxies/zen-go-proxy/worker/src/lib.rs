@@ -802,7 +802,8 @@ pub fn estimate_tokens(
         // **FOUND BY THE BYTE COMPARISON, NOT BY THE CORPUS.** The corpus rows for this passed `None`
         // where they should have passed `Some(json!(null))`, so all twenty tests were green while the
         // worker answered `{"input_tokens":2}` where the shipping JavaScript answers `{"input_tokens":0}`.
-        // A corpus is written by the same hand that wrote the port; `verify.mjs` is not.
+        // A corpus is written by the same hand that wrote the port; the differential is not — it compares
+        // against bytes the SHIPPING worker produced.
         if part.is_null() {
             continue;
         }
@@ -1003,7 +1004,7 @@ mod route_decision_tests {
                 want: 0,
             },
             // **AN EXPLICIT JSON `null` IS DROPPED TOO** — the row the corpus was missing, added after
-            // `verify.mjs` found the divergence the corpus could not: `{system: null, messages: null}` is
+            // the byte comparison found the divergence the corpus could not: `{system: null, messages: null}` is
             // `{"input_tokens":0}` in the shipping worker.
             Estimate {
                 system: Some(json!(null)),

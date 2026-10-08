@@ -43,3 +43,9 @@ serde = { version = "1", features = ["derive"] }
 # object literals, and the response is compared BYTES. The feature makes Map an insertion-ordered
 # map, which is what "the same document" means for a transliteration.
 serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+# THE JUDGE HALF OF THIS CRATE'S DIFFERENTIAL — the same dev-dependency as the sibling crate's, and for the
+# same reason: the harness spawns `node` and reads files, so it must never be linked into the worker this
+# crate builds for wasm32. One copy of the judge, two satellites.
+summrise-differential-harness = { path = "../../differential-harness" }

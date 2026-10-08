@@ -1,8 +1,8 @@
 //! **THE I/O HALF OF `zen-us-proxy`, AND IT IS wasm32-ONLY ON PURPOSE.**
 //!
 //! ── THE MUTATION THAT MUST FAIL THIS FILE'S COMPANION ───────────────────────────────────────────
-//! `verify.mjs` compares this worker's bytes with the shipping JavaScript's, on the same request. Read
-//! that file's header for the mutation; this one is the thing it drives.
+//! `tests/differential.rs` compares this worker's bytes with the RECORDED shipping answers, on the same
+//! request. Read that file's header for the mutation; this one is the thing it drives.
 //!
 //! ── WHY `#[cfg(target_arch = "wasm32")]`, WHICH IS NOT A PORTABILITY COMPROMISE ─────────────────
 //!
@@ -28,7 +28,7 @@
 //! the upstream now, through `fetch_upstream_headers` (the header budget with the signal, so the body
 //! stays untimed) and `relay_upstream_error` (the one place a provider's own words reach the client, and
 //! therefore where the credential dies). **THE SURFACE IS WHOLE**, and what is left is the byte
-//! comparison that says so: `verify.mjs`, which is possible now and was not before.
+//! comparison that says so: `tests/differential.rs`, which is possible now and was not before.
 
 use worker::*;
 
@@ -368,7 +368,7 @@ pub async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 /// WAITING without ABORTING, so the upstream request stays in flight.** The client sees the same bytes
 /// either way (`ctrl.abort()` rejects the fetch, the handler's `catch` answers
 /// `jsonError(500, "Internal error", "api_error", cors)` — measured, `src/index.js:317-320`), **so
-/// `verify.mjs` could not tell the two apart** — which is exactly the kind of difference this repository
+/// the byte comparison could not tell the two apart** — which is exactly the kind of difference this repository
 /// says to name rather than to discover later. **THE SIGNAL IS THE PORT.**
 ///
 /// ── AND HERE IT IS, WRITTEN FROM THAT MEASUREMENT ─────────────────────────────────────────────

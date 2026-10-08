@@ -1,0 +1,16 @@
+[package]
+name = "summrise-differential-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The judge half of the satellite differentials: cases + upstream answers in, the built wasm module's bytes compared against the recorded shipping answers."
+
+# A LIBRARY, NOT A WORKER — and never a dependency of one. It spawns `node` and reads files, so it is
+# linked into the satellites' TEST binaries only (`[dev-dependencies]`); the crate comments say why that
+# is load-bearing rather than tidy.
+[lib]
+name = "summrise_differential_harness"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1"
