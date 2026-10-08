@@ -114,6 +114,38 @@ pub fn opencode_session_header(
     vec![("x-opencode-session".to_string(), value)]
 }
 
+/// **`ogSession` — THE SESSION HEADERS A REQUEST CARRIES TO `zen/go`, AND NONE FOR ANY OTHER WIRE.**
+///
+/// The source is one line of the retired TypeScript (`plugins/translate.ts:917`):
+///
+/// ```text
+///     const ogSession =
+///       route.kind === "opencode" ? opencodeSessionHeader(request.headers, user?.id || "") : {};
+/// ```
+///
+/// **THE KIND CHECK IS THE HALF THAT KEEPS A FOREIGN HEADER OFF FOREIGN UPSTREAMS**, which is why it is here
+/// rather than at the call sites: `opencodeSessionHeader` always answers with a value, so a caller that
+/// forgot the conditional would send `x-opencode-session` to deepseek and to every BYOK channel too.
+///
+/// **AND IT IS A FUNCTION RATHER THAN A PARAMETER BECAUSE THE PARAMETER WAS PASSED EMPTY.** The front door
+/// carried `let og_session: Vec<(String, String)> = Vec::new();` from 2026-10-03 to 2026-10-08 — every arm
+/// consumed it, the arms' corpora proved them with a session object, and the one place that had to SUPPLY
+/// one supplied nothing. Measured live: every `og/` request answered
+/// `400 … Request is missing x-opencode-session` from zen/go, with or without the client sending its own.
+/// A parameter cannot be proved non-empty by the tests of its consumers; this composition is proved by the
+/// test that drives the plan, and the callers no longer have a value to get wrong.
+pub fn og_session(
+    kind: &str,
+    incoming: &serde_json::Map<String, serde_json::Value>,
+    uid: &str,
+) -> Vec<(String, String)> {
+    if kind == "opencode" {
+        opencode_session_header(incoming, uid)
+    } else {
+        Vec::new()
+    }
+}
+
 /// `passthroughHeaders(bearerKey, { apiKeyHeader, extra })` — the header set every passthrough target
 /// gets.
 ///

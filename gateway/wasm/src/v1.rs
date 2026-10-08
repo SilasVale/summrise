@@ -542,6 +542,15 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         }
     }
 
+    // **THE INCOMING HEADERS, BECAUSE THE PLAN COMPOSES THE og SESSION HEADER FROM THEM.** `ogSession`
+    // relays the client's own conversation id when it sent one (four spellings) and synthesizes a stable
+    // per-user value otherwise, so the decision needs the raw list. This is the ONLY thing the front door
+    // supplies for it — the composition itself is `session::og_session`, inside the plan, where it is
+    // proved. The keys are folded to lower case for the same reason `Headers::get` folds them.
+    let incoming: serde_json::Map<String, serde_json::Value> = headers
+        .entries()
+        .map(|(k, v)| (k.to_ascii_lowercase(), serde_json::Value::String(v)))
+        .collect();
     let request = V1Request {
         method: method.to_string(),
         path: path.clone(),
@@ -550,8 +559,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         byok,
         env: env_json,
         raw_text: serde_json::json!(raw),
+        headers: incoming,
     };
-    let og_session: Vec<(String, String)> = Vec::new();
     let plan = v1_plan(&V1PlanInputs {
         req: &request,
         route: &resolved.route,
@@ -559,7 +568,6 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         prefix: &resolved.prefix,
         upstream_model: &resolved.upstream_model,
         parsed_body: parsed.as_ref(),
-        og_session: &og_session,
         scanned: None,
         provider: resolved.provider.as_ref(),
     });
