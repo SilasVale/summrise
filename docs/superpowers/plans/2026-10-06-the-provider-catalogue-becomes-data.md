@@ -349,6 +349,20 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   判据是新的那道 ratchet：它按 `wrangler*.jsonc` 逐个数"入口是**被 git 跟踪的** JS/TS 源文件"的 worker，
   现在只有两个（`summrise-gate` = A6 的对象、`summrise-relay` = 本条），**清单只许变短** ✓。
 
+  **而 A7 的搬运已经完成（2026-10-08，三步 ＋ 切流 ＋ 删除）** ✓✓——本条的记录是**量的**：
+  ① 决定半（`relay/worker/src/lib.rs`，语料 `pure-corpus.json`）✓；② 入口（`worker.rs`，30 个用例五行的差分，
+  含**按序的 R2 操作**与**claim DO 收到的那个请求**）✓；③ claim DO（`claim_do.rs`，20 个用例）✓；
+  ④ 切流：`relay/wrangler.jsonc` 的 `main` 指向 `worker/build/index.js` ＋ `build.command` ＋
+  **`./scripts/build.sh relay`**（这个 worker **此前没有任何部署路径**，每次都是手打 `wrangler deploy`）✓；
+  ⑤ 删除 **1,788 行／12 个文件**（558 源码 ＋ 901 测试 ＋ 323 录制器 ＋ 6 package.json）✓——
+  **而三条早先的提交把删除清单写成 "1,377 = 407+151+819" ✗：测试是 901 而不是 819**，本条按 `git show HEAD:<file> | wc -l` 改正 ✓。
+  **ratchet 的 STILL_JS 因此从 2 降到 1** ✓（只剩 `summrise-gate` = A6），而 `MAX_STILL_JS` 同步降到 1 ✓。
+  **剩下的只有部署动作**（`./scripts/build.sh relay`，它带着自己的 smoke：一个不指向任何对象的 token 必须回 claim DO
+  自己的 404 信封 ✓），**那需要操作者的点头** ✓——它换掉的是 `/files/*` 后面那个 worker，也就是每台设备
+  `system_file_upload`／`download` 走的那条路 ✓。
+  **而差分能看见与看不见的东西都写下来了** ✓：**看不见的是 DO 的串行化**（两个并发 claim 不会都赢是**运行时**的保证，
+  没有 stub 能证明它 ✓）——JavaScript 里那对测试随删除消失，所以这句话现在是平台契约 ＋ Rust 类保持那个形状 ✓。
+
 ---
 
 ## 四、例外（必须留 JS 的，逐条写清为什么）
@@ -360,6 +374,7 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 | `agent/summrise-desktop-electron/` | Electron 壳（⑥，操作者已定：兼容性） |
 | `agent/summrise-workspace-dsh/` | DSH 插件包——插件必须是 JS，这不是本仓库的选择 |
 | `gateway/wasm/verify.mjs`、`route-oracle.mjs` | 它们**执行 JS+wasm 产物**并驱动发货 TypeScript 做差分；产物是 JS，harness 只能在 Node 里跑它。切流删掉旧 TS 后，`route-oracle.mjs` 随之退役 |
+| `gateway/wasm/run-cases.mjs`（＋ `bindings-stub.mjs`） | **同一个理由，而它的用户变多了**：两个卫星与**文件中继**的差分都靠它执行 `worker-build` 的产物（A7 删掉 JS 之后，`relay/worker/tests/differential.rs` 是它的第三个调用者）。它一行产品逻辑都没有 ✓ |
 
 ---
 
