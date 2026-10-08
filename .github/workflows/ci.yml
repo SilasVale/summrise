@@ -146,6 +146,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # **THE JUDGE IS RUST NOW (2026-10-08), AND THIS JOB NEVER HAD A RUST TOOLCHAIN.** It was Node and
+      # browsers only. `scripts/design-sweep-ci.bash` no longer asks Node to decide anything: it runs
+      # `summrise-sweep-judge`, whose crate is a member of the `agent` workspace, so the job needs cargo.
+      # The judge is the ported half of the sweep — the half that reads a report and returns a verdict —
+      # and it is invoked with `cargo run --quiet`, which is also what builds it here.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
       - uses: actions/setup-node@v4
         with:
           node-version: 24

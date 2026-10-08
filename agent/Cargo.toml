@@ -6,7 +6,11 @@
 # STAGED ONTO A TARGET MACHINE (it replaces the two `.vbs` wrappers `wscript.exe` used to run), and the
 # Windows agent build must not fold it into `summrise-agent.exe`. It is built for the target triple on
 # its own, and it is NOT a default member.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch"]
+# `sweep-judge` is a member so `cargo fmt --all` and the workspace's lockfile see it, and it is NOT a
+# default member for the same reason as the two above: it is not part of `summrise-agent.exe`. It is the
+# Rust home of the design sweeps' judge, which used to be `agent/scripts/<tool>.mjs --judge`, and the
+# gate scripts build and run it on their own.
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge"]
 default-members = ["."]
 resolver = "2"
 

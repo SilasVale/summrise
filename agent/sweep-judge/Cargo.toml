@@ -1,0 +1,23 @@
+[package]
+name = "summrise-sweep-judge"
+version.workspace = true
+edition = "2021"
+description = "The design sweeps' judge: a pure function over a sweep report, ported out of agent/scripts/*.mjs"
+
+[[bin]]
+name = "summrise-sweep-judge"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_sweep_judge"
+path = "src/lib.rs"
+
+[dependencies]
+# `preserve_order` is NOT cosmetic: the JS walks `Object.entries(byTarget)` and `Object.keys(implicitStates)`
+# in INSERTION order, and a BTreeMap would reorder both. The notes those loops print are messages a human
+# reads, so the port has to keep the order the report was written in.
+serde_json = { version = "1", features = ["preserve_order"] }
+# The judge is a pile of small predicates over selector strings (`/^span\.approval-grant$/`, the NAV_LOUD
+# alternation, the mark-family scan). Hand-rolling them would be a second implementation of a regex engine
+# and a place for the messages to drift.
+regex = "1"

@@ -38,7 +38,8 @@
 //     SUMMRISE_SWEEP_REPORT=/tmp/panel-report.json \
 //     SUMMRISE_BROWSER_HELPER=$PWD/agent/resources/panel-react/scripts/local-browser.mjs \
 //       node /tmp/panel.js
-//     node agent/scripts/panel-design-sweep.mjs --judge /tmp/panel-report.json
+//     cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge -- \
+//       --tool panel /tmp/panel-report.json
 //
 // MEASURED, THAT RUN: `--passes=all`, 142 surfaces and 7058 rows over both densities, the harness build
 // `282231-598d41e94ef2` matching the one the emit expected, and the judge's own verdict — "panel design sweep

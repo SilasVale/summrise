@@ -9,10 +9,12 @@
 //   tar czf /tmp/console.tgz -C /tmp/console-build .   (ship it; extract on the device to
 //                                                       C:\ProgramData\Summrise\pwout\console)
 //   node agent/scripts/console-design-sweep.mjs --emit > /tmp/console-sweep.js   (run on the device)
-//   node agent/scripts/console-design-sweep.mjs --judge <report.json>
+//   cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge -- \
+//     --tool console <report.json>
 //
 // The checks and the judge are the shared core's; this file supplies the URL, the page list, the API
-// fixtures, the login pass (which exists only when /api/me answers 401) and the three widths.
+// fixtures, the login pass (which exists only when /api/me answers 401) and the three widths. THE JUDGE
+// IS RUST NOW (`agent/sweep-judge/`); what stays here is the COLLECTOR, because a browser executes it.
 //
 // AXES COVERED, so nobody re-measures what is already known (round 85):
 //   contrast (resting) · contrast (HOVERED — the 24 :hover rules in the console's sheet) · geometry,
@@ -34,11 +36,11 @@
 // The browser gave the right answer when asked by hand; a check whose output I could not trust does
 // not ship. Whoever picks this up should report the STYLED count beside the unstyled list, so an
 // empty read can never look like a clean page.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
+import {marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { join } from "node:path";
 
@@ -93,16 +95,6 @@ const ENTRY_STAMP = (() => {
     return { bytes: b.length, sha: createHash("sha256").update(b).digest("hex").slice(0, 12) };
   } catch (e) { return { bytes: -1, sha: "(unreadable)" }; }
 })();
-/** The console's state sheets, concatenated: its `dist` is a pruned build artifact, so the SOURCE sheets are what the
- *  mark-coverage note reads (the same choice `console-marks-check.mjs` makes, for the same reason). */
-function consoleSheets() {
-  const dir = new URL("../../gateway/ui/src/styles/", import.meta.url).pathname;
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".css"))
-    .map((f) => readFileSync(dir + f, "utf8"))
-    .join("\n");
-}
-
 function browserScript() {
   // THE PAYLOAD IS A REAL MODULE NOW (round 268) — the third of five. It was this file's own template literal: 484
   // lines, 74% of the file, sixteen interpolations, and a parse guard copied from the panel because a backtick in a
@@ -142,57 +134,12 @@ function piecesSource() {
   });
 }
 
-function judge(file) {
-  const report = JSON.parse(readFileSync(file, "utf8"));
-  const findings = judgeReport(report, {
-    navless: ["login"],
-    implicitStates: {
-      "stat-off": "the Overview's default tone: the base .stat-card::before already paints the faint bar that off means",
-    },
-  });
-  for (const t of report.themeChecks || []) {
-    const seen = t.stored || t.attr;
-    if (seen && seen !== t.intended) {
-      findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
-    }
-  }
-  // TARGET SIZE IS JUDGED IN THE SHARED JUDGE NOW — `judgeReport` owns the clause and this file's copy was DELETED
-  // (round 20 of the standing goal). It lived here, in the panel's judge and in the landing's, with three slightly
-  // different sentences, and round 17 strengthened only the panel's — so one page judged by two sweeps got two
-  // verdicts. The number round 19 measured here was ZERO (this sweep's `overview:22c/2u` passes the full rule), which
-  // is why enforcing it there was safe to do.
-  for (const r of failures(report.rows).slice(0, 10)) {
-    findings.unshift(`${r.cr} ${r.page}${r.width ? "@" + r.width + "px" : ""} ${r.sel} "${String(r.text).slice(0, 24)}"`);
-  }
-  // THE STATES THIS SHEET DECLARES AND THIS RUN NEVER PAINTED (round 50 of the standing goal). The panel has had this
-  // queue since round 32 — it is how `cmd-dot` was found rendering four of its six states, one of them with no rule at
-  // all — and until now it lived inside the panel's sweep, so the console's unrendered states were SILENT. Same
-  // implementation, this surface's sheets: the console's styles are SOURCE files (its dist is a pruned build artifact),
-  // which is the same choice `console-marks-check.mjs` makes for the same reason.
-  for (const line of markCoverageNotes(consoleSheets(), report)) console.log(line);
-  console.log(reportSummary("console", report));
-  if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
-  if (!findings.length) {
-    console.log("console design sweep OK: nothing above found a defect");
-    return 0;
-  }
-  console.error(`\n${findings.length} finding(s):\n  ` + findings.join("\n  "));
-  return 1;
-}
-
 if (mode === "--emit") {
   // THE ASSEMBLER COMPILED IT (bundleSweep's last act) and the helpers are in scope by construction, so the
   // hand-copied parse guard and the substring assertion both go.
   process.stdout.write(browserScript());
-} else if (mode === "--judge") {
-  const file = process.argv[3];
-  if (!file) {
-    console.error("usage: console-design-sweep.mjs --judge <report.json>");
-    process.exit(2);
-  }
-  process.exit(judge(file));
 } else {
   console.error(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 18).join("\n"));
-  console.error("\nusage: console-design-sweep.mjs --emit | --judge <report.json>");
+  console.error("\nusage: console-design-sweep.mjs --emit");
   process.exit(2);
 }
