@@ -90,6 +90,25 @@ they measure and return rows, and they stay JS because `browser_run_script` take
 `ackNotes`) are Playwright driving plus judgement in Node — they become Rust. The page-side bundle shrinks to a
 collector whose only job is to answer questions about the DOM.
 
+**AND MEASURING IT FOUND THE SEAM ALREADY EXISTS, WITH AN ORACLE ALREADY WRITTEN FOR IT — which changes landing 2
+from "port 5,900 lines" to two separable jobs.** Every sweep tool already carries two modes:
+
+```
+node <tool> --emit            # the bundle injected into the page — a COLLECTOR, and it stays JS
+node <tool> --judge <r.json>  # verdict as an exit code — a PURE FUNCTION over a JSON report, and it is the port
+```
+
+So `judgeReport` (`agent/scripts/lib/design-sweep.mjs:1782`) — the shared judge every adapter calls — is already
+independent of Playwright, of the browser and of the page. It reads a report and returns findings. **And the two
+gates that already exist are its equivalence oracle**: `scripts/test/panel-design-sweep.bash` plants a defect per
+axis and requires a failure (87 checks as measured 2026-09-26, and the count is the part that drifts), and
+`scripts/test/sweep-judges.bash` does the same for the console's own rules. A Rust judge is proven equivalent by
+**passing both gates unchanged** — the clean reports still pass, every planted defect still fails, for every axis.
+
+That reorders the work: **the judge first** (pure, oracle-backed, no browser), and the Playwright driving second —
+and the driving half then only has to keep feeding the same report shape. `--emit` remains, because the collector
+is a boundary; what leaves JavaScript is every clause that decides.
+
 ## 5 · SOLID, concretely
 
 Not a slogan: each line names the place it is already true, or the change that makes it true.
