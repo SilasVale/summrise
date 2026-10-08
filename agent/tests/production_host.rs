@@ -55,12 +55,22 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 45] = [
+const ALLOWED: [(&str, &str); 46] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
     ("agent/deploy/", "installer templates and their docs: the URL a customer installs from"),
     ("agent/summrise-agent-npm/", "the npm package's README and CLI defaults name the update channel"),
+    // ADDED 2026-10-08, WITH THE PORT, AND THE COUNT IS THE POINT: this is ONE file where a scattered
+    // port would have been five. `summrise-cli` is the Rust home of the CLI's decisions (landing 4),
+    // and the defaults it must carry ARE the product's behaviour — the update channel a device checks,
+    // the device-host suffix `setup` self-registers under, the gateway API base. Leaving them out
+    // would not be the same decision. Every reference in the crate goes through these constants, so
+    // the debt is one default written once. IT FITS THE HEADROOM THE LIST ALREADY HAD: declared 45
+    // -> 46 with MAX_ALLOWED unchanged at 46, so this ratchet does NOT move. The alternative
+    // considered and rejected was four more entries for the same three URLs — which would have
+    // crossed the constant and needed a raise.
+    ("agent/summrise-cli/src/endpoints.rs", "the CLI's own hostname defaults, ported: the update channel, the device-host suffix and the API base"),
     ("proxies/", "the satellite workers' routes and their operational README"),
     // ADDED 2026-09-24, AND THE COMMIT SAYS WHY — which is the gate's own instruction for a genuine
     // need ("that is a conversation, not an edit"). The relay's worker config names the host twice by
@@ -179,7 +189,7 @@ const ALLOWED: [(&str, &str); 45] = [
 // which is the same production hostname `device-fetch.ts` names. Raised by ONE, with the reason beside it.
 // 46 -> 47 the same day, for the routing decision: `routing.rs` carries the US_PROXY_BASE default, the same
 // production hostname `upstream.ts` names. Raised by ONE, with the reason beside it.
-const MAX_ALLOWED: usize = 45;
+const MAX_ALLOWED: usize = 46;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -371,7 +381,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 45"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 46"),
         "{}",
         ok.stdout
     );

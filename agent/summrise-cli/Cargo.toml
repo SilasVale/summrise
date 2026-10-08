@@ -1,0 +1,36 @@
+[package]
+name = "summrise-cli"
+version.workspace = true
+edition = "2021"
+description = "The summrise CLI's DECISIONS, in Rust: dispatch, versions, dirs, config, components, the update decision and the status report. Ported from agent/summrise-agent-npm/src/summrise.ts with its node --test suite as the oracle."
+
+# The binary keeps the ported package's command NAME once the npm `bin` is repointed (landing 4's
+# cutover, deliberately NOT this landing). Until then this binary is the thing the ported suite
+# proves: `cargo test -p summrise-cli` drives it, and nothing on a device runs it yet.
+[[bin]]
+name = "summrise-cli"
+path = "src/main.rs"
+
+# The parity instrument: `summrise-cli-parity` prints, as JSON, the answer every pure decision gives
+# for a fixed corpus of inputs. `agent/summrise-agent-npm/test/parity.mjs` prints the same JSON from
+# the TypeScript, and `scripts/parity-cli-decisions.bash` diffs the two. A pure-function port whose
+# two implementations are never compared on the same inputs is a port nobody has checked.
+[[bin]]
+name = "summrise-cli-parity"
+path = "src/bin/parity.rs"
+
+[lib]
+name = "summrise_cli"
+path = "src/lib.rs"
+
+[dependencies]
+# `preserve_order` matters for the same reason it does in `summrise-sweep-judge`: the manifest and
+# the monitors payload are echoed with the order the release/device wrote them in, and a BTreeMap
+# would silently reorder a document a human reads.
+serde_json = { version = "1", features = ["preserve_order"] }
+# Component integrity: `resolveComponent` refuses bytes that do not hash to the release manifest's
+# pin, and `boxedVersions` publishes the digest of the staged artefacts.
+sha2 = "0.10"
+# The version/URL gates are anchored patterns (`^\d+\.\d+\.\d+$`, the manifest's url scheme), which
+# is what the TypeScript uses them for. Hand-rolling them would be a second implementation.
+regex = "1"

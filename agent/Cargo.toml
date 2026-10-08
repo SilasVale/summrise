@@ -10,7 +10,12 @@
 # default member for the same reason as the two above: it is not part of `summrise-agent.exe`. It is the
 # Rust home of the design sweeps' judge, which used to be `agent/scripts/<tool>.mjs --judge`, and the
 # gate scripts build and run it on their own.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge"]
+# `summrise-cli` is a member so `cargo fmt --all` and the workspace's lockfile see it, and it is NOT a
+# default member for the same reason as the three above: it is not part of `summrise-agent.exe`. It is the
+# Rust home of the `summrise` CLI's decisions, ported from `summrise-agent-npm/src/summrise.ts` with that
+# package's own `node --test` suite as the oracle. The npm `bin` is deliberately NOT repointed yet: the
+# port is proven first, and the cutover is a later landing.
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "summrise-cli"]
 default-members = ["."]
 resolver = "2"
 
