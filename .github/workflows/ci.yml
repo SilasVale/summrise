@@ -276,6 +276,11 @@ jobs:
           cargo test -p summrise-agent --no-fail-fast
           cargo test -p summrise-agent --features terminal,keyring --no-fail-fast
           cargo test -p summrise-agent-core --no-fail-fast
+          # **THE CLI'S DECISIONS (2026-10-08).** `summrise-cli` is a workspace member but deliberately NOT a
+          # default member — `cargo test -p summrise-agent` never reaches it, and a test nothing runs is a test
+          # that rots. It carries 88 cases ported from the npm package's `node --test` suite (68 cases) and the
+          # parity harness that compares the two implementations over 162 inputs.
+          cargo test -p summrise-cli --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
@@ -326,6 +331,7 @@ jobs:
           cargo clippy -p summrise-agent --all-targets -- -D warnings
           cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings
           cargo clippy -p summrise-agent-core --all-targets -- -D warnings
+          cargo clippy -p summrise-cli --all-targets -- -D warnings
         working-directory: agent
       - name: Format check
         run: cargo fmt --all -- --check
@@ -951,6 +957,22 @@ jobs:
       - name: npm CLI tests
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/summrise-agent-npm
+
+      # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
+      # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
+      # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`
+      # job because it needs BOTH ends — the committed JavaScript that a device runs (`ts.mjs` requires
+      # `bin/summrise.js`, not the TypeScript source) and the Rust binary. This job already has node and a
+      # toolchain, and the port's own suite runs in the `agent` job.
+      #
+      # It is a real gate, not a formality: on its first run it found three differences, one of which is a
+      # genuine TypeScript defect (`newestOf` can return `""`, which `statusReport` renders as a channel that
+      # answered rather than one that could not be checked).
+      - name: the CLI's Rust and JavaScript decisions agree
+        run: |
+          cargo build -p summrise-cli --bin summrise-cli-parity
+          node summrise-cli/parity/compare.mjs
+        working-directory: agent
 
       # (d) THE DESKTOP SHELL'S SUITE, WHICH NOTHING RAN.
       #

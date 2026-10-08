@@ -123,6 +123,34 @@ moment the judge is Rust the job needs the toolchain; the `pack-chain` job alrea
 `scripts/test/` gates cost nothing. The invocation is `cargo run --quiet -p summrise-sweep-judge`, which is also
 what builds it, so no job needs a separate build step and a developer's first run works without one either.
 
+### 4.1 · And 2b is a decision rather than a port — measured before it is started
+
+**The repository has NO Rust browser driver.** Measured: `agent/src/plugins/playwright/` is 1,143 lines of Rust and
+every one of them drives the browser by shelling out to Node and `helper.js`; a grep for `webSocketDebuggerUrl`,
+`json/version` and `Input.dispatch` across every crate returns nothing, and no CDP crate is in the lockfile. So "the
+Playwright driving becomes Rust" cannot be a port — it would be a **new browser dependency**, and that is a decision
+to take deliberately rather than a line in a plan.
+
+**The P0 rule decides it, and it is the same rule that produced 2a.** LOGIC computes, derives, validates, decides.
+BOUNDARY performs a platform call and decides nothing. Launching a browser, dispatching a real mouse press and reading
+`getComputedStyle` are platform calls; deciding that a control whose computed style never changes while it is pressed
+is a DEAD control is a decision. The line falls between them, not around the whole harness:
+
+* **the driver stays JavaScript and becomes dumb** — a fixed runtime of primitives (navigate, viewport, emulate media,
+  real mouse and keyboard input, evaluate, screenshot) plus an interpreter for a **step list**, returning rows;
+* **Rust builds the plan and judges the rows**, and the plan is data (serde), not generated code.
+
+**Why not `chromiumoxide`, stated as a cost rather than a taste.** It would replace a pinned, already-working driver
+with a second browser dependency and a second implementation of the same protocol, for a QA harness — and this
+repository would then own CDP version drift as well as Playwright's, in the one part of the product that exists to
+detect drift. The alternative costs zero new dependencies and lands the JS that remains in a class §四 already names:
+a harness that executes a browser, exactly as `gateway/wasm/verify.mjs` is a harness that executes a JS+wasm artifact.
+
+**The acceptance bar for 2b is the same shape as 2a's, and it is already written down.** A sweep writes a JSON report;
+the judge reads it. So a plan-driven run must produce a report **byte-identical** to today's for the same surface, and
+the three CI reports are the corpus. That is checkable without a new oracle, which is why 2b can be done in slices:
+each pass moves when its rows survive the comparison.
+
 ## 5 · SOLID, concretely
 
 Not a slogan: each line names the place it is already true, or the change that makes it true.
