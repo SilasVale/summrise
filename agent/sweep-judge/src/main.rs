@@ -33,11 +33,15 @@ fn main() -> ExitCode {
                 }
             }
         } else if let Some(inline) = arg.strip_prefix("--expect=") {
-            expect = Some(inline.to_string());
+            // FIRST wins, because the JavaScript reads it with `process.argv.find(...)`. Passing the flag
+            // twice is not something any caller does; matching the original costs one condition.
+            expect.get_or_insert_with(|| inline.to_string());
         } else if arg == "--expect" {
             i += 1;
             match args.get(i) {
-                Some(v) => expect = Some(v.clone()),
+                Some(v) => {
+                    expect.get_or_insert_with(|| v.clone());
+                }
                 None => {
                     out.err(&format!("--expect needs a value\n{USAGE}"));
                     return ExitCode::from(2);
@@ -45,7 +49,7 @@ fn main() -> ExitCode {
             }
         } else if arg == "-h" || arg == "--help" {
             out.note(USAGE);
-            return ExitCode::from(2);
+            return ExitCode::from(0);
         } else if arg.starts_with("--") {
             out.err(&format!("unknown option: {arg}\n{USAGE}"));
             return ExitCode::from(2);

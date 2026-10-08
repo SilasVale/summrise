@@ -854,11 +854,15 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
     // EMULATED: anything still carrying a transition or an infinite animation under it is a finding.
     // Measured round 77 — the panel density honoured the preference and the desktop density did not.
     for m in arr(get(report, "motion")) {
-        // BOTH SHAPES: `animating` is the older single-number row, `stillAnimating` the newer one.
-        let still = if !is_nullish(get(m, "stillAnimating")) {
+        // BOTH SHAPES: `animating` is the older single-number row, `stillAnimating` the newer one. The
+        // JS is `m.stillAnimating || m.animating || []` — a TRUTHINESS fallback, so a falsy-but-present
+        // `stillAnimating` (0, "") falls through to `animating` rather than being taken as an empty list.
+        let still = if truthy(get(m, "stillAnimating")) {
             arr(get(m, "stillAnimating"))
-        } else {
+        } else if truthy(get(m, "animating")) {
             arr(get(m, "animating"))
+        } else {
+            &[]
         };
         if !still.is_empty() {
             findings.push(Finding::text(format!(
