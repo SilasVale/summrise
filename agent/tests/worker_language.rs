@@ -28,6 +28,13 @@
 //! `proxies/api-relay` (the VPS relay) and P3's second half was the two satellites — so this worker was
 //! invisible to the plan and visible to the criterion.
 //!
+//! **AND IT IS CUT OVER — 2026-10-08, the same day the finding was made.** `relay/wrangler.jsonc` names
+//! `worker/build/index.js` now and the JavaScript it replaced is deleted (1,377 lines of source and suite,
+//! plus the two recorders that imported it), so the entry that stood here is gone and `MAX_STILL_JS` came
+//! down with it. **THE DIRECTION OF THAT MOVE IS THE POINT**: the declaration existed for as long as the
+//! cutover took, and the second mutation below is the one that made removing it mechanical rather than
+//! remembered — a gate whose list can only shrink is a gate that cannot hide finished work.
+//!
 //! MUTATION: point a Rust-backed config at a tracked JavaScript file — in `proxies/zen-us-proxy/wrangler.jsonc`,
 //!           set `"main": "../../gateway/wasm/run-cases.mjs"`.
 //! RESULT:   exit 101 —
@@ -37,8 +44,9 @@
 //!               declared in STILL_JS
 //!             FIX: cut it over to its Rust module, or declare its name in STILL_JS with the item that will.
 //!
-//! MUTATION (the direction that makes the list shrink): cut `summrise-relay` over — set its `main` to
-//!           `worker/build/index.js` — and LEAVE its declaration in place.
+//! MUTATION (the direction that makes the list shrink, and the one that fired for real): cut
+//!           `summrise-relay` over — set its `main` to `worker/build/index.js` — and LEAVE its declaration
+//!           in place.
 //! RESULT:   exit 101 —
 //!             these declarations are stale — the worker no longer names a JavaScript source:
 //!               summrise-relay
@@ -56,24 +64,15 @@ use std::collections::BTreeSet;
 
 /// **THE DECLARED EXCEPTIONS: production workers whose entry is still JavaScript, each with the item that
 /// moves it.** The list may only shrink; a new entry needs a sentence saying which cutover removes it.
-const STILL_JS: [(&str, &str); 2] = [
-    (
-        "summrise-gate",
-        "THE CONSOLE WORKER, AND A6 IS ITS ITEM: `src/index.ts` is the /api/* surface the plan moves to \
-         wasm in the second phase. Until that cutover the console is TypeScript by design — \
-         `gateway/wrangler.jsonc` carries the same sentence next to the name.",
-    ),
-    (
-        "summrise-relay",
-        "**THE FILE-RELAY WORKER, AND THIS ENTRY IS A FINDING RATHER THAN A PLAN ITEM** — see this file's \
-         header: `relay/src/index.js` serves the `/files/*` zone route and the gateway's upload leg \
-         reaches it through the RELAY binding, and neither plan names it. It is the next item once the \
-         operator's nods arrive.",
-    ),
-];
+const STILL_JS: [(&str, &str); 1] = [(
+    "summrise-gate",
+    "THE CONSOLE WORKER, AND A6 IS ITS ITEM: `src/index.ts` is the /api/* surface the plan moves to \
+     wasm in the second phase. Until that cutover the console is TypeScript by design — \
+     `gateway/wrangler.jsonc` carries the same sentence next to the name.",
+)];
 
 /// The cap follows the list down and never up: a declaration removed without this number moving fails.
-const MAX_STILL_JS: usize = 2;
+const MAX_STILL_JS: usize = 1;
 
 /// A FLOOR, not a claim: the scan must see the configs that exist today.
 const MIN_CONFIGS: usize = 6;

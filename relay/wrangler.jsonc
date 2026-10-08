@@ -1,7 +1,27 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "summrise-relay",
-  "main": "src/index.js",
+  // **THE ENTRY POINT IS THE RUST BUILD, AND THE JAVASCRIPT IS GONE (2026-10-08).** The port was proved
+  // equal to `src/index.js` and `src/claim.js` byte for byte before either was deleted — 30 worker cases
+  // and 20 claim cases, five rows each, with **the R2 operations in order** and **the request the claim DO
+  // received** among them, because an upload that stored the wrong `Content-Disposition` and a claim
+  // forward that dropped the internal credential both answer a byte-identical response.
+  // **THE ORACLE IS A FIXTURE NOW**: `worker/{pure,worker,claim}-corpus.json` are the answers recorded on a
+  // run where both sides agreed, so this directory carries one implementation rather than two, and the
+  // differential still fails if the port moves (`worker/tests/{pure,differential}.rs`).
+  "main": "worker/build/index.js",
+  // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES.** `worker/build/` is gitignored (the crate's
+  // own `.gitignore` is `*`), so on a clean checkout the entry point above does not exist, and the deploy
+  // path here runs `wrangler deploy` — measured with the directory moved aside:
+  //
+  //     ✘ ERROR The entry-point file at "worker/build/index.js" was not found.
+  //
+  // CI only ever got away with it by ORDER: the differential in the same job builds the module through
+  // `summrise-differential-harness`, and a deploy that depends on a test having run first is the same
+  // defect class as a check nobody runs. `agent/tests/worker_build_commands.rs` is the gate: an untracked
+  // `main` must carry a `build.command`. The crate is one directory down, which is what the argument is
+  // for (`worker-build`'s PATH is "the path to the Rust crate", and its output lands in `<crate>/build/`).
+  "build": { "command": "worker-build --release worker" },
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
   // The file relay, split out of summrise-dist (docs/design/0010, D6). The point
