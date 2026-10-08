@@ -250,9 +250,21 @@ jobs:
           #
           # The capture was a nice-to-have; the rule is the point. The diagnostic re-runs when it has nothing
           # to read, which is where the output comes from.
-          cargo test -p summrise-agent
-          cargo test -p summrise-agent --features terminal,keyring
-          cargo test -p summrise-agent-core
+          # **`--no-fail-fast`, BECAUSE CARGO STOPS AT THE FIRST FAILING TARGET AND THE GATES LIVE IN THE
+          # LATER ONES.** MEASURED 2026-10-08, on the box whose lib target fails three playwright tests for
+          # want of a browser bundle:
+          #
+          #     cargo test -p summrise-agent                  → grep -c 'Running tests/' = 0
+          #     cargo test -p summrise-agent --no-fail-fast   → grep -c 'Running tests/' = 46
+          #
+          # So a local `all-gates.bash` run — which derives THESE lines, verbatim, by design — reported
+          # `36 ok, 2 failed` while NONE of the 46 integration binaries had run, and
+          # `agent/tests/production_host.rs` refused a commit that had already been pushed. The flag is here
+          # rather than in `all-gates.bash` because the two ends must run the SAME command; a local override
+          # would be a second command that drifts, which is what that file's header refuses.
+          cargo test -p summrise-agent --no-fail-fast
+          cargo test -p summrise-agent --features terminal,keyring --no-fail-fast
+          cargo test -p summrise-agent-core --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
