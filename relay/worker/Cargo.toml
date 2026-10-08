@@ -5,13 +5,23 @@ edition = "2021"
 publish = false
 description = "The file relay's pure decisions, in Rust — the half of relay/src/{index,claim}.js that is a function of its inputs rather than of R2, the Durable Object or the network."
 
-# A HOST-ONLY CRATE FOR NOW, AND THAT IS THE ORDER THE OTHER WORKERS LANDED IN: no `worker`
-# dependency is taken until the entry point is ported, which keeps `cargo test` a plain host build. The
-# shell (`worker.rs` + `#[event(fetch)]` + the R2/DO bindings) is the next step, and it is what adds
-# `worker` and the `cdylib` crate type.
+# **TWO HALVES, AND THEY COMPILE IN DIFFERENT WORLDS.** `lib.rs` (the decisions) is a plain host build —
+# `cargo test` runs it — and `worker.rs` is `#[cfg(target_arch = "wasm32")]`, because `#[event(fetch)]`
+# expands to nothing on the host. That is why the entry point is checked by
+# `cargo clippy --target wasm32-unknown-unknown` and driven by the differential through `worker-build`'s
+# output, and it is the same arrangement the zen satellites carry.
 [lib]
+crate-type = ["cdylib", "rlib"]
 name = "summrise_relay_worker"
 path = "src/lib.rs"
 
 [dependencies]
 serde_json = "1"
+sha2 = "0.10"
+worker = "0.8.7"
+
+[dev-dependencies]
+# THE JUDGE HALF OF THIS CRATE'S DIFFERENTIAL — the same shared harness the zen satellites use: it builds
+# the module, drives it through `gateway/wasm/run-cases.mjs`, and compares. A dev-dependency because it
+# spawns `node` and reads files, neither of which exists on wasm32.
+summrise-differential-harness = { path = "../../proxies/differential-harness" }

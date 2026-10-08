@@ -60,6 +60,13 @@
 
 use serde_json::Value;
 
+/// **THE ENTRY POINT, AND IT IS wasm32-ONLY ON PURPOSE.** `#[event(fetch)]` expands to nothing on the
+/// host, so the host build compiles none of `worker.rs` — which is exactly why the CI job carries a
+/// `cargo clippy --target wasm32-unknown-unknown` step for this crate, and why the differential drives
+/// `worker-build`'s output rather than a host binary.
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
+
 /// The alphabet `genToken` draws from, in the shipping implementation's order.
 pub const TOKEN_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
