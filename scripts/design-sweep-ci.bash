@@ -300,9 +300,12 @@ wait "$P_LANDING" || { echo "FAIL: the landing sweep failed" >&2; rc=1; }
 # THE JUDGE IS THE VERDICT, for each UI in turn, reading the report that sweep just wrote. A stale harness and a
 # partial pass set are both findings, so neither can pass as a clean run.
 echo "── judging ──"
-node agent/scripts/panel-design-sweep.mjs --judge "$TMP/panel-report.json"
+# THE JUDGE IS RUST NOW (`agent/sweep-judge/`): one binary, one exit code per UI. `cargo run` builds it
+# on first use, which is why this step needs nothing staged before it.
+JUDGE=(cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge --)
+"${JUDGE[@]}" --tool panel "$TMP/panel-report.json"
 for ui in console landing; do
-  node "agent/scripts/$ui-design-sweep.mjs" --judge "$TMP/$ui-report.json"
+  "${JUDGE[@]}" --tool "$ui" "$TMP/$ui-report.json"
 done
 
 echo "── all three design sweeps ran and judged clean ─"

@@ -8,6 +8,9 @@
 
 # sweep-judges.bash — the CONSOLE judge must fail what it exists to catch.
 #
+# THE CASES ARE UNCHANGED BY THE RUST PORT. What moved is the invocation: `node "$CON" --judge <report>`
+# became `"${JUDGE[@]}" --tool console <report>`, and nothing else in this file changed.
+#
 # WHY THIS EXISTS (round 179). `panel-design-sweep.bash` has gated the panel's judge since round 50, with a
 # planted defect per axis. The other adapters had NO gate at all: their adapter-specific rules were
 # mutation-proven by hand when written and by nothing since. The shared judge they call is covered through the
@@ -48,13 +51,17 @@ json.dump(r, open(sys.argv[1], "w"))
 PY
 }
 
-judge() { # judge <tool> <report> -> rc
+judge() { # judge <tool.mjs> <report> -> rc
+  # THE JUDGE IS RUST NOW (`agent/sweep-judge/`). The first argument is the COLLECTOR whose report this is —
+  # just enough to say which tool's rules apply — and the judging itself is one binary. `cargo run` builds it
+  # on first use, so nothing has to be staged beside this script.
   local rc=0
-  node "$1" --judge "$2" >/dev/null 2>&1 || rc=$?
+  "${JUDGE[@]}" --tool console "$2" >/dev/null 2>&1 || rc=$?
   echo "$rc"
 }
 
 CON=agent/scripts/console-design-sweep.mjs
+JUDGE=(cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge --)
 
 # ── 1. the tool still emits a script that parses ────────────────────────────────────────────────
 if node "$CON" --emit > "$TMP/console-design-sweep.js" 2>"$TMP/con.err"; then
@@ -141,7 +148,7 @@ write_con "$TMP/con-unreadable.json" "r['entryCheck'] = {'error': 'ENOENT', 'exp
 
 # A CURRENT ENTRY MUST SAY SO — provenance that only appears on failure cannot be checked.
 write_con "$TMP/con-current.json" "r['entryCheck'] = {'bytes': $BYTES, 'sha': '$SHA', 'expected': {'bytes': $BYTES, 'sha': '$SHA'}, 'stale': False}"
-if node "$CON" --judge "$TMP/con-current.json" > "$TMP/con-current.out" 2>&1; then
+if "${JUDGE[@]}" --tool console "$TMP/con-current.json" > "$TMP/con-current.out" 2>&1; then
   ok "a current delivered entry still passes"
 else
   bad "the judge failed a report whose entry matches the build"

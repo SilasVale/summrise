@@ -6,13 +6,16 @@
 // harness it boots, the densities and themes, the approval mode, and boot/interaction timing — and
 // its measurements are forwarded to the same judge every other UI uses.
 //
-// TWO MODES, because the browser lives on a device (the console MCP owns it) while the judging needs
-// the tested maths that lives here:
+// ONE MODE, because the browser lives on a device (the console MCP owns it):
 //
 //   node agent/scripts/panel-design-sweep.mjs --emit --passes=pages,hover > /tmp/sweep.js
 //     writes the `browser_run_script` payload; run it on the device, save the JSON.
-//   node agent/scripts/panel-design-sweep.mjs --judge <report.json> --expect=pages,hover
-//     judges it, refusing a report that is missing any pass the caller said it wanted.
+//
+// THE JUDGE IS RUST NOW (`agent/sweep-judge/`), and it refuses a report that is missing any pass the
+// caller said it wanted:
+//
+//   cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge -- \
+//     --tool panel --expect=pages,hover <report.json>
 //
 // RUN IT IN PASSES, and say which ones. The full sweep (pages, hover, motion, reflow, unstyled) grew
 // past the caller's own timeout in round 90 — which made it a check that could not complete, i.e. one
@@ -23,7 +26,6 @@
 //
 // DEFAULT IS EVERYTHING, which still exceeds the timeout — the default is for the emit to stay
 // honest, not to be run in one call.
-//     judges that report and exits non-zero on any finding.
 //
 // The harness must exist on the device first: `node agent/scripts/panel-render-audit.mjs` emits it.
 //
@@ -98,7 +100,7 @@
 //                       console, Buffer, setTimeout, clearTimeout);
 //        It prints its summary and rewrites C:\ProgramData\Summrise\pwout\design-sweep.json (~390 KB).
 //        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
-//     4. upload that report, curl it down, and judge it locally with THIS adapter's waivers — a bare
+//     4. upload that report, curl it down, and judge it with `summrise-sweep-judge --tool panel` — a bare
 //        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
 //   * THE STATE TOKENS AS GRAPHICS, AUDITED (round 122). The probe measures TEXT, so a border or a mark
 //     has no row at all — and the two real graphic defects this session found (the flapping chip's border,
@@ -175,8 +177,8 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { failures, unmeasurable, PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { DECORATIVE_WAIVERS, markCoverageNotes, marksProbe, surfaceProbe, namesProbe, reflowProbe, judgeReport, reportSummary, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
+import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
+import { marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 
 const mode = process.argv[2];
@@ -296,351 +298,13 @@ function piecesSource() {
   });
 }
 
-function judge(file) {
-  const report = JSON.parse(readFileSync(file, "utf8"));
-  // WHAT THIS REPORT WAS SUPPOSED TO COVER. The sweep outgrew its caller's timeout, so it can be run
-  // in passes — and a partial run that reported "nothing found" would read exactly like a clean full
-  // one. The caller states its expectation; the judge fails when the report is missing any of it.
-  const expect = (process.argv.find((a) => a.startsWith("--expect=")) || "--expect=all").slice("--expect=".length);
-  const missing = expect === "all"
-    ? (report.passes === "all" ? [] : [`the run measured only "${report.passes}"`])
-    : expect.split(",").map((x) => x.trim()).filter((x) => !(report.passes === "all" || (report.passes || "").split(",").map((y) => y.trim()).includes(x)));
-  const coverage = missing.map((m) => `INCOMPLETE REPORT — ${m}; the absences below prove nothing`);
-  const findings = [...coverage, ...judgeReport(report, {
-    // CLASSES WITH NO MATCHING RULE THAT ARE NOT DEFECTS, each with the mechanism named. Measured
-    // round 90: the panel density renders 1123 styled classes and eleven such names, and ten of the
-    // eleven are xterm.js's own DOM — styled by a stylesheet it INJECTS AT RUNTIME, which a CSSOM
-    // walk cannot see (the same runtime injection that defeated the reduced-motion override in round
-    // 77). The last two are ours and also deliberate: `terminal` is a VIEW NAME on an element already
-    // carrying `.view`, and `serial` rides a [data-kind] attribute rule.
-    implicitStates: {
-      "xterm-viewport": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-screen": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-helpers": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-helper-textarea": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-scroll-area": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-char-measure-element": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-width-cache-measure-container": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "xterm-decoration-container": "xterm.js DOM, styled by the sheet it injects at runtime",
-      "composition-view": "xterm.js DOM (IME composition), styled by the sheet it injects at runtime",
-      terminal: "a VIEW NAME; the element's .view class does the styling",
-      // PRUNED: `serial`, whose reason was "a session-kind modifier; the element is painted by its
-      // [data-kind] rule" (round 24). The class it exempts no longer exists: the mark language's TabBar emits
-      // `className="mark tab-dot" data-kind={s.kind}` and the sheet paints the kind with
-      // `.tab-dot[data-kind="serial"]`, so nothing puts a bare `serial` on screen. MEASURED, not assumed: the
-      // unstyled pass (1129 styled classes per density over 2 pages) reports 11 unstyled names — the eight
-      // xterm ones, composition-view, terminal and warn — and `serial` is not among them, while the declared
-      // count was 12. The paragraph above counted "eleven such names ... the last two are ours" when this entry
-      // was written; the last two are `terminal` and `warn` now, which is what the same run says.
-      warn:
-        "the boot chip's tone modifier. The BASE rule paints it — .boot-mark is the warn triangle and .boot-mark.info is the exception — so the name needs no rule of its own. Round 121 followed it anyway, and found a real defect behind it: the triangle used --state-warn, which measures 2.80 on the dark chip surface against the 3:1 a graphic needs. Fixed to --warn-ink (6.45 / 8.76).",
-    },
-    // PAGES WHOSE SECOND LOUD ELEMENT IS NAVIGATION. Measured round 42, with the sweep's OWN theme and loud
-    // readings, on every rail page in both densities: light is 0 loud on six of six pages in the panel and 0-1 in
-    // the desktop; DARK is the one that reaches two, on the Terminal page only, and the two elements are
-    //
-    //     panel    button.rail-btn   1444px2   which page you are on
-    //              div.tab           3254px2   which session you are looking at
-    //     desktop  button.desktop-rail-btn 1600px2 + button.btn-new 1915px2 (the primary ACTION, which
-    //              state-colour-check deliberately protects: an accent button is an action, not a state)
-    //
-    // The loud axis exists to catch a page with two competing FOCAL POINTS — nothing on this page is about the
-    // rail or the tab strip, and the terminal canvas behind them is not loud at all. Whether the dark theme should
-    // DESATURATE one of these is a design question, and it is recorded as one rather than settled here: the same
-    // family of question as inbox row 17 (a halo meaning "lit" on one surface and "in flight" on another).
-    //
-    // THE NAME IS A PREFIX, so this also covers `panel-Terminal-16-sessions` — measured at 1 loud today, so it is
-    // not hiding a known defect, but a change that made THAT page shout would pass because of this entry. Said out
-    // loud here because a suppression that quietly widens is the thing this ledger keeps warning about.
-    twoloud: ["panel-Terminal", "desktop-Terminal"],
-    // PROSE HAS A MEASURE, AND THIS ROUND MEASURED WHETHER IT DOES (round 265). A line is read by its return:
-    // the panel's own ledes cap at 52/56/66/72ch and this sheet has said so in five places for as long as they
-    // have existed — but nothing MEASURED it, so the Settings page rendered twelve paragraphs as SINGLE lines of
-    // 93-206 characters at 1440px, in both densities, three blocks from a History lede that wraps at 73.
-    // THE FLOOR IS 90, and it is the defect class that chose it: the twelve offenders start at 93, the panel's own
-    // capped ledes render 70-73, and 90 leaves a fifth of headroom over the rule (66ch) rather than encoding the
-    // rule itself — a `ch` cap and a measured `cpl` are different units (the cap is the box, `cpl` is the average
-    // glyph), and judging the unit the READER experiences is the point. The console and the landing carry the same
-    // numbers in their reports and are NOT failed by this floor: neither has been measured on this axis, and a
-    // threshold somebody else picked is not a finding about them.
-    proseFloor: 90,
-    // THIS HARNESS'S OWN BLIND SPOT, named rather than filtered silently. `#tabs` measures ~0-185px
-    // in a plain browser and 211px on the device, so the tab strip's children report as overflowing
-    // containers here and nowhere else; and the 320px document scroll is the SAME artifact (round 50
-    // traced every offending element to a tab inside `#tabs`). A real defect in the strip would have
-    // to be judged on the device, which is why this exemption is narrow and printed on every run.
-    ignore: [
-      {
-        // THE SAME DOT, ON THE OTHER PATH, AND ORDER-INDEPENDENT ON PURPOSE: rows write "2.33 panel/Terminal
-        // div.rail-dot" and hover writes "div.rail-dot \"\" 2.33<3", so one ordered pattern matches one path
-        // and not the other — which is exactly how this exemption came to cover rows alone (round 214). The
-        // value stays in the test, so a DIFFERENT ratio on this element is still a finding on either path.
-        test: (text) => /div\.rail-dot/.test(text) && /2\.33/.test(text),
-        reason: "the working rail dot's halo is emphasis, not the signal — the fill carries the state and clears 3:1 in both themes (measured, round 212)",
-        // IT STAYS, AND THE NUMBER IS WHY (round 22). A run with the hover axis measured 14/14 and 11/11 interactive
-        // elements on four surfaces with `underAA: []` — nothing on the hover path is below AA today, so this entry
-        // matches nothing while the state it guards keeps passing. The pattern is UNANCHORED (`/div\.rail-dot/`
-        // matches the row's sel, which is `div.mark.rail-dot` since the mark language gained data-live), so a hover
-        // row of that shape WOULD still be set aside — which is what makes this a guard rather than weight.
-        dormant:
-          "4 hover surfaces, 14/14 and 11/11 interactive, underAA empty (round 22) — nothing to excuse today; the unanchored pattern still matches the row shape, so it stays for the state it guards",
-      },
-
-      // THE ACTIVE TAB'S DOT: THE RING PREFERENCE DOES NOT FIRE, AND THAT IS NOW REPRODUCIBLE (round 206).
-      //
-      // Round 143 saw the white ring and called these rows an artifact; round 201 added the context field
-      // that proved the element IS the active tab's dot; round 205 measured that context on every occurrence.
-      // This round measured the thing itself, in the sweep's own conditions (harness, 1280x860, dark, idle,
-      // sessions=4), and both halves at once:
-      //
-      //     the active dot   active=true   box-shadow "rgb(255, 255, 255) 0px 0px 0px 1px"
-      //     the probe's row  span.tab-dot   cr=1.16   paint=rgb(217, 72, 15) (background)   <-- the FILL
-      //
-      // `painterOf` is documented to put the ring first, and its condition is satisfied by that shadow:
-      // the colour parses as rgb(255,255,255), and the px tokens are [0, 0, 0, 1], so px[0]===0 && px[1]===0
-      // && px[3]>0 all hold. The emitted probe's regex was verified by evaluating the literal the browser
-      // evaluates — it is /\s+/, not /\\s+/, so the branch is not defeated by escaping either.
-      //
-      // SO THE BRANCH IS REACHED AND DOES NOT TAKE, and the next step is to log its INPUTS from inside the
-      // emitted probe rather than reason about them from outside: hand it that exact element and that exact
-      // box-shadow string and see which condition fails. Everything else about this row is settled.
-      // ── THE 320px REFLOW EXEMPTION IS DELETED, BECAUSE THE FAILURE IT GUARDED IS GONE (round 26) ───────────────
-      // It excused `reflow @320px: the document scrolls sideways` on the claim that the scroll came from tab children
-      // inside `#tabs`. Rounds 22-24 measured that claim apart — the row named NO scroller at all (so `.every()` was
-      // vacuously true), `#tabs` carries `overflow-x: auto` and clips its own content, and the real cause was the
-      // shell: `#icon-rail` and `#context-rail` were both `flex: 0 0` (52 + 244) with no width breakpoint anywhere in
-      // the sheet. Round 25 added the breakpoint and the same label that had read `320:SCROLLS/0sc/8over` now reads
-      // **`320:ok/1sc/0over`** — `docScrollsSideways` is false, the finding does not fire, and an exemption nothing
-      // needs is weight in the one list a reader consults. If the failure ever returns it is a REAL finding now, and
-      // that is the point: the exemption was covering a defect, not a harness artifact.
-    ],
-  })];
-  // A MEASUREMENT THAT FOUND NOTHING TO MEASURE IS NOT A PASS (round 265). The prose axis is only as good as the
-  // text blocks it matched: a selector change, a probe that stopped counting, or a harness that rendered an empty
-  // page would ALL report "no long lines", and this suite has caught exactly that shape in its own checks before
-  // (a pass that ran nothing, an axis that measured zero). The six live pages alone produce dozens of blocks, so
-  // the floor is deliberately far below the real number: this guards the INSTRUMENT, not the panel.
-  // SCOPED TO THE RUN THAT PRODUCES SURFACES: a report from `--passes=focus` has none, and that is the coverage
-  // clause's business (it fails a run missing a pass the caller asked for) rather than this axis's — a floor that
-  // fired there would be a finding about a page nobody rendered.
-  {
-    const pagesRan = report.passes === "all" || String(report.passes || "").split(",").map((p) => p.trim()).includes("pages");
-    const measured = (report.surfaces || []).reduce((n, s) => n + ((s.measure && s.measure.measured) || 0), 0);
-    if (pagesRan && measured < 12) {
-      findings.push(
-        `the prose-measure axis matched only ${measured} text block(s) across ${(report.surfaces || []).length} surface(s) — a run that measured nothing cannot clear this axis`,
-      );
-    }
-  }
-  // DECORATIVE GRAPHICS: drawn to DELIMIT, not to inform. WCAG 1.4.11 applies to a non-text element that
-  // CARRIES MEANING; a chip's 1px hairline does not, and this one measures 1.2 against a surface it was
-  // never meant to contrast with. Named here rather than silently dropped — the same rule the rest of
-  // this suite follows — and the waived rows are PRINTED on every run so the exemption stays visible.
-  // THE WAIVERS THEMSELVES LIVE IN THE SHARED LIB (round 265), because the panel's OTHER instrument reads the
-  // same rows: the audit reported two of these elements as failures the moment it was made to run, which is a
-  // policy disagreement between two tools rather than a defect in the panel. One list, two readers.
-  const DECORATIVE = DECORATIVE_WAIVERS;
-  const waived = [];
-  // TARGET SIZE, WCAG 2.5.8, AS WRITTEN: undersized AND without the spacing that would save it. A check
-  // that stopped at the size would flag a dozen compact-but-fine controls and be turned off within a week,
-  // which is why the criterion has the second clause and why this uses it.
-  // THE REPORT MUST NOT LIE ABOUT WHAT IT RENDERED. Round 175 shipped a two-theme fixture whose rows all
-  // said `theme: light` while the URLs said dark — the renders were right and the report was wrong, so a dark
-  // regression would have been filed under light. This reads the theme off the PAGE and fails when it
-  // disagrees with what was navigated to. An empty stored value is not judged: an app that reads the theme
-  // from the URL alone would legitimately have nothing to store.
-  for (const t of report.themeChecks || []) {
-    const seen = t.stored || t.attr;
-    if (seen && seen !== t.intended) {
-      findings.push(`theme: ${t.page} was navigated as "${t.intended}" and rendered "${seen}" — the report would be describing a page it did not render`);
-    }
-  }
-  // IMMEDIATE FEEDBACK HAS A BUDGET (round 19) IS JUDGED IN THE SHARED JUDGE NOW — `judgeReport` owns the clause, and
-  // this file's copy was DELETED (round 2 of the standing goal). "Pressed and acknowledged states fire on the EVENT,
-  // not on the network, inside a stated budget": the budget is 100ms, well under any round trip and about six frames,
-  // and the measurement is the gap between the press and the first visible acknowledgement against a fixture that
-  // delays every reply by 900ms. The clause sat HERE, which is why the panel's rows were judged and the console's —
-  // the same array, a third of that sweep's runtime — were judged by nothing at all. One report shape, one clause.
-
-  // TARGET SIZE IS JUDGED IN THE SHARED JUDGE NOW — `judgeReport` owns the clause and this file's copy was DELETED
-  // (round 20 of the standing goal). It lived here, in the console's judge and in the landing's, with three slightly
-  // different sentences — and round 17 strengthened only THIS one, so one page judged by two sweeps got two verdicts.
-  // The label that mattered is preserved there: the `where` is density + page + mode, because this axis measures the
-  // resting page AND the state a hover reveals, and a finding that says only "panel" cannot be reproduced.
-  for (const r of failures(report.rows)) {
-    // A WAIVER IS FOR THE RATIO IT WAS MEASURED AT, NOT FOR THE ELEMENT (round 95). This used to be
-    // `DECORATIVE.find((d) => d.match.test(String(r.sel)))` and nothing else, so an entry written for one number set
-    // aside EVERY ratio that element could ever produce — which is what round 92 caught the rail-dot entry claiming
-    // it did not do ("only 2.33 is set aside, so a DIFFERENT ratio on the same element is still a finding": true of
-    // the hover path, false of this one). Each entry carries the band it was measured in now, a row outside every
-    // band is a finding, and the finding says which band refused it — otherwise the reader sees a bare ratio and
-    // cannot tell a new defect from a waiver that moved.
-    const why = DECORATIVE.find((d) => d.match.test(String(r.sel)));
-    if (why && why.values.some(([lo, hi]) => typeof r.cr === "number" && r.cr >= lo && r.cr <= hi)) {
-      waived.push(`${r.sel} ${r.cr} — ${why.reason}`);
-      continue;
-    }
-    if (why) {
-      findings.push(
-        `${r.sel} ${r.cr} on ${r.surface} — the DECORATIVE entry for this element waives ${why.values.map(([lo, hi]) => `${lo}-${hi}`).join(" / ")}, and this is a DIFFERENT value: a waiver is for the ratio it was measured at, not for the element`,
-      );
-      continue;
-    }
-    if (findings.length < 10 + coverage.length) {
-      // WHAT THE PROBE MEASURED, NOT JUST THE RATIO (round 73). The row has carried `paint`, `surface`, `kind` and
-      // `size` all along and the finding printed none of them, so a number like "2.33" arrived with no way to tell
-      // which colour on which surface it was — three rounds went into reproducing an 8px dot because this line did
-      // not say what it had looked at. The idle pass learned the same lesson in round 69 (naming the PARENT turned
-      // an undiagnosable finding into `span.approval-left x6`); this is the contrast axis taking it.
-      // AND THE THEME, which every row carries and this line left out (round 75). `panel/Settings` names a density and
-      // a page; the light and dark passes produce the SAME name, so a finding about a dark page and a finding about a
-      // light one read identically — and four rounds of this arc went into asking which one CI meant. The surface the
-      // row landed on is already printed; the pass it came from is the other half of "say what you measured".
-      findings.unshift(`${r.cr} ${r.density}/${r.page} [${r.theme}] ${r.sel} "${String(r.text).slice(0, 24)}" — painted ${r.paint} on ${r.surface}, ${r.size}px ${r.kind}, needs ${r.need}`);
-    }
-  }
-  console.log(reportSummary("panel", report));
-  // THE TIMING DATA, SAID OUT LOUD. It has been collected on every page since the timing pass was added and
-  // read by nothing — not judged (a wall-clock budget would fail on a loaded CI box, which is why it is not a
-  // finding) and not printed either, so a ten-fold regression in boot cost would have been invisible. The
-  // worst page is the one worth seeing: a report that prints 40 timings is a report nobody reads.
-  {
-    const t = (report.timing || []).filter((x) => typeof x.toFirstRowMs === 'number');
-    if (t.length) {
-      const worst = t.reduce((a, b) => (b.toFirstRowMs > a.toFirstRowMs ? b : a));
-      console.log(
-        `note: boot timing — worst of ${t.length} surfaces: ${worst.toFirstRowMs}ms to first row ` +
-          `(${worst.density}/${worst.mode}, first paint ${worst.firstPaintMs}ms, ${worst.nodes} nodes)`,
-      );
-    }
-  }
-  if (coverage.length) console.error(`\n${coverage.join("\n")}`);
-  if (unmeasurable(report.rows).length) console.log(`note: ${unmeasurable(report.rows).length} node(s) unmeasurable`);
-  // WHICH MARK STATES THE RUN RENDERED, AGAINST WHICH THE SHEET DECLARES (round 26). The collision check compares
-  // the silhouettes of the states a surface HAPPENS to render, so a family with six declared states and three
-  // rendered has half its shapes unverified — and a collision among the unrendered half cannot be seen at all. This
-  // is the round-96 rule ("a state with no surface cannot be measured") applied to the whole mark vocabulary, which
-  // is the one place the objective asks for a silhouette PER STATE.
-  //
-  // A NOTE, with the counts, for the same reason the other three notes carry theirs: a run that measured one axis
-  // renders few families, and every state then looks unrendered.
-  {
-    const seenByFamily = new Map();
-    for (const s of report.surfaces || []) {
-      for (const entry of (s.marks && s.marks.families) || []) {
-        const m = /^([^[]+)\[([^\]]*)\]$/.exec(String(entry));
-        if (!m) continue;
-        if (!seenByFamily.has(m[1])) seenByFamily.set(m[1], new Set());
-        for (const st of m[2].split(",")) if (st) seenByFamily.get(m[1]).add(st);
-      }
-    }
-    // THE FAMILIES COME FROM THE SHEET, NOT FROM THE RUN (round 27). Enumerating what rendered hides the worst case:
-    // a family that renders NOWHERE simply does not appear, so the note cannot name it — and the device run that
-    // rendered cmd-dot's `running` showed exactly that, because `traj-ev-dot` had disappeared from the list instead
-    // of being reported at zero. The sheet's state selectors are the vocabulary; the run is the evidence about it.
-    const sheetPath = "agent/resources/panel/panel.css";
-    let css = "";
-    try {
-      css = readFileSync(sheetPath, "utf8");
-    } catch (e) {
-      css = "";
-    }
-    if (css) {
-      // COMMENTS FIRST, so prose about a selector is not read as one (the lesson `css-vars-check` and
-      // `retired-colours-check` both record from their own first runs).
-      css = css.replace(/\/\*[\s\S]*?\*\//g, "");
-      for (const line of markCoverageNotes(css, report)) console.log(line);
-    }
-  }
-
-  // HOW WIDE IS A BAND, MEASURED AGAINST WHAT THE RUN SAW (round 23). A DECORATIVE entry waives a RATIO, not an
-  // element (round 95), and the band is what decides: a row inside it is set aside, a row outside it is a finding.
-  // The failure that leaves no trace is the opposite direction — a band WIDER than its evidence excuses a drift
-  // nobody measured, and the grant chip's own reason claimed "the band covers what was measured and nothing else"
-  // while a run sees 1.19-1.27 inside a band of 1.10-1.35. Nine hundredths of unearned margin on each side is a
-  // quiet hole, so the note names the numbers for every banded entry, with the run's scope, and each entry declares
-  // the slack it needs for probe rounding.
-  const BAND_SLACK = 0.02;
-  {
-    const seen = new Map();
-    for (const r of report.rows || []) {
-      const d = DECORATIVE.find((x) => x.match.test(String(r.sel)));
-      if (!d || typeof r.cr !== "number") continue;
-      if (!seen.has(d)) seen.set(d, []);
-      seen.get(d).push(r.cr);
-    }
-    for (const d of DECORATIVE) {
-      const ratios = seen.get(d) || [];
-      if (!ratios.length || !d.values) continue;
-      const lo = Math.min(...ratios);
-      const hi = Math.max(...ratios);
-      const slack = typeof d.slack === "number" ? d.slack : BAND_SLACK;
-      // PER SIDE, NOT THE MINIMUM OF THE TWO. The first version took `Math.min(lo - bandLo, bandHi - hi)`, which
-      // lets a wide side hide behind a tight one: a run that saw a single 1.19 in a 1.17-1.29 band reported no margin
-      // at all, while the upper side carried a tenth nobody had measured — the exact hole this note exists to find,
-      // hidden by the arithmetic written to find it.
-      //
-      // AND AN EPSILON, because the margin is computed in binary floating point: 1.29 - 1.27 is 0.020000000000000018,
-      // so an exact band (observed range plus exactly the declared slack) reported itself as 0.02 over 0.02 — a
-      // warning about the arithmetic rather than about the band.
-      const worstBelow = Math.max(...d.values.map(([a]) => lo - a));
-      const worstAbove = Math.max(...d.values.map(([, b]) => b - hi));
-      if (worstBelow > slack + 1e-9 || worstAbove > slack + 1e-9) {
-        console.log(
-          `note: ${d.match} waives ${d.values.map(([a, b]) => `${a}-${b}`).join(" / ")} and this run saw ${lo}-${hi} (${new Set(ratios).size} distinct over ${ratios.length} row(s)) — margin ${worstBelow.toFixed(2)} below and ${worstAbove.toFixed(2)} above against a declared slack of ${slack}; tighten the band or say why the margin is real`,
-        );
-      }
-    }
-  }
-
-  // A WAIVER NOBODY USED IS DEAD WEIGHT IN THE ONE LIST A READER CONSULTS (round 21). Every entry in DECORATIVE is
-  // permission for an element at a measured ratio; when the element stops rendering under that selector (the mark
-  // language changed the class string, and `/^div\.rail-dot$/` matched nothing for several rounds) the entry is a
-  // reason nobody is using — and it is exactly the kind of sentence the next reader trusts without checking.
-  //
-  // A NOTE, NOT A FINDING: this list is judged per run, and a run that measures one axis (the ack pass alone) has
-  // rows from nothing else — every entry would look stale. The note says how many rows were looked at, so a reader
-  // can tell a real stale entry from a partial run.
-  {
-    const used = new Set();
-    for (const r of report.rows || []) {
-      const d = DECORATIVE.find((x) => x.match.test(String(r.sel)));
-      if (d) used.add(d);
-    }
-    const unmatched = DECORATIVE.filter((d) => !used.has(d));
-    if (unmatched.length) {
-      console.log(
-        `note: ${unmatched.length} of ${DECORATIVE.length} DECORATIVE entr(ies) matched NO row in this run (${(report.rows || []).length} rows over ${(report.surfaces || []).length} surface(s)) — a waiver nothing uses is weight; prune it or say why it stays:`,
-      );
-      for (const d of unmatched) console.log(`  ${String(d.match)}`);
-    }
-  }
-  if (waived.length) {
-    console.log(`note: ${waived.length} decorative graphic(s) set aside, each with its reason:`);
-    for (const w of [...new Set(waived)]) console.log(`  ${w}`);
-  }
-  if (!findings.length) {
-    console.log("panel design sweep OK: nothing above found a defect");
-    return 0;
-  }
-  console.error(`\n${findings.length} finding(s):\n  ` + findings.join("\n  "));
-  return 1;
-}
-
 if (mode === "--emit") {
   // NO SUBSTRING GUARD AND NO HAND-COPIED PARSE CHECK: `bundleSweep` compiled this before returning it, and the
   // helpers are in scope because the payload and the passes meet in one module body — not because a list here names
   // them. Two mechanisms became the assembler's contract, which every emitter now shares.
   process.stdout.write(browserScript());
-} else if (mode === "--judge") {
-  const file = process.argv[3];
-  if (!file) {
-    console.error("usage: panel-design-sweep.mjs --judge <report.json>");
-    process.exit(2);
-  }
-  process.exit(judge(file));
 } else {
   console.error(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 20).join("\n"));
-  console.error("\nusage: panel-design-sweep.mjs --emit | --judge <report.json>");
+  console.error("\nusage: panel-design-sweep.mjs --emit");
   process.exit(2);
 }

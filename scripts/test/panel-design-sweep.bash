@@ -17,13 +17,20 @@
 #
 #   1. `--emit` produces a script that PARSES (it is assembled from template literals, which is how
 #      this project has three times shipped a stub that was silently cut short);
-#   2. `--judge` passes a clean report;
-#   3. `--judge` FAILS a report with a planted defect — for every axis, so a branch of the judge
+#   2. the JUDGE (Rust, `agent/sweep-judge/`) passes a clean report;
+#   3. the JUDGE FAILS a report with a planted defect — for every axis, so a branch of the judge
 #      cannot rot unnoticed. A judge that says OK to everything is worse than no judge.
+#
+# THE CASES ARE UNCHANGED BY THE PORT. What moved is the invocation: `node "$TOOL" --judge <report>`
+# became `"${JUDGE[@]}" --tool panel <report>`, and nothing else in this file changed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 TOOL=agent/scripts/panel-design-sweep.mjs
+# THE JUDGE IS RUST NOW (`agent/sweep-judge/`). This is its whole invocation — the tool above is the
+# COLLECTOR (`--emit`), because a browser executes that half. `cargo run` builds the binary on first use,
+# so nothing has to be staged beside this script.
+JUDGE=(cargo run --quiet --manifest-path agent/Cargo.toml -p summrise-sweep-judge --)
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -196,7 +203,7 @@ clean_idle() {
 JSON
 }
 clean_idle
-if node "$TOOL" --judge "$TMP/idle-clean.json" > "$TMP/idle-clean.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/idle-clean.json" > "$TMP/idle-clean.out" 2>&1; then
   ok "a panel that writes nothing while idle passes the idle clause"
 else
   bad "a still panel was rejected: $(head -3 "$TMP/idle-clean.out")"
@@ -222,7 +229,7 @@ cat > "$TMP/idle-busy.json" <<'JSON'
   "focus": [],
   "idle": [{"density":"panel","theme":"light","page":"Terminal","seconds":6,"byTarget":{"__probe":1,"div.totals":3},"mutations":4,"selfTest":true}]}
 JSON
-if node "$TOOL" --judge "$TMP/idle-busy.json" > "$TMP/idle-busy.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/idle-busy.json" > "$TMP/idle-busy.out" 2>&1; then
   bad "a panel that repainted three times while idle passed the idle clause"
 else
   grep -q "DOM mutation(s) in 6s while idle" "$TMP/idle-busy.out" && ok "an idle repaint fails, and the clause names the target" || bad "the idle clause failed for the wrong reason: $(head -3 "$TMP/idle-busy.out")"
@@ -248,7 +255,7 @@ cat > "$TMP/idle-blind.json" <<'JSON'
   "focus": [],
   "idle": [{"density":"panel","theme":"light","page":"Terminal","seconds":6,"byTarget":{},"mutations":0,"selfTest":false}]}
 JSON
-if node "$TOOL" --judge "$TMP/idle-blind.json" > "$TMP/idle-blind.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/idle-blind.json" > "$TMP/idle-blind.out" 2>&1; then
   bad "a blind idle observer passed — a still panel and a blind instrument are indistinguishable"
 else
   grep -q "did not see its own probe mutation" "$TMP/idle-blind.out" && ok "a blind idle observer fails, and the clause says why" || bad "the blind case failed for the wrong reason: $(head -3 "$TMP/idle-blind.out")"
@@ -278,7 +285,7 @@ cat > "$TMP/clean.json" <<'JSON'
   "sse": [{"page": "Terminal", "density": "panel", "theme": "light", "mode": "idle", "opened": true, "fail": false}]
 }
 JSON
-if node "$TOOL" --judge "$TMP/clean.json" > "$TMP/clean.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/clean.json" > "$TMP/clean.out" 2>&1; then
   ok "a clean report passes"
 else
   bad "a clean report was rejected: $(tail -3 "$TMP/clean.out")"
@@ -299,7 +306,7 @@ d = json.load(open(p))
 d["surfaces"][0]["loud"] = ["button.rail-btn 1444px2 rgb(154,52,18)", "div.tab 3254px2 rgb(154,52,18)"]
 json.dump(d, open(p, "w"), indent=1)
 PYEOF
-if node "$TOOL" --judge "$TMP/twoloud.json" > "$TMP/twoloud.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/twoloud.json" > "$TMP/twoloud.out" 2>&1; then
   ok "a page whose two loud elements are BOTH navigation passes — the exception is the elements, not the name"
 else
   bad "a named page was rejected: $(tail -3 "$TMP/twoloud.out")"
@@ -476,7 +483,7 @@ PY
 }
 for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none ack ack-nocounter; do
   plant "$axis" "$axis"
-  if node "$TOOL" --judge "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
+  if "${JUDGE[@]}" --tool panel "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
   else
     ok "the judge fails a planted '$axis' defect"
@@ -500,7 +507,7 @@ json.dump(fast, open(sys.argv[3], "w"))
 none = json.loads(json.dumps(late)); none["ack"][0].update({"acked": False, "via": None, "msToAck": None, "asked": True})
 json.dump(none, open(sys.argv[4], "w"))
 PY
-if node "$TOOL" --judge "$TMP/ack-late.json" > "$TMP/ack-late.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/ack-late.json" > "$TMP/ack-late.out" 2>&1; then
   bad "the judge passed an acknowledgement that waited 912ms on a 100ms budget"
 else
   if grep -q "912ms" "$TMP/ack-late.out" && grep -q "1180ms network round trip" "$TMP/ack-late.out"; then
@@ -509,12 +516,12 @@ else
     bad "the ack finding does not explain itself: $(grep -m1 'acknowledged the press' "$TMP/ack-late.out")"
   fi
 fi
-if node "$TOOL" --judge "$TMP/ack-fast.json" > /dev/null 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/ack-fast.json" > /dev/null 2>&1; then
   ok "an acknowledgement inside the budget passes"
 else
   bad "the judge failed an acknowledgement that fired on the event"
 fi
-if node "$TOOL" --judge "$TMP/ack-none.json" > /dev/null 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/ack-none.json" > /dev/null 2>&1; then
   bad "the judge passed a control that never acknowledged the press"
 else
   ok "and a control that never acknowledges is a finding"
@@ -530,7 +537,7 @@ json.dump(r, open(sys.argv[2], "w"))
 PY
 # The judge MAY still fail this report — and should: a pass whose only row asked the device nothing proves nothing
 # about feedback, which is what the floor is for. What must NOT happen is the row being called a silent control.
-node "$TOOL" --judge "$TMP/ack-idle.json" > "$TMP/ack-idle.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/ack-idle.json" > "$TMP/ack-idle.out" 2>&1 || true
 if grep -q "never acknowledged the press" "$TMP/ack-idle.out"; then
   bad "the judge accused a control that asked the device nothing: $(grep -m1 'never acknowledged' "$TMP/ack-idle.out")"
 else
@@ -551,7 +558,7 @@ r["rows"][0].update({"sel": "div.rail-dot", "cr": 2.33, "need": 3, "size": 8, "w
                      "kind": "graphic", "paint": "rgb(61, 40, 23) (ring)", "surface": "rgb(31, 31, 31)"})
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/decorative-pruned.json" > /dev/null 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/decorative-pruned.json" > /dev/null 2>&1; then
   bad "a row the deleted waiver used to excuse still passes — the prune changed nothing"
 else
   ok "the pruned waiver no longer excuses its old row, which is now a finding"
@@ -570,7 +577,7 @@ r["rows"] = [
 ]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/waivers-used.json" > "$TMP/waivers-used.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/waivers-used.json" > "$TMP/waivers-used.out" 2>&1; then
   if grep -q "DECORATIVE entr" "$TMP/waivers-used.out"; then
     bad "the judge called a waiver unused while the run had a row for it: $(grep -m1 'DECORATIVE entr' "$TMP/waivers-used.out")"
   else
@@ -579,7 +586,7 @@ if node "$TOOL" --judge "$TMP/waivers-used.json" > "$TMP/waivers-used.out" 2>&1;
 else
   bad "the used-waiver report failed for another reason: $(tail -2 "$TMP/waivers-used.out")"
 fi
-if node "$TOOL" --judge "$TMP/clean.json" > "$TMP/clean-waivers.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/clean.json" > "$TMP/clean-waivers.out" 2>&1; then
   if grep -q "matched NO row in this run (1 rows over 1 surface" "$TMP/clean-waivers.out"; then
     ok "and a waiver no row matched is named, with the row count that makes it judgeable"
   else
@@ -606,13 +613,13 @@ def with_classes(cs):
 json.dump(with_classes(classes), open(sys.argv[2], "w"))
 json.dump(with_classes([]), open(sys.argv[3], "w"))
 PY
-node "$TOOL" --judge "$TMP/unstyled-seen.json" > "$TMP/unstyled-seen.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/unstyled-seen.json" > "$TMP/unstyled-seen.out" 2>&1 || true
 if grep -q "were not seen" "$TMP/unstyled-seen.out"; then
   bad "a run that saw every declared unstyled-by-design class still reported unused ones: $(grep -m1 'were not seen' "$TMP/unstyled-seen.out")"
 else
   ok "the unstyled-by-design list says nothing when the run saw every class it declares"
 fi
-node "$TOOL" --judge "$TMP/unstyled-none.json" > "$TMP/unstyled-none.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/unstyled-none.json" > "$TMP/unstyled-none.out" 2>&1 || true
 if grep -q "11 of 11 declared unstyled-by-design" "$TMP/unstyled-none.out"; then
   ok "and a run that saw none names them all, with the reason each is kept"
 else
@@ -634,7 +641,7 @@ def with_marks(fams):
 json.dump(with_marks(["cmd-dot[fail,ok]"]), open(sys.argv[2], "w"))
 json.dump(with_marks(["cmd-dot[fail,ok,muted,running,warn,bg]"]), open(sys.argv[3], "w"))
 PY
-node "$TOOL" --judge "$TMP/marks-partial.json" > "$TMP/marks-partial.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/marks-partial.json" > "$TMP/marks-partial.out" 2>&1 || true
 # The states are listed in ONE comma-separated clause, so the state name is asserted on its own — the first
 # version of this case looked for it at the head of the list and failed while the note was saying exactly that.
 if grep -q "NO SURFACE RENDERED" "$TMP/marks-partial.out" && grep -q "data-state=running" "$TMP/marks-partial.out"; then
@@ -652,7 +659,7 @@ r = json.load(open(sys.argv[1]))
 r["surfaces"] = [{"density": "panel", "theme": "light", "page": "Terminal", "marks": {"families": ["cmd-dot[fail,ok,muted,running,warn,bg]"]}}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-node "$TOOL" --judge "$TMP/marks-absent.json" > "$TMP/marks-absent.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/marks-absent.json" > "$TMP/marks-absent.out" 2>&1 || true
 if grep -q "mark family tab-dot declares .* rendered 0" "$TMP/marks-absent.out"; then
   ok "a mark family NO surface rendered is named at zero, not silently missing"
 else
@@ -669,7 +676,7 @@ r["surfaces"] = [{"density": "panel", "theme": "light", "page": "Terminal",
                   "marks": {"families": ["cmd-dot[fail,ok,muted,running,warn,bg]"], "present": ["tab-dot", "mark"]}}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-node "$TOOL" --judge "$TMP/marks-onscreen.json" > "$TMP/marks-onscreen.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/marks-onscreen.json" > "$TMP/marks-onscreen.out" 2>&1 || true
 # ANCHORED ON THE FAMILY NAME: the first version's second pattern was `tab-dot declares ... NO SURFACE RENDERED`,
 # which `dtab-dot declares ...` matches as a SUBSTRING — so the case failed while the note it was testing was correct.
 # The same class of mistake as the mutation that matched an intent string already on another feed: a pattern is not a
@@ -683,13 +690,13 @@ fi
 # in `.update-state` (a mono paragraph), `.notify-state` (the notifications card's line) and `.monitor-state` (the word
 # beside the chip) — three false entries in a queue that is supposed to be a list of defects. They are declared with
 # their reasons and skipped; their legibility is the contrast pass's business, which measures them as text.
-node "$TOOL" --judge "$TMP/clean.json" > "$TMP/text-states.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/clean.json" > "$TMP/text-states.out" 2>&1 || true
 if grep -qE "mark family (update-state|notify-state|monitor-state)" "$TMP/text-states.out"; then
   bad "a text state class is still reported as a mark family: $(grep -m1 -E 'mark family (update-state|notify-state|monitor-state)' "$TMP/text-states.out")"
 else
   ok "a class named -state that the sheet styles as TEXT is not counted as a mark"
 fi
-node "$TOOL" --judge "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/marks-full.json" > "$TMP/marks-full.out" 2>&1 || true
 if grep -q "mark family cmd-dot" "$TMP/marks-full.out"; then
   bad "a family rendering every declared state was still reported: $(grep -m1 'mark family' "$TMP/marks-full.out")"
 else
@@ -713,13 +720,13 @@ json.dump(r, open(sys.argv[2], "w"))
 r = json.loads(json.dumps(base)); r["rows"] = rows([1.19])
 json.dump(r, open(sys.argv[3], "w"))
 PY
-node "$TOOL" --judge "$TMP/band-matched.json" > "$TMP/band-matched.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/band-matched.json" > "$TMP/band-matched.out" 2>&1 || true
 if grep -q "margin .* below" "$TMP/band-matched.out"; then
   bad "a band matching its run's evidence was reported as wide: $(grep -m1 'margin .* below' "$TMP/band-matched.out")"
 else
   ok "a band that matches the ratios the run saw says nothing"
 fi
-node "$TOOL" --judge "$TMP/band-one-side.json" > "$TMP/band-one-side.out" 2>&1 || true
+"${JUDGE[@]}" --tool panel "$TMP/band-one-side.json" > "$TMP/band-one-side.out" 2>&1 || true
 if grep -q "0.10 above" "$TMP/band-one-side.out"; then
   ok "and a band whose far side nobody measured is reported per side, with the number"
 else
@@ -741,7 +748,7 @@ r = json.load(open(sys.argv[1]))
 r["sse"] = [{"page": "Terminal", "opened": True, "fail": False}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/ignore-dormant.json" > "$TMP/ignore-note.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/ignore-dormant.json" > "$TMP/ignore-note.out" 2>&1; then
   if grep -q "ignore entry dormant as declared" "$TMP/ignore-note.out"; then
     ok "an unused exemption that declares why it stays is reported as dormant, not as weight"
   else
@@ -767,7 +774,7 @@ r["targets"] = [{"density": "panel", "page": "panel-Terminal", "mode": "reveal",
                                "nearest": 22, "passesBySpacing": False}]}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/targets-reveal.json" > "$TMP/targets-reveal.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/targets-reveal.json" > "$TMP/targets-reveal.out" 2>&1; then
   bad "the judge passed a 22x22 target with a 22px neighbour in the REVEALED state"
 else
   if grep -q "reveal" "$TMP/targets-reveal.out" && grep -q "panel-Terminal" "$TMP/targets-reveal.out"; then
@@ -806,22 +813,22 @@ json.dump(one_of_one, open(sys.argv[4], "w"))
 one_of_four = press(4, [{"sel": ".rail-btn", "where": "button.rail-btn", "size": "38x38", "changed": True, "props": ["transform"], "reached": True}])
 json.dump(one_of_four, open(sys.argv[5], "w"))
 PY
-if node "$TOOL" --judge "$TMP/press-blind.json" > "$TMP/press-blind.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/press-blind.json" > "$TMP/press-blind.out" 2>&1; then
   ok "a press row the pointer never reached is NOT reported as a control that ignores a press"
 else
   bad "the judge accused a control from a press the pointer never delivered: $(grep -m1 'renders NOTHING' "$TMP/press-blind.out")"
 fi
-if node "$TOOL" --judge "$TMP/press-dead.json" > /dev/null 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/press-dead.json" > /dev/null 2>&1; then
   bad "the judge passed a dead press with no evidence about whether the pointer arrived"
 else
   ok "and the same row WITHOUT that evidence is still a finding"
 fi
-if node "$TOOL" --judge "$TMP/press-one-of-one.json" > "$TMP/press-one-of-one.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/press-one-of-one.json" > "$TMP/press-one-of-one.out" 2>&1; then
   ok "a discovered pass that pressed the ONLY control a page has is a complete pass"
 else
   bad "the floor called a one-control page vacuous: $(grep -m1 'measured' "$TMP/press-one-of-one.out")"
 fi
-if node "$TOOL" --judge "$TMP/press-one-of-four.json" > /dev/null 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/press-one-of-four.json" > /dev/null 2>&1; then
   bad "the judge passed a pass that pressed 1 of the 4 controls a page renders"
 else
   ok "and a page with four controls still has to have more than one pressed"
@@ -860,7 +867,7 @@ r["surfaces"][0]["claims"] = ["p.muted: did not answer, so its restart history c
 r["sse"] = [{"page": "Terminal", "fail": True}]
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/claim-excused.json" > "$TMP/claim-excused.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/claim-excused.json" > "$TMP/claim-excused.out" 2>&1; then
   if grep -q "true by construction" "$TMP/claim-excused.out"; then
     ok "a read-failure claim on a ?fail=1 surface passes, and the note says why"
   else
@@ -884,7 +891,7 @@ r["rows"][0].update({"sel": "span.approval-grant", "cr": 1.19, "need": 3, "size"
                      "kind": "graphic", "paint": "rgb(229, 229, 234) (border)", "surface": "rgb(252, 251, 250)"})
 json.dump(r, open(sys.argv[2], "w"))
 PY
-if node "$TOOL" --judge "$TMP/decorative-waived.json" > "$TMP/decorative-waived.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/decorative-waived.json" > "$TMP/decorative-waived.out" 2>&1; then
   if grep -q "span.approval-grant 1.19" "$TMP/decorative-waived.out"; then
     ok "a waived element at the ratio it was measured at still passes, and the waiver is printed with its reason"
   else
@@ -918,7 +925,7 @@ fi
 # is painted), so a silent regression here would hide the one number that made round 186's six-round detour
 # possible. Assert the note, and that it carries BOTH numbers.
 plant paint-drift paint-drift
-if node "$TOOL" --judge "$TMP/paint-drift.json" > "$TMP/paint-drift.out" 2>&1; then
+if "${JUDGE[@]}" --tool panel "$TMP/paint-drift.json" > "$TMP/paint-drift.out" 2>&1; then
   ok "a report of pixels overruling the style check still passes"
 else
   bad "the judge FAILED a report whose only oddity is paint-confirmed focus verdicts"
@@ -990,7 +997,7 @@ cat > "$TMP/console-clean.json" <<'JSON'
   "names": [{"page": "overview", "checked": 5, "unnamed": [], "titleOnly": []}]
 }
 JSON
-if node "$CONSOLE" --judge "$TMP/console-clean.json" >/dev/null 2>&1; then
+if "${JUDGE[@]}" --tool console "$TMP/console-clean.json" >/dev/null 2>&1; then
   ok "a clean console report passes"
 else
   bad "a clean console report was rejected"
@@ -1017,7 +1024,7 @@ elif which == "ack":
                  "acked": False, "via": None, "msToAck": None, "msToClear": None, "budgetMs": 100, "attempts": 2}]
 json.dump(r, open(dst, "w"))
 PY2
-  if node "$CONSOLE" --judge "$TMP/console-$axis.json" >/dev/null 2>&1; then
+  if "${JUDGE[@]}" --tool console "$TMP/console-$axis.json" >/dev/null 2>&1; then
     bad "the console judge PASSED a report with a planted '$axis' defect"
   else
     ok "the console judge fails a planted '$axis' defect"
