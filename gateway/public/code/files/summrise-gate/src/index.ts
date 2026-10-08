@@ -256,7 +256,7 @@ export default {
       //
       // **AND THE ROLLBACK IS THE DOMAIN TABLE, NOT THIS BINDING.** Deleting `WASM_GATE` restores no TypeScript
       // path — that implementation was deleted on 2026-10-07, and `frontDoor` answers 503 without the binding.
-      // What restores `/v1` is moving `ai.saisi.online` and `api.saisi.online` back to the worker that still runs
+      // What restores `/v1` is moving the two console hostnames back to the worker that still runs
       // the pre-cutover code (`vale-gate`, kept deployed by the 2026-10-08 rename as the Durable Object owner —
       // see `wrangler.jsonc`): no DNS change, no Access change, no data migration, because both implementations
       // read the same KV and write the same Durable Object and were measured byte-for-byte equal on 91
