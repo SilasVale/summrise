@@ -6,6 +6,19 @@
   // `src/index.js` on the same request, 17 cases. **Deleting the JS now would delete the oracle**, so it
   // stays until the comparison has nothing left to compare.
   "main": "worker/build/index.js",
+  // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES — MEASURED 2026-10-08.**
+  // `worker/build/` is gitignored (its own `.gitignore` is `*`), so on a clean checkout the entry point
+  // above does not exist, and `./scripts/build.sh proxies` runs `wrangler deploy` and nothing else.
+  // Measured with the directory moved aside:
+  //
+  //     ✘ ERROR The entry-point file at "worker/build/index.js" was not found.
+  //
+  // CI only ever got away with it by ORDER: `scripts/test/rust-byte-checks.bash` runs `verify.mjs` earlier
+  // in the same job, and that harness builds when `build/` is missing — a deploy that depends on a test
+  // having run first is the same defect class as a check nobody runs. `gateway/wasm/wrangler.jsonc` carries
+  // this key for the same reason; the crate here is one directory down, which is what the argument is for
+  // (`worker-build`'s PATH is "the path to the Rust crate", and its output lands in `<crate>/build/`).
+  "build": { "command": "worker-build --release worker" },
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
   // 2026-08-26: custom_domains is ignored by wrangler 4 and was never bound

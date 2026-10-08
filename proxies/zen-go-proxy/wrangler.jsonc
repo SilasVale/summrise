@@ -5,6 +5,14 @@
   // `worker-build` output against `src/index.js`. **The JS is the oracle, so deleting it now would delete
   // the proof.** It goes when the comparison has nothing left to compare.
   "main": "worker/build/index.js",
+  // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES — MEASURED 2026-10-08.** `worker/build/` is
+  // gitignored (its own `.gitignore` is `*`), so on a clean checkout the entry point above does not exist,
+  // and `./scripts/build.sh proxies` runs `wrangler deploy` and nothing else — measured with the directory
+  // moved aside: `✘ ERROR The entry-point file at "worker/build/index.js" was not found.` CI only ever got
+  // away with it by ORDER (the byte-comparison harness in the same job builds when `build/` is missing).
+  // `gateway/wasm/wrangler.jsonc` carries this key for the same reason; the crate here is one directory
+  // down, which is what the argument is for.
+  "build": { "command": "worker-build --release worker" },
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
   "custom_domains": ["opencode.saisi.online"],
