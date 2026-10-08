@@ -80,6 +80,35 @@ pub fn cache_eviction_index(size: usize) -> Option<usize> {
 /// `Option<Value>` and not `Option<String>`.
 static KV_CACHE: Mutex<Vec<(String, serde_json::Value, i64)>> = Mutex::new(Vec::new());
 
+/// **A TEST-ONLY GUARD OVER THE PROCESS-GLOBAL CACHE, AND THE MEASUREMENT THAT ASKED FOR IT.**
+///
+/// `KV_CACHE` is one `static` for the whole test binary, and cargo runs a binary's tests on PARALLEL
+/// THREADS — so two tests that touch it interleave. Measured 2026-10-08, first in CI on the merge commit
+/// `7111cdcb` and then reproduced here (2 of 5 local runs failed):
+///
+/// ```text
+///     thread 'store::cache_tests::the_eviction_takes_the_oldest_at_the_bound' panicked at src/store.rs:164:
+///     and only the oldest
+/// ```
+///
+/// `the_cache_is_the_sources` was inserting and deleting keys while the eviction test filled the cache to
+/// `CACHE_MAX_ENTRIES`, so the interleaved `put` is what the bound evicted — or what became "the oldest".
+/// **THE GUARD ALSO EMPTIES THE CACHE**, because a test that inherits another test's leftovers is the same
+/// defect one run later. Any test that touches the cache must take it; this is the crate's one piece of
+/// shared mutable state, and the crate has exactly two such tests.
+///
+/// (It is not a fix to the cache: the cache is per-isolate by design, and one isolate is one thread of
+/// requests. What was wrong was the TESTS sharing it across threads.)
+#[cfg(test)]
+pub(crate) fn cache_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static CACHE_TESTS: Mutex<()> = Mutex::new(());
+    let guard = CACHE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Ok(mut cache) = KV_CACHE.lock() {
+        cache.clear();
+    }
+    guard
+}
+
 /// `cget(k)`: the cached value when it is still fresh, `None` when it is absent OR expired.
 pub fn cached_get(key: &str, now_ms: i64) -> Option<serde_json::Value> {
     let Ok(mut cache) = KV_CACHE.lock() else {
@@ -129,6 +158,7 @@ mod cache_tests {
     ///           the short-TTL list, not a performance detail.
     #[test]
     fn the_cache_is_the_sources() {
+        let _exclusive = cache_test_guard();
         // A MISS IS `None`; A CACHED MISS IS `Some(Null)` — the distinction the source spells "caches null too".
         assert_eq!(cached_get("token:t", 1000), None);
         cache_put("token:t", serde_json::Value::Null, 1000);
@@ -153,8 +183,13 @@ mod cache_tests {
 
     /// The eviction is at the BOUND and takes the OLDEST — `Map`'s insertion order, which is why the state is a
     /// `Vec` and not a `HashMap`.
+    ///
+    /// **THE `cache_test_guard` LINE IS THE FIX FOR A FLAKE, NOT A FORMALITY**: without it this test
+    /// failed roughly two runs in five, because the test above it was filling the same global cache at the
+    /// same time (see the guard's own comment for the measurement and the CI run that caught it).
     #[test]
     fn the_eviction_takes_the_oldest_at_the_bound() {
+        let _exclusive = cache_test_guard();
         for i in 0..CACHE_MAX_ENTRIES {
             cache_put(&format!("k{i}"), serde_json::json!(i), 1000);
         }
