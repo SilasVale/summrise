@@ -82,12 +82,19 @@ pub struct Recorded {
     pub upstream: Option<Upstream>,
 }
 
-/// The repo root, from a crate's `CARGO_MANIFEST_DIR` — `proxies/<worker>/worker` is three levels down.
+/// The repo root, from a crate's `CARGO_MANIFEST_DIR` — **FOUND, NOT COUNTED**.
+///
+/// It counted three levels up, which is where `proxies/<satellite>/worker` sits. `relay/worker` sits two
+/// levels down, and the count then walked ABOVE the repository: the first run of the file relay's
+/// differential asked node for `/home/zss/gateway/wasm/run-cases.mjs`. Walking up to the `.git` entry is
+/// the same answer for every crate and cannot be broken by a crate moving.
 pub fn repo_root(manifest_dir: &str) -> PathBuf {
     Path::new(manifest_dir)
         .ancestors()
-        .nth(3)
-        .expect("the crate lives three levels below the repo root")
+        .find(|p| p.join(".git").exists())
+        .unwrap_or_else(|| {
+            panic!("no .git above {manifest_dir} — is this crate inside the repository?")
+        })
         .to_path_buf()
 }
 

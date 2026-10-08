@@ -1123,6 +1123,11 @@ jobs:
         working-directory: relay
       - name: The file relay's decision half (Rust)
         run: cargo test --manifest-path relay/worker/Cargo.toml
+      # **THE HALF `cargo test` CANNOT SEE**, and the same step the two satellites carry: `worker.rs` is
+      # behind `#[cfg(target_arch = "wasm32")]` (because `#[event(fetch)]` expands to nothing on the host),
+      # so the host suite compiles none of the entry point. The job's toolchain already carries the target.
+      - name: The file relay's entry point, for the target it serves
+        run: cargo clippy --manifest-path relay/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       # EVERY PROXY SUITE RUNS HERE, and that sentence had to be corrected twice.
       #
       # Round 231: the vrelay suite (the relay that serves THIS repository's git mirror) was

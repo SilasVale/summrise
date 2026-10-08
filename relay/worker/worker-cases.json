@@ -1,0 +1,415 @@
+{
+  "_comment": "THE FILE RELAY'S CASES, AS DATA — read by BOTH drivers: `record-worker.mjs` drives the SHIPPING JavaScript worker with them, and `tests/worker_differential.rs` drives the built Rust worker through `gateway/wasm/run-cases.mjs`. One case list, two implementations, so a difference in the answers is a difference in the code. The host is not a production hostname: the worker builds its download URL from PUBLIC_BASE, and the route path's own origin is `https://relay.test`.",
+  "host": "https://relay.test",
+  "env": {
+    "UPLOAD_KEY": "upload-key-1234567890",
+    "DO_AUTH": "",
+    "PUBLIC_BASE": ""
+  },
+  "cases": [
+    {
+      "label": "POST /api/upload with no Authorization — the 401 that keeps strangers out of R2",
+      "method": "POST",
+      "path": "/api/upload",
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "a.txt",
+          "type": "text/plain",
+          "bytes": "hello"
+        }
+      },
+      "contentLength": 200
+    },
+    {
+      "label": "POST /api/upload with the WRONG bearer",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer wrong-key"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "a.txt",
+          "type": "text/plain",
+          "bytes": "hello"
+        }
+      },
+      "contentLength": 200
+    },
+    {
+      "label": "POST /api/upload, authorized, but the body is not multipart",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890",
+        "content-type": "application/json"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "{}"
+      },
+      "contentLength": 2
+    },
+    {
+      "label": "POST /api/upload, multipart, and NO content-length — 411 rather than buffering an unbounded body",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890",
+        "content-type": "multipart/form-data; boundary=x"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "irrelevant: the length screen runs first"
+      }
+    },
+    {
+      "label": "POST /api/upload, multipart, a declared length past the 100 MiB cap plus its margin",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890",
+        "content-type": "multipart/form-data; boundary=x"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "small"
+      },
+      "contentLength": 104923137
+    },
+    {
+      "label": "POST /api/upload, multipart declared, and the framing is broken — formData() throws, so 400",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890",
+        "content-type": "multipart/form-data; boundary=x"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "this is not a multipart body"
+      },
+      "contentLength": 27
+    },
+    {
+      "label": "POST /api/upload, a well-formed multipart body with NO file field",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "a.txt",
+          "type": "text/plain",
+          "bytes": ""
+        },
+        "field": "not_file"
+      },
+      "contentLength": 200
+    },
+    {
+      "label": "POST /api/upload, a filename nothing survives sanitizing — never a forged header into R2",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "\"\"\"",
+          "type": "text/plain",
+          "bytes": "hello"
+        }
+      },
+      "contentLength": 200
+    },
+    {
+      "label": "POST /api/upload, the happy path — one put, and the body carries the token, url and size",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "report.pdf",
+          "type": "application/pdf",
+          "bytes": "the file bytes"
+        }
+      },
+      "contentLength": 200,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "POST /api/upload, the happy path with a NON-ASCII filename — filename* in the stored metadata",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "报告.pdf",
+          "type": "application/pdf",
+          "bytes": "bytes"
+        }
+      },
+      "contentLength": 200,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "POST /api/upload, authorized, and R2 refuses the put — the catch-all 500 with String(err)",
+      "method": "POST",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "form",
+        "file": {
+          "name": "a.txt",
+          "type": "text/plain",
+          "bytes": "hello"
+        }
+      },
+      "contentLength": 200,
+      "bindings": {
+        "r2": {
+          "throws": "put"
+        }
+      }
+    },
+    {
+      "label": "PUT /api/upload with no Authorization",
+      "method": "PUT",
+      "path": "/api/upload",
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9
+    },
+    {
+      "label": "PUT /api/upload, authorized, and NO content-length",
+      "method": "PUT",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      }
+    },
+    {
+      "label": "PUT /api/upload, authorized, an unparseable content-length",
+      "method": "PUT",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": "abc"
+    },
+    {
+      "label": "PUT /api/upload, authorized, past the 100 MiB cap",
+      "method": "PUT",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 104857601
+    },
+    {
+      "label": "PUT /api/upload — the CLIENT-SUPPLIED PATH is reduced to its basename before it shapes a header",
+      "method": "PUT",
+      "path": "/api/upload?name=..%2F..%2Fevil.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload — the filename arrives in X-Filename when the query carries none",
+      "method": "PUT",
+      "path": "/api/upload",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890",
+        "x-filename": "from-header.bin",
+        "x-content-type": "application/x-thing"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "tokenBytes": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQRRRRSSSSTTTTUUUUVVVVWWWWXXXXYYYY"
+    },
+    {
+      "label": "PUT /api/upload, a filename nothing survives — 400, not a header with nothing in it",
+      "method": "PUT",
+      "path": "/api/upload?name=%22%22%22",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9
+    },
+    {
+      "label": "PUT /api/upload, and R2 refuses the put — 502 with the reason, never the catch-all 500",
+      "method": "PUT",
+      "path": "/api/upload?name=a.txt",
+      "headers": {
+        "authorization": "Bearer upload-key-1234567890"
+      },
+      "body": {
+        "kind": "stream",
+        "bytes": "raw bytes"
+      },
+      "contentLength": 9,
+      "bindings": {
+        "r2": {
+          "throws": "put"
+        }
+      }
+    },
+    {
+      "label": "GET /files/<token> — forwarded to the claim DO, whose answer is returned unchanged",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "do": {
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/pdf",
+              "content-disposition": "attachment; filename=\"a.pdf\"",
+              "cache-control": "no-store"
+            },
+            "body": "the file bytes"
+          }
+        }
+      }
+    },
+    {
+      "label": "GET /files/<token> with DO_AUTH set — the internal credential rides the forwarded request",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "bindings": {
+        "do": {
+          "response": {
+            "status": 200,
+            "headers": {},
+            "body": "bytes"
+          }
+        }
+      }
+    },
+    {
+      "label": "GET /files/<token> with DO_AUTH set — a CLIENT-supplied x-do-auth is overwritten, not honoured",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "headers": {
+        "x-do-auth": "forged"
+      },
+      "env": {
+        "DO_AUTH": "do-secret-123"
+      },
+      "bindings": {
+        "do": {
+          "response": {
+            "status": 200,
+            "headers": {},
+            "body": "bytes"
+          }
+        }
+      }
+    },
+    {
+      "label": "GET /files/<token> — the DO's own 404 for an already-claimed file passes through",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "do": {
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/json"
+            },
+            "body": "{\"error\":\"file not found or already downloaded\"}"
+          }
+        }
+      }
+    },
+    {
+      "label": "GET /files/<token> — the DO is unreachable, so the 503 envelope rather than a platform 500",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "bindings": {
+        "do": {
+          "throws": true
+        }
+      }
+    },
+    {
+      "label": "GET /files/<15 chars> — shorter than a token, so no route names it",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDD"
+    },
+    {
+      "label": "GET /files/<65 chars> — longer than a token",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQR"
+    },
+    {
+      "label": "GET /files/<token> with a character outside the token alphabet",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEE!FF"
+    },
+    {
+      "label": "POST /files/<token> — the claim route is a GET",
+      "method": "POST",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "body": {
+        "kind": "stream",
+        "bytes": "x"
+      },
+      "contentLength": 1
+    },
+    {
+      "label": "GET /api/upload — the upload route is a POST or a PUT",
+      "method": "GET",
+      "path": "/api/upload"
+    },
+    {
+      "label": "GET / — this worker is the file relay, and everything else is 404 JSON",
+      "method": "GET",
+      "path": "/"
+    }
+  ]
+}

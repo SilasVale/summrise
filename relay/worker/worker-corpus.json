@@ -1,0 +1,475 @@
+{
+  "source": {
+    "relay/src/index.js": "3afc456c940d6dde73da53c043c9500c0b872541"
+  },
+  "host": "https://relay.test",
+  "cases": [
+    {
+      "label": "POST /api/upload with no Authorization — the 401 that keeps strangers out of R2",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload with the WRONG bearer",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, authorized, but the body is not multipart",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 67,
+      "body": "{\"error\":\"expected multipart/form-data (POST) or a raw body (PUT)\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, multipart, and NO content-length — 411 rather than buffering an unbounded body",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 411,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 35,
+      "body": "{\"error\":\"content-length required\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, multipart, a declared length past the 100 MiB cap plus its margin",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 413,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 48,
+      "body": "{\"error\":\"file too large (max 104857600 bytes)\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, multipart declared, and the framing is broken — formData() throws, so 400",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 34,
+      "body": "{\"error\":\"invalid multipart body\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, a well-formed multipart body with NO file field",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 25,
+      "body": "{\"error\":\"no file field\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, a filename nothing survives sanitizing — never a forged header into R2",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 28,
+      "body": "{\"error\":\"invalid filename\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, the happy path — one put, and the body carries the token, url and size",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 233,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":14,\"filename\":\"report.pdf\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 14,
+          "contentType": "application/pdf",
+          "contentDisposition": "attachment; filename=\"report.pdf\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, the happy path with a NON-ASCII filename — filename* in the stored metadata",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 232,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":5,\"filename\":\"报告.pdf\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 5,
+          "contentType": "application/pdf",
+          "contentDisposition": "attachment; filename=\".pdf\"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.pdf",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "POST /api/upload, authorized, and R2 refuses the put — the catch-all 500 with String(err)",
+      "method": "POST",
+      "path": "/api/upload",
+      "status": 500,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 38,
+      "body": "{\"error\":\"Error: stub: R2 put failed\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload with no Authorization",
+      "method": "PUT",
+      "path": "/api/upload",
+      "status": 401,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 24,
+      "body": "{\"error\":\"unauthorized\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload, authorized, and NO content-length",
+      "method": "PUT",
+      "path": "/api/upload",
+      "status": 411,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 35,
+      "body": "{\"error\":\"content-length required\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload, authorized, an unparseable content-length",
+      "method": "PUT",
+      "path": "/api/upload",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 34,
+      "body": "{\"error\":\"invalid content-length\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload, authorized, past the 100 MiB cap",
+      "method": "PUT",
+      "path": "/api/upload",
+      "status": 413,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 48,
+      "body": "{\"error\":\"file too large (max 104857600 bytes)\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — the CLIENT-SUPPLIED PATH is reduced to its basename before it shapes a header",
+      "method": "PUT",
+      "path": "/api/upload?name=..%2F..%2Fevil.txt",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 230,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"evil.txt\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/octet-stream",
+          "contentDisposition": "attachment; filename=\"evil.txt\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload — the filename arrives in X-Filename when the query carries none",
+      "method": "PUT",
+      "path": "/api/upload",
+      "status": 200,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 237,
+      "body": "{\"token\":\"DDDDEEEEFFFFGGGGHHHHII\",\"url\":\"https://relay.test/files/DDDDEEEEFFFFGGGGHHHHII\",\"size\":9,\"filename\":\"from-header.bin\",\"expiresAt\":\"2023-11-15T22:13:20.000Z\",\"note\":\"one-time download: file is deleted after first access or 24h\"}",
+      "r2": [
+        {
+          "op": "put",
+          "key": "files/DDDDEEEEFFFFGGGGHHHHII",
+          "size": 9,
+          "contentType": "application/x-thing",
+          "contentDisposition": "attachment; filename=\"from-header.bin\"",
+          "expiresAt": "1700086400000"
+        }
+      ],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload, a filename nothing survives — 400, not a header with nothing in it",
+      "method": "PUT",
+      "path": "/api/upload?name=%22%22%22",
+      "status": 400,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 28,
+      "body": "{\"error\":\"invalid filename\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "PUT /api/upload, and R2 refuses the put — 502 with the reason, never the catch-all 500",
+      "method": "PUT",
+      "path": "/api/upload?name=a.txt",
+      "status": 502,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 53,
+      "body": "{\"error\":\"r2 put failed: Error: stub: R2 put failed\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "GET /files/<token> — forwarded to the claim DO, whose answer is returned unchanged",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "cache-control: no-store",
+        "content-disposition: attachment; filename=\"a.pdf\"",
+        "content-type: application/pdf"
+      ],
+      "bytes": 14,
+      "body": "the file bytes",
+      "r2": [],
+      "forwarded": [
+        {
+          "name": "files/AAAABBBBCCCCDDDDEEEEFF",
+          "method": "GET",
+          "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+          "headers": []
+        }
+      ]
+    },
+    {
+      "label": "GET /files/<token> with DO_AUTH set — the internal credential rides the forwarded request",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [],
+      "forwarded": [
+        {
+          "name": "files/AAAABBBBCCCCDDDDEEEEFF",
+          "method": "GET",
+          "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+          "headers": [
+            "x-do-auth: do-secret-123"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "GET /files/<token> with DO_AUTH set — a CLIENT-supplied x-do-auth is overwritten, not honoured",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 200,
+      "headers": [
+        "content-type: text/plain;charset=UTF-8"
+      ],
+      "bytes": 5,
+      "body": "bytes",
+      "r2": [],
+      "forwarded": [
+        {
+          "name": "files/AAAABBBBCCCCDDDDEEEEFF",
+          "method": "GET",
+          "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+          "headers": [
+            "x-do-auth: do-secret-123"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "GET /files/<token> — the DO's own 404 for an already-claimed file passes through",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 48,
+      "body": "{\"error\":\"file not found or already downloaded\"}",
+      "r2": [],
+      "forwarded": [
+        {
+          "name": "files/AAAABBBBCCCCDDDDEEEEFF",
+          "method": "GET",
+          "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+          "headers": []
+        }
+      ]
+    },
+    {
+      "label": "GET /files/<token> — the DO is unreachable, so the 503 envelope rather than a platform 500",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 503,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 35,
+      "body": "{\"error\":\"temporarily unavailable\"}",
+      "r2": [],
+      "forwarded": [
+        {
+          "name": "files/AAAABBBBCCCCDDDDEEEEFF",
+          "method": "GET",
+          "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+          "headers": []
+        }
+      ]
+    },
+    {
+      "label": "GET /files/<15 chars> — shorter than a token, so no route names it",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDD",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "GET /files/<65 chars> — longer than a token",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLLMMMMNNNNOOOOPPPPQQQQR",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "GET /files/<token> with a character outside the token alphabet",
+      "method": "GET",
+      "path": "/files/AAAABBBBCCCCDDDDEEE!FF",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "POST /files/<token> — the claim route is a GET",
+      "method": "POST",
+      "path": "/files/AAAABBBBCCCCDDDDEEEEFF",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "GET /api/upload — the upload route is a POST or a PUT",
+      "method": "GET",
+      "path": "/api/upload",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    },
+    {
+      "label": "GET / — this worker is the file relay, and everything else is 404 JSON",
+      "method": "GET",
+      "path": "/",
+      "status": 404,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "bytes": 21,
+      "body": "{\"error\":\"not found\"}",
+      "r2": [],
+      "forwarded": []
+    }
+  ]
+}

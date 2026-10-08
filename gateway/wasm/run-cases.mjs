@@ -20,6 +20,12 @@
 //     "cases": [ { "label", "method", "path", "headers"?, "body"?, "override"?: {status,headers,body} } ]
 //   }
 //
+// **A CASE MAY ALSO BRING BINDINGS** (`bindings`, and a `body.kind` of `"form"` or `"stream"`): a worker
+// whose environment is an R2 bucket and a Durable Object namespace rather than an upstream `fetch` is
+// driven through `bindings-stub.mjs`, which both this runner and the recorder that captures the shipping
+// answers use. Those cases' rows carry `r2` (the bucket operations, in order) and `forwarded` (the
+// requests that reached the DO) — the two things a response-only comparison cannot see.
+//
 // stdout (JSON, one line): { "observed": [ { label, status, headers[], bytes, body,
 //                                              upstream: { method, path, headers[] } | null } ] }
 //
@@ -28,6 +34,7 @@
 // one path. `upstream` is the request the worker actually made, which is the only place the session
 // header and the credentials are visible.
 import { readFileSync, writeFileSync } from "node:fs";
+import { buildRequest, installBindings } from "./bindings-stub.mjs";
 import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -138,9 +145,28 @@ async function shape(resp) {
 
 const observed = [];
 for (const [i, c] of SPEC.cases.entries()) {
-  const url = HOST + c.path;
-  const init = { method: c.method, headers: c.headers || {} };
-  if (c.body !== undefined) init.body = c.body;
+  // ── the two worlds a case may describe ────────────────────────────────────────────────────────
+  // The satellites' cases answer through the `fetch` stub below; the file relay's bring an R2 bucket and
+  // a Durable Object namespace instead, built by the SAME module the shipping-answer recorder uses.
+  const bindings = c.bindings || SPEC.bindings;
+  // A CASE MAY OVERRIDE THE ENVIRONMENT (the relay's DO_AUTH cases do), and it may pin the byte stream
+  // the runtime's randomness returns, which is what makes a minted token comparable.
+  let env = { ...(SPEC.env || {}), ...(c.env || {}) };
+  let log = { r2: [], forwarded: [] };
+  let req;
+  if (bindings || c.body?.kind) {
+    const built = installBindings({
+      ...SPEC,
+      bindings: { ...(bindings || {}), tokenBytes: c.tokenBytes ?? bindings?.tokenBytes ?? null },
+    });
+    env = { ...env, ...built.env };
+    log = built.log;
+    req = buildRequest(HOST, c);
+  } else {
+    const init = { method: c.method, headers: c.headers || {} };
+    if (c.body !== undefined) init.body = c.body;
+    req = new Request(HOST + c.path, init);
+  }
 
   CURRENT = c;
   upstream = null;
@@ -148,10 +174,16 @@ for (const [i, c] of SPEC.cases.entries()) {
   // what a new isolate is.
   const mod = await import(`${pathToFileURL(MODULE).href}?case=${i}`);
   const instance = new mod.default();
-  instance.env = SPEC.env || {};
+  instance.env = env;
   instance.ctx = {};
-  const resp = await instance.fetch(new Request(url, init));
-  observed.push({ label: c.label, ...(await shape(resp)), upstream });
+  const resp = await instance.fetch(req);
+  observed.push({
+    label: c.label,
+    ...(await shape(resp)),
+    upstream,
+    r2: log.r2,
+    forwarded: log.forwarded,
+  });
 }
 
 process.stdout.write(`${JSON.stringify({ observed })}\n`);
