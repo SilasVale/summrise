@@ -211,12 +211,13 @@ fn a_generated_glue_file_is_not_a_javascript_worker() {
             "{dir}/{main} is TRACKED, so this test's premise moved and the gate would flag it"
         );
     }
-    // ...and the one declared worker's entry IS a tracked source.
-    for (dir, main) in [("gateway", "src/index.ts")] {
-        assert!(is_js_source(main));
-        assert!(
-            tracked.contains(common::resolve(dir, main).as_str()),
-            "{dir}/{main} should be a tracked source"
-        );
-    }
+    // ...and the one declared worker's entry IS a tracked source. **A LOOP UNTIL 2026-10-08**, when
+    // `relay` left it (and `clippy::single_element_loop` refused the one-element version — the lint is
+    // what noticed, which is worth keeping in mind the next time this list is expected to shrink).
+    let (dir, main) = ("gateway", "src/index.ts");
+    assert!(is_js_source(main));
+    assert!(
+        tracked.contains(common::resolve(dir, main).as_str()),
+        "{dir}/{main} should be a tracked source"
+    );
 }
