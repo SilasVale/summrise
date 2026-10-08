@@ -1,10 +1,12 @@
 {
   "name": "opencode-go-proxy",
   // **THE ENTRY POINT IS THE RUST BUILD, AND THE JAVASCRIPT IS GONE (2026-10-08).**
-  // `worker/verify.mjs` proved the port equal to `src/index.js` byte for byte — 17 cases, the upstream
-  // request included — and the JS was then deleted, with the comparison moved onto
-  // `worker/shipping-answers.json`: the answers that same harness RECORDED on a run where both sides
-  // agreed. **The oracle is a fixture now**, so this directory carries one implementation rather than two.
+  // The harness proved the port equal to `src/index.js` byte for byte — 17 cases, the upstream request
+  // included — and the JS was then deleted, with the comparison moved onto
+  // `worker/shipping-answers.json`: the answers that harness RECORDED on a run where both sides agreed.
+  // **The oracle is a fixture now**, so this directory carries one implementation rather than two, and the
+  // differential still fails if the port moves: it is `worker/tests/differential.rs` (a Rust test), with
+  // `gateway/wasm/run-cases.mjs` as the only JavaScript left in the loop.
   "main": "worker/build/index.js",
   // **AND THE DEPLOY BUILDS IT, BECAUSE NOTHING ELSE DOES — MEASURED 2026-10-08.** `worker/build/` is
   // gitignored (its own `.gitignore` is `*`), so on a clean checkout the entry point above does not exist,

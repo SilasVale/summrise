@@ -59,3 +59,10 @@ sha2 = "0.10"
 # dependent that has its own — `zen-go` takes this crate with `default-features = false`.
 default = ["worker"]
 worker = []
+
+[dev-dependencies]
+# THE JUDGE HALF OF THIS CRATE'S DIFFERENTIAL, AND IT IS A DEV-DEPENDENCY ON PURPOSE: the harness spawns
+# `node` and reads files, so it must never be linked into the worker this crate builds for wasm32. The
+# cases, the upstream answers and the byte comparison live there (one copy, shared with `zen-go`), and
+# `gateway/wasm/run-cases.mjs` is the only part that stays JavaScript — it executes the built module.
+summrise-differential-harness = { path = "../../differential-harness" }

@@ -573,12 +573,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-differential-harness"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "summrise-zen-go"
 version = "0.1.0"
 dependencies = [
  "futures-util",
  "serde",
  "serde_json",
+ "summrise-differential-harness",
  "summrise-zen-us",
  "web-sys",
  "worker",
