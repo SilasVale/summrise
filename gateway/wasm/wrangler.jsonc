@@ -1,15 +1,14 @@
 {
-  // THE WORKER THIS CRATE BUILDS — and it is NOT DEPLOYED, and it is NOT `vale-gate`.
+  // THE WORKER THIS CRATE BUILDS — it IS deployed, and it IS what serves `/v1`, but it owns no hostname.
   //
-  // `gateway/wrangler.jsonc` is the live console worker (`vale-gate`), and a real user is on it.
-  // This file is the Rust half's own config, so that the crate can be built and measured without
-  // touching the deployed script, its routes or its assets. The name is deliberately different from
-  // `vale-gate`: `wrangler deploy` in this directory can create a NEW worker and can never
-  // overwrite the console worker by accident.
+  // `gateway/wrangler.jsonc` is the live console worker (`summrise-gate` since 2026-10-08), and a real user is on
+  // it. Every `/v1/*` request reaches THIS crate through that worker's `WASM_GATE` service binding — a binding
+  // rather than a route because the console hosts are Worker CUSTOM DOMAINS and a route on one is inert (measured:
+  // 550 requests to the console worker against 3 here). The name is deliberately different from the console's:
+  // `wrangler deploy` in this directory can create a NEW worker and can never overwrite the console by accident.
   //
-  // `workers_dev: false` and no `routes`: nothing on the internet can reach this worker until the
-  // cutover, which is a separate decision with its own plan (a zone route on the console host is a
-  // change to the live front door, not a step in this one).
+  // `workers_dev: false` and no `routes`: nothing on the internet reaches this worker directly — the binding is
+  // the only way in, which is why deploying it is a no-traffic operation.
   "name": "vale-gate-wasm",
   "main": "build/index.js",
   "compatibility_date": "2026-08-01",

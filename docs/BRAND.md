@@ -109,7 +109,7 @@ Nothing below is aspirational; each row was verified afterwards.
 | npm package | `vale-agent` | `summrise-agent` |
 | CLI command | `vale` | `summrise` |
 | CDN paths | `/vale-agent/*` | `/summrise-agent/*` |
-| Cloudflare workers | `vale-gate`, `vale-dist` | `summrise-gate`, `summrise-dist` |
+| Cloudflare workers | `vale-gate`, `vale-dist` | `summrise-gate` (moved 2026-10-08), `summrise-dist`; `vale-gate` still deployed as the Durable Object owner — see below |
 | Environment variables | `VALE_*` (15) | `SUMMRISE_*` |
 | Registry key | `HKLM\SOFTWARE\Vale\Agent` | `HKLM\SOFTWARE\Summrise\Agent` |
 | Install / data dirs | `C:\Program Files\Vale`, `C:\ProgramData\Vale` | `…\Summrise` |
@@ -256,23 +256,34 @@ leg answered 401 to the gateway's real key for a day — and `summrise-playwrigh
 bucket, so that route had answered 502 for the same day. Neither was visible from inside: every device
 already had the components expanded locally.
 
-**Two infrastructure names keep the old spelling. Neither is a brand surface.**
+**One infrastructure name keeps the old spelling. It is not a brand surface — and it is now the ONLY one.**
 
-1. **`vale-gate` — the Cloudflare worker name.** Worker secrets are *write-only*:
-   `vale-gate` holds **15** of them (`ADMIN_PASSWORD`, `SESSION_SECRET`, `DO_AUTH`,
-   `UPLOAD_KEY`, `API_HOST`, `CLIENT_KEY`, `CMD_API_KEY`, `R4_API_KEY`, and seven upstream
-   model keys). A new worker name starts with none, and the seven upstream keys cannot be
-   invented. Deploying `summrise-gate` fresh would therefore not rename the gateway — it
-   would **disable the model gateway and change the console password**. So
-   `gateway/wrangler.jsonc` was set back to describe reality: the worker stays
-   `vale-gate`, and the gateway and AI hosts (`<gate-host>`, `<ai-host>`) stay attached to it — untouched,
-   zero downtime. (If the 15 values are ever re-entered, the rename is a two-line change
-   plus a domain move.)
+1. **`vale-gate` — the retired gateway worker, and it is NOT deleted.** Until 2026-10-08 the console's two
+   custom domains (`<gate-host>`, `<ai-host>`) pointed at it, and the rename was held back for one measured
+   reason: worker secrets are *write-only*, so a new worker starts with **none** of its 15, and the seven
+   upstream model keys cannot be invented — deploying `summrise-gate` fresh would have **disabled the model
+   gateway and changed the console password**. What changed is that the values came back rather than being
+   re-entered:
+
+   | | measured 2026-10-08 |
+   |---|---|
+   | `vale-gate` secrets | **15** |
+   | `summrise-gate` secrets | **11** — put there by the 2026-10-05 attempt |
+   | difference | exactly `AMD_API_KEY`, `CMD_API_KEY`, `GMI_API_KEY`, `R4_API_KEY` — four channels the operator no longer uses, and already absent from `vale-gate-wasm`, which serves **every** `/v1` request |
+
+   **IT STAYS DEPLOYED BECAUSE IT OWNS THE DURABLE OBJECTS.** `summrise-gate` binds `BREAKER` and `ROUTE` with
+   `script_name: vale-gate`, so `RouteDO`'s `route:<uid>` records — one model choice per user — are the SAME
+   storage rather than a copy: a Durable Object's storage is keyed by the SCRIPT that defines its class, so a
+   new owner would start empty. Deleting `vale-gate` is therefore data loss, not cleanup. It is also the
+   rollback: moving the two custom domains back is one API call, and its deployed code is unchanged.
 2. **`vale-saisi.cloudflareaccess.com` — the Access team domain**, recorded in the table
    above.
 
 Both are the same lesson as the account name: *a string that names a live resource holding
-state we cannot copy is not ours to find-and-replace.*
+state we cannot copy is not ours to find-and-replace.* **The gateway's rename is what obeying
+that lesson looks like when the state turns out to be reachable**: the name moved on 2026-10-08,
+one day after it was set back, and only once the secrets, the KV namespace (same id), the two
+Durable Objects (same script) and the two custom domains had each been accounted for.
 
 **Left running on purpose as rollback — delete when the new CDN has served a day:**
 

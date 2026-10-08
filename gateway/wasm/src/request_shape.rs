@@ -481,6 +481,14 @@ pub struct V1Request {
     pub byok: serde_json::Map<String, serde_json::Value>,
     pub env: serde_json::Value,
     pub raw_text: serde_json::Value,
+    /// **THE INCOMING HEADERS, BECAUSE THE PLAN COMPOSES THE SESSION HEADER FROM THEM.**
+    ///
+    /// `ogSession` reads the client's own per-conversation id out of four spellings
+    /// (`x-opencode-session`, `x-client-request-id`, `session_id`, `x-session-id`) and falls back to a
+    /// synthetic per-user value — so the decision needs the headers, and the front door is the only thing
+    /// that has them. It is a MAP rather than the runtime's `Headers` because this struct is proved
+    /// in-process, and `session.rs` reads it case-insensitively.
+    pub headers: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The dispatch. Returns the response the handler would send.
@@ -730,7 +738,9 @@ pub struct V1PlanInputs<'a> {
     /// The WIRE model — `wireModelName`'s answer.
     pub upstream_model: &'a str,
     pub parsed_body: Option<&'a serde_json::Value>,
-    pub og_session: &'a [(String, String)],
+    /// **NOT A FIELD ANY MORE, AND THAT IS THE FIX.** The session headers are composed inside `v1_plan`
+    /// from `req.headers`, `req.kind` and `req.user`'s id — see `session::og_session`'s note for the empty
+    /// parameter this replaced. A caller can no longer hand the arms an empty session object.
     pub scanned: Option<(usize, usize)>,
     /// **THE CUSTOM-PROVIDER RECORD THIS ROUTE CAME FROM**, when it came from one. The credential and the
     /// per-model facets live on the record rather than in `BYOK_CHANNELS`, so the plan needs it here — the same
@@ -754,10 +764,19 @@ pub fn v1_plan(inputs: &V1PlanInputs) -> V1Plan {
         prefix,
         upstream_model,
         parsed_body,
-        og_session,
         scanned,
         provider,
     } = *inputs;
+    // **THE og SESSION HEADER, COMPOSED HERE RATHER THAN ACCEPTED** — `route.kind === "opencode" ? … : {}`
+    // in the source, and the id is the client's own when it sent one. See `session::og_session`.
+    let uid = req
+        .user
+        .as_ref()
+        .and_then(|u| u.get("id"))
+        .and_then(|i| i.as_str())
+        .unwrap_or("");
+    let og_session = crate::session::og_session(&req.kind, &req.headers, uid);
+    let og_session = og_session.as_slice();
     if let Some(refusal) = auth_error(req.user.as_ref()) {
         return V1Plan::Respond(refusal);
     }
@@ -1285,6 +1304,7 @@ mod count_tokens_tests {
                 byok,
                 env,
                 raw_text: case["rawText"].clone(),
+                headers: serde_json::Map::new(),
             });
             let want = &case["expected"];
             assert_eq!(
@@ -1347,6 +1367,7 @@ mod count_tokens_tests {
                 byok: crate::byok::extract_byok_keys(&serde_json::json!(case["ukeys"])),
                 env: case["env"].clone(),
                 raw_text: case["rawText"].clone(),
+                headers: serde_json::Map::new(),
             });
             let want = &case["expected"];
             assert_eq!(
@@ -1422,6 +1443,7 @@ mod count_tokens_tests {
                 byok: serde_json::Map::new(),
                 env: serde_json::json!({}),
                 raw_text: serde_json::json!(""),
+                headers: serde_json::Map::new(),
             });
             assert_eq!(
                 got.status,
@@ -1825,6 +1847,188 @@ mod count_tokens_tests {
         assert_eq!(refused, 2, "the refusal cases changed size");
     }
 
+    /// **THE PLAN COMPOSES THE og SESSION HEADER — THE WIRE THAT WAS EMPTY FROM 2026-10-03 TO 2026-10-08.**
+    ///
+    /// MUTATION: put the empty list back where the composition is. In `v1_plan`, replace
+    ///           `let og_session = crate::session::og_session(&req.kind, &req.headers, uid);` with
+    ///           `let og_session: Vec<(String, String)> = Vec::new();` and run this test.
+    /// RESULT:   the relay loop stops at its FIRST case —
+    ///             /v1/chat/completions: the client's id is relayed verbatim
+    ///             left: None   right: Some("conv-42")
+    ///           — the same empty list the front door passed while every arm corpus stayed green. The
+    ///           fallback case fails the same way, and the leak case still passes, which is the point:
+    ///           an empty list is not a leak, it is a silence.
+    ///
+    /// MUTATION (the other half): drop the kind check from `session::og_session` — always
+    ///           `opencode_session_header(incoming, uid)` — and run this test.
+    /// RESULT:   the foreign-wire case fails, `left: Some("conv-42")  right: None`: a deepseek request
+    ///           would carry zen's routing header to deepseek.
+    ///
+    /// **WHY IT IS HERE AND NOT IN THE ARM CORPORA.** `chat-corpus.json`, `passthrough-corpus.json` and
+    /// `responses-corpus.json` each prove their arm GIVEN a session object: they are the consumers, and a
+    /// consumer's test cannot see that its caller passed nothing. This drives `v1_plan` — the caller — and
+    /// asserts the header on the DIALED request, which is where the omission was visible.
+    #[test]
+    fn the_plan_composes_the_og_session_header_and_leaks_it_nowhere() {
+        fn session_of(headers: &[(String, String)]) -> Option<String> {
+            headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("x-opencode-session"))
+                .map(|(_, v)| v.clone())
+        }
+        /// One dial through the shipping plan, with every gate the arm needs already satisfied.
+        #[allow(clippy::too_many_arguments)]
+        fn dial(
+            path: &str,
+            is_translate: bool,
+            kind: &'static str,
+            model: &str,
+            upstream_model: &str,
+            raw_text: &str,
+            parsed: Option<&serde_json::Value>,
+            byok: &serde_json::Map<String, serde_json::Value>,
+            headers: serde_json::Map<String, serde_json::Value>,
+        ) -> Vec<(String, String)> {
+            let route = crate::routing::RouteInfo {
+                is_translate,
+                kind,
+                strip_prefix: true,
+                upstream: "https://up.example/v1/x".to_string(),
+            };
+            let req = V1Request {
+                method: "POST".to_string(),
+                path: path.to_string(),
+                user: Some(serde_json::json!({ "id": "u-og-session", "enabled": true })),
+                kind: kind.to_string(),
+                byok: byok.clone(),
+                env: serde_json::json!({}),
+                raw_text: serde_json::json!(raw_text),
+                headers,
+            };
+            let plan = v1_plan(&V1PlanInputs {
+                req: &req,
+                route: &route,
+                model,
+                prefix: "og",
+                upstream_model,
+                parsed_body: parsed,
+                scanned: None,
+                provider: None,
+            });
+            match plan {
+                V1Plan::Dial(call) => call.request.headers.clone(),
+                V1Plan::Respond(built) => panic!(
+                    "{path}: expected a dial, got {} {}",
+                    built.status, built.body
+                ),
+            }
+        }
+
+        let byok = crate::byok::extract_byok_keys(&serde_json::json!({
+            "OPENCODE_GO_API_KEY": "sk-og-test"
+        }));
+        let ds_byok = crate::byok::extract_byok_keys(&serde_json::json!({
+            "DEEPSEEK_API_KEY": "sk-ds-test"
+        }));
+        let client_id = |id: &str| {
+            let mut m = serde_json::Map::new();
+            m.insert("x-opencode-session".to_string(), serde_json::json!(id));
+            m
+        };
+
+        // 1. THE CLIENT'S OWN ID IS RELAYED VERBATIM, on each of the three arms that dial zen/go.
+        let chat_raw =
+            r#"{"model":"og/mimo-v2.6-flash","messages":[{"role":"user","content":"hi"}]}"#;
+        let messages_raw = r#"{"model":"og/deepseek-v4.1-flash","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}"#;
+        let messages_parsed = serde_json::json!({
+            "model": "og/deepseek-v4.1-flash",
+            "max_tokens": 8,
+            "messages": [{ "role": "user", "content": "hi" }]
+        });
+        let responses_raw =
+            r#"{"model":"og/muse-spark-1.3-contributor","input":"hi","max_output_tokens":16}"#;
+        for (path, is_translate, model, upstream_model, raw, parsed) in [
+            (
+                "/v1/chat/completions",
+                false,
+                "og/mimo-v2.6-flash",
+                "mimo-v2.6-flash",
+                chat_raw,
+                None,
+            ),
+            (
+                "/v1/messages",
+                true,
+                "og/deepseek-v4.1-flash",
+                "deepseek-flash",
+                messages_raw,
+                Some(messages_parsed),
+            ),
+            (
+                "/v1/responses",
+                false,
+                "og/muse-spark-1.3-contributor",
+                "muse-spark-1.3-contributor",
+                responses_raw,
+                None,
+            ),
+        ] {
+            let headers = dial(
+                path,
+                is_translate,
+                "opencode",
+                model,
+                upstream_model,
+                raw,
+                parsed.as_ref(),
+                &byok,
+                client_id("conv-42"),
+            );
+            assert_eq!(
+                session_of(&headers),
+                Some("conv-42".to_string()),
+                "{path}: the client's id is relayed verbatim"
+            );
+        }
+
+        // 2. WITH NO CLIENT ID, THE SYNTHETIC PER-USER VALUE — derived without KV, the same one `vision`
+        //    sends, so one conversation keeps one cache namespace upstream.
+        let headers = dial(
+            "/v1/chat/completions",
+            false,
+            "opencode",
+            "og/mimo-v2.6-flash",
+            "mimo-v2.6-flash",
+            chat_raw,
+            None,
+            &byok,
+            serde_json::Map::new(),
+        );
+        assert_eq!(
+            session_of(&headers),
+            Some(crate::session::synthetic_session_id("u-og-session")),
+            "the fallback is the stable per-user id, not a random one"
+        );
+
+        // 3. AND NO OTHER WIRE GETS IT — the source's `route.kind === "opencode" ? ogSession : {}`.
+        let headers = dial(
+            "/v1/chat/completions",
+            false,
+            "deepseek",
+            "ds/deepseek-v4.1-flash",
+            "deepseek-v4.1-flash",
+            r#"{"model":"ds/deepseek-v4.1-flash","messages":[{"role":"user","content":"hi"}]}"#,
+            None,
+            &ds_byok,
+            client_id("conv-42"),
+        );
+        assert_eq!(
+            session_of(&headers),
+            None,
+            "a foreign upstream never gets zen's session header"
+        );
+    }
+
     #[test]
     fn the_two_phases_reproduce_the_captured_request_and_response() {
         let corpus = fixture("passthrough-corpus.json");
@@ -1861,6 +2065,23 @@ mod count_tokens_tests {
                 .next()
                 .unwrap_or("")
                 .to_string();
+            // **THE SESSION OBJECT THE ORACLE RECORDED GOES BACK IN AS THE CLIENT'S OWN HEADER.**
+            //
+            // It used to be handed to `V1PlanInputs::og_session` — the parameter the front door passed
+            // empty, which is why this corpus was green while every live `og/` request answered 400. The
+            // composition lives inside the plan now, and `ogSession` relays `x-opencode-session` verbatim,
+            // so feeding the recorded value in as that header makes the plan compute the same dialed header
+            // — through the composition rather than around it. (The recorded value is a synthetic per-user
+            // id in most of these cases, which is exactly what a relay produces for a client that sent
+            // none.)
+            let headers: serde_json::Map<String, serde_json::Value> = case["ogSession"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), serde_json::json!(v.as_str().unwrap_or(""))))
+                        .collect()
+                })
+                .unwrap_or_default();
             let req = V1Request {
                 method: "POST".to_string(),
                 path: "/v1/messages".to_string(),
@@ -1869,19 +2090,10 @@ mod count_tokens_tests {
                 byok,
                 env: serde_json::json!({}),
                 raw_text: serde_json::json!(case["rawText"].as_str().unwrap_or("")),
+                headers,
             };
             let parsed = &case["parsed"];
             let parsed = if parsed.is_null() { None } else { Some(parsed) };
-            // **THE SESSION HEADER THE ROUTE COMPUTED**, recorded by the oracle because a Rust test cannot
-            // reconstruct what its request carried.
-            let og_session: Vec<(String, String)> = case["ogSession"]
-                .as_object()
-                .map(|m| {
-                    m.iter()
-                        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-                        .collect()
-                })
-                .unwrap_or_default();
             let plan = v1_plan(&V1PlanInputs {
                 req: &req,
                 route: &route,
@@ -1889,7 +2101,6 @@ mod count_tokens_tests {
                 prefix: &route_prefix,
                 upstream_model: case["upstreamModel"].as_str().unwrap_or(""),
                 parsed_body: parsed,
-                og_session: &og_session,
                 scanned: None,
                 // The corpus these cases come from is the built-in route's; a custom provider's record is
                 // driven by `routing.rs`'s own tests and by `provider-corpus.json`.

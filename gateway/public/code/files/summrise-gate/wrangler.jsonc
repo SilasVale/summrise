@@ -1,20 +1,23 @@
 {
-  // **THE NAME WAS WRONG, AND IT HAD BEEN SILENTLY WRONG FOR NINE DAYS — MEASURED 2026-10-07.**
+  // **THE NAME AND THE DOMAINS MOVED TOGETHER, AND THE ORDER IS THE WHOLE POINT — MEASURED 2026-10-08.**
   //
-  // This file said `summrise-gate` while the console's CUSTOM DOMAINS point at **`vale-gate`**:
+  // The paragraph this replaces is why the order matters. On 2026-10-05 this file was renamed to `summrise-gate`
+  // while the console's CUSTOM DOMAINS still pointed at `vale-gate`, so nine days of `./scripts/build.sh gateway`
+  // updated a worker nothing routed to and the live console stayed frozen at its 2026-09-28 build while nine
+  // commits touched `gateway/src` or `gateway/ui`. 315c1ef0 measured it, and the check that settled it was the
+  // DOMAIN TABLE — a request count cannot say who served a request when both implementations answer the same bytes.
   //
-  //     api.saisi.online  -> vale-gate      (modified 2026-09-28T10:59:45)
-  //     ai.saisi.online   -> vale-gate
+  //     before   api.saisi.online -> vale-gate          ai.saisi.online -> vale-gate
+  //     after    api.saisi.online -> summrise-gate      ai.saisi.online -> summrise-gate
   //
-  // So every `./scripts/build.sh gateway` updated a worker nothing routes to, and **the live console has been
-  // frozen at its 2026-09-28 build while nine commits touched `gateway/src` or `gateway/ui`** — including the
-  // console's provider form. The name is the live worker's now. (`summrise-gate` still exists as a worker with no
-  // traffic; it is not deleted here, because deleting a script is not this change's business.)
-  //
-  // THE DO MIGRATIONS BELOW ARE ADDITIVE ONLY (`new_sqlite_classes`), so a deploy whose tags already match the
-  // deployed state is a no-op for them; a mismatch fails the deploy BEFORE it changes the worker, which is the
-  // safe direction.
-  "name": "vale-gate",
+  // **`vale-gate` IS STILL DEPLOYED, AND DELETING IT IS NOT CLEANUP — IT IS DATA LOSS.** It owns the two Durable
+  // Object classes this worker binds below with `script_name`: a Durable Object's storage is keyed by the SCRIPT
+  // that defines its class, so a new owner starts EMPTY, and one of the two holds user data (`RouteDO`:
+  // `route:{uid}` → the model that user routes to). The old worker is therefore the DO owner AND the rollback:
+  // moving the two custom domains back is one API call, and it needs no redeploy of `vale-gate`, whose deployed
+  // code is unchanged. (`RouteDO`'s own HTTP API — GET/PUT/DELETE `/route?uid=` — is what a later migration to a
+  // self-owned class would read and write; that is a scripted step, not a rename.)
+  "name": "summrise-gate",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "workers_dev": false,
@@ -38,15 +41,24 @@
   // it. A service binding keeps ONE hostname, one DNS record and one Access policy, leaves the console's own routes
   // alone, and gives the cutover a one-line rollback: delete this binding (or the `WASM_GATE` branch in
   // `src/index.ts`) and the next deploy serves /v1 from TypeScript again.
+  // **BOUND TO `vale-gate`, WHICH IS WHAT KEEPS THE STATE — SEE THE NOTE ABOVE THE NAME.**
+  //
+  // `script_name` is the documented cross-script binding, and this account already runs one:
+  // `gateway/wasm/wrangler.jsonc` binds BREAKER to `vale-gate`, and its deploy reports
+  // `env.BREAKER (BreakerDO, defined in vale-gate)`. Declaring the classes HERE instead would give this worker a
+  // SECOND, EMPTY RouteDO — and RouteDO is the one with user data in it. The classes stay exported from
+  // `src/index.ts`, because that source is what `vale-gate` runs; they are simply not this script's to define.
   "durable_objects": {
     "bindings": [
       {
         "name": "BREAKER",
-        "class_name": "BreakerDO"
+        "class_name": "BreakerDO",
+        "script_name": "vale-gate"
       },
       {
         "name": "ROUTE",
-        "class_name": "RouteDO"
+        "class_name": "RouteDO",
+        "script_name": "vale-gate"
       }
     ]
   },
