@@ -397,7 +397,21 @@ PY
   [ -n "$console_host" ] || { echo "  !! CONSOLE_HOST is empty in gateway/wrangler.jsonc" >&2; return 1; }
   echo "  CONSOLE_HOST: read from gateway/wrangler.jsonc (${#console_host} chars)"
   # The build itself is wrangler's `build.command` (`worker-build --release`), so a missing toolchain fails here.
-  ( cd "$ROOT/$dir" && npx wrangler deploy --var "CONSOLE_HOST:${console_host}" )
+  #
+  # **AND THE TOKEN TRAVELS WITH THE COMMAND — IT DID NOT, AND THAT IS WHAT MADE THIS PATH UNDEPLOYABLE.**
+  # Measured 2026-10-08: `./scripts/build.sh gateway-wasm` called `require_cf_token` (so $CF_TOKEN held a
+  # valid token and the missing-token guard passed) and then ran `wrangler` WITHOUT it in the environment.
+  # wrangler, in a non-interactive shell, refuses —
+  #
+  #     In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN environment
+  #     variable for wrangler to work.
+  #
+  # — and it refuses AFTER `worker-build --release` has run, so the failure lands 19 s into a deploy that
+  # was never going to happen. The two call sites above (deploy_worker's `secret list` and its `deploy`)
+  # carry the prefix, and so does every deploy path outside this file; this one was written without it.
+  # `scripts/test/release-lib.bash` now refuses a `wrangler deploy` in this file that lacks the prefix,
+  # because "a new deploy path forgets the one thing every deploy path needs" is the class.
+  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler deploy --var "CONSOLE_HOST:${console_host}" )
 }
 
 cmd="${1:-agent}"

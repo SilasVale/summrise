@@ -23,6 +23,20 @@
 #           check_absent line: a guess about assertion order rather than a measurement. What the
 #           line says now is what the run said. Same rule as everywhere else in this repo — a
 #           RESULT is a claim, and the command that produced it belongs beside it.
+#
+# MUTATION: put the wasm deploy path back the way it was on 2026-10-08 — drop the token prefix from
+#           build.sh's `wrangler deploy` (the line the front door's deploy actually failed on):
+#             cp scripts/build.sh /tmp/mut-build.sh
+#             sed -i 's/CLOUDFLARE_API_TOKEN="\$CF_TOKEN" npx wrangler deploy --var/ npx wrangler deploy --var/' /tmp/mut-build.sh
+#             BUILD_SH=/tmp/mut-build.sh bash scripts/test/release-lib.bash
+# RESULT:   exit 1 —
+#             FAIL: a wrangler deploy in /tmp/mut-build.sh does not carry CLOUDFLARE_API_TOKEN — in a non-interactive
+#               shell that is a hard stop at the END of the build, never a prompt. Prefix the command:
+#                   CLOUDFLARE_API_TOKEN="$CF_TOKEN" wrangler deploy ...
+#             414:  ( cd "$ROOT/$dir" &&  npx wrangler deploy --var "CONSOLE_HOST:${console_host}" )
+#           With BUILD_SH unset it reads the real scripts/build.sh, which is how CI runs it. The
+#           pre-fix file said `400:` for the same line; the number moved because the fix's own
+#           comment sits above it.
 
 # release-lib.bash — regression tests for the extracted publish-release
 # stages (last-5-per-minor prune + version.json writer). Plain bash asserts,
@@ -285,6 +299,37 @@ check "cf_token TRIMS a trailing newline/CR (the npm lesson)" \
 rm -rf "$FIXHOME"
 check "cf_token prints NOTHING when there is no env and no file (callers gate on that)" \
   "$(env -u CLOUDFLARE_API_TOKEN HOME=/nonexistent bash -c 'source scripts/lib/release-lib.sh; cf_token')" ""
+
+
+# ── THE TOKEN HAS TO REACH THE DEPLOY, AND ONE CALL SITE DID NOT ─────────────────────────────────
+# MEASURED 2026-10-08, on this box: `./scripts/build.sh gateway-wasm` — the Rust front door's deploy —
+# called `require_cf_token` (so $CF_TOKEN held a valid token and the missing-token guard PASSED) and then
+# ran `npx wrangler deploy` with nothing of the sort in the environment. wrangler, in a non-interactive
+# shell, refuses:
+#
+#     In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN environment
+#     variable for wrangler to work.
+#
+# — and it refuses AFTER `worker-build --release` has run, so the 19 s wasm build succeeds and the deploy
+# it was built for never starts. The token itself was fine: `GET /accounts` with the same file answers
+# 200 and lists the account (`/user/tokens/verify` says "Invalid API Token" for it, which is the endpoint
+# being narrower than the token, not the token being dead — the same one-signal trap this repo keeps
+# paying for).
+#
+# A GATE RATHER THAN A PARAGRAPH, because the class is "a new deploy path forgets the one thing every
+# deploy path needs" and the defect is INVISIBLE wherever the token happens to be exported globally —
+# including in every environment that would test it. Comments are stripped first (build-pins learned
+# that on its own explanation): this file's neighbours discuss `wrangler deploy` in prose.
+BUILD_SH="${BUILD_SH:-scripts/build.sh}"
+UNTOKENED="$(sed 's/#.*$//' "$BUILD_SH" | grep -nE 'wrangler +deploy' | grep -v 'CLOUDFLARE_API_TOKEN=' || true)"
+if [ -n "$UNTOKENED" ]; then
+  echo "FAIL: a wrangler deploy in $BUILD_SH does not carry CLOUDFLARE_API_TOKEN — in a non-interactive"
+  echo "  shell that is a hard stop at the END of the build, never a prompt. Prefix the command:"
+  echo "      CLOUDFLARE_API_TOKEN=\"\$CF_TOKEN\" wrangler deploy ..."
+  printf '%s\n' "$UNTOKENED"
+  exit 1
+fi
+PASS=$((PASS+1))
 
 
 # ── retiring the NSIS installer (round 27) ───────────────────────────────────
