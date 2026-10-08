@@ -1,5 +1,5 @@
 {
-  "_comment": "THE FILE RELAY'S CASES, AS DATA — read by BOTH drivers: `record-worker.mjs` drives the SHIPPING JavaScript worker with them, and `tests/worker_differential.rs` drives the built Rust worker through `gateway/wasm/run-cases.mjs`. One case list, two implementations, so a difference in the answers is a difference in the code. The host is not a production hostname: the worker builds its download URL from PUBLIC_BASE, and the route path's own origin is `https://relay.test`.",
+  "_comment": "THE FILE RELAY'S CASES, AS DATA — read by `tests/differential.rs`, which drives the BUILT Rust worker through `gateway/wasm/run-cases.mjs` and compares its answers against `worker-corpus.json`: the answers the shipping JavaScript gave for these same cases, recorded before the 2026-10-08 cutover deleted it. `record-worker.mjs`, the driver that recorded them, retired with that delete. The host is not a production hostname: the worker builds its download URL from PUBLIC_BASE, and the route path's own origin is `https://relay.test`.",
   "host": "https://relay.test",
   "env": {
     "UPLOAD_KEY": "upload-key-1234567890",

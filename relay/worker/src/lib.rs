@@ -1,23 +1,27 @@
-//! THE FILE RELAY'S PURE DECISIONS, IN RUST — the half of `relay/src/index.js` and `relay/src/claim.js`
-//! that is a FUNCTION OF ITS INPUTS rather than of R2, the Durable Object or the network.
+//! THE FILE RELAY'S PURE DECISIONS, IN RUST — the half of the worker (once `relay/src/index.js` and
+//! `relay/src/claim.js`) that is a FUNCTION OF ITS INPUTS rather than of R2, the Durable Object or the
+//! network. **THE JAVASCRIPT IS GONE (2026-10-08)**: this crate's differential proved the port equal to
+//! it byte for byte — 30 worker cases and 20 claim cases, five rows each — and the files were deleted
+//! with the corpora kept as the record.
 //!
-//! ── WHY THIS SPLIT, AND WHY IT COMES FIRST ──────────────────────────────────────────────────────
+//! ── WHY THIS SPLIT, AND WHY IT CAME FIRST ───────────────────────────────────────────────────────
 //!
-//! The worker is 558 lines of JavaScript across two files. Two thirds of it is I/O: an R2 put with
+//! The worker was 558 lines of JavaScript across two files. Two thirds of it is I/O: an R2 put with
 //! metadata, an R2 get-then-delete inside a Durable Object, a streamed body, a `crypto.subtle` digest.
 //! **THE REST IS DECISIONS** — a `Content-Disposition` header built from a client-supplied filename, a
 //! four-branch one-time-claim rule, a token generator, a digest regex — and decisions are what a corpus
-//! can pin. So the port lands in the order this repository uses for every worker: the decisions first,
-//! with a corpus recorded from the shipping implementation, and the entry point second
-//! (`worker.rs` + `#[event(fetch)]`, next round).
+//! can pin. So the port landed in the order this repository uses for every worker: the decisions first,
+//! with a corpus recorded from the shipping implementation, and the entry point second.
 //!
-//! ── THE CORPUS, AND WHO RECORDED IT ─────────────────────────────────────────────────────────────
+//! ── THE CORPUS, AND WHAT IT IS NOW ──────────────────────────────────────────────────────────────
 //!
-//! `pure-corpus.json` was recorded by `record-pure.mjs` — a script that IMPORTS THE SHIPPING
-//! JAVASCRIPT and asks it these same questions (31 filenames, 220 claim states, 10 digests, the token
-//! shape). `tests/pure.rs` compares this file's answers against the functions below. **THE ORACLE IS
-//! THE IMPLEMENTATION THAT IS STILL SERVING `agent.saisi.online/files/*`**, which is the strongest
-//! form this comparison can take, and it retires with the JavaScript when the cutover deletes it.
+//! `pure-corpus.json` was recorded by `record-pure.mjs` — a script that IMPORTED THE SHIPPING
+//! JAVASCRIPT and asked it these same questions (31 filenames, 220 claim states, 10 digests, the token
+//! shape). `tests/pure.rs` compares this file's answers against the functions below. **THE ORACLE WAS
+//! THE IMPLEMENTATION SERVING `agent.saisi.online/files/*`, WHICH IS THE STRONGEST FORM THIS
+//! COMPARISON COULD TAKE — AND THE CORPUS IS THE RECORD NOW**: the recorder retired with the cutover,
+//! and the `source` blob hashes at the top of the file name the exact bytes it was recorded from (they
+//! still resolve through this repository's history).
 //!
 //! ── THE THREE TRAPS THE CORPUS EXISTS FOR ───────────────────────────────────────────────────────
 //!

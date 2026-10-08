@@ -21,7 +21,7 @@
 //! hides.
 //!
 //! WHAT IT FOUND ON ITS FIRST RUN (2026-10-08): **`summrise-relay`, the file-relay worker, is production
-//! JavaScript and it is in NO item of either plan.** `relay/src/index.js` serves the file relay's
+//! JavaScript and it is in NO item of either plan.** `relay/src/index.js` served the file relay's
 //! `/files/*` route (a zone route on the agent hostname, which this gate does not spell out — the
 //! production-hostname ratchet in `production_host.rs` counts every literal)
 //! (a zone route) and the gateway reaches its upload leg through the `RELAY` service binding. A2 is
@@ -192,11 +192,15 @@ fn only_declared_workers_still_name_a_javascript_source() {
 fn a_generated_glue_file_is_not_a_javascript_worker() {
     let tracked: BTreeSet<String> = common::git_ls_files_all().into_iter().collect();
     // The Rust-backed workers' entries: `.js` paths that `worker-build` generates, and NOT tracked.
+    // **`relay` JOINED THIS LIST WITH ITS CUTOVER (2026-10-08)** — it stood in the other list below
+    // while `src/index.js` was its entry, and moving it here is the premise change this test exists to
+    // make visible rather than silent.
     for (dir, main) in [
         ("proxies/zen-us-proxy", "worker/build/index.js"),
         ("proxies/zen-go-proxy", "worker/build/index.js"),
         ("index", "worker/build/index.js"),
         ("gateway/wasm", "build/index.js"),
+        ("relay", "worker/build/index.js"),
     ] {
         assert!(
             is_js_source(main),
@@ -207,8 +211,8 @@ fn a_generated_glue_file_is_not_a_javascript_worker() {
             "{dir}/{main} is TRACKED, so this test's premise moved and the gate would flag it"
         );
     }
-    // ...and the two declared workers' entries ARE tracked sources.
-    for (dir, main) in [("relay", "src/index.js"), ("gateway", "src/index.ts")] {
+    // ...and the one declared worker's entry IS a tracked source.
+    for (dir, main) in [("gateway", "src/index.ts")] {
         assert!(is_js_source(main));
         assert!(
             tracked.contains(common::resolve(dir, main).as_str()),

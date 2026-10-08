@@ -1,9 +1,9 @@
 //! THE FILE RELAY'S ENTRY POINT, IN RUST — the routing, the upload screening, and the claim forward.
 //!
 //! This is the second half of the port whose decisions landed in `lib.rs` (the header builder, the claim
-//! rule, the token generator, `Number()`). What is here is what the shipping `relay/src/index.js` does at
-//! the edge of the world: three routes, the credential, the multipart and raw upload arms, and the
-//! forward into the claim Durable Object.
+//! rule, the token generator, `Number()`). What is here is what the shipping `relay/src/index.js` did at
+//! the edge of the world (that file is deleted; the corpus is the record): three routes, the credential,
+//! the multipart and raw upload arms, and the forward into the claim Durable Object.
 //!
 //! ── THE FOUR THINGS THAT ARE EASY TO GET WRONG, EACH ONE MEASURED OR ARGUED ─────────────────────
 //!

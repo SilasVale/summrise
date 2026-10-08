@@ -1,11 +1,11 @@
-//! THE FILE RELAY'S DECISION HALF, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERS.
+//! THE FILE RELAY'S DECISION HALF, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERED.
 //!
-//! `pure-corpus.json` was recorded by `record-pure.mjs` — which imports `relay/src/index.js` and
-//! `relay/src/claim.js` and asks them 31 filenames, 220 claim states and 10 digests — and this test
-//! drives the Rust functions over the same inputs and compares the answers. **THE ORACLE IS THE
+//! `pure-corpus.json` was recorded by `record-pure.mjs` — which imported `relay/src/index.js` and
+//! `relay/src/claim.js` and asked them 31 filenames, 220 claim states and 10 digests — and this test
+//! drives the Rust functions over the same inputs and compares the answers. **THE ORACLE WAS THE
 //! IMPLEMENTATION STILL SERVING THE FILE RELAY'S ROUTE**, which is the strongest form this comparison
-//! can take; when the cutover deletes that JavaScript the corpus becomes the record, the way
-//! `shipping-answers.json` did for the satellites.
+//! could take; **the cutover deleted that JavaScript on 2026-10-08 and the corpus is the record now**,
+//! the way `shipping-answers.json` is for the satellites.
 //!
 //! ── THE THREE MUTATIONS THAT MUST FAIL THIS GATE (all measured; the crate's own header argues them)
 //!
@@ -22,8 +22,12 @@
 //!           rest, which is the bias the shipping implementation's comment describes.
 //!
 //! AND ONE THAT MUST NOT FAIL, WHICH IS WHY IT IS WRITTEN DOWN: the corpus's `source` blobs pin the two
-//! JavaScript files this was recorded from. A port that drifted would be caught by the comparison; a
-//! RECORDER that drifted is caught by `node record-pure.mjs --check`, which CI runs beside this test.
+//! JavaScript files this was recorded from, and those files are DELETED — so the pin is a pointer into
+//! this repository's history rather than at the tree (`git cat-file blob 3afc456c…`). **A RECORDER THAT
+//! DRIFTED USED TO BE CAUGHT BY `node record-pure.mjs --check`, WHICH NO LONGER EXISTS**: the
+//! comparison it ran was against the implementation it recorded from, and that implementation is gone.
+//! From here the corpus changes only by a deliberate re-record, and the pin is what says from which
+//! bytes.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -38,7 +42,8 @@ fn corpus() -> serde_json::Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("pure-corpus.json");
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "cannot read {}: {e} — run `node record-pure.mjs`",
+            "cannot read {}: {e} — the corpus is the record since the 2026-10-08 cutover; it is \
+             regenerated deliberately, never by a script that no longer exists",
             path.display()
         )
     });

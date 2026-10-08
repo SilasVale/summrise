@@ -1,15 +1,18 @@
-//! THE FILE RELAY, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERS — both halves of it: the worker's
-//! `/files/*` surface, and the claim Durable Object it forwards into. Same stubs, same case lists, same rows.
+//! THE FILE RELAY, COMPARED AGAINST WHAT THE SHIPPING JAVASCRIPT ANSWERED — both halves of it: the
+//! worker's `/files/*` surface, and the claim Durable Object it forwards into. Same stubs, same case
+//! lists, same rows.
 //!
-//! `worker-corpus.json` was recorded by `record-worker.mjs`, which drives `relay/src/index.js` — **the
-//! worker still serving the route** — through `gateway/wasm/bindings-stub.mjs` and the case list in
-//! `worker-cases.json`. This test drives the BUILT RUST worker (`worker-build`'s output) through
+//! `worker-corpus.json` was recorded by `record-worker.mjs`, which drove `relay/src/index.js` — **the
+//! worker that was then still serving the route** — through `gateway/wasm/bindings-stub.mjs` and the
+//! case list in `worker-cases.json`. **BOTH JAVASCRIPT FILES ARE DELETED (2026-10-08, the cutover): the
+//! corpus is the record now, and the blob hashes in its `source` map name the bytes it was recorded
+//! from.** This test drives the BUILT RUST worker (`worker-build`'s output) through
 //! `gateway/wasm/run-cases.mjs` with the same stubs and the same cases, and compares five rows per case:
 //!
 //!     status · sorted headers · body bytes · **the R2 operations, in order** · **the request the claim
 //!     DO received**
 //!
-//! **THE LAST TWO ARE THE ONES A RESPONSE-ONLY CHECK CANNOT SEE**, and they are why the corpus is worth
+//! **THE LAST TWO ARE THE ONES A RESPONSE-ONLY CHECK CANNOT SEE**, and they are why the corpus was worth
 //! recording: an upload that stored the wrong `Content-Disposition`, or a claim forward that dropped the
 //! internal credential, answers the same bytes as one that did neither.
 //!

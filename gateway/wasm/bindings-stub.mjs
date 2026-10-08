@@ -2,12 +2,12 @@
 //
 // ── WHY THIS IS SHARED RATHER THAN WRITTEN TWICE ────────────────────────────────────────────────
 //
-// Two things have to see the SAME world for a differential to mean anything: the SHIPPING JavaScript
-// worker (driven by `relay/worker/record-worker.mjs`) and the BUILT Rust worker (driven by
-// `run-cases.mjs`). Both are handed the stubs below, so a difference in the answers is a difference in
-// the implementations and never in their surroundings — which is the failure mode the satellites'
-// harness recorded the hard way ("a difference in the harness that looks exactly like a difference in
-// the port").
+// Two things had to see the SAME world for a differential to mean anything: the SHIPPING JavaScript
+// worker (driven by `relay/worker/record-worker.mjs`, which retired with the file relay's 2026-10-08
+// cutover) and the BUILT Rust worker (driven by `run-cases.mjs`, which is who uses this now). Both were
+// handed the stubs below, so a difference in the answers was a difference in the implementations and
+// never in their surroundings — which is the failure mode the satellites' harness recorded the hard way
+// ("a difference in the harness that looks exactly like a difference in the port").
 //
 // THREE THINGS A WORKER'S ENVIRONMENT HAS THAT NODE DOES NOT, and all three are decisions here:
 //

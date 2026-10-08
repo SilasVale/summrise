@@ -1,5 +1,5 @@
 {
-  "_comment": "THE CLAIM DURABLE OBJECT'S CASES, AS DATA — read by BOTH drivers: `record-worker.mjs` (the shipping `TempClaimDO`) and `tests/claim_differential.rs` (the Rust class, through `gateway/wasm/run-cases.mjs`). Each case names the class with `entry`, so the two implementations are compared DIRECTLY rather than only through the worker that forwards to them. The host is not a production hostname.",
+  "_comment": "THE CLAIM DURABLE OBJECT'S CASES, AS DATA — read by `tests/differential.rs`, which drives the Rust class through `gateway/wasm/run-cases.mjs` and compares it against `claim-corpus.json`: the answers the shipping `TempClaimDO` gave, recorded before the 2026-10-08 cutover deleted it. Each case names the class with `entry`, so the two implementations were compared DIRECTLY rather than only through the worker that forwards to them. The host is not a production hostname.",
   "host": "https://relay.test",
   "env": {
     "DO_AUTH": ""

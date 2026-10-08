@@ -13,12 +13,12 @@
 //!
 //! ── WHAT THE DIFFERENTIAL CAN AND CANNOT SEE, STATED RATHER THAN IMPLIED ─────────────────────────
 //!
-//! `tests/claim_differential.rs` drives this class and the shipping `TempClaimDO` through the same cases
-//! with the same R2 stub, and compares status, headers, body bytes and **the bucket operations in order** —
-//! so "delete before streaming" and "delete only on expiry" are both visible. **THE SERIALIZATION ITSELF IS
-//! NOT**: no stub can show that two concurrent claims do not both win, because that is a guarantee of the
-//! runtime both implementations are deployed into. It is named here so a reader does not mistake a green
-//! differential for a proof of it.
+//! `tests/differential.rs` drove this class and the shipping `TempClaimDO` through the same cases while
+//! that JavaScript existed, and compares this class against the corpus recorded then — status, headers,
+//! body bytes and **the bucket operations in order** — so "delete before streaming" and "delete only on
+//! expiry" are both visible. **THE SERIALIZATION ITSELF IS NOT**: no stub can show that two concurrent
+//! claims do not both win, because that is a guarantee of the runtime both implementations are deployed
+//! into. It is named here so a reader does not mistake a green differential for a proof of it.
 //!
 //! MUTATION: return the object's bytes WITHOUT deleting the key first.
 //! RESULT:   **MEASURED — three serve cases fail on the `r2 operations` row alone:**
