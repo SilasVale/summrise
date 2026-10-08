@@ -92,8 +92,11 @@ function ensurePluginCtx() {
  * THE RUST FRONT DOOR'S BINDING, READ ONCE AND TYPED.
  *
  * `WASM_GATE` is the service binding declared in `wrangler.jsonc`; `undefined` when it is absent (a local
- * `wrangler dev` without the sibling worker, a test env, or the rollback) — and every call site falls back to
- * `handleGateway`, so the TypeScript path stays live and reachable for as long as the binding is gone.
+ * `wrangler dev` without the sibling worker, a test env, or a deployment whose binding was removed) — and
+ * **an absent binding is a 503, not a fallback**: the TypeScript `/v1` implementation was deleted on 2026-10-07,
+ * which is exactly what `frontDoor` says below. The rollback lives one level UP, in the DOMAIN TABLE: move the
+ * two custom domains back to the worker still running the pre-cutover code (`vale-gate` — see `wrangler.jsonc`,
+ * which kept it deployed for that reason and as the Durable Object owner).
  */
 function wasmGate(env: any): { fetch: (r: Request) => Promise<Response> } | null {
   const binding = env?.WASM_GATE;
@@ -251,10 +254,13 @@ export default {
       //
       // ── THE CUTOVER: `/v1/*` IS SERVED BY THE RUST WORKER ────────────────────────────────────────────────
       //
-      // **AND THE ROLLBACK IS THE BINDING.** Delete `WASM_GATE` from `wrangler.jsonc` (or this branch) and the next
-      // deploy serves `/v1` from `handleGateway` again — no DNS change, no Access change, no data migration: both
-      // implementations read the same KV, write the same Durable Object and were measured byte-for-byte equal on
-      // 91 differential cases plus the four tokenless paths against this live host.
+      // **AND THE ROLLBACK IS THE DOMAIN TABLE, NOT THIS BINDING.** Deleting `WASM_GATE` restores no TypeScript
+      // path — that implementation was deleted on 2026-10-07, and `frontDoor` answers 503 without the binding.
+      // What restores `/v1` is moving `ai.saisi.online` and `api.saisi.online` back to the worker that still runs
+      // the pre-cutover code (`vale-gate`, kept deployed by the 2026-10-08 rename as the Durable Object owner —
+      // see `wrangler.jsonc`): no DNS change, no Access change, no data migration, because both implementations
+      // read the same KV and write the same Durable Object and were measured byte-for-byte equal on 91
+      // differential cases plus the four tokenless paths against this live host.
       //
       // WHY A SERVICE BINDING AND NOT A ZONE ROUTE (the plan's first shape, corrected by measurement): these
       // hostnames are Worker CUSTOM DOMAINS, and a route on a custom domain is INERT. Cloudflare's own analytics for
