@@ -33,7 +33,7 @@
 //!           before this gate's own change**, which is why the gate was written in the same round.
 //!
 //! MUTATION (the scanner's own trap): delete the `if in_string { … continue }` branch from
-//!           `strip_line_comments`, so a `//` starts a comment wherever it appears.
+//!           `common::strip_jsonc_comments`, so a `//` starts a comment wherever it appears.
 //! RESULT:   **TWO tests fail, and the second is why the scanner is written by hand.**
 //!             the_comment_stripper_keeps_a_string_and_drops_a_comment:
 //!               a `//` inside a string was eaten: { "main": "worker
@@ -47,7 +47,6 @@
 mod common;
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 /// Configs whose artifact is built by `scripts/build.sh` instead of by their own `build.command`.
 ///
@@ -72,98 +71,33 @@ const MAX_DECLARED: usize = 2;
 /// reading almost nothing and passing because it looked at almost nothing.
 const MIN_CONFIGS: usize = 6;
 
-/// `//` to end of line, **UNLESS IT IS INSIDE A JSON STRING** — the one thing a naive strip gets wrong, and
-/// the reason `relay/wrangler.jsonc`'s comment about `https://…` cannot be read with a regex. Block comments
-/// are not stripped: no config here uses one, and a config that did would fail to parse and be REPORTED
-/// rather than silently skipped (an instrument that proves nothing is not an exemption).
-fn strip_line_comments(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut chars = raw.chars().peekable();
-    while let Some(c) = chars.next() {
-        if in_string {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if c == '"' {
-            in_string = true;
-            out.push(c);
-            continue;
-        }
-        if c == '/' && chars.peek() == Some(&'/') {
-            for n in chars.by_ref() {
-                if n == '\n' {
-                    out.push('\n');
-                    break;
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
-    out
-}
+// THE JSONC READER, THE CONFIG LIST AND THE PATH RESOLVER ARE `common`'s — one owner, because
+// `worker_language.rs` asks the same questions of the same files from the other side (a TRACKED entry is
+// source; an untracked one is a build artifact that needs a `build.command`). The string-aware comment
+// strip lives there with them, and its own test moved with it.
 
-/// Every tracked `*wrangler*.jsonc`, as (repo-relative path, text). `git ls-files` keeps build artifacts
-/// out and is what makes "is this file tracked?" answerable at all.
-fn configs(root: &Path, tracked: &[String]) -> Vec<(String, String)> {
-    tracked
-        .iter()
-        .filter(|f| f.ends_with(".jsonc") && f.contains("wrangler"))
-        .filter_map(|f| {
-            let text = std::fs::read(root.join(f)).ok()?;
-            Some((f.clone(), String::from_utf8_lossy(&text).into_owned()))
-        })
-        .collect()
-}
-
-/// `dir` + `main`, with `.` and `..` resolved — configs are read from the repo root, and a `main` is relative
-/// to the config's own directory.
-fn resolve(dir: &str, main: &str) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for seg in dir.split('/').chain(main.split('/')) {
-        match seg {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            s => parts.push(s),
-        }
-    }
-    parts.join("/")
-}
-
-fn offenders(root: &Path, tracked: &[String]) -> (Vec<String>, usize) {
+/// (offenders, configs read).
+fn offenders(tracked: &[String]) -> (Vec<String>, usize) {
     let set: BTreeSet<&str> = tracked.iter().map(String::as_str).collect();
     let mut out = Vec::new();
     let mut seen = 0;
-    for (path, text) in configs(root, tracked) {
-        let parsed: serde_json::Value = match serde_json::from_str(&strip_line_comments(&text)) {
-            Ok(v) => v,
-            Err(e) => {
-                out.push(format!(
-                    "{path}: does not parse after comment stripping ({e})"
-                ));
-                continue;
-            }
-        };
+    for (path, text) in common::worker_configs() {
+        let parsed: serde_json::Value =
+            match serde_json::from_str(&common::strip_jsonc_comments(&text)) {
+                Ok(v) => v,
+                Err(e) => {
+                    out.push(format!(
+                        "{path}: does not parse after comment stripping ({e})"
+                    ));
+                    continue;
+                }
+            };
         let Some(main) = parsed.get("main").and_then(|m| m.as_str()) else {
             continue;
         };
         seen += 1;
-        let dir = Path::new(&path)
-            .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if set.contains(resolve(&dir, main).as_str()) {
+        let dir = path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        if set.contains(common::resolve(dir, main).as_str()) {
             continue;
         }
         let built = parsed
@@ -190,9 +124,8 @@ fn offenders(root: &Path, tracked: &[String]) -> (Vec<String>, usize) {
 
 #[test]
 fn every_config_pointing_at_an_untracked_main_is_built_by_something() {
-    let root = common::repo();
     let tracked = common::git_ls_files_all();
-    let (bad, seen) = offenders(&root, &tracked);
+    let (bad, seen) = offenders(&tracked);
 
     assert!(
         BUILT_BY_BUILD_SH.len() <= MAX_DECLARED,
@@ -222,12 +155,13 @@ fn every_config_pointing_at_an_untracked_main_is_built_by_something() {
 /// The scanner's own trap, pinned: a `//` inside a string is NOT a comment, and a `//` outside one IS.
 #[test]
 fn the_comment_stripper_keeps_a_string_and_drops_a_comment() {
-    let kept = strip_line_comments(r#"{ "main": "worker//build/index.js" }"#);
+    let kept = common::strip_jsonc_comments(r#"{ "main": "worker//build/index.js" }"#);
     assert!(
         kept.contains("worker//build/index.js"),
         "a `//` inside a string was eaten: {kept}"
     );
-    let dropped = strip_line_comments("{ // https://example.test/x\n  \"main\": \"a.js\" }");
+    let dropped =
+        common::strip_jsonc_comments("{ // https://example.test/x\n  \"main\": \"a.js\" }");
     assert!(
         !dropped.contains("example.test"),
         "a comment survived the strip: {dropped}"
@@ -237,7 +171,7 @@ fn the_comment_stripper_keeps_a_string_and_drops_a_comment() {
         "the strip ate the code after the comment: {dropped}"
     );
     // An ESCAPED quote does not end the string, so the `//` after it is still inside one.
-    let escaped = strip_line_comments(r#"{ "note": "say \"//\" here", "main": "a.js" }"#);
+    let escaped = common::strip_jsonc_comments(r#"{ "note": "say \"//\" here", "main": "a.js" }"#);
     assert!(
         escaped.contains("\"main\": \"a.js\""),
         "an escaped quote ended the string early: {escaped}"

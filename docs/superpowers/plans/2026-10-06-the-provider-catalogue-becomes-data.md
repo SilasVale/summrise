@@ -342,6 +342,13 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 - **A6（待点头，第二阶段）** 控制台 `/api/*` 与插件（~9,650 行 TS）→ wasm：同一个 worker、同一个目标，理论可搬；
   先量收益（冷启动、体积）再决定。
 
+- **A7（2026-10-08，由 `agent/tests/worker_language.rs` 发现，两份计划此前都没有它）**：**`summrise-relay`——文件中继 worker**
+  （`relay/src/index.js`，配置在 `relay/wrangler.jsonc`）**是生产 JS**：它服务 `/files/*`（agent 主机名上的 zone route ✓——**这里不写全名，`production_host.rs` 数每一个字面量**），
+  而网关的上传腿经 `RELAY` service binding 打到它 ✓。**A2 是 `proxies/api-relay`（VPS 那个），P3 第二半是两个卫星——所以这个
+  worker 在两份计划的清单里都是空的** ✓，而目标的完成判据（"§四 例外之外没有生产路由由 JS/TS 服务"）把它算作剩余工作。
+  判据是新的那道 ratchet：它按 `wrangler*.jsonc` 逐个数"入口是**被 git 跟踪的** JS/TS 源文件"的 worker，
+  现在只有两个（`summrise-gate` = A6 的对象、`summrise-relay` = 本条），**清单只许变短** ✓。
+
 ---
 
 ## 四、例外（必须留 JS 的，逐条写清为什么）

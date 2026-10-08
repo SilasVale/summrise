@@ -136,6 +136,84 @@ pub fn decomment(text: &str) -> String {
         .join("\n")
 }
 
+/// **`//` TO END OF LINE, UNLESS IT IS INSIDE A JSON STRING** — the strip a JSONC config needs, and the
+/// one thing `decomment` above cannot do for it.
+///
+/// `decomment_line` keeps a URL by looking at the character BEFORE the `//` (a colon), which is a
+/// heuristic about prose. A JSON string can carry `//` with no colon anywhere near it, and a strip that
+/// cuts there hands the parser half a value: measured on `"main": "worker//build/index.js"`, the naive
+/// strip leaves `"worker` and the config stops parsing. Block comments are NOT stripped here: no config in
+/// this repository uses one, and a config that did would fail to parse and be REPORTED rather than
+/// silently mis-read.
+pub fn strip_jsonc_comments(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            continue;
+        }
+        if c == '/' && chars.peek() == Some(&'/') {
+            for n in chars.by_ref() {
+                if n == '\n' {
+                    out.push('\n');
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Every tracked `*wrangler*.jsonc` as (repo-relative path, text), **WITH THE SOURCE VIEWER MIRROR
+/// EXCLUDED**: `gateway/public/code/files/…` is a byte-for-byte copy of the console's sources served by
+/// the /code/ viewer, so it contains a `wrangler.jsonc` that is not a deploy target — reading it would
+/// make every config gate report the same file twice, once as a worker and once as its own mirror.
+pub fn worker_configs() -> Vec<(String, String)> {
+    let root = repo();
+    git_ls_files_all()
+        .into_iter()
+        .filter(|f| f.ends_with(".jsonc") && f.contains("wrangler"))
+        .filter(|f| !f.starts_with("gateway/public/code/files/"))
+        .filter_map(|f| {
+            let text = fs::read(root.join(&f)).ok()?;
+            Some((f, String::from_utf8_lossy(&text).into_owned()))
+        })
+        .collect()
+}
+
+/// A config's directory plus its `main`, with `.` and `..` resolved — a config's `main` is relative to the
+/// config, and the gates that ask "is this entry a TRACKED file?" need the repo-relative answer.
+pub fn resolve(dir: &str, main: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in dir.split('/').chain(main.split('/')) {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            s => parts.push(s),
+        }
+    }
+    parts.join("/")
+}
+
 /// Recursive file walk. `readdir` order is the OS's, which is what Node's `readdirSync` returns too —
 /// neither sorts, so the two implementations see the same order.
 pub fn walk(dir: &Path, test: &dyn Fn(&str) -> bool, out: &mut Vec<PathBuf>) {
