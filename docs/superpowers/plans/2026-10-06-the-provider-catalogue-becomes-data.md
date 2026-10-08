@@ -361,7 +361,7 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
   （它带着自己的 smoke：一个不指向任何对象的 token 必须回 claim DO 自己的 404 信封 ✓）。
   **量的结果** ✓：`Total Upload: 606.52 KiB / gzip 208.49 KiB`（JavaScript 那份是 11.56 KiB）、
   `Worker Startup Time: 2 ms`、三个绑定都在（`TEMP_CLAIM` DO／`TEMP_FILES` R2／`PUBLIC_BASE`）✓、
-  路由 `agent.saisi.online/files/*` 重新挂上 ✓、**Version ID `e70ab5b7-259e-4dd9-b894-5a1ba99dd2dd`** ✓
+  路由 `<download-host>/files/*` 重新挂上 ✓、**Version ID `e70ab5b7-259e-4dd9-b894-5a1ba99dd2dd`** ✓
   （回滚：`wrangler rollback`，或退回上一个部署 `84cddea6-6582-4cc9-948c-93568b67e70e`）✓、
   **两个 secret 一个不少** ✓（`DO_AUTH`、`UPLOAD_KEY`——同一个 worker 名原地换实现，所以它们本该留着 ✓）。
   **而 cutover 前后是逐字节可比的** ✓：同一组探针在部署前（JS）与部署后（Rust）答同样的东西 ——
