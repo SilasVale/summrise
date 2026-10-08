@@ -84,12 +84,14 @@ carry — this repository's commit message is the record.
 
 | # | landing | size | evidence it must carry |
 |---|---|---|---|
-| 1 | the inventory gate + manifest | ~400 lines Rust + a manifest | mutation proof; the count of files per class, printed by the gate itself |
-| 2 | the sweep **driver and judge** → Rust — and it splits in two, because measuring it found the seam already exists: **2a the judge** (`judgeReport` + the three adapters' `judge()` wrappers, ~991 lines) and **2b the Playwright driving** | ~2,455 lines `design-sweep.mjs` + the pass half of the payloads | **2a: the two gates that already exist, passing UNCHANGED in their cases** — `panel-design-sweep.bash` (baseline 87 ok, 0 failed) and `sweep-judges.bash` (baseline 14 ok, 0 failed), with only the invocation repointed; **2b: the same reports, byte for byte** |
-| 3 | the six `scripts/test/*.mjs` gates → Rust | 631 lines | each ported gate's own mutation, plus the `agent` CI job gaining the four npm dependency sets they spawn |
-| 4 | the CLI → a Rust binary, **and its user-facing surface** (§6.4: a `setup` that checks before it acts and ends with the MCP block, a `status` that reports what was checked, a `doctor`) | 4,465 lines `src/summrise.ts` (3,999 generated) | the 3,293-line `node --test` suite ported; `bin` repointed; `publish-release.sh`'s freshness check (`tsc` + `cmp`) replaced by a build-id check; each UX line above pinned by a test that fails on the old behaviour |
-| 5 | the worker entries | `gateway/src` 4,913 · `index/src` 417 · `proxies` api 344 | byte-for-byte parity against the shipping JavaScript, the way `gateway/wasm/verify.mjs` and `index/worker/verify.mjs` already do it |
-| 6 | Electron main's decisions → Rust | `url-policy.ts` 270 first, then port/auth/cert policy | `url-policy`'s existing test file ported case for case; the CDP door's behaviour unchanged |
+| 1 ✅ | **LANDED** — the inventory gate + manifest | 400 lines Rust + a manifest | mutation proof; the count of files per class, printed by the gate itself: 536 files — LOGIC 151 · BOUNDARY 158 · RENDERING 157 · GENERATED 70 |
+| 2a ✅ | **LANDED** — the sweep **judge**: `judgeReport` + the three adapters' `judge()` wrappers (~991 lines) | `agent/sweep-judge/`, 3,512 lines | the two gates that already existed, passing **UNCHANGED in their cases** — `panel-design-sweep.bash` 87 ok / 0 failed and `sweep-judges.bash` 14 ok / 0 failed — plus a differential over 2,850 generated reports × 3 tools, 0 mismatches |
+| 2b | the sweep **plan**: which surfaces are visited (density × path × viewport × theme × mode) and which passes run there. **The driving itself is a BOUNDARY** — measured in §4.1 | the matrix and `wants()` in the payloads | a parity harness over every `--passes` value × 3 tools (the shape `agent/summrise-cli/parity/` uses), plus the same report's `passes` field and surface list from a real run |
+| 3 | the six `scripts/test/*.mjs` gates | 631 lines | each gate's decision in Rust with its own mutation; the spawn stays a BOUNDARY (the shape `npm-test-floored` already has: decision in `npm_test_floor.rs`, spawn in the `.mjs`) |
+| 4a ✅ | **LANDED** — the CLI's decision core: `agent/summrise-cli/`, 7,136 lines, 88 Rust tests against the npm suite's 68 cases | — | the parity harness over 162 inputs, **0 differing**; `cargo test -p summrise-cli`; the npm suite still 68/68 — all verified independently before the merge |
+| 4b | the CLI's **platform half** (`monitor`, `uninstall`, `run`, `tunnel`, the staging/swap handoff), then the cutover (`bin` repointed, `src/summrise.ts` deleted, `MAX_LOGIC` down by two) **and §6.4's user-facing surface** | the remaining ~1,000 lines of `src/summrise.ts` + the swap script | the cutover's own run on a real device: the npm shim must execute a native `bin`, and `summrise status`'s `this CLI:` is the proof — not npm's exit code |
+| 5 | the worker entries | `gateway/src` 4,913 · `index/src` 417 · `proxies` api 344 | byte-for-byte parity against the shipping JavaScript, the way `gateway/wasm/verify.mjs` and `index/worker/verify.mjs` already do it. **The console's cutover is a DEPLOY**, so it needs credentials, timing and a rollback — the operator's call, not a night's work |
+| 6 | Electron main's decisions → Rust | `url-policy.ts` 270 first, then port/auth/cert policy | `url-policy`'s existing test file ported case for case; the CDP door's behaviour unchanged. **Its cost is a wasm artifact in the shipped package**: `required-in-tgz.txt` and `package.json`'s `files[]` both name `summrise-desktop-electron/src/url-policy.js` today, so this landing changes the release path and must be verified against a real pack |
 
 The seam for landing 2 is already present in the code and is the reason it is second: the **probes**
 (`marksProbe`, `surfaceProbe`, `namesProbe`, `reflowProbe`, `UNSTYLED_SOURCE`) are strings injected into a page —
@@ -151,6 +153,21 @@ the judge reads it. So a plan-driven run must produce a report **byte-identical*
 the three CI reports are the corpus. That is checkable without a new oracle, which is why 2b can be done in slices:
 each pass moves when its rows survive the comparison.
 
+**AND 2a CHANGED WHAT 2b HAS LEFT TO MOVE, WHICH IS WHY THE SLICES ARE NOT THE PASSES.** With the judge in Rust, the
+verdicts are Rust: the press pass returns rows carrying `changed`, `reached`, `size`, `measured`, `found`, and the
+judge is what turns them into *"renders NOTHING when pressed"*, *"a press pass that pressed nothing proves nothing"*,
+and *"UNMEASURED because this page has no request counter"*. A pass is therefore a **measurer** — it drives a browser,
+samples computed styles and returns raw rows — and under §2 that is a BOUNDARY, not work left over. What is still a
+decision on the Node side is **the plan**: which surfaces are visited (density × path × viewport × theme × mode),
+which passes run on each, and which passes are wanted at all given `--passes`. Measured: the plan is **static given
+`--passes`** — `wants()` and the matrix in `panel-run.cjs` read only `P.config.passes` and constants — so it is
+computed at EMIT time and embedded, rather than recomputed in the browser.
+
+That is slice 1, and its oracle is a parity harness in the shape `agent/summrise-cli/parity/` already uses: the
+JavaScript's current plan computation and the Rust plan over the same inputs, every `--passes` value, all three tools.
+The in-page collectors stay JavaScript for the reason §2 gives — a browser executes them, and `browser_run_script`
+takes a JS file — and they are BOUNDARY entries in the manifest with the platform call named.
+
 ## 5 · SOLID, concretely
 
 Not a slogan: each line names the place it is already true, or the change that makes it true.
@@ -158,7 +175,7 @@ Not a slogan: each line names the place it is already true, or the change that m
 | principle | where it lands |
 |---|---|
 | **S**ingle responsibility | one crate, one job — and the split the migration is *for*: a collector measures, a judge decides. `summrise-command-core` already carries Plugin/ToolDef/Config/EventBus as the seam; `panel-logic`/`ui-logic` carry decisions; the TSX carries placement |
-| **O**pen/closed | a new MCP tool is *registered*, never matched into a growing `switch`. Today it is registered twice (below), which is the defect this principle names |
+| **O**pen/closed | a new MCP tool is *registered*, never matched into a growing `switch`. The console's registry was once a hand-copy — it is gated against the device's now (§6.1), which is the principle working |
 | **L**iskov | the existing `terminal` / `keyring` feature gates already keep **identical public paths across configs**; new crates follow it, and a gate asserts the two configs' public surfaces stay equal |
 | **I**nterface segregation | the JS↔wasm seam is cut per consumer (`panel-logic`'s `js.rs` is the seam), not one wide `invoke()`; the collector returns rows, not verdicts |
 | **D**ependency inversion | policy in Rust, adapters in JS. The boundary rule of §2 IS this principle made checkable: a BOUNDARY file is an adapter, and an adapter that decides has inverted the dependency the wrong way |
@@ -167,15 +184,27 @@ Not a slogan: each line names the place it is already true, or the change that m
 
 These were found by measuring the repository for this spec, not by reading it. Each is a decision, not a question.
 
-### 6.1 The MCP tool table has two sources of truth
+### 6.1 The MCP tool table — **WRONG WHEN THIS SPEC WAS WRITTEN, AND CORRECTED HERE**
 
-`gateway/src/mcp-tools.ts` is 823 lines and must be kept in step with the Rust plugin `tools.rs` by hand; `AGENTS.md`
-already instructs a human to update both, and `spec_snapshot` pins only the Rust side. Two registries for one surface
-is an OCP and SRP failure, and it is the kind that fails silently — the console simply stops offering a tool.
+This section said `gateway/src/mcp-tools.ts` (823 lines) "must be kept in step with the Rust plugin `tools.rs` by hand,
+and `spec_snapshot` pins only the Rust side" — a hand-copied second registry that fails silently. **That was the state
+before round 554, and it is not the state now.** Measured by reading `gateway/test/mcp-handler.test.mjs`:
 
-**Decision.** The Rust registry becomes the only source. The gateway's table is *derived* from it — emitted from the
-wasm crate at build time, or read through the wasm boundary at request time — and a gate asserts the two agree, so a
-divergence is a build failure rather than a missing tool in the console. Lands with landing 5.
+* the expected set is read from **`agent/spec-tools.json`** (35 KB, generated from the live `PluginRegistry` by
+  `web::tests::spec_snapshot…`), not from a hand-typed copy;
+* every device tool must be either registered in `mcp-tools.ts` **or** named in `NOT_EXPOSED` with a reason of more
+  than eight characters — so a new device tool forces an *exposure decision*, which is the property that was missing;
+* the test refuses a `NOT_EXPOSED` entry that is a ghost or a stale reason;
+* and it goes one level deeper than names: **every parameter and every declared type the device accepts must be
+  advertised on this side** (`contract: the gateway advertises every parameter the device accepts`), with the
+  gateway-only `device` field and the `RENAMES` map accounted for. That check was written after `terminal_execute`
+  gained `intent` and `considered` and they reached a console client as undocumented extras.
+
+So the duplication that remains is real but **held together by a gate that reads the Rust side**, and the correct
+statement of the work is narrower than this section first made it: what is still hand-written in TypeScript is the
+*description text and the schema shapes* of 800-odd lines, and they cannot drift silently. **The decision is
+unchanged in direction and smaller in scope** — landing 5 removes the file by making the entry Rust, not by
+generating the table — and nothing here needs doing before then. The paragraph above it in §5 is corrected to match.
 
 ### 6.2 Local control channels are TCP ports where a pipe is better
 
@@ -251,13 +280,20 @@ it is already written down in `AGENTS.md`, measured on real first-time installs:
 This lands **with landing 4** — building a friendly surface on the JavaScript CLI that landing 4 replaces would be
 paid for twice. The README half is done now because it is the part a user meets first.
 
-### 6.5 The emitters' fragile class disappears with the Rust judge
+### 6.5 The emitters' fragile class — **ALREADY GONE, AND THIS SECTION SAID OTHERWISE**
 
-`scripts/hooks/pre-commit` exists to catch one accident: a backtick inside a template literal in a sweep emitter, which
-has broken CI five times. Once the payloads are assembled by Rust and the page-side bundle is the only emitted
-artifact, the accident's *shape* changes — the assembler can compile what it emits, which the JS assembler already
-does, but the payload's own logic is no longer string-built. The hook stays (it still assembles all five artifacts in
-under a second); what it guards shrinks.
+This section said `scripts/hooks/pre-commit` "exists to catch one accident: a backtick inside a template literal in a
+sweep emitter, which has broken CI five times". **That is the hook's old rationale, and `AGENTS.md` says so itself**:
+the class is gone, because all five emitters now hand their payload to `agent/scripts/lib/sweep-bundle.mjs`, which
+resolves the payload's own requires and **compiles** what it returns. (The incident count was quoted as 52 in one
+place, 34 in another and 38 in the operator's inbox; the three never agreed, and they are history.) What the hook
+still buys is the only end-to-end assembly of all five artifacts in under a second — a payload module that does not
+parse, a require the assembler cannot resolve, or an emitter renamed or deleted fails at the commit instead of in the
+design job.
+
+So there is nothing here for the migration to fix, and the honest statement is narrower than the first draft: the
+assembler **stays JavaScript**, because it produces a JS artifact for `browser_run_script` — a BOUNDARY with the
+platform call named — and what 2b changes is only that the *plan* it embeds comes from Rust.
 
 ## 7 · Out of scope, with the measurements that put it there
 
