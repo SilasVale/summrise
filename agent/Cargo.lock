@@ -3550,6 +3550,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-cli"
+version = "1.0.145"
+dependencies = [
+ "regex",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "summrise-exec-argv"
 version = "1.0.145"
 
