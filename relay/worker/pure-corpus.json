@@ -1,0 +1,1575 @@
+{
+  "source": {
+    "relay/src/index.js": "3afc456c940d6dde73da53c043c9500c0b872541",
+    "relay/src/claim.js": "15eff8b87a177796ca67670575e15cfaf74fd70a"
+  },
+  "disposition": [
+    {
+      "raw": "report.pdf",
+      "header": "attachment; filename=\"report.pdf\""
+    },
+    {
+      "raw": "SummriseAgent-Setup.exe",
+      "header": "attachment; filename=\"SummriseAgent-Setup.exe\""
+    },
+    {
+      "raw": "a\"b\\c.txt",
+      "header": "attachment; filename=\"abc.txt\""
+    },
+    {
+      "raw": "quote\"only\".bin",
+      "header": "attachment; filename=\"quoteonly.bin\""
+    },
+    {
+      "raw": "\"\"\"",
+      "header": null
+    },
+    {
+      "raw": "\\",
+      "header": null
+    },
+    {
+      "raw": "a\u0000b\u001fc.txt",
+      "header": "attachment; filename=\"abc.txt\""
+    },
+    {
+      "raw": "bell\u0007.txt",
+      "header": "attachment; filename=\"bell.txt\""
+    },
+    {
+      "raw": "del.txt",
+      "header": "attachment; filename=\"del.txt\""
+    },
+    {
+      "raw": "",
+      "header": null
+    },
+    {
+      "raw": "   ",
+      "header": null
+    },
+    {
+      "raw": "\u0000",
+      "header": null
+    },
+    {
+      "raw": "  spaced.txt  ",
+      "header": "attachment; filename=\"spaced.txt\""
+    },
+    {
+      "raw": "\t\nnewlines\r\n.txt",
+      "header": "attachment; filename=\"newlines.txt\""
+    },
+    {
+      "raw": "报告.pdf",
+      "header": "attachment; filename=\".pdf\"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.pdf"
+    },
+    {
+      "raw": "café.pdf",
+      "header": "attachment; filename=\"caf.pdf\"; filename*=UTF-8''caf%C3%A9.pdf"
+    },
+    {
+      "raw": "🎉.bin",
+      "header": "attachment; filename=\".bin\"; filename*=UTF-8''%F0%9F%8E%89.bin"
+    },
+    {
+      "raw": "  é  ",
+      "header": "attachment; filename=\"download.bin\"; filename*=UTF-8''%C3%A9"
+    },
+    {
+      "raw": "mixed-报告-café.bin",
+      "header": "attachment; filename=\"mixed--caf.bin\"; filename*=UTF-8''mixed-%E6%8A%A5%E5%91%8A-caf%C3%A9.bin"
+    },
+    {
+      "raw": " nbsp.txt",
+      "header": "attachment; filename=\"nbsp.txt\""
+    },
+    {
+      "raw": "﻿bom.txt",
+      "header": "attachment; filename=\"bom.txt\""
+    },
+    {
+      "raw": "nel.txt",
+      "header": "attachment; filename=\"nel.txt\"; filename*=UTF-8''%C2%85nel.txt"
+    },
+    {
+      "raw": "a b&c=d.txt",
+      "header": "attachment; filename=\"a b&c=d.txt\""
+    },
+    {
+      "raw": "a-_.!~*'().txt",
+      "header": "attachment; filename=\"a-_.!~*'().txt\""
+    },
+    {
+      "raw": "plus+and%percent.txt",
+      "header": "attachment; filename=\"plus+and%percent.txt\""
+    },
+    {
+      "raw": "semi;colon,comma.txt",
+      "header": "attachment; filename=\"semi;colon,comma.txt\""
+    },
+    {
+      "raw": "brackets[1]{2}.txt",
+      "header": "attachment; filename=\"brackets[1]{2}.txt\""
+    },
+    {
+      "raw": "hash#question?mark.txt",
+      "header": "attachment; filename=\"hash#question?mark.txt\""
+    },
+    {
+      "raw": "at@sign$dollar.txt",
+      "header": "attachment; filename=\"at@sign$dollar.txt\""
+    },
+    {
+      "raw": "日本語のファイル名.txt",
+      "header": "attachment; filename=\".txt\"; filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E3%83%95%E3%82%A1%E3%82%A4%E3%83%AB%E5%90%8D.txt"
+    },
+    {
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bin",
+      "header": "attachment; filename=\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bin\""
+    }
+  ],
+  "claims": [
+    {
+      "exists": true,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "nowMs": 1001,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "nowMs": 1000000000000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": null,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": null,
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": null,
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": null,
+      "nowMs": 1001,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": null,
+      "nowMs": 1000000000000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "",
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "",
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "",
+      "nowMs": 1001,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "",
+      "nowMs": 1000000000000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 0,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 0,
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 0,
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 0,
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 0,
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1000",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1000",
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1000",
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1000",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1000",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 1000,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 1000,
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 1000,
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 1000,
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": 1000,
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "999",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "999",
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "999",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "999",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "999",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1001",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1001",
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1001",
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1001",
+      "nowMs": 1001,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1001",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "abc",
+      "nowMs": 0,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "abc",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "abc",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "abc",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "abc",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "NaN",
+      "nowMs": 0,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "NaN",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 0,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "-5",
+      "nowMs": 0,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "-5",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "-5",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "-5",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "-5",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1.5",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1.5",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1e3",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1e3",
+      "nowMs": 999,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1000,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0x10",
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0x10",
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [],
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [],
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [],
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [],
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [],
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": {},
+      "nowMs": 0,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": {},
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": {},
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": {},
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": {},
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": true,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": true,
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": true,
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": true,
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": true,
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": false,
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": false,
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": false,
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": false,
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": false,
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 0,
+      "decision": "serve"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 999,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1000,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1001,
+      "decision": "expired"
+    },
+    {
+      "exists": true,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1000000000000,
+      "decision": "expired"
+    },
+    {
+      "exists": false,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": null,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": null,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": null,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": null,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": null,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 0,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 0,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 0,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 0,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 0,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1000",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1000",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1000",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1000",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1000",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 1000,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 1000,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 1000,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 1000,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": 1000,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "999",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "999",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "999",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "999",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "999",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1001",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1001",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1001",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1001",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1001",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "abc",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "abc",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "abc",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "abc",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "abc",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "NaN",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "NaN",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "NaN",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "Infinity",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "-5",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "-5",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "-5",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "-5",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "-5",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1.5",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1.5",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1.5",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1e3",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1e3",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "1e3",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": " 42 ",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0x10",
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0x10",
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": "0x10",
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [],
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [],
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [],
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [],
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [],
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": {},
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": {},
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": {},
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": {},
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": {},
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": true,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": true,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": true,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": true,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": true,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": false,
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": false,
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": false,
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": false,
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": false,
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 0,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 999,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1000,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1001,
+      "decision": "gone"
+    },
+    {
+      "exists": false,
+      "expiresAtRaw": [
+        1
+      ],
+      "nowMs": 1000000000000,
+      "decision": "gone"
+    }
+  ],
+  "sha256": [
+    {
+      "input": "0000000000000000000000000000000000000000000000000000000000000000",
+      "matches": true
+    },
+    {
+      "input": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "matches": true
+    },
+    {
+      "input": "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+      "matches": true
+    },
+    {
+      "input": "000000000000000000000000000000000000000000000000000000000000000",
+      "matches": false
+    },
+    {
+      "input": "00000000000000000000000000000000000000000000000000000000000000000",
+      "matches": false
+    },
+    {
+      "input": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+      "matches": false
+    },
+    {
+      "input": "",
+      "matches": false
+    },
+    {
+      "input": "  0000000000000000000000000000000000000000000000000000000000000000",
+      "matches": false
+    },
+    {
+      "input": "0000000000000000000000000000000000000000000000000000000000000000 ",
+      "matches": false
+    },
+    {
+      "input": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "matches": false
+    }
+  ],
+  "envelopes": [
+    {
+      "name": "unavailableResponse",
+      "status": 503,
+      "headers": [
+        "content-type: application/json"
+      ],
+      "body": "{\"error\":\"temporarily unavailable\"}"
+    }
+  ],
+  "tokens": {
+    "lengths": [
+      22
+    ],
+    "alphabet": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    "distinct": 2000,
+    "short": [
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7,
+      7
+    ]
+  }
+}
