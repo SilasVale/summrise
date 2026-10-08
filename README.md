@@ -7,16 +7,81 @@
 local panel, from a hosted console (**Summrise Gate**) over a Cloudflare tunnel, or from any MCP client. One Rust binary,
 one npm package, no cloud account required for local use.
 
+## How it fits together
+
+**Green is Rust** — natively in the agent, as wasm inside a Worker. **Amber is the thin shell a platform forces**:
+a browser view, a Worker's entry, the Electron host, npm's `bin`. **Grey is not ours.** The rule this repository
+follows: every *decision* is Rust, and JavaScript survives only where something else executes it.
+
+```mermaid
+flowchart LR
+  subgraph clients["Clients"]
+    direction TB
+    mcp["MCP client<br/>Claude Code · Cursor · DSH"]
+    browser["A browser"]
+  end
+
+  subgraph cloud["Cloudflare"]
+    direction TB
+    gate["Summrise Gate<br/>Rust wasm core<br/>console · /mcp proxy · registry · BYOK"]
+    index["Summrise Index<br/>Rust wasm core<br/>/api/version · tgz · Setup.exe"]
+    relay["Relay<br/>Rust wasm core<br/>/api/upload · /files/*"]
+    satellites["Satellite proxies<br/>Rust wasm core<br/>zen-us · zen-go"]
+  end
+
+  subgraph device["Device — one Windows machine"]
+    direction TB
+    agent["summrise-agent.exe<br/>/mcp · /api/tools/*<br/>terminal lanes · memory · monitor"]
+    panel["Panel<br/>/panel"]
+    desktop["Desktop shell<br/>/desktop/ · CDP :9333"]
+    components["staged components<br/>cloudflared · playwright · electron"]
+  end
+
+  host["Workspace host<br/>reached over ssh — not a Device"]
+
+  mcp -->|"local · 127.0.0.1:18080/mcp"| agent
+  mcp -->|"remote · /mcp"| gate
+  gate <-->|"Cloudflare Tunnel"| agent
+  browser -->|"device-local"| panel
+  browser -->|"hosted"| gate
+  agent --- panel
+  agent --- desktop
+  desktop -.->|"drives the visible page"| panel
+  index -->|"npm · Setup.exe · components"| components
+  gate -->|"AI egress"| satellites
+  agent -->|"relay pair"| relay
+  agent -->|"workspace registry"| host
+
+  classDef rust fill:#e7f5e9,stroke:#2f7d32,stroke-width:2px,color:#14361a
+  classDef shell fill:#fff4e0,stroke:#c96a00,stroke-width:2px,color:#4a2a00
+  classDef third fill:#eceff1,stroke:#607d8b,stroke-width:1px,color:#2f3b40
+
+  class agent,gate,index,relay,satellites rust
+  class panel,desktop shell
+  class mcp,browser,components,host third
+```
+
+The **Panel** is device-local and the only surface that can answer "what is this machine doing right now"; the
+**Console** (inside Summrise Gate) reads devices and sessions from anywhere. A **workspace host** is reached over
+ssh through a connection the agent saved — it is not a Device, and nothing about it is managed.
+
 ## Quick start (Windows)
 
 **One file, no Node required** — [SummriseAgent-Setup.exe](https://agent.saisi.online/summrise-agent/SummriseAgent-Setup.exe).
 
-**Or through npm:**
+**Or through npm** — the release host's version-free tarball, or the registry:
 
 ```powershell
 npm.cmd i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz   # .cmd shim: PowerShell's default policy blocks the .ps1 one
+# npm.cmd i -g summrise-agent   # the registry instead — but a stale mirror's `latest` can install an OLDER CLI
 summrise setup                 # install and start; the agent self-registers with the configured console on first start
+summrise status                # `this CLI:` is the only proof of which one you got; npm's exit code is not
 ```
+
+`setup` fetches the boxed components — `cloudflared.exe`, the Playwright runtime, the Electron runtime — from the
+release host and verifies each against the sha256 pinned in [`version.json`](https://agent.saisi.online/summrise-agent/version.json).
+They are deliberately **not** in the npm package: they are 54 MB, 31 MB and ~100 MB, and a device behind a filtered
+network reaches the release host more reliably than it reaches the registry.
 
 Then point an MCP client at the machine. This block is the payoff — the console generates the same one, with its own URL
 and a per-device token:
