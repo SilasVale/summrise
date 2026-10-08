@@ -394,6 +394,12 @@ ERROR ROUTE, NEVER THE DEFAULT CHANNEL … it would dial a built-in upstream und
 | `gateway/wasm/verify.mjs`、`route-oracle.mjs` | 它们**执行 JS+wasm 产物**并驱动发货 TypeScript 做差分；产物是 JS，harness 只能在 Node 里跑它。切流删掉旧 TS 后，`route-oracle.mjs` 随之退役 |
 | `gateway/wasm/run-cases.mjs`（＋ `bindings-stub.mjs`） | **同一个理由，而它的用户变多了**：两个卫星与**文件中继**的差分都靠它执行 `worker-build` 的产物（A7 删掉 JS 之后，`relay/worker/tests/differential.rs` 是它的第三个调用者）。它一行产品逻辑都没有 ✓ |
 
+**2026-10-08 的补充（操作者当天说"尽可能只要 Rust"）：这张表里 `agent/summrise-agent-npm/` 那一行已被取代。**
+实测：`package.json` 是 `os: win32, cpu: x64`，而 npm 的 shim 对**非 `.js` 的 `bin` 目标直接执行**——
+所以 **npm 是交付渠道，产物不必是 JavaScript**，CLI 可以是一个 Rust 二进制。
+取代它的设计在 `docs/superpowers/specs/2026-10-08-every-decision-is-rust-design.md` §0（该文件同时回答 §五 的 A5、A6）。
+其余各行不变，且该 spec 的清单门禁会把每一行变成可检查的分类。
+
 ---
 
 ## 五、要操作者点头的三件事

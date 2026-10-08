@@ -5,6 +5,31 @@ Design for the standing goal of 2026-10-08, approved in scope by the operator th
 moved and that three items were the operator's call. The operator has now made all three calls, and added a fourth
 instruction that is stricter than the plan: **as much Rust as possible, and the architecture must hold up under SOLID.**
 
+## 0 · Where this sits among the documents that already exist
+
+Three documents describe this migration, and they must not disagree:
+
+* `docs/superpowers/plans/2026-09-28-the-product-moves-to-rust.md` — the original plan. Its closing survey said the
+  portable logic had moved and named the items it left to the operator.
+* `docs/superpowers/plans/2026-10-06-the-provider-catalogue-becomes-data.md` — carries **§四, the exceptions that must
+  stay JS**, and §五's three items awaiting a nod. `agent/tests/worker_language.rs` (added 2026-10-08) is §四's
+  criterion made mechanical for *production routes*.
+* **this spec** — the operator's 2026-10-08 answer to those nods ("as much Rust as possible"), plus the rule that
+  covers every remaining file rather than only worker entries.
+
+**What it supersedes, and what it keeps.** §四's rows stand, with **one exception**:
+
+| §四 row | this spec |
+|---|---|
+| `agent/resources/panel-react/`, `gateway/ui/` — browser UIs, logic already in Rust | **kept** (§7) |
+| `agent/summrise-agent-npm/` — *"npm 的交付方式就是 JS (⑦, 操作者已定)"* | **SUPERSEDED.** Measured: the package is `os: win32, cpu: x64`, and npm's shim executes a non-`.js` `bin` target directly — so a Rust binary IS deliverable by npm. The delivery *channel* is npm; the artifact need not be JavaScript. This is landing 4 |
+| `agent/summrise-desktop-electron/` — the Electron shell (⑥, compatibility) | **kept as a host**, but its decisions move (landing 6) |
+| `agent/summrise-workspace-dsh/` — a DSH plugin must be JS | **kept**; not this repository's choice |
+| `gateway/wasm/verify.mjs`, `route-oracle.mjs`, `run-cases.mjs` — harnesses that execute a JS+wasm artifact | **kept**, and they are BOUNDARY in the manifest: they drive an artifact rather than decide anything |
+
+The two A-items §五 left for a nod are answered by the same instruction: **A5** (the sweeps' driver and judge) is
+landing 2, and **A6** (the console's `/api/*` and plugins) is landing 5.
+
 ## 1 · What this changes, in one sentence
 
 Today the repository is Rust with JavaScript in it. After this migration it is **Rust with a named list of platform
