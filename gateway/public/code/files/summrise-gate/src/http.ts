@@ -15,7 +15,8 @@
 // the grant went with it — an allowed origin with no consumer is a permission nobody is using.
 // Access-Control-Allow-Origin header (default-closed). Non-browser clients
 // (Claude Code, curl, gateway server-side) are unaffected by CORS.
-// (Mirrors proxies/zen-go-proxy/src/index.js.)
+// (Mirrors the satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs, which zen-go
+// re-exports. The two JavaScript copies this line used to name were deleted on 2026-10-08.)
 export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "https://ai.saisi.online",
   "https://api.saisi.online",

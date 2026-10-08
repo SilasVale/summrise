@@ -1,5 +1,6 @@
-// CORS allowlist pinning (zen-go-proxy precedent —
-// proxies/zen-go-proxy/src/index.js): the gateway reflects the Origin
+// CORS allowlist pinning (the satellites' precedent —
+// proxies/zen-us-proxy/worker/src/lib.rs since the port; it was
+// proxies/zen-go-proxy/src/index.js, deleted 2026-10-08): the gateway reflects the Origin
 // if allowlisted (console origins + loopback) with Vary: Origin, and sends
 // NO Access-Control-Allow-Origin otherwise. Genuinely-public installer
 // payloads keep the ACAO:* wildcard.

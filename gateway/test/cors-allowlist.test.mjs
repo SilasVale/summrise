@@ -2,9 +2,12 @@
 //    asserts they agree ────────────────────────────────────────────────────────
 //
 // `src/http.ts`'s `ALLOWED_ORIGINS` carries a comment naming where each entry
-// comes from — `CONSOLE_HOST` in wrangler.jsonc — and ends with "(Mirrors
-// proxies/zen-go-proxy/src/index.js.)". Those are claims about OTHER files, and
-// nothing read any of them.
+// comes from — `CONSOLE_HOST` in wrangler.jsonc — and ends with "(Mirrors the
+// satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs …)".
+// Those are claims about OTHER files, and nothing read any of them. **The
+// satellite it used to name was `proxies/zen-go-proxy/src/index.js`, deleted
+// 2026-10-08** — the port is one Rust copy now, which `zen-go` re-exports, so
+// this comparison covers both satellites with one read.
 //
 // A SECOND SOURCE WAS `extension/manifest.json` until round 243 removed that extension: the console host plus
 // the manifest's host_permissions WAS the expected set, which is how `https://dsh.summrise.test` got in — it was
@@ -43,16 +46,24 @@ function gatewayOrigins() {
   return [...src.slice(open, close).matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
 }
 
-/** The origins in the zen-go proxy's `const ALLOWED_ORIGINS = new Set([ … ])`. */
-function zenGoOrigins() {
+/**
+ * The origins in the satellites' `pub const ALLOWED_ORIGINS: [&str; 2] = [ … ];`.
+ *
+ * **IT READS THE RUST SOURCE NOW, AND THE FILE IT USED TO READ IS DELETED (2026-10-08).** The two
+ * satellite workers each carried a JavaScript copy of this list; the port keeps ONE, in
+ * `zen-us`'s crate, and `zen-go` re-exports it — so one file is the whole satellite side of this
+ * comparison rather than two. The anchor is `= [` and not the first `[`: in a Rust const the TYPE's
+ * bracket comes first, and slicing from it reads zero origins from a file that has two.
+ */
+function satelliteOrigins() {
   const src = readFileSync(
-    join(ROOT, "..", "proxies", "zen-go-proxy", "src", "index.js"),
+    join(ROOT, "..", "proxies", "zen-us-proxy", "worker", "src", "lib.rs"),
     "utf8",
   );
-  const start = src.indexOf("const ALLOWED_ORIGINS");
-  assert.notEqual(start, -1, "the zen-go proxy declares ALLOWED_ORIGINS");
-  const open = src.indexOf("new Set([", start);
-  const close = src.indexOf("])", open);
+  const start = src.indexOf("pub const ALLOWED_ORIGINS");
+  assert.notEqual(start, -1, "the zen-us crate declares ALLOWED_ORIGINS");
+  const open = src.indexOf("= [", start);
+  const close = src.indexOf("]", open);
   return [...src.slice(open, close).matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
 }
 
@@ -83,12 +94,13 @@ test("CORS: the gateway's allowlist is exactly what its comment says it mirrors"
   );
 });
 
-test("CORS: the gateway and the zen-go proxy allow the same origins", () => {
+test("CORS: the gateway and the satellites allow the same origins", () => {
   assert.deepEqual(
     gatewayOrigins(),
-    zenGoOrigins(),
-    "src/http.ts says its allowlist `(Mirrors proxies/zen-go-proxy/src/index.js.)` and the " +
-      "two are separate copies, so a change to one silently diverges: the proxy starts " +
-      "refusing a browser origin the gateway still allows, or the reverse. Edit both.",
+    satelliteOrigins(),
+    "src/http.ts says its allowlist `(Mirrors the satellites' ALLOWED_ORIGINS — " +
+      "proxies/zen-us-proxy/worker/src/lib.rs …)` and the two are separate copies, so a change to " +
+      "one silently diverges: the proxy starts refusing a browser origin the gateway still allows, " +
+      "or the reverse. Edit both.",
   );
 });

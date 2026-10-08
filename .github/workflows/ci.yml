@@ -1020,18 +1020,18 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
-      - name: Test zen-go
-        run: node --test
-        working-directory: proxies/zen-go-proxy
-      - name: Test zen-us
-        run: node --test
-        working-directory: proxies/zen-us-proxy
-      # THE zen-us POLICY IS IN RUST NOW (block ④, 2026-09-29): the origin allowlist, the loopback
-      # rule and the secret redaction live in `proxies/zen-us-proxy/worker`, and the node suite above
-      # is what the differential compares them against — so both halves run, and the node tests are
-      # the JavaScript that is about to stop being the implementation and stays as the oracle.
-      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job, and this job
-      # already carries both languages for this worker.
+      # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
+      # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
+      # implementation — and both files were deleted after `worker/verify.mjs` proved the port equal to
+      # them byte for byte on 17 cases each. **The differential did not go with them**: its left side is
+      # `worker/shipping-answers.json` now, the answers that harness recorded on a run where both sides
+      # agreed, and `rust-byte-checks.bash` below is what runs it.
+      #
+      # THE zen-us POLICY IS IN RUST (block ④, 2026-09-29): the origin allowlist, the loopback rule and
+      # the secret redaction live in `proxies/zen-us-proxy/worker`, and the two Rust gates that read them
+      # — `agent/tests/proxy_cors_parity.rs` and `agent/tests/proxy_timeout_parity.rs` — were re-pointed
+      # at those sources in the same change rather than left reading a file that no longer exists.
+      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job.
       - name: Test zen-us policy (Rust)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
       # **THE HALF `cargo test` CANNOT SEE.** `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`
@@ -1101,6 +1101,9 @@ jobs:
       # while it quoted 69 tests for a job that now runs three suites. MEASURED (round 71):
       # zen-go 15 + zen-us 13 + api-relay 70 = 98 tests, each suite with its own `node --test`
       # step above. Any number here is a reading, not a rule: re-measure before quoting it.
+      # **RE-MEASURED 2026-10-08, WHEN THE FIRST TWO OF THOSE SUITES WERE DELETED WITH THE JAVASCRIPT
+      # THEY TESTED**: summrise-relay 8 + api-relay 73 = **81 tests, in two suites**, each with its own
+      # `node --test` step below. The rule is why this line was re-run rather than adjusted.
       # THE OUTBOUND RELAY (round 207 of the standing goal, step two of the plan the research settled): an agent dials out to
       # it and its own /mcp + /panel become reachable to whoever can reach the relay — the shape every comparable product uses
       # (Portainer Edge, VS Code tunnels, Nabu Casa, the CI runners). Six tests, in-process, loopback only.

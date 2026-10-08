@@ -3,11 +3,13 @@
 //!
 //! ## What is here, and what the shape of the file says
 //!
-//! The 403 lines of `proxies/zen-go-proxy/src/index.js` split into three kinds of thing, and the two
+//! The 403 lines of `proxies/zen-go-proxy/src/index.js` — **deleted 2026-10-08; this crate and
+//! `worker.rs` are its port** — split into three kinds of thing, and the two
 //! portable kinds are in this file:
 //!
 //!  * **the I/O** — the upstream fetch, the streaming relay, the BYOK key, the Durable Object that
-//!    carries placement. Untouched, and they stay in JavaScript until the entry point is ported.
+//!    carries placement. **Ported into `worker.rs`**, which is behind `#[cfg(target_arch = "wasm32")]`
+//!    because `#[event(fetch)]` expands to nothing on the host.
 //!  * **the policy** — `isLoopbackOrigin`, `isLoopbackHost`, `requestHost`, `corsHeaders`,
 //!    `redactSecrets`, `jsonError`. **These are the SAME FUNCTIONS AS `zen-us-proxy`'s, byte for
 //!    byte in the JavaScript**, and this crate depends on that crate rather than re-typing them: the
@@ -928,7 +930,8 @@ mod route_tests {
 #[cfg(test)]
 mod route_decision_tests {
     //! **THE CORPUS IS THE SHIPPING EXPRESSION'S OWN OUTPUT**, produced by running the two functions
-    //! from `proxies/zen-go-proxy/src/index.js` in Node over these inputs. **The lines ARE the shipping
+    //! from `proxies/zen-go-proxy/src/index.js` in Node over these inputs — that file is deleted
+    //! (2026-10-08), and **the corpus is the record of it**. **The lines ARE the shipping
     //! code** — that is what makes this an oracle and not a second implementation.
     use super::*;
 
