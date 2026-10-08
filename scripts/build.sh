@@ -367,10 +367,15 @@ deploy_relay() {
   # the bucket. The recorded answer is in `relay/worker/worker-corpus.json` (case 23); `{"error":"not
   # found"}` instead would mean the route never arrived (`/files/` is shorter than a token, case 25).
   local url="https://agent.saisi.online/files/AAAABBBBCCCCDDDDEEEEFF"
-  local body code
-  body="$(curl -s -m 30 -w '\n%{http_code}' "$url" || true)"
-  code="${body##*$'\n'}"
-  body="${body%$'\n'*}"
+  # THE BODY GOES TO A FILE, NOT THROUGH `-w '\n%{http_code}'` — that shape splits on the LAST newline,
+  # so a body ending in one (or carrying one) would be read as a status code, and the smoke would refuse a
+  # deployment that is fine. Measured on the synthetic outputs before this was written: the trick parses
+  # the live answer correctly and mis-parses a body with a trailing newline.
+  local out code body
+  out="$(mktemp)"
+  code="$(curl -s -m 30 -o "$out" -w '%{http_code}' "$url" || true)"
+  body="$(cat "$out" 2>/dev/null || true)"
+  rm -f "$out"
   if [[ "$code" != "404" || "$body" != '{"error":"file not found or already downloaded"}' ]]; then
     echo "  !! $name smoke FAILED: want 404 + the claim DO's envelope, got ${code:-<curl error>}: ${body:0:120}" >&2
     return 1
