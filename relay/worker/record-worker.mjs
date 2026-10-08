@@ -23,7 +23,15 @@ import { buildRequest, installBindings } from "../../gateway/wasm/bindings-stub.
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
-const CASES = JSON.parse(readFileSync(join(HERE, "worker-cases.json"), "utf8"));
+// **ONE RECORDER, TWO SURFACES**: the default names the worker's cases, and `--cases claim-cases.json`
+// records the claim Durable Object's — the corpus is named after the case file.
+const argOf = (name, fallback) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i === -1 ? fallback : process.argv[i + 1];
+};
+const CASES_FILE = argOf("cases", "worker-cases.json");
+const CORPUS_FILE = CASES_FILE.replace("-cases.json", "-corpus.json");
+const CASES = JSON.parse(readFileSync(join(HERE, CASES_FILE), "utf8"));
 
 const worker = (await import("../src/index.js")).default;
 
@@ -51,7 +59,16 @@ async function run() {
     };
     const { env, log } = installBindings(spec);
     for (const [k, v] of Object.entries(spec.env)) env[k] = v;
-    const resp = await worker.fetch(buildRequest(CASES.host, c), env);
+    // The worker's entry takes no constructor arguments and is handed its `env`; a named class (the claim
+    // object) takes `(state, env)` — the same two shapes `run-cases.mjs` drives.
+    const req = buildRequest(CASES.host, c);
+    let resp;
+    if (c.entry || CASES.entry) {
+      const Entry = (await import("../src/claim.js"))[c.entry || CASES.entry];
+      resp = await new Entry(c.entryState ?? {}, env).fetch(req);
+    } else {
+      resp = await worker.fetch(req, env);
+    }
     observed.push({
       label: c.label,
       method: c.method,
@@ -69,25 +86,30 @@ const corpus = {
   // The blob this was recorded from, so a reader can tell whether it still describes the file in front
   // of them. `git hash-object` on the WORKING TREE, which is what was actually run.
   source: (() => {
-    try {
-      return { "relay/src/index.js": execFileSync("git", ["-C", REPO, "hash-object", "relay/src/index.js"], { encoding: "utf8" }).trim() };
-    } catch {
-      return { "relay/src/index.js": "(not a git checkout)" };
+    const files = CASES.entry || argOf("cases", "") === "claim-cases.json" ? ["relay/src/claim.js"] : ["relay/src/index.js"];
+    const out = {};
+    for (const f of files) {
+      try {
+        out[f] = execFileSync("git", ["-C", REPO, "hash-object", f], { encoding: "utf8" }).trim();
+      } catch {
+        out[f] = "(not a git checkout)";
+      }
     }
+    return out;
   })(),
   host: CASES.host,
   cases,
 };
 
-const out = join(HERE, "worker-corpus.json");
+const out = join(HERE, CORPUS_FILE);
 const text = JSON.stringify(corpus, null, 2) + "\n";
 if (process.argv.includes("--check")) {
   const before = readFileSync(out, "utf8");
   if (before !== text) {
-    console.error("worker-corpus.json DIFFERS from what the shipping JavaScript answers now.");
+    console.error(`${CORPUS_FILE} DIFFERS from what the shipping JavaScript answers now.`);
     process.exit(1);
   }
-  console.log(`worker-corpus.json matches the shipping JavaScript (${cases.length} case(s))`);
+  console.log(`${CORPUS_FILE} matches the shipping JavaScript (${cases.length} case(s))`);
 } else {
   writeFileSync(out, text);
   console.log(

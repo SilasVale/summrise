@@ -56,8 +56,10 @@ export function installBindings(spec) {
       k,
       {
         body: v.body ?? "",
-        contentType: v.contentType ?? "application/octet-stream",
-        contentDisposition: v.contentDisposition ?? null,
+        // **AN EXPLICIT `null` IS A CASE, NOT A MISSING VALUE** — `?? default` would erase it, and the
+        // claim object has a documented fallback for "the object carries no httpMetadata".
+        contentType: "contentType" in v ? v.contentType : "application/octet-stream",
+        contentDisposition: "contentDisposition" in v ? v.contentDisposition : null,
         customMetadata: v.customMetadata ?? {},
         size: Buffer.byteLength(v.body ?? "", "utf8"),
       },
@@ -135,7 +137,16 @@ export function installBindings(spec) {
       const o = objects.get(key);
       if (!o) return null;
       return {
-        body: o.body,
+        // **A STREAM, NOT A STRING** — R2 hands the claim object a `ReadableStream`, and workers-rs's
+        // `Object::body()` answers `None` for anything else: the first run of the claim differential
+        // returned the 503 envelope for every serve case, with the R2 rows matching, because the body it
+        // was given was a string. The shipping JavaScript reads either, so the stream is the honest stub.
+        body: new Blob([o.body]).stream(),
+        // **`bodyUsed` IS HOW workers-rs DECIDES AN OBJECT HAS A BODY AT ALL** — `get().execute()` tests
+        // `"bodyUsed" in obj` and keeps the object as `NoBody` otherwise, so a stub without this property
+        // answered `Object::body() == None` for every serve case (the 503 envelope, with the R2 rows
+        // matching: the decision was right and the bytes could not be handed over).
+        bodyUsed: false,
         size: o.size,
         httpMetadata: { contentType: o.contentType, contentDisposition: o.contentDisposition },
         customMetadata: o.customMetadata,

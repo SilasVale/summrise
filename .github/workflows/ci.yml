@@ -1118,8 +1118,11 @@ jobs:
           node --check src/index.js
           node --check src/claim.js
         working-directory: relay
-      - name: The file relay's corpus still matches the shipping JavaScript
-        run: node worker/record-pure.mjs --check
+      - name: The file relay's corpora still match the shipping JavaScript
+        run: |
+          node worker/record-pure.mjs --check
+          node worker/record-worker.mjs --check
+          node worker/record-worker.mjs --cases claim-cases.json --check
         working-directory: relay
       - name: The file relay's decision half (Rust)
         run: cargo test --manifest-path relay/worker/Cargo.toml

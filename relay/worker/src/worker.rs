@@ -36,7 +36,7 @@
 use sha2::{Digest, Sha256};
 use worker::*;
 
-use crate::{build_content_disposition, decide_claim, gen_token_from, js_trim, Claim, UNAVAILABLE};
+use crate::{build_content_disposition, claim_token, gen_token_from, js_trim};
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// The multipart framing (boundary + part headers) rides on top of the file bytes, so the pre-screen
@@ -44,26 +44,9 @@ const MAX_BYTES: u64 = 100 * 1024 * 1024;
 const CL_MARGIN: u64 = 64 * 1024;
 const NOTE: &str = "one-time download: file is deleted after first access or 24h";
 
-fn json(status: u16, body: String) -> Result<Response> {
-    let headers = Headers::new();
-    headers.set("content-type", "application/json")?;
-    Ok(Response::from_bytes(body.into_bytes())?
-        .with_status(status)
-        .with_headers(headers))
-}
-
-fn error_json(status: u16, message: &str) -> Result<Response> {
-    // `{"error":"…"}` — the shipping envelope, with the message unescaped because every call site passes
-    // a fixed string or a value that has already been reduced (a filename's basename, an error's text).
-    json(status, format!(r#"{{"error":"{message}"}}"#))
-}
-
-fn too_large() -> Result<Response> {
-    json(
-        413,
-        format!(r#"{{"error":"file too large (max {MAX_BYTES} bytes)"}}"#),
-    )
-}
+/// The envelopes live in `envelopes.rs` — one definition for this module and the claim object, which
+/// answer the same three JSON shapes.
+use crate::envelopes::{error_json, json, too_large, unavailable};
 
 /// `safeEq(a, b)` — SHA-256 both sides to fixed 32-byte digests, then fold XOR across every byte without
 /// short-circuiting. **The digest is what removes the length early-exit**, which is why the shipping
@@ -155,7 +138,7 @@ async fn raw_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Response>
         return error_json(400, "invalid content-length");
     }
     if declared > MAX_BYTES as f64 {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let raw_name = url
         .query_pairs()
@@ -230,7 +213,7 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         return error_json(411, "content-length required");
     }
     if js_number_header(&declared_raw) > (MAX_BYTES + CL_MARGIN) as f64 {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let form = match req.form_data().await {
         Ok(f) => f,
@@ -248,7 +231,7 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
         Err(_) => return error_json(400, "invalid multipart body"),
     };
     if bytes.len() as u64 > MAX_BYTES {
-        return too_large();
+        return too_large(MAX_BYTES);
     }
     let Some(disposition) = build_content_disposition(&filename) else {
         return error_json(400, "invalid filename");
@@ -288,15 +271,6 @@ async fn multipart_upload(req: &mut Request, env: &Env, url: &Url) -> Result<Res
 }
 
 /// `^/files/([A-Za-z0-9_-]{16,64})$`
-fn claim_token(path: &str) -> Option<&str> {
-    let token = path.strip_prefix("/files/")?;
-    let ok = (16..=64).contains(&token.len())
-        && token
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    ok.then_some(token)
-}
-
 #[event(fetch)]
 async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
@@ -356,21 +330,4 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     // This worker is the FILE RELAY; the download site stays on the CDN worker (ADR 0010, D6).
     error_json(404, "not found")
-}
-
-/// The 503 envelope an R2/DO outage must surface as — never an uncaught throw, which the platform
-/// answers with its own HTML 500 that no device-side reader parses.
-fn unavailable() -> Result<Response> {
-    json(UNAVAILABLE.status, UNAVAILABLE.body.to_string())
-}
-
-/// The claim rule and the response shaping the DO will use — declared here so the compiler proves the
-/// import list stays honest until the DO class lands (`src/claim_do.rs`, next step).
-#[allow(dead_code)]
-fn claim_decision_for(
-    exists: bool,
-    expires_at_raw: Option<&serde_json::Value>,
-    now_ms: f64,
-) -> Claim {
-    decide_claim(exists, expires_at_raw, now_ms)
 }

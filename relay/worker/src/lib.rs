@@ -60,12 +60,29 @@
 
 use serde_json::Value;
 
+/// The claim Durable Object — the class the worker's download route forwards into.
+#[cfg(target_arch = "wasm32")]
+pub mod claim_do;
 /// **THE ENTRY POINT, AND IT IS wasm32-ONLY ON PURPOSE.** `#[event(fetch)]` expands to nothing on the
 /// host, so the host build compiles none of `worker.rs` — which is exactly why the CI job carries a
 /// `cargo clippy --target wasm32-unknown-unknown` step for this crate, and why the differential drives
 /// `worker-build`'s output rather than a host binary.
 #[cfg(target_arch = "wasm32")]
+pub mod envelopes;
+#[cfg(target_arch = "wasm32")]
 pub mod worker;
+
+/// `^/files/([A-Za-z0-9_-]{16,64})$` — **ONE DEFINITION, TWO CALLERS**: the worker decides whether to
+/// forward a download, and the Durable Object decides whether the request it received names a claim. They
+/// must agree, and the first version of this port had the pattern written out twice.
+pub fn claim_token(path: &str) -> Option<&str> {
+    let token = path.strip_prefix("/files/")?;
+    let ok = (16..=64).contains(&token.len())
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    ok.then_some(token)
+}
 
 /// The alphabet `genToken` draws from, in the shipping implementation's order.
 pub const TOKEN_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";

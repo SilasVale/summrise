@@ -173,9 +173,22 @@ for (const [i, c] of SPEC.cases.entries()) {
   // A FRESH module instance per case: the worker reads its env per request, and a fresh instance is also
   // what a new isolate is.
   const mod = await import(`${pathToFileURL(MODULE).href}?case=${i}`);
-  const instance = new mod.default();
-  instance.env = env;
-  instance.ctx = {};
+  // **A CASE MAY NAME A CLASS INSTEAD OF THE DEFAULT ENTRY** — the file relay's claim Durable Object is
+  // exported as `TempClaimDO` and takes `(state, env)` in its constructor, where the worker's default
+  // export takes nothing and is handed its `env`. Both shapes are driven the same way, so the DO is
+  // compared against the shipping DO rather than only through the worker that forwards to it.
+  let instance;
+  if (c.entry) {
+    const Entry = mod[c.entry];
+    if (typeof Entry !== "function") {
+      throw new Error(`the module has no export ${c.entry}`);
+    }
+    instance = new Entry(c.entryState ?? {}, env);
+  } else {
+    instance = new mod.default();
+    instance.env = env;
+    instance.ctx = {};
+  }
   const resp = await instance.fetch(req);
   observed.push({
     label: c.label,
