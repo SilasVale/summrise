@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 import {marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
+import { sweepPlan } from "./lib/sweep-plan.mjs";
 import { join } from "node:path";
 
 const mode = process.argv[2];
@@ -50,7 +51,12 @@ const mode = process.argv[2];
 // of them. `--passes=press` is what makes a single axis measurable; the default is every axis, unchanged.
 // BAKED INTO THE EMITTED SCRIPT below, because that is where the gates are: a helper defined out here does not
 // exist on the device (the first run of this failed with "wants is not defined").
-const PASSES = (process.argv.find((a) => a.startsWith('--passes=')) || '').slice('--passes='.length).split(',').filter(Boolean);
+// THE VALUE IS PASSED THROUGH UNTOUCHED (`null` when the flag is absent): the Rust plan owns what it
+// means, and for this tool an absent flag and an EMPTY one are the same input.
+const PASSES_ARG = (() => {
+  const found = process.argv.find((a) => a.startsWith('--passes='));
+  return found === undefined ? null : found.slice('--passes='.length);
+})();
 
 // HOW TO RENDER THIS CONSOLE FROM HERE WITHOUT DELIVERING A DIRECTORY (round 17 of the standing goal). The sweep
 // below measures a DELIVERED build — `C:\ProgramData\Summrise\pwout\console`, several files, one transfer each. For a
@@ -101,27 +107,33 @@ function browserScript() {
   // COMMENT here had already cost two `node --check` cycles. lib/sweep/console-run.cjs is ordinary code, the
   // run-varying values arrive as the generated pieces module, and the assembler resolves the payload's requires and
   // compiles what it returns — so the guard this emitter hand-copied is now the contract every emitter shares.
+  // THE PLAN IS RUST AND IT IS COMPUTED HERE (slice 1 of landing 2b): the surfaces, their order, and
+  // which axes measure at each are decided by `summrise-sweep-plan` at EMIT time.
+  const plan = sweepPlan("console", PASSES_ARG);
   const { code } = bundleSweep({
     entry: "console-run.cjs",
     modules: {
       "console-run.cjs": readFileSync(join(HERE, "lib", "sweep", "console-run.cjs"), "utf8"),
-      "pieces.cjs": piecesSource(),
+      "plan-runtime.cjs": readFileSync(join(HERE, "lib", "sweep", "plan-runtime.cjs"), "utf8"),
+      "pieces.cjs": piecesSource(plan),
     },
   });
   return code;
 }
 
 /** The run-varying pieces, as a module (the same shape as the landing's and the panel's). */
-function piecesSource() {
+function piecesSource(plan) {
   // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272). This function used to spell out the quoting rule itself —
   // functions by `.toString()`, everything else by JSON — in four different emitters. What is left is the facts.
   return piecesModule({
+    // THE PLAN, as data: `wants`, the surface list in visit order, the caps.
+    plan,
     config: {
       root: DEFAULT_ROOT,
       selector: "#root",
       reportPath: DEFAULT_REPORT_PATH,
       expectedEntry: ENTRY_STAMP,
-      passes: PASSES,
+      passes: plan.passes,
     },
     probe: PROBE_SOURCE,
     unstyled: UNSTYLED_SOURCE,

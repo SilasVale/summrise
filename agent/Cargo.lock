@@ -3575,6 +3575,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-sweep-plan"
+version = "1.0.145"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"

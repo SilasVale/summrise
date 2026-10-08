@@ -9,6 +9,10 @@
 // (`./pieces.cjs`), the payload's requires are resolved by the assembler, and nothing is hand-listed as
 // "must also be embedded".
 const P = require("./pieces.cjs");
+// THE PLAN IS RUST (agent/sweep-plan/), embedded by the emitter. This module only PLACES what it was
+// given: `kind(...)` returns the surfaces the plan named, `open`/`reload` perform the browser calls a
+// surface's fields describe, and `wants(name)` is a lookup in the plan's own map.
+const { planRuntime } = require("./plan-runtime.cjs");
 
 const fs = require("fs");
 // `path` for the fixture's asset lookup below: a requested URL is turned into a file BESIDE THE HARNESS, and a
@@ -154,6 +158,10 @@ const TIMING = P.timing;
   // stamp is unknown only for harnesses generated before round 189, which are stale by definition.
   const harnessStale = harnessBuild !== EXPECTED_HARNESS_BUILD;
   const stamp = Date.now();
+  // THE PLAN, from the pieces module: which surfaces this run visits, in order, at which
+  // density/path/viewport/theme/mode, and which passes run on each. EVERY loop below iterates it.
+  const PLAN = planRuntime(P.plan, () => stamp);
+  const kind = (k) => PLAN.kind(k);
   // ── THE FIXTURE SERVES WHAT THE BUNDLE ASKS FOR, NOT ONLY THE DOCUMENT ────────────────────────────────────────
   //
   // EVERY ROUTE HERE USED TO ANSWER WITH THE HARNESS HTML, and that was harmless while the panel was ONE file
@@ -193,12 +201,12 @@ const TIMING = P.timing;
     // 90 (a check that cannot complete is a check that will quietly stop running), so passes are
     // selectable — and a PARTIAL report must not read as a clean one, which is why this list travels
     // with the data and the judge refuses a report that does not say it covered everything.
-    passes: P.config.passes,
+    passes: P.plan.passes,
     rows: [], surfaces: [], reflow: [], names: [], timing: [], focus: [], motion: [], hover: [], unstyled: [], targets: [], themeChecks: [], sse: [],
   };
   // The harness publishes window.__sse (opened, fail). Read as data, judged by the shared clause.
   const SSE = "(() => window.__sse || null)()";
-  const wants = (name) => report.passes === "all" || report.passes.split(",").map((p) => p.trim()).includes(name);
+  const wants = (name) => PLAN.wants(name);
 
   // ── WHAT EACH PASS COSTS, because for seven minutes this run said nothing at all ────────────────
   // The `design` job is this repository's CI long pole — 823s of a 14-minute run, measured 2026-09-26
@@ -218,20 +226,19 @@ const TIMING = P.timing;
   const SWEEP_T0 = Date.now();
   const passCost = (name) => console.log("pass " + name + " +" + (Date.now() - SWEEP_T0) + "ms");
 
-  for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
-    for (const theme of ['light', 'dark']) {
-      // THE PAGE MUST BE RENDERED FOR *EITHER* PASS. The focus block below lives in this loop, so
-      // --passes=focus used to run it ZERO times: the mode list was empty, no page was loaded, no Tab
-      // was pressed, and the report came back focus: [] — clean, and clean because nothing ran. The
-      // full sweep hid it, since all includes pages. Same defect as the ones this suite keeps
-      // finding in its own checks, this time in the wiring between two of them.
-      const needsPage = wants("pages") || wants("focus") || wants("timing") || wants("hover") || wants("press") || wants("idle");
-      for (const mode_ of needsPage ? (wants("pages") ? ['idle', 'relaxed'] : ['idle']) : []) {
-        await page.setViewportSize(vp);
+  // THE MATRIX, FROM THE PLAN. Every (density, theme, mode) this sweep renders, and which axes measure
+  // at each, was decided in Rust; `kind('matrix')` returns them IN VISIT ORDER. A pass the caller did
+  // not ask for contributes no surface at all — which is what makes `--passes=focus` render the page
+  // rather than walk nothing, the defect the deleted comment here described.
+  for (const S of kind('matrix')) {
+    {
+      const { density, theme } = S;
+      const mode_ = S.mode;
+      {
         const t0 = Date.now();
-        await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=' + mode_ + '&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+        await PLAN.open(S, page);
         await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-        await page.reload({ waitUntil: 'load' });
+        await PLAN.reload(S, page);
         await page.waitForSelector('.side-row, .dtab, .tab', { timeout: 20000 });
         const toFirstRow = Date.now() - t0;
         await settle(1200);
@@ -314,11 +321,11 @@ const TIMING = P.timing;
   // them in light alone leaves a dark regression invisible, which is the gap rounds 148-161 spent their time
   // closing everywhere else. (The target-size and type-floor passes stay light-only on purpose: a box and a
   // font size do not change with the theme.)
-  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('desktop-empty')) {
+    const theme = S.theme;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(2000);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'relaxed', page: 'Desktop-empty' });
@@ -336,15 +343,15 @@ const TIMING = P.timing;
   //
   // The entrance animation is new-menu-in (declared ATTENTION in chrome-stillness-check), so the wait after the
   // click is longer than the press pass's: this photographs the SETTLED menu, not its first frame.
-  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('http://summrise.test/desktop/?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('new-menu')) {
+    const theme = S.theme;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(1800);
     await page.evaluate(() => { const b = document.querySelector('.btn-new'); if (b) b.click(); });
     await page.waitForTimeout(700);
-    const pname = 'Desktop-NewMenu-' + theme;
+    const pname = S.page;
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'desktop', theme, mode: 'menu', page: pname });
     report.surfaces.push({ density: 'desktop', theme, mode: 'menu', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -365,11 +372,11 @@ const TIMING = P.timing;
   // whose harness did not report the failure fixture, and the judge FAILS a surface that regresses. So the block can
   // come back, and the clause that proved the harness connected is also what makes it safe to re-add: if the panel
   // renders the wrong state here again, THIS SURFACE fails instead of passing.
-  for (const theme of wants("pages") ? ['light', 'dark'] : []) {
-    await page.setViewportSize({ width: 1280, height: 860 });
-    await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=relaxed&sessions=0&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('panel-empty')) {
+    const theme = S.theme;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(2000);
     const rows = await page.evaluate(PROBE);
     for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'relaxed', page: 'Panel-empty' });
@@ -389,12 +396,12 @@ const TIMING = P.timing;
   // from the panel (dtab vs tab, a header row instead of a canvas top), so a defect in its busy card would
   // be invisible to a panel-only render. The rail lookup below already handled both rails — the desktop
   // render was simply never asked for.
-  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-  for (const theme of ['light', 'dark']) {
-    await page.setViewportSize(vp);
-    await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&busy=1&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('settings-busy')) {
+  {
+    const { density, theme } = S;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(1800);
     await page.evaluate(() => {
       const rail = document.querySelector('#icon-rail, .desktop-rail');
@@ -403,7 +410,7 @@ const TIMING = P.timing;
     });
     await settle(1400);
     const rows = await page.evaluate(PROBE);
-    const name = (density === 'desktop' ? 'Desktop-settings-busy' : 'Settings-busy');
+    const name = S.page;
     for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'busy', page: name });
     report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
     report.surfaces.push({ density, theme, mode: 'busy', page: name, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -420,12 +427,15 @@ const TIMING = P.timing;
   // eight clean surfaces, which is the "a scan that read nothing is not a clean scan" trap wearing a progress bar.
   // Naming each surface by the label the app itself reports means a failed click shows up as a DUPLICATE page name
   // in the report rather than as coverage that is not there.
-  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+  // THE ONE DYNAMIC SURFACE: the plan names one surface per density and theme and says `dynamic:
+  // rail-labels`, because which pages exist is what the DOM answers when the rail is clicked. The plan
+  // owns the walk's start; the page still owns its own page list.
+  for (const S of kind('rail')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(2000);
       const buttons = await page.evaluate(() => [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].map((b) => (b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 18)));
       const readActive = () => page.evaluate(() => {
@@ -517,15 +527,15 @@ const TIMING = P.timing;
   // strip that had collapsed to 35px. EVERY SURFACE IN THIS SUITE RENDERS 0, 3 OR 4 SESSIONS, so none of that
   // work has ever been drawn by a measuring run: a regression in the chip, or in the label disambiguation, or
   // in the desktop strip's separate renderer, would be invisible. 16 is the operator's own count.
-  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=16&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('sessions-16')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(2000);
       const rows = await page.evaluate(PROBE);
-      const name = (density === 'desktop' ? 'Desktop-16-sessions' : 'Terminal-16-sessions');
+      const name = S.page;
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'overflow', page: name });
       report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
       report.surfaces.push({ density, theme, mode: 'overflow', page: name, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -542,16 +552,17 @@ const TIMING = P.timing;
   //   ?monitor=down  a monitor target that is down, which flips a chip and the alert strip.
   //
   // Same top-level recipe as the empty and busy surfaces.
-  if (wants("pages")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
-    for (const [page_, query, lands] of [
-      ...['light', 'dark'].map((t) => ['Terminal-fail-' + t, '?theme=' + t + '&mode=idle&sessions=3&fail=1', 'Terminal']),
-      ...['light', 'dark'].map((t) => ['Settings-monitor-down-' + t, '?theme=' + t + '&mode=idle&sessions=3&monitor=down', 'Settings']),
-    ]) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + query + '&cb=' + stamp, { waitUntil: 'load' });
+  // THE FIXTURE SURFACES. The fixture list used to be a spread expression built HERE, with the theme
+  // written into a query string by hand and then PARSED BACK OUT of it two lines later
+  // (`/theme=([a-z]+)/.exec(query)[1]`); both are fields of the surface now. Which rail button the
+  // surface lands on is `vars.lands` — a fact about the surface, not a click.
+  for (const S of kind('fixture')) {
+    {
+      const { density } = S;
+      const lands = S.vars.lands;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
       await page.evaluate((want) => {
         if (want === 'Terminal') return;
@@ -561,8 +572,8 @@ const TIMING = P.timing;
       }, lands);
       await settle(1400);
       const rows = await page.evaluate(PROBE);
-      const qTheme = /theme=([a-z]+)/.exec(query)[1];
-      const pname = (density === 'desktop' ? 'Desktop-' : '') + page_;
+      const qTheme = S.theme;
+      const pname = S.page;
       report.themeChecks.push({ page: pname, intended: qTheme, ...(await page.evaluate(THEME)) });
       for (const row of rows) report.rows.push({ ...row, density, theme: qTheme, mode: 'fixture', page: pname });
       report.surfaces.push({ density, theme: qTheme, mode: 'fixture', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -599,19 +610,19 @@ const TIMING = P.timing;
   // ring's cost, and the alternative was a defect the gates cannot see.
   // THE PLUGIN DOT'S LAST STATE (round 77 of the standing goal): ongoing. Same page click as the error surface, a
   // different fixture flag — and round 163's deletion of the plugins poll is what makes it safe to render at all.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwrun=1&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('plugins-running')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1500);
       await page.evaluate(() => {
         const rail = document.querySelector('.rail-btn[title="Plugins"]');
         if (rail) rail.click();
       });
       await settle(1200);
-      const rname = 'PluginRunning-' + theme;
+      const rname = S.page;
       const rrows = await page.evaluate(PROBE);
       for (const row of rrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-running', page: rname });
       report.surfaces.push({ density: 'panel', theme, mode: 'plugin-running', page: rname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -625,12 +636,12 @@ const TIMING = P.timing;
   // printed beneath it. callApi only throws on an HTTP error status, so a fixture answering 200 with ok:false would
   // have rendered nothing at all. Round 26 recorded that ongoing (playwright RUNNING) hangs a sweep; this is the
   // opposite end of the same control and cannot: a FAILED start never spawns a browser.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&pwstart=fail&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('plugins-start-fail')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
       // THE PAGE THE CARD LIVES ON, WHICH THIS SURFACE NEVER VISITED (round 75). A device probe asked the page and the
       // page answered: with the plugin-fail flag loaded, the button and dot counts were both 0 and the body text was
@@ -654,7 +665,7 @@ const TIMING = P.timing;
         if (btn) btn.click();
       });
       await settle(1200);
-      const fname = 'PluginStartFail-' + theme;
+      const fname = S.page;
       const frows = await page.evaluate(PROBE);
       for (const row of frows) report.rows.push({ ...row, density: 'panel', theme, mode: 'plugin-fail', page: fname });
       report.surfaces.push({ density: 'panel', theme, mode: 'plugin-fail', page: fname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -667,15 +678,16 @@ const TIMING = P.timing;
   // when a watched host changes state, and the strip that renders it is the ONE thing in this panel the device is
   // allowed to interrupt with — so both of its marks (the recovery, .monitor-mark.is-up, and the outage, the base
   // .monitor-mark) exist only behind that frame, and no surface had ever delivered one.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      for (const [dir, label] of [['up', 'MonitorUp'], ['down', 'MonitorDown']]) {
-        await page.setViewportSize({ width: 1280, height: 860 });
-        await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&monitorchange=' + dir + '&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('monitor')) {
+      {
+        const theme = S.theme;
+        const dir = S.vars.dir;
+        await PLAN.open(S, page);
         await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-        await page.reload({ waitUntil: 'load' });
+        await PLAN.reload(S, page);
         await settle(1800);
-        const mname = label + '-' + theme;
+        const mname = S.page;
         const mrows = await page.evaluate(PROBE);
         for (const row of mrows) report.rows.push({ ...row, density: 'panel', theme, mode: 'monitor-' + dir, page: mname });
         report.surfaces.push({ density: 'panel', theme, mode: 'monitor-' + dir, page: mname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -688,14 +700,14 @@ const TIMING = P.timing;
   // THE BOOT CHIP'S OTHER TONE (round 34 of the standing goal), for the same reason as the approval gate's off state
   // one round earlier: a mark with two tones where only one is ever painted has one unmeasured silhouette, and the
   // note has been naming boot-mark info for rounds.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&boot=replaced&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('boot-replaced')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
-      const bname = 'BootReplaced-' + theme;
+      const bname = S.page;
       const brows = await page.evaluate(PROBE);
       for (const row of brows) report.rows.push({ ...row, density: 'panel', theme, mode: 'boot-replaced', page: bname });
       report.surfaces.push({ density: 'panel', theme, mode: 'boot-replaced', page: bname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -704,14 +716,14 @@ const TIMING = P.timing;
     }
   }
 
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&appr=off&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('approval-off')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
-      const aname = 'ApprovalOff-' + theme;
+      const aname = S.page;
       const arows = await page.evaluate(PROBE);
       for (const row of arows) report.rows.push({ ...row, density: 'panel', theme, mode: 'approval-off', page: aname });
       report.surfaces.push({ density: 'panel', theme, mode: 'approval-off', page: aname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -720,14 +732,14 @@ const TIMING = P.timing;
     }
   }
 
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=pending&sessions=6&exitfail=1&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('exit-fail')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
-      const pname = 'LastFail-' + theme;
+      const pname = S.page;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail', page: pname });
       report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -740,14 +752,14 @@ const TIMING = P.timing;
   // ALSO drawn on the accent-filled ACTIVE TAB — where the state's ink drew 2.16:1 in dark while no surface rendered
   // the combination. One render per theme, mode=idle so nothing outranks the failure, and the ACTIVE tab and row are
   // the ones carrying it.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&exitfail=active&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('exit-fail-active')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1800);
-      const pname = 'LastFailActive-' + theme;
+      const pname = S.page;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density: 'panel', theme, mode: 'exit-fail-active', page: pname });
       report.surfaces.push({ density: 'panel', theme, mode: 'exit-fail-active', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -761,14 +773,14 @@ const TIMING = P.timing;
   // a start (OK), and this one has the receipt with no start (WARN — the CLI reached the device and the swap never
   // launched). The card's OK tone measured 3.33:1 as text the first time it was rendered at all; a tone with no
   // surface is a tone no sweep can measure, which is the rule rounds 96-99 keep relearning.
-  if (wants("pages")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&logs=warn&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('logs-warn')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1500);
-      const pname = 'LogsWarn-' + theme;
+      const pname = S.page;
       await page.evaluate(() => {
         const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => /settings/i.test((x.getAttribute('aria-label') || '') + x.textContent));
         if (b) b.click();
@@ -789,19 +801,21 @@ const TIMING = P.timing;
   // use — the event dots and their states, the exit badges, the governance chips, the plan rows, the attention
   // rows — has therefore been measured by nothing at all, which is the same hole the History page's empty archive
   // sits in. ONE CLICK, and the cost of not making it was the panel's most information-dense two views.
-  if (wants("pages")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
-      for (const theme of ['light', 'dark']) {
+  {
+    for (const S of kind('record')) {
+      {
+        const { density, theme } = S;
         // AND ONCE WITH A TRIMMED TRAIL (round 83): TrajectoryView renders .traj-trimmed when first_seq > 1, a fact
         // only the device can state, and one no surface had ever carried — the wire-field-check gate found the field
         // missing from every fixture on its first run. Panel density only: the state is about the trail, and both
         // densities read the same view.
-        for (const tab of ['Trajectory', 'Path']) {
-          for (const trimmed of density === 'panel' ? [false, true] : [false]) {
-          await page.setViewportSize(vp);
-          await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp + (trimmed ? '&trimmed=1' : ''), { waitUntil: 'load' });
+        // THE PLAN NAMES BOTH: which of the two record tabs this surface shows, and whether its trail
+        // is trimmed (the panel density renders both, the desktop only the untrimmed one).
+        for (const tab of [S.vars.tab]) {
+          for (const trimmed of [S.vars.trimmed]) {
+          await PLAN.open(S, page);
           await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-          await page.reload({ waitUntil: 'load' });
+          await PLAN.reload(S, page);
           await settle(1500);
           await page.evaluate((want) => {
             const btn = [...document.querySelectorAll('.view-switch button, .desktop-view-switch button')]
@@ -821,8 +835,7 @@ const TIMING = P.timing;
             await settle(900);
           }
           await settle(1800);
-          const pname = (density === 'desktop' ? 'Desktop-' : '') + tab + '-' + theme
-            + (trimmed ? '-trimmed' : '');
+          const pname = S.page;
           const rows = await page.evaluate(PROBE);
           for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'record', page: pname });
           report.surfaces.push({ density, theme, mode: 'record', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -848,15 +861,17 @@ const TIMING = P.timing;
       });
       await settle(1500);
     };
-    for (const theme of ['light', 'dark']) {
+    for (const S of kind('archive')) {
+      const theme = S.theme;
       // (a) THE ARCHIVE WITH CONTENT
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&rows=50&cb=' + stamp, { waitUntil: 'load' });
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1500);
       await gotoHistory();
-      const rowsName = 'ArchiveRows-' + theme;
+      // THE TRAIL IS A CLICK ON THE SAME PAGE, not a second surface — which is why the plan has ONE
+      // entry here and this label is derived from it.
+      const rowsName = S.page;
       const rowsA = await page.evaluate(PROBE);
       for (const row of rowsA) report.rows.push({ ...row, density: 'panel', theme, mode: 'archive', page: rowsName });
       report.surfaces.push({ density: 'panel', theme, mode: 'archive', page: rowsName, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -876,12 +891,12 @@ const TIMING = P.timing;
       report.names.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(NAMES, SELECTOR)) });
       report.sse.push({ density: 'panel', theme, mode: 'archive-trail', page: trailName, ...(await page.evaluate(SSE)) });
     }
-    for (const theme of ['light', 'dark']) {
+    for (const S of kind('runs')) {
+      const theme = S.theme;
       // (c) THE RUNS SCOPE
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1500);
       await gotoHistory();
       await page.evaluate(() => {
@@ -889,7 +904,7 @@ const TIMING = P.timing;
         if (b) b.click();
       });
       await settle(1800);
-      const runsName = 'HistoryRuns-' + theme;
+      const runsName = S.page;
       const rowsC = await page.evaluate(PROBE);
       for (const row of rowsC) report.rows.push({ ...row, density: 'panel', theme, mode: 'runs', page: runsName });
       report.surfaces.push({ density: 'panel', theme, mode: 'runs', page: runsName, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -902,21 +917,23 @@ const TIMING = P.timing;
   // slowms, so a control whose feedback waits for the reply cannot hide: the panel's promise is that the pressed
   // control shows its busy state ON THE EVENT. Two controls per density, both themes — the monitor row's check now
   // (a network call with a visible result) and the add form's watch (a POST that also changes the page).
-  const ACK_BUDGET_MS = 100;
-  if (wants("ack")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]]) {
-      for (const theme of ['light', 'dark']) {
-        await page.setViewportSize(vp);
-        await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+  // THE CAPS ARE THE PLAN'S TOO: how long a control has to acknowledge, and which controls are the
+  // curated pair on this page, are policy rather than measurement.
+  const ACK_BUDGET_MS = PLAN.plan.caps.ack_budget_ms;
+  {
+    for (const S of kind('ack-settings')) {
+      {
+        const { density, theme } = S;
+        await PLAN.open(S, page);
         await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-        await page.reload({ waitUntil: 'load' });
+        await PLAN.reload(S, page);
         await settle(2200);
         await page.evaluate(() => {
           const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'settings');
           if (b) b.click();
         });
         await settle(2200);
-        const name = (density === 'desktop' ? 'Desktop-' : '') + 'Settings-ack-' + theme;
+        const name = S.page;
         // THE CURATED PAIR STAYS ON THIS PAGE, AND THE REASON IS MEASURED (round 20). Discovery was tried here
         // first: the Settings page renders the connect form's controls ahead of everything else, so a cap of eight
         // spent itself on three tabs and three unnamed buttons — and the tabs are a FALSE ACCUSATION, because the
@@ -925,7 +942,7 @@ const TIMING = P.timing;
         // almost any window and "this control asked the device" becomes unattributable. The two controls below are
         // the ones whose work is known; discovery belongs on a page where every button does something, which is the
         // Memory page below.
-        const rows = await ackPass(page, ['.monitor-btn', '.monitor-add .btn'], ACK_BUDGET_MS, { density, theme, mode: 'ack', page: name });
+        const rows = await ackPass(page, PLAN.plan.caps.ack_settings_targets, ACK_BUDGET_MS, { density, theme, mode: 'ack', page: name });
         report.ack = report.ack || [];
         for (const r of rows) report.ack.push(r);
       }
@@ -934,22 +951,22 @@ const TIMING = P.timing;
 
   // AND THE MEMORY PAGE, whose buttons write and delete device-local records (round 20). One page is not a survey:
   // the Settings surface answers for Settings, and the control nobody named is as likely to live here.
-  if (wants("ack")) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1280, height: 860 });
-      await page.goto('http://summrise.test/panel/?theme=' + theme + '&mode=idle&sessions=3&slowms=900&cb=' + stamp, { waitUntil: 'load' });
+  {
+    for (const S of kind('ack-memory')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(2200);
       await page.evaluate(() => {
         const b = [...document.querySelectorAll('#icon-rail button, .desktop-rail button')].find((x) => (x.getAttribute('aria-label') || '').toLowerCase() === 'memory');
         if (b) b.click();
       });
       await settle(2200);
-      const name = 'Memory-ack-' + theme;
+      const name = S.page;
       const rows = await ackPass(page, [], ACK_BUDGET_MS, {
-        density: 'panel', theme, mode: 'ack', page: name, discover: 4,
-        skip: ['.rail-btn', '.desktop-rail-btn', '.tab', '.dtab', '.side-row', '.side-add'],
+        density: 'panel', theme, mode: 'ack', page: name, discover: PLAN.plan.caps.ack_memory_discover,
+        skip: PLAN.plan.caps.press_skip,
       });
       report.ack = report.ack || [];
       for (const r of rows) report.ack.push(r);
@@ -962,15 +979,14 @@ const TIMING = P.timing;
   // with no .goal-text span inside it — has never been rendered, while the state it replaces has been measured on
   // every page. Third round running that a surface for an unrendered state found the state was not what the sheet
   // alone could prove.
-  if (wants("pages")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&goal=none&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('no-goal')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await settle(1800);
-      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'NoGoal-' + theme;
+      const pname = S.page;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'no-goal', page: pname });
       report.surfaces.push({ density, theme, mode: 'no-goal', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -985,15 +1001,14 @@ const TIMING = P.timing;
   // (a solid fill against the ai state's inset ring) and the button's .held variant have never been rendered.
   // ONE session is held and the rest are not, because the marks probe compares states within a family and can only
   // see a collision between two states that are both on screen.
-  if (wants("pages")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=idle&sessions=4&held=1&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('held')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await settle(1800);
-      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Held-' + theme;
+      const pname = S.page;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'held', page: pname });
       report.surfaces.push({ density, theme, mode: 'held', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -1014,11 +1029,10 @@ const TIMING = P.timing;
   // groups a family's states per page and fails when two of them paint identically; until this surface existed, a
   // page could show working beside idle and never show off beside either. mode=pending keeps the pending approval,
   // so the diamond is here too.
-  if (wants("pages")) {
-    for (const [density, path_, vp] of [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]])
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=pending&sessions=4&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('closed')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await page.reload({ waitUntil: 'load' });
       await settle(1800);
@@ -1034,7 +1048,7 @@ const TIMING = P.timing;
         if (confirm) confirm.click();
       });
       await page.waitForTimeout(700);
-      const pname = (density === 'desktop' ? 'Desktop-' : '') + 'Closed-' + theme;
+      const pname = S.page;
       const rows = await page.evaluate(PROBE);
       for (const row of rows) report.rows.push({ ...row, density, theme, mode: 'closed', page: pname });
       report.surfaces.push({ density, theme, mode: 'closed', page: pname, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
@@ -1055,11 +1069,11 @@ const TIMING = P.timing;
   // TARGET SIZE, WCAG 2.5.8, the FULL criterion. Nothing measured it before round 162 — the number 24 was
   // already in this suite as the threshold for whether a non-text element is a MARK, which is a different
   // question. Both densities, one render each, recorded like any other surface.
-  for (const [density, path_, vp] of wants("pages") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-    await page.setViewportSize(vp);
-    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('targets')) {
+    const density = S.density;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(2000);
     report.targets.push({ density, mode: 'rest', ...(await page.evaluate(TARGETS)) });
   }
@@ -1069,25 +1083,24 @@ const TIMING = P.timing;
   // console uses, from the shared core, embedded with JSON.stringify (round 88 shipped one embedded
   // in a template literal and the device received /s+/ where the source said /\s+/: the report listed
   // "btn btn-" and "rail-clu", finding 38 styled classes where the browser sees 221).
-  for (const [density, path_, vp] of wants("unstyled") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-    await page.setViewportSize(vp);
-    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('unstyled')) {
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(1500);
-    report.unstyled.push({ page: density, ...(await page.evaluate(UNSTYLED)) });
+    report.unstyled.push({ page: S.page, ...(await page.evaluate(UNSTYLED)) });
   }
   if (wants("unstyled")) passCost("unstyled");
 
   // HOVER, measured rather than assumed. Nothing had ever looked at it: the static pair sweep reads
   // base rules and every rendered pass measures the resting DOM, while the panel carries 73 :hover
   // rules. Each interactive element is hovered in turn and the page measured while it is hovered.
-  for (const [density, path_, vp] of wants("hover") ? [['panel', '/panel/', { width: 1280, height: 860 }], ['desktop', '/desktop/', { width: 1440, height: 900 }]] : []) {
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize(vp);
-      await page.goto('http://summrise.test' + path_ + '?theme=' + theme + '&mode=relaxed&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('hover')) {
+    {
+      const { density, theme } = S;
+      await PLAN.open(S, page);
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-      await page.reload({ waitUntil: 'load' });
+      await PLAN.reload(S, page);
       await settle(1500);
       const underAA = [];
       // ONE PER FAMILY, not every instance. Re-running the whole-DOM probe after each hover costs a
@@ -1133,16 +1146,20 @@ const TIMING = P.timing;
   // EMULATED and ask the page which elements still have a running transition or animation. Reading
   // the stylesheet cannot answer this — a media query adds no specificity, so the answer depends on
   // cascade order, selector scope and xterm's runtime-injected sheet.
-  for (const [density, path_] of wants("motion") ? [['panel', '/panel/'], ['desktop', '/desktop/']] : []) {
-    await page.setViewportSize(density === 'panel' ? { width: 1280, height: 860 } : { width: 1440, height: 900 });
+  // THE MOTION PAIR. The plan carries TWO surfaces per density — the preference unset and then
+  // emulated — and the second one is a RELOAD rather than a navigation (`navigate: false`), which is
+  // what the pair has always done: the preference only takes effect on a fresh style resolution.
+  const motion = kind('motion');
+  for (let mi = 0; mi < motion.length; mi += 2) {
+    const S = motion[mi];
+    const density = S.density;
     // MEASURE IT TWICE, because "nothing animates under reduce" is only evidence if SOMETHING animates
     // without it. The old report carried one number, so a page with no transitions at all and a page
     // whose transitions were correctly suppressed both read as "animating: []" — the same vacuity this
     // suite keeps finding in its own checks. Normal first, then the same page with the preference set.
-    await page.emulateMedia({ reducedMotion: null });
-    await page.goto('http://summrise.test' + path_ + '?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     // ── THE LAST TWO CLOCKS IN THIS FILE, AND WHY THEY COULD NOT BE CONVERTED UNTIL NOW ───────────────────────────
     // Every other settle is covered by an equivalence the counts can see: one that fires early drops surfaces, names
     // or a rail page, and `{rows, surfaces, names}` moves. THIS pass's numbers are not in those three — `MOTION` reads
@@ -1156,8 +1173,10 @@ const TIMING = P.timing;
     // suppress". What was missing was the NUMBER a reader can compare, not the floor.)
     await settle(1600);
     const normal = await page.evaluate(MOTION);
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.reload({ waitUntil: 'load' });
+    const reducedS = motion[mi + 1];
+    if (!reducedS) throw new Error("the plan carries a motion surface without its reduced pair");
+    await PLAN.open(reducedS, page);
+    await PLAN.reload(reducedS, page);
     await settle(1200);
     const reduced = await page.evaluate(MOTION);
     report.motion.push({
@@ -1167,7 +1186,7 @@ const TIMING = P.timing;
       stillAnimating: reduced.animating.slice(0, 6),
     });
   }
-  await page.emulateMedia({ reducedMotion: null });
+  await PLAN.finish(page);
   if (wants("motion")) passCost("motion");
 
   // Reflow at the two widths WCAG 1.4.10 names, panel density only: the desktop density needs the
@@ -1180,11 +1199,11 @@ const TIMING = P.timing;
   // application window rather than a browser viewport at 400% zoom, and the toolbar exception is 1.4.10's own. It is
   // also the reason the sweep produces exactly TWO reflow rows — if a later round wants a third, this is the sentence
   // to argue with, and the argument is about the standard rather than about a missing loop.
-  for (const width of wants("reflow") ? [640, 320] : []) {
-    await page.setViewportSize({ width, height: 800 });
-    await page.goto('http://summrise.test/panel/?theme=light&mode=idle&sessions=3&cb=' + stamp, { waitUntil: 'load' });
+  for (const S of kind('reflow')) {
+    const width = S.viewport.width;
+    await PLAN.open(S, page);
     await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
-    await page.reload({ waitUntil: 'load' });
+    await PLAN.reload(S, page);
     await settle(1500);
     report.reflow.push({ width, ...(await page.evaluate(REFLOW, SELECTOR)) });
   }

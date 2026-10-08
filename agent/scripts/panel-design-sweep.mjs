@@ -180,12 +180,20 @@ import { join } from "node:path";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 import { marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
+import { sweepPlan } from "./lib/sweep-plan.mjs";
 
 const mode = process.argv[2];
 /** `--passes=pages,hover` limits the emitted script; the default is everything. Recorded in the report
  *  so the judge can refuse a partial one — the same rule as the audit's exit codes: a run that did not
- *  measure something must not look like a run that measured it and found nothing. */
-const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "--passes=all").slice("--passes=".length);
+ *  measure something must not look like a run that measured it and found nothing.
+ *
+ *  THE VALUE IS PASSED THROUGH UNTOUCHED (`null` when the flag is absent), because the Rust plan owns
+ *  what it means: the panel defaults an absent flag to `all` and treats an EMPTY one as "want
+ *  nothing", and both are reachable from a caller. */
+const PASSES_ARG = (() => {
+  const found = process.argv.find((a) => a.startsWith("--passes="));
+  return found === undefined ? null : found.slice("--passes=".length);
+})();
 
 // WHERE THE EMITTED SWEEP READS AND WRITES BY DEFAULT — the device's paths, and now the EMITTER's values rather than
 // text inside a template literal: they were written with four backslashes there because one level was eaten on the way
@@ -244,11 +252,16 @@ function browserScript() {
   // that a borrowed helper had also been spliced. All of that is gone: lib/sweep/panel-run.cjs is ordinary code, the
   // run-varying values arrive as the generated pieces module beside it, the assembler resolves the payload's own
   // requires, and it COMPILES what it returns.
+  // THE PLAN IS RUST AND IT IS COMPUTED HERE (slice 1 of landing 2b). Everything the payload used to
+  // decide about itself — which surfaces, in what order, which passes on each, and the caps — comes
+  // from the binary at EMIT time and travels into the bundle as data.
+  const plan = sweepPlan("panel", PASSES_ARG);
   const { code } = bundleSweep({
     entry: "panel-run.cjs",
     modules: {
       "panel-run.cjs": readFileSync(join(HERE, "lib", "sweep", "panel-run.cjs"), "utf8"),
-      "pieces.cjs": piecesSource(),
+      "plan-runtime.cjs": readFileSync(join(HERE, "lib", "sweep", "plan-runtime.cjs"), "utf8"),
+      "pieces.cjs": piecesSource(plan),
     },
   });
   return code;
@@ -271,16 +284,18 @@ function probeOf(snippet, name) {
 }
 
 /** The run-varying pieces, as a module (the same shape and the same reasoning as the landing's, round 266). */
-function piecesSource() {
+function piecesSource(plan) {
   // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272). This function used to spell out the quoting rule itself —
   // functions by `.toString()`, everything else by JSON — in four different emitters. What is left is the facts.
   return piecesModule({
+    // THE PLAN, as data: `wants`, the surface list in visit order, the caps.
+    plan,
     config: {
       harnessPath: DEFAULT_HARNESS_PATH,
       selector: "#root",
       reportPath: DEFAULT_REPORT_PATH,
       expectedHarnessBuild: HARNESS_STAMP,
-      passes: PASSES,
+      passes: plan.passes,
     },
     probe: PROBE_SOURCE,
     unstyled: UNSTYLED_SOURCE,

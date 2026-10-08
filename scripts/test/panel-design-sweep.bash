@@ -4,7 +4,7 @@
 # fail at all. A gate that cannot be broken is worse than no gate.
 #
 # MUTATION: plant a defect per axis in a report (87 checks as measured on 2026-09-26 — the axis list below is the part that stays accurate, the NUMBER is what drifts when a round adds a case without updating this cell: contrast, h1, skip, landmark, geometry, sliver, loud, mark-collision, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale, prose, ack, **ack-nocounter** — the newest, round 11 of the standing goal: an acknowledgement row from a page that has NO request counter, which must FAIL rather than be excused by a note claiming a measurement nobody made. It plants an ACKNOWLEDGED row beside it on purpose: the first version planted the no-counter row alone and the case passed for the WRONG reason — with the new clause disabled the judge still failed the report, because an ack array with nothing acknowledged trips the vacuity floor — so mutating the clause left the gate green. That is the "failed for the wrong reason and proved nothing" shape, caught by doing the mutation instead of assuming it — plus `prose-none` for the instrument's own floor, and the note assertions the axis loop cannot make)
-# RESULT:   one check per axis (the newest being `false-claim`: a surface claiming a read failed while the fixture answered everything — the defect rounds 99-100 found by hand, twice; it applies only to a report that DECLARES what its fixture served (`sse` records), because the console has no backend and its "could not be read" is true)  **AND THE `ack` CASE FAILED THE FIRST TIME IT RAN, WHICH IS THE POINT**: the panel's judge rejected the planted row (exit 1, "never acknowledged the press") and the console's ACCEPTED it (exit 0, "nothing above found a defect") — 85 ok, 1 failed. The clause now lives in the shared `judgeReport`, the panel's copy is deleted, and both loops fail the same row; the run after that is 86 ok, 0 failed  **MARK-COLLISION (round 27): the silhouettes are now checked AS THE BROWSER PAINTS THEM.** The sheet-level unit tests cannot see a cascade override — round 25's `.plug-dot[error]` kept a stray halo through a test that passed — so the SURFACE probe reads the COMPUTED style of every state mark on every page, groups by family, and fails when two states of one mark paint identically. It cost no call sites: the probe every page already evaluates carries it. Verified on three rendered pages: four and five families each, ZERO collisions and no false positives
+# RESULT:   one check per axis (the newest being `false-claim`: a surface claiming a read failed while the fixture answered everything — the defect rounds 99-100 found by hand, twice; it applies only to a report that DECLARES what its fixture served (`sse` records), because the console has no backend and its "could not be read" is true)  **AND THE `ack` CASE FAILED THE FIRST TIME IT RAN, WHICH IS THE POINT**: the panel's judge rejected the planted row (exit 1, "never acknowledged the press") and the console's ACCEPTED it (exit 0, "nothing above found a defect") — 85 ok, 1 failed. The clause now lives in the shared `judgeReport`, the panel's copy is deleted, and both loops fail the same row; the run after that is 86 ok, 0 failed  **MARK-COLLISION (round 27): the silhouettes are now checked AS THE BROWSER PAINTS THEM.** The sheet-level unit tests cannot see a cascade override — round 25's `.plug-dot[error]` kept a stray halo through a test that passed — so the SURFACE probe reads the COMPUTED style of every state mark on every page, groups by family, and fails when two states of one mark paint identically. It cost no call sites: the probe every page already evaluates carries it. Verified on three rendered pages: four and five families each, ZERO collisions and no false positives  **AND THE PAGE-LIST CHECK'S MUTATION WAS RUN WHEN THE RULE IT PINS CHANGED** (slice 1 of landing 2b): the console's route table became PLAN DATA (`caps.pages`), so the check was rewritten to assert that the list REACHES the payload rather than that the payload spells it out. Deleting `"pages"` from the console plan's caps reads `FAIL: the console sweep does not carry/read its page list (it would report nothing)` and 86 ok, 1 failed; restored, 87 ok, 0 failed.
 
 # panel-design-sweep.bash — the design sweep tool must EMIT a valid script and JUDGE correctly.
 #
@@ -980,16 +980,27 @@ else
   bad "the emitted console probes do not reach the page unchanged: $(head -4 "$TMP/probe-check-console.out")"
 fi
 # THE CONSOLE'S OWN FIXTURE DEFINITIONS. SURFACE and NAMES come from the shared page checks and are compared as VALUES
-# by the probe check above (which now runs for this artifact too); API and PAGES are the payload's own definitions, so
-# they must still be IN the emitted payload. This used to be four `grep -qF` calls over the artifact, which pinned the
-# carrying convention rather than the requirement and failed a payload whose checks arrive as data (round 268).
-for helper in "const API = {" "const PAGES = ["; do
-  if grep -qF "$helper" "$TMP/csweep.js"; then
-    ok "the console sweep still defines its own: $helper"
-  else
-    bad "the console sweep USES but does not define: $helper (it would report nothing)"
-  fi
-done
+# by the probe check above (which now runs for this artifact too); API is the payload's own fixture table, so it must
+# still be IN the emitted payload. This used to be four `grep -qF` calls over the artifact, which pinned the carrying
+# convention rather than the requirement and failed a payload whose checks arrive as data (round 268).
+if grep -qF "const API = {" "$TMP/csweep.js"; then
+  ok "the console sweep still defines its own: const API = {"
+else
+  bad "the console sweep USES but does not define: const API = { (it would report nothing)"
+fi
+# AND THE PAGE LIST IS PLAN DATA NOW (slice 1 of landing 2b). The console's route table moved into
+# `summrise-sweep-plan` (`caps.pages`), because a second copy of a list is the drift that landing exists to
+# remove — so the requirement is that the list REACHES the payload, not that the payload spells it out. BOTH
+# halves are asserted: the route table is in the artifact (first and last entry, so a truncated list fails),
+# and the payload READS it. A payload that stopped knowing its pages fails here exactly as it did before.
+# MUTATION: delete `"pages"` from the console plan's caps → this check fails, and the payload renders one
+# page instead of six.
+if grep -qF '["overview","#/"]' "$TMP/csweep.js" && grep -qF '["users","#/users"]' "$TMP/csweep.js" \
+   && grep -qF "PLAN.plan.caps.pages" "$TMP/csweep.js"; then
+  ok "the console sweep carries its route table as PLAN DATA and reads it"
+else
+  bad "the console sweep does not carry/read its page list (it would report nothing)"
+fi
 cat > "$TMP/console-clean.json" <<'JSON'
 {
   "rows": [{"cr": 7.0, "need": 4.5, "size": 13, "sel": "span.ok", "text": "x", "page": "overview"}],

@@ -6,6 +6,10 @@
 // the program is ordinary code, the run-varying values arrive as the generated pieces module beside it, and the
 // assembler resolves the payload's own requires and compiles what it returns.
 const P = require("./pieces.cjs");
+// THE PLAN IS RUST (agent/sweep-plan/), embedded by the emitter. This module only PLACES what it was
+// given: `kind(...)` returns the surfaces the plan named, `open` performs the browser calls a surface's
+// fields describe, and `wants(name)` is a lookup in the plan's own map.
+const { planRuntime } = require("./plan-runtime.cjs");
 
 const fs = require("fs");
 const path = require('path');
@@ -55,8 +59,9 @@ const { SURFACE, NAMES, REFLOW } = P.checks;
 // result, so it is evaluated alongside it and merged in, exactly where it used to be spliced.
 const MARKS = P.marks;
 const SELECTOR = P.config.selector;
-const PASSES = P.config.passes;
-const wants = (name) => !PASSES.length || PASSES.includes('all') || PASSES.includes(name);
+const PLAN = planRuntime(P.plan, () => Date.now());
+const kind = (k) => PLAN.kind(k);
+const wants = (name) => PLAN.wants(name);
 const now = Date.now();
 // The console's own render-smoke fixtures (gateway/ui/*-render-smoke.mjs), so the browser renders the
 // same pages those tests assert against in jsdom — same data, real layout, real colours.
@@ -126,15 +131,10 @@ const API = {
   '/api/admin/catalogue': { models: [{ id: 'my/llama-3', label: 'llama-3' }] },
   '/api/admin/users': { users: [{ username: 'operator', role: 'admin', createdAt: now - 86400000 }, { username: 'guest', role: 'user', createdAt: now - 3600000 }] },
 };
-// The console's own route table (gateway/ui/src/App.tsx) — every authenticated page it has.
-const PAGES = [
-  ['overview', '#/'],
-  ['devices', '#/devices'],
-  ['models', '#/models'],
-  ['keys', '#/keys'],
-  ['routes', '#/routes'],
-  ['users', '#/users'],
-];
+// THE PAGE LIST COMES FROM THE PLAN (caps.pages, which is the console's own route table in
+// gateway/ui/src/App.tsx). It used to be a second copy here, and a second copy of a list is the drift
+// this landing exists to remove.
+const PAGES = PLAN.plan.caps.pages;
 const auth = { signedIn: true };
 
 // AN EMPTY FLEET, which the console has never been measured in: the fixture table carries two devices and
@@ -286,9 +286,10 @@ const fail = { api: false };
   // the panel's fixture surfaces; this is the second home, and it is being done before it costs anything.
   // ONE WIDTH, not all three: 1440 is where the console is used, and three widths of dark would double a run
   // that already takes minutes for a difference that width does not create.
-  for (const [label, hash] of (wants('dark') ? PAGES : [])) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+  for (const S of kind('dark')) {
+    const label = S.page;
+    const hash = S.hash;
+    await PLAN.open(S, page);
     await page.evaluate((h) => {
       try { localStorage.setItem('summrise-theme', 'dark'); } catch (e) {}
       document.body.setAttribute('data-theme', 'dark');
@@ -356,10 +357,12 @@ const fail = { api: false };
   // a width (1080 is the tempting one) should know it is already covered on both sides, and that the console's clean
   // `0sp/0cl` at 320 is a measurement rather than a coincidence. Adding one would cost a navigation per page for a
   // straddle that exists.
-  for (const width of (wants('reflow') ? [1440, 900, 720, 640, 320] : [1440])) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const [label, hash] of PAGES) {
-      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+  for (const S of kind('widths')) {
+    const width = S.viewport.width;
+    {
+      const label = S.page;
+      const hash = S.hash;
+      await PLAN.open(S, page);
       await page.evaluate((h) => { location.hash = h; }, hash);
       await settle(1600);
       // ── THE REFLOW PROBE WAS IMPORTED AND NEVER RUN (round 12 of the standing goal) ─────────────────────────────
@@ -376,7 +379,7 @@ const fail = { api: false };
         for (const r of rows) report.rows.push({ ...r, page: label, width, density: 'console', theme: 'light' });
         report.surfaces.push({ page: label, width, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });
       }
-      if (width === 1440) {
+      if (width === PLAN.plan.caps.wide_width) {
         // (a press-only run pays for this width and nothing else)
         if (wants('names')) report.names.push({ page: label, ...(await page.evaluate(NAMES, SELECTOR)) });
         // Rendered classes with no matching rule — the mirror of dead CSS, and the failure a prune
@@ -502,14 +505,26 @@ const fail = { api: false };
   // 134 and the console had nothing: the gap was recorded in round 136 when the pass was shared and left
   // unwired. render re-loads the page and re-applies the route, because the preference only takes
   // effect on a fresh style resolution.
-  for (const width of (wants('motion') ? [1440] : [])) {
-    await page.setViewportSize({ width, height: 900 });
-    const render = async () => {
-      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-      await page.evaluate((h) => { location.hash = h; }, '#/');
-      await settle(1400);
-    };
-    report.motion.push(await motionPass(page, render, { page: 'overview', width, density: 'console', theme: 'light' }));
+  // THE MOTION PAIR, FROM THE PLAN: two surfaces per width — the preference unset and then emulated.
+  // THE EMULATION ITSELF IS `motionPass`'S (it is the shared pass's own two-state contract, and the
+  // panel measures the same pair inline), so the render here NAVIGATES and the plan records what the
+  // pass does. The viewport is the plan's: set once, before the pair.
+  {
+    const motionSurfaces = kind('motion');
+    for (let mi = 0; mi < motionSurfaces.length; mi += 2) {
+      const S = motionSurfaces[mi];
+      const reducedS = motionSurfaces[mi + 1];
+      if (!reducedS) throw new Error('the plan carries a motion surface without its reduced pair');
+      if (S.set_viewport) await page.setViewportSize(S.viewport);
+      let renderIx = 0;
+      const render = async () => {
+        const s = renderIx++ === 0 ? S : reducedS;
+        await page.goto(PLAN.url(s), { waitUntil: 'load' });
+        await page.evaluate((h) => { location.hash = h; }, s.hash);
+        await settle(1400);
+      };
+      report.motion.push(await motionPass(page, render, { page: 'overview', width: S.viewport.width, density: 'console', theme: 'light' }));
+    }
   }
 
   // ANSWERED: THE RINGS WERE NEVER MISSING (round 186). Eighteen "missing focus rings" across six pages
@@ -529,10 +544,10 @@ const fail = { api: false };
   // reports how many verdicts the pixels overruled.
   // TARGET SIZE, WCAG 2.5.8 — the check round 162 added for the PANEL, wired here because a check that
   // exists in one UI and not the others is the pattern this suite keeps paying for (rounds 135-136, 141).
-  for (const [label, hash] of (wants('targets') ? [['overview', '#/'], ['devices', '#/devices']] : [])) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
-    await page.evaluate((h) => { location.hash = h; }, hash);
+  for (const S of kind('targets')) {
+    const label = S.page;
+    await PLAN.open(S, page);
+    await page.evaluate((h) => { location.hash = h; }, S.hash);
     await settle(1500);
     report.targets.push({ page: label, ...(await page.evaluate(TARGETS)) });
   }
@@ -543,16 +558,16 @@ const fail = { api: false };
   // just been measured. A declaration is exercised by the pass that asks the question, not by a different one.
   if (wants('unstyled')) {
     empty.fleet = true;
-    for (const theme of ['light', 'dark']) {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+    for (const S of kind('unstyled-empty')) {
+      const theme = S.theme;
+      await PLAN.open(S, page);
       await page.evaluate((a) => {
         try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
         document.body.setAttribute('data-theme', a[0]);
         location.hash = a[1];
-      }, [theme, '#/']);
+      }, [theme, S.hash]);
       await settle(1600);
-      report.unstyled.push({ page: 'overview-empty' + (theme === 'dark' ? '-dark' : ''), ...(await page.evaluate(UNSTYLED)) });
+      report.unstyled.push({ page: S.page, ...(await page.evaluate(UNSTYLED)) });
     }
     empty.fleet = false;
   }
@@ -564,7 +579,8 @@ const fail = { api: false };
   // COLOUR and TYPE, and a dark regression in one would be invisible to a light-only render.
   {
     empty.fleet = true;
-    for (const theme of ['light', 'dark']) {
+    for (const S of kind('empty')) {
+      const theme = S.theme;
       // THE OVERVIEW JOINS THE EMPTY FLEET (round 25), and the reason is a measurement rather than symmetry. The
       // stat-off declaration in this sweep's implicitStates waives a class with NO matching rule — the Overview
       // builds a stat-card plus a stat-<tone> class, the sheet has rules for ok/warn/info only, and the unstyled pass
@@ -574,16 +590,15 @@ const fail = { api: false };
       // and visited only #/devices and #/keys, so the Overview in that state — and the faint bars the off tone
       // paints — had never been rendered by anything. A state with no surface cannot be measured; this is the
       // surface.
-      for (const [label, hash] of [['overview-empty', '#/'], ['devices-empty', '#/devices'], ['keys-empty', '#/keys']]) {
-        await page.setViewportSize({ width: 1440, height: 900 });
-        await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+      {
+        await PLAN.open(S, page);
         await page.evaluate((a) => {
           try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
-        }, [theme, hash]);
+        }, [theme, S.hash]);
         await settle(1600);
-        const name = label + (theme === 'dark' ? '-dark' : '');
+        const name = S.page;
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
@@ -601,17 +616,17 @@ const fail = { api: false };
   // — a light-only render of it would leave exactly the regression this suite exists to catch.
   {
     fail.api = true;
-    for (const theme of ['light', 'dark']) {
-      for (const [label, hash] of PAGES) {
-        await page.setViewportSize({ width: 1440, height: 900 });
-        await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+    for (const S of kind('fail')) {
+      const theme = S.theme;
+      {
+        await PLAN.open(S, page);
         await page.evaluate((a) => {
           try { localStorage.setItem('summrise-theme', a[0]); } catch (e) {}
           document.body.setAttribute('data-theme', a[0]);
           location.hash = a[1];
-        }, [theme, hash]);
+        }, [theme, S.hash]);
         await settle(1800);
-        const name = label + '-fail' + (theme === 'dark' ? '-dark' : '');
+        const name = S.page;
         report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
         const rows = await page.evaluate(PROBE);
         for (const r of rows) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
@@ -628,15 +643,15 @@ const fail = { api: false };
   // both renders colour AND lacked a dark counterpart; the motion pass is light-only too and stays that way, because
   // it asks whether animations are DISARMED rather than what colour anything is.
   auth.signedIn = false;
-  for (const theme of ['light', 'dark']) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('https://ai.saisi.online/?cb=' + Date.now(), { waitUntil: 'load' });
+  for (const S of kind('login')) {
+    const theme = S.theme;
+    await PLAN.open(S, page);
     await page.evaluate((t) => {
       try { localStorage.setItem('summrise-theme', t); } catch (e) {}
       document.body.setAttribute('data-theme', t);
     }, theme);
     await settle(1600);
-    const name = 'login' + (theme === 'dark' ? '-dark' : '');
+    const name = S.page;
     report.themeChecks.push({ page: name, intended: theme, ...(await page.evaluate(THEME)) });
     for (const r of await page.evaluate(PROBE)) report.rows.push({ ...r, page: name, width: 1440, density: 'console', theme });
     report.surfaces.push({ page: name, width: 1440, ...(await page.evaluate(SURFACE, SELECTOR)), marks: await page.evaluate(MARKS, SELECTOR) });

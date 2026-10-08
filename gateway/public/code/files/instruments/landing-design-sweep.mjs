@@ -24,12 +24,18 @@ import { fileURLToPath } from "node:url";
 import { PAGE } from "../../index/src/page.js";
 import { marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
+import { sweepPlan } from "./lib/sweep-plan.mjs";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO = join(HERE, "..", "..");
 const OUT = process.env.SUMMRISE_LANDING_OUT || "/tmp/summrise-landing";
-const PASSES = (process.argv.find((a) => a.startsWith("--passes=")) || "").slice("--passes=".length).split(",").filter(Boolean);
+// THE VALUE IS PASSED THROUGH UNTOUCHED (`null` when the flag is absent): the Rust plan owns what it
+// means, and for this tool an absent flag and an EMPTY one are the same input.
+const PASSES_ARG = (() => {
+  const found = process.argv.find((a) => a.startsWith("--passes="));
+  return found === undefined ? null : found.slice("--passes=".length);
+})();
 const mode = process.argv[2] || "";
 
 // THE TWO STATES A RELEASE CAN PRODUCE, and the reason a rendered arm is worth its cost. When a release publishes no
@@ -91,7 +97,7 @@ function browserScript() {
   // this file mid-parse, and why `assertEmbedded` existed to check by substring that a borrowed helper had also been
   // spliced. lib/sweep/landing-run.cjs is ordinary code; what varies per run arrives as the generated pieces module
   // beside it, and the assembler compiles the result before returning it.
-  const pieces = piecesSource(LOCAL_STAMP);
+  const pieces = piecesSource(LOCAL_STAMP, sweepPlan("landing", PASSES_ARG));
   // MODULE IDS ARE NORMALISED PATHS, no leading "./" (the resolver collapses "." segments, so an id spelled one way
   // and required another would be two modules — measured: the first run of this bundler refused "./pieces.cjs"
   // because the id carried a prefix the resolver had already stripped).
@@ -99,6 +105,7 @@ function browserScript() {
     entry: "landing-run.cjs",
     modules: {
       "landing-run.cjs": readFileSync(join(HERE, "lib", "sweep", "landing-run.cjs"), "utf8"),
+      "plan-runtime.cjs": readFileSync(join(HERE, "lib", "sweep", "plan-runtime.cjs"), "utf8"),
       "pieces.cjs": pieces,
     },
   });
@@ -109,13 +116,15 @@ function browserScript() {
  *  values here (`fn.toString()` at emit time, declarations in the generated module) and they all land in ONE module
  *  body, which is what makes a helper that a pass calls by name resolve: `pressPass` calls `discoverPressTargets`,
  *  which used to be a hand-listed "must also be embedded" and is now simply in scope. */
-function piecesSource(LOCAL_STAMP) {
+function piecesSource(LOCAL_STAMP, plan) {
   // ONE PIECES GENERATOR, IN THE ASSEMBLER (round 272) — this emitter used to spell the quoting rule out itself.
   return piecesModule({
+    // THE PLAN, as data: `wants`, the surface list in visit order, the caps.
+    plan,
     config: {
       root: ROOT,
       reportPath: "C:\\ProgramData\\Summrise\\pwout\\landing-sweep.json",
-      passes: PASSES,
+      passes: plan.passes,
       expectedEntry: LOCAL_STAMP,
       selector: "body",
     },

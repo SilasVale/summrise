@@ -52,6 +52,9 @@ BOUNDARY | index/landing/ | harnesses that render and verify the landing crate's
 BOUNDARY | index/spike-rust-landing/ | the landing spike's measure/verify harness
 BOUNDARY | agent/summrise-workspace-dsh/ | the DSH plugin package — a plugin must be JS; the agent owns the connections
 BOUNDARY | agent/summrise-cli/parity/ | the parity instrument — it runs the built CLI and the Rust binary and diffs their answers; it decides nothing about the product
+BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-CHANGE emitter, executes the payload it prints against a stub browser, and diffs that trace against the Rust plan; it decides nothing about the product
+BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it runs `summrise-sweep-plan` and parses its stdout — one process call, no decision. The plan itself is Rust (agent/sweep-plan/)
+BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
 BOUNDARY | agent/scripts/e2e/ | the device e2e bundle: the page-side half runs where browser_run_script runs
 BOUNDARY | .agents/skills/setup-ts-deep-modules/ | a tooling config for the skill, not product code
