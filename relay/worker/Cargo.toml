@@ -1,0 +1,17 @@
+[package]
+name = "summrise-relay-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The file relay's pure decisions, in Rust — the half of relay/src/{index,claim}.js that is a function of its inputs rather than of R2, the Durable Object or the network."
+
+# A HOST-ONLY CRATE FOR NOW, AND THAT IS THE ORDER THE OTHER WORKERS LANDED IN: no `worker`
+# dependency is taken until the entry point is ported, which keeps `cargo test` a plain host build. The
+# shell (`worker.rs` + `#[event(fetch)]` + the R2/DO bindings) is the next step, and it is what adds
+# `worker` and the `cdylib` crate type.
+[lib]
+name = "summrise_relay_worker"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1"
