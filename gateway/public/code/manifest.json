@@ -211,11 +211,6 @@
       "group": "instruments"
     },
     {
-      "name": "harness-boot-check.mjs",
-      "path": "files/instruments/harness-boot-check.mjs",
-      "group": "instruments"
-    },
-    {
       "name": "landing-design-sweep.mjs",
       "path": "files/instruments/landing-design-sweep.mjs",
       "group": "instruments"
@@ -233,11 +228,6 @@
     {
       "name": "panel-render-audit.mjs",
       "path": "files/instruments/panel-render-audit.mjs",
-      "group": "instruments"
-    },
-    {
-      "name": "verify-workspaces-page.mjs",
-      "path": "files/instruments/verify-workspaces-page.mjs",
       "group": "instruments"
     },
     {

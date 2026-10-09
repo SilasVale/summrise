@@ -102,7 +102,7 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// reads `page.js` out of a pinned commit as the reference the landing is measured against. Those files exist to
 /// be COMPARED WITH, which is the boundary this manifest already gives `agent/summrise-cli/parity/` and the
 /// sweeps' parity instrument. The manifest carries each dependency beside the rule.
-const MAX_LOGIC: usize = 133;
+const MAX_LOGIC: usize = 132;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.
