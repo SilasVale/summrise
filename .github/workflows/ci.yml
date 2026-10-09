@@ -353,6 +353,25 @@ jobs:
           # `main.ts`. Its committed wasm is checked by `shell-policy-wasm-freshness`; THIS line is what
           # runs the source's own tests.
           cargo test -p summrise-shell-policy --no-fail-fast
+          # **FOUR CRATES WHOSE TESTS RAN IN NO JOB AT ALL — MEASURED 2026-10-09, NOT SUSPECTED.** The rule
+          # above is the whole argument: "a workspace member that is not a default member is a crate no job
+          # tests unless it is named here" — and four were not named. The measurement, per crate:
+          #
+          #     grep -rh '#\[test\]' agent/<crate>/src agent/<crate>/tests | wc -l
+          #     summrise-command-core 34 · summrise-exec-argv 29 · sweep-judge 37 · summrise-url-policy 14
+          #
+          # **171 `#[test]` FUNCTIONS, AND FOUR OF THE FIVE CRATES WERE UNRUN** (the fifth, shell-policy,
+          # arrived with its own line on the Electron branch). This is the shape a green CI hides best: the
+          # tests exist, they pass when a person runs them, and nothing has ever run them on a merge — so the
+          # only thing standing behind them was somebody's memory.
+          #
+          # **AND IT WAS INVISIBLE FROM BOTH SIDES AT ONCE, WHICH IS WHY IT SURVIVED**: `all-gates.bash`
+          # parses THIS FILE, so naming a crate here is also what makes the local gate run it. The local
+          # gate and the CI job were silent together, and neither could report the other's silence.
+          cargo test -p summrise-command-core --no-fail-fast
+          cargo test -p summrise-exec-argv --no-fail-fast
+          cargo test -p sweep-judge --no-fail-fast
+          cargo test -p summrise-url-policy --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
