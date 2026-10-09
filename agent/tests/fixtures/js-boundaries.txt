@@ -101,6 +101,20 @@ BOUNDARY | agent/scripts/lib/sweep/panel-stub.cjs | the STUB DEVICE: a fixture t
 BOUNDARY | agent/scripts/live-panel-probe.mjs | the EMITTER for the live-panel measurement: it writes a standalone program that runs ON THE DEVICE against 127.0.0.1:18080 and reads the panel token from the device's own config in-process. It is the same shape as `panel-render-audit.mjs` two rules above (an emitter whose product is a program a browser runs) and it is the carve-out AGENTS.md already carries in its own row — "the device calls it through `browser_run_script`, which takes a JS file, and the measurement runs in the DOM". **AND ITS VERDICT IS NOT ENFORCED BY ANY JOB**, which is written here rather than left to be guessed: it runs on a device, its numbers are read by a person, and the CI-runnable half of the same questions is what `panel-design-sweep.bash` measures on the harness. What it adds that no harness run can is the LIVE panel's own geometry — round 167 measured it at 1488 root nodes and 14 live sessions, where the harness has 366 and three — so it is kept for the differences a harness cannot show, not as a gate.
 BOUNDARY | agent/scripts/lib/sweep/live-run.cjs | the live-panel program: it drives the panel the device is actually running and returns rows. One guard, no verdict
 BOUNDARY | agent/scripts/lib/sweep/landing-run.cjs | a payload that drives a browser over one page and returns rows — measured: zero comparisons, and its two template literals are selectors
+# ── AND THE TWO HOVER PAYLOADS LEFT LOGIC THE SAME DAY (2026-10-09) ──────────────────────────────────────────
+# `LOGIC | agent/scripts/` covered them, and what it was counting was the CONTRAST VERDICT: `panel-run.cjs`
+# compared each measured row against its requirement and built the sentence a reader reads, and
+# `console-run.cjs` did it TWICE with two different rules. Both now hand over every row the probe measured
+# and `sweep-judge/src/hover.rs` (and its twin in `summrise-command-core`) applies the rule and formats the
+# line, so nothing here decides anything: the loop measures, deduplicates identical rows by identity — which
+# is a size guard with no verdict in it — and names the pass it measured, because the console's dark pass is
+# not its light one. **THE NUMBER THAT LOOKED LIKE THE PRICE OF THIS WAS WRONG, AND MEASURING IT IS WHAT
+# SETTLED IT**: the 2026-10-09 oracle run reported 218 samples for 19 lines, which reads like a report that
+# would explode without a filter in the payload — but those are the SAME rows re-measured once per hovered
+# control, and the identity dedup already collapses them. Measured on that report: an unfiltered entry
+# carries 41 rows rather than 20, and all four cost +27 KB of a 430 KB report. **LOGIC 107 -> 105.**
+BOUNDARY | agent/scripts/lib/sweep/panel-run.cjs | the PANEL payload: it drives the browser, evaluates the probes and returns the raw rows the judge decides on. It compares nothing — the contrast rule and its sentence moved to `sweep-judge/src/hover.rs` (2026-10-09) — and what is left it does not interpret: `rule` is the name of the pass it measured, and the identity dedup is a size guard
+BOUNDARY | agent/scripts/lib/sweep/console-run.cjs | the CONSOLE payload, the same shape, with one thing the panel's has not: THREE hover sites that were NOT one rule written three times — the dark pass skips graphics and has no 4.5 default, the light pass is the panel's comparison with a shorter sentence — so the entry names which one it measured. The rules and the sentences are the judge's
 BOUNDARY | .agents/skills/setup-ts-deep-modules/ | a tooling config for the skill, not product code
 BOUNDARY | docs/superpowers/p0/ | the P0 measurement harness — historical evidence, and a deletion candidate
 BOUNDARY | proxies/api-relay/relay/ | the relay crate's own harness

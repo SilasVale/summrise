@@ -406,11 +406,64 @@
       {
         "density": "panel",
         "theme": "dark",
-        "underAA": [
-          "span.badge 2.33",
-          "a.link 3.9",
-          "div.dot 4.2",
-          "span.extra 4.4"
+        "rule": "panel-hover",
+        "rows": [
+          {
+            "sel": "span.side-label",
+            "text": "d1",
+            "size": 13,
+            "weight": "400",
+            "need": 4.5,
+            "inactive": false,
+            "gradient": false,
+            "approx": false,
+            "cr": 1.96,
+            "paint": "rgb(185, 185, 185) (text)",
+            "surface": "rgb(255, 255, 255)",
+            "kind": "text"
+          },
+          {
+            "sel": "span.side-time",
+            "text": "now",
+            "size": 11,
+            "weight": "400",
+            "need": 4.5,
+            "inactive": false,
+            "gradient": false,
+            "approx": false,
+            "cr": 2.51,
+            "paint": "rgb(162, 163, 172) (text)",
+            "surface": "rgb(255, 255, 255)",
+            "kind": "text"
+          },
+          {
+            "sel": "span.side-label",
+            "text": "serial:COM4",
+            "size": 13,
+            "weight": "400",
+            "need": 4.5,
+            "inactive": false,
+            "gradient": false,
+            "approx": false,
+            "cr": 1.96,
+            "paint": "rgb(185, 185, 185) (text)",
+            "surface": "rgb(255, 255, 255)",
+            "kind": "text"
+          },
+          {
+            "sel": "span.side-label",
+            "text": "stc@192.168.1.1",
+            "size": 13,
+            "weight": "400",
+            "need": 4.5,
+            "inactive": false,
+            "gradient": false,
+            "approx": false,
+            "cr": 1.96,
+            "paint": "rgb(185, 185, 185) (text)",
+            "surface": "rgb(255, 255, 255)",
+            "kind": "text"
+          }
         ]
       }
     ],
@@ -480,7 +533,7 @@
       "unstyled check on Settings: only 38 styled classes found (floor 100) — the collector read almost nothing, so its silence means nothing",
       "type floor: span.tiny renders at 9px on Settings — the scale's floor is 10px (\"a note that is far too l\")",
       "only 2 of 13 rows could be measured (84.6% unmeasurable, floor 10%) — the absences below prove nothing",
-      "hover (panel/dark): 4 element(s) below AA while hovered — span.badge 2.33; a.link 3.9; div.dot 4.2",
+      "hover (panel/dark): 4 element(s) below AA while hovered — span.side-label \"d1\" 1.96<4.5 painted rgb(185, 185, 185) (text) on rgb(255, 255, 255), 13px text; span.side-time \"now\" 2.51<4.5 painted rgb(162, 163, 172) (text) on rgb(255, 255, 255), 11px text; span.side-label \"serial:COM4\" 1.96<4.5 painted rgb(185, 185, 185) (text) on rgb(255, 255, 255), 13px text",
       "Settings: the panel renders \"Sessions unavailable\" and the harness did not report the failure fixture — this surface was measured with the push missing",
       "History: the harness never opened the SSE stream, so this surface was measured in the RECONNECTING state — the fixture failed, not the panel",
       "reflow @320px: the document scrolls sideways (340 > 320)",

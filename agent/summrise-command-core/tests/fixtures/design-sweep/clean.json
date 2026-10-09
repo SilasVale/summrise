@@ -191,7 +191,7 @@
       {
         "density": "panel",
         "theme": "light",
-        "underAA": []
+        "rows": []
       }
     ],
     "reflow": [

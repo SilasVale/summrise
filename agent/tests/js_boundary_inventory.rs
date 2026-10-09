@@ -412,4 +412,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 107;
+const MAX_LOGIC: usize = 105;
