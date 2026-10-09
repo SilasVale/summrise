@@ -303,6 +303,17 @@ fn with_cors(
         let headers = res.headers_mut();
         headers.set("Access-Control-Allow-Origin", origin)?;
         headers.set("Vary", "Origin")?;
+    } else {
+        // **A REFUSED ORIGIN MUST LOSE THE HEADER THE ANSWER ALREADY CARRIED — MEASURED 2026-10-09, ON THE
+        // LIVE PATH.** `gateway/src/http.ts:133 withCors` delegates to `stampCors`, whose else branch
+        // (`http.ts:124`) is exactly this delete. Skipping the `if` instead FORWARDS whatever the upstream
+        // said about origins, so any answer that already carries an `Access-Control-Allow-Origin` — a relay's,
+        // an upstream API's — is handed to a caller the allowlist just refused. **The corpus could not see it**:
+        // of the three recorded answers carrying an ACAO, all three are ALLOWED origins, so no case paired
+        // "already carries an ACAO" with "a refused origin" until the case beside this fix was recorded.
+        // **AND THE DEPLOY IS WHAT MADE IT LIVE**: before it the shipping TypeScript answered these requests
+        // and deleted the header; after it the Rust answers them, so this is not a latent divergence.
+        res.headers_mut().delete("Access-Control-Allow-Origin")?;
     }
     Ok(res)
 }
@@ -444,3 +455,4 @@ pub mod translate;
 pub mod v1;
 pub mod vision;
 pub mod webcrypto;
+
