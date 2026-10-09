@@ -52,7 +52,6 @@ const pressPass = P.passes.pressPass;
 const discoverPressTargets = P.passes.discoverPressTargets;
 const revealPass = P.passes.revealPass;
 const ackPass = P.passes.ackPass;
-const ackNotes = P.passes.ackNotes;
 const idlePass = P.passes.idlePass;
 const motionPass = P.passes.motionPass;
 const MOTION = P.motion;

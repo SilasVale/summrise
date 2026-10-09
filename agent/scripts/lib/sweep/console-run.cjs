@@ -41,7 +41,6 @@ const ACK_BUDGET_MS = 100;
 // press and the first visible acknowledgement against the stated budget, and with discover it asks the DOM for every
 // visible control instead of a list somebody thought of.
 const ackPass = P.passes.ackPass;
-const ackNotes = P.passes.ackNotes;
 // AND THE HELPER pressPass CALLS: it asks the DOM for the page's controls. A borrowed helper that calls another
 // one needs that one embedded too, or the run dies on the device with "is not defined" — the failure the emitted
 // check below exists for.
@@ -494,9 +493,11 @@ const fail = { api: false };
           // different rules (a row of another shape there would be read as a press that measured nothing).
           report.ack = report.ack || [];
           for (const r of ackRows) report.ack.push(r);
-          // AND ITS NUMBERS ARE PRINTED (round 194): the rows reached the judge and were invisible, so a green run said
-          // nothing about whether any control answered. The same shared lines the panel prints.
-          for (const line of ackNotes(ackRows, 'console/' + label)) console.log(line);
+          // AND ITS NUMBERS ARE PRINTED — BY THE JUDGE, WHICH IS THE ONLY IMPLEMENTATION NOW (2026-10-09).
+          // This printed them at RUN time and the judge printed them only for the rows that got as far as
+          // acknowledging, so a row excused early was the one row whose numbers nobody saw. The judge prints
+          // them before EVERY exit, which is a superset of what these two streams showed between them, and
+          // the formatting lives in one language instead of two.
         }
       }
     }
