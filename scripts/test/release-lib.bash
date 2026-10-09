@@ -356,14 +356,30 @@ rm -rf "$R"
 # consumer read the digest, and the url was read by NOBODY — while the same CDN path was retyped in
 # four places. The two readers that fetch the manifest for the digest now take the address from the
 # same body; component_route_verdict pins the copies that cannot fetch anything against the routes
-# index/src/index.js actually serves. These cases drive every branch of it, including the FLOORS: a
+# `index/worker/src/routes.rs` actually serves. These cases drive every branch of it, including the FLOORS: a
 # pin whose extraction reads nothing must fail, not pass silently.
 D="$T/pin"
 pin_fixture() {
-  mkdir -p "$D/index/src" "$D/agent/deploy" "$D/agent/summrise-agent-npm/src" "$D/scripts"
-  cat > "$D/index/src/index.js" <<'EOF'
-    if (pathname === "/summrise-agent/cloudflared.exe") { return assets(request); }
-    if (pathname === "/summrise-agent/summrise-playwright.zip") { return r2(request); }
+  mkdir -p "$D/index/worker/src" "$D/agent/deploy" "$D/agent/summrise-agent-npm/src" "$D/scripts"
+  # THE ROUTE TABLE IS THE RUST ONE, because that is what `index/wrangler.jsonc` deploys. The fixture also
+  # carries a `#[cfg(test)]` module with sample addresses, so this file proves the exclusion rather than
+  # assuming it: without that, a grep over the whole file would turn the samples into served paths.
+  cat > "$D/index/worker/src/routes.rs" <<'EOF'
+pub fn route(pathname: &str) -> Option<Route> {
+    match pathname {
+        "/summrise-agent/cloudflared.exe" => Some(Route::Cloudflared),
+        "/summrise-agent/summrise-playwright.zip" => Some(Route::Playwright),
+        _ => None,
+    }
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn samples() {
+        assert!(route("/summrise-agent/cloudflared.exe.bak").is_none());
+        assert!(route("/summrise-agent/summrise-agent-1.2.297.tgz").is_none());
+    }
+}
 EOF
   printf '%s\n' '{"cloudflared":{"url":"https://agent.saisi.online/summrise-agent/cloudflared.exe","sha256":"aa"}}' > "$D/index/components.json"
   printf '%s\n' 'Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared" | Out-Null' > "$D/agent/deploy/summrise-online-setup.ps1"
@@ -386,10 +402,24 @@ pin_drift() { # pin_drift <desc> <file> <sed-expr> <substring the refusal must c
 pin_fixture
 check "an agreed fixture has NO findings" "$(component_route_verdict "$D")" ""
 # The pin is only as good as the ROUTE table it reads: a served set that reads nothing must fail.
-printf '%s\n' '#!/usr/bin/env bash' > "$D/index/src/index.js"
+cat > "$D/index/worker/src/routes.rs" <<'EOF'
+pub fn route(_p: &str) -> Option<Route> { None }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn samples() { assert!(route("/summrise-agent/cloudflared.exe").is_none()); }
+}
+EOF
 pin_says "a worker whose route table reads NOTHING fails the pin" "the route table moved"
-rm -f "$D/index/src/index.js"
-pin_says "a MISSING worker fails the pin" "the index worker is missing"
+# AND THE EXCLUSION IS PROVEN BY PUBLISHING ONE: the fixture's route table carries a `#[cfg(test)]` module
+# holding `/summrise-agent/summrise-agent-1.2.297.tgz`, and this publishes EXACTLY that address. An extraction
+# that read the whole file would find it "served" and pass; the gate must refuse it instead.
+pin_fixture
+pin_drift "an address that appears ONLY inside the test module is not a served path" index/components.json \
+  's|/summrise-agent/cloudflared\.exe|/summrise-agent/summrise-agent-1.2.297.tgz|' \
+  "index/components.json publishes /summrise-agent/summrise-agent-1.2.297.tgz"
+rm -f "$D/index/worker/src/routes.rs"
+pin_says "a MISSING worker fails the pin" "the index worker's route table is missing"
 
 pin_drift "a renamed path in the PIN FILE is refused" index/components.json 's|cloudflared\.exe|cloudflared-x64.exe|' "index/components.json publishes /summrise-agent/cloudflared-x64.exe"
 pin_drift "a renamed path in the INSTALLER's fallback is refused" agent/deploy/summrise-online-setup.ps1 's|cloudflared\.exe|cloudflared-x64.exe|' "summrise-online-setup.ps1 spells /summrise-agent/cloudflared-x64.exe"
@@ -398,7 +428,7 @@ pin_drift "a renamed path in the BUNDLE PRODUCER is refused" scripts/build-playw
 # …and the ROUTE is the derivation: moving it is what every copy must follow, so a copy left
 # behind is refused the same way. This is the direction that a "does the file exist" check misses.
 pin_fixture
-sed -i 's|/summrise-agent/cloudflared\.exe|/summrise-agent/cloudflared-x64.exe|' "$D/index/src/index.js"
+sed -i 's|/summrise-agent/cloudflared\.exe"|/summrise-agent/cloudflared-x64.exe"|' "$D/index/worker/src/routes.rs"
 pin_says "a copy left behind by a MOVED ROUTE is refused" "index/components.json publishes /summrise-agent/cloudflared.exe"
 
 # The floors: a copy that yields no path at all proves nothing, so it is a failure.

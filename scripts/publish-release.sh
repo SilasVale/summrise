@@ -504,17 +504,18 @@ fi
 # all — version.json published a `url` per component that NOBODY read. The two readers that fetch
 # the manifest for the digest now take the address from the same body (the npm CLI's
 # resolveComponent, the installer's component blocks); the copies that cannot fetch anything are
-# compared here against the routes index/src/index.js answers, so a rename on one side of that chain
+# compared here against the routes the index worker's RUST route table answers (`index/worker/src/routes.rs`,
+# which is what `index/wrangler.jsonc` deploys since the cutover), so a rename on one side of that chain
 # cannot leave the other side publishing a dead address. The gate lives in scripts/lib/release-lib.sh
 # so it has behavioural tests (round 154's rule for every refusal in this block).
-if [ -f index/components.json ] && [ -f index/src/index.js ]; then
+if [ -f index/components.json ] && [ -f index/worker/src/routes.rs ]; then
   if ! ROUTE_BAD=$(component_route_verdict "$PWD"); then
     echo "::error::component address drift — a published url and the route that serves it disagree:" >&2
     printf '%s' "$ROUTE_BAD" >&2
-    echo "  Fix: index/src/index.js is the derivation; move the copy to the route it serves." >&2
+    echo "  Fix: index/worker/src/routes.rs is the derivation; move the copy to the route it serves." >&2
     exit 1
   fi
-  echo "  component addresses: every declared copy names a path index/src/index.js serves"
+  echo "  component addresses: every declared copy names a path index/worker/src/routes.rs serves"
 fi
 
 # ── --dry-run: every gate that can REFUSE, and nothing that can CHANGE anything ────────────────

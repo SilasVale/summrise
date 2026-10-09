@@ -514,7 +514,7 @@ worktree_mode_verdict() {
 # resolveComponent, the online installer's component blocks) already fetched the manifest for the
 # digest and now take the ADDRESS from the same body; the copies that cannot fetch anything keep
 # the path and are compared HERE against the one derivation that is not a copy: the routes
-# index/src/index.js answers. A copy that moves without the route, or a route that moves without
+# `index/worker/src/routes.rs` answers. A copy that moves without the route, or a route that moves without
 # the copies, is the drift this refuses.
 #
 # PATHS, NOT HOSTS. The worker REBUILDS every published url against the origin of the request
@@ -529,13 +529,28 @@ worktree_mode_verdict() {
 # removed from the list below, in the commit that removes it.
 component_route_verdict() {
   local root="${1:?repo root}"
-  local worker="$root/index/src/index.js"
+  # **THE SOURCE THAT RUNS IS THE RUST ONE.** This read `index/src/index.js` until 2026-10-09, and that file
+  # stopped serving anything the day `index/wrangler.jsonc` began naming `worker/build/index.js` — measured by
+  # fetching the deployed module from the API and finding the wasm glue in it. An audit that validates the
+  # published addresses against a file nothing runs is an audit that will pass the next rename, so it reads the
+  # route table the worker actually executes now.
+  local worker="$root/index/worker/src/routes.rs"
   local report="" served
-  [ -f "$worker" ] || { echo "the index worker is missing ($worker) — the addresses cannot be compared to anything"; return 1; }
+  [ -f "$worker" ] || { echo "the index worker's route table is missing ($worker) — the addresses cannot be compared to anything"; return 1; }
   # The served paths, read from the worker's own route table rather than from any of the copies.
-  served="$(grep -oE 'pathname === "/summrise-agent/[A-Za-z0-9._-]+"' "$worker" | grep -oE '/summrise-agent/[A-Za-z0-9._-]+' | sort -u)"
+  #
+  # IT STOPS AT `#[cfg(test)]`, AND THAT IS NOT A DETAIL: the file's unit tests carry sample addresses
+  # (`SummriseAgent-Setup-1.2.297.exe`, `cloudflared.exe.bak`, `summrise-agent-v1.2.297.tgz`), so a grep over
+  # the whole file collects EIGHTEEN paths instead of five and the gate would then pass on addresses nobody
+  # serves — a gate that exits 0 having proved nothing, which this repository has a name for.
+  #
+  # AND THE PREFIX STUBS ARE NOT ADDRESSES: the two versioned families are matched with `strip_prefix`, whose
+  # literals end in `-` (`/summrise-agent/summrise-agent-`). They are the reason this is a list of complete
+  # published paths rather than a list of every string that starts with the prefix.
+  served="$(awk '/#\[cfg\(test\)\]/{exit} {print}' "$worker" \
+    | grep -oE '"/summrise-agent/[A-Za-z0-9._-]+"' | tr -d '"' | grep -v -- '-$' | sort -u)"
   if [ -z "$served" ]; then
-    echo "no /summrise-agent route could be read from index/src/index.js — the route table moved, so this proves nothing"
+    echo "no /summrise-agent route could be read from index/worker/src/routes.rs — the route table moved, so this proves nothing"
     return 1
   fi
 
@@ -547,7 +562,7 @@ component_route_verdict() {
       [ -n "$u" ] || continue
       n=$((n + 1))
       p="${u#*://}"; p="/${p#*/}"
-      grep -qxF "$p" <<<"$served" || report="${report}index/components.json publishes $p, which index/src/index.js does not serve"$'\n'
+      grep -qxF "$p" <<<"$served" || report="${report}index/components.json publishes $p, which index/worker/src/routes.rs does not serve"$'\n'
     done < <(python3 -c "
 import json
 try:
@@ -571,7 +586,7 @@ for k, v in sorted(pins.items()):
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       n=$((n + 1))
-      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/deploy/summrise-online-setup.ps1 spells /summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/deploy/summrise-online-setup.ps1 spells /summrise-agent/$p, which index/worker/src/routes.rs does not serve"$'\n'
     done < <(grep -oP '\$CdnBase/summrise-agent/[A-Za-z0-9._-]+(?=")' "$ps1" | sed 's|.*/summrise-agent/||' | sort -u)
     [ "$n" -gt 0 ] || report="${report}no \$CdnBase/summrise-agent path could be read from agent/deploy/summrise-online-setup.ps1 — the fallbacks moved, so this proves nothing"$'\n'
   fi
@@ -586,7 +601,7 @@ for k, v in sorted(pins.items()):
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       n=$((n + 1))
-      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/summrise-agent-npm/src/summrise.ts asks setup for /summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/summrise-agent-npm/src/summrise.ts asks setup for /summrise-agent/$p, which index/worker/src/routes.rs does not serve"$'\n'
     done < <(python3 -c "
 import re
 src = open('$ts').read()
@@ -603,7 +618,7 @@ print('\n'.join(sorted(set(re.findall(r'resolveComponent\(\s*\"([A-Za-z0-9._-]+)
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       n=$((n + 1))
-      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}scripts/build-playwright-bundle.sh writes index/public/summrise-agent/$p, which index/src/index.js does not serve"$'\n'
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}scripts/build-playwright-bundle.sh writes index/public/summrise-agent/$p, which index/worker/src/routes.rs does not serve"$'\n'
     done < <(grep -oP 'index/public/summrise-agent/[A-Za-z0-9._-]+' "$bundle" | sed 's|.*/summrise-agent/||' | sort -u)
     [ "$n" -gt 0 ] || report="${report}no index/public/summrise-agent path could be read from scripts/build-playwright-bundle.sh — the OUT default moved, so this proves nothing"$'\n'
   fi

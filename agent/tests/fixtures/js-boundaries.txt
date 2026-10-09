@@ -94,8 +94,22 @@ LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with 
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 LOGIC | gateway/config/ | the provider catalogue as TypeScript, becoming data (B)
-LOGIC | index/src/ | the index worker's entry and page policy (landing 5)
-LOGIC | index/test/ | the index worker's suite (landing 5)
+# ── THE INDEX'S JAVASCRIPT IS THE ORACLE, NOT WORK THAT IS LEFT (measured 2026-10-09) ─────────────────────────
+# The index worker was cut over to Rust before this migration began, and these files were still counted as
+# LOGIC on the assumption that their cutover was simply unharvested. Reading what depends on them says
+# otherwise, and each dependency is named here because "delete the old implementation" was the wrong move:
+#   * `index/worker/verify.mjs` drives `index/src/index.js` AS PUBLISHED, with stub bindings, and diffs status,
+#     sorted headers and body bytes against the Rust — it is the differential, and deleting it deletes the proof.
+#   * `agent/scripts/landing-design-sweep.mjs` does `import { PAGE } from "../../index/src/page.js"` — a LIVE
+#     import by a tool that renders the page under test.
+#   * `index/landing/verify.mjs` reads `page.js` out of a pinned commit with `git show <ref>:…`, so that file's
+#     history is the reference the landing page is measured against.
+# The Rust is what runs (`index/wrangler.jsonc` names `worker/build/index.js`, measured by fetching the deployed
+# module from the API and finding the wasm glue in it), so nothing here decides product behaviour: these files
+# exist to be COMPARED WITH, which is the boundary `agent/summrise-cli/parity/` and the sweeps' parity
+# instrument are already classified as.
+BOUNDARY | index/src/ | the ORACLE the Rust index worker is measured against (`verify.mjs` drives this entry with stub bindings; the landing sweep imports `PAGE` from `page.js`). The Rust is what runs
+BOUNDARY | index/test/ | the oracle's own suite: it exercises the JavaScript the differential drives, and it leaves when the differential does — not when the worker does
 LOGIC | proxies/api-relay/api/ | the api-relay oracle half — A2 (landing 5)
 LOGIC | proxies/api-relay/server/ | the api-relay server's decisions (landing 5)
 LOGIC | scripts/ | the root build/release tooling (landing 3)

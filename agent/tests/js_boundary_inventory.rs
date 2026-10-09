@@ -93,7 +93,16 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 ///
 /// Folding the file into `devices-cutover.test.mjs` was rejected for the reason the round before it gave: a test
 /// file named for one family is not where the next reader looks for the other's boundary.
-const MAX_LOGIC: usize = 147;
+/// **AND IT FELL BY TEN ON 2026-10-09, WHICH IS THE DIRECTION THIS NUMBER IS SUPPOSED TO MOVE.** The index
+/// worker's JavaScript (`index/src/index.js`, `page.js` and `index/test/`) was counted as LOGIC on the
+/// assumption that its cutover was simply unharvested — and trying to DELETE it is what found out otherwise:
+/// `index/worker/verify.mjs` drives `src/index.js` as published, with stub bindings, and diffs status, sorted
+/// headers and body bytes against the Rust (it is the differential, so deleting it deletes the proof);
+/// `agent/scripts/landing-design-sweep.mjs` LIVE-IMPORTS `PAGE` from `page.js`; and `index/landing/verify.mjs`
+/// reads `page.js` out of a pinned commit as the reference the landing is measured against. Those files exist to
+/// be COMPARED WITH, which is the boundary this manifest already gives `agent/summrise-cli/parity/` and the
+/// sweeps' parity instrument. The manifest carries each dependency beside the rule.
+const MAX_LOGIC: usize = 137;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.
