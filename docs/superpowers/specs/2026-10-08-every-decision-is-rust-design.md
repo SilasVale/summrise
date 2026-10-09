@@ -168,6 +168,22 @@ JavaScript's current plan computation and the Rust plan over the same inputs, ev
 The in-page collectors stay JavaScript for the reason §2 gives — a browser executes them, and `browser_run_script`
 takes a JS file — and they are BOUNDARY entries in the manifest with the platform call named.
 
+**AND THE AUDIT THAT FOLLOWED SLICE 1 FOUND TWO DECISIONS STILL IN THE PAYLOADS, so "the rest is a boundary" is not
+yet true and is not claimed.** Both are named here with the measurement, because the next slice starts from them:
+
+1. **The contrast verdict is still computed in JavaScript.** `panel-run.cjs:1134` and `console-run.cjs:411` compare
+   each row's measured ratio against its requirement (`r.cr < need`) and build `underAA`; the Rust judge then READS
+   `underAA` (`report.rs:1073`) and turns it into the finding *"N element(s) below AA while hovered"*. So the sentence
+   is Rust and the comparison is JavaScript — the comparison is the decision. The fix is a shape change rather than a
+   translation: the payload returns `cr` and `need` per row, and the judge compares.
+2. **The acknowledgement's note text is computed twice.** `ackNotes` exists in `lib/design-sweep.mjs` and the console
+   payload prints its output at RUN time (`console-run.cjs:499`), while the Rust judge has the same function
+   (`report.rs:1297`) and prints the same sentences at JUDGE time from the report. Two implementations of one piece of
+   formatting, and today a full run prints the sentence twice. Deleting the payload's call is the whole fix — the
+   judge already prints it — and it removes a formatting decision from JavaScript.
+
+Everything else the sweeps' Node side does is drive a browser and return rows, which §2 puts on the BOUNDARY side.
+
 ## 5 · SOLID, concretely
 
 Not a slogan: each line names the place it is already true, or the change that makes it true.

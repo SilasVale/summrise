@@ -34,6 +34,20 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      # **THE CRATE'S SECOND TARGET, NAMED HERE BECAUSE THE RUNNER'S DEFAULT TOOLCHAIN DOES NOT HAVE IT.**
+      # This job ran `cargo test --manifest-path gateway/wasm/Cargo.toml` on the runner's preinstalled Rust,
+      # which is a HOST build: the wasm-only half of the crate (`worker.rs` and its `#[event(fetch)]` entry)
+      # expanded to nothing and was never compiled. The lint step below checks that half, and it needs
+      # `wasm32-unknown-unknown` — which rustup does not install by default, so the step would have failed
+      # on a missing target rather than on a defect. The version matches `rust-toolchain.toml`, as every
+      # other job's step does.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gateway/wasm
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -59,8 +73,24 @@ jobs:
       # that runs the BUILT module against the shipping TypeScript — and a crate whose tests no job
       # invokes is a crate whose tests are decoration. **A STEP IN THIS JOB AND NOT A NEW ONE**, the
       # plan's standing rule; this job already carries the gateway's other languages.
+      #
+      # **AND THE TESTS WERE THE ONLY THING THIS JOB RAN (2026-10-08, found while porting the device
+      # registry).** `cargo test` compiles the HOST target, so the crate's wasm-only half — `worker.rs`
+      # and its `#[event(fetch)]` entry, which expand to nothing off wasm32 — was never compiled by
+      # anything until a deploy. Both clippy lines below are the two targets the crate has: the host,
+      # where the decisions are tested, and wasm32, where the entry point is checked. The dev
+      # dependency on `wasm-bindgen` makes the second one build.
+      #
+      # There is deliberately NO `cargo fmt --check` here: it fails at `main` today on six pre-existing
+      # files (`reliability.rs`, `request_shape.rs`, `routing.rs`, `store.rs`, `v1.rs`, `vision.rs`), and
+      # a step that is red before the change it guards is a step nobody reads. Formatting those six is
+      # its own commit, with nothing else in it.
       - name: Rust (translation + health route)
         run: cargo test --manifest-path gateway/wasm/Cargo.toml
+      - name: Rust lint, both targets the crate has (host + wasm32)
+        run: |
+          cargo clippy --manifest-path gateway/wasm/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
 
   ui:
     name: ui (tsc + build + test + render smoke)
