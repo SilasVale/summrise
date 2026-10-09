@@ -328,6 +328,12 @@ jobs:
           # which surfaces a design sweep visits and which passes measure there — the matrix that used to be
           # written out at 29 call sites in the payloads.
           cargo test -p summrise-sweep-plan --no-fail-fast
+          # **THE MODEL-DRIFT TOOL (2026-10-09).** Same story, same reason: a workspace member that is not
+          # a default member is a crate no job tests unless it is named here. `summrise-model-drift` is the
+          # Rust home of `scripts/model-drift.mjs` — the ops tool that compares the catalogue the gateway
+          # advertises against what each channel's upstream actually lists — and that `.mjs` is DELETED in
+          # the same landing, so this line is the only thing that runs the ported cases.
+          cargo test -p summrise-model-drift --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
@@ -380,6 +386,7 @@ jobs:
           cargo clippy -p summrise-agent-core --all-targets -- -D warnings
           cargo clippy -p summrise-cli --all-targets -- -D warnings
           cargo clippy -p summrise-sweep-plan --all-targets -- -D warnings
+          cargo clippy -p summrise-model-drift --all-targets -- -D warnings
         working-directory: agent
       - name: Format check
         run: cargo fmt --all -- --check

@@ -351,6 +351,10 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                                 has one definition now, and it is in Rust
 ///     the fixture reader            ->   107     `scripts/test/lib/emitted-pieces.mjs` is what two
 ///                                                 live bash gates import, so it is BOUNDARY
+///     the model-drift port          ->   106     `scripts/model-drift.mjs` is DELETED, ported to
+///                                                 `agent/model-drift/` (crate `summrise-model-drift`),
+///                                                 and the manifest's root `LOGIC | scripts/ |` rule
+///                                                 goes with it: that file was its ONLY match
 ///
 /// **AND TWO MORE MOVED FOR A THIRD REASON: ONE WAS ALREADY GONE IN EVERY SENSE BUT THE FILE.** The rule
 /// `scripts/test/lib/decomment.mjs` defines — a comment is not a producer, nor a derivation — has exactly one
@@ -406,10 +410,25 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// (`GET /api/plugins/status`, whose `routes` field is the TypeScript plugin registry's own dispatch counters).
 /// A ratchet that moves for a file that merely changed class is measuring the manifest rather than the work.
 ///
+/// **AND ONE MOVEMENT TOOK A RULE WITH IT, WHICH IS THE PART WORTH READING (2026-10-09).**
+/// `scripts/model-drift.mjs` (137 lines) is `agent/model-drift/` now: the three pure functions, the
+/// report's sentences, the argv and the exit codes are Rust, and `cargo test -p summrise-model-drift`
+/// — named in the `agent` job, because a workspace member that is not a default member is a crate no
+/// job tests — is what runs the ported cases. Its manifest rule was not only its own: the catch-all
+/// `LOGIC | scripts/ | the root build/release tooling (landing 3)` matched that file and NOTHING ELSE
+/// (the rest of `scripts/` is extensionless hook scripts, which this inventory does not count, and
+/// `scripts/test/` is covered by its own longer rule), so once the file left, the rule matched
+/// nothing — and a rule that matches nothing is dead weight in the file that answers "may I write
+/// this in JS". It is deleted with the file, which is also what makes a future `.mjs` in `scripts/`
+/// land as UNCLASSIFIED instead of being quietly swallowed by a directory rule. The number below was
+/// MEASURED, not computed: the cap was set to 0 and the gate's own failure line read back on THIS
+/// tree (`LOGIC files: 106, and the frozen budget is 0`), because only the merged tree's number is a
+/// fact about the merged tree.
+///
 /// AND THE SOUND OF A DOWNWARD STEP IS NAMED: the two files landing 6 removed did not go away because they were
 /// inconvenient. `agent/summrise-desktop-electron/src/url-policy.ts` and its suite became
 /// `agent/summrise-url-policy`'s own tests, case for case, in a Rust crate compiled to wasm — the shell's
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 107;
+const MAX_LOGIC: usize = 106;

@@ -21,7 +21,7 @@
 // (keyReady is the dot: the server reduces the credential to a mask, never
 // returns it); models are added/disabled/deleted through `/api/admin/models`; the
 // route is set through `/api/me/route`. The ONE thing this page still cannot do
-// is ask an upstream what it serves and adopt the answer — `scripts/model-drift.mjs`
+// is ask an upstream what it serves and adopt the answer — `agent/model-drift/`
 // can, but it is an ops tool, not a route, and giving the worker that job means a
 // new outbound-request surface that deserves its own review.
 import { useState, useEffect, useCallback } from "react";

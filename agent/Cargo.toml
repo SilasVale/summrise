@@ -27,7 +27,12 @@
 # workspace (`agent/resources/panel-logic` is the other arrangement for a wasm crate here) because its
 # decisions are Rust the agent's toolchain lints and tests, and `cargo test -p summrise-url-policy` is
 # part of the landing's bar.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy"]
+# `model-drift` is a member so `cargo fmt --all`, `cargo clippy` and the workspace's lockfile see it, and
+# it is NOT a default member for the same reason as the five above: it is not part of
+# `summrise-agent.exe`. It is the Rust home of `scripts/model-drift.mjs` — the ops tool that compares
+# what the gateway's catalogue advertises against what each channel's upstream actually lists — which is
+# deleted in the same landing, so `cargo test -p summrise-model-drift` is the whole bar.
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy", "model-drift"]
 default-members = ["."]
 resolver = "2"
 

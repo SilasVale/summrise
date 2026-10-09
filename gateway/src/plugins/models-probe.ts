@@ -2,8 +2,9 @@
 //
 // WHY THIS EXISTS. The catalogue is hand-maintained: a model is added by NAME, and
 // nothing tells an operator that the upstream has since added or retired one.
-// `scripts/model-drift.mjs` has been able to answer that since round 57 — as an ops
-// tool, run from a laptop, with its own copy of the upstream URLs. This brings the
+// `agent/model-drift/` (cargo run -p summrise-model-drift) has been able to answer
+// that since round 57 — as an ops tool, run from a laptop, with its own copy of the
+// upstream URLs. This brings the
 // same question into the console, where the person editing the catalogue is: what
 // does this provider offer, and which of its models am I not advertising?
 //
@@ -110,7 +111,7 @@ export async function adminProbeModels(request: Request, env: any): Promise<Resp
   if (!endpoint) {
     return jsonOk({
       checked: false,
-      reason: `${bare} speaks a dialect whose model list this build cannot derive — the checked list lives in scripts/model-drift.mjs`,
+      reason: `${bare} speaks a dialect whose model list this build cannot derive — the checked list lives in agent/model-drift/`,
     });
   }
 
@@ -189,7 +190,7 @@ export async function adminProbeModels(request: Request, env: any): Promise<Resp
       .map((id) => bare + "/" + id),
     // ADVERTISED BUT NOT LISTED — printed as a CHECK, never a verdict: the router
     // normalises names (wire remaps, `[1m]` markers), so a raw diff reports false
-    // drift. `scripts/model-drift.mjs` records the first live run where exactly one
+    // drift. `agent/model-drift/` records the first live run where exactly one
     // of these was genuine.
     notOffered: advertised.filter((id) => !offeredSet.has(id.slice(bare.length + 1))),
   });

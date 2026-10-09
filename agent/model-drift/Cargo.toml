@@ -1,0 +1,25 @@
+[package]
+name = "summrise-model-drift"
+version.workspace = true
+edition = "2021"
+description = "What the model CHANNELS advertise vs what their upstreams offer, ported out of scripts/model-drift.mjs"
+
+[[bin]]
+name = "summrise-model-drift"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_model_drift"
+path = "src/lib.rs"
+
+[dependencies]
+# The upstream GET, and `json` to read the reply. `rustls-tls` for the reason the agent's own reqwest
+# dependency gives: it keeps the cross-compile pure-Rust.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# `#[tokio::main]` for one request at a time — the four channels are compared SEQUENTIALLY, as the
+# JavaScript did, because the report's channel order is the CHANNELS order and not a completion order.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# `preserve_order` is NOT cosmetic: the report is a JSON object whose key order is the order the
+# fields were written in (`advertised`, `offered`, then the two lists), and a BTreeMap would sort
+# them. The text report is what a person reads; this is what a script reads.
+serde_json = { version = "1", features = ["preserve_order"] }
