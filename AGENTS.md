@@ -172,6 +172,21 @@ line for the bare name `node_modules`.
 collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
 branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
 
+**AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home
+directories ran **1h34m**, and `grep -rn underAA --include=* .` ran **45 minutes**; both were left behind by
+tracks that had moved on, and between them they held load at ~23 while a linker collected **5 CPU ticks in 15
+seconds** and every cargo gate in every worktree crawled. Neither was killing anything (both are re-runnable),
+so the cost was pure time — and **the first one was visible in a process listing for two rounds before anyone
+acted on it.** Check `ps` for long-running read-only commands before blaming the machine, and prefer the `grep`
+TOOL over shell `grep -r`: this file already said shell grep "crawls or hangs", and the repo-wide form with
+`--include=*` is that hazard at box scale.
+
+**AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
+tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon —
+`&` (the child died silently), `| tail -40` (the job lived but its output was swallowed, and `ps` could not find
+it), and a second managed job whose process had already gone. The tool's own fallback is the mechanism: no `&`,
+no pipe, and the output streams while it runs.
+
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
 install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
 running in. `.githooks/` is gitignored and machine-local, so it exists only in the main checkout: in a worktree the path
@@ -185,6 +200,21 @@ The backstop is `agent/tests/main_shape.rs`, which reads the commit OBJECT of `m
 two parents — it caught this in CI on the next push, which is the gate working, and it is also why the repair is a MERGE
 onto the bad tip rather than a history rewrite: a new merge commit gives `main` two parents without moving anything
 already published.
+
+**AND THE ABSOLUTE PATH HAS A COST, MEASURED 2026-10-09: A COMMIT IN ANY WORKTREE RUNS THE MAIN CHECKOUT'S HOOK.**
+That was the fix — worktrees silently losing every hook — and the price is that the hook cannot match the branch
+being committed. Main's copy still named `scripts/test/contrast-probe-check.mjs`, which another branch had
+DELETED, so a merge was refused for a file that did not exist on the tree being merged. **Run the worktree's own
+hook instead of bypassing it**, by giving the worktree its own `.githooks/` (gitignored, the same two links) and
+committing with:
+
+    git -c core.hooksPath="$PWD/.githooks" commit
+
+**AND THE HOOK NEEDS A TOOLCHAIN IT CANNOT SEE.** Its emitters refuse with *"the sweep plan is Rust and there is
+neither a cargo on PATH nor a built …/summrise-sweep-plan"* — the hook runs without `~/.cargo/bin`, so **put
+`cargo` on PATH for the commit** (or build `summrise-sweep-plan` once). Measured the hard way: a commit was
+bypassed with `--no-verify` and blamed on the worktree's dependency trees, which were not the cause and whose
+symlinking changed nothing. **A cause that survives its own attempted fix is not a cause.**
 
 ## A status says what was CHECKED
 
