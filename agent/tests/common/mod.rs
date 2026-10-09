@@ -279,6 +279,140 @@ pub fn git_ls_files(dir: &str) -> Vec<String> {
         .collect()
 }
 
+// ── THE SPAWNING GATES ─────────────────────────────────────────────────────────────────────────────
+//
+// FOUR GATES THAT CAME OUT OF `scripts/test/*.mjs` SPAWN A TOOLCHAIN — `npm run build`, `npm test`,
+// `node <sweep> --emit`, `git status` — and each one needs the same three things: a child, its two
+// streams captured SEPARATELY, and its exit code. `scripts/test/lib/` had no such module on the JS side
+// because `execFileSync` is one line there; here it is four, and four copies of four lines is the defect
+// `decomment` was extracted to remove.
+
+/// A finished child process. Both streams are kept apart because the `.mjs` gates read them apart:
+/// `console-assets-check` prints ONLY `e.stdout`'s tail when a build fails, and `console-smoke-check`
+/// falls back to stderr only when stdout named no error.
+#[derive(Debug)]
+pub struct Ran {
+    pub status: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl Ran {
+    /// `e.status ?? 1`, which is what every ported message prints for a failed child.
+    pub fn code(&self) -> i32 {
+        self.status.unwrap_or(1)
+    }
+
+    pub fn ok(&self) -> bool {
+        self.status == Some(0)
+    }
+
+    /// stdout then stderr — the concatenation `console-smoke-check.mjs` makes when a smoke died before
+    /// printing a failing line.
+    pub fn both(&self) -> String {
+        format!("{}{}", self.stdout, self.stderr)
+    }
+}
+
+/// A child process, described the way `execFileSync(program, args, { cwd, env })` describes one.
+pub struct Spawn {
+    program: String,
+    args: Vec<String>,
+    cwd: PathBuf,
+    envs: Vec<(String, String)>,
+}
+
+impl Spawn {
+    pub fn new(program: &str) -> Self {
+        Self {
+            program: program.to_string(),
+            args: Vec::new(),
+            cwd: repo(),
+            envs: Vec::new(),
+        }
+    }
+
+    pub fn args<I, S>(mut self, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.args
+            .extend(args.into_iter().map(|a| a.as_ref().to_string()));
+        self
+    }
+
+    /// A path is passed as a string, exactly as `execFileSync("node", [s, built])` passes it.
+    pub fn arg_path(self, p: &Path) -> Self {
+        self.args([p.to_string_lossy().to_string()])
+    }
+
+    pub fn cwd(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.cwd = dir.into();
+        self
+    }
+
+    pub fn env(mut self, key: &str, value: &str) -> Self {
+        self.envs.push((key.to_string(), value.to_string()));
+        self
+    }
+
+    pub fn run(self) -> Ran {
+        let out = std::process::Command::new(&self.program)
+            .args(&self.args)
+            .current_dir(&self.cwd)
+            .envs(self.envs.iter().map(|(k, v)| (k, v)))
+            .output()
+            .unwrap_or_else(|e| {
+                panic!(
+                    "cannot run {} in {}: {e} — the gate needs it on PATH",
+                    self.program,
+                    self.cwd.display()
+                )
+            });
+        Ran {
+            status: out.status.code(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
+    }
+}
+
+/// `execFileSync("git", a, { cwd: ROOT, encoding: "utf8" }).trim()` — every ported shell-out to git
+/// wants exactly this, and the trim is load-bearing: `git status --porcelain` on a clean tree answers
+/// "\n" for an empty diff, and the gates compare that answer to "".
+pub fn git(args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(repo())
+        .output()
+        .unwrap_or_else(|e| panic!("cannot run git {args:?}: {e}"));
+    if !out.status.success() {
+        panic!(
+            "git {args:?} failed (rc={}): {}",
+            out.status.code().unwrap_or(1),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A string's LAST `n` characters — JavaScript's `s.slice(-n)`, which the ported messages use to show
+/// the tail of a failed build. Character-wise, because a byte slice would split a UTF-8 sequence and
+/// panic on a build that printed a box-drawing character.
+pub fn tail(s: &str, n: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    chars[chars.len().saturating_sub(n)..].iter().collect()
+}
+
+/// Is a package's dependency tree installed? The question every ported toolchain gate asks before it
+/// declares "this host cannot run me", and the one round 191 is about: `pack-chain` runs every gate
+/// through `all-gates.bash` and installs only what it needs, so a missing `node_modules` is a fact
+/// about the HOST and never about the thing being measured.
+pub fn has_node_modules(rel: &str) -> bool {
+    repo().join(rel).join("node_modules").is_dir()
+}
+
 /// `git ls-files` with NO pathspec — every tracked path, in the index's own order, which is the list
 /// `production-host-check` walks. Its own function rather than `git_ls_files("")`, because an empty
 /// pathspec is a question about git's matching rules and this is a question about the index.
