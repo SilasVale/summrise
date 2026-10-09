@@ -30,6 +30,34 @@ const PROVIDER = {
   keyReady: true,
 };
 
+/** Wait until every route this scene stubbed has been ANSWERED, and the render has gone quiet.
+ *
+ *  Why not a duration, and why not `#root.children.length > 0`: see the block at the call site.
+ *  This waits for the thing the checks actually depend on — the page's reads having arrived — which
+ *  is independent of what any check asserts, so it cannot turn an assertion into a tautology. The
+ *  quiet window then covers the commit that follows the last read (measured: the same 10 ms sample
+ *  in which the sixth read is answered is the one where the card is present).
+ */
+async function waitForReads(window, routes, answered, { ceilingMs = 5000, quietMs = 50 } = {}) {
+  const wanted = Object.keys(routes);
+  const deadline = Date.now() + ceilingMs;
+  let signature = null;
+  let quietSince = Date.now();
+  while (Date.now() < deadline) {
+    const root = window.document.querySelector("#root");
+    const now = `${answered.size}:${root ? root.innerHTML.length : -1}`;
+    if (now !== signature) {
+      signature = now;
+      quietSince = Date.now();
+    }
+    if (wanted.every((p) => answered.has(p)) && Date.now() - quietSince >= quietMs) {
+      return { allAnswered: true, missing: [], ceilingMs };
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return { allAnswered: false, missing: wanted.filter((p) => !answered.has(p)), ceilingMs };
+}
+
 /** Mount the bundle with `routes` stubbed; returns the document plus the unmocked set. */
 async function mount(routes) {
   const dom = new JSDOM(html, {
@@ -50,18 +78,28 @@ async function mount(routes) {
   window.WebAssembly = WebAssembly;
   window.__consoleLogicModule = WebAssembly.compile(readFileSync("../public/ui_logic_bg.wasm"));
   const unmocked = new Set();
+  const answered = new Set();
   window.fetch = async (input) => {
     const path = new URL(String(input), "https://ai.saisi.online").pathname;
-    if (path in routes) {
-      return new Response(JSON.stringify(routes[path]), {
-        status: 200,
-        headers: { "content-type": "application/json" },
+    try {
+      if (path in routes) {
+        return new Response(JSON.stringify(routes[path]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      unmocked.add(path);
+      return new Response(JSON.stringify({ error: { message: "not mocked: " + path } }), {
+        status: 404,
       });
+    } finally {
+      // **THE ANSWER, NOT THE ASK — AND THE DIFFERENCE IS THE WHOLE FIX.** A first version of this
+      // recorded the path where it was REQUESTED, and a delay injected into the stub exposed it: the
+      // page asks for all six routes at once and their answers arrive later, so "all asked" was true
+      // ~50 ms in and the checks ran against a page that had read nothing. Measured with every
+      // stubbed read delayed 1200 ms: `asked` failed 3/3 while `answered` passes 3/3.
+      answered.add(path);
     }
-    unmocked.add(path);
-    return new Response(JSON.stringify({ error: { message: "not mocked: " + path } }), {
-      status: 404,
-    });
   };
   window.localStorage.setItem("summrisegate-lang", "zh");
   window.__ims = (s) => s;
@@ -70,7 +108,47 @@ async function mount(routes) {
       .replaceAll("import.meta.resolve", "window.__ims")
       .replaceAll("import.meta.url", JSON.stringify("https://ai.saisi.online/")),
   );
-  await new Promise((r) => setTimeout(r, 800));
+  // ── WAIT FOR THE READS, NOT FOR A DURATION AND NOT FOR A CHILD (measured 2026-10-09) ────────────
+  //
+  // THE LINE HERE WAS `await new Promise((r) => setTimeout(r, 800))`, and 800 ms is a stopwatch
+  // standing in for a condition: on a loaded box the bundle has not finished its reads, three
+  // scene-1 checks fail, and `all-gates` reports `OVERVIEW RENDER FAIL (3)` — a broken console
+  // that is actually a slow machine. **A FLAKY GATE IS WORSE THAN A SLOW ONE.**
+  //
+  // **AND THE OBVIOUS REPLACEMENT IS WORSE, WHICH IS WHY THIS COMMENT IS LONG.** The first fix
+  // polled `#root.children.length > 0` (the shape `render-smoke.mjs` uses). That condition is
+  // satisfied by the FIRST React commit, which lands BEFORE this page's dashboard reads resolve —
+  // and the first-run card is conditioned ON those reads:
+  //
+  //     const noKeys    = configuredCount === 0 && providers !== null && !providers.some((p) => p.keyReady);
+  //     const noDevices = devices !== null && devices.length === 0 && isAdmin;
+  //
+  // ("a read that failed is not a zero", the view says — an unread state renders NO card.) So the
+  // poll broke at the shell and scene 1 failed DETERMINISTICALLY, the same three checks every time,
+  // while scenes 2 and 3 passed VACUOUSLY: the card they assert ABSENT had not been given the
+  // chance to appear. That is the exact vacuity this file was fixed for in round 29, reintroduced
+  // by a fix for the flake.
+  //
+  // MEASURED, traced at 10 ms over scene 1: 20 ms the shell (`html=62`, 0 cards) · 76 ms the first
+  // read answered (`html=6388`, 4 cards) · **92 ms all six stubbed reads answered and the first-run
+  // card present**. So the reads are the condition that decides this smoke, and waiting for them
+  // costs ~90 ms instead of an 800 ms stopwatch.
+  //
+  // AND IT IS THE ANSWERS, NOT THE REQUESTS, WHICH THE SAME HANDICAP MEASURED: with every stubbed
+  // read delayed 1200 ms, a version that waited for the paths to be REQUESTED failed 3/3 — the page
+  // asks for all six at once and their answers arrive later — while this one waits for each answer
+  // and passes 3/3. A first version of this fix had exactly that bug, and the delay is what found
+  // it; the checks are the same three either way.
+  //
+  // THE CEILING IS THE FAILURE CASE, NOT A TOLERATED DURATION: hitting it means a read this scene
+  // stubbed was never ANSWERED, and the line below NAMES it rather than leaving a reader to guess
+  // why the run was slow. The checks then run anyway and say what they see.
+  const settle = await waitForReads(window, routes, answered);
+  if (!settle.allAnswered) {
+    console.log(
+      `  ! the page never got an answer for ${settle.missing.join(", ")} within ${settle.ceilingMs} ms — the checks below ran against whatever had rendered`,
+    );
+  }
   return { doc: window.document, unmocked };
 }
 
