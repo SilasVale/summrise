@@ -87,6 +87,26 @@ pub trait Host {
     /// `curl -fsSL -m <timeout> -o <dest> <url>`: an HTTP error is a FAILURE, never a 404 page
     /// written to disk.
     fn http_download(&self, url: &str, dest: &Path, timeout_secs: u64) -> bool;
+
+    // ── starting something that must outlive us ────────────────────────────────
+    /// Start a program and RETURN WITHOUT WAITING FOR IT.
+    ///
+    /// `Err` is the spawn itself failing (the binary is missing) — `tunnel start`'s "FAILED to
+    /// start cloudflared". `Ok(Some(code))` is the child EXITING inside `grace_ms`, which is the
+    /// failure the TypeScript learned to watch for after its old form reported success for a
+    /// cloudflared that died on a bad config. `Ok(None)` is "still alive when the window closed",
+    /// which is the only thing this can honestly claim: whether it STAYS up is a separate question
+    /// the caller asks with [`Host::process_running`].
+    fn spawn_detached(&self, argv: &[String], grace_ms: u64) -> io::Result<Option<i32>>;
+
+    // ── the npm package this CLI IS ────────────────────────────────────────────
+    /// The package root the CLI runs from — the TypeScript's `__dirname/..`.
+    ///
+    /// It is a HOST fact and not a constant, because the shipped layout and a test's layout are
+    /// different: on a device it is the directory above the running `bin\summrise.exe`, and in a
+    /// source tree it is the sibling `summrise-agent-npm` the parity harness and this crate's own
+    /// tests drive. The exe, the launcher and the desktop shell's sources are all found through it.
+    fn package_dir(&self) -> String;
 }
 
 /// Yes / no / could-not-ask. Ported from `processRunning`'s three-way return.
@@ -339,5 +359,55 @@ impl Host for RealHost {
             Some(timeout_secs * 1000 + 2000),
         );
         r.status == Some(0) && dest.exists() && dest.metadata().map(|m| m.len()).unwrap_or(0) > 0
+    }
+
+    fn spawn_detached(&self, argv: &[String], grace_ms: u64) -> io::Result<Option<i32>> {
+        use std::process::{Command, Stdio};
+        let Some((prog, rest)) = argv.split_first() else {
+            return Ok(None);
+        };
+        let mut cmd = Command::new(prog);
+        cmd.args(rest)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        // THE TUNNEL MUST OUTLIVE THE CONSOLE THAT LAUNCHED IT. Node's `detached: true` did this
+        // on the TypeScript side; on Windows the same fact is a creation flag, and without it a
+        // `summrise tunnel start` from a console that then closes takes cloudflared with it.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
+        let mut child = cmd.spawn()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(grace_ms);
+        loop {
+            if let Some(st) = child.try_wait()? {
+                // -1 for a signal, which is what the TypeScript's `code === null ? -1 : code` says.
+                return Ok(Some(st.code().unwrap_or(-1)));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn package_dir(&self) -> String {
+        // THE SHIPPED LAYOUT FIRST: `<package>\bin\summrise.exe` -> `<package>`.
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                if let Some(root) = dir.parent() {
+                    if root.join("package.json").is_file() {
+                        return root.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+        // ...and otherwise the source tree this crate is built in, which is where the parity
+        // harness, `cargo test` and the release scripts run it from.
+        format!("{}/../summrise-agent-npm", env!("CARGO_MANIFEST_DIR"))
     }
 }

@@ -14,9 +14,7 @@ use crate::host::{Host, RunResult, Tri};
 use crate::monitors::{ascii_json, monitors_json};
 use crate::paths::{release_marker_path, Layout};
 use crate::ps::{ps_argv, psq};
-use crate::psgen::{
-    autostart_argv, boot_task_ps, register_desktop_task_ps, update_receipt_ps, BOOT_TASKS,
-};
+use crate::psgen::{autostart_argv, register_desktop_task_ps, BOOT_TASKS};
 use crate::status::{status_report, StatusFacts};
 use crate::update::{
     await_release_marker, busy_is_fresh, is_behind, latest_release_version, release_marker_verdict,
@@ -44,11 +42,6 @@ pub const VERBS: [&str; 13] = [
     "run",
     "tunnel",
 ];
-
-/// The verbs whose EFFECT BODY is not ported in this slice. Named rather than implied: the decision
-/// core landed first, and a verb that prints a port boundary is honest where one that silently did
-/// half its job would not be.
-pub const NOT_PORTED: [&str; 4] = ["monitor", "uninstall", "run", "tunnel"];
 
 /// What a verb decided: the exit code, the lines for stdout, and the lines for stderr.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -520,79 +513,16 @@ pub fn device_host(host: &dyn Host, args: &[String]) -> String {
     format!("{machine}{}", crate::endpoints::DEVICE_HOST_SUFFIX)
 }
 
-/// `summrise setup` — the LOCAL install, in the order the decisions happen.
-pub fn setup_decision(host: &dyn Host, layout: &Layout, args: &[String]) -> Outcome {
-    let mut out = Outcome::ok();
-    let device_host = device_host(host, args);
-    if let Some(i) = args.iter().position(|a| a == "--reg-key") {
-        let _key = args.get(i + 1);
-        let want_tunnel =
-            args.iter().any(|a| a == "--tunnel") || host.env("CLOUDFLARE_API_TOKEN").is_some();
-        out = out.say(if want_tunnel {
-            "setup: --reg-key will be exchanged for the tunnel token (--tunnel)"
-        } else {
-            "setup: --reg-key noted, but WITHOUT --tunnel it is not used — the device registers itself on first start with its own token. Pass --tunnel to use the key, or add the gateway later in the Settings page."
-        });
-    } else {
-        out = out
-            .say("setup: no key or tunnel configured — the device will still self-register with the console URL in its config on start.")
-            .say("setup: to keep it purely local, clear platform.console_url in config.yaml (unset = no cloud), or point it at your own gateway.");
-    }
-    for d in [
-        &layout.etc_dir,
-        &layout.components_dir,
-        &layout.scripts_dir,
-        &layout.logs_dir,
-        &layout.dir,
-    ] {
-        if host.mkdirs(Path::new(d)).is_err() {
-            out = out.warn(format!("setup: WARNING -- could not create {d}"));
-        }
-    }
-    let _ = host.write_bytes(Path::new(&layout.hostname_file), device_host.as_bytes());
+/// `summrise setup` — THE LOCAL INSTALL. The body lives in [`crate::setup`], because it stages the
+/// same files the swap does and a second copy of that list is how the two come to disagree.
+pub use crate::setup::setup_decision;
 
-    // THE REGISTRY ECHOES THE RESOLVED DIRS. `resolveDataDir()` is registry-first and the data dir
-    // IS its answer, so a device whose data dir was remapped carries that path — writing the literal
-    // default back would split the data between the tree and the path the AGENT reads.
-    if !host.reg_write("InstallDir", &layout.dir) {
-        out = out.warn(
-            "setup: WARNING -- could not record InstallDir in HKLM\\SOFTWARE\\Summrise\\Agent -- path resolution will fall back to the default",
-        );
-    }
-    if !host.reg_write("DataDir", &layout.data_dir) {
-        out = out.warn(
-            "setup: WARNING -- could not record DataDir in HKLM\\SOFTWARE\\Summrise\\Agent -- path resolution will fall back to the default",
-        );
-    }
-
-    // The agent's boot task. AUDIT #7: this used to claim success regardless.
-    let script = boot_task_ps(&psq(&layout.exe_dst), &psq(&layout.cfg_file), true).join("\r\n");
-    let r = host.run(&ps_argv(&script), None);
-    if r.status == Some(0) {
-        out = out.say("setup: SummriseAgent registered (SYSTEM, at startup + a 5-minute watchdog) and started");
-    } else {
-        out = out.warn(format!(
-            "setup: WARNING -- registering SummriseAgent failed (status {})",
-            r.status
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "spawn error".into())
-        ));
-    }
-
-    // A WARNING, NOT FATAL, unlike the agent task: headless installs have no SummriseDesktop.
-    let (_ok, msg) = register_desktop_task(host, layout);
-    out = out.say(msg);
-
-    crate::components::write_release_marker(host, &layout.dir);
-    out
-}
-
-/// `summrise update` — THE GUARDS, in the order the defects were measured.
+/// `summrise update` — THE GUARDS, in the order the defects were measured, and then the swap.
 ///
-/// The staging and the swap script are NOT ported in this slice (see the port report); what is here
-/// is every refusal, because each one is a measured defect: a CLI too old to deliver the version on
-/// the channel, an update that would stamp the device with the version it already has, and a second
-/// update racing the first through `Copy-Item` on `*.new`.
+/// Every refusal here is a measured defect: a CLI too old to deliver the version on the channel, an
+/// update that would stamp the device with the version it already has, and a second update racing the
+/// first through `Copy-Item` on `*.new`. Past them the work is [`crate::swap::update_swap`] — the
+/// staging, the generated swap script, the WMI handoff and the read-back that says whether it took.
 pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -> Outcome {
     let self_version = package_version();
     let mut out = Outcome::ok();
@@ -661,11 +591,6 @@ pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -
         let _ = host.write_bytes(busy_path, now.to_string().as_bytes());
     }
 
-    // THE RECEIPT, before anything irreversible happens. Everything past this point ends with the
-    // agent being killed — which is the DOCUMENTED success signal, and therefore indistinguishable
-    // from a transport failure that never ran this command at all.
-    let script = update_receipt_ps(&psq(&layout.data_dir), &device_now, &self_version).join("; ");
-    let _ = host.run(&ps_argv(&script), None);
     out = out.say(format!(
         "update: {} -> {} -- staging, the connection will drop",
         if device_now.is_empty() {
@@ -682,13 +607,31 @@ pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -
     for line in mark_deliberate_stop(host, layout, "update") {
         out = out.warn(line);
     }
-    out = out.warn(
-        "update: NOT PORTED in this slice — the staging, the swap script and the WMI handoff are the \
-         next landing's work; the decision above (and the receipt it wrote) is what this slice proves. \
-         The busy marker has been released so a later run is not refused.",
+    // THE RECEIPT, before anything irreversible happens. It is written into the swap's OWN log sink,
+    // because a receipt written to a different file than the swap writes is worse than none: it would
+    // look like the swap never started. A failed write is a WARNING rather than an abort — `ps()`
+    // RETURNS its spawn result in the TypeScript, so the try/catch around it could never fire and a
+    // failed receipt was SILENT; it is best-effort, and the cost of silence is named.
+    if !crate::swap::write_receipt(host, layout, &device_now, &self_version) {
+        out = out.warn(
+            "update: WARNING -- could not write the receipt to summrise-update.log; if this swap fails, the log will not distinguish it from a command that never arrived",
+        );
+    }
+    // ...and past here the swap itself. The busy marker is released by the swap (its generated
+    // script removes it) or by a staging failure inside `update_swap`; either way a later run is not
+    // refused for a swap that never started.
+    let swap = crate::swap::update_swap(
+        host,
+        layout,
+        &host.package_dir(),
+        &device_now,
+        &self_version,
+        90_000,
+        2_000,
     );
-    let _ = host.remove_file(busy_path);
-    out.exit(3)
+    out.out.extend(swap.out);
+    out.err.extend(swap.err);
+    out.exit(swap.exit)
 }
 
 /// `summrise rollback <x.y.z> | --clear` — the pin is EARNED, not asserted.
@@ -844,6 +787,7 @@ pub fn dispatch(host: &dyn Host, args: &[String]) -> Outcome {
     let rest = &args[1..];
     match cmd {
         "setup" => setup_decision(host, &layout, rest),
+        "monitor" => crate::monitor::monitor_decision(host, &layout, rest),
         "status" => {
             let latest = latest_release_version(host);
             status_decision(host, &layout, latest)
@@ -860,29 +804,16 @@ pub fn dispatch(host: &dyn Host, args: &[String]) -> Outcome {
             let latest = latest_release_version(host);
             update_decision(host, &layout, latest.as_deref())
         }
-        "rollback" => {
-            let want = rest.first().cloned().unwrap_or_default();
-            if want.is_empty() {
-                return Outcome::fail(1, "usage: summrise rollback <x.y.z|--clear>");
-            }
-            let marker = release_marker_path(&layout.dir);
-            let from = host
-                .read_string(&marker)
-                .ok()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            rollback_decision(host, &layout, &want, from.as_deref(), 90_000, 2_000, || {
-                host.read_string(&marker).ok()
-            })
-        }
+        "rollback" => crate::rollback::rollback_command(host, &layout, rest),
+        "uninstall" => crate::uninstall::uninstall_decision(host, &layout, rest),
+        "run" => crate::swap::run_decision(host, &layout, rest),
+        "tunnel" => crate::tunnel::tunnel_decision(host, &layout, rest),
         "desktop" => desktop_decision(host, &layout),
+        // UNREACHABLE BY CONSTRUCTION: `VERBS` is the list the guard above matched, so a verb added
+        // there without an arm here is a compile error rather than a run-time surprise.
         other => Outcome::fail(
             3,
-            format!(
-                "summrise {other}: NOT PORTED in this slice ({} of {} verbs landed; see the port report)",
-                VERBS.len() - NOT_PORTED.len(),
-                VERBS.len()
-            ),
+            format!("summrise {other}: no dispatcher arm -- add it to the verb table's match"),
         ),
     }
 }
@@ -1320,27 +1251,70 @@ mod tests {
 
     /// An update past its guards writes the RECEIPT into the swap's own log sink before handing off
     /// — the marker that makes "the command never ran" provable from the log alone.
+    ///
+    /// **THE EFFECT BODY IS PORTED (landing 4b)**, so this drives the WHOLE verb rather than stopping
+    /// at a `NOT PORTED` exit 3: the guards, the receipt, the staging, the WMI handoff, and the wait
+    /// for the release marker the swap itself writes. The fixture therefore has to carry a package
+    /// (exe + launcher) and a device that answers, which is what the old `exit 3` assertion was
+    /// standing in for.
+    ///
+    /// The exit is 1 and that is the SWAP's own verdict, not the port's absence: nothing on a fake
+    /// runs `summrise-update.ps1`, so `.summrise-release` never moves to this CLI's version and
+    /// `update` reports the device did not confirm — the honest answer, and the reason `update`
+    /// reads the marker back instead of trusting `ReturnValue=0`.
     #[test]
     fn an_update_that_proceeds_writes_the_receipt() {
+        let pkg = "C:\\npm\\node_modules\\summrise-agent";
         let (h, l) = host_with_layout();
         let h = h
             .with_file(&release_marker_path(&l.dir).to_string_lossy(), "1.0.0")
             .with_file(
                 &crate::config::config_path(&l.etc_dir).to_string_lossy(),
                 "server:\n  port: 18080\n  device_token: tok.ABC-1\n",
-            );
+            )
+            .with_file(&format!("{pkg}\\summrise-agent.exe"), "MZ")
+            .with_file(&format!("{pkg}\\summrise-launch.exe"), "MZ")
+            // Every child exits 0 — the deliberate-stop POST, the receipt's PowerShell, the WMI
+            // handoff's two runs — and the handoff reads `ReturnValue: 0` out of the stdout.
+            .script_runs(vec![RunResult {
+                status: Some(0),
+                stdout: "{\"ReturnValue\":0}".into(),
+                ..Default::default()
+            }]);
         let r = update_decision(&h, &l, None);
-        assert_eq!(r.exit, 3, "the effect body is not ported: {r:?}");
+        assert!(
+            !r.err.iter().any(|e| e.contains("not ported")),
+            "the effect body is ported now: {r:?}"
+        );
+        assert_eq!(r.exit, 1, "the device never confirmed the swap: {r:?}");
         let runs = h.runs();
-        let receipt = runs
+        let receipt_at = runs
             .iter()
-            .find(|argv| argv.iter().any(|a| a.contains("update requested")))
+            .position(|argv| argv.iter().any(|a| a.contains("update requested")))
             .expect("the receipt must be written before the handoff");
         assert!(
-            receipt
+            runs[receipt_at]
                 .iter()
                 .any(|a| a.contains("update requested 1.0.0 ->")),
-            "{receipt:?}"
+            "{:?}",
+            runs[receipt_at]
+        );
+        // AND BEFORE THE HANDOFF, which is the whole point of a receipt: a marker written after the
+        // WMI call could not tell "the swap never started" from "the CLI never ran".
+        let handoff_at = runs
+            .iter()
+            .position(|argv| argv.iter().any(|a| a.contains("Win32_Process")))
+            .expect("the WMI handoff");
+        assert!(
+            receipt_at < handoff_at,
+            "the receipt ({receipt_at}) must precede the handoff ({handoff_at})"
+        );
+        // ...and the swap script itself reached the disk, so the handoff had something to run.
+        let ps1 = crate::paths::win_join(&l.scripts_dir, "summrise-update.ps1");
+        assert!(
+            h.file(&ps1.to_string_lossy())
+                .is_some_and(|b| !b.is_empty()),
+            "the swap script must be written before the handoff"
         );
     }
 

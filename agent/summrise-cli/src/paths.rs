@@ -121,9 +121,28 @@ impl Layout {
     }
 }
 
+/// `<base>\<leaf>` — THE ONE WAY THIS CRATE BUILDS A WINDOWS PATH OUT OF TWO STRINGS.
+///
+/// **NOT `Path::join`, AND THIS IS NOT A STYLE CHOICE.** `Path::join` uses the HOST's separator, so
+/// the same decision run on Linux produced `D:\Summrise/components/cloudflared.exe` — a path no
+/// Windows device has, and one no test could assert against the strings the CLI prints. Every path
+/// this product derives is a WINDOWS path, because the product runs on Windows only, so the
+/// separator is a constant of the product rather than a fact about the machine the test runs on.
+///
+/// It is a `PathBuf` rather than a `String` because that is what [`crate::host::Host`] takes.
+pub fn win_join(base: &str, leaf: &str) -> PathBuf {
+    PathBuf::from(format!("{base}\\{leaf}"))
+}
+
 /// The release marker `agent_update` reads as the LOCAL version, and `/api/status` serves as
 /// `release`.
 pub fn release_marker_path(install_dir: &str) -> PathBuf {
+    // `Path::join` HERE, deliberately, and the difference from `win_join` is the REAL filesystem:
+    // `win_join` is for paths that are printed or handed to PowerShell, where a Windows separator is
+    // the product's contract. This one is handed to the filesystem, and on Windows `Path::join` IS a
+    // backslash — while forcing one would make the path unopenable on the Linux hosts this crate's
+    // `RealHost` tests run on. (`FakeHost` normalises separators, so a fixture spelled either way
+    // resolves to the same file.)
     Path::new(install_dir).join("etc").join(".summrise-release")
 }
 
