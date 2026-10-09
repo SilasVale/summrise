@@ -442,11 +442,13 @@ echo "electron src freshness check OK (fresh tsc emit + cmp)"
 # already (hand-edit reached only the npm copy). cmp every shipped file; pure
 # local, no toolchain needed.
 #
-# AND THE WASM PAIR IS IN THIS LIST FOR THE SAME REASON (landing 6): the npm copy's summrise_url_policy.js
-# and summrise_url_policy_bg.wasm are produced by `npm run build` in that package, so they can drift from
-# the shell's tree exactly the way main.js did — and the device loads THE COPY, so a drift here ships a
-# policy nobody tested. The `.d.ts` is deliberately absent: it is not packed and not staged.
-for F in main.js preload.js summrise_url_policy.js summrise_url_policy_bg.wasm; do
+# AND THE TWO WASM PAIRS ARE IN THIS LIST FOR THE SAME REASON (landing 6): the npm copies of
+# summrise_url_policy.{js,wasm} and summrise_shell_policy.{js,wasm} are produced by `npm run build` in
+# that package, so they can drift from the shell's tree exactly the way main.js did — and the device loads
+# THE COPY, so a drift here ships a policy nobody tested. Landing 6b added the second pair: `main.js`
+# requires BOTH glues, so a copy without it is a shell that cannot start. The `.d.ts` files are
+# deliberately absent: they are not packed and not staged.
+for F in main.js preload.js summrise_url_policy.js summrise_url_policy_bg.wasm summrise_shell_policy.js summrise_shell_policy_bg.wasm; do
   if ! cmp -s "agent/summrise-desktop-electron/src/${F}" "agent/summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
     echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync them (tsc emit) and commit both" >&2
     exit 1

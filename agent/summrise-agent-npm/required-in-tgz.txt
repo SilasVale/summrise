@@ -14,12 +14,19 @@
 # FORMAT: one path relative to the package root per line; `#` comments and blank lines are ignored.
 # Every entry is required — absence fails the release in both builders.
 #
-# AND TWO ENTRIES ARE A PAIR OF BINARY ARTIFACTS RATHER THAN SOURCES (landing 6): the desktop shell's
-# URL/certificate policy is a Rust crate built to wasm, and `main.js` requires its glue, which requires
-# the module. `src/url-policy.js` left this list when the TypeScript it named was deleted; the two
-# `summrise_url_policy*` entries are what the swap stages in its place (summrise.ts's file list names
-# the same four files), because a device that received the new main.js and not the module would fail to
+# AND FOUR ENTRIES ARE TWO PAIRS OF BINARY ARTIFACTS RATHER THAN SOURCES (landing 6): the desktop shell's
+# decisions live in TWO Rust crates built to wasm, and `main.js` requires BOTH glues, each of which
+# requires its module. `src/url-policy.js` left this list when the TypeScript it named was deleted; the
+# four `summrise_*_policy*` entries are what the swap stages in its place (summrise.ts's file list names
+# the same six files), because a device that received the new main.js and not a module would fail to
 # start the shell at all.
+#
+# THE SECOND PAIR ARRIVED IN LANDING 6b AND IS NOT OPTIONAL: `main.js` requires
+# `./summrise_shell_policy` on its first line of policy, and that glue requires
+# `summrise_shell_policy_bg.wasm`. The two crates deliberately do NOT depend on each other — wasm-bindgen
+# exports the whole crate GRAPH, so a dependency would make the shell policy's glue re-export the url
+# policy's names and the two `.wasm` files would each hold a copy of url-policy's port state. Four files,
+# two modules, one instance of each decision.
 summrise-agent.exe
 summrise-launch.exe
 README.md
@@ -28,5 +35,7 @@ summrise-desktop-electron/src/main.js
 summrise-desktop-electron/src/preload.js
 summrise-desktop-electron/src/summrise_url_policy.js
 summrise-desktop-electron/src/summrise_url_policy_bg.wasm
+summrise-desktop-electron/src/summrise_shell_policy.js
+summrise-desktop-electron/src/summrise_shell_policy_bg.wasm
 summrise-desktop-electron/icon.png
 summrise-desktop-electron/icon.ico

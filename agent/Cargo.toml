@@ -27,7 +27,12 @@
 # workspace (`agent/resources/panel-logic` is the other arrangement for a wasm crate here) because its
 # decisions are Rust the agent's toolchain lints and tests, and `cargo test -p summrise-url-policy` is
 # part of the landing's bar.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy"]
+# `summrise-shell-policy` is the SECOND half of that landing and a member for exactly the same reasons: it
+# is the Electron shell's REMAINING decisions (the URL/origin/certificate half is `summrise-url-policy`),
+# built to wasm and required by the same main process, NOT part of `summrise-agent.exe`, and linted and
+# tested by the agent's own toolchain. It depends on `summrise-url-policy` by path, so the two are one
+# policy in two crates rather than two answers to one question.
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy", "summrise-shell-policy"]
 default-members = ["."]
 resolver = "2"
 

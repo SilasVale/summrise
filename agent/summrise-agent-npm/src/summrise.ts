@@ -2023,9 +2023,10 @@ export function writeReleaseMarker(installDir: string): void {
  * `*.new` so the swap script can atomically replace them. The two flows used to each inline this block.
  *
  * **THE LIST IS THE SET OF FILES `summrise update` SWAPS, SO A FILE THE SHELL REQUIRES MUST BE ON IT**
- * (landing 6): `main.js` requires `./summrise_url_policy`, which requires `./summrise_url_policy_bg.wasm`,
- * so an update that staged the JavaScript and not the module would leave the desktop shell dead on the
- * device with `Cannot find module './summrise_url_policy'`. The same four names are the swap script's
+ * (landing 6): `main.js` requires `./summrise_url_policy` AND `./summrise_shell_policy` — the shell's
+ * decisions live in two Rust crates, one per half of the policy — and each glue requires its own module,
+ * so an update that staged the JavaScript and not a module would leave the desktop shell dead on the
+ * device with `Cannot find module './summrise_shell_policy'`. The same SIX names are the swap script's
  * list below and the required-in-tgz.txt entries the release gates on.
  */
 /** @returns how many files were actually staged — 0 means the sources were not
@@ -2051,6 +2052,8 @@ function stageDesktopShell(installDir: string, suffix: "" | ".new"): number {
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",
+    "summrise_shell_policy.js",
+    "summrise_shell_policy_bg.wasm",
   ]) {
     const s = path.join(DESK_SRC, f);
     if (fs.existsSync(s)) {
@@ -3710,7 +3713,7 @@ const commands = {
       `Remove-Item -Force -ErrorAction SilentlyContinue '${q}\\scripts\\summrise-launch.new.exe'`,
       // stage-l: swap the desktop shell sources (main/preload) with retry —
       // the running Electron may hold them briefly.
-      `foreach($df in @('main.js','preload.js','summrise_url_policy.js','summrise_url_policy_bg.wasm')){ $ds='${q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) { $ok2=$false; foreach($i in 1..8){ try { Copy-Item -Force -ErrorAction Stop $ds ('${q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break } catch { Start-Sleep -Milliseconds 500 } }; Remove-Item -Force -ErrorAction SilentlyContinue $ds; "[$(Get-Date -Format o)] desk $df ok=$ok2" | ${log} } }`,
+      `foreach($df in @('main.js','preload.js','summrise_url_policy.js','summrise_url_policy_bg.wasm','summrise_shell_policy.js','summrise_shell_policy_bg.wasm')){ $ds='${q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) { $ok2=$false; foreach($i in 1..8){ try { Copy-Item -Force -ErrorAction Stop $ds ('${q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break } catch { Start-Sleep -Milliseconds 500 } }; Remove-Item -Force -ErrorAction SilentlyContinue $ds; "[$(Get-Date -Format o)] desk $df ok=$ok2" | ${log} } }`,
       // NEVER leave the device dark: even a failed swap must bring the task
       // back up (it will run the old exe until the next update).
       // **AND THE LINE THAT REPORTS IT SAYS WHAT HAPPENED, BECAUSE THE OLD ONE COULD NOT BE WRONG.**

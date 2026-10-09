@@ -57,14 +57,35 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
-// THE URL/CERTIFICATE POLICY IS RUST (landing 6). `agent/summrise-url-policy` is built to wasm with
-// `wasm-pack --target nodejs` and required here; the glue compiles the module SYNCHRONOUSLY, so every
-// predicate below is the same decision `cargo test -p summrise-url-policy` pins (11 cases ported from
-// the deleted test/url-policy.test.mjs). THIS FILE IS THE HOST AND IT STAYS TYPESCRIPT: the windows, the
-// IPC door, the :9333 CDP self-check and the tray are platform calls, and only the decisions moved.
-// The glue and the module are committed and shipped — agent/summrise-agent-npm/required-in-tgz.txt
-// names both, and `summrise update` stages both.
+// THE POLICY IS RUST, IN TWO CRATES, AND THIS FILE IS THE HOST THAT CALLS IT.
+//
+// `agent/summrise-url-policy` (landing 6a) owns the URL/origin/certificate decisions; `cargo test -p
+// summrise-url-policy` pins them. `agent/summrise-shell-policy` (landing 6b) owns everything else this
+// file used to decide: the device token's line pattern, the auth header, the port precedence, the icon
+// per platform, the native menu table, the browser-session plan and both embedded views' doors, the
+// loopback control server's router, the schtasks arguments, the watchdog, the tripwire, the CDP
+// self-check and every string the tray shows. `cargo test -p summrise-shell-policy` pins those.
+//
+// BOTH are built to wasm with `wasm-pack --target nodejs` and required here; the glue compiles each
+// module SYNCHRONOUSLY, so the first decision may run immediately — which matters, because the first
+// thing this file does is pin the agent's port. The glues and the modules are committed and shipped
+// (agent/summrise-agent-npm/required-in-tgz.txt names all four files, and `summrise update` stages them).
+//
+// **THE TWO CRATES DO NOT DEPEND ON EACH OTHER, AND THAT IS A MEASURED CONSTRAINT RATHER THAN A STYLE.**
+// wasm-bindgen exports every `#[wasm_bindgen]` item in the whole crate GRAPH, so making the shell-policy
+// crate depend on the url-policy one made its glue re-export all 18 url-policy names — and each glue
+// compiles its OWN `.wasm`, so url-policy's `thread_local!` port state would exist TWICE.
+// `setAgentPort(7740)` through one module would leave the other at 18080: a custom-port install where the
+// DSH door admits the wrong origin and the tripwire snaps the panel back. So where a decision below
+// composes a url-policy predicate it passes that predicate's ANSWER in — `isDshUrl(raw)`,
+// `isDesktopSpaUrl(url)`, `isBaseOrigin(url)`, `parseAgentPort(raw)`, `sanitizeBrowserUrl(raw)` — and
+// this file, which holds exactly one instance of each glue, evaluates it.
 const summrise_url_policy_1 = require("./summrise_url_policy");
+const summrise_shell_policy_1 = require("./summrise_shell_policy");
+const K = JSON.parse((0, summrise_shell_policy_1.shellConstants)());
+// The handful the shell reads often enough that `K.` at every use site would be noise. They are still the
+// table's values — destructuring a copy of the parse, not a second declaration.
+const { AGENT_TASK, SCHTASKS_TIMEOUT_MS, AGENT_PROBE_DEFAULT_MS, AGENT_PROBE_BOOT_MS, AGENT_PROBE_TRAY_MS, CONTROL_PROBE_MS, STATUS_FETCH_MS, HARNESS_FETCH_MS, CDP_CHECK_MS, MENU_FLUSH_MS, TRAY_POLL_MS, RETRY_START_MS, TRIPWIRE_BACKOFF_MS, } = K;
 // IPC audit #3: /api/status is TOKEN-GATED (same fact the watchdog fix cites);
 // credential-less fetches got 401 -> version title + tray vitals were DEAD on
 // every configured device. The shell runs as the interactive admin, and the
@@ -77,29 +98,27 @@ const summrise_url_policy_1 = require("./summrise_url_policy");
 const INSTALL_ROOT = path.join(__dirname, "..", "..", "..");
 let _tokenCache = { at: 0, tok: null };
 function agentToken() {
-    if (Date.now() - _tokenCache.at < 60_000)
+    if ((0, summrise_shell_policy_1.tokenCacheFresh)(_tokenCache.at, Date.now()))
         return _tokenCache.tok;
-    let tok = null;
+    let raw;
     try {
-        const raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
-        // THIS PATTERN IS NARROWER THAN THE TWO OTHER PARSERS OF THE SAME LINE: the CLI's
-        // (bin/summrise.js, `[A-Za-z0-9._-]+`) and the agent's Rust recovery both accept more than
-        // lowercase hex. Measured against a live device on 2026-09-24 — the token is 64 hex characters
-        // with no space before the colon, so all three agree TODAY, and hex is what the worker issues.
-        // The failure mode if that ever stops being true is SILENT: no credential, a 401, a title that
-        // stays "Summrise" and vitals that stay blank — the state the comment above claims to have
-        // fixed. Widen this line before debugging that.
-        const m = /device_token:\s*"?([0-9a-f]{16,})"?/.exec(raw);
-        if (m)
-            tok = m[1];
+        raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
     }
     catch { /* no local config — vitals stay hidden, same as before */ }
+    // THE PATTERN IS THE POLICY CRATE'S, and it is deliberately NARROWER than the two other parsers of
+    // this line: the CLI's (bin/summrise.js, `[A-Za-z0-9._-]+`) and the agent's Rust recovery both accept
+    // more than lowercase hex. Measured against a live device on 2026-09-24 — the token is 64 hex
+    // characters with no space before the colon, so all three agree TODAY, and hex is what the worker
+    // issues. The failure mode if that ever stops being true is SILENT: no credential, a 401, a title that
+    // stays "Summrise" and vitals that stay blank. `cargo test -p summrise-shell-policy` pins which side of
+    // that divergence the pattern is on; WIDEN IT THERE before debugging this.
+    const tok = (0, summrise_shell_policy_1.deviceToken)(raw) ?? null;
     _tokenCache = { at: Date.now(), tok };
     return tok;
 }
 function authHeaders() {
-    const t = agentToken();
-    return t ? { authorization: `Bearer ${t}` } : {};
+    const value = (0, summrise_shell_policy_1.authorization)(agentToken());
+    return value ? { authorization: value } : {};
 }
 // Agent bind port (custom-port installs): explicit SUMMRISE_AGENT_PORT env
 // first, then the agent's config.yaml server.port next to the install dir
@@ -107,18 +126,16 @@ function authHeaders() {
 // else the canonical 18080. Resolved once at boot before any probe/window;
 // the Rust policy's predicates follow via setAgentPort (which ignores an
 // invalid port rather than resetting to the default).
-function resolveAgentPort() {
-    const env = Number(process.env.SUMMRISE_AGENT_PORT);
-    if (Number.isInteger(env) && env > 0 && env < 65536)
-        return env;
+function bootAgentPort() {
+    // The ORDER (env, then the device's own config, then the canonical port) is the policy crate's; the
+    // YAML walk that produces the middle answer is the URL policy's, which is why it is evaluated HERE and
+    // passed in. Both reads are best-effort and both fall through to the next source.
+    let fromConfig;
     try {
-        const raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
-        const port = (0, summrise_url_policy_1.parseAgentPort)(raw);
-        if (port)
-            return port;
+        fromConfig = (0, summrise_url_policy_1.parseAgentPort)(fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8")) ?? undefined;
     }
     catch { /* no local config — default below */ }
-    return 18080;
+    return (0, summrise_shell_policy_1.resolveAgentPort)(process.env.SUMMRISE_AGENT_PORT, fromConfig);
 }
 // Remote-verifiable icon facts (GET /api/shell/icon-status on the 9444
 // loopback control server): file blind-flying on icon issues ended here —
@@ -153,10 +170,12 @@ function resolveIcon(name, reportKey) {
 // silently falling back to the stock electron.exe icon, device-caught).
 // Empty string when absent — callers fall back to Electron defaults.
 function appIcon() {
-    return resolveIcon(process.platform === "win32" ? "icon.ico" : "icon.png", "tray");
+    // WHICH FILE is the policy crate's decision (`icon.ico` for the Windows tray, `icon.png` everywhere
+    // else); resolving and reporting it is this file's.
+    return resolveIcon((0, summrise_shell_policy_1.trayIconName)(process.platform), "tray");
 }
 function windowIcon() {
-    return resolveIcon("icon.png", "window");
+    return resolveIcon((0, summrise_shell_policy_1.windowIconName)(), "window");
 }
 // Native-decode probe: file-exists is NOT proof Electron can use the
 // image (a corrupt/undecodable file falls back silently). Report what
@@ -183,10 +202,9 @@ function frameOk(e) {
 // which the SPA cannot tell apart from a dead view (`j?.ok` is falsy either
 // way, and only this shape carries the reason). The preload's `invoke` callers
 // were written against THIS shape, so every handler answers it now.
-const FORBIDDEN_FRAME = Object.freeze({
-    ok: false,
-    error: "forbidden frame",
-});
+// THE VALUE IS THE POLICY CRATE'S, so the one refusal has one owner. `Object.freeze` is kept here
+// because it is this file's guarantee to itself, not a decision about what the SPA reads.
+const FORBIDDEN_FRAME = Object.freeze(JSON.parse((0, summrise_shell_policy_1.forbiddenFrame)()));
 // THE ONE IPC DOOR: `ipcMain.handle` is called HERE and nowhere else, so the
 // frame check above is applied ONCE per channel and no handler can forget it.
 // A fourteenth handler that re-checked (or skipped) the frame was SILENT:
@@ -207,10 +225,12 @@ function ipcHandle(channel, fn) {
 // P1: CDP port for AI (playwright) to drive Summrise's own pages — the SAME
 // Electron window the user watches. Summrise's playwright-mcp connects via
 // connectOverCDP("http://127.0.0.1:9333") and drives this window's pages.
-const CDP_PORT = 9333;
-// P1b: fallback local control endpoint for browser sessions (used when the
-// SPA runs in a plain browser, not under the Electron preload IPC).
-const CTRL_PORT = 9444;
+// P1b: CTRL_PORT is the fallback local control endpoint for browser sessions
+// (used when the SPA runs in a plain browser, not under the Electron preload IPC).
+// BOTH NUMBERS ARE THE POLICY CRATE'S (`K.CDP_PORT`, `K.CTRL_PORT`) and NOTHING about when or whether
+// they are opened moved with them: the `remote-debugging-port` switch below is still the only thing that
+// opens 9333, and 9333 is a product contract — `agent/tests/mcp_autoselect_integration.rs` binds it, the
+// CLI probes it, and the design sweep's attached mode depends on it.
 let win = null;
 let tray = null;
 /** Whether the hide-to-tray notification has been shown (once per launch). */
@@ -220,8 +240,8 @@ const browserSessions = new Map();
  *  webContents.getURL() (which lags during navigation; stage-n). */
 const browserTargets = new Map();
 /** Cap on concurrent browser-session windows — an AI loop opening sessions
- *  repeatedly must not pile up windows on the desktop (stage-n). */
-const MAX_BROWSER_WINDOWS = 8;
+ *  repeatedly must not pile up windows on the desktop (stage-n). The number is `K.MAX_BROWSER_WINDOWS`;
+ *  the PLAN that applies it (reuse by initial target, then evict the oldest) is the policy crate's. */
 // stage-m: SINGLE-INSTANCE LOCK — a second Summrise window exits immediately.
 // (The agent itself also enforces single-instance via bind-failure exit.)
 const gotTheLock = electron_1.app.requestSingleInstanceLock();
@@ -232,7 +252,7 @@ else {
     electron_1.app.on("second-instance", () => { focusMain(); });
 }
 // CDP must be enabled before app ready — pass it through Chromium switches.
-electron_1.app.commandLine.appendSwitch("remote-debugging-port", String(CDP_PORT));
+electron_1.app.commandLine.appendSwitch("remote-debugging-port", String(K.CDP_PORT));
 // Lab-device self-signed certs (OpenWrt-style ONT defaults): bypass cert
 // errors ONLY on private-network hosts — the public internet keeps full
 // validation. Registered before ready so no navigation can race it.
@@ -307,77 +327,34 @@ function focusMain() {
     win.show();
     win.focus();
 }
-/** Build the native application menu. Items that act on the SPA's state send
- *  `summrise-menu` commands; pure-window items use Electron roles. */
+/** Build the native application menu.
+ *
+ *  THE TABLE IS THE POLICY CRATE'S — every label, every accelerator and every command id — because the
+ *  command ids are the contract with the SPA's own `summrise-menu` listener and the accelerators are the
+ *  second half of it (the SPA handles the same chords from its own keydown map in a plain browser). A
+ *  renamed id or a dropped row breaks the desktop app and nothing else. `Menu.buildFromTemplate` and the
+ *  Electron `role` strings are this file's. */
 function buildMenu() {
-    const isMac = process.platform === "darwin";
-    const template = [
-        ...(isMac ? [{
-                label: electron_1.app.name,
-                submenu: [
-                    { role: "about" },
-                    { type: "separator" },
-                    { role: "hide" },
-                    { role: "hideOthers" },
-                    { role: "unhide" },
-                    { type: "separator" },
-                    { role: "quit" },
-                ],
-            }] : []),
-        {
-            label: "File",
-            submenu: [
-                { label: "New Terminal", accelerator: "CmdOrCtrl+Shift+T", click: () => sendMenu("new-pty") },
-                { label: "New SSH Connection…", accelerator: "CmdOrCtrl+Shift+S", click: () => sendMenu("new-ssh") },
-                { label: "New Serial Connection…", accelerator: "CmdOrCtrl+Shift+P", click: () => sendMenu("new-serial") },
-                { label: "New Browser Session…", accelerator: "CmdOrCtrl+Shift+B", click: () => sendMenu("new-browser") },
-                { type: "separator" },
-                { label: "Close Session", accelerator: "CmdOrCtrl+W", click: () => sendMenu("close-session") },
-                { type: "separator" },
-                isMac ? { role: "close" } : { role: "quit", label: "Exit" },
-            ],
-        },
-        {
-            label: "Edit",
-            submenu: [
-                { role: "undo" },
-                { role: "redo" },
-                { type: "separator" },
-                { role: "cut" },
-                { role: "copy" },
-                { role: "paste" },
-                { role: "selectAll" },
-            ],
-        },
-        {
-            label: "View",
-            submenu: [
-                { label: "Toggle Trajectory", accelerator: "CmdOrCtrl+Shift+Y", click: () => sendMenu("toggle-trajectory") },
-                { type: "separator" },
-                { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => { if (win)
-                        win.webContents.reload(); } },
-                { role: "togglefullscreen" },
-                { role: "resetZoom" },
-                { role: "zoomIn" },
-                { role: "zoomOut" },
-                { role: "toggleDevTools" },
-            ],
-        },
-        {
-            label: "Session",
-            submenu: [
-                { label: "Next Session", accelerator: "Ctrl+Tab", click: () => sendMenu("next-session") },
-                { label: "Previous Session", accelerator: "Ctrl+Shift+Tab", click: () => sendMenu("prev-session") },
-                // IPC audit #6: the "List Sessions" entry dispatched 'list-sessions',
-                // a command with NO SPA-side handler — deleted (dead menu surface).
-                // The "Export Session Log…" entry (^⇧E) was deleted for the same kind of
-                // reason read the other way: the per-tab export mark IS the action
-                // (TabBar's .tab-export, one mark per session, so it exports what you
-                // point at rather than whatever happens to be active). The accelerator
-                // is still handled by the SPA's own keydown map in a plain browser.
-            ],
-        },
-    ];
+    const template = JSON.parse((0, summrise_shell_policy_1.appMenuJson)(process.platform, electron_1.app.name)).map((section) => ({
+        label: section.label,
+        submenu: section.items.map((item) => {
+            if (item.separator)
+                return { type: "separator" };
+            const base = {};
+            if (item.label)
+                base.label = item.label;
+            if (item.accelerator)
+                base.accelerator = item.accelerator;
+            // THREE KINDS OF ROW, and the crate's table says which is which: a command the SPA dispatches, the
+            // ONE host method (Reload), and an Electron role the menu system implements itself.
+            if (item.command)
+                return { ...base, click: () => sendMenu(item.command) };
+            if (item.reload)
+                return { ...base, click: () => { if (win)
+                        win.webContents.reload(); } };
+            return { ...base, role: item.role };
+        }),
+    }));
     return electron_1.Menu.buildFromTemplate(template);
 }
 // --- Browser-session control: shared core (used by both IPC and HTTP) ---
@@ -405,29 +382,30 @@ function loadTarget(raw) {
  *  ONE load door — the scheme policy lives there). */
 function browserOpen(url) {
     const target = loadTarget(url);
-    // stage-n: reuse an existing window on the same URL instead of stacking
-    // duplicates (AI-driven browsing opens/closes sessions repeatedly); focus
-    // the existing window. Match against the window's INITIAL target (stored
-    // at open) — webContents.getURL() lags during navigation (returns
-    // about:blank while loading), so a same-URL reopen right after the first
-    // open would otherwise miss the reuse and stack a duplicate.
-    for (const [id, bw] of browserSessions) {
-        if (!bw.isDestroyed() && browserTargets.get(id) === target) {
-            if (bw.isMinimized())
-                bw.restore();
-            bw.show();
-            bw.focus();
-            return { ok: true, id, url: target, cdp: `http://127.0.0.1:${CDP_PORT}` };
+    // stage-n: reuse an existing window on the same URL instead of stacking duplicates (AI-driven
+    // browsing opens/closes sessions repeatedly). Match against the window's INITIAL target (stored at
+    // open) — webContents.getURL() lags during navigation (returns about:blank while loading), so a
+    // same-URL reopen right after the first open would otherwise miss the reuse and stack a duplicate.
+    //
+    // THE PLAN IS THE POLICY CRATE'S, in one call: which window to reuse (first non-destroyed match, in
+    // INSERTION order), and — when the cap is reached — which one to evict (the OLDEST, not the least
+    // recently used). This file only reads the session table and applies the answer. The `destroyed` flag
+    // travels with the row because a destroyed window is skipped for reuse while still COUNTING against
+    // the cap, which is what `browserSessions.size` did.
+    const plan = JSON.parse((0, summrise_shell_policy_1.planBrowserOpen)(JSON.stringify([...browserSessions].map(([id, bw]) => ({ id, target: browserTargets.get(id) ?? "", destroyed: bw.isDestroyed() }))), target, K.MAX_BROWSER_WINDOWS));
+    if (plan.reuse) {
+        const existing = browserSessions.get(plan.reuse);
+        if (existing) {
+            if (existing.isMinimized())
+                existing.restore();
+            existing.show();
+            existing.focus();
+            return { ok: true, id: plan.reuse, url: target, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
         }
     }
-    // Window cap: at most MAX_BROWSER_WINDOWS; evict the oldest when exceeded
-    // so an AI loop cannot pile up windows.
-    if (browserSessions.size >= MAX_BROWSER_WINDOWS) {
-        const oldest = browserSessions.keys().next().value;
-        if (oldest)
-            browserClose(oldest);
-    }
-    const id = `browser-${Date.now()}`;
+    if (plan.evict)
+        browserClose(plan.evict);
+    const id = (0, summrise_shell_policy_1.browserId)(Date.now());
     const bw = new electron_1.BrowserWindow({
         width: 1100, height: 750, title: `Summrise Browser — ${target}`,
         ...(windowIcon() ? { icon: windowIcon() } : {}),
@@ -449,7 +427,7 @@ function browserOpen(url) {
     });
     browserSessions.set(id, bw);
     browserTargets.set(id, target);
-    return { ok: true, id, url: target, cdp: `http://127.0.0.1:${CDP_PORT}` };
+    return { ok: true, id, url: target, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
 }
 function browserClose(id) {
     const bw = browserSessions.get(id || "");
@@ -466,7 +444,7 @@ function browserClose(id) {
 }
 function browserList() {
     const list = [...browserSessions.entries()].map(([id, bw]) => ({ id, url: bw.webContents.getURL() }));
-    return { ok: true, sessions: list, cdp: `http://127.0.0.1:${CDP_PORT}` };
+    return { ok: true, sessions: list, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
 }
 ipcHandle("browser-session:open", (url) => browserOpen(url));
 ipcHandle("browser-session:close", (id) => browserClose(id));
@@ -512,9 +490,13 @@ function embeddedViewEnsure() {
     // anything it refuses (javascript:, file:, chrome:) must NOT blank the page
     // the user is reading, so a refused target is dropped here instead.
     view.webContents.setWindowOpenHandler(({ url }) => {
-        const target = loadTarget(url);
-        if (target !== "about:blank") {
-            embeddedNavigate(target);
+        // THE DOOR DECIDES, THIS FILE APPLIES: `loadTarget` is the ONE load door (the URL policy's), and
+        // the DECISION to DROP a refused target rather than navigate to the blank page is the policy
+        // crate's — a refused `javascript:`/`file:`/`chrome:` link must not erase what the operator is
+        // reading, which is why a refusal is `undefined` here and not `"about:blank"`.
+        const decided = (0, summrise_shell_policy_1.embeddedPopupTarget)(loadTarget(url));
+        if (decided !== undefined) {
+            embeddedNavigate(decided);
         }
         return { action: "deny" };
     });
@@ -542,7 +524,10 @@ function embeddedViewPlace(bounds) {
     const view = embeddedViewEnsure();
     if (!win)
         return;
-    if (!bounds || bounds.width < 50 || bounds.height < 50) {
+    // `K.MIN_SLOT_PX` AND ITS COMPARISON ARE ONE FUNCTION NOW: this view and the DSH view each spelled
+    // `bounds.width < 50 || bounds.height < 50` BEFORE the port, which is two copies of one policy — the
+    // place where the browser view and the DSH view would come to disagree about what "showing" means.
+    if ((0, summrise_shell_policy_1.slotTooSmall)(bounds)) {
         view.setVisible(false);
         embeddedVisible = false;
         return;
@@ -570,7 +555,7 @@ function embeddedGo(delta) {
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
     try {
-        if (delta < 0)
+        if ((0, summrise_shell_policy_1.goBackwards)(delta))
             view.webContents.goBack();
         else
             view.webContents.goForward();
@@ -597,11 +582,13 @@ function embeddedState() {
     const wc = view && !view.webContents.isDestroyed() ? view.webContents : null;
     return {
         ok: true,
-        url: wc ? wc.getURL() || embeddedUrl : embeddedUrl,
+        // The FALLBACK is the policy crate's: a live `getURL()` that answers "" (not yet navigated) and no
+        // live contents at all are the same answer, and it is the last URL this view was sent to.
+        url: (0, summrise_shell_policy_1.shownUrl)(wc ? wc.getURL() : undefined, embeddedUrl),
         canBack: !!wc && wc.navigationHistory.canGoBack(),
         canFwd: !!wc && wc.navigationHistory.canGoForward(),
         title: wc ? wc.getTitle() : "",
-        visible: embeddedVisible && !!view && !view.webContents.isDestroyed(),
+        visible: (0, summrise_shell_policy_1.viewVisible)(embeddedVisible, !!wc),
     };
 }
 /** round-247: push real navigation state (URL + title + history) to the SPA
@@ -662,8 +649,9 @@ function embeddedRecover() {
     // Already decided by loadTarget() when embeddedUrl was set (the ONE load
     // door) — recovery re-loads that decision, it does not re-open the policy.
     // The fallback is about:blank, NOT a third-party home page: recovering a
-    // crashed view must not make a request to a search engine to do it.
-    const url = embeddedUrl || "about:blank";
+    // crashed view must not make a request to a search engine to do it. That
+    // rule is `embeddedRecoverUrl`'s, in the policy crate.
+    const url = (0, summrise_shell_policy_1.embeddedRecoverUrl)(embeddedUrl);
     view.webContents.loadURL(url).catch(() => { });
     // Re-show if the SPA slot is live (bounds were placed before the crash).
     if (embeddedVisible && win && embeddedBounds) {
@@ -684,7 +672,10 @@ ipcHandle("embedded-browser:zoom", (factor) => {
     const view = embeddedView;
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
-    const f = Math.min(3, Math.max(0.5, Number(factor) || 1));
+    // The clamp AND the `Number(factor) || 1` falsy test are the policy crate's, because `zoomFactor(0)`
+    // is 100% and not 50% — a boundary that a hand-written `Math.min/Math.max` here got right by
+    // accident and a rewrite would not.
+    const f = (0, summrise_shell_policy_1.zoomFactor)(factor);
     try {
         view.webContents.setZoomFactor(f);
         return { ok: true, factor: f };
@@ -713,14 +704,19 @@ ipcHandle("embedded-browser:state", () => embeddedState());
 let dshView = null;
 let dshVisible = false;
 let dshBounds = null;
-/** The DSH's port. Env first (a deployment may move it), else the component's default. */
-function resolveDshPort() {
-    const fromEnv = Number(process.env.SUMMRISE_DSH_PORT);
-    return Number.isInteger(fromEnv) && fromEnv > 0 && fromEnv < 65536 ? fromEnv : 18081;
+/** The DSH's port. Env first (a deployment may move it), else the component's default — the range test
+ *  and the fallback are the policy crate's, the env read is this file's. */
+function bootDshPort() {
+    return (0, summrise_shell_policy_1.resolveDshPort)(process.env.SUMMRISE_DSH_PORT);
 }
-/** The ONE load door for this view: its own origin, or nothing. */
-function dshTarget(raw) {
-    return (0, summrise_url_policy_1.isDshUrl)(raw) ? new URL(raw).toString() : "about:blank";
+/** The ONE load door for this view: its own origin, or nothing.
+ *
+ *  TWO OWNERS, ONE ANSWER: `isDshUrl` is the URL policy's predicate over its own port list, and this
+ *  file evaluates it because that list is state the two wasm modules must not each hold a copy of (see
+ *  the import block). The SERIALIZATION of an admitted target — and the refusal of everything else — is
+ *  the shell policy's. */
+function dshTargetFor(raw) {
+    return (0, summrise_shell_policy_1.dshTarget)(raw, (0, summrise_url_policy_1.isDshUrl)(raw));
 }
 // ── ONE DOOR PER HOST, TAKEN FROM THE AGENT'S OWN TABLE ───────────────────────────────────────────────
 // The harness page shows the SELECTED host's own harness, and each host is reached through its own
@@ -731,20 +727,22 @@ function dshTarget(raw) {
 // A read that fails leaves the list as it was. A shell that widened its own door list on a failed read is
 // exactly how the view ends up pointed somewhere it was not told about.
 function loadHarnessDoors() {
-    const base = `http://127.0.0.1:${resolveAgentPort()}`;
+    // `agentBase()` rather than a second port read: `setAgentPort` has already run at this point, so the
+    // URL policy's base IS what `resolveAgentPort()` would compute — one answer, not two.
+    const base = (0, summrise_url_policy_1.agentBase)();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
+    const timer = setTimeout(() => controller.abort(), HARNESS_FETCH_MS);
     fetch(`${base}/api/workspace/harnesses`, { headers: authHeaders(), signal: controller.signal })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((answer) => {
         const rows = answer?.harnesses;
-        if (!Array.isArray(rows))
-            return;
-        for (const row of rows) {
-            const port = Number(row?.local_port);
-            if (Number.isInteger(port) && port > 0 && port < 65536)
-                (0, summrise_url_policy_1.addDshPort)(port);
-        }
+        // THREE OWNERS, ONE DOOR LIST: the agent NAMES the ports (`local_port` per host), the policy crate
+        // says which are usable (`Array.isArray` and `Number(row?.local_port)` are JavaScript operations on
+        // a JavaScript value, so they happen inside `harnessDoors`; the RANGE TEST is the same one every
+        // other port in the shell goes through), and the URL policy ADMITS them — `addDshPort` dedupes
+        // against its own list, which is state this module must not keep a second copy of.
+        for (const port of (0, summrise_shell_policy_1.harnessDoors)(rows))
+            (0, summrise_url_policy_1.addDshPort)(port);
     })
         .catch(() => {
         /* the list stays as it was: one host, or none */
@@ -770,9 +768,9 @@ function dshViewEnsure() {
     // practice an external link is simply dropped rather than silently navigating this view away
     // from the harness.
     view.webContents.setWindowOpenHandler(({ url }) => {
-        const target = dshTarget(url);
-        if (target !== "about:blank")
-            dshNavigate(target);
+        const decided = (0, summrise_shell_policy_1.dshPopupTarget)(url, (0, summrise_url_policy_1.isDshUrl)(url));
+        if (decided !== undefined)
+            dshNavigate(decided);
         return { action: "deny" };
     });
     view.webContents.on("render-process-gone", (_e, details) => {
@@ -794,21 +792,26 @@ function dshViewEnsure() {
     return view;
 }
 function dshNavigate(url) {
-    const target = dshTarget(url);
+    const target = dshTargetFor(url);
     const view = dshViewEnsure();
     view.webContents.loadURL(target).catch(() => { });
     return { ok: true, url: target };
 }
-/** Open (or re-focus) the DSH at its configured address. Idempotent. */
+/** Open (or re-focus) the DSH at its configured address. Idempotent.
+ *
+ *  `dshHome` is the policy crate's and it was spelled TWICE in this file before the port — here and in
+ *  `dshRecover` — which is exactly the pair that must not drift: a crash recovery that lands somewhere
+ *  other than the harness is a view the operator did not ask for. */
 function dshOpen() {
-    return dshNavigate((0, summrise_url_policy_1.dshBase)() + "/");
+    return dshNavigate((0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)()));
 }
 /** Place the view over the SPA's slot. Empty bounds hide it (the same contract as the browser). */
 function dshPlace(bounds) {
     const view = dshViewEnsure();
     if (!win)
         return;
-    if (!bounds || bounds.width < 50 || bounds.height < 50) {
+    // The SAME predicate the browser view uses — one `MIN_SLOT_PX`, two call sites, before the port.
+    if ((0, summrise_shell_policy_1.slotTooSmall)(bounds)) {
         view.setVisible(false);
         dshVisible = false;
         return;
@@ -848,7 +851,7 @@ function dshRecover() {
     const view = dshViewEnsure();
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
-    view.webContents.loadURL((0, summrise_url_policy_1.dshBase)() + "/").catch(() => { });
+    view.webContents.loadURL((0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)())).catch(() => { });
     if (dshVisible && win && dshBounds) {
         view.setBounds(dshBounds);
         view.setVisible(true);
@@ -878,7 +881,7 @@ ipcHandle("embedded-dsh:recover", () => dshRecover());
 // Electron's setLoginItemSettings: in dev mode (electron .) the login-item
 // API is unreliable, while schtasks works for the current user without
 // elevation. The task runs start-desktop.ps1 (non-elevated → clickable).
-const AUTOSTART_TASK = "SummriseDesktop";
+const AUTOSTART_TASK = K.AUTOSTART_TASK;
 // Resolve the autostart script from the install root (layout v2: the shell
 // lives at <install>\components\summrise-desktop-electron\src\, so the script
 // is at <install>\scripts\ — process.cwd() depends on how the shell was
@@ -888,7 +891,7 @@ const AUTOSTART_SCRIPT = path.join(INSTALL_ROOT, "scripts", "start-desktop.ps1")
 async function autoLaunchTaskExists() {
     // review #4: was sync execSync schtasks — the same hang class that killed
     // electron; route through the bounded async runner.
-    const r = await runSchtasks(["/query", "/tn", AUTOSTART_TASK]);
+    const r = await runSchtasks((0, summrise_shell_policy_1.schtasksQueryArgs)(AUTOSTART_TASK));
     return r.ok;
 }
 /** Run schtasks asynchronously with a hard timeout — the SYNC execSync
@@ -908,7 +911,7 @@ function runSchtasks(args) {
             const t = setTimeout(() => { try {
                 child.kill();
             }
-            catch { } resolve({ ok: false, error: "schtasks timed out" }); }, 15000);
+            catch { } resolve({ ok: false, error: "schtasks timed out" }); }, SCHTASKS_TIMEOUT_MS);
             child.on("error", (e) => { clearTimeout(t); resolve({ ok: false, error: String(e) }); });
             child.on("close", (code) => { clearTimeout(t); resolve({ ok: code === 0, error: code === 0 ? undefined : `schtasks exit ${code}` }); });
         }
@@ -919,45 +922,52 @@ function runSchtasks(args) {
 }
 async function autoLaunchTaskSet(enabled) {
     try {
-        if (enabled && !(await autoLaunchTaskExists())) {
-            // Under SYSTEM, a spawn-array schtasks /create without /ru fails with
-            // "no mapping between account names and security IDs" (exit 1) — the
-            // interactive user is not resolvable from the service session. A bare
-            // STRING invocation happens to work (shell default), but spawn arrays
-            // need an explicit account: use Administrator (the d1 console user).
-            //
-            // THIS PATH CANNOT REPRODUCE WHAT `summrise` REGISTERS, and the difference matters. The CLI
-            // gives SummriseDesktop TWO triggers — AtLogOn plus a guarded 5-minute pulse (bin/summrise.js:
-            // `New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval 5min`, run
-            // through desktop-pulse.vbs → ensure-desktop.ps1, which exits when electron is already up).
-            // `schtasks /create` has no way to express a repetition interval at all, so what this writes is
-            // a LOGON-ONLY task: toggling auto-launch OFF deletes the hardened task, and toggling it ON
-            // again replaces it with one that cannot recover a wedged shell. `summrise update` heals it and
-            // says so in its log — "desk: SummriseDesktop hardened (guarded 5-min pulse)" — which is how
-            // this collision was found in the first place.
-            //
-            // Doing it properly means New-ScheduledTaskTrigger through PowerShell (the CLI's shape,
-            // duplicated in JS) or delegating to the CLI; neither is a one-liner, and the update-time repair
-            // bounds the damage to "until the next update". Recorded where the downgrade happens, so the
-            // next reader sees the trap instead of rediscovering it from a shell that stopped recovering.
-            const r = await runSchtasks([
-                "/create", "/tn", AUTOSTART_TASK,
-                // schtasks re-parses the /tr VALUE as a command line — it needs its
-                // OWN inner quotes around the script path. The spawn array keeps the
-                // outer arg intact; the embedded \\" quotes survive to schtasks.
-                "/tr", `powershell -NoProfile -ExecutionPolicy Bypass -File \\"${AUTOSTART_SCRIPT}\\"`,
-                "/sc", "onlogon", "/ru", "Administrator", "/f",
-            ]);
-            if (!r.ok)
-                return r;
-        }
-        else if (!enabled && (await autoLaunchTaskExists())) {
-            // End the task first (a RUNNING task's process tree is terminated on
-            // delete) then remove it — the current electron instance must survive.
-            await runSchtasks(["/end", "/tn", AUTOSTART_TASK]);
-            const r = await runSchtasks(["/delete", "/tn", AUTOSTART_TASK, "/f"]);
-            if (!r.ok)
-                return r;
+        // THE PLAN IS THE POLICY CRATE'S (`autoLaunchPlan(enabled, exists)`): create when it is asked for and
+        // absent, end-then-delete when it is refused and present, and NOTHING when it is already in the
+        // state asked for — which is a SUCCESS and not a no-op to be apologised for. This file asks whether
+        // the task exists and runs the argv; it decides neither.
+        switch ((0, summrise_shell_policy_1.autoLaunchPlan)(!!enabled, await autoLaunchTaskExists())) {
+            case "create": {
+                // Under SYSTEM, a spawn-array schtasks /create without /ru fails with
+                // "no mapping between account names and security IDs" (exit 1) — the
+                // interactive user is not resolvable from the service session. A bare
+                // STRING invocation happens to work (shell default), but spawn arrays
+                // need an explicit account: use Administrator (the d1 console user).
+                //
+                // THIS PATH CANNOT REPRODUCE WHAT `summrise` REGISTERS, and the difference matters. The CLI
+                // gives SummriseDesktop TWO triggers — AtLogOn plus a guarded 5-minute pulse (bin/summrise.js:
+                // `New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval 5min`, run
+                // through desktop-pulse.vbs → ensure-desktop.ps1, which exits when electron is already up).
+                // `schtasks /create` has no way to express a repetition interval at all, so what this writes is
+                // a LOGON-ONLY task: toggling auto-launch OFF deletes the hardened task, and toggling it ON
+                // again replaces it with one that cannot recover a wedged shell. `summrise update` heals it and
+                // says so in its log — "desk: SummriseDesktop hardened (guarded 5-min pulse)" — which is how
+                // this collision was found in the first place.
+                //
+                // Doing it properly means New-ScheduledTaskTrigger through PowerShell (the CLI's shape,
+                // duplicated in JS) or delegating to the CLI; neither is a one-liner, and the update-time repair
+                // bounds the damage to "until the next update". Recorded where the downgrade happens, so the
+                // next reader sees the trap instead of rediscovering it from a shell that stopped recovering.
+                // `schtasksCreateArgs` carries the quoting trap the crate documents: `schtasks` re-parses the
+                // /tr VALUE as a command line, so the script path needs its OWN inner quotes while the spawn
+                // array keeps the outer argument intact. It is also where the `/ru Administrator` and the
+                // logon-only SHAPE are recorded — the toggle cannot reproduce what `summrise` registers, and the
+                // crate says so where the downgrade happens.
+                const r = await runSchtasks((0, summrise_shell_policy_1.schtasksCreateArgs)(AUTOSTART_TASK, AUTOSTART_SCRIPT));
+                if (!r.ok)
+                    return r;
+                break;
+            }
+            case "remove": {
+                // End the task first (a RUNNING task's process tree is terminated on delete) then remove it —
+                // the current electron instance must survive.
+                await runSchtasks((0, summrise_shell_policy_1.schtasksEndArgs)(AUTOSTART_TASK));
+                const r = await runSchtasks((0, summrise_shell_policy_1.schtasksDeleteArgs)(AUTOSTART_TASK));
+                if (!r.ok)
+                    return r;
+                break;
+            }
+            default: break; // "nothing" — already in the state that was asked for
         }
         return { ok: true, enabled };
     }
@@ -975,7 +985,7 @@ ipcHandle("desktop:set-auto-launch", async (enabled) => autoLaunchTaskSet(!!enab
 // connect succeeding, so the watchdog's miss counter NEVER reached the gate,
 // the wait page never showed, and a stuck device stayed stuck in silence.
 // Liveness = GET /api/status answers 200 within the budget.
-function agentResponds(timeoutMs = 2000) {
+function agentResponds(timeoutMs = AGENT_PROBE_DEFAULT_MS) {
     return new Promise((res) => {
         let done = false;
         const finish = (v) => { if (!done) {
@@ -989,7 +999,7 @@ function agentResponds(timeoutMs = 2000) {
             // token-gated, so a HEALTHY agent answers 401 to the shell's
             // credential-less probe — requiring 200 made a live agent look dead and
             // sent the watchdog into a restart loop (self-caught regression).
-            finish(typeof r.statusCode === "number" && r.statusCode > 0);
+            finish((0, summrise_shell_policy_1.statusIsAlive)(r.statusCode));
         });
         req.on("timeout", () => { req.destroy(); finish(false); });
         req.on("error", () => finish(false));
@@ -1003,7 +1013,7 @@ async function startAgentTask() {
     // review #1 (HIGH): sync execSync on the wait-page button / IPC / HTTP
     // paths — one wedged schtasks froze the WHOLE main process (the exact
     // hang class already fixed for the watchdog). Same bounded async runner.
-    return runSchtasks(["/run", "/tn", "SummriseAgent"]);
+    return runSchtasks((0, summrise_shell_policy_1.schtasksRunArgs)(AGENT_TASK));
 }
 // The SPA asks the shell for agent status / to (re)start the agent task.
 // IPC audit #6: shell:agent-status / shell:start-agent had ZERO consumers
@@ -1011,7 +1021,12 @@ async function startAgentTask() {
 // Dead handlers removed — every exposed channel is attack surface.
 // Fallback HTTP path (plain browser / no preload): same core, CORS-open.
 const httpServer = http.createServer((req, res) => {
-    const u = new URL(req.url || "/", "http://127.0.0.1");
+    // THE REQUEST PARSE AND THE ROUTER ARE THE POLICY CRATE'S. `controlPath` resolves the request target
+    // against the loopback base the way `new URL(req.url, "http://127.0.0.1")` did, and — the ONE named
+    // divergence in that crate — a malformed request target answers `undefined` instead of throwing out of
+    // this listener, which in the original took the whole Electron main process with it. `undefined` falls
+    // through to the 404 below.
+    const pathname = (0, summrise_shell_policy_1.controlPath)(req.url) ?? "";
     const send = (obj, code = 200) => {
         // review #8: was ACAO:* with no origin check — ANY web page open in ANY
         // local browser could POST /api/shell/start-agent or spam
@@ -1020,14 +1035,18 @@ const httpServer = http.createServer((req, res) => {
         // origins (reads included — the GET routes expose session URLs and
         // device facts). "null" (our data: wait page) and absent
         // (native tooling/curl) stay allowed.
-        res.setHeader("access-control-allow-origin", req.headers.origin || "*");
-        res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
-        res.setHeader("access-control-allow-headers", "content-type, authorization");
-        res.setHeader("vary", "Origin");
+        res.setHeader("access-control-allow-origin", (0, summrise_shell_policy_1.corsAllowOrigin)(req.headers.origin));
+        res.setHeader("access-control-allow-methods", K.CORS_ALLOW_METHODS);
+        res.setHeader("access-control-allow-headers", K.CORS_ALLOW_HEADERS);
+        res.setHeader("vary", K.CORS_VARY);
         res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
         res.end(JSON.stringify(obj));
     };
-    if (req.method === "OPTIONS")
+    // A PREFLIGHT IS ANSWERED BEFORE THE VETO, and that ordering is the policy crate's
+    // (`controlIsPreflight`) rather than a detail of this function: moving the check below the veto would
+    // start 403-ing legitimate CORS preflights and the plain-browser path would stop working with no other
+    // symptom.
+    if ((0, summrise_shell_policy_1.controlIsPreflight)(req.method ?? ""))
         return send({ ok: true });
     // Foreign-origin veto applies to READS too: the GET routes
     // (/api/browser-session/list, /api/shell/agent-status,
@@ -1039,34 +1058,30 @@ const httpServer = http.createServer((req, res) => {
     // this set — no live extension caller exists (the extension only talks
     // to its configured gateway origin, never to 127.0.0.1:9444), so the
     // veto stays as-is; an extension caller needs an explicit entry here.
-    {
-        // THE DECISION LIVES IN RUST (agent/summrise-url-policy), beside its
-        // siblings. This was an inline regex with NO `$` ANCHOR, so
-        // `http://127.0.0.1.evil.com` passed — the same class as the
-        // `startsWith(BASE)` bug that crate exists to kill, whose own case pins the
-        // lookalike for the IPC twin.
-        if (!(0, summrise_url_policy_1.controlOriginOk)(req.headers.origin)) {
-            return send({ ok: false, error: "forbidden origin" }, 403);
-        }
+    // THE DECISION ITSELF IS RUST (agent/summrise-url-policy) and was an inline regex with NO `$` ANCHOR,
+    // so `http://127.0.0.1.evil.com` passed — the same class as the `startsWith(BASE)` bug that crate
+    // exists to kill.
+    if (!(0, summrise_url_policy_1.controlOriginOk)(req.headers.origin)) {
+        return send({ ok: false, error: K.FORBIDDEN_ORIGIN }, 403);
     }
     try {
-        if (u.pathname === "/api/browser-session/open" && req.method === "POST")
-            return send(browserOpen(u.searchParams.get("url") || "about:blank"));
-        if (u.pathname === "/api/browser-session/close" && req.method === "POST")
-            return send(browserClose(u.searchParams.get("id") || ""));
-        if (u.pathname === "/api/browser-session/list")
-            return send(browserList());
-        if (u.pathname === "/api/shell/start-agent" && req.method === "POST")
-            return (async () => send(await startAgentTask()))();
-        if (u.pathname === "/api/shell/agent-status")
-            return (async () => send({ ok: true, running: await agentResponds(1000) }))();
-        if (u.pathname === "/api/shell/icon-status")
-            return send({ ok: true, icons: iconReport,
+        // THE ROUTE TABLE IS THE POLICY CRATE'S, INCLUDING ITS TWO ASYMMETRIES, which are the original
+        // behaviour and not accidents to tidy: `/list`, `/agent-status` and `/icon-status` have NO method
+        // guard (a POST reaches the same reader), while `/open`, `/close` and `/start-agent` require POST and
+        // a GET to one of them falls through to the 404.
+        switch ((0, summrise_shell_policy_1.controlRoute)(req.method ?? "", pathname)) {
+            case "browser-open": return send(browserOpen((0, summrise_shell_policy_1.controlQuery)(req.url, "url") || K.ABOUT_BLANK));
+            case "browser-close": return send(browserClose((0, summrise_shell_policy_1.controlQuery)(req.url, "id") || ""));
+            case "browser-list": return send(browserList());
+            case "start-agent": return (async () => send(await startAgentTask()))();
+            case "agent-status": return (async () => send({ ok: true, running: await agentResponds(CONTROL_PROBE_MS) }))();
+            case "icon-status": return send({ ok: true, icons: iconReport,
                 native: {
                     tray: probeImage(String(iconReport["tray"]?.path || "")),
                     window: probeImage(String(iconReport["window"]?.path || "")),
                 } });
-        send({ ok: false, error: "not found" }, 404);
+            default: send({ ok: false, error: K.NOT_FOUND }, 404);
+        }
     }
     catch (e) {
         send({ ok: false, error: String(e) }, 500);
@@ -1100,22 +1115,25 @@ if (gotTheLock) {
     // (The same shortcut association is also the documented precondition for the hide-to-tray
     // toast below: Electron requires a Start Menu shortcut carrying the ID and a
     // ToastActivatorCLSID, and this one carries neither — unchanged by this call.)
-    const AUMID = "online.saisi.summrise.desktop";
+    // THE VALUE, THE PLATFORM TEST AND THE TWO REPORT STRINGS ARE THE POLICY CRATE'S. It is a COPY of the
+    // CLI's `DESKTOP_AUMID` and the two must stay in step — `agent/tests/shared_literals.rs` now compares
+    // them from both sources and refuses a disagreement, which is what "KEEP THE TWO IN STEP" needed to
+    // stop being a comment. `app.setAppUserModelId` is this file's.
     try {
-        if (process.platform === "win32")
-            electron_1.app.setAppUserModelId(AUMID);
-        iconReport["appUserModelId"] = process.platform === "win32" ? AUMID : "(non-windows)";
+        if ((0, summrise_shell_policy_1.usesAppUserModelId)(process.platform))
+            electron_1.app.setAppUserModelId(K.DESKTOP_AUMID);
+        iconReport["appUserModelId"] = (0, summrise_shell_policy_1.aumidReport)(process.platform);
     }
     catch {
-        iconReport["appUserModelId"] = "(set-failed)";
+        iconReport["appUserModelId"] = K.AUMID_SET_FAILED;
     }
     electron_1.app.whenReady().then(async () => {
         // Custom-port installs: pin every origin predicate + probe/load URL to
         // the agent's actual bind port BEFORE any window or probe exists.
-        (0, summrise_url_policy_1.setAgentPort)(resolveAgentPort());
+        (0, summrise_url_policy_1.setAgentPort)(bootAgentPort());
         // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
         // before this line would check a port nothing is listening on.
-        (0, summrise_url_policy_1.setDshPort)(resolveDshPort());
+        (0, summrise_url_policy_1.setDshPort)(bootDshPort());
         // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
         loadHarnessDoors();
         // review #7: with no handler Electron AUTO-GRANTS every permission
@@ -1126,8 +1144,8 @@ if (gotTheLock) {
             electron_1.session.defaultSession.setPermissionCheckHandler(() => false);
         }
         catch { /* non-fatal */ }
-        httpServer.listen(CTRL_PORT, "127.0.0.1");
-        console.log(`[summrise] browser-session control: http://127.0.0.1:${CTRL_PORT}`);
+        httpServer.listen(K.CTRL_PORT, "127.0.0.1");
+        console.log(`[summrise] browser-session control: http://127.0.0.1:${K.CTRL_PORT}`);
         // Native application menu (stage-l): menu commands → SPA via summrise-menu.
         electron_1.Menu.setApplicationMenu(buildMenu());
         win = new electron_1.BrowserWindow({
@@ -1193,17 +1211,21 @@ if (gotTheLock) {
         win.webContents.on("did-navigate", (_e, url) => {
             if (snappingBack)
                 return;
-            // Parsed-origin + parsed-pathname allow-list (the Rust policy): the
-            // string startsWith was the exact class IPC audit #1 flagged. The data:
-            // wait page and about:blank stay allowed at the caller.
-            if ((0, summrise_url_policy_1.isDesktopSpaUrl)(url) || url.startsWith("data:") || url === "about:blank")
+            // Parsed-origin + parsed-pathname allow-list: the string startsWith was the exact class IPC audit
+            // #1 flagged, so `isDesktopSpaUrl` (the URL policy's) supplies that half and the policy crate
+            // composes it with the two literal carve-outs — the data: wait page and about:blank.
+            //
+            // **THE PORT DELETED A DEAD LINE HERE.** The original read
+            //     if (isDesktopSpaUrl(url) || url.startsWith("data:") || url === "about:blank") return;
+            //     if (url === "about:blank") return;
+            // and the second `about:blank` test is UNREACHABLE: the first already returns for it. It read as a
+            // second guard and had never run.
+            if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)))
                 return;
-            if (url === "about:blank")
-                return;
-            console.log(`[summrise] main-window tripwire: blocked stray navigation to ${url.slice(0, 80)}`);
+            console.log((0, summrise_shell_policy_1.tripwireLog)(url));
             snappingBack = true;
             win?.loadURL(`${(0, summrise_url_policy_1.agentBase)()}/desktop/`).catch(() => { }).finally(() => {
-                setTimeout(() => { snappingBack = false; }, 2000);
+                setTimeout(() => { snappingBack = false; }, TRIPWIRE_BACKOFF_MS);
             });
         });
         // review #7: a target=_blank from the SPA must NOT get a preload-bearing
@@ -1224,7 +1246,7 @@ if (gotTheLock) {
         // agentReady() stayed true, so the miss counter below NEVER incremented
         // and the watchdog could not fire (the device stayed stuck in silence,
         // the exact failure the watchdog exists to prevent).
-        const agentReady = async () => agentResponds(800);
+        const agentReady = async () => agentResponds(AGENT_PROBE_BOOT_MS);
         // stage-n: the wait page carries a "Start Agent" action — the header
         // comment promised it but it never existed. The button calls the shell's
         // own /api/shell/start-agent (schtasks /run SummriseAgent — the only
@@ -1287,12 +1309,12 @@ if (gotTheLock) {
       </style>
       <div>
         <h2>The Summrise Agent isn&#39;t answering</h2>
-        <p id="status">no reply from ${(0, summrise_url_policy_1.agentBase)().replace("http://", "")}</p>
+        <p id="status">no reply from ${(0, summrise_shell_policy_1.agentHostLabel)((0, summrise_url_policy_1.agentBase)())}</p>
         <p id="action" hidden></p>
         <button id="start">Start Agent</button>
       </div>
       <script>
-        var BASE = ${JSON.stringify((0, summrise_url_policy_1.agentBase)().replace("http://", ""))};
+        var BASE = ${JSON.stringify((0, summrise_shell_policy_1.agentHostLabel)((0, summrise_url_policy_1.agentBase)()))};
         var CTRL = "http://127.0.0.1:9444";
         var btn = document.getElementById("start");
         var st = document.getElementById("status");
@@ -1346,13 +1368,17 @@ if (gotTheLock) {
             // DO NOT RE-LOAD A PAGE THAT IS ALREADY SHOWING (see the note above): the
             // reload wiped the button's answer and reset the evidence line, which is
             // what made the only control on this screen unfalsifiable.
-            if (win?.webContents.getURL().startsWith("data:text/html"))
+            // `isWaitPage` is the policy crate's, and the prefix test is SAFE because the URL it tests is one
+            // this file built — no page can make itself match.
+            if ((0, summrise_shell_policy_1.isWaitPage)(win?.webContents.getURL() ?? ""))
                 return;
             win?.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(waitPageHtml(checks))}`).catch(() => { });
         };
-        let retryMs = 2000;
-        const nextRetry = () => { retryMs = Math.min(retryMs * 2, 30000); return retryMs; };
-        const resetRetry = () => { retryMs = 2000; };
+        // THE BACKOFF IS THE POLICY CRATE'S: double, capped at `RETRY_CAP_MS`, and reset to `RETRY_START_MS`
+        // on a successful probe.
+        let retryMs = RETRY_START_MS;
+        const nextRetry = () => { retryMs = (0, summrise_shell_policy_1.nextRetryMs)(retryMs); return retryMs; };
+        const resetRetry = () => { retryMs = RETRY_START_MS; };
         // NO setVersionTitle() HERE, DELETED. It fetched /api/status with the device token and
         // called win.setTitle("Summrise — v1.2.x"), and that title NEVER REACHED THE SCREEN: the
         // SPA owns document.title (`useAttentionTitle` assigns it on every attention change,
@@ -1374,8 +1400,6 @@ if (gotTheLock) {
         // free — the same hang class that killed the old auto-launch toggle.
         let agentMissCount = 0;
         let lastAutoStartAt = 0;
-        const AUTO_START_AFTER_MISSES = 5;
-        const AUTO_START_MIN_GAP_MS = 5 * 60 * 1000;
         const loadDesktop = async () => {
             if (await agentReady()) {
                 agentMissCount = 0;
@@ -1388,11 +1412,14 @@ if (gotTheLock) {
                 // times the shell has asked and got nothing, including this one.
                 agentMissCount += 1;
                 loadWaitPage(agentMissCount);
-                if (agentMissCount >= AUTO_START_AFTER_MISSES && Date.now() - lastAutoStartAt > AUTO_START_MIN_GAP_MS) {
+                // THE GATE IS THE POLICY CRATE'S: five consecutive misses AND at least five minutes since the
+                // last self-start. The argv is its too, which is what makes the task name this runs and the name
+                // the CLI registers one fact instead of two.
+                if ((0, summrise_shell_policy_1.watchdogShouldStart)(agentMissCount, lastAutoStartAt, Date.now())) {
                     lastAutoStartAt = Date.now();
                     agentMissCount = 0;
-                    void runSchtasks(["/run", "/tn", "SummriseAgent"]).then((r) => {
-                        console.log(`[summrise] agent watchdog: schtasks /run SummriseAgent → ${r.ok ? "ok" : "failed: " + r.error}`);
+                    void runSchtasks((0, summrise_shell_policy_1.schtasksRunArgs)(AGENT_TASK)).then((r) => {
+                        console.log((0, summrise_shell_policy_1.watchdogLog)(r.ok, r.error));
                     });
                 }
                 setTimeout(() => { loadDesktop(); }, nextRetry());
@@ -1405,7 +1432,10 @@ if (gotTheLock) {
         // ANOTHER loadDesktop chain (accelerated miss counting + duplicate
         // loadURLs). Only a real main-frame failure (not ABORTED) should retry.
         win.webContents.on("did-fail-load", (_e, errorCode, _desc, _url, isMainFrame) => {
-            if (!isMainFrame || errorCode === -3)
+            // `-3` is ERR_ABORTED and it is EXCLUDED on purpose: a same-URL reload dispatches it on the MAIN
+            // frame, and retrying it stacked a second `loadDesktop` chain with accelerated miss counting. The
+            // predicate is the policy crate's.
+            if (!(0, summrise_shell_policy_1.shouldRetryLoad)(!!isMainFrame, errorCode))
                 return;
             setTimeout(() => { loadDesktop(); }, nextRetry());
         });
@@ -1414,7 +1444,7 @@ if (gotTheLock) {
         win.webContents.on("did-finish-load", () => {
             if (menuFlushTimer)
                 clearTimeout(menuFlushTimer);
-            menuFlushTimer = setTimeout(flushMenuQueue, 1000);
+            menuFlushTimer = setTimeout(flushMenuQueue, MENU_FLUSH_MS);
         });
         await loadDesktop();
         // round-259: eagerly create the EMBEDDED view at startup (hidden) so an
@@ -1431,33 +1461,37 @@ if (gotTheLock) {
             embeddedViewEnsure();
         }
         catch { /* non-fatal */ }
-        console.log(`[summrise] CDP endpoint: http://127.0.0.1:${CDP_PORT} (playwright connectOverCDP)`);
+        console.log(`[summrise] CDP endpoint: ${(0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT)} (playwright connectOverCDP)`);
         // stage-n: CDP self-check — if 9333 is occupied by another process
         // (a second browser/electron), remote-debugging-port silently fails and
         // AI driving would hit the WRONG target. Probe /json/version and verify
         // the User-Agent belongs to this app.
+        // THE QUESTION IS THE POLICY CRATE'S, THE REQUEST IS THIS FILE'S. It exists because "if 9333 is
+        // occupied by another process (a second browser/electron), `remote-debugging-port` silently fails and
+        // AI driving would hit the WRONG target" — so `/json/version` is probed and the `User-Agent` is
+        // compared against this app's marker. The three messages are the crate's so that the wording a person
+        // reads off a device's log is pinned by a test.
         (async () => {
             try {
                 const ctrl = new AbortController();
-                const t = setTimeout(() => ctrl.abort(), 3000);
-                const r = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, { signal: ctrl.signal });
+                const t = setTimeout(() => ctrl.abort(), CDP_CHECK_MS);
+                const r = await fetch(`http://127.0.0.1:${K.CDP_PORT}/json/version`, { signal: ctrl.signal });
                 clearTimeout(t);
                 if (r.ok) {
-                    const j = await r.json();
-                    const ua = j["User-Agent"] || "";
-                    if (ua.includes("summrise-desktop-electron")) {
-                        console.log(`[summrise] CDP self-check OK: 127.0.0.1:${CDP_PORT} is this app`);
+                    const ua = (0, summrise_shell_policy_1.cdpUserAgent)(await r.text());
+                    if ((0, summrise_shell_policy_1.cdpUserAgentOurs)(ua)) {
+                        console.log((0, summrise_shell_policy_1.cdpSelfCheckOk)(K.CDP_PORT));
                     }
                     else {
-                        console.warn(`[summrise] CDP WARNING: port ${CDP_PORT} answered by another browser (UA=${ua.slice(0, 60)}…) — AI driving may target the wrong process`);
+                        console.warn((0, summrise_shell_policy_1.cdpWarningForeign)(K.CDP_PORT, ua));
                     }
                 }
                 else {
-                    console.warn(`[summrise] CDP WARNING: ${CDP_PORT} not responding — remote debugging may be off`);
+                    console.warn((0, summrise_shell_policy_1.cdpWarningNotResponding)(K.CDP_PORT));
                 }
             }
             catch {
-                console.warn(`[summrise] CDP WARNING: could not reach ${CDP_PORT} — remote debugging may be off`);
+                console.warn((0, summrise_shell_policy_1.cdpWarningUnreachable)(K.CDP_PORT));
             }
         })();
         win.on("close", (e) => {
@@ -1487,88 +1521,54 @@ if (gotTheLock) {
         let trayAgentRunning = false;
         // stage-n: guards the single loadDesktop re-entry loop (see tray hook).
         let agentWatchActive = false;
-        let trayAgentVersion = "";
-        let trayAgentUptime = "";
-        let trayAgentSessions = 0;
-        // stage-n: vitals mirrored from /api/status into the tray (the SPA
-        // status strip shows the same pair).
-        let trayAgentCpu = null;
-        let trayAgentMem = null;
+        /** WHAT THE TRAY KNOWS, carried between polls: the facts the last `/api/status` answer left behind.
+         *  The RULE — a poll that fails, or an answer that omits a field, KEEPS what the last one said — is
+         *  the policy crate's; the STATE is this file's, because a poll is the only thing that observes it.
+         *  The two formatters this file used to carry (`fmtUptime`, `fmtClock`) are that crate's too, so
+         *  there is no clock face or uptime string built here at all. */
+        let trayFacts = { version: "", uptime: "", sessions: 0, cpu: null, mem: null };
         /** WHEN /api/status last ANSWERED (null = it never has since launch) — the tray's
-         *  tooltip reports this instead of asserting a state it cannot date. */
+         *  tooltip reports this instead of asserting a state it cannot date. The policy crate decides what
+         *  it MEANS; this file only records it. */
         let trayLastAnsweredAt = null;
-        /** "3m 24s" / "1h 5m" / "2d 3h" — compact uptime for the tray. */
-        const fmtUptime = (secs) => {
-            if (secs < 60)
-                return `${secs}s`;
-            if (secs < 3600)
-                return `${Math.floor(secs / 60)}m ${secs % 60}s`;
-            if (secs < 86400)
-                return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
-            return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
-        };
-        /** "14:02:31" local — the WHEN of an observation, for the one surface that cannot
-         *  re-derive it (a tray tooltip is a string set once per poll, not a render). */
-        const fmtClock = (at) => new Date(at).toTimeString().slice(0, 8);
         const refreshTray = async () => {
             // HTTP liveness, not the TCP probe (see agentReady above): a wedged-
             // but-listening agent must show as STOPPED, not "running".
-            const running = await agentResponds(1000);
+            const running = await agentResponds(AGENT_PROBE_TRAY_MS);
             const observedAt = Date.now();
-            if (running)
-                trayLastAnsweredAt = observedAt;
-            let version = trayAgentVersion;
-            let uptime = trayAgentUptime;
-            let sessions = trayAgentSessions;
-            let cpu = trayAgentCpu;
-            let mem = trayAgentMem;
+            // THE PARSE, THE KEEP-LAST RULE, THE VITALS LINE AND THE TOOLTIP'S WORDING ARE ONE CALL INTO THE
+            // POLICY CRATE, and this file hands over the RAW BODY rather than a parsed object: `r.json()`
+            // throwing into a `catch { keep last }` IS the keep-last rule, so the parse belongs where the rule
+            // is. `r.text()` moves the throw across the boundary.
+            let statusText = "";
             if (running) {
                 try {
                     const ctrl = new AbortController();
-                    const t = setTimeout(() => ctrl.abort(), 2500);
+                    const t = setTimeout(() => ctrl.abort(), STATUS_FETCH_MS);
                     const r = await fetch(`${(0, summrise_url_policy_1.agentBase)()}/api/status`, { signal: ctrl.signal, headers: authHeaders() });
                     clearTimeout(t);
-                    if (r.ok) {
-                        const j = await r.json();
-                        // npm RELEASE version first (the number that changes per release,
-                        // written by update/setup), Cargo protocol `version` as fallback.
-                        const v = j.release || j.version;
-                        if (v)
-                            version = v;
-                        if (typeof j.uptime_secs === "number")
-                            uptime = fmtUptime(j.uptime_secs);
-                        if (typeof j.live_sessions === "number")
-                            sessions = j.live_sessions;
-                        if (typeof j.cpu_pct === "number")
-                            cpu = j.cpu_pct;
-                        if (typeof j.mem_pct === "number")
-                            mem = j.mem_pct;
-                    }
+                    if (r.ok)
+                        statusText = await r.text();
                 }
                 catch { /* keep last */ }
             }
+            // THE LOCAL TIME ZONE IS A HOST FACT AND IT IS PASSED PER INSTANT: wasm has no clock and no zone
+            // database, and the two clock faces the tooltip can print are up to a DST boundary apart — one
+            // offset for both would put the wrong hour on one of them for exactly one poll, which is the
+            // "a timestamp does not decay" promise the wording was rewritten to keep.
+            const next = JSON.parse((0, summrise_shell_policy_1.refreshTrayHealth)(JSON.stringify({
+                running,
+                statusText,
+                prev: trayFacts,
+                observedAt,
+                lastAnsweredAt: trayLastAnsweredAt,
+                tzOffsetMin: new Date(observedAt).getTimezoneOffset(),
+                lastTzOffsetMin: new Date(trayLastAnsweredAt ?? observedAt).getTimezoneOffset(),
+            })));
+            trayFacts = next.facts;
+            trayLastAnsweredAt = next.lastAnsweredAt;
+            const health = next.health;
             trayAgentRunning = running;
-            trayAgentVersion = version;
-            trayAgentUptime = uptime;
-            trayAgentSessions = sessions;
-            trayAgentCpu = cpu;
-            trayAgentMem = mem;
-            const vitals = running && mem !== null
-                ? `, CPU ${cpu === null ? "?" : Math.round(cpu)}% · MEM ${Math.round(mem)}%`
-                : "";
-            // THE TOOLTIP NAMES THE OBSERVATION, NOT A VERDICT (round-275). It used to print
-            // "Agent stopped" as present tense from ONE un-timestamped probe, recomputed every
-            // 30 s — half a minute stale while reading as now, the shape the panel's liveness
-            // strings were already fixed for (`checked 12s ago`, `reachability NOT VERIFIED`).
-            // The WHEN is a CLOCK rather than "answered 12s ago", deliberately: a tooltip is a
-            // string written once per poll and Electron gives it no way to recompute, so a
-            // relative age would freeze at the value it had when written and read as "now" for
-            // the next 30 s — the very failure this line removes. A timestamp does not decay.
-            const health = running
-                ? `answered ${fmtClock(observedAt)} · v${version || "?"}${uptime ? `, up ${uptime}` : ""}${sessions ? `, ${sessions} session${sessions === 1 ? "" : "s"}` : ""}${vitals}`
-                : trayLastAnsweredAt === null
-                    ? "reachability NOT VERIFIED · no reply since launch"
-                    : `not answering · last reply ${fmtClock(trayLastAnsweredAt)}`;
             // stage-n: the agent died WHILE the window was showing the SPA (the
             // wait page only renders when the boot probe fails). Swap the window
             // to the wait page — its "Start Agent" button is now actually visible
@@ -1576,13 +1576,22 @@ if (gotTheLock) {
             // loadDesktop retry loop, whose watchdog auto-runs `schtasks /run
             // SummriseAgent` after ~60 s of misses. One loop guard so repeated tray
             // polls cannot stack retries.
-            if (!running && !agentWatchActive && win && !win.isDestroyed()
-                && (0, summrise_url_policy_1.isBaseOrigin)(win.webContents.getURL())) {
+            //
+            // The CONJUNCTION is the policy crate's; the ORIGIN half is the URL policy's, evaluated only when
+            // the window is live so the original's short-circuit survives (a destroyed window never reaches a
+            // `getURL()`).
+            const liveWindow = win && !win.isDestroyed() ? win : null;
+            if ((0, summrise_shell_policy_1.trayShouldWatch)(running, agentWatchActive, liveWindow !== null, liveWindow ? (0, summrise_url_policy_1.isBaseOrigin)(liveWindow.webContents.getURL()) : false)) {
                 agentWatchActive = true;
                 void loadDesktop();
             }
             if (running && agentWatchActive)
                 agentWatchActive = false;
+            // THE TOOLTIP NAMES THE OBSERVATION, NOT A VERDICT (round-275), and the crate computes it: it used
+            // to print "Agent stopped" as present tense from ONE un-timestamped probe, recomputed every 30 s —
+            // half a minute stale while reading as now. The WHEN is a CLOCK rather than "answered 12s ago"
+            // because a tooltip is a string written once per poll and Electron gives it no way to recompute; a
+            // relative age would freeze and read as "now" for the next 30 s. A timestamp does not decay.
             tray.setToolTip(`Summrise — ${health}`);
             // THE FOUR "New …" ROWS ARE GONE (round-275): they duplicated the desktop
             // header's `+ New` menu item for item (pty/ssh/serial/browser), one click
@@ -1597,7 +1606,7 @@ if (gotTheLock) {
             ]));
         };
         refreshTray();
-        setInterval(() => { refreshTray(); }, 30000);
+        setInterval(() => { refreshTray(); }, TRAY_POLL_MS);
     });
 }
 electron_1.app.on("before-quit", () => {
