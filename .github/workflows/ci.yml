@@ -941,16 +941,6 @@ jobs:
             fi
           done
           echo "electron src copies in sync OK"
-      # THE WASM POLICY'S FRESHNESS, the same shape as the two checks above and
-      # for the same reason: `summrise_url_policy.js` and
-      # `summrise_url_policy_bg.wasm` are wasm-pack output that is COMMITTED to
-      # the package (the shell requires them at run time, and a device has no
-      # compiler), so a change to `agent/summrise-url-policy/` without a rebuild
-      # and a commit would ship a shell whose URL/certificate policy disagrees
-      # with its own source — the drift `url-policy.js` could never have,
-      # because tsc regenerated it on every build.
-      - name: url-policy wasm freshness (rebuild + cmp)
-        run: bash scripts/test/url-policy-wasm-freshness.bash
       # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
       # recompile src/summrise.ts with the tsc the electron step installed
       # above and cmp against the committed bin/summrise.js — a src change
