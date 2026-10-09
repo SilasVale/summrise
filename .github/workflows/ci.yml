@@ -515,10 +515,12 @@ jobs:
         working-directory: agent
 
   # Pack-chain gates WITHOUT the exe/xwin (fast, well under 3 min) — the
-  # release-only gates (round-298 marker, round-321 electron freshness, the
-  # npm CLI tests) never ran on PRs, so a stale artifact broke the release
-  # instead of the PR. Commands mirror release.yml's pack step (copy, don't
-  # reinvent — working-directory agent keeps the paths identical).
+  # release-only gates (round-321 electron freshness, the npm CLI tests) never
+  # ran on PRs, so a stale artifact broke the release instead of the PR.
+  # Commands mirror release.yml's pack step (copy, don't reinvent —
+  # working-directory agent keeps the paths identical). The round-298 marker
+  # gate left this list with the file it grep'd (landing 4b): see the note
+  # where that step used to be.
   pack-chain:
     name: pack-chain (npm artifact gates, no exe)
     runs-on: ubuntu-latest
@@ -558,10 +560,10 @@ jobs:
       - name: console dependencies (the render smokes' jsdom)
         run: npm ci
         working-directory: gateway/ui
-      # (a) round-298 marker in the COMMITTED bin/summrise.js — the same grep
-      # release.yml runs post-compile. Here it guards the committed file
-      # itself: a src/summrise.ts change without recompiling fails the PR, not
-      # the release.
+      # (a) THE MARKER GATE THAT STOOD HERE IS DELETED with the committed artifact it guarded
+      # (`bin/summrise.js`; landing 4b) — the step is gone, and the paragraph where it lived names
+      # what replaced it. This comment is kept as a tombstone rather than removed because the (a)/(b)
+      # letters below still refer to it.
       # Release-lib regression: the last-5-per-minor prune + version.json
       # writer that publish-release.sh sources (extracted for testability).
       - name: release-lib regression checks
@@ -949,9 +951,13 @@ jobs:
       # stdlib-only python, same convention (exit 0 = green).
       - name: scan-dups regression checks
         run: python3 scripts/test/scan-dups-check.py
-      - name: bin/summrise.js round-298 marker
-        working-directory: agent
-        run: grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker — recompile src/summrise.ts and commit bin/summrise.js"; exit 1; }
+      # THE `bin/summrise.js` MARKER STEP IS DELETED (landing 4b's cutover, 2026-10-09). It grep'd a
+      # committed tsc emit for the round-298 marker, to prove SOME build had happened; `bin/summrise.js`
+      # and its source `src/summrise.ts` are both deleted, the npm `bin` is `bin/summrise.exe`, and this
+      # job has no cargo-xwin, so there is no artifact here to check instead. The freshness question
+      # moved to the two builders that DO produce it — `release.yml` copies the exe it just built, and
+      # `publish-release.sh` refuses a staged copy that is not byte-identical to the build output or
+      # that is older than `package.json`, whose version is compiled into the binary.
       # (b) the SAME electron freshness gate as release.yml (the
       # typescript@5.9.3 install is ~15s) — FAIL on mismatch. typeRoots points
       # at summrise-agent-npm's own @types and --noCheck skips typechecking
@@ -1010,22 +1016,17 @@ jobs:
             exit 0
           fi
           exit "$st"
-      # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
-      # recompile src/summrise.ts with the tsc the electron step installed
-      # above and cmp against the committed bin/summrise.js — a src change
-      # without recompiling fails the PR, not the release.
-      - name: bin/summrise.js freshness (tsc recompile + cmp, same as release)
-        working-directory: agent
-        run: |
-          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/summrise-fresh-bin)
-          if ! cmp -s "/tmp/summrise-fresh-bin/summrise.js" "summrise-agent-npm/bin/summrise.js"; then
-            echo "::error::summrise-agent-npm/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile and commit bin/summrise.js"
-            exit 1
-          fi
-          echo "bin/summrise.js freshness check OK"
+      # P1-2 `bin/summrise.js` FRESHNESS IS DELETED (landing 4b's cutover, 2026-10-09), for the same
+      # reason as the marker step above: it recompiled `src/summrise.ts` with the tsc the electron step
+      # installed and cmp'd the emit against the committed `bin/summrise.js`, and both files are gone.
+      # Its replacement is NOT a step here — it is `publish-release.sh`'s provenance gate (staged exe ==
+      # build output, and newer than every CLI input INCLUDING `package.json`, whose version the binary
+      # embeds) plus `release.yml` copying the exe it built. A cmp against a committed artifact is what
+      # this step was for; there is no committed artifact any more, which is the stronger arrangement.
+      #
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
-      # staged in this xwin-less job, so the exe is EXCLUDED) and assert
-      # the other 6 release.yml files are inside — a files[]/rename slip
+      # staged in this xwin-less job, so the exes are EXCLUDED) and assert
+      # the other release.yml files are inside — a files[]/rename slip
       # fails the PR, not the release.
       - name: Pack + content subset gate (no exe in this job)
         working-directory: agent
@@ -1036,29 +1037,39 @@ jobs:
           tar tzf "/tmp/packcheck/$TGZ_NAME" > /tmp/tgz-list-ci.txt
           # THE ONE OWNER (architecture round C4): summrise-agent-npm/required-in-tgz.txt, which
           # scripts/publish-release.sh and release.yml read too — this list used to be a fourth
-          # verbatim copy. This job has no cargo-xwin, so summrise-agent.exe is skipped: the job
-          # name says so, and build-pins.bash checks that the exception stays documented.
+          # verbatim copy. This job has no cargo-xwin, so the exes are skipped: the job name says so,
+          # and build-pins.bash checks that the exception stays documented.
           REQUIRED_IN_TGZ="summrise-agent-npm/required-in-tgz.txt"
           [ -f "$REQUIRED_IN_TGZ" ] || { echo "::error::the packed-tgz content list is missing: $REQUIRED_IN_TGZ"; exit 1; }
           n=0
           while IFS= read -r F; do
             case "$F" in ''|'#'*) continue ;; esac
-            # The two Windows exes, and only they: this job has no cargo-xwin, so both are absent
-            # from the tgz it packs. The job name says so, and build-pins.bash checks that every
-            # exception here stays documented.
+            # THE THREE WINDOWS EXES, AND ONLY THEY — all three are cargo-xwin output and this job has
+            # none, so all three are absent from the tgz it packs. `bin/summrise.exe` is the third
+            # (landing 4b's cutover): it is the npm `bin`, this job cannot build it, and MEASURED
+            # without this line the loop above fails with
+            # `::error::packed tgz missing required file: bin/summrise.exe`. What still holds the CLI
+            # in the tarball on a builder that CAN build it is required-in-tgz.txt itself, read by
+            # publish-release.sh (staged == build output, and newer than package.json) and release.yml
+            # (it copies the exe it just built), plus the packaging suite's `required-in-tgz.txt` vs
+            # `files[]` case. The job name says so, and build-pins.bash checks that every exception
+            # here stays documented.
             [ "$F" = "summrise-agent.exe" ] && continue
             [ "$F" = "summrise-launch.exe" ] && continue
+            [ "$F" = "bin/summrise.exe" ] && continue
             if ! grep -qE "(^|/)${F}$" /tmp/tgz-list-ci.txt; then
               echo "::error::packed tgz missing required file: $F"
               exit 1
             fi
             n=$((n+1))
           done < "$REQUIRED_IN_TGZ"
-          echo "pack content check OK ($n files, both exes excluded — no xwin in this job)"
+          echo "pack content check OK ($n files, all three exes excluded — no xwin in this job)"
       # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
       # package has zero dependencies and no lockfile, so npm ci would
       # fail with EUSAGE. `npm test` (node --test over node builtins) runs
-      # against the committed bin/summrise.js with nothing installed.
+      # against the package's own files with nothing installed — it is the PACKAGING suite now
+      # (`test/packaging.test.mjs`): the CLI's decisions are Rust and their 162 answers are pinned in
+      # `summrise-cli/parity/expected.json`, so what is left to check here is the tarball.
       - name: npm CLI tests
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/summrise-agent-npm
@@ -1066,9 +1077,11 @@ jobs:
       # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
       # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
       # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`
-      # job because it needs BOTH ends — the committed JavaScript that a device runs (`ts.mjs` requires
-      # `bin/summrise.js`, not the TypeScript source) and the Rust binary. This job already has node and a
-      # toolchain, and the port's own suite runs in the `agent` job.
+      # job because it needs BOTH ends — until landing 4b those were the JavaScript a device ran
+      # (`ts.mjs` required `bin/summrise.js`, not the TypeScript source) and the Rust binary; the
+      # JavaScript is deleted, so `compare.mjs` now diffs the Rust against the answers that
+      # JavaScript gave, FROZEN in `parity/expected.json` while both existed and agreed 162/0. This
+      # job already has node and a toolchain, and the port's own suite runs in the `agent` job.
       #
       # It is a real gate, not a formality: on its first run it found three differences, one of which is a
       # genuine TypeScript defect (`newestOf` can return `""`, which `statusReport` renders as a channel that
