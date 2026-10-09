@@ -219,6 +219,23 @@ FINDINGS WAS WRONG, which is the more useful half of this paragraph.**
    same single-source move the rest of this document is about — and it is its own landing because it edits the
    release path.
 
+6. **AND THE SIX THAT REMAIN SPLIT IN TWO, ONE HALF PORTABLE AND ONE HALF NOT — which is a class question, not
+   a to-do list (measured 2026-10-09).** With the three tools moved to BOUNDARY, `agent/scripts/` is down to six
+   files, and reading each one says which kind it is:
+   * **THREE ARE PORTABLE**, because their inputs are data: `lib/design-sweep.mjs` (it formats — `ackNotes` — and
+     its twin is already in the judge), and the two payloads' **contrast verdict** (`r.cr < need` plus the sentence,
+     with the judge merely wrapping what they built). Move those three decisions and the payloads become what the
+     previous round already reclassified their siblings as — drivers, which are a boundary.
+   * **THREE ARE ENVIRONMENT-BOUND AND MAY NEVER MOVE**: `harness-boot-check.mjs` (it boots a harness through
+     Playwright), `verify-workspaces-page.mjs` (it fetches a SERVED page), and `e2e/e2e.js` (it runs on a DEVICE).
+     Nothing in CI can run them, and a Rust gate that cannot be fed is not a gate: **`cargo test` has no browser, no
+     served panel and no device.** They decide something, so by §2 they are LOGIC — and by §2 they also cannot leave,
+     which means **"zero LOGIC" as the criterion is not reachable while these three exist in their present form.**
+     That is the honest reading, and the choice it forces is the operator's: give the manifest a class for a manual
+     instrument that runs where a browser exists (**and then say in the reason that its verdict is NOT enforced by
+     any job**, so the class cannot become a hiding place), or keep them LOGIC and let the criterion read
+     "three files, each named and justified" instead of zero.
+
 **THE LESSON THIS PARAGRAPH IS NOW THE RECORD OF, because it cost two wrong claims in one sitting:** every one of
 those retractions came from reading the *control flow* rather than the *shape*. A function with early `continue`s
 does not do what its name suggests; a flag that is forwarded is not a flag that is parsed. The audit is cheap — an

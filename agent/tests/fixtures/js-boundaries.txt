@@ -65,6 +65,17 @@ BOUNDARY | index/spike-rust-landing/ | the landing spike's measure/verify harnes
 BOUNDARY | agent/summrise-workspace-dsh/ | the DSH plugin package — a plugin must be JS; the agent owns the connections
 BOUNDARY | agent/summrise-cli/parity/ | the parity instrument — it runs the built CLI and the Rust binary and diffs their answers; it decides nothing about the product
 BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-CHANGE emitter, executes the payload it prints against a stub browser, and diffs that trace against the Rust plan; it decides nothing about the product
+# ── AND THE THREE TOOLS ARE BOUNDARY, WHICH THE DIRECTORY RULE COULD NOT SEE (2026-10-09) ────────────────────
+# `agent/scripts/` is LOGIC as a rule, and the audit of the sweeps named what stays inside it: the judge's
+# JavaScript twin, the two payloads that drive and decide, the two small checkers, and the e2e suite. The three
+# TOOLS were never in that list, and reading them line by line says why: each one dispatches on argv, FORWARDS
+# `--passes` to the Rust plan without interpreting it, holds path constants and (for the landing) the fixture's
+# URLs and page list, and assembles the emitted bundle through `lib/sweep-bundle.mjs`. The decisions they look
+# like they make are all somewhere else — which plan runs (Rust), which passes it wants (Rust), what the verdict
+# is (Rust). What they do is emit and dispatch, so they are the boundary the rest of this block is.
+BOUNDARY | agent/scripts/panel-design-sweep.mjs | the panel tool: argv dispatch, the in-page MOTION/TIMING probe SNIPPETS (strings a browser evaluates), the harness content stamp, and the emit through lib/sweep-bundle.mjs. It interprets no flag and decides no verdict
+BOUNDARY | agent/scripts/console-design-sweep.mjs | the console tool, the same shape: dispatch, `--passes` forwarded verbatim to the Rust plan, the entry stamp, the emit
+BOUNDARY | agent/scripts/landing-design-sweep.mjs | the landing tool: it RENDERS the surface under test (the fixture's URLs and page list) and emits it. Fixture data, not product behaviour
 BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it runs `summrise-sweep-plan` and parses its stdout — one process call, no decision. The plan itself is Rust (agent/sweep-plan/)
 BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
