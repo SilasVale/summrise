@@ -147,13 +147,21 @@ work. Give each track its own worktree and its own branch (`using-git-worktrees`
 
     git worktree add ~/wt/<track> -b <branch> main         # after umask 022, and NOT under /tmp
 
-**AND NOT UNDER `/tmp` — MEASURED 2026-10-09, WHEN A `/tmp` SWEEP TOOK EVERY WORKTREE AT ONCE.** All seven
-trees vanished mid-round (`git worktree list` afterwards called each one `prunable`), and the damage split
-along exactly one line: **every COMMITTED thing survived** — the object store is shared, so each branch still
-held its tip — while **every UNCOMMITTED tree was gone**, three tracks' worth, unrecoverable. So the rule is
-not "avoid /tmp" but the sharper one: **a worktree is a working copy, and an hour of uncommitted work in it
-can be deleted by the operating system.** Commit before leaving a track idle, and keep the tree where a temp
-sweep does not reach.
+**AND NOT UNDER `/tmp` — MEASURED 2026-10-09, WHEN THE BOX REBOOTED AND EVERY WORKTREE WENT WITH IT.** All
+seven trees vanished mid-round (`git worktree list` afterwards called each one `prunable`), and the damage
+split along exactly one line: **every COMMITTED thing survived** — the object store is shared, so each branch
+still held its tip — while **every UNCOMMITTED tree was gone**, three tracks' worth, unrecoverable. So the
+rule is not "avoid /tmp" but the sharper one: **a worktree is a working copy, and an hour of uncommitted work
+in it can be deleted by the operating system.** Commit before leaving a track idle, and keep the tree where a
+reboot cannot reach.
+
+**AND THE CAUSE IS A REBOOT, NOT A SWEEPER — MEASURED RATHER THAN ASSUMED, BECAUSE THE FIRST VERSION OF THIS
+PARAGRAPH SAID "A `/tmp` SWEEP" AND THAT SENDS THE NEXT READER HUNTING FOR SOMETHING THAT IS NOT THERE.**
+`who -b` -> *system boot Oct 9 15:44*; `/tmp`'s own tmpfiles rule is `D /tmp 1777 root root 30d`, i.e. **30
+DAYS**, so `systemd-tmpfiles-clean` (active, and it did run at 15:59 that day) cannot delete a file from the
+same afternoon. One reboot explains both losses this session recorded — the worktrees, and the `/tmp/wasmopt`
+that `build.sh index` needed — and it is also why a device arm and a docker socket changed under the work
+mid-round. **Check `uptime` before theorising about what deleted a file.**
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
