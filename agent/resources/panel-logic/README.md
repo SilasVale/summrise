@@ -7,7 +7,15 @@ commit**, and it is a crate of FUNCTIONS — React, Radix and Tailwind stay exac
 
 ```bash
 cd agent/resources/panel-logic
-WASM_OPT=/tmp/wasmopt/node_modules/binaryen/bin/wasm-opt ./build.sh
+WASM_OPT=$HOME/wasmopt/node_modules/.bin/wasm-opt ./build.sh
+
+**AND NOT UNDER `/tmp`, WHICH IS WHERE THIS LINE USED TO POINT — MEASURED 2026-10-09.** It read
+`/tmp/wasmopt/node_modules/binaryen/bin/wasm-opt`, and a `/tmp` sweep deleted it, so `build.sh index` refused
+to deploy with "wasm-opt not found" — a deploy blocked by a tool that a temporary directory had taken, and a
+README that sent the next reader to the same place. The lesson AGENTS.md records for worktrees applies to
+toolchains too: **a thing a temp sweep can delete is not an installation.** `mkdir -p ~/wasmopt && cd
+~/wasmopt && npm i binaryen` puts it where the sweep cannot reach, and `wasm-opt version 132` is what
+answered.
 ```
 
 `WASM_OPT` is optional if `wasm-opt` is on PATH (`npm i binaryen` gives one). The command builds,
