@@ -195,14 +195,29 @@ FINDINGS WAS WRONG, which is the more useful half of this paragraph.**
    Rust alone. Measured too: **nothing reads `config.passes` any more** — the payloads read `wants` from the plan —
    so there is no second reading to disagree with the first. It is plumbing, and the manifest classifies it as the
    boundary it is.
-4. **THE SWEEPS DO NOT RECLASSIFY WHOLESALE, AND SIX OF THE FIFTEEN DID.** The paragraph above used to claim
-   everything left was a boundary, which was written without an audit; the audit then over-corrected twice (items 2
+4. **THE SWEEPS DO NOT RECLASSIFY WHOLESALE, AND SIX OF THE FIFTEEN DID.** The paragraph above used to claim   everything left was a boundary, which was written without an audit; the audit then over-corrected twice (items 2
    and 3) before settling. What it settled on is in the manifest, per file, with the platform call named — six files
    moved to BOUNDARY (the assembler, the in-page probe source, the harness renderer, the stub device, and two
    payloads that only drive), taking `LOGIC` from **152 to 146** in one commit. What stays LOGIC stays for a reason
    the rule names: `lib/design-sweep.mjs` **formats** (`ackNotes`), the two big payloads **decide and format** (the
    contrast sentence), the two small checkers **judge** (`judgeBoot`, the workspace probes), and `e2e/e2e.js`
    **asserts**.
+5. **AND THE INDEX CUTOVER LEFT A DEAD SOURCE FEEDING A RELEASE GATE — found while trying to delete that file, which
+   is why it is written here instead of done quietly.** `index/src/index.js` IS no longer what runs: the deployed
+   `summrise-dist` module was fetched from the Cloudflare API and carries the wasm glue (`WebAssembly` ×7,
+   `wasm_bindgen` ×8) while the hand-written file has none — so `index/wrangler.jsonc`'s `"main":
+   "worker/build/index.js"` is live. **But `scripts/lib/release-lib.sh`'s `component_route_verdict()` reads the route
+   table out of THAT FILE** (`grep -oE 'pathname === "/summrise-agent/…"' index/src/index.js`), and
+   `publish-release.sh` guards on `[ -f index/src/index.js ]`, so the audit that refuses a components.json entry the
+   worker "does not serve" is validating against a file that no longer serves anything. **THE FIVE PUBLISHED PATHS
+   AGREE TODAY** (measured, both directions: `SummriseAgent-Setup.exe`, `cloudflared.exe`,
+   `electron-win32-x64.zip`, `summrise-agent-latest.tgz`, `summrise-playwright.zip`), so nothing is broken — the
+   hazard is the NEXT rename, which the audit would not catch. **AND THE FIX IS NOT A GREP**: `worker/src/routes.rs`
+   also contains unit-test samples (`SummriseAgent-Setup-1.2.297.exe`, `cloudflared.exe.bak`,
+   `summrise-agent-v1.2.297.tgz`), so an extraction that reads the whole file over-collects and the gate would pass
+   on paths nobody serves. The fix is a route table read from the RUNNING source with the test module excluded — the
+   same single-source move the rest of this document is about — and it is its own landing because it edits the
+   release path.
 
 **THE LESSON THIS PARAGRAPH IS NOW THE RECORD OF, because it cost two wrong claims in one sitting:** every one of
 those retractions came from reading the *control flow* rather than the *shape*. A function with early `continue`s
