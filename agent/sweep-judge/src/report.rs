@@ -570,11 +570,23 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
         // control that asked the device nothing — but only a page that HAS a request counter can tell "asked
         // nothing" from "nobody looked", and the console had none, so EVERY one of its rows was excused by a
         // note claiming a measurement that never happened.
+        // THE ROW'S NUMBERS, ON EVERY PATH (2026-10-09). The payload used to print these at RUN time and the
+        // judge printed them only for the rows that got as far as acknowledging, so a row that was excused or
+        // accused early was the one row whose numbers nobody saw — and the reader's view was the UNION of the
+        // two streams. Printing them here, before every exit, reproduces that union with ONE implementation,
+        // which is what let the payload's copy go.
+        let row_numbers = ack_notes(std::slice::from_ref(a), &where_);
+        let print_row_numbers = |out: &mut Out| {
+            for line in &row_numbers {
+                out.note(line);
+            }
+        };
         if matches!(get(a, "hasCounter"), Some(Value::Bool(false))) {
             findings.push(Finding::text(format!(
                 "{where_}: {} was pressed on a page with NO request counter, so whether it asked the device anything is UNMEASURED — the acknowledgement axis proves nothing here",
                 js_str(get(a, "sel"))
             )));
+            print_row_numbers(&mut *out);
             continue;
         }
         if truthy(get(a, "note")) {
@@ -583,6 +595,7 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
                 js_str(get(a, "sel")),
                 js_str(get(a, "note"))
             ));
+            print_row_numbers(&mut *out);
             continue;
         }
         if !truthy(get(a, "acked")) {
@@ -593,6 +606,7 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
                     "note: {where_} {} — asked the device nothing, so there was nothing to acknowledge",
                     js_str(get(a, "sel"))
                 ));
+                print_row_numbers(&mut *out);
                 continue;
             }
             // WHAT THIS CAN HONESTLY CLAIM: the control never acknowledged the press in the window. Whether
@@ -604,6 +618,7 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
                 js_str(get(a, "where")),
                 js_str(get(a, "size"))
             )));
+            print_row_numbers(&mut *out);
             continue;
         }
         // EVERY ROW'S NUMBERS, ON EVERY RUN (round 26). The judge reported only the failures, so a CI-only

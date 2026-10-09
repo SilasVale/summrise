@@ -179,7 +179,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import { marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, motionPass, ackNotes, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
+import { marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, motionPass, pressPass, discoverPressTargets, revealPass, ackPass, idlePass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { sweepPlan } from "./lib/sweep-plan.mjs";
 
@@ -310,7 +310,7 @@ function piecesSource(plan) {
     motion: probeOf(MOTION, "MOTION"),
     timing: probeOf(TIMING, "TIMING"),
     diag,
-    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, revealPass, ackPass, ackNotes, idlePass, motionPass },
+    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, revealPass, ackPass, idlePass, motionPass },
   });
 }
 

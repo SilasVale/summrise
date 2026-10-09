@@ -73,6 +73,7 @@ BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-
 # URLs and page list, and assembles the emitted bundle through `lib/sweep-bundle.mjs`. The decisions they look
 # like they make are all somewhere else — which plan runs (Rust), which passes it wants (Rust), what the verdict
 # is (Rust). What they do is emit and dispatch, so they are the boundary the rest of this block is.
+BOUNDARY | agent/scripts/lib/design-sweep.mjs | the shared collector and driver: the four probes as SOURCE STRINGS a browser evaluates, the passes that drive and measure, and the URL/escape helpers. It no longer formats anything — the acknowledgement notes moved to the judge (2026-10-09), which prints them before every exit
 BOUNDARY | agent/scripts/panel-design-sweep.mjs | the panel tool: argv dispatch, the in-page MOTION/TIMING probe SNIPPETS (strings a browser evaluates), the harness content stamp, and the emit through lib/sweep-bundle.mjs. It interprets no flag and decides no verdict
 BOUNDARY | agent/scripts/console-design-sweep.mjs | the console tool, the same shape: dispatch, `--passes` forwarded verbatim to the Rust plan, the entry stamp, the emit
 BOUNDARY | agent/scripts/landing-design-sweep.mjs | the landing tool: it RENDERS the surface under test (the fixture's URLs and page list) and emits it. Fixture data, not product behaviour

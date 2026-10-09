@@ -40,7 +40,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PROBE_SOURCE } from "./lib/contrast-probe.mjs";
-import {marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, ackPass, ackNotes, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
+import {marksProbe, surfaceProbe, namesProbe, reflowProbe, UNSTYLED_SOURCE, focusPass, ackPass, pressPass, idlePass, motionPass, TARGETS_SOURCE, THEME_SOURCE, diag, pressDelta, discoverPressTargets } from "./lib/design-sweep.mjs";
 import { bundleSweep, piecesModule } from "./lib/sweep-bundle.mjs";
 import { sweepPlan } from "./lib/sweep-plan.mjs";
 import { join } from "node:path";
@@ -142,7 +142,7 @@ function piecesSource(plan) {
     checks: { SURFACE: surfaceProbe, NAMES: namesProbe, REFLOW: reflowProbe },
     marks: marksProbe,
     diag,
-    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, ackPass, ackNotes, idlePass, motionPass },
+    passes: { focusPass, pressDelta, discoverPressTargets, pressPass, ackPass, idlePass, motionPass },
   });
 }
 

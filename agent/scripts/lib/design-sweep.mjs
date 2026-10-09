@@ -921,26 +921,11 @@ export async function discoverPressTargets(page, cap, skip) {
  *  Round 26's reason for printing every row stands: the judge reports only failures, and a CI-only failure could not be
  *  compared with a clean device run without re-running both by hand — eight controls "never acknowledged" in CI and answered
  *  in 6-13 ms on the device, same sweep, same fixture. A measurement nobody can read is a measurement nobody can check. */
-export function ackNotes(rows, where) {
-  const out = [];
-  for (const a of rows || []) {
-    out.push(
-      `note: ack ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""}${a.name ? " [" + a.name + "]" : ""} — acked=${a.acked} via=${a.via || "none"} ` +
-        `ms=${a.msToAck === null || a.msToAck === undefined ? "-" : a.msToAck} budget=${a.budgetMs} ` +
-        `presses=${a.presses ?? a.attempts ?? 1}`,
-    );
-    if (a.acked && (a.attempts || 1) > 1) {
-      out.push(
-        `note: ${where} ${a.sel}${a.where && a.where !== a.sel ? " (" + a.where + ")" : ""}${a.name ? " [" + a.name + "]" : ""} acknowledged only on the SECOND press — the first sample saw nothing, which on a loaded ` +
-          `machine is a timing artefact and on a real control is an acknowledgement that depends on state`,
-      );
-    }
-    if (typeof a.msToAck === "number" && typeof a.budgetMs === "number" && a.msToAck > a.budgetMs) {
-      out.push(`note: ${where} ${a.sel} took ${a.msToAck}ms against a ${a.budgetMs}ms budget`);
-    }
-  }
-  return out;
-}
+// THE ACKNOWLEDGEMENT NOTES MOVED TO THE JUDGE (2026-10-09), which is where the rows are read and where
+// they are printed now — before EVERY exit, so a row that never acknowledged or was excused early is no
+// longer the one row whose numbers nobody saw. They existed here as a second implementation of one piece of
+// formatting; the Rust one is `sweep-judge/src/report.rs`'s `ack_notes`, and `design-sweep.mjs` no longer
+// formats anything.
 
 export async function ackPass(page, targets, budgetMs, label = {}) {
   // ── THE QUESTION THE SECOND-PRESS NOTE HAS CARRIED IS ANSWERED FOR THE CONTROL IT NAMES (round 47) ────────────
