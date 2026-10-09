@@ -93,7 +93,7 @@ jobs:
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
 
   ui:
-    name: ui (tsc + build + test + render smoke)
+    name: ui (tsc + build + test)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -109,22 +109,19 @@ jobs:
       - name: Unit tests
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: gateway/ui
-      # ONE COMMAND FOR ALL OF THEM, AND THE SET IS DISCOVERED. This step used to run
-      # `render-smoke.mjs` alone, written inline; overview-render-smoke.mjs recorded the consequence
-      # in its own comment — "Nothing runs this smoke in CI (ci.yml runs render-smoke.mjs only),
-      # which is why the drift survived" — and by then two of its checks, one of them scene 3, the
-      # file's whole point, were asserting on the empty string. A smoke that runs nowhere is worse
-      # than no smoke, because its green is read as coverage.
-      - name: Render smokes (jsdom) — every one, discovered
-        run: node scripts/test/console-smoke-check.mjs
+      # TWO STEPS STOOD HERE (before `panel:`) AND NEITHER IS REPLACED, DELIBERATELY. `console-smoke-check.mjs`
+      # ran every `*-render-smoke.mjs` discovered in this directory — the set is DISCOVERED, not listed, and
+      # the floor of 4 is what tells "the tree moved" from "there are no smokes any more" — and
+      # `console-assets-check.mjs` rebuilt the console and refused a committed asset set that did not match
+      # its source. Both are RUST now (`agent/tests/console_smoke.rs`, `agent/tests/console_assets.rs`) and run
+      # in the `agent` job's `cargo test -p summrise-agent`, which gained this directory's `npm ci` for exactly
+      # that reason. The checks are unchanged; the two steps that would run them a second time are not here.
+      # (`console-assets-check`'s first placement failed in `pack-chain` with "Cannot find type definition file
+      # for 'vite/client'" — a missing dependency, not a stale asset — which is why the port's dependency is
+      # named in the agent job's own install step rather than left to this one.)
 
   # panel-react SPA tests — previously only ran in the release workflow
   # (added round-283); every main-branch CI run must cover them too.
-      # A CONSOLE SOURCE CHANGE OWES ITS BUILT ASSETS (round 178 of the standing goal). It belongs HERE rather than among the
-      # repo-wide gates: it runs `npm run build`, which needs this job's `npm ci`, and its first placement failed in
-      # pack-chain with "Cannot find type definition file for 'vite/client'" — a missing dependency, not a stale asset.
-      - name: the console's committed assets match its source
-        run: node ${{ github.workspace }}/scripts/test/console-assets-check.mjs
 
   panel:
     name: panel (vitest)
@@ -149,12 +146,13 @@ jobs:
       - name: Test
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/resources/panel-react
-      # THE PANEL SHEET'S FRESHNESS (round 177, relocated round 190). Five gates read the COMMITTED
-      # agent/resources/panel/panel.css and nothing compared it to its source. THIS JOB is the one that
-      # installs agent/resources/panel-react's dependencies — round 190 moved it here after the `ui` job,
-      # which installs only gateway/ui's, reported the missing types as a failed panel build.
-      - name: Panel sheet freshness
-        run: node ${{ github.workspace }}/scripts/test/panel-sheet-freshness-check.mjs
+      # THE PANEL SHEET'S FRESHNESS (round 177). Five gates read the COMMITTED
+      # agent/resources/panel/panel.css and nothing compared it to its source. IT IS A RUST GATE NOW
+      # (`agent/tests/panel_sheet_freshness.rs`, landing 3) and it runs in the `agent` job's
+      # `cargo test -p summrise-agent`, which installs THIS directory's dependencies for it — the round-190
+      # lesson is kept: a host without them prints `n/a` rather than reporting a failed build, and the job
+      # that installs them is where the real measurement happens. The Build step above stays and answers a
+      # different question ("does the SPA still build?") — moving the freshness check did not make it redundant.
 
   # THE DESIGN SUITE, ON EVERY PUSH. Rounds 184-213 found the delivery pipeline lying to the sweep four times
   # over — a console bundle two generations old, a harness carrying a reverted change, a probe reading a
@@ -272,6 +270,17 @@ jobs:
       - name: summrise-launch, for the target it is staged onto
         run: cargo clippy -p summrise-launch --target x86_64-pc-windows-msvc -- -D warnings
         working-directory: agent
+      # **THE NODE THIS JOB'S PORTED GATES SPAWN, PINNED — AND IT WAS NOT PINNED BEFORE.** `console_assets`
+      # and `console_smoke` ran here on the runner's DEFAULT node until landing 3 finished, which is a version
+      # this file never named; `panel_sheet_freshness` needs a `panel-react` build, whose own job pins 24. One
+      # version for all three, and it is the one the committed console assets were built with.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            gateway/ui/package-lock.json
+            agent/resources/panel-react/package-lock.json
       # **THE CONSOLE DEPENDENCIES, BECAUSE TWO GATES NOW BUILD AND RENDER THE CONSOLE.** Landing 3 ported
       # `console-assets-check` and `console-smoke-check` into `cargo test`, which is what made them run on
       # every change — and it is also what made this job need what only the `ui` job had. Measured in CI on
@@ -284,6 +293,14 @@ jobs:
       - name: console dependencies (the UI build and the render smokes' jsdom)
         run: npm ci
         working-directory: gateway/ui
+      # **AND THE PANEL'S, FOR THE THIRD PORTED GATE** — the same rule one package over. `panel_sheet_freshness`
+      # REBUILDS `agent/resources/panel-react` and asserts the committed sheet under `agent/resources/panel/`
+      # is what the source produces; without this install it declares `n/a` and proves nothing, which is
+      # correct on a host that cannot build the panel and is a LOST CHECK in the one job that can. The port's
+      # own header names this job as an installer, and the `panel` job's step went with the `.mjs`.
+      - name: panel dependencies (the ported sheet-freshness gate rebuilds the panel)
+        run: npm ci --include=optional
+        working-directory: agent/resources/panel-react
       - name: Tests
         # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
@@ -548,13 +565,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # THE CONSOLE'S DEPENDENCIES, BECAUSE A GATE HERE NEEDS THEM. `console-smoke-check.mjs` runs the
-      # jsdom render smokes, and this job invokes it twice: as its own step, and from
-      # `gate-mutations-check`, whose rule is that a gate must be GREEN before its mutation is applied.
-      # Without them every smoke fails to LOAD ("Cannot find module 'jsdom'"), 0/4, and the mutation
-      # reports "1 gate(s) unproven" — the whole job red, for four rounds, while it was green locally
-      # where the ui job's node_modules is always present. Found 2026-09-24 by reproducing CI's
-      # condition (hiding that directory) rather than by reading the log, which showed only the summary.
+      # THE CONSOLE'S DEPENDENCIES, BECAUSE A GATE HERE NEEDS THEM — AND THE GATE IS RUST NOW, WHICH IS WHY
+      # THE DEPENDENCIES STAY. `agent/tests/console_smoke.rs` runs the jsdom render smokes (it was
+      # `console-smoke-check.mjs` when this step was added), and this job reaches it TWICE: through
+      # `all-gates.bash` below — which derives the `agent` job's `cargo test -p summrise-agent --no-fail-fast`
+      # line and therefore runs every ported gate — and through that same command run by hand. Without these,
+      # every smoke fails to LOAD ("Cannot find module 'jsdom'"), 0/4, and what the run reports is a red job
+      # four rounds in a row for a missing dependency, while it was green locally where the ui job's
+      # node_modules is always present. Found 2026-09-24 by reproducing CI's condition (hiding that
+      # directory) rather than by reading the log, which showed only the summary. (`gate-mutations-check` was
+      # the second invoker this comment used to name; it is gone, and `all-gates` is the second one now.
+      # `console_assets`, which `all-gates` also reaches, needs the same install to build the console.)
       - name: console dependencies (the render smokes' jsdom)
         run: npm ci
         working-directory: gateway/ui
@@ -783,23 +804,26 @@ jobs:
             exit 1
           fi
           pwsh -NoProfile -File agent/deploy/lib/SummriseIntegrity.tests.ps1
-      # The contrast math, pinned. Four rounds of sweeps used an ad-hoc snippet
-      # retyped each time and it was wrong twice: it read a translucent
-      # background as WHITE (20 of 50 findings were that), and a skip rule that
-      # looked reasonable silently disabled the whole sweep and reported zero
-      # findings as a pass. Both are assertions here, with the numbers they cost.
-      # The functions tested are the ones the BROWSER runs — the probe embeds them
-      # via Function.prototype.toString() — so this is not a copy that can drift.
-      - name: contrast-probe regression checks
-        run: node scripts/test/contrast-probe-check.mjs
-      # A PRESS MEASURED AGAINST REST IS A HOVER WEARING A PRESS'S NAME (round 95).
-      # `pressPass` took its baseline with the pointer parked away from the control, so a sheet that answered
-      # `:hover` and had NO `:active` rule still produced a difference and the row read `changed: true`. Measured
-      # on the device: the landing's theme toggle changes background+color on hover and NOTHING on press, and both
-      # gates missed it — this pass for that reason, `feedback-check.mjs` because it did not read the landing's
-      # inline sheet. The check pins the rule as a pure function AND the wiring in all three emitted artifacts.
-      - name: press anchor checks
-        run: node scripts/test/press-anchor-check.mjs
+      # THE CONTRAST MATH AND THE PRESS ANCHOR ARE NOT HERE ANY MORE (landing 3, 2026-10-09), AND THE
+      # REASONING ABOVE IS KEPT BECAUSE IT IS WHY THEY EXIST. Two steps ran the `.mjs` gates named in it:
+      #
+      #   * `contrast-probe-check.mjs` pinned the contrast math — four rounds of sweeps used an ad-hoc snippet
+      #     retyped each time and it was wrong twice: it read a translucent background as WHITE (20 of 50
+      #     findings were that), and a skip rule that looked reasonable silently disabled the whole sweep and
+      #     reported zero findings as a pass. Both are assertions, with the numbers they cost, and the
+      #     functions tested are the ones the BROWSER runs (the probe embeds them via
+      #     Function.prototype.toString(), so it is not a copy that can drift). That is
+      #     `agent/tests/contrast_probe.rs` (the rules) and `agent/tests/contrast_probe_emitted.rs` (the
+      #     artifact) now.
+      #   * `press-anchor-check.mjs` pinned that a press is measured against the HOVER, not against rest
+      #     (round 95): `pressPass` took its baseline with the pointer parked away, so a sheet that answered
+      #     `:hover` and had NO `:active` rule still produced a difference and the row read `changed: true` —
+      #     measured on the device, the landing's theme toggle changes background+color on hover and NOTHING
+      #     on press, and both gates missed it. That is `agent/tests/press_anchor.rs` now.
+      #
+      # BOTH RUN IN THE `agent` JOB'S `cargo test -p summrise-agent`, which is the same step the migrated
+      # gates before them run in — and a step this job does not have, because there is no Rust toolchain here.
+      # Nothing about what they check changed; the two steps that ran the Node versions are gone with the files.
       # THE TOKEN CONTRACT IS NOT HERE ANY MORE (2026-09-30, P1 of the migration). It was the last
       # gate in this repository that could move into `cargo test`: it reads two stylesheets and
       # computes, with no dependency to spawn, and its proof lives in this repository. It is

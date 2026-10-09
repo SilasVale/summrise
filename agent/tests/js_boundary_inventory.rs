@@ -412,4 +412,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 107;
+///
+/// **IT FELL BY FIVE ON 2026-10-09, AND THE FIVE ARE NAMED** — the rule this constant carries is that a cap may
+/// come down only in a commit that says which file left, so that a number which falls without its reason cannot
+/// be audited:
+///
+///   `scripts/test/console-assets-check.mjs`        -> `agent/tests/console_assets.rs`
+///   `scripts/test/console-smoke-check.mjs`         -> `agent/tests/console_smoke.rs`
+///   `scripts/test/panel-sheet-freshness-check.mjs` -> `agent/tests/panel_sheet_freshness.rs`
+///   `scripts/test/press-anchor-check.mjs`          -> `agent/tests/press_anchor.rs`
+///   `scripts/test/contrast-probe-check.mjs`        -> `agent/tests/contrast_probe.rs` (13 assertions) plus
+///                                                     `agent/tests/contrast_probe_emitted.rs` (5)
+///
+/// Each was ported with the Node gate still beside it, the two were run on one tree until they agreed, and the
+/// `.mjs` was deleted — the differential is in the commit that landed each port. The `scripts/test/` manifest
+/// rule STAYS and is not narrowed: `scripts/test/npm-test-floored.mjs` is still there on purpose, because only
+/// its DECISION moved (`agent/tests/npm_test_floor.rs`) and the spawn that runs `npm test` in six directories
+/// has not. **107 -> 102.**
+const MAX_LOGIC: usize = 102;

@@ -14,7 +14,7 @@
 //!     and every one of them passes.
 //!
 //! THE CHECK IS A REBUILD, and the assertion is that a rebuild changes NOTHING git tracks. That shape is
-//! COPIED from `console-assets-check.mjs`, which exists for exactly this reason on the console side. In
+//! COPIED from `agent/tests/console_assets.rs`, which exists for exactly this reason on the console side. In
 //! the good case this is a no-op on the tree; in the bad case the diff it leaves behind IS the fix, which
 //! is why a rebuild beats an mtime comparison — round 146 recorded what an mtime guard costs when a file
 //! is RESTORED rather than edited.

@@ -287,9 +287,9 @@ pub fn git_ls_files(dir: &str) -> Vec<String> {
 // because `execFileSync` is one line there; here it is four, and four copies of four lines is the defect
 // `decomment` was extracted to remove.
 
-/// A finished child process. Both streams are kept apart because the `.mjs` gates read them apart:
-/// `console-assets-check` prints ONLY `e.stdout`'s tail when a build fails, and `console-smoke-check`
-/// falls back to stderr only when stdout named no error.
+/// A finished child process. Both streams are kept apart because the gates that came across read them
+/// apart: `agent/tests/console_assets.rs` prints ONLY the build's stdout tail when it fails, and
+/// `agent/tests/console_smoke.rs` falls back to stderr only when stdout named no error.
 #[derive(Debug)]
 pub struct Ran {
     pub status: Option<i32>,
@@ -307,8 +307,8 @@ impl Ran {
         self.status == Some(0)
     }
 
-    /// stdout then stderr — the concatenation `console-smoke-check.mjs` makes when a smoke died before
-    /// printing a failing line.
+    /// stdout then stderr — the concatenation `agent/tests/console_smoke.rs` makes when a smoke died
+    /// before printing a failing line.
     pub fn both(&self) -> String {
         format!("{}{}", self.stdout, self.stderr)
     }

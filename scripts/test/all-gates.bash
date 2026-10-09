@@ -36,12 +36,14 @@ WORKFLOW=".github/workflows/ci.yml"
 
 mapfile -t gates < <(
   # THE PATH PREFIX IS STRIPPED, NOT MATCHED AROUND (round 170). ci.yml invokes one gate as
-  # `node ${{ github.workspace }}/scripts/test/console-assets-check.mjs`, and the old pattern —
+  # `node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs`, and the old pattern —
   # which required the script path to start immediately after the interpreter — never matched it.
   # So that gate was named in the workflow and INVISIBLE to this runner, which is precisely the
   # drift the header promises cannot happen ("THE LIST IS DERIVED, NOT RESTATED ... can never
   # become a second list that drifts from the first"). MEASURED by the fifteenth exploration:
-  # 1 mention in ci.yml, 0 derived here.
+  # 1 mention in ci.yml, 0 derived here. (The gate that paid for the fix was
+  # `console-assets-check.mjs`; it has since moved to `agent/tests/console_assets.rs`, and the
+  # prefix form it exposed is still worn by `npm-test-floored.mjs`, which is the example above.)
   #
   # The strip runs FIRST, and that ordering is the whole fix: the prefix contains a SPACE, so a
   # character class in the regex cannot span it — my first attempt widened the pattern to
@@ -106,7 +108,19 @@ mapfile -t gates < <(
 #
 # AND AGAIN: `feedback-check.mjs` moves to `agent/tests/feedback.rs` and the derivation reads 23,
 # so the floor is 19.
-if [ "${#gates[@]}" -lt 19 ]; then
+#
+# AND AGAIN, FIVE AT ONCE (landing 3, 2026-10-09): `console-assets-check`, `console-smoke-check`,
+# `panel-sheet-freshness-check`, `press-anchor-check` and `contrast-probe-check` move to `agent/tests/*.rs`
+# and the derivation reads 18, so the floor is 14. MEASURED both ends, by running the derivation above
+# against each tree in turn: HEAD reads 23 and this tree reads 18. The rule is applied rather than
+# remembered — the derivation is run against the tree, four is subtracted, and the number is the record of
+# it being done. `npm-test-floored.mjs` is NOT one of the five and stays: only its DECISION moved
+# (`agent/tests/npm_test_floor.rs`), and the `npm test` spawn it runs is still JavaScript.
+#
+# AND THE RUST GATES THEMSELVES ARE REACHED, which is the half this file had to be given earlier: the
+# `cargo test -p summrise-agent --no-fail-fast` line derived from the `agent` job runs all five, so
+# "invisible to the local run" is answered by the same command CI runs rather than by a promise.
+if [ "${#gates[@]}" -lt 14 ]; then
   echo "  read only ${#gates[@]} gate command(s) from $WORKFLOW — the workflow moved, so this proves nothing" >&2
   exit 1
 fi

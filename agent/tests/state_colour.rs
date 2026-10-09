@@ -26,9 +26,10 @@
 //!
 //! The `.mjs` imports `loudnessOf` from `agent/scripts/lib/design-sweep.mjs` and calls it. That is a
 //! TOOL, not the subject — the subject is the two stylesheets — so this file carries its own copy,
-//! transliterated below. (Contrast that with `contrast-probe-check`, whose SUBJECT is the probe
-//! module's arithmetic: a Rust port of that one would pin Rust's arithmetic instead, which is why it
-//! cannot move.)
+//! transliterated below. (Contrast that with `agent/tests/contrast_probe.rs`, whose SUBJECT is the probe
+//! module's arithmetic: **that one DID move, and the split is why** — its rules are a Rust transliteration
+//! pinned by the gate's own numbers, and `contrast_probe_emitted.rs` separately pins that the MODULE still
+//! carries those functions, verbatim, and that the artifact the sweeps inject compiles.)
 //!
 //! ── MIGRATION-TIME EQUIVALENCE, MEASURED (both implementations, one tree, 2026-09-29) ──────────
 //!

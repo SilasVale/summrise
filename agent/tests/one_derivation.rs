@@ -361,7 +361,7 @@ fn check(vocab_src: &str, files: &[(String, String)]) -> Result<String, String> 
         // AND NONE FOR WHAT WASM-PACK GENERATES. `wasm/panel_logic.d.ts` and its `.js` twin carry the
         // CRATE'S OWN DOC COMMENTS, so a module whose header quotes the state it derives would be
         // reported as a second spelling of it. The directory is a build artifact: nothing in it is
-        // written by hand, and `panel-sheet-freshness-check.mjs` is what proves it matches the source.
+        // written by hand, and `agent/tests/panel_sheet_freshness.rs` is what proves it matches the source.
         if rel.starts_with("wasm/") {
             continue;
         }

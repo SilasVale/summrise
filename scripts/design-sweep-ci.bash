@@ -37,10 +37,10 @@
 # ── AND THE QUESTION THIS BLOCK USED TO ASK IS ANSWERED: THEY ARE NOT DUPLICATES ──────────────────────────────────
 #
 # It asked whether `hover`, `motion` and `reflow` are measured TWICE, because each has a standalone gate elsewhere in CI
-# (`press-anchor-check`, `motion_check`, `feedback-check`) — and if they were, this step could run `pages,unstyled` and
+# (`agent/tests/press_anchor.rs`, `agent/tests/motion_check.rs`, `agent/tests/feedback.rs`) — and if they were, this step could run `pages,unstyled` and
 # give back minutes. **They are not, and the difference is the one thing those gates cannot do: RENDER A PAGE.**
 #
-#   * `press-anchor-check` pins `pressDelta` as a PURE FUNCTION and asserts the emitted artifact reads the hovered
+#   * `agent/tests/press_anchor.rs` pins `pressDelta` as a PURE FUNCTION and asserts the emitted artifact reads the hovered
 #     snapshot before `mouse.down()`. It renders nothing. The `hover` pass measures hover-state CONTRAST on ~31
 #     interactive elements in a real browser. A wiring assertion is not a measurement of what the wiring found.
 #   * `motion-check` (now `agent/tests/motion_check.rs`) READS BOTH SHEETS and asserts every selector that runs an animation is named in a

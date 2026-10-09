@@ -22,7 +22,9 @@
 # is the RULE, not a number.)
 #
 # THE CHECK IS THE EMITTER'S OWN GUARANTEE, not a copy of it — which is what "the assembler compiles what it emits"
-# means. A hook that costs time is a hook people bypass with --no-verify, so it stays five fast commands.
+# means. A hook that costs time is a hook people bypass with --no-verify, so it stays five fast commands — plus
+# ONE `cargo test`, and only when the probe it guards is in the commit (landing 3, 2026-10-09; the reason is at
+# that check, below).
 #
 # IT CAUGHT ITS OWN STALENESS IN ROUND 243: the extension was removed and this loop still named its emitter, so the
 # hook refused the very commit that removed it. That is the whole point of running the thing you guard.
@@ -126,9 +128,22 @@ if ! node agent/scripts/live-panel-probe.mjs --emit >/dev/null 2>/tmp/summrise-h
 fi
 
 # The probe's own source is a template literal too, and its check is the one that knows.
-if ! node scripts/test/contrast-probe-check.mjs >/dev/null 2>&1; then
-  echo "pre-commit: the contrast probe's own check failed (see scripts/test/contrast-probe-check.mjs)" >&2
-  fail=1
+#
+# **IT IS A CARGO TEST NOW (landing 3, 2026-10-09), AND ONLY WHEN THE THING IT GUARDS IS BEING COMMITTED.**
+# The `.mjs` this called is deleted; its five assertions are `agent/tests/contrast_probe_emitted.rs`. The loop
+# above already fails a stray BACKTICK in the probe — all five emitters import the module, so it stops
+# parsing and they stop emitting — and what this adds is the half nothing else asks: the EMITTED string's
+# escapes (`split(/\s+/)` collapsing to `split(/s+/)` still PARSES and simply matches something else, and
+# round 123 shipped exactly that to a device). A `cargo test` on EVERY commit would cost a build on a cold
+# target directory — the "a hook that costs time is a hook people bypass" line above — and the probe can only
+# have changed if one of these two files is in the commit. So the check is conditional, and it still runs
+# where it can bite.
+if git diff --cached --name-only | grep -qE '^(agent/scripts/lib/contrast-probe\.mjs|agent/tests/contrast_probe_emitted\.rs)$'; then
+  # `--manifest-path`, because this hook runs from the REPOSITORY ROOT and the crates live in `agent/`.
+  if ! cargo test --manifest-path agent/Cargo.toml -p summrise-agent --test contrast_probe_emitted --quiet >/dev/null 2>&1; then
+    echo "pre-commit: the contrast probe's own check failed (cargo test --manifest-path agent/Cargo.toml -p summrise-agent --test contrast_probe_emitted)" >&2
+    fail=1
+  fi
 fi
 
 if [ "$fail" != "0" ]; then

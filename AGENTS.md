@@ -165,7 +165,7 @@ mid-round. **Check `uptime` before theorising about what deleted a file.**
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
-like `console-assets-check.mjs` refuse a dirty tree, which is how it surfaces. The fix is a clone-local `.git/info/exclude`
+like `agent/tests/console_assets.rs` refuse a dirty tree, which is how it surfaces. The fix is a clone-local `.git/info/exclude`
 line for the bare name `node_modules`.
 
 **AND START LONG WORK IN THE BACKGROUND — a CI run, an `all-gates` run, a build, a subagent — then do the next thing and
@@ -268,23 +268,30 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 **A GATE NOBODY CAN NAME IS A GATE NOBODY RUNS BY HAND.** These are the gate scripts the workflow invokes. A gate is named where a person can find it, or it does not exist.
 
-**AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no Node, no browser, no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
+**AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
+
+**FIVE OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NOW NEEDS NODE — AND TWO `node_modules`.** `console_assets` and `console_smoke` build and render the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react` (an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer `cargo test` holds (measured: 45s and still waiting; 32.9s with its own target dir). **AND `console_assets` REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by name while editing, which is also why the worktree recipe above says a symlinked `node_modules` is EXCLUDED rather than staged.
 
 **Each carries its own mutation proof in its header.** Read it when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`
-`console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `hook-finds-its-repo.bash`
 `main-only-by-merge.bash`, `main-shape-shallow.bash`, `rust-byte-checks.bash`
 `panel-design-sweep.bash`
-`npm-test-floored.mjs`, `console-assets-check.mjs`
-`press-anchor-check.mjs`
+`npm-test-floored.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
 `smoke-helpers.bash`, `smoke-index.bash`
 `sweep-judges.bash`
 
-`token-contract-check.mjs` moved 2026-09-30: it is `agent/tests/token_contract.rs` now, and it left this
-list for the reason the paragraph above gives.
+**AND FIVE MORE LEFT ON 2026-10-09 (landing 3), ALL BUT ONE OF `scripts/test/`'s JAVASCRIPT** —
+`console-assets-check`, `console-smoke-check`, `panel-sheet-freshness-check` and `press-anchor-check` are
+`agent/tests/console_assets.rs`, `console_smoke.rs`, `panel_sheet_freshness.rs` and `press_anchor.rs` now, and
+`contrast-probe-check` is `contrast_probe.rs` (the rules) plus `contrast_probe_emitted.rs` (the artifact),
+each ported with the Node gate still beside it and deleted only after the two agreed on one tree — the
+differential is in the commit that landed each port. **`npm-test-floored.mjs` STAYS**, and the reason is the
+rule rather than the count: only its DECISION moved (`agent/tests/npm_test_floor.rs`), and the `npm test`
+spawn it runs is still JavaScript. `token-contract-check.mjs` moved 2026-09-30, and it is
+`agent/tests/token_contract.rs` now.
 
 ## Where the long form lives
 
