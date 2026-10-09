@@ -10,6 +10,18 @@
 #   producer  REQUIRED for GENERATED: the path of the thing that produces the file, checked to exist
 #
 # The gate is agent/tests/js_boundary_inventory.rs. LOGIC is the work that is left; its cap only falls.
+#
+# ── TWO RULES THAT MAKE THE HARD CASES A RULE RATHER THAN A JUDGEMENT CALL ────────────────────────────────────
+#
+# A TEST BELONGS TO THE CODE IT TESTS. That is why `gateway/test/` is LOGIC — those files exercise the console
+# worker's TypeScript and leave when it does — and why `agent/scripts/e2e/` is BOUNDARY: that suite drives the
+# DEVICE's HTTP surface, whose subject is already Rust, so it is a harness rather than work that is left. A test
+# whose subject is Rust is not a migration item; a test whose subject is JavaScript goes with its subject.
+#
+# A FIXTURE IS NOT A DECISION. `panel-stub.cjs` answers thirty comparisons and every one of them decides what the
+# FAKE device returns — test data, not product behaviour. The same reading covers a probe SOURCE (it ships as text
+# into a page), an assembler (a build step), and a harness renderer (it builds the surface under test). What makes
+# a file LOGIC is that something the PRODUCT does depends on it.
 
 # ── GENERATED ─────────────────────────────────────────────────────────────────────────────────────────────────
 GENERATED | agent/resources/panel/ | the panel SPA as shipped — embedded into the agent with include_str! | agent/resources/panel-react
@@ -57,6 +69,16 @@ BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it
 BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
 BOUNDARY | agent/scripts/e2e/ | the device e2e bundle: the page-side half runs where browser_run_script runs
+# ── AND THE SIX THE SWEEPS' AUDIT OF 2026-10-08 CLEARED, EACH BY READING ITS CONTROL FLOW RATHER THAN ITS NAME ──
+# The audit was run because the paragraph that used to claim "everything left is a boundary" was written without one,
+# and it retracted two of its own findings (see the spec's §4.1). These six are the part that survived: none of them
+# decides anything the judge or the plan does not already own, and each names the platform call it makes.
+BOUNDARY | agent/scripts/lib/sweep-bundle.mjs | the ASSEMBLER: it resolves each payload's requires and compiles what it returns, so a module that does not parse fails at the commit. A build step, and the emitter's own producer
+BOUNDARY | agent/scripts/lib/contrast-probe.mjs | the in-page probe SOURCE — a template of code a browser evaluates to measure contrast. It ships as text into the page; the comparison against the requirement is what the payload still does in JS, and that is counted at the payload, not here
+BOUNDARY | agent/scripts/panel-render-audit.mjs | renders the harness HTML the sweep measures (and reads DECORATIVE_WAIVERS to label decorative rows in that fixture). It builds the surface under test
+BOUNDARY | agent/scripts/lib/sweep/panel-stub.cjs | the STUB DEVICE: a fixture that answers the agent's API so the panel sweep can run with no device. Its thirty comparisons decide what the FAKE answers, which is test data rather than product behaviour
+BOUNDARY | agent/scripts/lib/sweep/live-run.cjs | the live-panel program: it drives the panel the device is actually running and returns rows. One guard, no verdict
+BOUNDARY | agent/scripts/lib/sweep/landing-run.cjs | a payload that drives a browser over one page and returns rows — measured: zero comparisons, and its two template literals are selectors
 BOUNDARY | .agents/skills/setup-ts-deep-modules/ | a tooling config for the skill, not product code
 BOUNDARY | docs/superpowers/p0/ | the P0 measurement harness — historical evidence, and a deletion candidate
 BOUNDARY | proxies/api-relay/relay/ | the relay crate's own harness
