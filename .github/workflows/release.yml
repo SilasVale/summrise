@@ -262,7 +262,7 @@ jobs:
           # gate failed every release on missing electron types.)
           (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
-          for F in main.js preload.js url-policy.js; do
+          for F in main.js preload.js; do
             if ! cmp -s "/tmp/electron-fresh/${F}" "summrise-desktop-electron/src/${F}"; then
               echo "::error::summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
               exit 1

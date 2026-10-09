@@ -921,7 +921,7 @@ jobs:
           (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22)
           (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
-          for F in main.js preload.js url-policy.js; do
+          for F in main.js preload.js; do
             if ! cmp -s "/tmp/electron-fresh/${F}" "summrise-desktop-electron/src/${F}"; then
               echo "::error::summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
               exit 1
@@ -934,13 +934,23 @@ jobs:
           # NOTE: step working-directory is agent/, so both paths are
           # agent-relative (a ../ prefix here escapes the repo and
           # false-fails on a missing file — caught live on first run).
-          for F in main.js preload.js url-policy.js; do
+          for F in main.js preload.js; do
             if ! cmp -s "summrise-desktop-electron/src/${F}" "summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
               echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync (tsc emit) and commit both"
               exit 1
             fi
           done
           echo "electron src copies in sync OK"
+      # THE WASM POLICY'S FRESHNESS, the same shape as the two checks above and
+      # for the same reason: `summrise_url_policy.js` and
+      # `summrise_url_policy_bg.wasm` are wasm-pack output that is COMMITTED to
+      # the package (the shell requires them at run time, and a device has no
+      # compiler), so a change to `agent/summrise-url-policy/` without a rebuild
+      # and a commit would ship a shell whose URL/certificate policy disagrees
+      # with its own source — the drift `url-policy.js` could never have,
+      # because tsc regenerated it on every build.
+      - name: url-policy wasm freshness (rebuild + cmp)
+        run: bash scripts/test/url-policy-wasm-freshness.bash
       # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
       # recompile src/summrise.ts with the tsc the electron step installed
       # above and cmp against the committed bin/summrise.js — a src change
