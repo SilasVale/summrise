@@ -343,7 +343,22 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///     the notes are the judge's     ->   142     ackNotes left design-sweep.mjs, which is a driver now
 ///     the gates' six ports          ->   142     unchanged: the .mjs stays beside its Rust for the
 ///                                                 differential, so the class does not move yet
-///     measured on the merged tree   ->   129      what this constant says, and what the gate says
+///     the relay is cut over         ->   110     the biggest single drop, and the only one whose
+///                                                 evidence is a PRODUCTION change: see below
+///
+/// **THE RELAY'S TWENTY FILES DID NOT MOVE BECAUSE THE PORT FINISHED. THEY MOVED BECAUSE THE CUTOVER
+/// HAPPENED** — and the difference matters, because "the Rust exists" was already true a week earlier while
+/// the JavaScript was still the thing answering. On 2026-10-09 nginx's `/api/` was pointed at the Rust relay
+/// on `127.0.0.1:8082` and the cutover was PROVED by stopping the Node unit: with only the Rust one listening,
+/// the public endpoint still answered **401** to an unauthenticated `POST /api/proxy`. From that moment the
+/// JavaScript decides nothing the product depends on, and the three roles it DOES still hold are all boundary
+/// roles, each named in the manifest: `ci.yml` calls its suite "the ORACLE the committed fixture was generated
+/// from"; `proxy_timeout_parity.rs`, `proxy_cors_parity.rs` and `relay/tests/two_relays_agree.rs` read its
+/// SOURCE as their text oracle; and `relay/differential.mjs` needs both implementations present to compare
+/// their answers byte for byte (14/14, 0 unexplained). The Node bundle also stays deployed as the one-line
+/// rollback. Deleting these files would delete the proof and the fallback — the migration's own rule is that
+/// an instrument which exists to be compared WITH is a boundary, which is what `index/src/index.js`,
+/// `gateway/wasm/verify.mjs` and `agent/summrise-cli/parity/` already are.
 ///
 /// **WHY THE LAST ROW IS NOT A SLICE'S OWN NUMBER.** Each branch above measured its movement against the tree it
 /// knew. The identity branch's base read 152 and it raised ITS cap to 153; the audit had already moved six files
@@ -370,4 +385,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 129;
+const MAX_LOGIC: usize = 110;
