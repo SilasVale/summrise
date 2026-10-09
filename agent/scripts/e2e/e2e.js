@@ -33,7 +33,6 @@
 //
 // Exit code: 0 = all selected sections passed; 1 = any failure.
 
-import { writeFileSync } from 'node:fs';
 const TOKEN = process.argv.includes('--token')
   ? process.argv[process.argv.indexOf('--token') + 1]
   : process.env.SUMMRISE_AGENT_TOKEN;
@@ -1036,8 +1035,15 @@ async function sectionRuns() {
   // runs is an instrument nobody has" class this repository keeps finding, caught by reading the file rather
   // than trusting the edit. It is written on EVERY exit path, including the one that did not run, so an
   // empty recording is a fact about the run rather than a missing file.
-  const finish = (code) => {
+  // **THE DUMP IMPORTS `fs` DYNAMICALLY, AND THAT IS NOT A STYLE CHOICE — MEASURED ON THE DEVICE.**
+  // The first version of this used a static `import { writeFileSync } from 'node:fs'`, and the device's
+  // bundled Node is **v20.18.0**, where `require` is NOT available once a file has loaded as ESM. This suite
+  // calls `require('fs')` at five sites and passed 55/55 twice before that line existed; with it, the run
+  // died in the third section — "SECTION ERROR: require is not defined", 19/20 — because a single static
+  // import is what decides the module system. The dynamic form is what the file already used everywhere else.
+  const finish = async (code) => {
     if (RECORD_PATH) {
+      const { writeFileSync } = await import('node:fs');
       writeFileSync(RECORD_PATH, JSON.stringify({ base: BASE, calls: RECORDED }, null, 1));
       console.log(`recorded ${RECORDED.length} tool call(s) to ${RECORD_PATH}`);
     }
@@ -1045,7 +1051,7 @@ async function sectionRuns() {
   };
   if (results.length === 0) {
     console.error('EXIT 2: THE SUITE DID NOT RUN — zero checks executed. A skip is not a pass.');
-    finish(2);
+    await finish(2);
   }
-  finish(failed.length ? 1 : 0);
+  await finish(failed.length ? 1 : 0);
 })();
