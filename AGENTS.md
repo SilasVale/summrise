@@ -37,38 +37,29 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
-**AND RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check —
-`gateway/ui` passed a local `tsc --noEmit` carrying six type errors, because the `ui` job runs `npm run build`
-instead. The commands, by working directory:
+**AND RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check — `gateway/ui`
+passed a local `tsc --noEmit` carrying six type errors, because the `ui` job runs `npm run build` instead.
 
-| where | CI runs | and NOT |
-|---|---|---|
-| `gateway/` | `npm run typecheck` (= `tsc --noEmit`) · `npm test` · `npm run lint` (= `eslint src/`) · `npm run format:check` | — |
-| `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` | **not** `tsc --noEmit`, which is the check that missed them |
-| `agent/resources/panel-react/` | `npm run build` · `npm test` | — |
-| `agent/summrise-agent-npm/` | `npm test` (= `node --test`, 59 cases) — **no install step**: the package has zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` | — |
-| `agent/` | `cargo fmt --all -- --check` · `cargo clippy -p summrise-agent --all-targets -- -D warnings` · `cargo clippy -p summrise-agent --features terminal,keyring --all-targets -- -D warnings` · `cargo clippy -p summrise-agent-core --all-targets -- -D warnings` · `cargo test -p summrise-agent` · `cargo test -p summrise-agent --features terminal,keyring` · `cargo test -p summrise-agent-core` | — |
-| `agent/summrise-desktop-electron/` | `npm test` | — |
-
-All five were run by hand on the commit that added this table and all were green; before that, `gateway`'s lint and typecheck
-and the agent's `fmt`/`clippy` had not been run by this loop at all, and the panel's `npm test`, not `npx vitest run`, is what
-CI invokes.
+| where | CI runs |
+|---|---|
+| `gateway/` | `npm run typecheck` · `npm test` · `npm run lint` · `npm run format:check` |
+| `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` — **not** `tsc --noEmit`, which is the check that missed those six |
+| `agent/resources/panel-react/` | `npm run build` · `npm test` |
+| `agent/summrise-agent-npm/` | `npm test` (= `node --test`) — **no install step**: zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` |
+| `agent/summrise-desktop-electron/` | `npm test` |
+| `agent/` | `cargo fmt --all -- --check`, then the clippy and test commands the `agent` job names — **read them out of `ci.yml` rather than from here**: several crates are workspace members that are deliberately NOT default members, so a bare `cargo test` does not reach them, and a copy of the list in this file goes stale (this row named "59 cases" for a suite that had grown to 68) |
 
 **AND A CHANGE UNDER `agent/scripts/` IS A CHANGE UNDER `gateway/`.** The console's Source Viewer serves a byte-for-byte
 MIRROR of `agent/scripts/*.mjs` and their `lib/` (not `lib/sweep/`), so editing one of those files leaves
 `gateway/public/code/files/instruments/` stale and turns `gateway`'s `code viewer: the instruments mirror matches
-agent/scripts byte for byte` red — with an assertion that names the fix. Re-sync and commit the mirror:
+agent/scripts byte for byte` red — with an assertion that names the fix:
 
 ```bash
 bash gateway/scripts/sync-code-viewer.sh && cd gateway && npm test
 ```
 
-Round 2 of the standing goal pushed a red `main` by running the design-sweep gates for a sweep change and not this one;
-the gate was right and the local check was incomplete.
-
-
-**READ THE EXIT CODE, NOT THE OUTPUT.** The suites do not share a reporter, and grepping for the wrong
-one returns NOTHING — which looks exactly like a suite that passed silently:
+**READ THE EXIT CODE, NOT THE OUTPUT.** The suites do not share a reporter, and grepping for the wrong one returns
+NOTHING — which looks exactly like a suite that passed silently:
 
 | command | the line to look for |
 |---|---|
@@ -76,8 +67,7 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
 | `npm test` in `gateway/` (Node 24) | `ℹ pass N` — on Node 20 it prints `# pass N` instead |
 | `npx vitest run` in `panel-react/` | `Tests  N passed` |
 
-`exit 0` is the answer in every case; the line is a convenience. (Two rounds were once spent reading a silent grep as
-"the suite did not run" and re-running it another way. The reporter table is what prevents that.)
+`exit 0` is the answer in every case; the line is a convenience.
 
 **TWO RULES ABOUT WHAT NOTHING RUNS — READ THEM BEFORE YOU TRUST A GREEN OR A RED.**
 
@@ -87,48 +77,35 @@ one returns NOTHING — which looks exactly like a suite that passed silently:
   * **A CI job is red and you did not expect it to be** — a CANCELLED job (any push while a run is in flight) reports
     `conclusion: failure`, **indistinguishable from a real one in a count**; the rule is the log line that tells them apart.
 
-
-**`main` ADVANCES ONLY BY MERGE** — four artifacts, and each one covers a way the others cannot:
-
-| artifact | what it is | what it cannot see |
-|---|---|---|
-| `scripts/hooks/main-only-by-merge` | the rule, called by `scripts/hooks/pre-commit` **after** its "is this Summrise?" guard | a plain `git merge` that FAST-FORWARDS, which creates no commit and so never runs a hook; and `--no-verify` |
-| `agent/tests/main_shape.rs` | the CI gate: `main` must be at a commit with **two or more parents** | nothing — but it only runs in CI, after the push |
-| `scripts/test/main-only-by-merge.bash` | the proof: installs the rule as a throwaway repo's real pre-commit hook and runs six cases through it | nothing outside that fixture |
-| `scripts/test/main-shape-shallow.bash` | the fixture for **the clone CI actually gives**: a real `git clone --depth 1` of a repo whose HEAD is a real merge | the full-clone shape, which is the only one a developer sees |
-
-**AND THE GATE FAILED ITS FIRST CI RUN WHILE PASSING EVERY LOCAL ONE**, which is why the fourth artifact exists.
-`actions/checkout@v4` defaults to `fetch-depth: 1`, so the runner is **shallow**; git grafts the boundary commit and
-`git rev-list --parents -n 1 HEAD` answers with the SHA alone — **zero parents** — for a commit that has two. The gate used
-that and refused a `main` that WAS a merge. It reads the commit object now (`git cat-file -p HEAD`), whose `parent` lines are
-there regardless of depth, and `main-shape-shallow.bash` builds the graft that no full clone can reproduce. It is this file's
-own rule one level down — **run the command the other end runs** — and the gate was the other end.
+**`main` ADVANCES ONLY BY MERGE** — four artifacts, and each one covers a way the others cannot.
+`scripts/hooks/main-only-by-merge` is the rule, called by `pre-commit` **after** its "is this Summrise?" guard, so it
+cannot see a fast-forward (which creates no commit and so never runs a hook) or `--no-verify`.
+`agent/tests/main_shape.rs` is the CI gate: `main` must be at a commit with **two or more parents**, and it reads the
+commit OBJECT rather than `git rev-list --parents`, because `actions/checkout@v4` gives the runner a **shallow** clone
+whose grafted boundary commit answers zero parents for a commit that has two.
+`scripts/test/main-only-by-merge.bash` proves the rule on a throwaway repo's real pre-commit hook;
+`scripts/test/main-shape-shallow.bash` builds the shallow graft that no full clone can reproduce.
 
 Work reaches `main` through a branch that was verified and reviewed, merged with **`--no-ff`** — the flag matters, because
 a plain `git merge` fast-forwards when `main` has not moved. **A direct commit on `main` is refused by the hook and by the
-gate, and the hook lives in its own file precisely so it can be proven on a real repository** (a rule inside `pre-commit`
+gate**, and the hook lives in its own file precisely so it can be proven on a real repository (a rule inside `pre-commit`
 sits below a guard that exits 0 in any repo that is not this one, so a fixture could never reach it).
 
 ### Which gates have been PROVEN to bite
 
-**EVERY GATE CARRIES ITS OWN PROOF, IN ITS OWN HEADER.** Until landing 4b they were rows in one 110 KB table; now each gate
-opens with a `MUTATION:` / `RESULT:` block naming the edit that must break it and what it said when it did. **Read that block
-when you change the gate** — a gate that cannot be broken is worse than no gate. Three JSON fixtures cannot hold a comment
-(JSON has none), so their proofs are in `agent/tests/fixtures/MUTATIONS.md` beside them.
+**EVERY GATE CARRIES ITS OWN PROOF, IN ITS OWN HEADER**: a `MUTATION:` / `RESULT:` block naming the edit that must break
+it, and what it said when it did. **Read that block when you change the gate** — a gate that cannot be broken is worse
+than no gate. Three JSON fixtures cannot hold a comment (JSON has none), so their proofs are in
+`agent/tests/fixtures/MUTATIONS.md` beside them.
 
-**AND READ IT WHEN A FINDING SAYS SOMETHING IS UNUSED AND YOU ARE ABOUT TO DELETE IT** — that rule outlived the table it was
-written for.
-
-**AND A GATE IS NAMED WHERE A PERSON CAN FIND IT, OR IT IS A GATE NOBODY CAN RUN BY HAND.** That is why the list above exists at all.
+**AND READ IT WHEN A FINDING SAYS SOMETHING IS UNUSED AND YOU ARE ABOUT TO DELETE IT** — that rule outlived the table it
+was written for. **AND A GATE IS NAMED WHERE A PERSON CAN FIND IT, OR IT IS A GATE NOBODY CAN RUN BY HAND.**
 
 ## Pushing: wait for the run in flight
 
-**A PUSH SUPERSEDES AN IN-FLIGHT CI RUN.** GitHub cancels it, and the cancellation is reported as `conclusion: cancelled` —
-which a count cannot tell from a real failure, and which leaves that commit with **no green CI to point at**. The rule has
-been here for months and this repository paid for it four times; **three were this loop, twice in three rounds**, which is
-what a rule that must be remembered costs.
-
-So it is a mechanism now, in the one place a push cannot skip:
+**A PUSH SUPERSEDES AN IN-FLIGHT CI RUN.** GitHub cancels it, and the cancellation is reported as `conclusion: cancelled`
+— which a count cannot tell from a real failure, and which leaves that commit with **no green CI to point at**. The rule
+is enforced mechanically, in the one place a push cannot skip:
 
 | artifact | what it is |
 |---|---|
@@ -136,47 +113,57 @@ So it is a mechanism now, in the one place a push cannot skip:
 | `scripts/hooks/ci-not-in-flight` | the check, its own file so it can be proven on fixtures |
 | `scripts/test/ci-not-in-flight.bash` | the proof: 7 cases on saved API responses, **and it RUNS the hook the way git does** rather than grepping for the call site |
 
-**AND THE RULE HAS A COST, SO SPEND IT IN BATCHES — MEASURED 2026-09-27, WHEN THE LOOP SPENT ~35 MINUTES WAITING.**
-`ci.yml` already triggers on `main` ONLY (`push: branches: [main]`), so a branch costs nothing and the run happens at the
-merge. What that means in practice is that **EVERY MERGE IS A ~7-MINUTE SERIALIZATION**, because this hook then refuses
-the next push until the run finishes. Five fixes merged one at a time is five waits; the same five merged once is one.
-**BATCH THE MERGES.**
+**AND THE RULE HAS A COST, SO SPEND IT IN BATCHES: EVERY MERGE IS A SERIALIZATION** (~7 minutes of CI, and this hook then
+refuses the next push until it finishes). `ci.yml` triggers on `main` ONLY, so a branch costs nothing and the run happens
+at the merge. Five fixes merged one at a time is five waits; the same five merged once is one. **BATCH THE MERGES.**
 
-**AND RUN `scripts/test/all-gates.bash` BEFORE THE PUSH RATHER THAN GUESSING WHICH GATE WILL GO RED.** Its own header
-says what it is: *"Run every gate `ci.yml` invokes, locally, in one command."* It answers in SECONDS what the design job
-answers in minutes, and on 2026-09-27 this loop instead ran gates one at a time, by name, from memory — which is how it
-missed `production-host-check` until after a commit, and re-learned `pack-chain`'s mode rule three separate times.
+**AND RUN `scripts/test/all-gates.bash` BEFORE THE PUSH RATHER THAN GUESSING WHICH GATE WILL GO RED** — it runs every
+gate `ci.yml` invokes, locally, in one command, and answers in minutes what the `design` job answers in tens of them.
+Guessing by name from memory is how `production-host-check` was missed until after a commit.
 
 **IT FAILS OPEN, DELIBERATELY.** No token, no answer, unparseable JSON — all exit 0, because blocking a push over a flaky
-mirror is a worse failure than the one it prevents, and this repository's git remote has been measured answering in 0s, 32s
-and >90s for the same request. `git push --no-verify` is the escape hatch, and the hook prints it.
+mirror is a worse failure than the one it prevents. `git push --no-verify` is the escape hatch, and the hook prints it.
 
-**A JOB RECORD AND ITS STEPS CAN DISAGREE — READ `steps[].conclusion`, NOT THE JOB, AND BOTH DIRECTIONS ARE MEASURED.**
-`83fcb70d`: the run said `success` while `ui` said `in_progress` / `null` with all fifteen steps `success`. `4d47d538`: the
-run said `failure` while `ui`'s ONLY step was `in_progress` — **the runner died in `Set up job` and nothing of yours ran**,
-so it is not a red gate. The second costs a `POST …/runs/<id>/rerun-failed-jobs` (its re-run was green), not a hunt for a
-defect that does not exist.
+**A JOB RECORD AND ITS STEPS CAN DISAGREE — READ `steps[].conclusion`, NOT THE JOB, AND BOTH DIRECTIONS HAPPEN.** A run
+can say `success` while a job says `in_progress`, and it can say `failure` while a job's ONLY step is `in_progress` —
+**the runner died in `Set up job` and nothing of yours ran**, which is not a red gate but a re-run
+(`POST …/runs/<id>/rerun-failed-jobs`).
 
 **AND SET `umask 022` BEFORE ANY GIT OPERATION THAT WRITES FILES ON THIS BOX — a merge, a checkout, a worktree add.** This
 shell's umask is **0002**, and the rule is narrower than "a rewrite": **A FILE THAT IS CREATED INHERITS THE UMASK; A FILE
-EDITED IN PLACE KEEPS ITS MODE.** Measured: `touch x` and Python's `open(x, "w")` both produce `-rw-rw-r--`, while editing an
-existing 644 file leaves it 644 — so what drifts is what git and the tools CREATE (a merge that adds or replaces a file, a
+EDITED IN PLACE KEEPS ITS MODE.** What drifts is what git and the tools CREATE (a merge that adds or replaces a file, a
 worktree add, a scratch file), not what a patch rewrites. `git status` says NOTHING about it (git compares only the
 owner-execute bit) and `git diff` is empty, so the only thing that can see it is `publish-release.bash`'s whole-tree mode
-check — which is how it was found, **three times in one session, every time after a merge**. It matters at release time
-because `npm pack` preserves worktree modes: the 1.2.348 pair differs by 3 bytes out of 17,774,080 with every sha256
-matching. If a merge already happened, the gate prints the repair and it is one line:
-`git ls-files -s | awk '$1=="100644"{print $4}' | xargs -r chmod 644` (and the same for `100755`/`755` — **the 0755 half is
-invisible to the `100644` count**, which is why both are printed).
+check. It matters at release time because `npm pack` preserves worktree modes: the 1.2.348 pair differs by 3 bytes out of
+17,774,080 with every sha256 matching. If a merge already happened, the gate prints the repair and it is one line:
+`git ls-files -s | awk '$1=="100644"{print $4}' | xargs -r chmod 644` (and the same for `100755`/`755` — **the 0755 half
+is invisible to the `100644` count**, which is why both are printed).
+
+## Running several tracks at once
+
+**ONE WORKING TREE IS ONE TRACK, AND A SUBAGENT OWNS THE TRACK IT RUNS IN.** Any `git checkout` or merge by anyone else
+pulls the tree out from under it — sharing one checkout is what makes work serial, and serial is not a property of the
+work. Give each track its own worktree and its own branch (`using-git-worktrees`):
+
+    git worktree add /tmp/wt-<track> -b <branch> main      # after umask 022
+
+Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
+**`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
+like `console-assets-check.mjs` refuse a dirty tree, which is how it surfaces. The fix is a clone-local `.git/info/exclude`
+line for the bare name `node_modules`.
+
+**AND START LONG WORK IN THE BACKGROUND — a CI run, an `all-gates` run, a build, a subagent — then do the next thing and
+collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
+branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
 
 ## A status says what was CHECKED
 
 **EVERY SENTENCE A SURFACE SHOWS ABOUT THE DEVICE'S STATE IS A CLAIM, AND A CLAIM NOBODY CHECKED IS A LIE THE READER
-BELIEVES.** Measured over five releases on 2026-09-27/28: the operator read `registered · tunnel: ok` while a remote client
-got **530**, three separate times, asking *"为什么还没有上线呢"* each time. The string came from `RemoteConfig::Updated` —
-**it reported the STEP it had just taken in the grammar of the OUTCOME the reader wanted**, and nothing on that path had
-asked whether anything could reach the device. It asks now (`tunnel_health_via_api`, 1.2.483): the API's own `status` and
-`conns_active`, with `healthy` and zero connectors counted as NOT reachable, because the status alone is not the test.
+BELIEVES.** The operator once read `registered · tunnel: ok` three separate times while a remote client got **530**
+(*"为什么还没有上线呢"* each time): the string came from `RemoteConfig::Updated` and **reported the STEP just taken in the
+grammar of the OUTCOME the reader wanted**, and nothing on that path had asked whether anything could reach the device. It asks
+now (`tunnel_health_via_api`): the API's own `status` and `conns_active`, with `healthy` and zero connectors counted as
+NOT reachable, because the status alone is not the test.
 
 **THE PATTERNS THAT ALREADY EXIST HERE, AND THEY ARE THE ONES TO COPY:**
 
@@ -184,69 +171,61 @@ asked whether anything could reach the device. It asks now (`tunnel_health_via_a
 |---|---|---|
 | the panel's liveness | `sseState` drives `connected` / `disconnected` | it is the SSE connection's OWN state, and `IconRail` carries the rule — **ONE MODEL, ONE PLACE**; a second copy is how two surfaces come to disagree about one device |
 | the relay chip | `vitals.relay.connected` | the relay's fact, reported by the relay |
-| `UpdateCard` | **`checked 12s ago`** | a TIMESTAMP, not a verdict — and its tests already cover the degenerate cases (`56 years ago`, `497204h ago`) |
+| `UpdateCard` | **`checked 12s ago`** | a TIMESTAMP, not a verdict — and its tests cover the degenerate cases (`56 years ago`, `497204h ago`) |
 | the landing | **`No Windows installer is published for this release`** | it says what it knows instead of offering the `Setup.exe` alias, which serves the PREVIOUS installer after a tgz-only publish |
 
 **SO THE RULE IS NARROW, AND IT IS NOT "ADD MORE CAVEATS":** when a surface reports a state, name **the thing that was
-observed** and **when**. A step that succeeded is not an outcome; a configuration that was written is not a service that is
-up; a request that returned 200 is not a device that answered. **If nothing was checked, say that** — *"reachability NOT
-VERIFIED"* is a better sentence than a confident `ok`, because the reader can act on it.
+observed** and **when**. A step that succeeded is not an outcome; a configuration that was written is not a service that
+is up; a request that returned 200 is not a device that answered. **If nothing was checked, say that** — *"reachability
+NOT VERIFIED"* is a better sentence than a confident `ok`, because the reader can act on it.
 
-**AND DO NOT WEAKEN A CRITERION TO MATCH A MESSAGE.** The same week produced the mirror image: the design sweep reported
+**AND DO NOT WEAKEN A CRITERION TO MATCH A MESSAGE.** The mirror image, from the same week: the design sweep reported
 `acknowledged the press after 823ms — this feedback waited on the 824ms network round trip` for a button whose handler is
 synchronous and whose popover has no network on it at all. **The judge was speculating about a cause its own row cannot
-check** — the failure round 99 wrote a paragraph about, arriving from the other side. The fix was the CRITERION (`:active`
-is only visible while the mouse is down, and every sample was taken after the up), not the button.
+check.** The fix was the CRITERION (`:active` is only visible while the mouse is down, and every sample was taken after
+the up), not the button.
 
 ## Measuring a surface from the DEVICE's browser
 
-**THIS BOX HAS NO BROWSER OUT OF THE BOX — BUT IT CAN HAVE ONE WITHOUT ROOT: the measured recipe is in
-`agent/resources/panel-react/scripts/local-browser.mjs`; it runs the real panel sweep HERE, against what this checkout
-builds.** **THE DEVICE IS STILL HOW THE LIVE SURFACES ARE SEEN** — it reaches `agent.saisi.online` and
-`api.saisi.online` (both public) from `browser_run_script`, so `page.evaluate` returns computed styles, box geometry and
-text. Measured this way on rounds 146-147, which found the landing's third "step" (a caveat wearing a step number: 246px
-against 145 and 105) and the console's submit button (32px against its fields' 43px).
+**THIS BOX HAS NO BROWSER OUT OF THE BOX — BUT IT CAN HAVE ONE WITHOUT ROOT**: the measured recipe is in
+`agent/resources/panel-react/scripts/local-browser.mjs`, and it runs the real panel sweep HERE, against what this
+checkout builds. **THE DEVICE IS STILL HOW THE LIVE SURFACES ARE SEEN** — it reaches the public hosts from
+`browser_run_script`, so `page.evaluate` returns computed styles, box geometry and text.
 
-**THREE WALLS, ALL HIT IN ONE ROUND, AND NONE OF THEM IS THE SURFACE:**
+**THREE WALLS, AND NONE OF THEM IS THE SURFACE:**
 
   * **`waitUntil: 'networkidle'` NEVER FIRES ON THE PANEL.** It holds an SSE connection open by design, so the network is
     never idle and `page.goto` times out after 45s. Use `domcontentloaded` for anything that talks to the agent.
-  * **DO NOT DRIVE WINDOWS PATHS THROUGH `terminal_execute`.** Two attempts came back mangled — `Get-ChildItem \etc` with
-    the variable eaten, then `dir "C:\Program Files (x86)\…"` answering *"文件名、目录名或卷标语法不正确"* — because the shell
-    that receives the command is not the one the quoting was written for (the `--prefix` trap below).
-    **`browser_run_script` runs Node ON the device with the bundled runtime: read files with `fs`.** That is
-    how the panel's own config and token are reachable.
+  * **DO NOT DRIVE WINDOWS PATHS THROUGH `terminal_execute`.** Attempts come back mangled — `Get-ChildItem \etc` with the
+    variable eaten, `dir "C:\Program Files (x86)\…"` answering *"文件名、目录名或卷标语法不正确"* — because the shell that
+    receives the command is not the one the quoting was written for. **`browser_run_script` runs Node ON the device with
+    the bundled runtime: read files with `fs`.** That is how the panel's own config and token are reachable.
   * **AND A DESIGN READING IS NOT A LAYOUT READING.** The console's login page was called "a 103px word in a lot of empty
-    space" from a partial dump. The full measurement shows a logo and wordmark (the `h1` starts at x=131 inside a block
-    that starts at 64), a tagline, a vertically centred block, and a form card centred with equal 162px margins. **It is
-    well composed and needs no change** — the first conclusion was drawn from one element.
+    space" from a partial dump; the full measurement shows a logo and wordmark, a tagline, a vertically centred block and
+    a form card centred with equal 162px margins. **It is well composed and needs no change** — the first conclusion was
+    drawn from one element.
 
 ## Two languages, and which one goes where
 
 **THE REPOSITORY IS WRITTEN IN ENGLISH**: commit messages, code comments, `AGENTS.md`, `CONTEXT.md`, the specs and plans.
-That is a standing instruction from the operator (their inbox, row 7) and it is what every artifact here already does.
+That is a standing instruction from the operator and it is what every artifact here already does.
 
 **TALKING TO THE OPERATOR IS IN THE OPERATOR'S LANGUAGE — Chinese.** These are different things, and the instruction was
-read literally once as *"session language is English"*, which produced English replies to a Chinese question. The row in the
-inbox is annotated now; this paragraph is the version an agent reads before it answers.
+read literally once as *"session language is English"*, which produced English replies to a Chinese question.
 
-**PREFER RUST. A CHANGE TO A `.mjs`/`.cjs`/`.js` FILE NEEDS A REASON, NOT A HABIT.** The operator said it twice in one
-session — *"我不太喜欢js，你一直改js"* — and the loop's own record agrees with them: rounds 108-134 were spent retrying a
-blocked device measurement and editing sweep scripts, which is drift, not work.
+**PREFER RUST. A CHANGE TO A `.mjs`/`.cjs`/`.js` FILE NEEDS A REASON, NOT A HABIT** — the operator said it twice in one
+session (*"我不太喜欢js，你一直改js"*), and the loop's own record agrees: rounds spent retrying a blocked device
+measurement and editing sweep scripts were drift, not work.
 
-**THE CARVE-OUTS ARE REAL AND SHOULD NOT BE ARGUED WITH, ONLY NAMED:**
-
-| stays JS/TS | why |
-|---|---|
-| `agent/resources/panel-react/`, `gateway/ui/` | browser UIs — and they are already TypeScript (100 `.tsx` + 118 `.ts`, zero `.js`) |
-| `gateway/src/*.ts` | Cloudflare Workers runs V8 |
-| `agent/summrise-agent-npm/bin/summrise.js` | npm is how the CLI is delivered |
-| `agent/scripts/live-panel-probe.mjs` and the code the sweeps INJECT into a page | the device calls it through `browser_run_script`, which takes a JS file, and the measurement runs in the DOM |
-
-**WHAT IS A LEGITIMATE RUST TARGET, IF THE OPERATOR ASKS FOR IT:** the sweeps' DRIVER and JUDGE — `lib/design-sweep.mjs`
-and the five `lib/sweep/*.cjs` payloads, ~5,200 of the 7,572 lines under `agent/scripts/`. They are pure logic over JSON
-plus a Playwright driver, and `agent/src/plugins/design/` already shows the in-product half of that idea in Rust. It is NOT
-done by default: it costs a build stage and a Node↔Rust boundary, so it is the operator's call, not the loop's.
+**AND THE BOUNDARY IS NOT A MATTER OF OPINION ANY MORE — IT IS A GATE.** `agent/tests/js_boundary_inventory.rs`
+classifies every tracked JS/TS file as **LOGIC** (a decision; must become Rust, counted and capped), **BOUNDARY** (a
+platform call that decides nothing), **RENDERING** (places what it was given) or **GENERATED** (a build step produces it,
+and the producer is checked to exist). The manifest is `agent/tests/fixtures/js-boundaries.txt` — per directory, with
+named file exceptions and a written reason each — and **it is the answer to "may I write this in JS"**. Check it rather
+than arguing from memory: the table this section used to carry had gone stale in three rows at once (the Workers' TS is
+being ported to wasm, the CLI's decisions are Rust now, and the sweeps' driver was "the operator's call" and has been
+called). Two rules in that file settle the cases that look like judgement calls: **a test belongs to the code it tests**,
+and **a fixture is not a decision**.
 
 ## The vocabulary
 
@@ -279,159 +258,100 @@ list for the reason the paragraph above gives.
 
 ## Where the long form lives
 
-**THERE IS NO LEDGER, AND THIS IS THE SECTION THAT USED TO DESCRIBE ONE.** Until landing 4a this file pointed at
-`docs/agents/design-ledger.md` — one `##` section per round, what was measured and what it cost — plus three sibling
-archives, 865 KB in all. **The operator retired that process**, because the loop's output had drifted into prose ABOUT the
-work rather than the work, and the measurement that settled it is stark: **18 of the last 30 commits touched the ledger and
-nothing else.**
+**THERE IS NO LEDGER.** The operator retired the process — one `##` section per round, what was measured and what it cost,
+plus three sibling archives, 865 KB in all — because the loop's output had drifted into prose ABOUT the work rather than
+the work. The measurement that settled it: **18 of the last 30 commits touched the ledger and nothing else.**
 
 | where a thing goes now | what belongs there |
 |---|---|
-| **the commit message** | the measurement, the before/after, and the `VERIFIED:` line. This repository's commit bodies already carry them — they are the strongest artifact here, and they are now the record |
+| **the commit message** | the measurement, the before/after, and the `VERIFIED:` line. The commit bodies here already carry them, and they are the record |
 | **`CONTEXT.md`** | a WORD and what it means. Terms only |
-| **the gate itself** | any invariant that can be checked — including its own mutation proof, in its header. If a sentence can be enforced, enforce it instead of writing it down |
+| **the gate itself** | any invariant that can be checked — with its own mutation proof in its header. If a sentence can be enforced, enforce it instead of writing it down |
+| **the spec or plan under `docs/superpowers/`** | a DESIGN and the decisions in it — including the ones that were wrong and were corrected, so the next reader does not re-derive them |
 
-**`agent/tests/docs_budget.rs` IS THE GATE THAT HOLDS ALL OF THIS UP** — renamed in landing 4a from
-`ledger-budget-check`, because a gate whose name no longer budgets a ledger is a name that lies. It
-enforces this file's 48,000-byte ceiling, refuses a narrative `###` section growing back into it, caps `CONTEXT.md` at 12,000
-bytes ("a glossary that grows into a rulebook has stopped being a glossary"). It is the whole of the budget now: the
-instruction file and the glossary are all that is left. **IT IS RUST NOW** — `cargo test -p summrise-agent`
-runs it in the `agent` job; the `.mjs` is gone.
+**`agent/tests/docs_budget.rs` HOLDS ALL OF THIS UP.** It enforces this file's 48,000-byte ceiling, refuses a narrative
+`###` section growing back into it, and caps `CONTEXT.md` at 12,000 ("a glossary that grows into a rulebook has stopped
+being a glossary"). It runs in the `agent` job via `cargo test -p summrise-agent`.
 
-**AND THE RULE THAT REPLACED THE PROTOCOL IS THE ONE THIS FILE HAS ALWAYS CARRIED**: if a sentence does not change what you
-would DO, it does not belong in an instruction file — and it no longer has a ledger to hide in.
+**THE CEILING IS A SIZE, NOT A RELEVANCE CHECK — so the file has to be pruned by hand.** A new rule costs bytes, and the
+cheap move at the moment of an incident is to append; nothing ever removes. When this file needs room, prune it by its own
+rule: **if a sentence does not change what you would DO, it does not belong here** — the incident it came from is already
+in the commit history, which is where the record lives.
 
 ## Committing
 
-**A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`, round 225; rationale rewritten round 272).
-It used to guard the backtick-in-a-template-literal accident — **and that class is gone**: all five emitters now hand
-their payload to `agent/scripts/lib/sweep-bundle.mjs`, which resolves the payload's own requires and COMPILES what it
-returns. (The incident count was quoted as 52 here, 34 in the hook and 38 in the operator's inbox; the three never
-agreed, and they are history.) What the hook still buys is the only end-to-end
-assembly of all five artifacts in under a second: a payload module that does not parse, a require the assembler cannot
-resolve, or an emitter that was renamed or deleted fails at the commit instead of in the design job.
+**A pre-commit hook runs the emitters** (`scripts/hooks/pre-commit`). It used to guard the
+backtick-in-a-template-literal accident, and **that class is gone**: all five emitters hand their payload to
+`agent/scripts/lib/sweep-bundle.mjs`, which resolves the payload's own requires and COMPILES what it returns. What the
+hook still buys is the only end-to-end assembly of all five artifacts in under a second — a payload module that does not
+parse, a require the assembler cannot resolve, or an emitter that was renamed or deleted fails at the commit instead of
+in the design job.
 
-**IT IS INSTALLED NOW (round 118), AND BOTH COMMANDS THIS PARAGRAPH USED TO PRESCRIBE WERE WRONG ON THIS BOX.** Round 93's commit carried a backtick in a comment,
-the probe module stopped PARSING, and five of the ten CI jobs went red (ui, panel, gateway, design, pack-chain —
-everything that imports it). The hook refuses that commit in under a second, and so does
-`contrast-probe-check.mjs`, which CI runs at `ci.yml:506` — but nothing ran the hook, because `core.hooksPath` is
-global and both prescribed fixes for that were wrong here (below). **IT IS INSTALLED — AND UNTIL 2026-09-26 IT RAN NOTHING.** The paragraph after this
-one records what is installed; what it never recorded is that the hook resolved its own repository from `$0`, which git sets to
-`.githooks/pre-commit` — one level ABOVE this repository — so the `cd` succeeded in the wrong place, the guard found no
-`agent/scripts/panel-design-sweep.mjs`, and it exited 0 on its fifth line **for every commit since round 118**. Not one emitter, not the
-archive rule, nothing. **AND THE PROOF OFFERED FOR IT COULD NOT HAVE CAUGHT THAT**: "an empty commit and watching it run" — a commit
-that SUCCEEDS looks exactly like a hook that ran and passed. **The only proof of a check is watching it REFUSE something.**
-`scripts/test/hook-finds-its-repo.bash` now invokes the hook the way git does and fails if it takes the inert path; it caught the old
-form on the first run.
+**IT IS INSTALLED, AND THE INSTALL IS NOT THE OBVIOUS ONE.** `.git/hooks/pre-commit` will NOT run on this machine:
+`core.hooksPath` is set globally in `~/.gitconfig`, and git ignores the per-repo directory entirely when that is set.
+What is installed is a repo-local `.githooks/` holding BOTH links plus a repo-local path pointing at it — explicit and
+self-contained, and it does not depend on a file in the operator's home directory staying where it is:
 
-TWO THINGS ABOUT INSTALLING IT, both measured rather than assumed:
+    mkdir -p .githooks
+    ln -sf ../scripts/hooks/pre-commit .githooks/pre-commit
+    ln -sf ~/.config/git/hooks/post-commit .githooks/post-commit
+    git config --local core.hooksPath .githooks
 
-  * **`.git/hooks/pre-commit` will NOT run on this machine** — `core.hooksPath` is set globally in `~/.gitconfig`
-    to `~/.config/git/hooks`, and git ignores the per-repo directory entirely when that is set. **AND THE TWO FIXES
-    THIS PARAGRAPH USED TO GIVE ARE BOTH WRONG HERE, which is why it went uninstalled for so long and why round 117
-    pushed through a red gate with the hook run by hand and its exit code thrown away:**
+`.githooks/` is machine-local (one link points outside the repo), so it is gitignored; **the COMMAND is the artifact.**
+Do NOT use `git config core.hooksPath scripts/hooks`: it shadows the global directory, which is not empty — it holds the
+operator's `post-commit` (tokensave auto-sync), so this repo would silently stop syncing. (A symlink at
+`~/.config/git/hooks/pre-commit` would also be safe: the hook's first act is `if [ ! -f
+agent/scripts/panel-design-sweep.mjs ]; then exit 0; fi`, so it cannot block another repository's commits.)
 
-        ln -sf "$PWD/scripts/hooks/pre-commit" ~/.config/git/hooks/pre-commit     # SAFE, and round 118 was WRONG about it
+**THE ONLY PROOF OF A CHECK IS WATCHING IT REFUSE SOMETHING.** A commit that SUCCEEDS looks exactly like a hook that ran
+and passed: the hook once resolved its own repository from `$0` — which git sets to `.githooks/pre-commit`, one level
+ABOVE this repository — so the `cd` succeeded in the wrong place, the guard found no emitter, and it exited 0 for every
+commit. `scripts/test/hook-finds-its-repo.bash` invokes the hook the way git does and fails if it takes the inert path.
+**AND PROVE THE MUTATION, NOT THE HOOK**: a trap only counts when it is inside the thing it traps — a planted backtick
+in a function BODY, outside the template literal, exits 0 and proves nothing.
 
-    Round 118 wrote here that this would make every other repo's commits fail, because this box has ~20 repositories
-    and the hook runs summrise's own emitters. **IT WOULD NOT, AND THE HOOK SAYS SO ITSELF, twenty lines in** — its
-    first act is:
-
-        if [ ! -f agent/scripts/panel-design-sweep.mjs ]; then exit 0; fi
-
-    with the reason spelled out above it: "a hook that blocked commits everywhere because it could not find a file
-    would be a far worse outcome than the slips it exists to prevent", and the header says it is "designed to be
-    symlinked into a global `core.hooksPath` (round 226)". **So the global install was always available, and the
-    three rounds that went by with the hook uninstalled were three rounds of a false objection** — which is the same
-    failure this ledger keeps recording: a claim about how a tool behaves, made without opening the tool. What
-    remains a real objection is only the SECOND command:
-
-        git config core.hooksPath scripts/hooks                                   # DON'T either
-
-    shadows the global directory — which is not empty: it holds the operator's `post-commit` (tokensave auto-sync),
-    so this repo would silently stop syncing.
-
-    **WHAT IS ACTUALLY INSTALLED (round 118, and it is still the better of the two)**: a repo-local `.githooks/`
-    holding BOTH links, and a repo-local path that points at it — better not because the global one is DANGEROUS but
-    because it keeps this repository's hook set explicit and self-contained, and because it does not depend on a file
-    in the operator's home directory staying where it is:
-
-        mkdir -p .githooks
-        ln -sf ../scripts/hooks/pre-commit .githooks/pre-commit
-        ln -sf ~/.config/git/hooks/post-commit .githooks/post-commit
-        git config --local core.hooksPath .githooks
-
-    Proven by making an empty commit and watching it run. `.githooks/` is machine-local (one link points outside the
-    repo), so it is gitignored; the COMMAND is the artifact, and this paragraph is where it lives.
-
-  * **PROVE THE MUTATION, NOT THE HOOK.** The first attempt at proving it bit planted a backtick after
-    `function browserScript() {` — inside the function body and OUTSIDE the template literal — so the emitter
-    exited 0 and the test proved nothing about either. A trap only counts when it is inside the thing it traps.
-
-**AND DO NOT PUT A COMMAND WHOSE STATUS YOU NEED ON THE LEFT OF A PIPE — IT HAS NOW COST TWO PUSHES.**
-"A pipeline exits with its LAST command's status" is ordinary shell knowledge, and this repository has now paid for it
-twice in one session, both times by landing a red suite on `main`:
-
-  * round 117 — `bash scripts/hooks/pre-commit >/dev/null 2>&1` ran the hook and THREW THE EXIT CODE AWAY, so a failing
-    `production-host-check` rode out with the commit;
-  * round 128 — `npm test 2>&1 | grep … | head -2` let a FAILING gateway suite pass, because `set -e` saw `head` succeed.
-    The gate that caught it was `code-viewer-mirror.test.mjs`, refusing a mirror that no longer matched the source.
-
-The rule this file already carries — READ THE EXIT CODE, NOT THE OUTPUT — was not disobeyed either time. It was
-PRESERVED and then destroyed one step later. So the operating form is narrower than the slogan:
+**AND DO NOT PUT A COMMAND WHOSE STATUS YOU NEED ON THE LEFT OF A PIPE.** "A pipeline exits with its LAST command's
+status" is ordinary shell knowledge, and it has cost two pushes here: a hook run as `bash … >/dev/null 2>&1` threw its
+exit code away, and `npm test 2>&1 | grep … | head -2` let a failing suite pass because `set -e` saw `head` succeed. READ
+THE EXIT CODE, NOT THE OUTPUT was not disobeyed in either case — it was preserved and destroyed one step later:
 
 ```bash
 npm test >/tmp/out 2>&1 || { echo FAILED; exit 1; }     # status kept
 grep -E 'pass|fail' /tmp/out                            # output read afterwards
 ```
 
-**Redirect, check, THEN filter.** A pipe is for reading output; it is not a way to keep a status.
-
 **AND THE LOOP FORM THAT LOOKS RIGHT IS THE ONE THAT FAILS — `cmd && echo ok || echo FAIL` THROWS THE STATUS AWAY.** The
-`||` branch is what runs when the command fails, so the LINE SUCCEEDS either way and `set -e` never fires; a suite can be red,
-print `FAIL`, and let the commit through. Round 171 did exactly this in a loop whose whole job was to keep statuses. **Keep the
-status by making the failure EXIT, not by printing:**
+`||` branch runs when the command fails, so the LINE SUCCEEDS either way and `set -e` never fires: a suite can be red,
+print `FAIL`, and let the commit through. **Keep the status by making the failure EXIT, not by printing:**
 
 ```bash
 if timeout 300 node "$g" >/dev/null 2>&1; then echo "ok   $g"; else echo "FAIL $g"; exit 1; fi
 ```
 
-
 **AND WHEN THE TEXT YOU ARE WRITING IS FULL OF BACKTICKS, PUT IT THROUGH A QUOTED HEREDOC — NOT `python3 -c "…"`.**
-The two failures above were about KEEPING a status; this one is about the TEXT surviving the shell that carries it. Round 140
-wrote a ledger line with `python3 -c "…"` — DOUBLE-quoted — and every backtick in that line was executed as COMMAND
-SUBSTITUTION before Python ever saw it:
-
-    committed:  "round 139's inventory moved to  §12 …"     # `docs/agents/inventory.md` ran as a command
-    committed:  "('s pin refusal on the device, …"          # `setup` ran as a command
-
-`stderr` said so — `Permission denied`, `command not found` — and the commit went out anyway, which is the round-117/128
-failure again, in the one command that was supposed to be careful. **BACKTICKS INSIDE DOUBLE QUOTES ARE NOT LITERAL**, and
-this repository's prose is nothing but backticks, so the hazard is permanent.
-
-**AND THE DELIMITER ITSELF IS A HAZARD, WHICH ROUND 141 PROVED BY WRITING THIS PARAGRAPH**: the first attempt used the
-obvious delimiter `PYEOF` — and this paragraph QUOTES `PYEOF` as an example, so the shell ended the heredoc in the middle
-of the text and the editor script died with a truncated Python traceback. **Nothing was committed, because the failure was
-loud.** Choose a delimiter that cannot occur in the body:
+`python3 -c "…"` is DOUBLE-quoted, so every backtick in the text is executed as COMMAND SUBSTITUTION before Python ever
+sees it: a commit message naming `docs/agents/inventory.md` ran that path as a command, and the text was committed with
+the substitution's output. `stderr` said so and the commit went out anyway. **BACKTICKS INSIDE DOUBLE QUOTES ARE NOT
+LITERAL**, and this repository's prose is nothing but backticks, so the hazard is permanent. **AND THE DELIMITER IS A
+HAZARD TOO**: a delimiter the body QUOTES as an example ends the heredoc in the middle of the text. Choose a string the
+body cannot contain, and quote it:
 
     python3 - <<'AGENTS_R141_EOF'      # quoted, and a string the body cannot contain
     ...
     AGENTS_R141_EOF
 
-**The quoting is on the DELIMITER, not on the content**, and the NAME matters as much as the quoting.
+**The quoting is on the DELIMITER, not the content**, and the NAME matters as much as the quoting.
 
-
-**AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE.**
-All three were used by this loop to report a number, and all three were wrong in the same direction, which is the direction
-that makes finished work look unfinished:
+**AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE**,
+all in the same direction: the one that makes finished work look unfinished.
 
 | do NOT count with | because | use |
 |---|---|---|
-| `grep -l <name> <dir>` | it counts FILES THAT MENTION a thing, not the thing: it said three gates read `panel.css`, and `panel-sheet-freshness-check.mjs:75` says **five** read it | read the tool's own message, or `grep -c` the count it prints |
-| `grep -c '^| ' <table>` | it counts the header row and the separator too: the mutation table read 46 and has **44** rows | `awk '/^\| /{n++} END{print n-2}' <table>` |
-| `git tag` | **this clone has no tag above 1.2.456** while the remote has 94 up to 1.2.474 — tags are made through the GitHub API and the mirror refuses `git fetch --tags` (HTTP 400), so `git tag` answers ZERO for every release this loop made | `GET /repos/SilasVale/summrise/git/refs/tags` |
+| `grep -l <name> <dir>` | it counts FILES THAT MENTION a thing, not the thing (it said three gates read `panel.css`; five do) | the tool's own message, or `grep -c` of the count it prints |
+| `grep -c '^| ' <table>` | it counts the header row and the separator too (a 44-row table read 46) | `awk '/^\| /{n++} END{print n-2}' <table>` |
+| `git tag` | **this clone has almost no tags** — tags are made through the GitHub API and the mirror refuses `git fetch --tags` (HTTP 400), so `git tag` answers ZERO for every release made here | `GET /repos/SilasVale/summrise/git/refs/tags` |
 
-**A summary is a claim set.** If a number is going into a commit message, a ledger line or a report, the command that produced it
+**A summary is a claim set.** If a number is going into a commit message or a report, the command that produced it
 belongs beside it — and a command that merely CORRELATES with the number is not that command.
 
 ## Release — npm is the only channel
@@ -440,61 +360,46 @@ belongs beside it — and a command that merely CORRELATES with the number is no
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-{agent,launch}.exe agent/summrise-agent-npm/
-#    DRY RUN FIRST if unsure: ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no
-#    credentials, changes nothing, seconds.
+#    BOTH EXES. The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
+#    .vbs wrappers, and it is COPIED on the device, never built there — a release without it ships tasks
+#    that cannot start. publish-release.sh refuses a missing or stale staged copy and required-in-tgz.txt
+#    refuses a tarball without it, both BEFORE the upload.
+#    ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no credentials, changes nothing, seconds.
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
-#    --npm needs $NPM_TOKEN or ~/.npm-token, and publishes to `latest` (see below for why not alpha)
-./scripts/publish-release.sh 1.2.N --npm
-# 3. the release commit goes on a BRANCH, like everything else, and reaches main by merge
-#    (main advances only by merge — the rule is under Test, and the hook enforces it)
+./scripts/publish-release.sh 1.2.N --npm      # needs $NPM_TOKEN or ~/.npm-token
+# 3. the release commit goes on a BRANCH and reaches main by merge, like everything else:
 git checkout -b release/1.2.N
 git add agent/summrise-agent-npm/package.json index/public/summrise-agent/version.json
 git commit -m "release: 1.2.N"
-git checkout main && git merge --no-ff release/1.2.N
-git push origin main          # CI green on the pushed commit
-# 4. tag through the API (git push of tags times out here) — this triggers release.yml.
-#    THE SHA MUST BE A PUSHED, CI-GREEN COMMIT, AND THE TAG MUST NOT MOVE ONTO DIFFERENT
-#    CONTENT. All three were paid for on 1.2.453: tagging a local commit answers "Object
-#    does not exist"; tagging a commit whose CI was superseded fails release.yml's own
-#    "Gate on tag-commit CI status"; and a tag MOVE (a) demotes the release to a DRAFT,
-#    which is invisible to the GET /releases/tags/<tag> read the audit makes, and (b)
-#    makes CI package a DIFFERENT artifact under the SAME version number, which the
-#    dual-builder audit then refuses — correctly. So: push, WAIT for that commit's CI to
-#    go green, then tag it; and if CI must go green again for an already-published
-#    version, put an EMPTY commit on the release commit (`git commit --allow-empty`) —
-#    the tree is unchanged, so the asset matches what shipped.
-#    AND DO NOT PUSH ANYTHING WHILE A RELEASE COMMIT'S CI IS RUNNING. A push supersedes it,
-#    GitHub cancels the run, and the tag then has no green CI to point at — twice on
-#    2026-09-23 (94cb06fd and fe29a24d), both times because the next piece of work was
-#    pushed by hand before the tag existed. Release, then resume.
-#
-#    AND `ci.yml` TRIGGERS ON `main` ONLY, WHICH MAKES THE EMPTY COMMIT A TWO-STEP. `release.yml`'s
-#    gate is FAIL-CLOSED on silence ("zero check-runs + zero statuses means CI has not reported yet
-#    (or never will) — WAIT, never pass"), so a commit that no workflow has ever seen can never be
-#    tagged, however green the tree is. Measured on 1.2.463: the empty commit went onto a BRANCH,
-#    the branch was pushed, and nothing ran. The step that was missing:
-#
-#      gh api repos/$REPO/actions/workflows/ci.yml/dispatches -f ref=<branch>      # HTTP 204
-#
-#    `ci.yml` carries `workflow_dispatch:` for exactly this. After it, the run attaches its
-#    check-runs to that SHA and the tag proceeds. The empty commit still has to be PUSHED first —
-#    a dispatch names a ref the runner must be able to fetch.
+git checkout main && git merge --no-ff release/1.2.N && git push origin main
+# 4. WAIT for that commit's CI to go GREEN, then tag it through the API (pushing tags times out here):
 curl -sX POST -H "Authorization: Bearer $(cat ~/.github-token)" \
   https://api.github.com/repos/SilasVale/summrise/git/refs \
   -d "{\"ref\":\"refs/tags/v1.2.N\",\"sha\":\"$(git rev-parse HEAD)\"}"
-# 5. audit CDN vs the GitHub asset, byte for byte (needs the asset, which is why step 4 comes first):
+# 5. audit CDN vs the GitHub asset, byte for byte (it needs the asset, which is why step 4 comes first):
 ./scripts/publish-release.sh --audit-only 1.2.N
 ```
 
-**PUBLISH TO `latest`, NOT `alpha`.** The CDN's `-latest.tgz` alias moves on every release, so npm's
-`latest` must move with it. 1.2.453 shipped to `alpha` first and deadlocked a real device:
-`npm i -g summrise-agent` installed a CLI older than the release the agent was asked to take, and the
-CLI's own guard ("this CLI is 1.2.452 and the release channel has 1.2.453 — install the new CLI
-first") pointed at a command that could not deliver it. `--npm-tag alpha` remains for a deliberate
-prerelease channel.
+**THE TAG'S RULES, EACH ONE PAID FOR.** The SHA must be a PUSHED commit whose CI is GREEN — a local commit answers
+"Object does not exist", and a superseded one fails `release.yml`'s own gate. The tag must NOT MOVE onto different
+content: a move demotes the release to a DRAFT (invisible to the audit's `GET /releases/tags/<tag>`) and makes CI package
+a different artifact under the same version number. **Do not push anything while a release commit's CI is running** — a
+push cancels it, and the tag then has no green CI to point at. If CI must go green again for an already-published
+version, put an EMPTY commit on the release commit: the tree is unchanged, so the asset matches what shipped.
 
-On the device (PowerShell) — the `--prefix` matters: without it npm installs elsewhere, reports
-success, and `summrise update` ships the old exe:
+**AND `ci.yml` TRIGGERS ON `main` ONLY, WHICH MAKES THE EMPTY COMMIT A TWO-STEP.** `release.yml`'s gate is FAIL-CLOSED
+on silence ("zero check-runs + zero statuses means CI has not reported yet, or never will — WAIT, never pass"), so a
+commit no workflow has ever seen can never be tagged, however green the tree is. The empty commit must be PUSHED first —
+a dispatch names a ref the runner has to fetch — and then dispatched:
+
+    gh api repos/$REPO/actions/workflows/ci.yml/dispatches -f ref=<branch>      # HTTP 204
+
+**PUBLISH TO `latest`, NOT `alpha`.** The CDN's `-latest.tgz` alias moves on every release, so npm's `latest` must move
+with it; a CLI older than the release it manages deadlocks the device, because the CLI's own guard tells the operator to
+install a version `npm i -g` then cannot deliver. `--npm-tag alpha` remains for a deliberate prerelease channel.
+
+**ON THE DEVICE (PowerShell) — AND THE `--prefix` MATTERS.** Without it npm installs elsewhere, reports success, and
+`summrise update` ships the old exe:
 
 ```powershell
 npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
@@ -502,113 +407,87 @@ summrise update
 summrise status
 ```
 
-**THAT BLOCK IS POWERSHELL, AND ITS `--prefix` SUBSTITUTION FAILS SILENTLY ANYWHERE ELSE** (measured round 90 of the standing
-goal). Run from a `cmd`-style shell — which is what a device tool's terminal often is — `(Split-Path (Get-Command
-summrise).Source)` is not evaluated: npm reads it as a PACKAGE NAME, fails with `E404 … '(Get-Command@*'`, and the obvious
-repair is worse. Substituting the `install dir:` that `summrise status` prints installs into the WRONG place and reports
-`added 1 package` — the agent's install dir is not the npm prefix, which is the directory the `summrise` command resolves
-from. The non-PowerShell form, which needs no quoting because the 8.3 short name has no spaces:
+**THAT SUBSTITUTION FAILS SILENTLY ANYWHERE BUT POWERSHELL.** Run from a `cmd`-style shell — which is what a device
+tool's terminal often is — `(Split-Path …)` is not evaluated: npm reads it as a PACKAGE NAME and fails with
+`E404 … '(Get-Command@*'`. The obvious repair is worse: the `install dir:` that `summrise status` prints is NOT the npm
+prefix, which is the directory the `summrise` command resolves from, so npm installs into the WRONG place and still
+reports `added 1 package`. The form that needs no quoting, because the 8.3 short name has no spaces:
 
     (Get-Command summrise.cmd).Source                # -> D:\Program Files\nodejs\summrise.cmd
-    #   NOT `where summrise` — it prints NOTHING in the agent-hosted PTY, which runs as SYSTEM with
-    #   a cwd of C:\Windows\System32\config\systemprofile and a PATH holding no npm prefix.
-    #   summrise IS installed and working; `where` simply has nothing to find.
+    #   NOT `where summrise` — it prints NOTHING in the agent-hosted PTY, which runs as SYSTEM with a cwd
+    #   of C:\Windows\System32\config\systemprofile and a PATH holding no npm prefix. summrise IS installed.
     npm i -g --prefix D:\PROGRA~1\nodejs https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
-    summrise status                                  # `this CLI:` is the ONLY proof; npm prints "changed 1 package" either way
+    summrise status   # `this CLI:` is the ONLY proof; npm prints "changed 1 package" either way
 
-And `summrise update` returns a **502 from the device agent** while it swaps the exe and restarts — that is the swap, not a
-failure; `summrise status` afterwards is what says whether it took (it did: `latest: 1.2.475 (this device is current)`).
+**A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** A stale `latest` resolved from npm's
+cache or this box's mirror printed `changed 1 package` and left the OLD version in place. The URL form above has no
+resolution step and is immune; an EXACT version is what `setup` uses for the same reason. Verify with `summrise status`,
+never npm's exit code.
 
-**AND THE SWAP CAN TAKE MINUTES TO HOURS, AND THE OBVIOUS EXPLANATION IS WRONG.** Measured 2026-09-28: a device's
-tunnel answered 502 then 530/1033 for ~2 hours while `startup.log` showed the agent starting normally at 00:13 with
-its new release marker — **the swap had SUCCEEDED, slowly.** The retries total ~25 seconds, so the dark window is
-**the tunnel with no connector**, not backoff. **Do not call a device broken inside that window — read `startup.log`.**
+**`summrise update` ANSWERS 502 WHILE IT SWAPS THE EXE — that is the swap, not a failure**, and the dark window runs from
+minutes to HOURS: measured, a tunnel answering 502 then 530/1033 for ~2 hours while `startup.log` showed the agent
+starting normally with its new release marker. The retries total ~25 seconds, so the window is the tunnel with no
+connector. **Read `startup.log` before calling a device broken.**
 
-**AND THREE THINGS BITE A FIRST-TIME WINDOWS INSTALL, ALL MEASURED ON 2026-09-27 WHILE INSTALLING A FRESH MACHINE:**
+**THREE THINGS BITE A FIRST-TIME WINDOWS INSTALL:**
 
-  1. **`summrise` IS REFUSED BY POWERSHELL'S EXECUTION POLICY.** npm writes three shims and PowerShell prefers the `.ps1`
-     one, which the default `Restricted` policy blocks: *"无法加载文件 …\summrise.ps1，因为在此系统上禁止运行脚本"*. **Use
-     `summrise.cmd <command>`** — it bypasses the policy entirely and changes nothing on the machine. (Or
-     `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once.)
-  2. **IT NEEDS AN ELEVATED SHELL, AND SAYS SO BADLY.** The install dir defaults to `C:\Program Files\Summrise` and the
-     registry key is `HKLM`, so a normal user's `summrise desktop` dies with
-     `EPERM: operation not permitted, mkdir 'C:\Program Files\Summrise\scripts'` — a stack trace where the useful sentence
-     is "run `summrise setup` as administrator". **Open PowerShell as administrator for `setup`.**
-  3. **THE FIRST `setup` CAN STALL AT "reconciling desktop shortcut (retired-exe repair)"** — that step instantiates
-     `WScript.Shell` over COM and removes two retired executables, and it hung once. **Re-running `setup` went straight
-     past it**; the step is cosmetic, `setup` is idempotent, and Ctrl+C there costs nothing.
+  1. **PowerShell REFUSES `summrise`** — it prefers npm's `.ps1` shim, which the default `Restricted` policy blocks
+     (*"在此系统上禁止运行脚本"*). **Use `summrise.cmd <command>`**, which bypasses the policy and changes nothing on the
+     machine (or `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, once).
+  2. **`setup` NEEDS AN ELEVATED SHELL AND SAYS SO BADLY** — the install dir defaults to `C:\Program Files\Summrise` and
+     the registry key is `HKLM`, so a normal user's `setup` dies with `EPERM: … mkdir 'C:\Program Files\Summrise\scripts'`,
+     a stack trace where the useful sentence is "run it as administrator".
+  3. **THE FIRST `setup` CAN STALL at "reconciling desktop shortcut (retired-exe repair)"** — that step instantiates
+     `WScript.Shell` over COM. It is cosmetic and `setup` is idempotent: **re-run it** (or Ctrl+C, which costs nothing).
 
-**AND THE WHOLE INSTALL IS TWO COMMANDS** (the second one now starts the agent itself):
+**AND THE WHOLE INSTALL IS TWO COMMANDS** (the second one starts the agent):
 
-    npm i -g summrise-agent@1.2.475        # exact version: `latest` can resolve stale and still report success
-    summrise.cmd setup                     # components + registry + tasks + the agent
+    npm i -g summrise-agent@1.2.N        # exact version: `latest` can resolve stale and still report success
+    summrise.cmd setup                   # components + registry + tasks + the agent
 
-**AND A BARE `npm i -g summrise-agent` CAN INSTALL NOTHING WHILE REPORTING SUCCESS.** A stale `latest`
-resolved from npm's cache or this box's mirror printed `changed 1 package` and left the OLD version in
-place. The URL above has no resolution step, so it is immune; an EXACT version (`summrise-agent@1.2.455`)
-is what `setup` uses for the same reason. Verify with `summrise status` (`this CLI:`), never npm's exit code.
+**THE npm PACKAGE CARRIES NO BOXED COMPONENTS — `setup` FETCHES AND VERIFIES THEM.** The package is ~6.7 MB: the exe,
+the CLI, the desktop shell's *sources*. `cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) and the **electron
+runtime** are served by the release host and staged into `<install>\components` by `resolveComponent()` (`curl -fsSL`, so
+an HTTP error is a FAILURE and not a 404 page on disk). Both cloudflared and electron are STAGED IN R2, which is what
+lets `index/components.json` pin a sha256 for each and `version.json` publish it: setup REFUSES a mismatch, warns when a
+release carries no pin, and never touches GitHub — a device behind the GFW needs no mirror. An *upgrade* was never
+affected (components live in `<install>\components` and survive); this bites at install and migration time. The migration
+that came up local-only, and why it cost an hour, is in `docs/BRAND.md`.
 
-**AND MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the
-HARNESS (a stubbed device, this checkout's bundle); nothing measured the live panel until
-`agent/scripts/live-panel-probe.mjs` was pointed at `127.0.0.1:18080` on d1, where it immediately found the approval
-gate's disarmed ring using the ink round 101 had replaced — in a rule no harness run could see. It needs a browser and
-a running panel, so it cannot be a CI job: run it on the device after a `summrise update` (emit with `--emit`, hand the
-script to the device's node or to `browser_run_script`).
+**MEASURE THE PANEL THE DEVICE IS ACTUALLY RUNNING, not only the harness.** Every design sweep renders the HARNESS (a
+stubbed device, this checkout's bundle). `agent/scripts/live-panel-probe.mjs` measures the live panel
+(`127.0.0.1:18080`), which is the only way to see a rule no harness run can. It needs a browser and a running panel, so
+it cannot be a CI job: run it on the device after a `summrise update`. A 38 KB script is EMITTED, never pasted —
 
-**HOW TO HAND IT OVER, since a 38 KB script must not be pasted into anything:** emit it into the CDN's public dir
-(`node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js`), deploy, and let
-the DEVICE fetch it (`system_file_download` from `https://agent.saisi.online/summrise-agent/live-panel-probe.js`), then
-`browser_run_script`. **THE INVOCATION IS ONE LINE, BECAUSE ROUND 269 CHANGED THE SHAPE AND BOTH EARLIER INSTRUCTIONS
-DESCRIBED THE ONE BEFORE IT:**
+    node agent/scripts/live-panel-probe.mjs --emit > index/public/summrise-agent/live-panel-probe.js
+    ./scripts/build.sh index          # A COMMIT IS NOT A DEPLOY: a commit under index/public/ does not change
+                                      # what the CDN serves, and the device fetches the PREVIOUS copy
+    # the device then fetches it (system_file_download from
+    # https://agent.saisi.online/summrise-agent/live-panel-probe.js) and runs it with browser_run_script.
+    require('D:/Summrise/live-panel-probe.js');   # REQUIRING IT IS RUNNING IT: the emitted program reads the
+                                                  # panel token from the device's config, walks both densities,
+                                                  # prints JSON and exits with a verdict code. Nothing is passed in.
 
-```js
-require('D:/Summrise/live-panel-probe.js');   // the whole run: token from the device's config, both densities, JSON, exit code
-```
-
-**AND "DEPLOY" IS A REAL STEP, NOT A FIGURE OF SPEECH — MEASURED IN ROUND 101.** A commit under `index/public/`
-does NOT change what the CDN serves: the loop regenerated this probe, committed it, and the device fetched the PREVIOUS
-copy (39,334 against 39,884) because `./scripts/build.sh index` had not been run. One command catches it — run it after
-ANY change to a served file:
+After ANY change to a served file, one command says whether the CDN has it:
 
     curl -s -o /tmp/cdn.js -w '%{size_download}\n' https://agent.saisi.online/summrise-agent/live-panel-probe.js
     cmp -s /tmp/cdn.js index/public/summrise-agent/live-panel-probe.js && echo served || echo STALE
 
-**REQUIRING IT IS RUNNING IT.** The assembler prints a bundled PROGRAM whose last statement is `__require("live-run.cjs")`;
-an earlier round's `new Function` wrapper throws `ReferenceError`. Nothing is passed in — the program reads the panel token
-from the device's own config, navigates both densities, prints the JSON and exits with a verdict code.
-
-**AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually already on the
-panel, so navigating it aborts (`net::ERR_ABORTED`). The program does its own navigation, so this only bites a caller
-driving the attached view by hand.
-
-**MEASURED ON THE LIVE PANEL, release 1.2.474 (round 7 of the standing goal)**: `verdict: {ok: true}` — 91 rows over two
-densities (61 panel, 30 desktop), `textFailing: []`, `graphicFailing: []`, `unmeasurable: 0`, no mark collisions, no
-ring+fill, `errors: []`. **AND `ATTACHED=false` IS NOT A SWITCH.** The helper attaches whenever the desktop CDP
-(`127.0.0.1:9333`) answers; force headless by pointing `SUMMRISE_CDP_ENDPOINT` at a dead port, and install
-`chrome-headless-shell` first — the boxed `playwright-core` does not ship it, and its own CLI installs it
-(`node node_modules/playwright-core/cli.js install chromium-headless-shell`; `npx playwright` does not exist for that
-package). Measured 2026-09-28: the probe refused on an installer-provisioned device, then measured 38 panel and 9 desktop
-rows headless once both were fixed.
+**AND DO NOT `page.goto` THE PANEL FIRST**: the attached view is ONE page shared with the operator's screen, usually
+already on the panel, so navigating it aborts (`net::ERR_ABORTED`); the program does its own navigation. **`ATTACHED=false`
+IS NOT A SWITCH** — the helper attaches whenever the desktop CDP (`127.0.0.1:9333`) answers, so force headless by
+pointing `SUMMRISE_CDP_ENDPOINT` at a dead port, and install `chrome-headless-shell` first
+(`node node_modules/playwright-core/cli.js install chromium-headless-shell` — the boxed `playwright-core` does not ship
+it and has no `npx playwright`).
 
 **AND THE EMITTED FILE IN `index/public/` MUST NOT BE GITIGNORED: an ignored file is in no other checkout.** Workers
-Assets uploads the directory WHOLESALE, `.gitignore` unread (`wrangler deploy --dry-run`: 21 files, 12 ignored, reads
-**23**; a worktree's 9 read **11**) — so a worktree deploy skips nothing: it REMOVES them from the CDN
-(`summrise-agent-latest.tgz` and `SummriseAgent-Setup.exe`: 404). Deploy `index` from the main checkout, or copy them
+Assets uploads the directory WHOLESALE, `.gitignore` unread, so a worktree deploy REMOVES the missing files from the CDN
+(`summrise-agent-latest.tgz` and `SummriseAgent-Setup.exe`: 404). **Deploy `index` from the main checkout**, or copy them
 in; the post-deploy smoke catches it.
 
-Two things that cost a device restart when ignored: **never launch a second `summrise-agent.exe` from
-an agent-hosted PTY** (it inherits the kill-on-close job and kills the running agent), and **never
-kill/copy the exe inline over a PTY** — use the npm flow above.
-
-**THE npm PACKAGE CARRIES NO BOXED COMPONENTS — `setup` FETCHES AND VERIFIES THEM.** The package is ~6.7 MB: the exe,
-the CLI, the desktop shell's *sources*. `cloudflared.exe` (54 MB), `summrise-playwright.zip` (31 MB) and the **electron
-runtime** the desktop shell launches are served by the release host and staged into `<install>\components` by
-`resolveComponent()` (host route TODAY; the package arm is a seam) (`curl -fsSL`, so an HTTP error
-is a FAILURE and not a 404 page on disk). Both cloudflared and electron are STAGED IN R2 now, which is what lets
-`index/components.json` pin a sha256 for each and `version.json` publish it: setup REFUSES a mismatch, warns when a
-release carries no pin, and never touches GitHub — a device behind the GFW needs no mirror. An *upgrade* was never
-affected (components live in `<install>\components` and survive); this bites at install and migration time. The
-migration that came up local-only, and why it cost an hour, is in `docs/BRAND.md`.
+**TWO THINGS THAT COST A DEVICE RESTART WHEN IGNORED: never launch a second `summrise-agent.exe` from an agent-hosted
+PTY** (it inherits the kill-on-close job and kills the running agent), and **never kill/copy the exe inline over a PTY** —
+use the npm flow above.
 
 ## Agent layout
 
