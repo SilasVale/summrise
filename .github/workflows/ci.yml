@@ -272,6 +272,18 @@ jobs:
       - name: summrise-launch, for the target it is staged onto
         run: cargo clippy -p summrise-launch --target x86_64-pc-windows-msvc -- -D warnings
         working-directory: agent
+      # **THE CONSOLE DEPENDENCIES, BECAUSE TWO GATES NOW BUILD AND RENDER THE CONSOLE.** Landing 3 ported
+      # `console-assets-check` and `console-smoke-check` into `cargo test`, which is what made them run on
+      # every change — and it is also what made this job need what only the `ui` job had. Measured in CI on
+      # the first push after that landing: `console_assets` failed with "the console build itself failed
+      # (rc=1)" and `console_smoke` with "4 of 4 console render smoke(s) failed", both because nothing here
+      # had installed the UI's dependencies. THIS IS THE "OPTION A" DEPENDENCY THE SPEC NAMED IN §6.1 —
+      # a Rust gate that spawns a toolchain has to bring that toolchain's dependencies with it, and the
+      # alternative (letting the gate skip when the directory is absent) would be a gate that passes where
+      # it cannot look.
+      - name: console dependencies (the UI build and the render smokes' jsdom)
+        run: npm ci
+        working-directory: gateway/ui
       - name: Tests
         # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
