@@ -213,9 +213,15 @@ try {
       // name(s) over 6 page(s))"). The tone goes off when there is nothing to report (no device online, no channels,
       // no keys); the empty-fleet fixture existed and visited only #/devices and #/keys, so the one state that needs
       // that declaration had never been rendered by anything. A state with no surface cannot be measured.
+      //
+      // THE NEEDLE IS THE PLAN'S JSON NOW, AND THE REQUIREMENT IS UNCHANGED (landing 2b, 2026-10-08). The fixture
+      // list was `[['overview-empty', '#/'], …]` in the payload; it is a surface of the Rust plan, embedded in the
+      // emitted bundle as `{"page":"overview-empty","hash":"#/",…}`. The assertion still asks the same question —
+      // does the artifact that runs carry the empty-fleet Overview — and it names the pair rather than the page
+      // alone, because a surface with the right name and the wrong hash renders a different page.
       if (name.startsWith("console")) {
         assert.ok(
-          src.includes("'overview-empty', '#/'"),
+          src.includes('"page":"overview-empty","hash":"#/"'),
           `${name}: the empty-fleet fixture does not render the Overview — the stat-off declaration then waives a state no surface shows`,
         );
       }

@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 46] = [
+const ALLOWED: [(&str, &str); 47] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -71,6 +71,13 @@ const ALLOWED: [(&str, &str); 46] = [
     // considered and rejected was four more entries for the same three URLs — which would have
     // crossed the constant and needed a raise.
     ("agent/summrise-cli/src/endpoints.rs", "the CLI's own hostname defaults, ported: the update channel, the device-host suffix and the API base"),
+    // ADDED 2026-10-08, WITH THE SWEEPS' PLAN, AND THIS IS A MOVE RATHER THAN AN ADDITION — the count went
+    // DOWN. The console sweep measures the console at its real origin, and the payload used to spell that
+    // hostname NINE times; the plan carries it ONCE, in `Tool::origin()`, and the payload keeps one. So the
+    // tree went from 9 occurrences to 2 across a declared directory and this one file. The alternative —
+    // passing the origin in from the emitter — was rejected because the origin is part of what the plan
+    // DECIDES (a surface's URL), and a plan that cannot name where its surfaces live is not a plan.
+    ("agent/sweep-plan/src/plan.rs", "the console's real origin, consolidated here from nine occurrences in the payload"),
     ("proxies/", "the satellite workers' routes and their operational README"),
     // ADDED 2026-09-24, AND THE COMMIT SAYS WHY — which is the gate's own instruction for a genuine
     // need ("that is a conversation, not an edit"). The relay's worker config names the host twice by
@@ -189,7 +196,14 @@ const ALLOWED: [(&str, &str); 46] = [
 // which is the same production hostname `device-fetch.ts` names. Raised by ONE, with the reason beside it.
 // 46 -> 47 the same day, for the routing decision: `routing.rs` carries the US_PROXY_BASE default, the same
 // production hostname `upstream.ts` names. Raised by ONE, with the reason beside it.
-const MAX_ALLOWED: usize = 46;
+//
+// 46 -> 47 the same day, for the sweeps' plan: `agent/sweep-plan/src/plan.rs` carries the console's real
+// origin, which the payload spelled NINE times and the plan spells ONCE. Raised by ONE for ONE file, and the
+// OCCURRENCES went DOWN — 9 in the payload to 2 in the tree — which is the shape this list exists to allow: a
+// port that CONSOLIDATES is a file to declare, not a host to add. (The comment above says 46 -> 47 while the
+// constant read 46, because the list shrank back by one after that raise and this file's prose did not follow
+// it; the number below is the one the ratchet checks, and the ratchet checks both directions.)
+const MAX_ALLOWED: usize = 47;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -381,7 +395,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 46"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 47"),
         "{}",
         ok.stdout
     );
