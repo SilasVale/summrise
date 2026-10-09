@@ -108,6 +108,7 @@ BOUNDARY | proxies/summrise-relay/ | the retired relay worker's harness, kept fo
 
 # ── LOGIC: the work that is left ─────────────────────────────────────────────────────────────────────────────
 LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)
+BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decision: it reads the PIECES module out of an emitter's artifact and hands it back as data. Two live bash gates import it — `panel-design-sweep.bash:92` and `sweep-judges.bash:134` — so it belongs to THEIR tooling the way the sweeps' in-page probes belong to theirs: it spawns no toolchain, computes no verdict, and a gate goes red if it stops reading. NOTE WHERE ITS SIBLING WENT: `scripts/test/lib/decomment.mjs` is DELETED in this commit, because the rule it defines now has exactly one definition and it is in Rust (`agent/tests/common/mod.rs`'s `decomment`/`decomment_line`/`decommented_corpus`, whose header says it took the rule FROM that file). Measured before deleting, as this repository requires: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line — a comment in its sibling naming it.
 LOGIC | scripts/test/ | six gates that spawn a toolchain (landing 3)
 LOGIC | agent/summrise-agent-npm/src/ | the CLI's decisions (landing 4)
 LOGIC | agent/summrise-agent-npm/test/ | the CLI's suite, ported with it (landing 4)
