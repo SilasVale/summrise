@@ -46,12 +46,18 @@
   // has its OWN bucket (summrise-relay-files) — sharing one would re-couple exactly
   // what the split exists to separate.
   "r2_buckets": [{ "binding": "TEMP_FILES", "bucket_name": "summrise-temp-files" }],
-  // TempClaimDO is RETIRED here: its handlers (/api/upload, /files/<token>) belong to
-  // `summrise-relay` now, and a class with no producer is dead weight in the one file a
-  // reader consults to learn what this worker does. deleted_classes is the documented
-  // way to remove one (the gateway did the same for PluginHubDO). The DO held NO
-  // storage, so nothing is lost by the deletion.
-  "migrations": [{ "tag": "v2-drop-temp-claim", "deleted_classes": ["TempClaimDO"] }],
+  // **NO `migrations`, AND THE ONE THAT WAS HERE COULD NEVER BE APPLIED — MEASURED 2026-10-09, WHEN IT
+  // BLOCKED THE DEPLOY.** It read `{ "tag": "v2-drop-temp-claim", "deleted_classes": ["TempClaimDO"] }`
+  // with the comment that this worker had RETIRED the class. The intent was right and the mechanism was
+  // wrong: **`deleted_classes` removes a class THE WORKER ITSELF USED TO RUN**, and `TempClaimDO` was
+  // never one of them — `relay/wrangler.jsonc` is where it is bound and where `v1-temp-claim` created it.
+  // So wrangler refused every deploy with the sentence that names the mistake exactly:
+  //
+  //     ERROR: Cannot apply deleted_classes migration to non-existent class TempClaimDO
+  //
+  // **AND THE RETIREMENT IS ALREADY COMPLETE WITHOUT IT**: this file has no `durable_objects` key at all,
+  // so the worker runs no Durable Object — which is what "retired here" means. A migration is a change to
+  // apply, not a note about a state that has already been reached, and this one was a note.
   // Custom domain (added in the Cloudflare dashboard, like the other Summrise
   // workers — wrangler 4.x ignores the custom_domains field): <download-host>
   // Vars (set via `wrangler var put`, NOT committed): CONSOLE_URL (the Summrise
