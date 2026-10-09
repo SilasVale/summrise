@@ -87,6 +87,15 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// exercise does. So the count went 152 -> 153, the cap followed it in the same commit, and the alternative —
 /// folding the file into `devices-cutover.test.mjs` — was rejected for the reason the round before it gave: a
 /// test file named for one family is not where the next reader looks for the other's boundary.
+/// **THE COUNT DID NOT MOVE ON 2026-10-09, AND THE TWO MOVEMENTS INSIDE IT ARE NAMED SO THAT "UNCHANGED" IS NOT
+/// MISTAKEN FOR "NOTHING HAPPENED".** Porting the console worker's MCP surface (landing 5 slice 3) took
+/// `gateway/src/mcp-tools.ts` OUT of this class — it is the MCP tool table, its single source is
+/// `gateway/wasm/src/mcp_tools.rs`, and it is now EMITTED from that table with a byte-for-byte freshness check
+/// in `cargo test` (the manifest's `GENERATED` rule names the producer). The same slice ADDED
+/// `gateway/test/mcp-cutover.test.mjs` (+1), which pins WHICH half serves `/mcp` in both configurations and
+/// pins the one route this slice deliberately does NOT port (`GET /api/plugins/status`, whose `routes` field is
+/// the TypeScript plugin registry's own dispatch counters). −1 +1 = 0, so the cap stays where it is: a ratchet
+/// that moved for a file that merely changed class would be measuring the manifest rather than the work.
 const MAX_LOGIC: usize = 153;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing

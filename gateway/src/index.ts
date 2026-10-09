@@ -202,6 +202,38 @@ function isAuthFamily(path: string): boolean {
   );
 }
 
+/**
+ * THE MCP SURFACE'S CUTOVER — ONE PATH, AND THE PLUGIN'S OTHER ROUTE IS DELIBERATELY NOT IN IT.
+ *
+ * What is being cut over (2026-10-09, landing 5 slice 3): the console's MCP endpoint, `/mcp` — the JSON-RPC
+ * surface a model drives a device through. Its decisions are Rust now (`gateway/wasm/src/mcp.rs`,
+ * `mcp_tools.rs`, `mcp_browser.rs`, `mcp_errors.rs`), and they are proved case for case against this
+ * implementation by `gateway/wasm/verify.mjs`: the transport refusals (no token, a non-admin token, a relay
+ * token, a suspended user), the JSON-RPC envelopes (a missing `id`, a body that is a literal `null`, a body
+ * that is not JSON, an unknown method, an unknown tool), the device resolution (none registered, several with
+ * no name given, a typo'd name), the terminal relay (the rename, the quiet default, the stale-session
+ * self-heal, a dead `terminal_close`), the five stable failure codes (unreachable, timeout, session gone,
+ * session busy, a device-up tool error), and the browser bridge (the tool map, the two renames, the
+ * self-heal, the per-device cap).
+ *
+ * **THE ONE EXCLUSION, AND IT IS `plugins/mcp.ts`'s OTHER ROUTE.** `GET /api/plugins/status` is not this
+ * slice. Its response carries `routes` — `routeStats(ctx)`, the console plugin registry's own dispatch
+ * instrumentation: a registration index and a per-isolate hit counter for EVERY route of every plugin. Those
+ * counters are a property of the TypeScript plugin table and of the traffic one isolate has happened to see;
+ * the Rust worker dispatches by family and does not have that table, so it could only guess them. The route
+ * therefore stays on the TypeScript path, and the harness's cutover section asserts that it does — a cutover
+ * that only ever grows a list is a cutover whose exclusions are untested.
+ *
+ * **AND THE ROLLBACK IS THE PLUGIN, NOT A DELETION.** `plugins/mcp.ts`, `mcp.ts`, `mcp-browser.ts`,
+ * `mcp-errors.ts` and the now-GENERATED `mcp-tools.ts` are all still here, and deleting them is the last step
+ * of this landing, after the deploy that proves the worker serves the surface. Without the binding — a local
+ * `wrangler dev`, a test env, a deployment whose binding was removed — `/mcp` falls through to the plugin
+ * below, UNCHANGED.
+ */
+function isMcpFamily(path: string): boolean {
+  return path === "/mcp";
+}
+
 export default {
   async fetch(request: Request, env: any) {
     // Auth-core audit MED-1: global CSRF gate for cookie-authed mutations
@@ -306,6 +338,11 @@ export default {
         // `seedAdmin` (the front door's job, which the worker does not do) and after the CSRF gate above, and
         // with the TypeScript plugin as the rollback when the binding is absent.
         if (isAuthFamily(path) && wasmGate(env)) {
+          return await frontDoor(request, env, request);
+        }
+        // **THE MCP ENDPOINT GOES TO THE SAME PLACE, BY THE SAME RULE.** After `seedAdmin` and the CSRF gate,
+        // and with `plugins/mcp.ts` as the rollback when the binding is absent — see `isMcpFamily`.
+        if (isMcpFamily(path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         const pctx = ensurePluginCtx();

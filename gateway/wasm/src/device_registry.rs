@@ -114,6 +114,12 @@ pub fn js_falsy(v: &Value) -> bool {
     }
 }
 
+/// JavaScript truthiness, the POSITIVE form of [`js_falsy`] — the source writes `x ? …` far more often than
+/// `!x ? …`, and a call site that has to spell the negation reads as the opposite of what it means.
+pub fn js_truthy(v: &Value) -> bool {
+    !js_falsy(v)
+}
+
 /// `String(v)` for the JSON values a request body can carry.
 pub fn js_to_string(v: &Value) -> String {
     match v {

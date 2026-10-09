@@ -20,6 +20,7 @@ GENERATED | gateway/ui/src/wasm/ui_logic.js | wasm-bindgen's glue for the consol
 GENERATED | gateway/ui/src/wasm/ui_logic.d.ts | wasm-bindgen's types for the console's logic crate | gateway/ui-logic
 GENERATED | gateway/public/assets/ | the built console bundle, served by the console worker | gateway/ui
 GENERATED | gateway/public/code/files/ | the Source Viewer's byte-for-byte mirror of tracked sources | gateway/scripts/sync-code-viewer.sh
+GENERATED | gateway/src/mcp-tools.ts | the MCP tool table, EMITTED from the Rust single source (`render_typescript`), whose freshness is a cargo test | gateway/wasm/src/mcp_tools.rs
 GENERATED | index/public/summrise-agent/landing/ | the landing arms, rendered by the Rust crate at build time | index/landing/build.sh
 GENERATED | index/public/summrise-agent/ | the emitted probes and the e2e bundle, written by `--emit` | agent/scripts
 GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
