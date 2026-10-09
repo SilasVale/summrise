@@ -145,7 +145,15 @@ is invisible to the `100644` count**, which is why both are printed).
 pulls the tree out from under it — sharing one checkout is what makes work serial, and serial is not a property of the
 work. Give each track its own worktree and its own branch (`using-git-worktrees`):
 
-    git worktree add /tmp/wt-<track> -b <branch> main      # after umask 022
+    git worktree add ~/wt/<track> -b <branch> main         # after umask 022, and NOT under /tmp
+
+**AND NOT UNDER `/tmp` — MEASURED 2026-10-09, WHEN A `/tmp` SWEEP TOOK EVERY WORKTREE AT ONCE.** All seven
+trees vanished mid-round (`git worktree list` afterwards called each one `prunable`), and the damage split
+along exactly one line: **every COMMITTED thing survived** — the object store is shared, so each branch still
+held its tip — while **every UNCOMMITTED tree was gone**, three tracks' worth, unrecoverable. So the rule is
+not "avoid /tmp" but the sharper one: **a worktree is a working copy, and an hour of uncommitted work in it
+can be deleted by the operating system.** Commit before leaving a track idle, and keep the tree where a temp
+sweep does not reach.
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
