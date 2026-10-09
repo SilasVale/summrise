@@ -53,7 +53,7 @@ fn built_bundle(html: &str) -> Option<String> {
     let open = html.find("index-")?;
     let rest = &html[open..];
     let end = rest
-        .find(|c| c == '"')
+        .find('"')
         .expect("the bundle name is inside an attribute, so a quote follows it");
     Some(rest[..end].to_string())
 }

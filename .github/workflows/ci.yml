@@ -688,13 +688,32 @@ jobs:
           # failing gate's own text, which is in the job log — and a job log needs a token to read from
           # outside. An `::error::` annotation is PUBLIC, so the name of the gate travels with the failure.
           failed=""
+          notrun=0
           for g in "${gates[@]}"; do
             echo "== $g"
             # **AND IT SHOWS WHAT THE GATE SAID, NOT ONLY ITS NAME.** `all-gates.bash` prints one `FAIL` line
             # per gate that went red, and those lines were only ever in the job log. `tee` keeps them live
             # AND on disk; `set -o pipefail` keeps the gate's own status, which is the whole point of running
             # it (`cmd && echo ok || echo FAIL` throws the status away — this file's own rule).
-            if ! bash "$g" 2>&1 | tee /tmp/umask-gate.out; then
+            #
+            # **AND AN EXIT OF 2 IS `n/a`, NOT A FAILURE — MEASURED 2026-10-09, WHEN THIS LOOP WENT RED ON A
+            # GATE THAT COULD NOT RUN HERE.** `scripts/test/url-policy-wasm-freshness.bash` needs `wasm-pack`
+            # (a checkout has none) and exits **2** with "n/a no wasm-pack on PATH … a host without them cannot
+            # make this judgement, and saying so is better than a false failure" — the convention
+            # `all-gates.bash` already implements (`2) notrun=$((notrun + 1))`). This loop was written before
+            # any gate it globs used it, so `! bash "$g"` read 2 as red and the job failed on a gate that had
+            # declared it could not run. The count is PRINTED and floored below for the reason the empty-glob
+            # check exists: "cannot run here" must never become a place a real failure can hide.
+            set +e
+            bash "$g" 2>&1 | tee /tmp/umask-gate.out
+            st=${PIPESTATUS[0]}
+            set -e
+            if [ "$st" = 2 ]; then
+              notrun=$((notrun + 1))
+              echo "  n/a   $g (declared it cannot run here)"
+              continue
+            fi
+            if [ "$st" != 0 ]; then
               failed="$g"
               echo "::error::the umask loop failed in $g"
               grep -E "^  FAIL|FAILED|error" /tmp/umask-gate.out | head -12 | while IFS= read -r line; do
@@ -705,6 +724,16 @@ jobs:
           done
           if [ -n "$failed" ]; then
             echo "gate $failed failed under umask 077"
+            exit 1
+          fi
+          # **AND THE n/a COUNT IS PRINTED AND FLOORED, FOR THE SAME REASON THE GLOB IS.** A gate that says it
+          # cannot run here is not evidence about the umask, so if EVERY gate said it, this step measured
+          # nothing and must not report success — the same rule as `[ ${#gates[@]} -lt 5 ]` above, one level
+          # down. The numbers are printed either way: "0 not runnable here" and "2 not runnable here" are
+          # different claims and the reader should be able to tell them apart without opening a log.
+          echo "umask 077 loop: $(( ${#gates[@]} - notrun )) of ${#gates[@]} gate(s) ran, $notrun declared they cannot run here"
+          if [ "$notrun" -ge "${#gates[@]}" ]; then
+            echo "::error::every gate in the umask loop declared it cannot run here — that is not a clean run"
             exit 1
           fi
       # THE OTHER HOSTILE CONDITIONS, MEASURED (round 104) so they are not re-derived: all eight bash
@@ -962,7 +991,25 @@ jobs:
       # same commit as the gate it runs: the step without the file made `pack-chain`
       # red for a reason that had nothing to do with a defect.
       - name: url-policy wasm freshness (rebuild + cmp)
-        run: bash scripts/test/url-policy-wasm-freshness.bash
+        run: |
+          # **EXIT 2 IS `n/a`, AND THE GATE SAYS SO IN ITS OWN HEADER** — the convention `all-gates.bash`
+          # implements (`2) notrun=...`) and `rust-byte-checks.bash` established. MEASURED 2026-10-09: this
+          # step failed on its first CI run with "n/a no wasm-pack on PATH" while the same gate exits 0 on a
+          # box that has the toolchain, because a plain step reads 2 as red. The gate also names what is NOT
+          # lost here: "the shipped-copy comparison above is also made by the release path, which every
+          # builder runs — `publish-release.sh` and the `electron src copies in sync` loops in `ci.yml` /
+          # `release.yml` compare the same files with `cmp`". So a runner without wasm-pack is told apart
+          # from a stale artifact instead of being called a failure.
+          set +e
+          bash scripts/test/url-policy-wasm-freshness.bash
+          st=$?
+          set -e
+          if [ "$st" = 2 ]; then
+            echo "n/a — this runner has no wasm-pack; the gate's header names the cmp loops that still cover"
+            echo "      the shipped copy, so this is 'cannot run here' and not 'the artifacts are stale'"
+            exit 0
+          fi
+          exit "$st"
       # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
       # recompile src/summrise.ts with the tsc the electron step installed
       # above and cmp against the committed bin/summrise.js — a src change

@@ -40,7 +40,6 @@
 //! itself.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 mod common;
 

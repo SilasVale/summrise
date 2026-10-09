@@ -1,9 +1,16 @@
 //! **THE TWO RELAYS MUST AGREE ON THE CONSTANTS THEY SHARE, AND NOTHING CHECKED THAT.**
 //!
-//! WHY THIS EXISTS. `proxies/api-relay/api/` is the Node relay in production and `relay/` is the Rust one
-//! being prepared to replace it. The differential (`relay/differential.mjs`) compares their DECISIONS — 12 of
-//! 14 routes byte-identical, 2 not wired — and this crate's port comments claim the constants match in as
-//! many words ("the JavaScript reads `SUMMRISE_RELAY_HEADER_TIMEOUT_MS` at MODULE LOAD, which is what reading
+//! WHY THIS EXISTS. `proxies/api-relay/api/` WAS the Node relay in production and `relay/` was the Rust one
+//! being prepared to replace it. **THE REPLACEMENT IS DONE (2026-10-09)**: nginx's `/api/` points at the Rust
+//! relay, proved by stopping the Node unit and watching the public endpoint still answer 401. The Node source
+//! is the ORACLE now — this test reads it as text, the differential compares its answers, and the deployed
+//! bundle is the rollback — so the constants below still have to agree with it, for a different reason than
+//! before: not because it serves, but because it is what the Rust is measured against. The differential
+//! (`relay/differential.mjs`) compares the two implementations' **14 requests byte-identical, 0 unexplained**
+//! — re-measured 2026-10-09, when its `unwired` exemption for `/api/github` and `/api/gform` was deleted
+//! (both had been wired on 2026-10-07 while the exemption stood). The sentence here used to read "12 of 14
+//! routes byte-identical, 2 not wired", which was the exemption talking — and this crate's port comments
+//! claim the constants match in as many words ("the JavaScript reads `SUMMRISE_RELAY_HEADER_TIMEOUT_MS` at MODULE LOAD, which is what reading
 //! it once at start-up is"). **A CLAIM NOBODY CHECKS IS A CLAIM THAT DRIFTS**, and the divergence class here
 //! is quiet: a renamed environment variable, a changed default, a host that moved. None of them would fail a
 //! corpus, because the harness sets the environment for both sides.

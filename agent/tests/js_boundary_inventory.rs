@@ -53,80 +53,6 @@ use std::path::Path;
 /// The classification manifest. One rule per line: `CLASS | pattern | reason | producer`.
 const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 
-/// **THE RATCHET.** The number of `LOGIC` files today; it may only fall. When it reaches 0 the criterion is met and
-/// the class is empty — which is the day `assert_eq!(logic.len(), MAX_LOGIC)` stops being a cap and starts being
-/// the sentence the criterion was always meant to be.
-///
-/// UNCHANGED BY SLICE 1 OF LANDING 2b, and that is the honest reading: the plan moved out of the payloads into
-/// Rust, but the payload FILES are still here (the driving is a later slice), so no file left this class. The two
-/// JavaScript halves the landing ADDED — `agent/scripts/lib/sweep-plan.mjs`, which runs the plan binary at emit
-/// time, and `agent/scripts/lib/sweep/plan-runtime.cjs`, which places what the plan gave it — are BOUNDARY
-/// exceptions to the `agent/scripts/` rule, so they never entered it. A cap lowered for files that never joined
-/// the class would be finished work wearing a budget.
-///
-/// **IT WENT UP BY ONE ON 2026-10-08, AND THE GATE IS WHAT SAID SO — which is the only way this number is allowed
-/// to move in that direction.** Porting the console's device registry added `gateway/test/devices-cutover.test.mjs`
-/// (131 lines): the test that pins WHICH half serves `/api/devices*` in both configurations, written because the
-/// first version of that predicate would have kept the public `POST /api/devices/self-register` on the TypeScript
-/// path forever — the bug the test exists to catch. It sits in `gateway/test/`, a LOGIC directory, because that
-/// directory's files only leave when the TypeScript they exercise does. So the count went 151 -> 152, the cap
-/// followed it in the same commit, and the alternative — folding the file into `devices.test.mjs` to keep the
-/// number at 151 — was rejected: a ratchet that is satisfied by moving a file is a ratchet that measures nothing.
-/// **THE RULE, stated so the next raise is judged rather than felt: silent growth is refused, and a raise is
-/// allowed only in a commit that NAMES the file and the reason** — the same rule `production_host.rs` follows for
-/// its own list.
-///
-/// **THEN IT WENT UP BY ONE AGAIN ON 2026-10-09, IN A BRANCH THAT HAD NOT SEEN THE AUDIT ABOVE — and the merge is
-/// where the two readings are reconciled, which is the honest way for two counts to meet.** Porting the console
-/// worker's identity surface (landing 5 slice 2: `plugins/auth.ts`'s session and credential routes, `access.ts`,
-/// `store/users.ts`'s user half) added `gateway/test/auth-cutover.test.mjs` — the test that pins WHICH half serves
-/// `/api/auth/*` and the ported `/api/me*` routes in both configurations, and that pins the four routes this slice
-/// does NOT port to the TypeScript path. It exists because the same slice DELETED a routing condition
-/// (`devicesRouteNeedsSession`, the carve-out the Access arm's absence had forced): a cutover whose boundary
-/// shrinks needs the new boundary measured, or the deletion is a claim rather than a measurement. Its branch read
-/// the base as 152 and raised the cap to 153; the audit above then moved six files OUT of the class, so the base
-/// is 146 and this file is the one addition:
-///
-///     146  (the audit's count, measured on the merged tree)
-///     + 1  gateway/test/auth-cutover.test.mjs
-///     = 147
-///
-/// Folding the file into `devices-cutover.test.mjs` was rejected for the reason the round before it gave: a test
-/// file named for one family is not where the next reader looks for the other's boundary.
-/// **AND IT FELL BY TEN ON 2026-10-09, WHICH IS THE DIRECTION THIS NUMBER IS SUPPOSED TO MOVE.** The index
-/// worker's JavaScript (`index/src/index.js`, `page.js` and `index/test/`) was counted as LOGIC on the
-/// assumption that its cutover was simply unharvested — and trying to DELETE it is what found out otherwise:
-/// `index/worker/verify.mjs` drives `src/index.js` as published, with stub bindings, and diffs status, sorted
-/// headers and body bytes against the Rust (it is the differential, so deleting it deletes the proof);
-/// `agent/scripts/landing-design-sweep.mjs` LIVE-IMPORTS `PAGE` from `page.js`; and `index/landing/verify.mjs`
-/// reads `page.js` out of a pinned commit as the reference the landing is measured against. Those files exist to
-/// be COMPARED WITH, which is the boundary this manifest already gives `agent/summrise-cli/parity/` and the
-/// sweeps' parity instrument. The manifest carries each dependency beside the rule.
-/// shrinks needs the new boundary measured, or the deletion is a claim rather than a measurement. It sits in
-/// `gateway/test/`, a LOGIC directory, because that directory's files only leave when the TypeScript they
-/// exercise does. So the count went 152 -> 153, the cap followed it in the same commit, and the alternative —
-/// folding the file into `devices-cutover.test.mjs` — was rejected for the reason the round before it gave: a
-/// test file named for one family is not where the next reader looks for the other's boundary.
-/// **THE COUNT DID NOT MOVE ON 2026-10-09, AND THE TWO MOVEMENTS INSIDE IT ARE NAMED SO THAT "UNCHANGED" IS NOT
-/// MISTAKEN FOR "NOTHING HAPPENED".** Porting the console worker's MCP surface (landing 5 slice 3) took
-/// `gateway/src/mcp-tools.ts` OUT of this class — it is the MCP tool table, its single source is
-/// `gateway/wasm/src/mcp_tools.rs`, and it is now EMITTED from that table with a byte-for-byte freshness check
-/// in `cargo test` (the manifest's `GENERATED` rule names the producer). The same slice ADDED
-/// `gateway/test/mcp-cutover.test.mjs` (+1), which pins WHICH half serves `/mcp` in both configurations and
-/// pins the one route this slice deliberately does NOT port (`GET /api/plugins/status`, whose `routes` field is
-/// the TypeScript plugin registry's own dispatch counters). −1 +1 = 0, so the cap stays where it is: a ratchet
-/// that moved for a file that merely changed class would be measuring the manifest rather than the work.
-/// **It went 152 -> 146 when the six-file sweep audit landed, and 146 -> 144 in landing 6** — the two
-/// files that left are `agent/summrise-desktop-electron/src/url-policy.ts` and its suite
-/// `agent/summrise-desktop-electron/test/url-policy.test.mjs`: the shell's URL/origin/certificate policy is
-/// `agent/summrise-url-policy` now, a Rust crate compiled to wasm and required by the shell's main process,
-/// and its 11 cases were ported into that crate's `src/tests.rs` case for case. NOTHING ELSE MOVED: the two
-/// wasm-pack products the landing ADDED (`src/summrise_url_policy.js` and its `.d.ts`) are GENERATED rules
-/// with the crate named as their producer, and the Node suite that loads the committed artifact in CI's
-/// place (`test/url-policy-wasm.test.mjs`) is a BOUNDARY exception, because it executes an artifact and
-/// decides nothing — the same reading that made `gateway/wasm/verify.mjs` a boundary. So the number fell by
-/// exactly the two files that left the class, which is the only way this constant is allowed to move down.
-
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.
 const MIN_FILES: usize = 500;
@@ -396,11 +322,94 @@ fn the_most_specific_rule_wins_regardless_of_order() {
     );
 }
 
-/// **AND THE MERGE OF THE MCP SLICE CHANGES IT BY ZERO, WHICH ITS OWN REPORT SAYS AND THE GATE CONFIRMS.**
-/// `gateway/src/mcp-tools.ts` leaves this class — it becomes GENERATED, emitted from
-/// `gateway/wasm/src/mcp_tools.rs` and checked byte for byte by a cargo test — and
-/// `gateway/test/mcp-cutover.test.mjs` enters it, because the TypeScript plugin is still the ROLLBACK and a
-/// cutover whose boundary moves needs the new boundary measured. One out, one in: the cap is whatever the
-/// landings it merges ON set, and this commit is where that is measured rather than assumed.
-
-const MAX_LOGIC: usize = 129;
+/// **THE RATCHET, AND THE HISTORY OF THE NUMBER.** The count of `LOGIC` files today; it may only fall, and when it
+/// reaches 0 the criterion is met — which is the day `assert_eq!(logic.len(), MAX_LOGIC)` stops being a cap and
+/// starts being the sentence the migration was always meant to say. A cap left high is finished work wearing a
+/// budget, so every movement below is the number THE GATE measured on the merged tree, in the commit that caused
+/// it, and never a number a branch carried in its pocket.
+///
+/// THE MOVEMENTS ON 2026-10-09, in order, because two of them were measured on branches that had not seen the
+/// others — and that is exactly the case where a number has to be re-derived rather than inherited:
+///
+///     the six-file sweep audit      152 -> 146   six sweep payload files became BOUNDARY
+///     landing 5 slice 2 (identity)  146 -> 147   + gateway/test/auth-cutover.test.mjs
+///     landing 5 slice 3 (MCP)       147 -> 147   mcp-tools.ts became GENERATED (−1) and
+///                                                 mcp-cutover.test.mjs entered (+1): a net zero
+///     landing 6 (electron)          ->   145     − url-policy.ts and its suite, which became the
+///                                                 summrise-url-policy crate's own tests
+///     the boot check is a gate      ->   144     harness-boot-check.mjs became a cargo gate
+///     the workspaces check          ->   143     verify-workspaces-page.mjs's judgement, and its
+///                                                 hand-kept list DELETED in favour of deriving it
+///     the notes are the judge's     ->   142     ackNotes left design-sweep.mjs, which is a driver now
+///     the gates' six ports          ->   142     unchanged: the .mjs stays beside its Rust for the
+///                                                 differential, so the class does not move yet
+///     the relay is cut over         ->   110     the biggest single drop, and the only one whose
+///                                                 evidence is a PRODUCTION change: see below
+///     the live probe's rule         ->   109     `live-panel-probe.mjs` had NO RULE, so the
+///                                                 catch-all made it LOGIC: a manifest gap, not a port
+///     the orphaned helper           ->   108     `scripts/test/lib/decomment.mjs` DELETED: its rule
+///                                                 has one definition now, and it is in Rust
+///     the fixture reader            ->   107     `scripts/test/lib/emitted-pieces.mjs` is what two
+///                                                 live bash gates import, so it is BOUNDARY
+///
+/// **AND TWO MORE MOVED FOR A THIRD REASON: ONE WAS ALREADY GONE IN EVERY SENSE BUT THE FILE.** The rule
+/// `scripts/test/lib/decomment.mjs` defines — a comment is not a producer, nor a derivation — has exactly one
+/// definition in Rust (`agent/tests/common/mod.rs`), whose header says it took the rule FROM that file, and
+/// nothing imported the `.mjs` any more. Measured the way this repository requires before calling something
+/// unused: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line, a
+/// comment in its sibling naming it. So it is DELETED rather than reclassified — a file whose rule moved and
+/// whose importers moved with it is not a boundary, it is a leftover wearing one. Its SIBLING stayed for the
+/// opposite reason and got a rule: `emitted-pieces.mjs` is imported by two live bash gates
+/// (`panel-design-sweep.bash:92`, `sweep-judges.bash:134`), so it is their fixture reader — the same reading
+/// the sweeps' in-page probes get.
+///
+/// **AND ONE FILE MOVED FOR A DIFFERENT REASON ENTIRELY: IT HAD NO RULE.** `agent/scripts/live-panel-probe.mjs`
+/// fell through to the catch-all `LOGIC | agent/scripts/` because nobody had written its rule — while `AGENTS.md`
+/// already carried the carve-out in its own table ("the device calls it through `browser_run_script`, which takes
+/// a JS file, and the measurement runs in the DOM") and its exact sibling, `panel-render-audit.mjs`, was already
+/// BOUNDARY two rules above. A catch-all does not classify what it swallows; it hides it. The rule now names what
+/// the file is — an EMITTER whose product is a program a browser runs — and says the thing that matters most about
+/// it: **its verdict is not enforced by any job**, because it runs on a device and its numbers are read by a
+/// person. What it measures that no harness can is the LIVE panel's geometry (round 167: 1488 root nodes and 14
+/// live sessions against the harness's 366 and three), which is why it is kept rather than deleted.
+///
+/// **THE RELAY'S TWENTY FILES DID NOT MOVE BECAUSE THE PORT FINISHED.** THEY MOVED BECAUSE THE CUTOVER
+/// HAPPENED** — and the difference matters, because "the Rust exists" was already true a week earlier while
+/// the JavaScript was still the thing answering. On 2026-10-09 nginx's `/api/` was pointed at the Rust relay
+/// on `127.0.0.1:8082` and the cutover was PROVED by stopping the Node unit: with only the Rust one listening,
+/// the public endpoint still answered **401** to an unauthenticated `POST /api/proxy`. From that moment the
+/// JavaScript decides nothing the product depends on, and the three roles it DOES still hold are all boundary
+/// roles, each named in the manifest: `ci.yml` calls its suite "the ORACLE the committed fixture was generated
+/// from"; `proxy_timeout_parity.rs`, `proxy_cors_parity.rs` and `relay/tests/two_relays_agree.rs` read its
+/// SOURCE as their text oracle; and `relay/differential.mjs` needs both implementations present to compare
+/// their answers byte for byte (14/14, 0 unexplained). The Node bundle also stays deployed as the one-line
+/// rollback. Deleting these files would delete the proof and the fallback — the migration's own rule is that
+/// an instrument which exists to be compared WITH is a boundary, which is what `index/src/index.js`,
+/// `gateway/wasm/verify.mjs` and `agent/summrise-cli/parity/` already are.
+///
+/// **WHY THE LAST ROW IS NOT A SLICE'S OWN NUMBER.** Each branch above measured its movement against the tree it
+/// knew. The identity branch's base read 152 and it raised ITS cap to 153; the audit had already moved six files
+/// out, so its real base was 146 and its net was +1. The merger's job is not to pick a side but to run the gate on
+/// the merged tree and lower the constant to what it prints — which is what happened, three times, and the drop is
+/// bigger than the gap because the sweeps' audits and the six reclassifications landed between the branches.
+///
+/// **THE RULE, STATED SO THE NEXT RAISE IS JUDGED RATHER THAN FELT:** silent growth is refused, and a raise is
+/// allowed only in a commit that NAMES the file and the reason — the same rule `production_host.rs` follows for
+/// its own list. And a cap may only come DOWN in a commit that also says which file left, because a number that
+/// falls without its reason is a number that cannot be audited.
+///
+/// AND ONE MOVEMENT IS DELIBERATELY ZERO NAMED, SO THAT "UNCHANGED" IS NOT MISTAKEN FOR "NOTHING HAPPENED":
+/// the MCP slice moved `gateway/src/mcp-tools.ts` OUT of this class — its single source is
+/// `gateway/wasm/src/mcp_tools.rs`, and the TypeScript copy is now its EMISSION, checked byte for byte by a
+/// cargo test, GENERATED with the crate named as producer — and added `gateway/test/mcp-cutover.test.mjs`, which
+/// pins which half serves `/mcp` in both configurations and pins the one route the slice does not port
+/// (`GET /api/plugins/status`, whose `routes` field is the TypeScript plugin registry's own dispatch counters).
+/// A ratchet that moves for a file that merely changed class is measuring the manifest rather than the work.
+///
+/// AND THE SOUND OF A DOWNWARD STEP IS NAMED: the two files landing 6 removed did not go away because they were
+/// inconvenient. `agent/summrise-desktop-electron/src/url-policy.ts` and its suite became
+/// `agent/summrise-url-policy`'s own tests, case for case, in a Rust crate compiled to wasm — the shell's
+/// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
+/// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
+/// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
+const MAX_LOGIC: usize = 107;
