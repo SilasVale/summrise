@@ -75,7 +75,7 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// **THE RULE, stated so the next raise is judged rather than felt: silent growth is refused, and a raise is
 /// allowed only in a commit that NAMES the file and the reason** — the same rule `production_host.rs` follows for
 /// its own list.
-const MAX_LOGIC: usize = 152;
+const MAX_LOGIC: usize = 146;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.
