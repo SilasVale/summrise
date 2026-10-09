@@ -24,9 +24,14 @@ import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
 
-// url-policy.ts (shipped alongside, staged by summrise update): pure
-// origin/URL predicates, unit-tested in test/url-policy.test.mjs.
-import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort, setDshPort, addDshPort, dshBase, isDshUrl } from "./url-policy";
+// THE URL/CERTIFICATE POLICY IS RUST (landing 6). `agent/summrise-url-policy` is built to wasm with
+// `wasm-pack --target nodejs` and required here; the glue compiles the module SYNCHRONOUSLY, so every
+// predicate below is the same decision `cargo test -p summrise-url-policy` pins (11 cases ported from
+// the deleted test/url-policy.test.mjs). THIS FILE IS THE HOST AND IT STAYS TYPESCRIPT: the windows, the
+// IPC door, the :9333 CDP self-check and the tray are platform calls, and only the decisions moved.
+// The glue and the module are committed and shipped — agent/summrise-agent-npm/required-in-tgz.txt
+// names both, and `summrise update` stages both.
+import { isBaseOrigin, frameUrlOk, isDesktopSpaUrl, controlOriginOk, sanitizeBrowserUrl, certBypassAllowed, agentBase, setAgentPort, parseAgentPort, setDshPort, addDshPort, dshBase, isDshUrl } from "./summrise_url_policy";
 // IPC audit #3: /api/status is TOKEN-GATED (same fact the watchdog fix cites);
 // credential-less fetches got 401 -> version title + tray vitals were DEAD on
 // every configured device. The shell runs as the interactive admin, and the
@@ -64,7 +69,8 @@ function authHeaders(): Record<string, string> {
 // first, then the agent's config.yaml server.port next to the install dir
 // (same file agentToken() reads — sync fs, same best-effort discipline),
 // else the canonical 18080. Resolved once at boot before any probe/window;
-// url-policy predicates follow via setAgentPort.
+// the Rust policy's predicates follow via setAgentPort (which ignores an
+// invalid port rather than resetting to the default).
 function resolveAgentPort(): number {
   const env = Number(process.env.SUMMRISE_AGENT_PORT);
   if (Number.isInteger(env) && env > 0 && env < 65536) return env;
@@ -336,9 +342,9 @@ function buildMenu(): Menu {
  *  collapse to "about:blank", because a loadable file:// would hand the AI a
  *  local-file read primitive via the shared CDP endpoint (:9333).
  *
- *  The DECISION itself is url-policy.sanitizeBrowserUrl() — pure, and
- *  unit-tested in test/url-policy.test.mjs, since main.ts imports electron and
- *  no node suite can import it. This function is that predicate's ONE call site
+ *  The DECISION itself is the Rust policy's sanitizeBrowserUrl() — pure, and
+ *  unit-tested in agent/summrise-url-policy (src/tests.rs) because main.ts
+ *  imports electron and no node suite can import it. This function is that predicate's ONE call site
  *  in the shell (test/ipc-door.test.mjs pins the count), so a fourth load site
  *  cannot quietly reach for a weaker policy of its own.
  *
@@ -919,11 +925,11 @@ const httpServer = http.createServer((req, res) => {
   // to its configured gateway origin, never to 127.0.0.1:9444), so the
   // veto stays as-is; an extension caller needs an explicit entry here.
   {
-    // THE DECISION LIVES IN url-policy.ts, beside its siblings. This was an
-    // inline regex with NO `$` ANCHOR, so `http://127.0.0.1.evil.com` passed —
-    // the same class as the `startsWith(BASE)` bug that module exists to kill,
-    // whose own test pins the lookalike for the IPC twin. Delegating also means
-    // the predicate finally has a test, because the shell's suite never ran.
+    // THE DECISION LIVES IN RUST (agent/summrise-url-policy), beside its
+    // siblings. This was an inline regex with NO `$` ANCHOR, so
+    // `http://127.0.0.1.evil.com` passed — the same class as the
+    // `startsWith(BASE)` bug that crate exists to kill, whose own case pins the
+    // lookalike for the IPC twin.
     if (!controlOriginOk(req.headers.origin)) {
       return send({ ok: false, error: "forbidden origin" }, 403);
     }
@@ -1063,9 +1069,9 @@ if (gotTheLock) {
     let snappingBack = false;
     win.webContents.on("did-navigate", (_e, url) => {
       if (snappingBack) return;
-      // Parsed-origin + parsed-pathname allow-list (url-policy): the string
-      // startsWith was the exact class IPC audit #1 flagged. The data: wait
-      // page and about:blank stay allowed at the caller.
+      // Parsed-origin + parsed-pathname allow-list (the Rust policy): the
+      // string startsWith was the exact class IPC audit #1 flagged. The data:
+      // wait page and about:blank stay allowed at the caller.
       if (isDesktopSpaUrl(url) || url.startsWith("data:") || url === "about:blank") return;
       if (url === "about:blank") return;
       console.log(`[summrise] main-window tripwire: blocked stray navigation to ${url.slice(0, 80)}`);

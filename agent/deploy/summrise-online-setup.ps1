@@ -103,8 +103,9 @@ function Download-File([string]$url, [string]$dest, [string]$what) {
 }
 
 # The agent's HTTP port out of its etc\config.yaml, by the SAME rule as the other two
-# readers of that one setting — summrise-agent-npm/src/summrise.ts and
-# summrise-desktop-electron/src/url-policy.ts, both named parseAgentPort: the FIRST
+# readers of that one setting — summrise-agent-npm/src/summrise.ts and the Electron shell's
+# policy (agent/summrise-url-policy, Rust since landing 6; it was
+# summrise-desktop-electron/src/url-policy.ts), both named parseAgentPort: the FIRST
 # `port:` inside the TOP-LEVEL `server:` section, and NOTHING when the section or the
 # key is absent or the value is not a port (both callers then keep their 18080 default,
 # which is what the caller below keeps too — no new default is invented here).

@@ -13,12 +13,20 @@
 #
 # FORMAT: one path relative to the package root per line; `#` comments and blank lines are ignored.
 # Every entry is required — absence fails the release in both builders.
+#
+# AND TWO ENTRIES ARE A PAIR OF BINARY ARTIFACTS RATHER THAN SOURCES (landing 6): the desktop shell's
+# URL/certificate policy is a Rust crate built to wasm, and `main.js` requires its glue, which requires
+# the module. `src/url-policy.js` left this list when the TypeScript it named was deleted; the two
+# `summrise_url_policy*` entries are what the swap stages in its place (summrise.ts's file list names
+# the same four files), because a device that received the new main.js and not the module would fail to
+# start the shell at all.
 summrise-agent.exe
 summrise-launch.exe
 README.md
 bin/summrise.js
 summrise-desktop-electron/src/main.js
 summrise-desktop-electron/src/preload.js
-summrise-desktop-electron/src/url-policy.js
+summrise-desktop-electron/src/summrise_url_policy.js
+summrise-desktop-electron/src/summrise_url_policy_bg.wasm
 summrise-desktop-electron/icon.png
 summrise-desktop-electron/icon.ico

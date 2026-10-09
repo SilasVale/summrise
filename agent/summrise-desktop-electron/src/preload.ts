@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld("summriseEmbedded", {
 // THE DSH VIEW (the shell's second embedded view). The harness's own UI runs on THIS
 // machine's loopback, so the panel never learns its port: `open()` asks the MAIN process to
 // navigate the view to its configured base, and the door that decides what that view may load
-// (url-policy.isDshUrl) has exactly one origin to check. Same placeholder-bounds handshake as
+// (the Rust policy's isDshUrl) checks a SET of loopback doors — one per host's forward. Same placeholder-bounds handshake as
 // the browser view above, because it is the same problem: a native view overlays an empty slot
 // the SPA positions.
 contextBridge.exposeInMainWorld("summriseDsh", {

@@ -57,9 +57,14 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
-// url-policy.ts (shipped alongside, staged by summrise update): pure
-// origin/URL predicates, unit-tested in test/url-policy.test.mjs.
-const url_policy_1 = require("./url-policy");
+// THE URL/CERTIFICATE POLICY IS RUST (landing 6). `agent/summrise-url-policy` is built to wasm with
+// `wasm-pack --target nodejs` and required here; the glue compiles the module SYNCHRONOUSLY, so every
+// predicate below is the same decision `cargo test -p summrise-url-policy` pins (11 cases ported from
+// the deleted test/url-policy.test.mjs). THIS FILE IS THE HOST AND IT STAYS TYPESCRIPT: the windows, the
+// IPC door, the :9333 CDP self-check and the tray are platform calls, and only the decisions moved.
+// The glue and the module are committed and shipped — agent/summrise-agent-npm/required-in-tgz.txt
+// names both, and `summrise update` stages both.
+const summrise_url_policy_1 = require("./summrise_url_policy");
 // IPC audit #3: /api/status is TOKEN-GATED (same fact the watchdog fix cites);
 // credential-less fetches got 401 -> version title + tray vitals were DEAD on
 // every configured device. The shell runs as the interactive admin, and the
@@ -100,14 +105,15 @@ function authHeaders() {
 // first, then the agent's config.yaml server.port next to the install dir
 // (same file agentToken() reads — sync fs, same best-effort discipline),
 // else the canonical 18080. Resolved once at boot before any probe/window;
-// url-policy predicates follow via setAgentPort.
+// the Rust policy's predicates follow via setAgentPort (which ignores an
+// invalid port rather than resetting to the default).
 function resolveAgentPort() {
     const env = Number(process.env.SUMMRISE_AGENT_PORT);
     if (Number.isInteger(env) && env > 0 && env < 65536)
         return env;
     try {
         const raw = fs.readFileSync(path.join(INSTALL_ROOT, "etc", "config.yaml"), "utf8");
-        const port = (0, url_policy_1.parseAgentPort)(raw);
+        const port = (0, summrise_url_policy_1.parseAgentPort)(raw);
         if (port)
             return port;
     }
@@ -170,7 +176,7 @@ function probeImage(p) {
 // IPC audit #2: preload runs in EVERY frame; will-navigate never gated
 // iframes. Handlers must reject anything not sourced from the pinned panel.
 function frameOk(e) {
-    return (0, url_policy_1.frameUrlOk)(e.senderFrame?.url || "");
+    return (0, summrise_url_policy_1.frameUrlOk)(e.senderFrame?.url || "");
 }
 // THE ONE REFUSAL a forbidden frame gets. It used to have TWO shapes — seven
 // handlers answered this one and the rest answered a bare `{ ok: false }`,
@@ -231,7 +237,7 @@ electron_1.app.commandLine.appendSwitch("remote-debugging-port", String(CDP_PORT
 // errors ONLY on private-network hosts — the public internet keeps full
 // validation. Registered before ready so no navigation can race it.
 electron_1.app.on("certificate-error", (event, _webContents, url, _error, _certificate, callback) => {
-    if ((0, url_policy_1.certBypassAllowed)(String(url || ""))) {
+    if ((0, summrise_url_policy_1.certBypassAllowed)(String(url || ""))) {
         event.preventDefault();
         callback(true);
         return;
@@ -383,9 +389,9 @@ function buildMenu() {
  *  collapse to "about:blank", because a loadable file:// would hand the AI a
  *  local-file read primitive via the shared CDP endpoint (:9333).
  *
- *  The DECISION itself is url-policy.sanitizeBrowserUrl() — pure, and
- *  unit-tested in test/url-policy.test.mjs, since main.ts imports electron and
- *  no node suite can import it. This function is that predicate's ONE call site
+ *  The DECISION itself is the Rust policy's sanitizeBrowserUrl() — pure, and
+ *  unit-tested in agent/summrise-url-policy (src/tests.rs) because main.ts
+ *  imports electron and no node suite can import it. This function is that predicate's ONE call site
  *  in the shell (test/ipc-door.test.mjs pins the count), so a fourth load site
  *  cannot quietly reach for a weaker policy of its own.
  *
@@ -393,7 +399,7 @@ function buildMenu() {
  *  window, embeddedNavigate() loads it, and the embedded view's window-open
  *  handler REFUSES it (an external link must not blank the page being read). */
 function loadTarget(raw) {
-    return (0, url_policy_1.sanitizeBrowserUrl)(raw);
+    return (0, summrise_url_policy_1.sanitizeBrowserUrl)(raw);
 }
 /** Open a browser-session window on a decided load target (loadTarget() is the
  *  ONE load door — the scheme policy lives there). */
@@ -714,7 +720,7 @@ function resolveDshPort() {
 }
 /** The ONE load door for this view: its own origin, or nothing. */
 function dshTarget(raw) {
-    return (0, url_policy_1.isDshUrl)(raw) ? new URL(raw).toString() : "about:blank";
+    return (0, summrise_url_policy_1.isDshUrl)(raw) ? new URL(raw).toString() : "about:blank";
 }
 // ── ONE DOOR PER HOST, TAKEN FROM THE AGENT'S OWN TABLE ───────────────────────────────────────────────
 // The harness page shows the SELECTED host's own harness, and each host is reached through its own
@@ -737,7 +743,7 @@ function loadHarnessDoors() {
         for (const row of rows) {
             const port = Number(row?.local_port);
             if (Number.isInteger(port) && port > 0 && port < 65536)
-                (0, url_policy_1.addDshPort)(port);
+                (0, summrise_url_policy_1.addDshPort)(port);
         }
     })
         .catch(() => {
@@ -795,7 +801,7 @@ function dshNavigate(url) {
 }
 /** Open (or re-focus) the DSH at its configured address. Idempotent. */
 function dshOpen() {
-    return dshNavigate((0, url_policy_1.dshBase)() + "/");
+    return dshNavigate((0, summrise_url_policy_1.dshBase)() + "/");
 }
 /** Place the view over the SPA's slot. Empty bounds hide it (the same contract as the browser). */
 function dshPlace(bounds) {
@@ -842,7 +848,7 @@ function dshRecover() {
     const view = dshViewEnsure();
     if (!view || view.webContents.isDestroyed())
         return { ok: false };
-    view.webContents.loadURL((0, url_policy_1.dshBase)() + "/").catch(() => { });
+    view.webContents.loadURL((0, summrise_url_policy_1.dshBase)() + "/").catch(() => { });
     if (dshVisible && win && dshBounds) {
         view.setBounds(dshBounds);
         view.setVisible(true);
@@ -976,7 +982,7 @@ function agentResponds(timeoutMs = 2000) {
             done = true;
             res(v);
         } };
-        const req = http.get(`${(0, url_policy_1.agentBase)()}/api/status`, { timeout: timeoutMs }, (r) => {
+        const req = http.get(`${(0, summrise_url_policy_1.agentBase)()}/api/status`, { timeout: timeoutMs }, (r) => {
             r.resume();
             // ANY HTTP response = the accept loop is alive (this is the exact thing
             // the TCP probe could not see). Do NOT require 200: /api/status is
@@ -1034,12 +1040,12 @@ const httpServer = http.createServer((req, res) => {
     // to its configured gateway origin, never to 127.0.0.1:9444), so the
     // veto stays as-is; an extension caller needs an explicit entry here.
     {
-        // THE DECISION LIVES IN url-policy.ts, beside its siblings. This was an
-        // inline regex with NO `$` ANCHOR, so `http://127.0.0.1.evil.com` passed —
-        // the same class as the `startsWith(BASE)` bug that module exists to kill,
-        // whose own test pins the lookalike for the IPC twin. Delegating also means
-        // the predicate finally has a test, because the shell's suite never ran.
-        if (!(0, url_policy_1.controlOriginOk)(req.headers.origin)) {
+        // THE DECISION LIVES IN RUST (agent/summrise-url-policy), beside its
+        // siblings. This was an inline regex with NO `$` ANCHOR, so
+        // `http://127.0.0.1.evil.com` passed — the same class as the
+        // `startsWith(BASE)` bug that crate exists to kill, whose own case pins the
+        // lookalike for the IPC twin.
+        if (!(0, summrise_url_policy_1.controlOriginOk)(req.headers.origin)) {
             return send({ ok: false, error: "forbidden origin" }, 403);
         }
     }
@@ -1106,10 +1112,10 @@ if (gotTheLock) {
     electron_1.app.whenReady().then(async () => {
         // Custom-port installs: pin every origin predicate + probe/load URL to
         // the agent's actual bind port BEFORE any window or probe exists.
-        (0, url_policy_1.setAgentPort)(resolveAgentPort());
+        (0, summrise_url_policy_1.setAgentPort)(resolveAgentPort());
         // The DSH view's door, pinned the same way and for the same reason: a predicate that ran
         // before this line would check a port nothing is listening on.
-        (0, url_policy_1.setDshPort)(resolveDshPort());
+        (0, summrise_url_policy_1.setDshPort)(resolveDshPort());
         // Every host's forward is a door, admitted from the agent's table rather than from configuration here.
         loadHarnessDoors();
         // review #7: with no handler Electron AUTO-GRANTS every permission
@@ -1173,7 +1179,7 @@ if (gotTheLock) {
             // audit #1: PARSED-origin veto. The data: carve-out was unnecessary
             // (programmatic loadURL — including the wait page — never fires
             // will-navigate) and only widened the hole.
-            if (!(0, url_policy_1.isBaseOrigin)(url))
+            if (!(0, summrise_url_policy_1.isBaseOrigin)(url))
                 e.preventDefault();
         });
         // round-258 (device-caught): CDP-driven navigation (an attached
@@ -1187,16 +1193,16 @@ if (gotTheLock) {
         win.webContents.on("did-navigate", (_e, url) => {
             if (snappingBack)
                 return;
-            // Parsed-origin + parsed-pathname allow-list (url-policy): the string
-            // startsWith was the exact class IPC audit #1 flagged. The data: wait
-            // page and about:blank stay allowed at the caller.
-            if ((0, url_policy_1.isDesktopSpaUrl)(url) || url.startsWith("data:") || url === "about:blank")
+            // Parsed-origin + parsed-pathname allow-list (the Rust policy): the
+            // string startsWith was the exact class IPC audit #1 flagged. The data:
+            // wait page and about:blank stay allowed at the caller.
+            if ((0, summrise_url_policy_1.isDesktopSpaUrl)(url) || url.startsWith("data:") || url === "about:blank")
                 return;
             if (url === "about:blank")
                 return;
             console.log(`[summrise] main-window tripwire: blocked stray navigation to ${url.slice(0, 80)}`);
             snappingBack = true;
-            win?.loadURL(`${(0, url_policy_1.agentBase)()}/desktop/`).catch(() => { }).finally(() => {
+            win?.loadURL(`${(0, summrise_url_policy_1.agentBase)()}/desktop/`).catch(() => { }).finally(() => {
                 setTimeout(() => { snappingBack = false; }, 2000);
             });
         });
@@ -1281,12 +1287,12 @@ if (gotTheLock) {
       </style>
       <div>
         <h2>The Summrise Agent isn&#39;t answering</h2>
-        <p id="status">no reply from ${(0, url_policy_1.agentBase)().replace("http://", "")}</p>
+        <p id="status">no reply from ${(0, summrise_url_policy_1.agentBase)().replace("http://", "")}</p>
         <p id="action" hidden></p>
         <button id="start">Start Agent</button>
       </div>
       <script>
-        var BASE = ${JSON.stringify((0, url_policy_1.agentBase)().replace("http://", ""))};
+        var BASE = ${JSON.stringify((0, summrise_url_policy_1.agentBase)().replace("http://", ""))};
         var CTRL = "http://127.0.0.1:9444";
         var btn = document.getElementById("start");
         var st = document.getElementById("status");
@@ -1374,7 +1380,7 @@ if (gotTheLock) {
             if (await agentReady()) {
                 agentMissCount = 0;
                 resetRetry();
-                win?.loadURL(`${(0, url_policy_1.agentBase)()}/desktop/`).catch(() => { });
+                win?.loadURL(`${(0, summrise_url_policy_1.agentBase)()}/desktop/`).catch(() => { });
             }
             else {
                 // THE MISS IS COUNTED BEFORE THE PAGE IS HANDED THE NUMBER, because this
@@ -1520,7 +1526,7 @@ if (gotTheLock) {
                 try {
                     const ctrl = new AbortController();
                     const t = setTimeout(() => ctrl.abort(), 2500);
-                    const r = await fetch(`${(0, url_policy_1.agentBase)()}/api/status`, { signal: ctrl.signal, headers: authHeaders() });
+                    const r = await fetch(`${(0, summrise_url_policy_1.agentBase)()}/api/status`, { signal: ctrl.signal, headers: authHeaders() });
                     clearTimeout(t);
                     if (r.ok) {
                         const j = await r.json();
@@ -1571,7 +1577,7 @@ if (gotTheLock) {
             // SummriseAgent` after ~60 s of misses. One loop guard so repeated tray
             // polls cannot stack retries.
             if (!running && !agentWatchActive && win && !win.isDestroyed()
-                && (0, url_policy_1.isBaseOrigin)(win.webContents.getURL())) {
+                && (0, summrise_url_policy_1.isBaseOrigin)(win.webContents.getURL())) {
                 agentWatchActive = true;
                 void loadDesktop();
             }

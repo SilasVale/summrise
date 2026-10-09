@@ -40,7 +40,8 @@ GENERATED | agent/summrise-agent-npm/bin/ | tsc output of src/summrise.ts — th
 GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
-GENERATED | agent/summrise-desktop-electron/src/url-policy.js | tsc output of url-policy.ts | agent/summrise-desktop-electron/src/url-policy.ts
+GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.js | wasm-bindgen's glue for the shell's URL/cert policy | agent/summrise-url-policy
+GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.d.ts | wasm-bindgen's types for the shell's URL/cert policy | agent/summrise-url-policy
 GENERATED | index/spike-rust-landing/dist/ | wasm-pack output of the landing spike | index/spike-rust-landing
 
 # ── RENDERING: a browser view, and its own tests ─────────────────────────────────────────────────────────────
@@ -78,6 +79,13 @@ BOUNDARY | agent/scripts/lib/design-sweep.mjs | the shared collector and driver:
 BOUNDARY | agent/scripts/panel-design-sweep.mjs | the panel tool: argv dispatch, the in-page MOTION/TIMING probe SNIPPETS (strings a browser evaluates), the harness content stamp, and the emit through lib/sweep-bundle.mjs. It interprets no flag and decides no verdict
 BOUNDARY | agent/scripts/console-design-sweep.mjs | the console tool, the same shape: dispatch, `--passes` forwarded verbatim to the Rust plan, the entry stamp, the emit
 BOUNDARY | agent/scripts/landing-design-sweep.mjs | the landing tool: it RENDERS the surface under test (the fixture's URLs and page list) and emits it. Fixture data, not product behaviour
+# AND THE SAME SPECIES, ONE LANDING LATER (landing 6): the policy's CASES are Rust now (summrise-url-policy
+# src/tests.rs, 11 of them, ported case for case from the deleted test/url-policy.test.mjs), and what this
+# file does is LOAD the committed wasm artifact in Node and call it — the one thing the Rust cases cannot
+# do, because the shell's main process imports electron and no suite here can start it. It pins the
+# exported surface, the boundary coercions a wasm `&str` parameter gets wrong, and the refusal shape; a
+# harness that executes an artifact, exactly as gateway/wasm/verify.mjs is.
+BOUNDARY | agent/summrise-desktop-electron/test/url-policy-wasm.test.mjs | it requires the built glue and executes the committed .wasm in Node; it decides nothing (the cases are Rust)
 BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it runs `summrise-sweep-plan` and parses its stdout — one process call, no decision. The plan itself is Rust (agent/sweep-plan/)
 BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
@@ -102,7 +110,7 @@ LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side
 LOGIC | scripts/test/ | six gates that spawn a toolchain (landing 3)
 LOGIC | agent/summrise-agent-npm/src/ | the CLI's decisions (landing 4)
 LOGIC | agent/summrise-agent-npm/test/ | the CLI's suite, ported with it (landing 4)
-LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's decisions — url-policy, ports, auth, certs (landing 6)
+LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's remaining decisions — token/auth, the loopback control server, agent lifecycle, window policy. The URL/origin/cert policy LEFT this directory in landing 6 (agent/summrise-url-policy, wasm), so what is here is main.ts's host half and whatever main.ts still decides for itself
 LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with it (landing 6)
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)

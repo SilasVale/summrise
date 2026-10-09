@@ -882,10 +882,14 @@ fn every_exit_closes_the_install_log() {
 
 /// ONE SETTING, THREE READERS, ONE RULE — and the installer was the one that did not follow it.
 ///
-/// The agent's HTTP port is read in three places: `summrise-agent-npm/src/summrise.ts` and
-/// `summrise-desktop-electron/src/url-policy.ts` (both `parseAgentPort`, both "the first `port:`
-/// inside the top-level `server:` section; nothing when absent/invalid") and this installer, whose
-/// receipt writes the URL the finish page offers. The installer took the first `port:` ANYWHERE:
+/// The agent's HTTP port is read in three places: `summrise-agent-npm/src/summrise.ts` and the
+/// Electron shell's policy (both `parseAgentPort`, both "the first `port:` inside the top-level
+/// `server:` section; nothing when absent/invalid") and this installer, whose receipt writes the URL
+/// the finish page offers. **THE SHELL'S READER IS RUST NOW** (landing 6): it was
+/// `summrise-desktop-electron/src/url-policy.ts` and it is `agent/summrise-url-policy/src/lib.rs`,
+/// whose `parse_agent_port` states the same rule — which is why clause 4 below reads THAT file, and
+/// reads the rule in it in ORDER rather than as a string that happens to be present. The installer
+/// took the first `port:` ANYWHERE:
 ///
 /// ```text
 /// Select-String -Path ... -Pattern "^\s*port:\s*(\d+)" | Select-Object -First 1
@@ -968,17 +972,44 @@ fn the_installer_scopes_the_port_to_the_server_section() {
 
     // 4. AND THE OTHER TWO READERS must still state the rule this one now follows; without this
     //    the pin measures agreement with a rule that may no longer exist on their side.
-    for sibling in [
-        "summrise-agent-npm/src/summrise.ts",
-        "summrise-desktop-electron/src/url-policy.ts",
-    ] {
-        let text = read(sibling);
-        assert!(
-            text.contains("parseAgentPort") && text.contains("^server\\s*:"),
-            "{sibling} is one of the three readers of this one setting and must still scope the \
-             parse to the top-level `server:` section"
-        );
-    }
+    //
+    //    THE SAME TWO READERS, ONE OF THEM IN ANOTHER LANGUAGE (landing 6): the Electron shell's
+    //    policy is `agent/summrise-url-policy`, a Rust crate, and its `parse_agent_port` states the
+    //    rule the TypeScript stated. So the clause is asserted the same way — on the source text —
+    //    but for the Rust it asserts the ORDER, exactly as clause 2 does for the installer: the
+    //    section anchor decides `in_server`, the guard skips every line before it, and only then is
+    //    the port pattern tried. A port pattern matched before the guard is the installer's old
+    //    whole-file scan wearing a function, in either language.
+    let npm_reader = read("summrise-agent-npm/src/summrise.ts");
+    assert!(
+        npm_reader.contains("parseAgentPort") && npm_reader.contains("^server\\s*:"),
+        "summrise-agent-npm/src/summrise.ts is one of the three readers of this one setting and \
+         must still scope the parse to the top-level `server:` section"
+    );
+    let wasm_reader = read("summrise-url-policy/src/lib.rs");
+    let pstart = wasm_reader
+        .find("pub fn parse_agent_port(")
+        .expect("the Electron reader's parse must stay a named function this pin can point at");
+    let pend = pstart
+        + wasm_reader[pstart..]
+            .find("\n}\n")
+            .expect("the function must still end with a closing brace at column 0")
+        + 3;
+    let pbody = &wasm_reader[pstart..pend];
+    let anchor = pbody
+        .find("in_server = server_line()")
+        .expect("the function must recognise the top-level `server:` line");
+    let guard = pbody
+        .find("if !in_server")
+        .expect("and must skip every line until it is inside that section");
+    let port = pbody
+        .find("port_line().captures(")
+        .expect("and must match `port:` only there");
+    assert!(
+        anchor < guard && guard < port,
+        "the Rust reader's scoping must be WIRED, not merely present: server-anchor={anchor}, \
+         section-guard={guard}, port-pattern={port} — expected anchor < guard < pattern"
+    );
 }
 
 /// THE BOM IS LOAD-BEARING, and nothing else in the suite can see it.
