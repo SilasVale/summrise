@@ -1042,6 +1042,11 @@ const RELAYTOK = "r".repeat(64);
 
 function tokenEnv(devices = []) {
   return makeBaseEnv({
+    // **NO `WASM_GATE` BINDING, THE SAME CONFIGURATION THIS FILE'S `makeEnv` DECLARES.** `POST|PUT /api/upload`
+    // is the Rust worker's since landing 5 slice 4, so the upload-proxy assertions below are about the
+    // TypeScript rollback — and this env is built here rather than through `makeEnv` because the upload section
+    // needs a different device list and key set.
+    wasmGate: false,
     // The hosts above are device hosts AND the install base, and both rules live in the env (round 120):
     // `DEVICE_HOST_SUFFIX` decides what a device hostname may be, `INDEX_WORKER_URL` where the install
     // manifest is read from — the two are configurable since rounds 87 and 93.

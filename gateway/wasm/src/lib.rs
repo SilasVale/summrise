@@ -365,6 +365,35 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     if v1::is_v1_route(&req.method(), url.path()) {
         return v1::handle(req, env).await;
     }
+    // **THE DEVICE REVERSE PROXY — the family that shares `/api/devices`' prefix and is NOT the registry.**
+    // Checked BEFORE the device family for the reason `plugins/devices.ts` registers its route first: it also
+    // authenticates with the paired plugin token, so it lives above the session gate, and a prefix rule for
+    // the family would otherwise swallow it. `device_proxy::in_family` is the route's OWN match function
+    // (`/^\/api\/devices\/[^/]+\/proxy/`), so a path it claims is a path it answers — and a path under the
+    // prefix whose shape the handler's anchored regex rejects gets the front door's 404, exactly as the
+    // TypeScript plugin dispatch answers `null` for it.
+    if device_proxy::in_family(&req.method(), url.path()) {
+        return match device_proxy::handle(req, &env).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            // The arms the source raises through: `decodeURIComponent` on a malformed tool name, an upstream
+            // URL the parser refuses, and a 101 without a WebSocket (the runtime's own RangeError). The
+            // shipping front door's catch answers every one of them the same way.
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
+    // **THE FILE RELAY'S UPLOAD LEG — `POST|PUT /api/upload`, the 100 MiB passthrough.** Not under
+    // `/api/devices` at all, which is why it is its own family rather than an arm of the registry: one path,
+    // two verbs, and a body this worker forwards as a stream (`upload.rs`).
+    if upload::in_family(&req.method(), url.path()) {
+        return match upload::handle(req, &env).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
     // **THE DEVICE FAMILY — the console's registry, the third route group.** `devices::in_family` is the SAME
     // predicate the TypeScript front door uses to decide what to hand over, so a path this worker is given is a
     // path it answers: the routes it serves, and the front door's own 404 for the shapes it does not.
@@ -417,6 +446,7 @@ pub mod body_scan;
 pub mod byok;
 pub mod cors;
 pub mod device;
+pub mod device_proxy;
 pub mod device_registry;
 pub mod device_store;
 pub mod devices;
@@ -439,8 +469,10 @@ pub mod store;
 pub mod user_store;
 pub mod stream;
 pub mod tokens;
+pub mod tool_policy;
 pub mod tooling;
 pub mod translate;
+pub mod upload;
 pub mod v1;
 pub mod vision;
 pub mod webcrypto;

@@ -59,6 +59,10 @@ const LOOPBACK = "http://localhost:8787";
 // (installer payloads are served from Workers Assets (/summrise)).
 function corsEnv(extra = {}) {
   return makeBaseEnv({
+    // **THE NO-BINDING CONFIGURATION, ON PURPOSE.** The device proxy is the Rust worker's since landing 5 slice
+    // 4, so a test that asserts what `plugins/device-proxy.ts` stamps is a test of the ROLLBACK path — the same
+    // knob `devices.test.mjs` and `proxy-auth.test.mjs` set for the same reason.
+    wasmGate: false,
     devices: [{ name: "d1", hostname: "d1.agent.summrise.test", token: "devtok" }],
     links: {},
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },

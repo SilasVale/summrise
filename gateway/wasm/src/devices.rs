@@ -135,15 +135,17 @@ pub fn decode_device_name(segment: &str) -> Option<String> {
 /// re-root the URL the device token is sent to.
 /// Does this request belong to the family at all? Used by the front door's cutover AND by `handle`, so a path
 /// that is handed over is a path that is served — the two cannot drift.
+///
+/// **THE WHOLE PREFIX IS THE FAMILY, EXCLUSION INCLUDED.** Until landing 5 slice 4 the shape
+/// `/api/devices/<name>/proxy…` was carved OUT here, because the reverse proxy was still TypeScript — and the
+/// carve-out had a cost that this slice measured: `/api/devices/d1/proxyfoo` (the handler's regex is
+/// `(.*)`, so this IS the proxy's path `foo`) did not match the carve-out's `nth(1) == "proxy"`, was claimed by
+/// this module, and got its 404 — where the shipping front door proxies it. The predicate is now exactly the
+/// source's (`path.startsWith("/api/devices")`), and the ORDER in `lib.rs` is what keeps the proxy out of this
+/// dispatcher: the proxy's own arm is checked first, exactly as `plugins/devices.ts` registers that route above
+/// the registry's.
 pub fn in_family(method: &Method, path: &str) -> bool {
-    if let Some(rest) = path.strip_prefix(DEVICE_BASE) {
-        // `/api/devices/<name>/proxy…` is `device-proxy.ts` — a different module, and the ONE shape of this
-        // prefix that stays on the TypeScript path.
-        if let Some(rest) = rest.strip_prefix('/') {
-            if rest.split('/').nth(1) == Some("proxy") {
-                return false;
-            }
-        }
+    if path.starts_with(DEVICE_BASE) {
         return true;
     }
     *method == Method::Post && (path == "/api/register" || path == "/api/install/tunnel-token")
@@ -877,7 +879,7 @@ mod tests {
     /// ported route is in the family, the reverse proxy is not, and a path nobody serves is still the family (so
     /// that the 404 comes from the implementation that owns the prefix).
     #[test]
-    fn the_family_and_its_one_exclusion() {
+    fn the_family_is_the_whole_prefix_and_the_three_public_routes() {
         for (method, path) in [
             (Method::Post, "/api/register"),
             (Method::Post, "/api/devices/self-register"),
@@ -900,8 +902,14 @@ mod tests {
                 "{method:?} {path} is in the family"
             );
         }
-        assert!(!in_family(&Method::Get, "/api/devices/d1/proxy/panel/"));
-        assert!(!in_family(&Method::Post, "/api/devices/d1/proxy/mcp"));
+        // **THE ONE EXCLUSION THIS TEST USED TO ASSERT IS GONE, AND THE ASSERTION MOVED WITH IT.** Until
+        // landing 5 slice 4 the proxy's paths were NOT in the family — the front door kept them on the
+        // TypeScript path — and the two `assert!(!in_family(…proxy…))` lines here were the proof. The proxy is
+        // `device_proxy.rs` now, so the same paths ARE handed over, and what keeps them out of THIS dispatcher
+        // is the ORDER in `lib.rs` (the proxy's arm is checked first), which is where the claim belongs.
+        assert!(in_family(&Method::Get, "/api/devices/d1/proxy/panel/"));
+        assert!(in_family(&Method::Post, "/api/devices/d1/proxy/mcp"));
+        // `/api/upload` is the RELAY's leg and never this family's — it is not under the prefix at all.
         assert!(!in_family(&Method::Post, "/api/upload"));
         assert!(!in_family(&Method::Get, "/api/health"));
         assert!(!in_family(&Method::Get, "/api/install/tunnel-token"));
