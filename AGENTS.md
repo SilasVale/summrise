@@ -156,6 +156,20 @@ line for the bare name `node_modules`.
 collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
 branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
 
+**AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
+install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
+running in. `.githooks/` is gitignored and machine-local, so it exists only in the main checkout: in a worktree the path
+resolves to a directory that is not there, **git treats missing hooks as no hooks, and every commit lands unguarded** —
+no emitter check, no main-only-by-merge. Nothing warns; the commit succeeds. **SET IT ABSOLUTE, ONCE, and every worktree
+inherits it** (the config is shared; only the path was relative):
+
+    git config --local core.hooksPath "$PWD/.githooks"        # run in the main checkout
+
+The backstop is `agent/tests/main_shape.rs`, which reads the commit OBJECT of `main` and refuses a tip with fewer than
+two parents — it caught this in CI on the next push, which is the gate working, and it is also why the repair is a MERGE
+onto the bad tip rather than a history rewrite: a new merge commit gives `main` two parents without moving anything
+already published.
+
 ## A status says what was CHECKED
 
 **EVERY SENTENCE A SURFACE SHOWS ABOUT THE DEVICE'S STATE IS A CLAIM, AND A CLAIM NOBODY CHECKED IS A LIE THE READER
