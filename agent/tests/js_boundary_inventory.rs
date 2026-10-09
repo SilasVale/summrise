@@ -345,8 +345,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                                 differential, so the class does not move yet
 ///     the relay is cut over         ->   110     the biggest single drop, and the only one whose
 ///                                                 evidence is a PRODUCTION change: see below
+///     the live probe's rule         ->   109     `live-panel-probe.mjs` had NO RULE, so the
+///                                                 catch-all made it LOGIC: a manifest gap, not a port
 ///
-/// **THE RELAY'S TWENTY FILES DID NOT MOVE BECAUSE THE PORT FINISHED. THEY MOVED BECAUSE THE CUTOVER
+/// **AND ONE FILE MOVED FOR A DIFFERENT REASON ENTIRELY: IT HAD NO RULE.** `agent/scripts/live-panel-probe.mjs`
+/// fell through to the catch-all `LOGIC | agent/scripts/` because nobody had written its rule — while `AGENTS.md`
+/// already carried the carve-out in its own table ("the device calls it through `browser_run_script`, which takes
+/// a JS file, and the measurement runs in the DOM") and its exact sibling, `panel-render-audit.mjs`, was already
+/// BOUNDARY two rules above. A catch-all does not classify what it swallows; it hides it. The rule now names what
+/// the file is — an EMITTER whose product is a program a browser runs — and says the thing that matters most about
+/// it: **its verdict is not enforced by any job**, because it runs on a device and its numbers are read by a
+/// person. What it measures that no harness can is the LIVE panel's geometry (round 167: 1488 root nodes and 14
+/// live sessions against the harness's 366 and three), which is why it is kept rather than deleted.
+///
+/// **THE RELAY'S TWENTY FILES DID NOT MOVE BECAUSE THE PORT FINISHED.** THEY MOVED BECAUSE THE CUTOVER
 /// HAPPENED** — and the difference matters, because "the Rust exists" was already true a week earlier while
 /// the JavaScript was still the thing answering. On 2026-10-09 nginx's `/api/` was pointed at the Rust relay
 /// on `127.0.0.1:8082` and the cutover was PROVED by stopping the Node unit: with only the Rust one listening,
@@ -385,4 +397,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 110;
+const MAX_LOGIC: usize = 109;
