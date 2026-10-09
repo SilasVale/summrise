@@ -226,15 +226,23 @@ FINDINGS WAS WRONG, which is the more useful half of this paragraph.**
      its twin is already in the judge), and the two payloads' **contrast verdict** (`r.cr < need` plus the sentence,
      with the judge merely wrapping what they built). Move those three decisions and the payloads become what the
      previous round already reclassified their siblings as — drivers, which are a boundary.
-   * **THREE ARE ENVIRONMENT-BOUND AND MAY NEVER MOVE**: `harness-boot-check.mjs` (it boots a harness through
-     Playwright), `verify-workspaces-page.mjs` (it fetches a SERVED page), and `e2e/e2e.js` (it runs on a DEVICE).
+   * **~~THREE~~ TWO ARE ENVIRONMENT-BOUND** — and the first name in this list was WRONG, written from the file's
+     NAME rather than its body: `harness-boot-check.mjs` does **not** need a browser. It runs the EMITTER and reads
+     the file the emitter wrote, then judges a value a caller hands it, so it became `agent/tests/harness_boot.rs`
+     — a real gate, enforced on every `cargo test`, which is strictly better than the script nobody invoked. What
+     genuinely cannot move is `verify-workspaces-page.mjs` (it fetches a SERVED page) and `e2e/e2e.js` (it runs on
+     a DEVICE). **The correction is the third of its kind in this section, and all three came from reading the
+     code after writing the claim.**
      Nothing in CI can run them, and a Rust gate that cannot be fed is not a gate: **`cargo test` has no browser, no
      served panel and no device.** They decide something, so by §2 they are LOGIC — and by §2 they also cannot leave,
      which means **"zero LOGIC" as the criterion is not reachable while these three exist in their present form.**
      That is the honest reading, and the choice it forces is the operator's: give the manifest a class for a manual
      instrument that runs where a browser exists (**and then say in the reason that its verdict is NOT enforced by
      any job**, so the class cannot become a hiding place), or keep them LOGIC and let the criterion read
-     "three files, each named and justified" instead of zero.
+     "two files, each named and justified" instead of zero. **AND THE FIRST HALF OF THIS PARAGRAPH'S OWN ADVICE IS
+     THE ONE TO PREFER**, because it was testable: `harness-boot-check.mjs` was upgraded into a cargo gate rather
+     than reclassified, and the same question is open for the remaining two — whether what they check can be
+     judged over a REPORT a real run produced, which is how `panel-design-sweep.bash` already works.
 
 **THE LESSON THIS PARAGRAPH IS NOW THE RECORD OF, because it cost two wrong claims in one sitting:** every one of
 those retractions came from reading the *control flow* rather than the *shape*. A function with early `continue`s
