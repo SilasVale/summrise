@@ -1101,7 +1101,27 @@ const TIMING = P.timing;
       await page.evaluate(() => { try { localStorage.setItem('summriseGettingStarted', '1'); } catch (e) {} });
       await PLAN.reload(S, page);
       await settle(1500);
-      const underAA = [];
+      const measured = [];
+      // DEDUPLICATED BY IDENTITY, AND THAT IS ALL THIS LOOP DOES.
+      //
+      // ── THE COMPARISON IS GONE (2026-10-09) ──────────────────────────────────────────────────────────
+      // This loop used to hold the RULE — `r.cr !== null && !r.inactive && r.cr < (r.need ?? 4.5)` — and
+      // then build the sentence the reader sees, so the contrast verdict had an implementation here and
+      // another in the judge. BOTH are `sweep-judge/src/hover.rs` now, and what crosses the wire is the
+      // row the probe measured: `sel`, `text`, `cr`, `need`, `paint`, `surface`, `size`, `kind`.
+      //
+      // THE OLD COMMENT HERE DEFENDED THE OPPOSITE and it was measured before it was believed: a candidate
+      // filter in the payload looks free because it keeps the report small, and the number that looked like
+      // the price of removing it — 218 samples for 19 lines on the 2026-10-09 oracle run — is the SAME ROW
+      // re-measured once per hovered control, which the `Set` below already collapses. Measured on that
+      // report: the probe returns 41 rows for a surface, so an unfiltered entry carries 41 rows rather than
+      // 20, and all four cost +27 KB of a 430 KB report (6%). A rule kept in JavaScript to save 6% of a
+      // file is a rule with two implementations.
+      //
+      // TWO IDENTICAL ROWS RENDER TO THE SAME SENTENCE, so dropping one cannot change what the judge says.
+      // Two DIFFERENT rows that print the same line are both still sent, and collapsing those is the
+      // judge's, because that equivalence IS the sentence.
+      const rowKeys = new Set();
       // ONE PER FAMILY, not every instance. Re-running the whole-DOM probe after each hover costs a
       // pass over ~400 nodes, and 31 elements x 4 combinations made the sweep exceed the caller's
       // timeout twice. Hover styles are per-class, so the first element of each distinct class is the
@@ -1129,14 +1149,17 @@ const TIMING = P.timing;
         }
         await page.waitForTimeout(90);
         for (const r of await page.evaluate(PROBE)) {
-          const need = r.need ?? 4.5;
-          if (r.cr !== null && !r.inactive && r.cr < need) {
-            underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need + ' painted ' + r.paint + ' on ' + r.surface + ', ' + r.size + 'px ' + r.kind);
+          const key = JSON.stringify(r);
+          if (!rowKeys.has(key)) {
+            rowKeys.add(key);
+            measured.push(r);
           }
         }
         await page.mouse.move(2, 2);
       }
-      report.hover.push({ density, theme, interactive: handles.length, underAA: [...new Set(underAA)] });
+      // `rule` TELLS THE JUDGE WHICH PASS IT IS READING, because `console-run.cjs` measures TWO hover
+      // rules and they are not the same one. It is the pass's name, not a verdict.
+      report.hover.push({ density, theme, interactive: handles.length, rule: 'panel-hover', rows: measured });
     }
   }
   if (wants("hover")) passCost("hover");
@@ -1247,7 +1270,10 @@ const TIMING = P.timing;
     const count = (a) => (report[a] || []).length;
     const axes = {
       motion: (report.motion || []).map((m) => `${m.density}:${m.normal}->${m.reduced}`),
-      hover: (report.hover || []).map((h) => `${h.density}/${h.theme}:${h.interactive}i/${(h.underAA || []).length}aa`),
+      // `/<n>r` IS ROWS MEASURED, NOT ELEMENTS BELOW AA — the count of what this pass handed over. The
+      // judge's own line carries the failing count, and the two differ by design: `aa` here would be a
+      // claim the payload no longer makes.
+      hover: (report.hover || []).map((h) => `${h.density}/${h.theme}:${h.interactive}i/${(h.rows || []).length}r`),
       // `p/l/m` COULD NOT TELL "ESCAPED" FROM "UNACCOUNTED" (round 21 of the standing goal). `focusPass` counts four
       // things — pressed, landed, escaped, and `unconfirmed` (the press whose ring the pixels could not confirm, which
       // the judge FAILS) — and this printed three. So `16p/15l/0m` on the console's routes page read as "one press went

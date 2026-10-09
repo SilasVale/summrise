@@ -3,8 +3,8 @@
 # Read this when you change this file: the mutation is how you find out whether the gate can still
 # fail at all. A gate that cannot be broken is worse than no gate.
 #
-# MUTATION: plant a defect per axis in a report (87 checks as measured on 2026-09-26 — the axis list below is the part that stays accurate, the NUMBER is what drifts when a round adds a case without updating this cell: contrast, h1, skip, landmark, geometry, sliver, loud, mark-collision, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale, prose, ack, **ack-nocounter** — the newest, round 11 of the standing goal: an acknowledgement row from a page that has NO request counter, which must FAIL rather than be excused by a note claiming a measurement nobody made. It plants an ACKNOWLEDGED row beside it on purpose: the first version planted the no-counter row alone and the case passed for the WRONG reason — with the new clause disabled the judge still failed the report, because an ack array with nothing acknowledged trips the vacuity floor — so mutating the clause left the gate green. That is the "failed for the wrong reason and proved nothing" shape, caught by doing the mutation instead of assuming it — plus `prose-none` for the instrument's own floor, and the note assertions the axis loop cannot make)
-# RESULT:   one check per axis (the newest being `false-claim`: a surface claiming a read failed while the fixture answered everything — the defect rounds 99-100 found by hand, twice; it applies only to a report that DECLARES what its fixture served (`sse` records), because the console has no backend and its "could not be read" is true)  **AND THE `ack` CASE FAILED THE FIRST TIME IT RAN, WHICH IS THE POINT**: the panel's judge rejected the planted row (exit 1, "never acknowledged the press") and the console's ACCEPTED it (exit 0, "nothing above found a defect") — 85 ok, 1 failed. The clause now lives in the shared `judgeReport`, the panel's copy is deleted, and both loops fail the same row; the run after that is 86 ok, 0 failed  **MARK-COLLISION (round 27): the silhouettes are now checked AS THE BROWSER PAINTS THEM.** The sheet-level unit tests cannot see a cascade override — round 25's `.plug-dot[error]` kept a stray halo through a test that passed — so the SURFACE probe reads the COMPUTED style of every state mark on every page, groups by family, and fails when two states of one mark paint identically. It cost no call sites: the probe every page already evaluates carries it. Verified on three rendered pages: four and five families each, ZERO collisions and no false positives  **AND THE PAGE-LIST CHECK'S MUTATION WAS RUN WHEN THE RULE IT PINS CHANGED** (slice 1 of landing 2b): the console's route table became PLAN DATA (`caps.pages`), so the check was rewritten to assert that the list REACHES the payload rather than that the payload spells it out. Deleting `"pages"` from the console plan's caps reads `FAIL: the console sweep does not carry/read its page list (it would report nothing)` and 86 ok, 1 failed; restored, 87 ok, 0 failed.
+# MUTATION: plant a defect per axis in a report (95 checks as measured on 2026-10-09 — the axis list below is the part that stays accurate, the NUMBER is what drifts when a round adds a case without updating this cell: contrast, h1, skip, landmark, geometry, sliver, loud, mark-collision, name, title-only, reflow, focus, focus-empty, motion, motion-empty, type-floor, blind, theme-lie, harness-stale, prose, ack, **ack-nocounter** — round 11 of the standing goal: an acknowledgement row from a page that has NO request counter, which must FAIL rather than be excused by a note claiming a measurement nobody made. It plants an ACKNOWLEDGED row beside it on purpose: the first version planted the no-counter row alone and the case passed for the WRONG reason — with the new clause disabled the judge still failed the report, because an ack array with nothing acknowledged trips the vacuity floor — so mutating the clause left the gate green. That is the "failed for the wrong reason and proved nothing" shape, caught by doing the mutation instead of assuming it — plus `prose-none` for the instrument's own floor, and the note assertions the axis loop cannot make. **`hover` is the newest (2026-10-09)** and it arrived with the axis it pins: `grep -n underAA scripts/test/*.bash` answered NOTHING before it, so the contrast verdict's three hover rules had no gate at all until the payloads stopped building the sentence and started handing over the row)
+# RESULT:   one check per axis (the newest being `false-claim`: a surface claiming a read failed while the fixture answered everything — the defect rounds 99-100 found by hand, twice; it applies only to a report that DECLARES what its fixture served (`sse` records), because the console has no backend and its "could not be read" is true)  **AND THE `ack` CASE FAILED THE FIRST TIME IT RAN, WHICH IS THE POINT**: the panel's judge rejected the planted row (exit 1, "never acknowledged the press") and the console's ACCEPTED it (exit 0, "nothing above found a defect") — 85 ok, 1 failed. The clause now lives in the shared `judgeReport`, the panel's copy is deleted, and both loops fail the same row; the run after that is 86 ok, 0 failed  **MARK-COLLISION (round 27): the silhouettes are now checked AS THE BROWSER PAINTS THEM.** The sheet-level unit tests cannot see a cascade override — round 25's `.plug-dot[error]` kept a stray halo through a test that passed — so the SURFACE probe reads the COMPUTED style of every state mark on every page, groups by family, and fails when two states of one mark paint identically. It cost no call sites: the probe every page already evaluates carries it. Verified on three rendered pages: four and five families each, ZERO collisions and no false positives  **AND THE PAGE-LIST CHECK'S MUTATION WAS RUN WHEN THE RULE IT PINS CHANGED** (slice 1 of landing 2b): the console's route table became PLAN DATA (`caps.pages`), so the check was rewritten to assert that the list REACHES the payload rather than that the payload spells it out. Deleting `"pages"` from the console plan's caps reads `FAIL: the console sweep does not carry/read its page list (it would report nothing)` and 86 ok, 1 failed; restored, 87 ok, 0 failed. **AND THE HOVER CASES WERE MUTATED ONE CLAUSE AT A TIME, because most of them assert a SENTENCE rather than an axis** — the shape that can pass for the wrong reason. Dropping the `kind === 'graphic'` guard from the console's dark rule reads `FAIL: hover: the console's dark pass reported a graphic` and **92 ok, 1 failed**; letting the pre-2026-10-09 `underAA` key fall through unread reads `FAIL: hover: a report keyed by underAA passed silently — a check that reads nothing read as clean` and **92 ok, 1 failed**; truncating the panel's text at 24 units instead of 16 reads `FAIL: hover: the panel's sentence is not the one the payload built` and **92 ok, 1 failed**. Each mutation reddens ONE case, which is what says these are separate checks rather than one repeated. **AND THE PAYLOAD-SIDE CASE (1c) WAS MUTATED TOO, because it is the one the fixture cases CANNOT cover** — they plant the `rule` themselves, so they prove the judge honours the name and are blind to a payload that stopped writing it. Deleting `rule: 'panel-hover'` from `lib/sweep/panel-run.cjs` reads `FAIL: hover: a hover site does not name its rule — the judge would fall back to the panel's rule and print another pass's sentence` and **94 ok, 1 failed**; restored, 95 ok, 0 failed.
 
 # panel-design-sweep.bash — the design sweep tool must EMIT a valid script and JUDGE correctly.
 #
@@ -62,6 +62,24 @@ if grep -q "compositeStack" "$TMP/sweep.js" && grep -q "failures" "$TOOL"; then
   ok "the emitted script embeds the shared probe"
 else
   bad "the emitted script does not embed the probe"
+fi
+
+# ── 1c. EVERY HOVER SITE STILL NAMES THE PASS IT MEASURED (2026-10-09) ──────────────────────────────
+# THE GATE THAT PINS THE HOVER RULES PLANTS THE `rule` ITSELF, so it proves the JUDGE honours the name and
+# cannot see a payload that stopped writing it — a gate passing for a reason it was not written for, which is
+# the class this file exists to catch. The judge's fallback for an absent or unknown name is the PANEL's rule,
+# so a console pass that lost its name would have its rows judged by another pass's rule and its sentence
+# printed in that pass's spelling. Three sites, two files: the panel's is read out of the EMITTED bundle (the
+# artifact the browser actually runs); the console's two are read out of their source, because this gate emits
+# the panel sweep and `scripts/test/sweep-judges.bash` is the one that emits the console's. The name is a
+# literal in the payload either way and `sweep-bundle.mjs` embeds the payload verbatim, so both readings are
+# the same string.
+if grep -q "rule: 'panel-hover'" "$TMP/sweep.js" \
+   && grep -q "rule: 'console-hover-dark'" agent/scripts/lib/sweep/console-run.cjs \
+   && grep -q "rule: 'console-hover-light'" agent/scripts/lib/sweep/console-run.cjs; then
+  ok "hover: all three hover sites name the pass they measured"
+else
+  bad "hover: a hover site does not name its rule — the judge would fall back to the panel's rule and print another pass's sentence"
 fi
 
 # ── 1b. THE PROBES REACH THE PAGE UNCHANGED ────────────────────────────────────────────────────
@@ -476,12 +494,20 @@ elif which == "ack-nocounter":
          "acked": False, "via": None, "msToAck": None, "msToClear": None, "budgetMs": 100, "attempts": 2,
          "hasCounter": False,
          "note": "this page has NO request counter, so whether the control asked the device anything is UNMEASURED — the row is not evidence about feedback either way"}]
+elif which == "hover":
+    # A HOVERED ELEMENT THAT FALLS BELOW AA (2026-10-09). This axis had NO case in either gate until the
+    # move: `grep -n underAA scripts/test/*.bash` answered nothing, which the design spec named as the
+    # reason the oracle had to be BUILT with the change rather than borrowed. The row is one the
+    # 2026-10-09 oracle run measured on the rendered harness (a planted #b9b9b9-on-#ffffff defect).
+    r["hover"] = [{"density": "panel", "theme": "light", "rule": "panel-hover", "rows": [
+        {"sel": "span.side-label", "text": "serial:COM4", "cr": 1.96, "need": 4.5,
+         "paint": "rgb(185, 185, 185) (text)", "surface": "rgb(255, 255, 255)", "size": 13, "kind": "text"}]}]
 else:
     raise SystemExit("unknown axis " + which)
 json.dump(r, open(dst, "w"))
 PY
 }
-for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none ack ack-nocounter; do
+for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted decorative-drift false-claim mark-collision mark-ringfill name title-only reflow focus focus-empty motion motion-empty type-floor blind theme-lie harness-stale focus-unconfirmed sheets-unreadable prose prose-none ack ack-nocounter hover; do
   plant "$axis" "$axis"
   if "${JUDGE[@]}" --tool panel "$TMP/$axis.json" > "$TMP/$axis.out" 2>&1; then
     bad "the judge PASSED a report with a planted '$axis' defect"
@@ -489,6 +515,91 @@ for axis in contrast h1 skip landmark geometry sliver loud loud-not-excepted dec
     ok "the judge fails a planted '$axis' defect"
   fi
 done
+
+# ── 3b. THE HOVER AXIS'S THREE RULES, AND THE SHAPE ITSELF (2026-10-09) ─────────────────────────
+# The payloads stopped COMPARING and stopped building the sentence; they hand over every row the probe
+# measured (`rows`), and the judge applies the entry's rule and formats the line. These cases therefore
+# assert the SHAPE and the RULES rather than a string a fixture planted — a fixture that plants a sentence
+# proves only that the judge can re-read one. Three sites in two payloads measured hover contrast and they
+# were NOT one rule written three times: the console's two passes disagree about graphics and about the 4.5
+# default, so each rule is pinned in BOTH directions, and so is the pre-change shape, which must be
+# REFUSED rather than read as clean.
+python3 - "$TMP/clean.json" "$TMP/hover-ok.json" "$TMP/hover-default.json" "$TMP/hover-dark.json" "$TMP/hover-light.json" "$TMP/hover-old-shape.json" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+GRAPHIC = {"sel": "span.badge", "text": "2", "cr": 2.33, "need": 4.5,
+           "paint": "rgb(191, 58, 10) (fill)", "surface": "rgb(255, 255, 255)", "size": 12, "kind": "graphic"}
+def with_hover(rule, rows):
+    r = dict(base)
+    r["hover"] = [{"density": "panel", "theme": "dark", "rule": rule, "rows": rows}]
+    return r
+# A row that clears its bar is NOT a finding — the direction that keeps the clause from failing everything.
+json.dump(with_hover("panel-hover", [dict(GRAPHIC, cr=7.0)]), open(sys.argv[2], "w"))
+# THE PANEL'S SENTENCE, EXACTLY: the 4.5 default when `need` is absent, and a text truncated at SIXTEEN
+# UNITS. Both are things the JavaScript did and the port has to keep doing.
+json.dump(with_hover("panel-hover", [{"sel": "span.goal-text", "text": "provision the ONU on VLAN 100",
+                                      "cr": 1.96, "need": None, "paint": "rgb(185, 185, 185) (text)",
+                                      "surface": "rgb(255, 255, 255)", "size": 11, "kind": "text"}]),
+          open(sys.argv[3], "w"))
+# THE SAME GRAPHIC ROW under each console rule: its dark pass skips graphics, its light pass does not, and
+# neither uses the panel's sentence. One row, two verdicts — which is why the entry names its rule.
+json.dump(with_hover("console-hover-dark", [GRAPHIC]), open(sys.argv[4], "w"))
+json.dump(with_hover("console-hover-light", [GRAPHIC]), open(sys.argv[5], "w"))
+# AND THE SHAPE ITSELF, IN ITS OLD FORM: a report from before the change keys its finished sentences by
+# `underAA`, and the judge must say so rather than find nothing to compare. Silence is the failure shape
+# this suite keeps finding in its own checks — a hover pass that measured eleven failing elements reading
+# exactly like one that measured none.
+stale = dict(base)
+stale["hover"] = [{"density": "panel", "theme": "dark", "rule": "panel-hover",
+                   "underAA": ["span.badge 2.33<4.5", "a.link 3.9<4.5"]}]
+json.dump(stale, open(sys.argv[6], "w"))
+PY
+if "${JUDGE[@]}" --tool panel "$TMP/hover-ok.json" > "$TMP/hover-ok.out" 2>&1; then
+  ok "hover: a row that clears its bar is not a finding"
+else
+  bad "hover: a clean hover row was rejected: $(tail -2 "$TMP/hover-ok.out")"
+fi
+if "${JUDGE[@]}" --tool panel "$TMP/hover-default.json" > "$TMP/hover-default.out" 2>&1; then
+  bad "hover: a row under its bar was PASSED"
+elif grep -qF 'hover (panel/dark): 1 element(s) below AA while hovered — span.goal-text "provision the ON" 1.96<4.5 painted rgb(185, 185, 185) (text) on rgb(255, 255, 255), 11px text' "$TMP/hover-default.out"; then
+  ok "hover: the panel's sentence is built from the row — the 4.5 default, the 16-unit truncation and all"
+else
+  bad "hover: the panel's sentence is not the one the payload built: $(tail -2 "$TMP/hover-default.out")"
+fi
+if "${JUDGE[@]}" --tool panel "$TMP/hover-dark.json" > "$TMP/hover-dark.out" 2>&1; then
+  ok "hover: the console's dark rule skips a graphic"
+else
+  bad "hover: the console's dark pass reported a graphic: $(tail -2 "$TMP/hover-dark.out")"
+fi
+if "${JUDGE[@]}" --tool panel "$TMP/hover-light.json" > "$TMP/hover-light.out" 2>&1; then
+  bad "hover: the console's light pass SKIPPED a graphic the dark one skips and it does not"
+elif grep -qF 'hover (panel/dark): 1 element(s) below AA while hovered — span.badge "2" 2.33<4.5' "$TMP/hover-light.out"; then
+  ok "hover: the same graphic IS reported by the light rule — the two console passes are not one rule"
+else
+  bad "hover: the light rule's sentence is wrong: $(tail -2 "$TMP/hover-light.out")"
+fi
+if "${JUDGE[@]}" --tool panel "$TMP/hover-old-shape.json" > "$TMP/hover-old-shape.out" 2>&1; then
+  bad "hover: a report keyed by underAA passed silently — a check that reads nothing read as clean"
+elif grep -q "holds the SENTENCES the payloads built until 2026-10-09" "$TMP/hover-old-shape.out"; then
+  ok "hover: the pre-2026-10-09 underAA key is refused by NAME rather than read as clean"
+else
+  bad "hover: the old shape failed for the wrong reason: $(tail -2 "$TMP/hover-old-shape.out")"
+fi
+# AND A MALFORMED ONE: a `rows` array holding a string has something to read and nothing to judge, which is
+# the same silence in a different dress — the key is right and its contents are not rows.
+python3 - "$TMP/hover-old-shape.json" "$TMP/hover-not-rows.json" <<'JSONMARK'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["hover"] = [{"density": "panel", "theme": "dark", "rule": "panel-hover", "rows": ["span.badge 2.33<4.5"]}]
+json.dump(d, open(sys.argv[2], "w"))
+JSONMARK
+if "${JUDGE[@]}" --tool panel "$TMP/hover-not-rows.json" > "$TMP/hover-not-rows.out" 2>&1; then
+  bad "hover: a rows array holding a SENTENCE passed silently"
+elif grep -q "1 of 1 entry(ies) in .rows. is not a row" "$TMP/hover-not-rows.out"; then
+  ok "hover: a non-row element is named rather than skipped"
+else
+  bad "hover: the malformed shape failed for the wrong reason: $(tail -2 "$TMP/hover-not-rows.out")"
+fi
 
 # IMMEDIATE FEEDBACK HAS A BUDGET (round 19). The clause exists because the panel's acknowledgement mechanism
 # CLAIMS it fires on the event, and a source-shaped unit test cannot tell that from a handler that awaits the network

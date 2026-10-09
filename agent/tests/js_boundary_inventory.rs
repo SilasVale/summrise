@@ -488,4 +488,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// refusal settles it — `const MAX_LOGIC` forced to **0**, which prints `LOGIC files: 97, and the frozen
 /// budget is 0` — and the four names are in the paragraph above. **A cap resolved by picking a branch's
 /// number is a cap nobody measured**, which is the rule the paragraph above states and this one obeys.
-const MAX_LOGIC: usize = 97;
+///
+///     the contrast verdict    97 -> 95   `agent/scripts/lib/sweep/panel-run.cjs` and `lib/sweep/console-run.cjs`
+///                                         LEFT: the two payloads that carried the under-AA comparison are BOUNDARY
+///                                         now (they build a payload and decide nothing), and the JUDGE is Rust —
+///                                         `summrise-sweep-judge` plus the same clause in `summrise-command-core`'s
+///                                         `sweep_judge.rs`. **`agent/scripts/` NO LONGER APPEARS IN THE LOGIC-
+///                                         REMAINING RULES AT ALL**: these were the last two, which is the whole
+///                                         point of the design-sweep item. Verified by replaying **119 recorded
+///                                         rows** through the Rust judge one at a time — 61 panel + 58 console,
+///                                         sentence against sentence, 0 differences.
+///
+/// **AND 97 -> 95 IS MEASURED HERE, NOT CARRIED.** The branch that wrote this landing says `107 -> 105`, which
+/// was true on ITS base; this tree had already taken the five `.mjs` gates, the CLI's cutover and the Electron
+/// shell, so the same landing reads `97 -> 95`. The count came from forcing this constant to **0** and reading
+/// the gate's own refusal: `LOGIC files: 95, and the frozen budget is 0`. Three different branches produced
+/// three different numbers for one landing today; **only the merged tree's is a fact about the merged tree.**
+const MAX_LOGIC: usize = 95;

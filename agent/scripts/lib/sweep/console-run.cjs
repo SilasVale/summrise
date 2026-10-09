@@ -321,7 +321,13 @@ const fail = { api: false };
     if (label === 'overview') {
       const all = await page.$$('button, [role="button"], a');
       const seenClass = new Set();
-      const underAA = [];
+      const measured = [];
+      // ── THE COMPARISON IS GONE (2026-10-09) ──────────────────────────────────────────────────────────
+      // This loop held the RULE — `r.kind !== 'graphic' && !r.inactive && r.cr < r.need`, which is NOT the
+      // light pass's below: no `4.5` default, and a null `cr` coerces to 0 and can be reported — and then
+      // built the sentence. Both are `sweep-judge/src/hover.rs` now, chosen by this entry's `rule`, and the
+      // payload hands over the row. Deduplicated by identity, which is all this loop does.
+      const rowKeys = new Set();
       for (const h of all) {
         const key = await h.evaluate((el) => (typeof el.className === 'string' ? el.className : el.tagName));
         if (seenClass.has(key)) continue;
@@ -329,14 +335,18 @@ const fail = { api: false };
         await h.hover();
         await page.waitForTimeout(40);
         for (const r of await page.evaluate(PROBE)) {
-          if (r.kind !== 'graphic' && !r.inactive && r.cr < r.need) underAA.push(r.sel + ' ' + r.cr + '<' + r.need);
+          const rowKey = JSON.stringify(r);
+          if (!rowKeys.has(rowKey)) {
+            rowKeys.add(rowKey);
+            measured.push(r);
+          }
         }
       }
       // AND PUT THE POINTER BACK. Leaving the last hovered element under the cursor made the FOCUS pass that
       // follows measure a hovered control and report a ring that is not missing — a self-inflicted finding,
       // caught because the round's own report showed it. State must not leak between passes.
       await page.mouse.move(0, 0);
-      report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, underAA: [...new Set(underAA)] });
+      report.hover.push({ page: 'overview-dark', width: 1440, density: 'console', theme: 'dark', interactive: all.length, rule: 'console-hover-dark', rows: measured });
     }
   }
   await page.evaluate(() => { try { localStorage.setItem('summrise-theme', 'light'); } catch (e) {} document.body.setAttribute('data-theme', 'light'); });
@@ -392,7 +402,11 @@ const fail = { api: false };
         {
           const all = await page.$$('button, [role="button"], a');
           const seenClass = new Set();
-          const underAA = [];
+          const measured = [];
+          // THE SAME SHAPE AS THE DARK PASS ABOVE, with a different `rule`: this one compares as the panel
+          // does — `cr !== null`, not `inactive`, below `need ?? 4.5` — and reports graphics, which the dark
+          // pass skips. The rule and the sentence are the judge's now.
+          const rowKeys = new Set();
           for (const h of all) {
             const key = await h.evaluate((el) => (typeof el.className === 'string' ? el.className : el.tagName));
             if (seenClass.has(key)) continue;
@@ -406,14 +420,15 @@ const fail = { api: false };
             }
             await page.waitForTimeout(90);
             for (const r of await page.evaluate(PROBE)) {
-              const need = r.need ?? 4.5;
-              if (r.cr !== null && !r.inactive && r.cr < need) {
-                underAA.push(r.sel + ' "' + String(r.text).slice(0, 16) + '" ' + r.cr + '<' + need);
+              const rowKey = JSON.stringify(r);
+              if (!rowKeys.has(rowKey)) {
+                rowKeys.add(rowKey);
+                measured.push(r);
               }
             }
             await page.mouse.move(2, 2);
           }
-          report.hover.push({ page: label, width, density: 'console', theme: 'light', interactive: all.length, underAA: [...new Set(underAA)] });
+          report.hover.push({ page: label, width, density: 'console', theme: 'light', interactive: all.length, rule: 'console-hover-light', rows: measured });
         }
         await page.evaluate(() => document.body.focus());
         // ONE implementation, shared with the panel and the extension (lib/design-sweep.mjs).
@@ -690,7 +705,8 @@ const fail = { api: false };
       // one of the four the judge FAILS ("a check that could not look is not a pass"), so a reader should see it at
       // zero rather than have to infer it.
       focus: (report.focus || []).map((f) => `${f.page || f.density}@${f.width || "-"}:${f.pressed || 0}p/${f.landed || 0}l/${f.missing || 0}m/${f.escaped || 0}e/${f.unconfirmed || 0}u`),
-      hover: (report.hover || []).map((h) => `${h.page}@${h.width}:${h.interactive}i/${(h.underAA || []).length}aa`),
+      // ROWS MEASURED, not elements below AA — see the panel's twin.
+      hover: (report.hover || []).map((h) => `${h.page}@${h.width}:${h.interactive}i/${(h.rows || []).length}r`),
       motion: (report.motion || []).map((m) => `${m.page || m.density}:${m.normal}->${m.reduced}`),
       idle: (report.idle || []).map((i) => `${i.page}:${i.mutations == null ? "?" : i.mutations}mut`),
       targets: (report.targets || []).map((t) => `${t.page}:${t.checked || 0}c/${t.undersized || 0}u`),
