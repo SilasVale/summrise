@@ -18,7 +18,15 @@ import { makeEnv as makeBaseEnv, freezeClock } from "./helpers.mjs";
 // the extension has no session cookie. Asserted by behavior, not source order.
 // Shared Map-KV stub (helpers.mjs) seeded with this file's minimal base.
 function makeEnv() {
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   return makeBaseEnv({
+    wasmGate: false,
+    // **NO `WASM_GATE` BINDING, ON PURPOSE: THIS FILE TESTS THE TYPESCRIPT IMPLEMENTATION.** `index.ts` hands the
+    // identity surface (`/api/auth/*` and the ported `/api/me*` routes) to the Rust worker when that binding is
+    // present — the production configuration — so a test of these handlers is a test of the ROLLBACK path, which
+    // is a real configuration and the one these assertions were always about. The cutover's own routing is pinned
+    // in `auth-cutover.test.mjs`.
+    wasmGate: false,
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { _admin_seeded: "1", "auth:admin_password": "pw" },
   });
@@ -35,7 +43,7 @@ async function apiFetch(env, path, init = {}) {
 
 // Bare stub for the store-helper tests (direct store.ts calls, no worker).
 function env() {
-  return makeBaseEnv({});
+  return makeBaseEnv({ wasmGate: false });
 }
 
 test("plugin link: get/remove (KV-seeded)", async () => {
@@ -118,7 +126,9 @@ test("plugins/status: valid admin session → 200 (R83 gate)", async () => {
 /* ---- Reset admin password (round-113, by admin gateway token) ---- */
 
 function makeResetEnv() {
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   return makeBaseEnv({
+    wasmGate: false,
     users: {
       admin: {
         id: "admin",
@@ -403,7 +413,9 @@ test("keys reveal: session-gated, name-validated, full value only when configure
 // endpoint by design — rotation lives in /api/me.
 test("admin/users: user tokens are masked, raw values never leave the server", async () => {
   __clearCaches();
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   const env = makeBaseEnv({
+    wasmGate: false,
     users: {
       admin: {
         id: "admin",
@@ -455,7 +467,9 @@ test("admin/users: user tokens are masked, raw values never leave the server", a
 // enable/disable guards had zero pins) ──
 
 function adminEnv() {
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   return makeBaseEnv({
+    wasmGate: false,
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" },
       bob: { id: "bob", username: "bob", role: "user", enabled: true, token: "" },
@@ -673,7 +687,9 @@ test("me/keys PUT: saves trimmed, echoes masked, reveal reads back full", async 
 // round-438 (coverage-driven): POST /api/auth/register had ZERO route
 // pins — the invite-gated account creation front door.
 function regEnv() {
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   return makeBaseEnv({
+    wasmGate: false,
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" },
     },
@@ -996,7 +1012,9 @@ test("logout: session cookie lands on the sess-revoked blacklist with a capped T
 // round-443 (coverage-driven): /api/me/usproxy + /api/me/token/regenerate
 // had ZERO route pins.
 function meEnv() {
+  // NO `WASM_GATE` BINDING, ON PURPOSE: THE ROLLBACK — see `makeEnv` above.
   return makeBaseEnv({
+    wasmGate: false,
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" },
       bob: { id: "bob", username: "bob", role: "user", enabled: true, token: "bob-tok-1" },

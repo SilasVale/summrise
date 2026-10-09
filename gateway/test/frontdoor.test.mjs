@@ -7,6 +7,11 @@ import assert from "node:assert/strict";
 import worker from "../src/index.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
+// **THE BINDING IS PRESENT HERE, WHICH IS THE CONFIGURATION THIS FILE IS ABOUT.** `helpers.mjs` stubs
+// `WASM_GATE` by default and records what reached it, so the front door's own routing — the `/models` alias, the
+// host split, the 404s — is asserted against the DEPLOYED shape. The one test below that needs the ROLLBACK
+// configuration (the CSRF gate, which runs BEFORE the handover and is therefore only observable where a
+// request that passes it reaches a TypeScript handler) builds its own env and says so.
 const env = () => makeBaseEnv({});
 
 test("bare /models aliases to /v1/models (public model list)", async () => {
@@ -76,7 +81,10 @@ test("unhandled throw answers 500 Internal error without internals", async () =>
 // round-471 (coverage-driven): the index.ts CSRF-gate 403 arm had ZERO
 // route pins (only unit pins on csrfCookieViolation itself).
 test("cross-site cookie-authed mutation 403s at the front door", async () => {
-  const csrfEnv = () => makeBaseEnv({ kv: { "auth:admin_password": "pw", _admin_seeded: "1" } });
+  // The ROLLBACK again: with the binding present this POST is handed to the worker before the CSRF gate
+  // could be observed (the gate runs first, and this case asserts the gate).
+  const csrfEnv = () =>
+    makeBaseEnv({ wasmGate: false, kv: { "auth:admin_password": "pw", _admin_seeded: "1" } });
   const mk = (site) =>
     new Request("https://x/api/me/keys", {
       method: "POST",

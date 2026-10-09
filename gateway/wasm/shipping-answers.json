@@ -2328,5 +2328,1120 @@
   },
   "__devicePublicRate": {
     "first429": 11
+  },
+  "GET /api/me (admin session)": {
+    "status": 200,
+    "body": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"token\":\"admin-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (no cookie)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a cookie that is not a token)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a forged cookie: the wrong signing key)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a tampered signature)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an EXPIRED token)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a revoked cookie: the logout blacklist)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a session for a SUSPENDED admin)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a session for a user who does not exist)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (the admin-password fallback: SESSION_SECRET unset, cookie signed with the hash)": {
+    "status": 200,
+    "body": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"token\":\"admin-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (rotation compat: SESSION_SECRET set, cookie signed with the admin hash)": {
+    "status": 200,
+    "body": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"token\":\"admin-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a non-admin session: the role is NOT required here)": {
+    "status": 200,
+    "body": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"token\":\"bob-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (no admin password configured at all)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (the caller's own keys are masked, and the deployment's are named)": {
+    "status": 200,
+    "body": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"token\":\"bob-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (a truthy NON-STRING key value: maskKey has no .slice, so this is a 500)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT that verifies: a FIRST-TIME email is provisioned)": {
+    "status": 200,
+    "body": "{\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"deployment\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put user:newcomer={\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"accessEmail\":\"newcomer@corp.test\"}",
+      "put token:000102030405060708090a0b0c0d0e0f1011121314151617=newcomer",
+      "put access-email:newcomer@corp.test=newcomer"
+    ],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT for ACCESS_ADMIN_EMAIL: the seeded admin, no provisioning)": {
+    "status": 200,
+    "body": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"token\":\"admin-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT for an email already bound to a user)": {
+    "status": 200,
+    "body": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"token\":\"bob-gateway-token\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":true,\"masked\":\"sk-…seek\",\"source\":\"user\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT for a DISABLED bound account: no provisioning either)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT whose local part is taken: the suffix loop)": {
+    "status": 200,
+    "body": "{\"id\":\"taken-0001\",\"username\":\"taken-0001\",\"role\":\"user\",\"enabled\":true,\"token\":\"02030405060708090a0b0c0d0e0f10111213141516171819\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"deployment\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put user:taken-0001={\"id\":\"taken-0001\",\"username\":\"taken-0001\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"token\":\"02030405060708090a0b0c0d0e0f10111213141516171819\",\"accessEmail\":\"taken@corp.test\"}",
+      "put token:02030405060708090a0b0c0d0e0f10111213141516171819=taken-0001",
+      "put access-email:taken@corp.test=taken-0001"
+    ],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT with TEN collisions: the uniqueness loop gives up and throws)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT signed by ANOTHER key)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT for another audience — the array shape)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT whose aud is a bare STRING that matches — the other legal shape)": {
+    "status": 200,
+    "body": "{\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"deployment\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put user:newcomer={\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"accessEmail\":\"newcomer@corp.test\"}",
+      "put token:000102030405060708090a0b0c0d0e0f1011121314151617=newcomer",
+      "put access-email:newcomer@corp.test=newcomer"
+    ],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT from ANOTHER team: the issuer is pinned)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an EXPIRED Access JWT)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT with no kid: it can never be looked up)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT whose kid is not published)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT whose published key is not RS256)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT with two parts, and one whose header is not base64)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT that verifies but carries NO email)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (an Access JWT whose published JWK the runtime REJECTS: a 500, not a 401)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (the Access arm DISABLED: ACCESS_AUD unset, so a valid JWT is ignored)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me (the certs endpoint answers 500: the arm declines rather than throwing)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET https://summrise-team.cloudflareaccess.test/cdn-cgi/access/certs auth=-"
+    ]
+  },
+  "GET /api/me (an Access JWT verified through the FETCHED certs, not ACCESS_JWKS_JSON)": {
+    "status": 200,
+    "body": "{\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"relayTokenSet\":false,\"keys\":{\"OPENCODE_GO_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"DEEPSEEK_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"deployment\"},\"QWEN_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"OPENROUTER_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"NVAPI_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"GMI_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"CMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"AMD_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"},\"R4_API_KEY\":{\"configured\":false,\"masked\":\"not configured\",\"source\":\"none\"}}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put user:newcomer={\"id\":\"newcomer\",\"username\":\"newcomer\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\",\"accessEmail\":\"newcomer@corp.test\"}",
+      "put token:000102030405060708090a0b0c0d0e0f1011121314151617=newcomer",
+      "put access-email:newcomer@corp.test=newcomer"
+    ],
+    "calls": [
+      "GET https://summrise-team.cloudflareaccess.test/cdn-cgi/access/certs auth=-"
+    ]
+  },
+  "POST /api/auth/register (a live invite: the record, the token mapping and the cookie)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"username\":\"carol\",\"role\":\"user\",\"token\":\"101112131415161718191a1b1c1d1e1f2021222324252627\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=eyJ1aWQiOiJjYXJvbCIsInJvbGUiOiJ1c2VyIiwiZXhwIjoxNzYwMDg2NDAwMDAwfQ.4dEbyM7XemyGj87zg6TvGS2Ac49f1k_EqkquHTJ-l30; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400; Secure"
+    ],
+    "writes": [
+      "put invclaim:INVITE01=1 ttl=60",
+      "del invite:INVITE01",
+      "put user:carol={\"id\":\"carol\",\"username\":\"carol\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"passwordHash\":\"4a0c553c736dc2685d890c2ed800ed6cfd63c46f92b33e6f0a6bf30911097541\",\"salt\":\"000102030405060708090a0b0c0d0e0f\",\"token\":\"101112131415161718191a1b1c1d1e1f2021222324252627\"}",
+      "put token:101112131415161718191a1b1c1d1e1f2021222324252627=carol"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/register (an invite that does not exist)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Invalid invite code\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put invclaim:NOPE=1 ttl=60",
+      "del invclaim:NOPE"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/register (an invite whose claim is already held)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Invite code already in use\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (a username that is already taken — checked BEFORE the invite)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Username already taken\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (a password under six characters)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Password must be at least 6 chars\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (a username outside [A-Za-z0-9_.-]{2,32})": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Username must be 2-32 chars: letters/digits/_ . -\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (no body at all parses to {})": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Username must be 2-32 chars: letters/digits/_ . -\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (a NULL body: the TypeError becomes 400 with V8's message)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Cannot read properties of null (reading 'username')\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/register (no SESSION_SECRET: the user IS created, then the issuance fails closed)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"Session signing not configured\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put invclaim:INVITE01=1 ttl=60",
+      "del invite:INVITE01",
+      "put user:carol={\"id\":\"carol\",\"username\":\"carol\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1760000000000,\"passwordHash\":\"4a0c553c736dc2685d890c2ed800ed6cfd63c46f92b33e6f0a6bf30911097541\",\"salt\":\"000102030405060708090a0b0c0d0e0f\",\"token\":\"101112131415161718191a1b1c1d1e1f2021222324252627\"}",
+      "put token:101112131415161718191a1b1c1d1e1f2021222324252627=carol"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/register (no admin password configured)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"Admin password not configured\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (the admin, right password: a real PBKDF2 verification)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"username\":\"admin\",\"role\":\"admin\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6MTc2MDA4NjQwMDAwMH0.QNz4yW2y7-F_GbKoa3hiqnPp4qJHKnN5cwxPeL-Ogc0; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400; Secure"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (the admin, wrong password)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Incorrect username or password\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (a user account, right password: its own hash and salt)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Incorrect username or password\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (a user account, right password, UNTRIMMED username)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Incorrect username or password\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (a user who does not exist: the PBKDF2 burn)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Incorrect username or password\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (a DISABLED user: the same burn, the same 401)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Incorrect username or password\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (the caller is already locked out)": {
+    "status": 429,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Too many attempts — try again in ~30s\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (a NULL body: outside any try, so the front door's catch answers 500)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/login (no admin password configured)": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"config_error\",\"message\":\"Admin password not configured\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/logout (a live cookie: the blacklist write and the cleared cookie)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure"
+    ],
+    "writes": [
+      "put sess-revoked:eyJ1aWQiOiJsb2dvdXQtcHJvYmUiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3NjAwODY0MDAwMDB9.Zi_x8AMjrTVvSD-sZu9I2P3OUQO-PiJRlH0otRgI5i8=1 ttl=86400"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/logout (a cookie whose token is EXPIRED: the 60 s floor)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure"
+    ],
+    "writes": [
+      "put sess-revoked:eyJ1aWQiOiJsb2dvdXQtcHJvYmUiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3NTk5OTk5MTAwMDB9.f1f1o0uZND10UkU_ANn156oCQU-eDNZZe-BZDyChVKk=1 ttl=60"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/logout (a malformed cookie: ignored, and the cookie is STILL cleared)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/logout (no cookie at all)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json",
+      "set-cookie: ag_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/reset-password (the admin token: a new salt and hash are written)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put auth:admin_password=0001020304050607:680cb7f9adcf4c0ec8e3a7c573c1883cbaf818a64a74e20231a05bd6729db065"
+    ],
+    "calls": []
+  },
+  "POST /api/auth/reset-password (the wrong admin key)": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid admin key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/reset-password (a new password under eight characters)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"New password must be at least 8 chars\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/reset-password (missing fields)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"adminKey and newPassword are required\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/auth/reset-password (a NULL body: optional chaining makes this a clean 400)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"adminKey and newPassword are required\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/token/regenerate (the admin token is rotated and its old mapping deleted)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "del token:admin-gateway-token",
+      "put user:admin={\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\"}",
+      "put token:000102030405060708090a0b0c0d0e0f1011121314151617=admin"
+    ],
+    "calls": []
+  },
+  "POST /api/me/token/regenerate (the sweep must NOT delete the relay mapping)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/token/relay (issue the scoped relay credential)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"token\":\"000102030405060708090a0b0c0d0e0f1011121314151617\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put user:bob={\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"createdAt\":1,\"passwordHash\":\"fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345c8c158eb566e276d70d1d31e87\",\"salt\":\"fedcba9876543210\",\"token\":\"bob-gateway-token\",\"relayToken\":\"000102030405060708090a0b0c0d0e0f1011121314151617\"}",
+      "put token:000102030405060708090a0b0c0d0e0f1011121314151617=bob"
+    ],
+    "calls": []
+  },
+  "DELETE /api/me/token/relay (revoke an existing one)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "DELETE /api/me/token/relay (there is none: revoked=false)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"revoked\":false}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/token/relay/reveal (one exists)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/token/relay/reveal (none exists: 404)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Relay token not configured\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/me/keys (a valid save: the response carries the MASK)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"OPENROUTER_API_KEY\",\"masked\":\"sk-…7890\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put ukeys:bob={\"DEEPSEEK_API_KEY\":\"sk-bob-deepseek\",\"OPENROUTER_API_KEY\":\"sk-or-1234567890\"}"
+    ],
+    "calls": []
+  },
+  "PUT /api/me/keys (an empty value)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"value must not be empty\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/me/keys (a value that is not a string)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"value must not be empty\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/me/keys (a name outside USER_KEY_NAMES)": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Unknown key name: NOT_A_KEY\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/me/keys (no session)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "DELETE /api/me/keys?name=OPENROUTER_API_KEY": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"OPENROUTER_API_KEY\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put ukeys:bob={\"DEEPSEEK_API_KEY\":\"sk-ds\"}"
+    ],
+    "calls": []
+  },
+  "DELETE /api/me/keys?name=NOT_A_KEY": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Unknown key name: NOT_A_KEY\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/keys/reveal (the caller's OWN key, in the clear)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"DEEPSEEK_API_KEY\",\"value\":\"sk-bob-deepseek\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/keys/reveal (not configured: 404)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Key not configured\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/me/keys/reveal (no session)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me/usproxy (the switch is ON in KV)": {
+    "status": 200,
+    "body": "{\"enabled\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me/usproxy (an explicit \"0\" reads as OFF — the round-95 normalization)": {
+    "status": 200,
+    "body": "{\"enabled\":false}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me/usproxy (no KV value: the Worker var answers)": {
+    "status": 200,
+    "body": "{\"enabled\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me/usproxy (no session)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/me/usproxy (an admin turns it OFF: the explicit \"0\" is WRITTEN)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"enabled\":false}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put settings:US_PROXY=0"
+    ],
+    "calls": []
+  },
+  "PUT /api/me/usproxy (an admin turns it ON)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"enabled\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put settings:US_PROXY=1"
+    ],
+    "calls": []
+  },
+  "PUT /api/me/usproxy (a NON-ADMIN session: 403 \"Admin only\"/\"forbidden\")": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"forbidden\",\"message\":\"Admin only\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/auth/nonsense (a path under the base with no route)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/me/anything/else (a path under /api/me with no route)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/auth/login (the wrong verb for a real path)": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "__authLoginBurst": {
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      429
+    ],
+    "writes": []
+  },
+  "__authLoginLock": {
+    "statuses": [
+      401,
+      401,
+      401,
+      401,
+      401,
+      429
+    ],
+    "writes": [
+      "put login-lock:198.51.100.22:admin=1 ttl=60"
+    ]
+  },
+  "__authLogoutRate": {
+    "statuses": [
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      429
+    ],
+    "writes": []
   }
 }

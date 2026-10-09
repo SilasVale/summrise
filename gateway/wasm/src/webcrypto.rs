@@ -59,7 +59,12 @@ fn object(pairs: &[(&str, JsValue)]) -> Option<JsValue> {
 }
 
 /// `crypto.subtle.importKey("raw", bytes, algorithm, false, usages)` → the CryptoKey.
-async fn import_raw_key(algorithm: JsValue, bytes: &[u8], usages: &[&str]) -> Option<JsValue> {
+async fn import_key(
+    format: &str,
+    key_data: JsValue,
+    algorithm: JsValue,
+    usages: &[&str],
+) -> Option<JsValue> {
     let subtle = subtle()?;
     let usage_list = Array::new();
     for u in usages {
@@ -69,8 +74,8 @@ async fn import_raw_key(algorithm: JsValue, bytes: &[u8], usages: &[&str]) -> Op
         &get(&subtle, "importKey")?,
         &subtle,
         &[
-            JsValue::from_str("raw"),
-            Uint8Array::from(bytes).into(),
+            JsValue::from_str(format),
+            key_data,
             algorithm,
             JsValue::from_bool(false),
             usage_list.into(),
@@ -79,6 +84,17 @@ async fn import_raw_key(algorithm: JsValue, bytes: &[u8], usages: &[&str]) -> Op
     JsFuture::from(promise.dyn_into::<Promise>().ok()?)
         .await
         .ok()
+}
+
+/// `importKey("raw", …)` — the HMAC/PBKDF2 arm.
+async fn import_raw_key(algorithm: JsValue, bytes: &[u8], usages: &[&str]) -> Option<JsValue> {
+    import_key(
+        "raw",
+        Uint8Array::from(bytes).into(),
+        algorithm,
+        usages,
+    )
+    .await
 }
 
 /// `crypto.subtle.sign("HMAC", key, data)` for the HMAC-SHA256 key `secret` — the primitive
@@ -127,11 +143,55 @@ pub async fn pbkdf2_sha256(password: &str, salt: &str, iterations: u32) -> Optio
     resolve_bytes(bits).await
 }
 
+/// `crypto.subtle.importKey("jwk", jwk, {name:"RSASSA-PKCS1-v1_5", hash:"SHA-256"}, false, ["verify"])` — the
+/// Cloudflare Access arm's key import.
+///
+/// **THE KEY DATA IS A JS OBJECT, NOT A STRING, AND THAT IS WHY THE JWK IS PARSED HERE.** `Reflect::get` cannot
+/// turn a JSON string into the object `importKey`'s "jwk" format requires; `JSON.parse` is the platform's own
+/// conversion and it is the one the source performs (`JSON.parse(env.ACCESS_JWKS_JSON)`), so a JWK that is not an
+/// object fails in the same place on both sides.
+///
+/// **THIS DOES NOT SWALLOW THE REJECTION THE WAY THE OTHER PRIMITIVES DO.** `importKey` REJECTS on a JWK it
+/// cannot read (a `DataError`), and the source's `verifyAccessJwt` performs this call OUTSIDE its try/catch — so
+/// the rejection is a THROW that reaches the front door's catch and answers 500 `Internal error`. `None` here is
+/// that throw, and `access.rs` is the caller that must turn it into one.
+pub async fn import_rs256_jwk(jwk_json: &str) -> Option<JsValue> {
+    let parsed = worker::js_sys::JSON::parse(jwk_json).ok()?;
+    if !parsed.is_object() {
+        // `JSON.parse("\"x\"")` succeeds and is not a key: the platform's `importKey` rejects a non-object with
+        // the same DataError it uses for a malformed one, so the arm is the same throw.
+        return None;
+    }
+    let algorithm = object(&[
+        ("name", JsValue::from_str("RSASSA-PKCS1-v1_5")),
+        ("hash", JsValue::from_str("SHA-256")),
+    ])?;
+    import_key("jwk", parsed, algorithm, &["verify"]).await
+}
+
+/// `crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sig, data)` — the signature decision, as the platform's
+/// boolean. `None` is a rejected promise (a malformed signature length, or a key that is not the algorithm's),
+/// which the source's try/catch turns into "invalid token" rather than an error.
+pub async fn verify_rs256(key: &JsValue, signature: &[u8], data: &[u8]) -> Option<bool> {
+    let subtle = subtle()?;
+    let promise = apply(
+        &get(&subtle, "verify")?,
+        &subtle,
+        &[
+            JsValue::from_str("RSASSA-PKCS1-v1_5"),
+            key.clone(),
+            Uint8Array::from(signature).into(),
+            Uint8Array::from(data).into(),
+        ],
+    )?;
+    let result = JsFuture::from(promise.dyn_into::<Promise>().ok()?).await.ok()?;
+    result.as_bool()
+}
+
 /// `randomHex(bytes)` — the ONE randomness the device routes need, and it goes through the platform for the
 /// reason the source does: `crypto.getRandomValues` is the CSPRNG. (A panel grant that a caller could predict is
 /// a panel token; a registration key that a caller could predict is an install.)
-pub fn random_hex(bytes: usize) -> String {
-    let filled = (|| -> Option<String> {
+pub fn random_hex(bytes: usize) -> String {    let filled = (|| -> Option<String> {
         let crypto = global("crypto")?;
         let array = Uint8Array::new_with_length(bytes as u32);
         apply(

@@ -75,7 +75,19 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// **THE RULE, stated so the next raise is judged rather than felt: silent growth is refused, and a raise is
 /// allowed only in a commit that NAMES the file and the reason** — the same rule `production_host.rs` follows for
 /// its own list.
-const MAX_LOGIC: usize = 152;
+///
+/// **IT WENT UP BY ONE AGAIN ON 2026-10-09, AND THE GATE IS AGAIN WHAT SAID SO.** Porting the console worker's
+/// identity surface (landing 5 slice 2: `plugins/auth.ts`'s session and credential routes, `access.ts`,
+/// `store/users.ts`'s user half) added `gateway/test/auth-cutover.test.mjs` — the test that pins WHICH half
+/// serves `/api/auth/*` and the ported `/api/me*` routes in both configurations, and that pins the four routes
+/// this slice does NOT port to the TypeScript path. It exists because the same slice DELETED a routing condition
+/// (`devicesRouteNeedsSession`, the carve-out the Access arm's absence had forced): a cutover whose boundary
+/// shrinks needs the new boundary measured, or the deletion is a claim rather than a measurement. It sits in
+/// `gateway/test/`, a LOGIC directory, because that directory's files only leave when the TypeScript they
+/// exercise does. So the count went 152 -> 153, the cap followed it in the same commit, and the alternative —
+/// folding the file into `devices-cutover.test.mjs` — was rejected for the reason the round before it gave: a
+/// test file named for one family is not where the next reader looks for the other's boundary.
+const MAX_LOGIC: usize = 153;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.

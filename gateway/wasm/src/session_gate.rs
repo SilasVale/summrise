@@ -12,28 +12,36 @@
 //! runtime's primitive (`webcrypto.rs`), and everything that turns a valid signature into a user is here, pure
 //! and pinned by vectors in the crate's tests.
 //!
-//! **WHAT IS NOT PORTED, NAMED RATHER THAN HIDDEN: `requireSession`'s CLOUDFLARE ACCESS ARM.** The source tries
-//! the cookie first and then falls back to `requireAccessSession` (`access.ts`), which verifies a
-//! `Cf-Access-Jwt-Assertion` RS256 JWT against the team's published certs and provisions a user from the verified
-//! email. That is a second identity provider — its own JWKS fetch, its own claims checks, its own provisioning
-//! write path — and it is NOT in this file. The consequence is stated where it can be acted on: the front door
-//! keeps requests that carry NO session cookie on the TypeScript path until that arm is ported, so an
-//! Access-authenticated admin is served by the implementation that has the arm. The corpus proves the cookie arm
-//! and both envelopes, with `ACCESS_AUD`/`ACCESS_TEAM_DOMAIN` unset on BOTH sides (which is what the harness
-//! passes), and the divergence section of the harness names this boundary again.
+//! **BOTH ARMS ARE HERE NOW, AND THE SECOND ONE IS THE REASON THIS FILE'S FIRST VERSION HAD A CARVE-OUT.**
+//! `requireSession` tries the cookie first and then falls back to `requireAccessSession` (`access.rs`), which
+//! verifies a `Cf-Access-Jwt-Assertion` RS256 JWT against the team's published certs and provisions a user from
+//! the verified email. Until this slice that arm was not ported, so the front door kept every cookie-less
+//! admin-gated request on the TypeScript path — and the eleven device routes rode on that condition
+//! (`index.ts`'s `devicesRouteNeedsSession`). With the arm in Rust the condition is gone, and the corpus proves
+//! the whole of `requireSession`: the cookie arm, both key-rotation envelopes, the refusal list, and the Access
+//! arm on a real RS256 key pair.
+//!
+//! **THE ORDER ACROSS THE TWO ARMS IS PART OF THE CONTRACT.** The cookie arm runs to COMPLETION — including its
+//! `getUser` and its `enabled` check — before the Access arm is reached, and the Access arm is reached
+//! UNCONDITIONALLY: `session.ts` calls `requireAccessSession` on every cookie-less request and it is that
+//! function which answers null when the deployment has not opted in (`ACCESS_AUD`/`ACCESS_TEAM_DOMAIN` unset).
+//! Hoisting the opt-in test into `require_session` as a short-circuit would be equivalent today and a second
+//! place to change tomorrow, so the port keeps the source's shape.
 
 use serde_json::Value;
 use worker::*;
 
 use crate::device_registry::{js_falsy, js_to_string_of, js_truthy_string};
 use crate::device_store;
+use crate::user_store;
+use crate::RouteFailure;
 
-/// `requireSession`'s answer: the console user's id and role, or nothing.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SessionUser {
-    pub uid: String,
-    pub role: String,
-}
+// **THE RESOLVED USER IS THE FULL RECORD RATHER THAN AN ID, AND THAT IS THE SOURCE'S SHAPE.** The cookie arm
+// answers what `getUser` read and the Access arm answers what `ensureUserByEmail` returned, so a handler reads
+// `user.token`, `user.relayToken` and `user.role` off that value — `GET /api/me` answers with five of its
+// fields, and a `{uid, role}` struct (which is what this file had while only the devices family used it) cannot
+// express that without a second read on the `/api/me` path. `require_session` and `require_admin` below answer
+// `serde_json::Value`s for exactly that reason.
 
 /// `token.indexOf(".")` then `slice(0, dot)` / `slice(dot + 1)`.
 pub fn split_token(token: &str) -> Option<(&str, &str)> {
@@ -132,9 +140,47 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// `issueSessionToken(secret, uid, role)` — `b64url(payload).b64url(hmac)`, the token every login writes into
+/// the cookie and every request verifies.
+///
+/// **THE PAYLOAD'S FIELD ORDER IS `uid, role, exp` AND IT IS THE WIRE FORMAT**: the token is the base64 of that
+/// exact JSON, so two implementations that agree on the claims but not on the order produce tokens that are not
+/// byte-equal and a corpus that cannot compare them.
+///
+/// `btoa` IN THE SOURCE IS LATIN-1, so a uid with a non-ASCII character would throw there and encode UTF-8 here.
+/// Every value a ROUTE can hand this function is ASCII — a username this console validated as
+/// `[A-Za-z0-9_.-]{2,32}`, or the Access arm's `usernameFromEmail`, which strips to the same alphabet.
+pub fn session_payload(uid: &str, role: &str, now_ms: i64) -> String {
+    let payload = serde_json::json!({
+        "uid": uid,
+        "role": role,
+        "exp": now_ms + user_store::SESSION_TTL_MS,
+    });
+    b64url_encode(payload.to_string().as_bytes())
+}
+
+/// The issued token: the payload, a dot, and the platform's HMAC over that payload.
+pub async fn issue_session_token(
+    secret: &str,
+    uid: &str,
+    role: &str,
+    now_ms: i64,
+) -> Option<String> {
+    let payload = session_payload(uid, role, now_ms);
+    let signature = crate::webcrypto::hmac_sha256(secret, &payload).await?;
+    Some(format!("{payload}.{}", b64url_encode(&signature)))
+}
+
+/// What a VERIFIED token says: the two claims `verifySessionToken` reads out of its payload.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenClaims {
+    pub uid: String,
+    pub role: String,
+}
+
 /// `verifySessionToken`'s last three steps: decode the payload, parse it, and read the claims — `exp` must be a
 /// NUMBER and must not have passed, `uid` is `String(data.uid)`, and `role` is `String(data.role || "user")`.
-pub fn session_claims(data: &Value, now_ms: i64) -> Option<SessionUser> {
+pub fn session_claims(data: &Value, now_ms: i64) -> Option<TokenClaims> {
     let exp = data.get("exp")?;
     if !exp.is_number() {
         return None;
@@ -142,14 +188,14 @@ pub fn session_claims(data: &Value, now_ms: i64) -> Option<SessionUser> {
     if exp.as_f64()? < now_ms as f64 {
         return None;
     }
-    Some(SessionUser {
+    Some(TokenClaims {
         uid: js_to_string_of(data.get("uid")),
         role: js_truthy_string(data.get("role"), "user"),
     })
 }
 
 /// `verifySessionToken(secret, token)` — the signature first (computed, not decoded), then the payload.
-pub async fn verify_session_token(secret: &str, token: &str, now_ms: i64) -> Option<SessionUser> {
+pub async fn verify_session_token(secret: &str, token: &str, now_ms: i64) -> Option<TokenClaims> {
     if secret.is_empty() || token.is_empty() {
         return None;
     }
@@ -164,14 +210,14 @@ pub async fn verify_session_token(secret: &str, token: &str, now_ms: i64) -> Opt
     session_claims(&data, now_ms)
 }
 
-/// `requireSession(request, env)` — the cookie arm, in the source's order.
+/// `requireCookieSession(request, env, store)` — the cookie arm, in the source's order.
 ///
 /// **THE ORDER IS THE SECURITY PROPERTY**: no admin password means no sessions at all; the revocation blacklist
 /// is consulted BEFORE the signature (a logged-out cookie dies even though it verifies); the user must exist and
 /// be enabled AFTER it verifies. A port that checked the signature first would still be correct, but one that
 /// checked the user before the signature would touch KV on every forged cookie.
-pub async fn require_session(request: &Request, env: &Env) -> Option<SessionUser> {
-    let admin_password = device_store::admin_password(env).await;
+async fn require_cookie_session(request: &Request, env: &Env) -> Option<Value> {
+    let admin_password = user_store::admin_password(env).await;
     if admin_password.is_empty() {
         return None;
     }
@@ -206,12 +252,56 @@ pub async fn require_session(request: &Request, env: &Env) -> Option<SessionUser
         // Rotation compat: a cookie signed with the old admin-password key is accepted this once.
         session = verify_session_token(&admin_password, &cookie, now).await;
     }
-    let resolved = session.clone()?;
-    let user = device_store::get_user(env, &resolved.uid).await?;
+    let resolved = session?;
+    let user = user_store::get_user(env, &resolved.uid).await?;
     if user.get("enabled").is_none_or(js_falsy) {
         return None;
     }
-    session
+    Some(user)
+}
+
+/// `requireSession(request, env)` — **THE COOKIE ARM, AND THEN THE ACCESS ARM.**
+///
+/// The two arms are tried in that order and the first answer wins, which is the source's contract and the reason
+/// a password account keeps working on a deployment that has also switched Access on.
+///
+/// `Err` is the one arm that THROWS rather than refusing (`access.rs`'s key import and its uniqueness loop), and
+/// it is an error rather than a `None` for exactly that reason: the shipping front door's catch answers 500
+/// `Internal error` for it, and a port that answered 401 would be a different response on a real request.
+pub async fn require_session(request: &Request, env: &Env) -> Result<Option<Value>, RouteFailure> {
+    if let Some(user) = require_cookie_session(request, env).await {
+        return Ok(Some(user));
+    }
+    // No valid session cookie — fall back to the edge-verified Cloudflare Access identity (option C). No-op
+    // unless ACCESS_AUD/ACCESS_TEAM_DOMAIN are set, which `require_access_session` tests itself.
+    crate::access::require_access_session(request, env).await
+}
+
+/// `requireAdmin(request, env)` — the resolved user, or the Response the handler returns INSTEAD.
+///
+/// The two refusals are the source's own bytes (`jsonError(401, "Not logged in or session expired",
+/// "authentication_error")` and `jsonError(403, "Admin permission required", "authorization_error")`), and the
+/// outer `Err` is `require_session`'s throw. `Result<Result<…>>` is deliberate: a caller must not be able to
+/// conflate "refused" with "threw", because one is a 401/403 and the other is a 500.
+pub async fn require_admin(
+    request: &Request,
+    env: &Env,
+) -> Result<Result<Value, Response>, RouteFailure> {
+    let Some(user) = require_session(request, env).await? else {
+        return Ok(Err(crate::json_error(
+            401,
+            "Not logged in or session expired",
+            "authentication_error",
+        )?));
+    };
+    if user.get("role").and_then(Value::as_str) != Some("admin") {
+        return Ok(Err(crate::json_error(
+            403,
+            "Admin permission required",
+            "authorization_error",
+        )?));
+    }
+    Ok(Ok(user))
 }
 
 #[cfg(test)]
@@ -288,7 +378,7 @@ mod tests {
     fn the_claims_are_the_sources() {
         assert_eq!(
             session_claims(&json!({"uid": "u1", "role": "admin", "exp": 2000}), 1000),
-            Some(SessionUser {
+            Some(TokenClaims {
                 uid: "u1".into(),
                 role: "admin".into()
             })
@@ -322,6 +412,40 @@ mod tests {
         );
     }
 
+    /// **THE ISSUED PAYLOAD IS THE SOURCE'S EXACT JSON**, because it is what the token IS: a different key order
+    /// is a different token, and the corpus compares tokens byte for byte.
+    ///
+    /// MUTATION: build the payload as `{"role":…, "uid":…, "exp":…}`.
+    /// RESULT:   this test fails, and so does every recorded login case — the cookie the worker sets would not
+    ///           be the cookie the shipping console sets.
+    #[test]
+    fn the_issued_payload_is_the_sources_json() {
+        let payload = session_payload("admin", "admin", 1_760_000_000_000);
+        let decoded = b64url_decode(&payload).unwrap();
+        assert_eq!(
+            String::from_utf8(decoded).unwrap(),
+            r#"{"uid":"admin","role":"admin","exp":1760086400000}"#
+        );
+        // ...and it verifies as a session for a clock inside its 24-hour window, with the claims it was built
+        // from. (The HMAC itself is the platform's; this pins the TTL arithmetic, which is `Date.now() + TTL`.)
+        let data: Value = serde_json::from_str(
+            &String::from_utf8(b64url_decode(&payload).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            session_claims(&data, 1_760_000_000_000),
+            Some(TokenClaims {
+                uid: "admin".into(),
+                role: "admin".into()
+            })
+        );
+        assert!(
+            session_claims(&data, 1_760_086_400_001).is_none(),
+            "a millisecond past the 24-hour TTL"
+        );
+        assert!(session_claims(&data, 1_760_086_400_000).is_some(), "…to the ms");
+    }
+
     /// The claim strings a real session cookie's payload decodes to — the two shapes `issueSessionToken`
     /// produces, byte for byte (this is the oracle the corpus was recorded from).
     #[test]
@@ -335,7 +459,7 @@ mod tests {
         );
         assert_eq!(
             session_claims(&serde_json::from_str(&text).unwrap(), 1759999999999),
-            Some(SessionUser {
+            Some(TokenClaims {
                 uid: "admin".into(),
                 role: "admin".into()
             })
