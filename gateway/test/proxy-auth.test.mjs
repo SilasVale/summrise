@@ -340,6 +340,9 @@ test("rewriteDeviceBody via proxy: mount insert, token scrub, no double-prefix",
   // rewriteDeviceBody is exported but this exercises it through the admin
   // proxy path (static imports above) with a device serving crafted HTML.
   const env = makeBaseEnv({
+    // The no-binding configuration, like this file's own `makeEnv`: the proxy is the Rust worker's now, so this
+    // is a test of the TypeScript rollback's rewrite.
+    wasmGate: false,
     devices: [DEVICE],
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { _admin_seeded: "1", "auth:admin_password": ADMIN_PW },

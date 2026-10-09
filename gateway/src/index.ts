@@ -126,27 +126,35 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
 }
 
 /**
- * THE DEVICE FAMILY'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH TWO IT DOES NOT.
+ * THE DEVICE FAMILY'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH IT DOES NOT.
  *
  * The rule is the same one `/v1` already follows: the TypeScript front door hands a path to the `WASM_GATE`
  * service binding, and the DECISION of what belongs to the family is ONE predicate, mirrored in Rust
- * (`gateway/wasm/src/devices.rs::in_family`) so a path that is handed over is a path that is served. What is
- * being cut over (2026-10-08, landing 5 slice 1): the console's device registry — `POST /api/register`,
- * `POST /api/devices/self-register`, `POST /api/install/tunnel-token`, the register-key routes, `install-cmd`,
- * `GET`/`POST /api/devices`, a device's `mcp`, `delete`, `rename` and `panel-grant`, and the panel-grant redeem —
- * fifteen routes whose decisions are Rust now, proved case for case against this implementation by
+ * (`gateway/wasm/src/devices.rs::in_family`, `device_proxy::in_family`, `upload::in_family`) so a path that is
+ * handed over is a path that is served. What is being cut over: the console's device registry — `POST
+ * /api/register`, `POST /api/devices/self-register`, `POST /api/install/tunnel-token`, the register-key routes,
+ * `install-cmd`, `GET`/`POST /api/devices`, a device's `mcp`, `delete`, `rename` and `panel-grant`, and the
+ * panel-grant redeem — fifteen routes, proved case for case against this implementation by
  * `gateway/wasm/verify.mjs` (67 cases, including the refusals: no session, a forged cookie, a non-admin, a spent
  * claim, a name that is taken, a device that does not exist).
  *
- * **THE TWO EXCLUSIONS, EACH WITH ITS REASON:**
+ * **AND THE TWO EXCLUSIONS ARE GONE — landing 5 slice 4, which is the last of them.** They were, with the
+ * reasons they carried until this slice:
  *
- *   * `/api/devices/<name>/proxy/...` is `plugins/device-proxy.ts` — a reverse proxy that mints per-device
- *     cookies, rewrites panel HTML and can upgrade a WebSocket. It is not this slice, and it is checked here
- *     FIRST because it shares the prefix.
- *   * `POST|PUT /api/upload` is not under `/api/devices` at all and is not in the predicate: a 100 MiB body
- *     passthrough to the relay, which `workers-rs` 0.8.7 cannot forward as a stream.
+ *   * `/api/devices/<name>/proxy/...` was `plugins/device-proxy.ts`: a reverse proxy that mints per-device
+ *     cookies, rewrites panel HTML and can upgrade a WebSocket. It is `gateway/wasm/src/device_proxy.rs` now,
+ *     with `tool_policy.rs` beside it and `device.rs`'s dial carrying the caller's body as a STREAM.
+ *   * `POST|PUT /api/upload` was not under `/api/devices` at all and was not in the predicate: a 100 MiB body
+ *     passthrough to the relay, which `workers-rs` 0.8.7 could not forward as a stream. It can — the global
+ *     `Request` constructor takes `duplex: "half"` (`device::js_request`) — so the passthrough is
+ *     `gateway/wasm/src/upload.rs`, and this predicate names the path.
  *
- * **AND THE COOKIE CONDITION IS GONE (landing 5 slice 2).** Until this slice `devicesRouteNeedsSession` kept the
+ * **THE ROLLBACK IS STILL THE PLUGIN.** `plugins/devices.ts` and its stores are unchanged and still registered,
+ * so a deployment without the binding — a local `wrangler dev`, a test env, a deployment whose binding was
+ * removed — serves the whole family from TypeScript, exactly as it did before this slice. Deleting them is the
+ * last step of this landing, after the deploy that proves the worker serves the family.
+ *
+ * **AND THE COOKIE CONDITION IS GONE (landing 5 slice 2).** Until that slice `devicesRouteNeedsSession` kept the
  * eleven admin-gated routes on the TypeScript path when the request carried NO console cookie, because
  * `requireSession`'s second identity arm — the Cloudflare Access JWT (`access.ts`), which authenticates an admin
  * with no console cookie at all — was not ported. **That arm is Rust now** (`gateway/wasm/src/access.rs`, proved
@@ -156,9 +164,13 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
  * to the worker, which rejects it, and now a caller who sends none is too.
  */
 function isDevicesFamily(method: string, path: string): boolean {
-  // The reverse proxy shares the prefix — see the header. Checked first.
-  if (/^\/api\/devices\/[^/]+\/proxy/.test(path)) return false;
+  // The reverse proxy SHARES the prefix and is part of the family now. The regex is the route's OWN match
+  // function, which is why it is written first: the Rust dispatcher checks the proxy BEFORE the registry for
+  // the same reason `plugins/devices.ts` registers that route above the session gate.
+  if (/^\/api\/devices\/[^/]+\/proxy/.test(path)) return true;
   if (path.startsWith("/api/devices")) return true;
+  // The file relay's upload leg: one path, two verbs, and the only device-family route outside the prefix.
+  if ((method === "POST" || method === "PUT") && path === "/api/upload") return true;
   return method === "POST" && (path === "/api/register" || path === "/api/install/tunnel-token");
 }
 

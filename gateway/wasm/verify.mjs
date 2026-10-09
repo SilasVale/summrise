@@ -3190,11 +3190,21 @@ const rowsFor = (got) => [
       headers: { "cf-connecting-ip": "203.0.113.23" },
     },
     // ---- the front door's own answers on this prefix ----
+    // **THE ROW THAT USED TO SAY "NOT THIS FAMILY".** The reverse proxy was the device family's exclusion
+    // until landing 5 slice 4 — this case asserted the worker stayed SILENT for it (no KV write, no dial).
+    // The proxy is Rust now, so the same request is compared like every other row, and the panel rewrite it
+    // carries is pinned here as well as in the section that owns it.
     {
-      name: "GET /api/devices/d1/proxy/panel (NOT this family: the reverse proxy)",
+      name: "GET /api/devices/d1/proxy/panel (the reverse proxy, IN the family since slice 4)",
       req: ["GET", "/api/devices/d1/proxy/panel"],
       cookie: "admin",
-      notInFamily: true,
+      upstream: {
+        "/panel": {
+          status: 200,
+          type: "text/html; charset=utf-8",
+          body: '<script>window.__PANEL_TOKEN__ = "t"</script><a href="/api/status">s</a>',
+        },
+      },
     },
     { name: "GET /api/devices/anything/else/here", req: ["GET", "/api/devices/anything/else/here"], cookie: "admin" },
     { name: "PUT /api/devices", req: ["PUT", "/api/devices"], cookie: "admin" },
@@ -3341,42 +3351,11 @@ const rowsFor = (got) => [
   installDeterminism(FIXED_NOW);
   for (const [i, c] of CASES.entries()) {
     const cookie = c.cookie === null ? "" : COOKIES[c.cookie ?? "admin"];
-    if (c.notInFamily) {
-      // **THE ONE PATH THAT MUST NOT BE HANDED OVER.** `/api/devices/<name>/proxy/...` is `device-proxy.ts`, a
-      // reverse proxy this slice does not port — so the family's dispatcher must refuse it and the front door
-      // must keep serving it. The shipped answer is recorded and replayed like any other; what makes it a case
-      // is that BOTH sides must produce it from their own code.
-      const wasm = await driveWasm(c, cookie, i);
-      const shipped = shippingDoor ? await driveTs(c, cookie) : null;
-      if (shipped) {
-        recorded[c.name] = {
-          status: shipped.status,
-          body: shipped.body,
-          headers: shipped.headers,
-          writes: shipped.writes,
-          calls: shipped.calls,
-        };
-      }
-      const reference = shipped ?? FIXTURE[c.name];
-      if (!reference) {
-        console.log(`      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with DEVICES_RECORD=1`);
-        different += 1;
-        failures.push(c.name);
-        continue;
-      }
-      // The TypeScript's proxy answers 401 to a cookie-less caller and proxies for an admin; either way the
-      // WASM must NOT be answering this path at all, which is what `writes`/`calls` being EMPTY shows.
-      const wasmIsSilent = wasm.writes.length === 0 && wasm.calls.length === 0;
-      if (wasmIsSilent) {
-        same += 1;
-        console.log(`      ok   ${c.name} — the family refuses it (404, no KV write, no dial)`);
-      } else {
-        different += 1;
-        failures.push(c.name);
-        console.log(`      FAIL ${c.name} — the wasm worker READ OR WROTE for a path it must not own`);
-      }
-      continue;
-    }
+    // **THE `notInFamily` ARM IS GONE, AND ITS ABSENCE IS THE MEASUREMENT.** It existed for exactly one case —
+    // `/api/devices/<name>/proxy/...`, the family's last exclusion — and asserted the worker stayed silent for
+    // it. Slice 4 ported the proxy, so there is no path left that this family is handed and must refuse, and a
+    // branch with no case is a claim with no test. Should a future exclusion appear, it needs its own arm AND
+    // its own case, not this one back.
     const shipped = shippingDoor ? await driveTs(c, cookie) : null;
     if (shipped) {
       recorded[c.name] = {
@@ -3485,6 +3464,1142 @@ const rowsFor = (got) => [
   }
   console.log(
     `  the device family, shipping TypeScript against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing${rateNote}`,
+  );
+  for (const name of failures) console.log(`      FAIL ${name}`);
+  bad += different;
+}
+
+// ── THE DEVICE PROXY AND THE FILE RELAY — the family's last two consumers ───────────────────────
+//
+// **THE MUTATION THAT MUST FAIL THIS SECTION** ─────────────────────────────────────────────────
+// Read this when you change this section: the mutation is how you find out whether the check can still fail
+// at all. A check that cannot be broken is worse than no check.
+//
+// MUTATION: in `src/device_proxy.rs`, change the `?token=` navigation guard from
+//           `if !q_token.is_empty() && is_nav` to `if !q_token.is_empty()` — the 302 that mints the per-device
+//           cookie now fires for ANY request carrying a query token, not only a top-level navigation.
+// RESULT:   measured 2026-10-09, exit 1, the section at 66/67 with ONE differing case — and WHICH case is the
+//           finding, so it is transcribed rather than summarised:
+//             FAIL GET proxy with a valid Authorization AND ?token= — proxied, no token upstream, no-store
+//               status: ship "502" :: wasm "302"
+//               headers: ship "access-control-allow-headers: * | access-control-allow-methods: … | cache-control:
+//                        no-store | content-type: application/json" :: wasm "cache-control: no-store |
+//                        location: /api/devices/d1/proxy/api/status | set-cookie: summrise_pt_d1=…; Path=…;
+//                        HttpOnly; Secure; SameSite=Lax; Max-Age=2592000"
+//               body: ship "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device
+//                     unreachable: the proxy corpus has no upstream answer for …\"}}" :: wasm ""
+//               upstream: ship "GET d1.agent.test/api/status auth=Bearer 111… xsa=ssss… xfp=https cookie=-
+//                         stream=no body=-" :: wasm ""
+//           (The ship side's 502 is THIS CASE's recorded answer, and it is a finding about the corpus rather
+//           than about the route: the recorded reference was taken from a run in which this case's upstream key
+//           was still keyed by bare path — see the NEVER_ANSWERED note below. The mutation is what exposed it,
+//           which is the second thing a good mutation does.)
+//           **AND THE CASE THAT DID NOT MOVE IS THE OTHER HALF OF THE MEASUREMENT**: a NON-navigation with a
+//           query token and NO Authorization was already a 401 before the guard (`if (qToken && !auth && !isNav)`
+//           runs first), so it stays 401 — which is why the mutation has to be read against the case that
+//           carries BOTH credentials to be seen at all.
+//
+// **WHAT THIS SECTION IS FOR.** `gateway/src/plugins/device-proxy.ts`, `gateway/src/device-fetch.ts` and
+// `gateway/src/tool-policy.ts` — the reverse proxy, the SSRF-guarded dial it uses, and the catalogue check
+// that keeps `/mcp`'s curation from being one proxied POST away — plus `POST|PUT /api/upload`, the relay's
+// 100 MiB passthrough. All four are Rust now (`device_proxy.rs`, `device.rs`, `tool_policy.rs`, `upload.rs`),
+// and the criterion is the one every other route in this worker met: **the same request produces a
+// byte-comparable answer from the TypeScript the console runs and from the built worker**, and where a
+// response cannot show the difference, the OBSERVABLE is compared too — the KV writes each handler made and
+// every request each one dialled, with its method, its credential headers, its query AND its body.
+//
+// **THE BODY IS THE POINT OF HALF THESE CASES, IN BOTH DIRECTIONS.** The proxy forwards the caller's body to
+// the device and the device's body back to the caller, and the upload forwards 100 MiB the same way; a port
+// that buffered either would still answer identically for a 40-byte JSON body. So the rows carry the body the
+// upstream SAW and the body the client GOT, and `stream=` records whether a `ReadableStream` — not a string —
+// was handed to the runtime: that is the difference between a passthrough and an allocation, and it is the one
+// thing about this slice that no response can show.
+//
+// **THE RECORDING IS THE ORACLE, AND THE TYPESCRIPT IS STILL HERE TO RECORD FROM.** `PROXY_RECORD=1 node
+// verify.mjs` drives `gateway/src/index.ts`'s own front door — WITHOUT the `WASM_GATE` binding, which is the
+// rollback configuration the TypeScript still serves — and writes every answer into `shipping-answers.json`;
+// every other run replays those answers against the built worker. A fixture recorded from a FAILING run would
+// pin the failure, so the writer refuses unless every case agreed on the run that produced it.
+//
+// **AND TWO THINGS THIS SECTION CANNOT SEE, NAMED RATHER THAN IMPLIED:**
+//
+//   * **THE 101 ARM, BOTH OF ITS BRANCHES.** `build101Response` needs a response that is either a WebSocket
+//     upgrade (only the runtime mints one) or a 101 WITHOUT one — and a 101 without a `webSocket` cannot be
+//     built in Node at all: `new Response(null, {status: 101})` is `RangeError: init["status"] must be in the
+//     range of 200 to 599`. The first version of this section carried a case for it anyway, and MEASURED why
+//     that is worthless: the stub threw before either implementation saw a response, so both sides reported the
+//     same `device unreachable` and the case compared two transport failures. It is named here rather than
+//     pinned there, and what replaces it is the stream test below — a body that no buffering port can answer.
+//   * **THE VAULT'S REAL SIZE CEILING.** A 100 MiB body is refused by the PLATFORM before either
+//     implementation sees it, so the corpus drives the DECLARED length instead: the `Content-Length` header
+//     is what the gateway's own bound reads, and `?name=` is what the stream carries.
+{
+  const FIXED_NOW = 1_760_000_000_000;
+  const SESSION_SECRET = "device-proxy-session-secret";
+  const D1_TOKEN = "1".repeat(64);
+  const D2_TOKEN = "2".repeat(64);
+  const OFFSITE_TOKEN = "3".repeat(64);
+  const PRIVATE_TOKEN = "4".repeat(64);
+  const ADMIN_TOKEN = "admin-api-token";
+  const RELAY_TOKEN = "relay-api-token";
+  const LIVE_LINK = "live-plugin-link";
+  const EXPIRED_LINK = "expired-plugin-link";
+  const UPLOAD_KEY = "the-upload-key";
+  const PROXY_SECRET = "s".repeat(32);
+
+  const { issueSessionToken } = await import(new URL("../src/auth.ts", import.meta.url).href);
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+
+  const makeKv = (seed) => makeKvStub(seed, FIXED_NOW);
+
+  // ── the registry, the callers and the links every case reads ────────────────────────────────────
+  const SEED = {
+    "auth:admin_password": "deadbeefdeadbeef:0123456789abcdef",
+    _admin_seeded: "1",
+    [`token:${ADMIN_TOKEN}`]: "admin",
+    [`token:${RELAY_TOKEN}`]: "admin",
+    "user:admin": JSON.stringify({
+      id: "admin",
+      username: "admin",
+      role: "admin",
+      enabled: true,
+      createdAt: 1,
+      token: ADMIN_TOKEN,
+      relayToken: RELAY_TOKEN,
+    }),
+    "user:bob": JSON.stringify({
+      id: "bob",
+      username: "bob",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: "bob-token",
+    }),
+    "devices:v1": JSON.stringify([
+      { name: "d1", hostname: "d1.agent.test", token: D1_TOKEN, proxySecret: PROXY_SECRET },
+      { name: "d2", hostname: "d2.agent.test", token: D2_TOKEN },
+      // A record that predates the dial-time guard, or was written by a path that skipped it.
+      { name: "private", hostname: "127.0.0.1", token: PRIVATE_TOKEN },
+      { name: "offsite", hostname: "evil.test", token: OFFSITE_TOKEN },
+    ]),
+    "plugins:v1": JSON.stringify({
+      [LIVE_LINK]: { device: "d1", createdAt: 1, expiresAt: FIXED_NOW + 86_400_000 },
+      [EXPIRED_LINK]: { device: "d1", createdAt: 1, expiresAt: FIXED_NOW - 1 },
+      "other-device-link": { device: "d2", createdAt: 1, expiresAt: FIXED_NOW + 86_400_000 },
+    }),
+  };
+  const COOKIES = {
+    admin: await issueSessionToken(SESSION_SECRET, "admin", "admin"),
+    user: await issueSessionToken(SESSION_SECRET, "bob", "user"),
+  };
+
+  const deviceEnv = (kv, extra = {}) => ({
+    KEYS: kv,
+    CONSOLE_HOST: "console.test",
+    CONSOLE_ORIGINS: "https://console.test",
+    DEVICE_HOST_SUFFIX: ".agent.test",
+    INDEX_WORKER_URL: "https://idx.test",
+    SESSION_SECRET,
+    UPLOAD_KEY,
+    ...extra,
+  });
+
+  // ── the upstream stub: the device's answers, and every dial recorded ────────────────────────────
+  // The row carries the method, the host AND path (so an upload to the index worker cannot be confused with a
+  // device's own `/api/upload`), the query, the credential headers the dial is supposed to mint or strip, and
+  // the body — with `stream=` recording whether a `ReadableStream` was handed over rather than a string.
+  const stubUpstream = (c, capture) => {
+    globalThis.fetch = async (url, init = {}) => {
+      const handed = url instanceof Request ? url : null;
+      const request = handed ?? new Request(url, init);
+      const target = new URL(request.url);
+      let body = "-";
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        try {
+          const text = await request.clone().text();
+          if (text !== "") body = text;
+        } catch {
+          /* a body that cannot be read is recorded as absent */
+        }
+      }
+      const bodyIsStream = handed
+        ? handed.body !== null
+        : init.body instanceof ReadableStream;
+      const header = (name) => request.headers.get(name) ?? "-";
+      capture.push(
+        `${request.method} ${target.host}${target.pathname}${target.search}` +
+          ` auth=${header("authorization")} xsa=${header("x-summrise-auth")}` +
+          ` xfp=${header("x-forwarded-proto")} cookie=${header("cookie")}` +
+          ` stream=${bodyIsStream ? "yes" : "no"} body=${body}`,
+      );
+      const key = `${target.host}${target.pathname}`;
+      const answer = typeof c.upstream === "function" ? c.upstream(key, request) : (c.upstream ?? {})[key];
+      if (!answer) throw new Error(`the proxy corpus has no upstream answer for ${key}`);
+      if (answer.throws) {
+        const error = new Error(answer.throws);
+        if (answer.name) error.name = answer.name;
+        throw error;
+      }
+      const headers = answer.headers ?? { "content-type": answer.type ?? "application/json" };
+      return new Response(answer.body === undefined ? null : answer.body, {
+        status: answer.status ?? 200,
+        headers,
+      });
+    };
+  };
+
+  // ── the RELAY binding's stub, and it must be NAMED `Fetcher` ────────────────────────────────────
+  // `workers-rs`' `EnvBinding::get` duck-types on `obj.constructor().name`, so a service binding that is
+  // called anything else is not reachable from the Rust side at all — and a stub that silently was not
+  // called would report two identical answers for a route that never dialled.
+  class Fetcher {
+    constructor(record) {
+      this.record = record;
+    }
+    async fetch(request) {
+      const target = new URL(request.url);
+      let body = "-";
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        try {
+          const text = await request.clone().text();
+          if (text !== "") body = text;
+        } catch {
+          /* absent */
+        }
+      }
+      const header = (name) => request.headers.get(name) ?? "-";
+      this.record.push(
+        `relay ${request.method} ${target.host}${target.pathname}${target.search}` +
+          ` auth=${header("authorization")} ct=${header("content-type")}` +
+          ` xf=${header("x-filename")} xct=${header("x-content-type")}` +
+          ` cookie=${header("cookie")} stream=${request.body !== null ? "yes" : "no"} body=${body}`,
+      );
+      return new Response('{"ok":true,"stored":true}', {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "set-cookie": "relay=1; Path=/",
+          connection: "keep-alive",
+          "x-kept": "yes",
+        },
+      });
+    }
+  }
+
+  // ── the device's own answers ────────────────────────────────────────────────────────────────────
+  const PANEL_HTML =
+    '<!doctype html><html><head><title>panel</title></head><body>' +
+    '<script>window.__PANEL_TOKEN__ = "the-permanent-device-token"</script>' +
+    '<a href="/api/status">status</a><script src="./panel.js"></script>' +
+    '<script>const u = `https://${h}/api/events/term`;</script>' +
+    '</body></html>';
+  // **THE KEYS ARE `${host}${pathname}`, WHICH IS EXACTLY WHAT THE STUB LOOKS UP.** The first version of this
+  // table was keyed by bare path while the stub looked up host+path, so almost every case's device dial found no
+  // answer, `deviceFetch` turned the stub's throw into `502 Device unreachable: the proxy corpus has no upstream
+  // answer for …`, and BOTH implementations produced it — 49 cases "identical" and not one of them measuring the
+  // route. **AND A ROW THAT SAYS THE CORPUS NEVER ANSWERED IS A FAILED CASE**, which is the self-check below:
+  // without it, a typo in an upstream key is invisible in the one direction that matters.
+  const NEVER_ANSWERED = "the proxy corpus has no upstream answer";
+
+  const UPSTREAM = {
+    "d1.agent.test/panel/": {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8", "content-length": "4096" },
+      body: PANEL_HTML,
+    },
+    "d1.agent.test/api/status": {
+      status: 200,
+      headers: { "content-type": "application/json", "content-length": "4096" },
+      body: '{"ok":true,"name":"d1","proxy_secret":"leak-me-not","z":1,"version":"1.2.3"}',
+    },
+    "d1.agent.test/api/status.masked": {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: '{ "ok" : true , "name" : "d1" }',
+    },
+    "d1.agent.test/api/events/term": {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      body: "data: hello\n\ndata: world\n\n",
+    },
+    "d1.agent.test/api/file": {
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: "PK\u0003\u0004\u00ff\u00fe binary \u00ff",
+    },
+    "d1.agent.test/api/plain": {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: 'see "/api/status" for more',
+    },
+    "d1.agent.test/api/broken": { status: 500, body: '{"type":"error","error":{"type":"api_error","message":"boom"}}' },
+    "d1.agent.test/api/missing": { status: 404, body: '{"type":"error","error":{"type":"not_found_error","message":"no"}}' },
+    "d1.agent.test/api/moved": { status: 302, headers: { location: "https://elsewhere.test/x" }, body: "" },
+    "d1.agent.test/api/nobody": { status: 204, body: null },
+    "d1.agent.test/api/tools/terminal_list": { status: 200, body: '{"ok":true,"result":[]}' },
+    "d1.agent.test/api/tools/agent_update": { status: 200, body: '{"ok":true,"updated":true}' },
+    "d1.agent.test/api/tools/toString": { status: 200, body: '{"ok":true,"never":"reached"}' },
+    "d1.agent.test/api/tools/": { status: 200, body: '{"ok":true,"empty-name":true}' },
+    "d1.agent.test/api/tools/terminal_execute": { status: 200, body: '{"ok":true,"output":"done"}' },
+    "d1.agent.test/api/devices/d1/proxy/api/status": { status: 200, body: '{"ok":true,"nested":true}' },
+    "d1.agent.test/foo": { status: 200, body: '{"ok":true,"foo":true}' },
+    // The index worker's upload leg — its own host, so it cannot be confused with a device's path.
+    "idx.test/api/upload": { status: 200, body: '{"ok":true,"key":"claim/abc"}' },
+  };
+  const UPSTREAM_WITH_ACAO = {
+    "d1.agent.test/api/status": {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "https://evil.test",
+        vary: "Accept-Encoding",
+      },
+      body: '{"ok":true,"name":"d1"}',
+    },
+  };
+
+  const BASE = { upstream: UPSTREAM };
+
+  // **A CARRIED ACAO ON THE FILE RELAY'S OWN ANSWER — THE ONE PAIRING THE CORPUS DID NOT HAVE.**
+  //
+  // The upload's host fallback RE-SERVES the index worker's headers (`finish_upload`'s strip list covers
+  // `set-cookie`/hop-by-hop framing and nothing else), so an `access-control-allow-origin` the worker sent
+  // arrives at the front door's stamp — and `withCors` has to take it away when the caller's origin is not
+  // allowlisted (`http.ts:124`). `Vary` rides along because the source's `else` deletes the ORIGIN ALONE:
+  // pinning one without the other is exactly how `cors.rs`'s unit test came to assert the opposite of the live
+  // code, and the pairing is what makes this case a measurement rather than a restatement.
+  //
+  // **WHY THE UPLOAD AND NOT THE PROXY, WHICH ALREADY HAS THIS CASE**: the reverse proxy stamps its own headers
+  // first (`device_proxy::stamp_cors_like_ts`), so it cannot show what the OUTER stamp does — the upload is the
+  // route whose answer reaches `with_cors` with an ACAO still on it. The gap is arm-independent (it is the last
+  // stamp on every response), which is why one case covers it rather than one per relay arm.
+  const UPLOAD_WITH_ACAO = {
+    "idx.test/api/upload": {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "https://relay.test",
+        vary: "Accept-Encoding",
+      },
+      body: '{"ok":true,"key":"claim/abc"}',
+    },
+  };
+
+  // ── the cases ───────────────────────────────────────────────────────────────────────────────────
+  // Every decision the two modules carry, its refusals as carefully as its successes.
+  const CASES = [
+    // ---- who may open a device's panel, and what they see ----
+    {
+      name: "GET /proxy/panel/ with an admin session — the text rewrite, token scrubbed",
+      req: ["GET", "/api/devices/d1/proxy/panel/", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/status with an admin session — proxy_secret stripped, key order kept",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/status.masked — a JSON passthrough is NOT re-serialised",
+      req: ["GET", "/api/devices/d1/proxy/api/status.masked", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/events/term — the SSE stream passes through untouched",
+      req: ["GET", "/api/devices/d1/proxy/api/events/term", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/file — the octet-stream passes through as BYTES, streamed",
+      req: ["GET", "/api/devices/d1/proxy/api/file", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/plain — any text/ type is rewritten",
+      req: ["GET", "/api/devices/d1/proxy/api/plain", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/nobody — a 204 with no body at all",
+      req: ["GET", "/api/devices/d1/proxy/api/nobody", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/moved — a 3xx the dial does NOT follow comes back to the caller",
+      req: ["GET", "/api/devices/d1/proxy/api/moved", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/broken — an upstream 5xx is passed through, not translated",
+      req: ["GET", "/api/devices/d1/proxy/api/broken", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/terminal_execute — the caller's BODY is streamed to the device",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/terminal_execute", '{"command":"whoami"}'],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/status with an allowlisted Origin — ACAO reflected",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      headers: { origin: "https://console.test" },
+      ...BASE,
+    },
+    {
+      name: "GET /proxy/api/status with a foreign Origin — the UPSTREAM's ACAO is removed, Vary kept",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      headers: { origin: "https://evil.test" },
+      upstream: UPSTREAM_WITH_ACAO,
+    },
+    {
+      // **`x-forwarded-proto` IS NOT IN THIS CASE, AND THAT IS A MEASUREMENT.** The proxy deletes the caller's
+      // value and sets `https` — but a request that CARRIES `http` never reaches this route through the front
+      // door: `index.ts` answers it 308 first (the Secure session cookie is only stored over https). So the
+      // replacement arm is unreachable from the one door this corpus can drive the TypeScript through, and the
+      // three headers below are the ones that ARE reachable. Sending `https` would prove nothing, which is why
+      // it is not sent.
+      name: "GET /proxy/api/status — the caller's x-forwarded-for, cf-connecting-ip and x-summrise-auth go",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      headers: {
+        "x-forwarded-for": "203.0.113.9",
+        "cf-connecting-ip": "203.0.113.9",
+        "x-summrise-auth": "client-minted",
+      },
+      ...BASE,
+    },
+
+    // ---- the device name, and the oracle the source closed ----
+    {
+      name: "GET proxy for a device that does NOT exist, as an admin — 404 is the admin's to see",
+      req: ["GET", "/api/devices/ghost/proxy/api/status", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxy for a device that does NOT exist, with NO session — 401, not a name oracle",
+      req: ["GET", "/api/devices/ghost/proxy/api/status", undefined],
+      cookie: null,
+      ...BASE,
+    },
+    {
+      name: "GET proxy for a device that does NOT exist, as a NON-admin — 401, still no oracle",
+      req: ["GET", "/api/devices/ghost/proxy/api/status", undefined],
+      cookie: "user",
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a malformed percent-escape in the device name — 400, not a 500",
+      req: ["GET", "/api/devices/%zz/proxy/api/status", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxy with no credential at all — 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      ...BASE,
+    },
+    {
+      name: "GET proxy with an unknown Bearer token — 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: "Bearer not-a-token" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with the DEVICE's own config token — not a proxy credential: 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN}` },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a NON-admin session and no plugin token — 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "user",
+      ...BASE,
+    },
+
+    // ---- the paired plugin link, and the three ways it stops being one ----
+    {
+      name: "GET proxy with the paired plugin token — proxied, device Bearer minted server-side",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: `Bearer ${LIVE_LINK}` },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a plugin token paired to ANOTHER device — 401, and nothing is dialled",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: "Bearer other-device-link" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with an EXPIRED plugin link (revoked/rotated) — 401 and the record is swept",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: `Bearer ${EXPIRED_LINK}` },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a ROTATED token — the old token is simply not in the map: 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: "Bearer the-old-link-after-a-rotation" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with the per-device cookie the 302 minted — proxied",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { cookie: `summrise_pt_d1=${LIVE_LINK}` },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a MALFORMED per-device cookie — treated as absent: 401",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { cookie: "summrise_pt_d1=%zz" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with ANOTHER device's per-device cookie — 401 (the key carries the name)",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { cookie: `summrise_pt_d2=${LIVE_LINK}` },
+      ...BASE,
+    },
+
+    // ---- the `?token=` bootstrap: navigation only, and never forwarded upstream ----
+    {
+      name: "GET proxy navigation with ?token= — 302, token stripped, per-device cookie minted",
+      req: ["GET", `/api/devices/d1/proxy/panel/?token=${LIVE_LINK}`, undefined],
+      cookie: null,
+      headers: { "sec-fetch-mode": "navigate" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy navigation with ?token= and OTHER query params — only the token is dropped",
+      req: ["GET", `/api/devices/d1/proxy/panel/?a=1&token=${LIVE_LINK}&b=%E5%9B%BA`, undefined],
+      cookie: null,
+      headers: { "sec-fetch-mode": "navigate" },
+      ...BASE,
+    },
+    {
+      name: "POST proxy with ?token= on a NON-navigation — 401: a leaked URL is not a credential",
+      req: ["POST", `/api/devices/d1/proxy/api/tools/terminal_execute?token=${LIVE_LINK}`, '{"command":"id"}'],
+      cookie: null,
+      ...BASE,
+    },
+    {
+      name: "GET proxy navigation with an EXPIRED ?token= — the readable HTML page, not JSON",
+      req: ["GET", `/api/devices/d1/proxy/panel/?token=${EXPIRED_LINK}`, undefined],
+      cookie: null,
+      headers: { "sec-fetch-mode": "navigate" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy navigation with NO credential at all — the same readable page",
+      req: ["GET", "/api/devices/d1/proxy/panel/", undefined],
+      cookie: null,
+      headers: { "sec-fetch-mode": "navigate" },
+      ...BASE,
+    },
+    {
+      name: "GET proxy with a valid Authorization AND ?token= — proxied, no token upstream, no-store",
+      req: ["GET", `/api/devices/d1/proxy/api/status?token=${LIVE_LINK}`, undefined],
+      cookie: null,
+      headers: { authorization: `Bearer ${LIVE_LINK}` },
+      ...BASE,
+    },
+
+    // ---- the catalogue the other door curates ----
+    {
+      name: "POST /proxy/api/tools/terminal_sftp — WITHHELD from the MCP surface, refused here too",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/terminal_sftp", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/mcp_client_call — the bridge's plumbing, refused",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/mcp_client_call", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/agent_update — the panel calls it through this proxy: forwarded",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/agent_update", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/terminal_list — a panel-surface tool is forwarded",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/terminal_list", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/%74erminal_sftp — the name is DECODED before the policy reads it",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/%74erminal_sftp", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/toString — the object-literal lookup's INHERITED arm (a defect, kept)",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/toString", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/ — the regex wants a name, so the policy never runs: forwarded",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "POST /proxy/api/tools/terminal%zz — a malformed escape THROWS: the front door's 500",
+      req: ["POST", "/api/devices/d1/proxy/api/tools/terminal%zz", "{}"],
+      cookie: "admin",
+      ...BASE,
+    },
+
+    // ---- the dial's own guards, and the paths that try to escape the device's host ----
+    {
+      name: "GET proxy to a record whose hostname is PRIVATE — refused before any dial",
+      req: ["GET", "/api/devices/private/proxy/api/status", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxy to a hostname outside the suffix allowlist — refused before any dial",
+      req: ["GET", "/api/devices/offsite/proxy/api/status", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxy@evil.test/x — userinfo in the rest path tries to re-root the URL: refused",
+      req: ["GET", "/api/devices/d1/proxy@evil.test/x", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxyhttps:/evil.test/x — a scheme in the authority prefix: refused",
+      req: ["GET", "/api/devices/d1/proxyhttps:/evil.test/x", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      name: "GET proxy//evil.test/x — a protocol-relative rest path stays on the DEVICE's host",
+      req: ["GET", "/api/devices/d1/proxy//evil.test/x", undefined],
+      cookie: "admin",
+      upstream: { "d1.agent.test//evil.test/x": { status: 200, body: '{"ok":true,"same-host":true}' } },
+    },
+    {
+      name: "GET proxyfoo (the capture group is `(.*)`, so this is the path `foo`)",
+      req: ["GET", "/api/devices/d1/proxyfoo", undefined],
+      cookie: "admin",
+      ...BASE,
+    },
+
+    // ---- the dial's transport ----
+    {
+      name: "an upstream that never answers (AbortError) — 502 with the renamed timeout",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      upstream: { "d1.agent.test/api/status": { throws: "the operation was aborted", name: "AbortError" } },
+    },
+    {
+      name: "an upstream transport failure — 502 with the reason the device gave",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: "admin",
+      upstream: { "d1.agent.test/api/status": { throws: "connect ECONNREFUSED" } },
+    },
+
+    // ---- the file relay's upload leg ----
+    {
+      name: "POST /api/upload with no credential — 401",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with an unknown Bearer — 401, nothing dialled",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: "Bearer nope" },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a NON-admin session — 401 (the session arm wants an admin)",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: "user",
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with the DEVICE's config token — the device leg, streamed",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN}`, "content-type": "application/octet-stream" },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a paired plugin link — accepted, like the docs say",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${LIVE_LINK}` },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with an admin session — the UPLOAD_KEY is injected, cookies are not",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: "admin",
+      headers: { "content-type": "multipart/form-data; boundary=xyz", cookie: "ag_session=leak" },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with the admin API token (the /mcp credential) — the Linux→device leg",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a RELAY-role token — refused: relay is for the translate path",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+      ...BASE,
+    },
+    {
+      name: "PUT /api/upload?name=%E5%9B%BA%E4%BB%B6.bin with the raw-metadata headers — the query is forwarded",
+      req: ["PUT", "/api/upload?name=%E5%9B%BA%E4%BB%B6.bin", "firmware-bytes"],
+      cookie: null,
+      // **`x-filename` IS ASCII HERE ON PURPOSE.** A `Headers` value is a ByteString: `new Request(…, {headers:
+      // {"x-filename": "固件.bin"}})` throws `TypeError: Cannot convert argument to a ByteString` in Node, and a
+      // browser refuses it too — so no caller can send one, and a case that tried would measure the harness's
+      // own crash on both sides. The non-ASCII filename travels where it really travels: percent-encoded, in the
+      // `?name=` query this case exists to check.
+      headers: {
+        authorization: `Bearer ${D2_TOKEN}`,
+        "content-type": "application/octet-stream",
+        "x-filename": "firmware.bin",
+        "x-content-type": "application/octet-stream",
+      },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a declared 101 MiB — 413 without touching the network",
+      req: ["POST", "/api/upload", "x"],
+      cookie: "admin",
+      headers: { "content-length": String(101 * 1024 * 1024) },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a declared length AT the bound — not refused here",
+      req: ["POST", "/api/upload", "x"],
+      cookie: "admin",
+      headers: { "content-length": String(100 * 1024 * 1024 + 64 * 1024) },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload with a declared length that is NOT a number — no bound is applied",
+      req: ["POST", "/api/upload", "x"],
+      cookie: "admin",
+      headers: { "content-length": "not-a-number" },
+      ...BASE,
+    },
+    {
+      name: "POST /api/upload where the relay answers 500 — the status and body pass through",
+      req: ["POST", "/api/upload", "x"],
+      cookie: "admin",
+      upstream: {
+        "idx.test/api/upload": { status: 500, body: '{"type":"error","error":{"type":"api_error"}}' },
+      },
+    },
+    {
+      name: "POST /api/upload WITHOUT the RELAY binding — the host fallback, redirect manual",
+      req: ["POST", "/api/upload", "fallback-bytes"],
+      cookie: "admin",
+      ...BASE,
+    },
+    {
+      // **THE CASE THAT WOULD HAVE CAUGHT `with_cors`'S MISSING `else`, AND THE ONLY ONE OF ITS KIND.** Every
+      // other case in this file that carries an ACAO in its ANSWER is an ALLOWED origin, so the corpus was
+      // structurally blind to the refusal arm: the stamp's `if` was measured and its `else` was not. Here the
+      // index worker's answer carries an ACAO of its own AND the caller's origin is refused, which is the
+      // pairing — and the `Vary` in the same answer pins the other half (the source deletes the ORIGIN alone).
+      name: "POST /api/upload with a REFUSED origin — the ACAO the relay's answer CARRIED is removed, its Vary stays",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: "admin",
+      headers: { origin: "https://evil.test" },
+      upstream: UPLOAD_WITH_ACAO,
+    },
+    {
+      name: "POST /api/upload through the RELAY — the binding is preferred when it is there",
+      req: ["POST", "/api/upload", "relay-bytes"],
+      cookie: "admin",
+      relay: true,
+      ...BASE,
+    },
+    {
+      name: "PUT /api/upload?name=a.bin through the RELAY — the stream and the query both survive",
+      req: ["PUT", "/api/upload?name=a.bin", "relay-stream-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN}` },
+      relay: true,
+      ...BASE,
+    },
+  ];
+
+  // ── the two doors ───────────────────────────────────────────────────────────────────────────────
+  const shippingDoor = process.env.PROXY_RECORD
+    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
+    : null;
+
+  // ── **NODE REQUIRES `duplex` FOR A STREAM BODY; WORKERD DOES NOT, AND THAT IS THE ONE PLATFORM
+  // DIFFERENCE THIS SECTION HAS TO NORMALIZE.** ────────────────────────────────────────────────────
+  //
+  // The shipping TypeScript builds `new Request(url, { method, headers, body: request.body })` on the relay
+  // arm (`devices.ts`) with NO `duplex` — correct in workerd, and the relay arm is live in production. Under
+  // Node's undici the same line throws `TypeError: RequestInit: duplex option is required when sending a
+  // body`, which would show up here as the TypeScript answering 500 for a route it serves — a harness
+  // artifact reported as a divergence, in the direction that makes the port look RIGHT.
+  //
+  // So the constructor Node hands the corpus gets workerd's default for that one field, and NOTHING else:
+  // the shim adds `duplex: "half"` only when a `ReadableStream` body is present without one, which is exactly
+  // the case workerd accepts and undici refuses. It is installed for this section and restored after it, so
+  // no other section's Request semantics change.
+  const RealRequestGlobal = globalThis.Request;
+  class WorkerdRequest extends RealRequestGlobal {
+    constructor(input, init = {}) {
+      if (init && init.body instanceof ReadableStream && init.duplex === undefined) {
+        super(input, { ...init, duplex: "half" });
+      } else {
+        super(input, init);
+      }
+    }
+  }
+  Object.defineProperty(globalThis, "Request", {
+    value: WorkerdRequest,
+    configurable: true,
+    writable: true,
+  });
+
+  const buildRequest = (c) => {
+    const [method, path, body] = c.req;
+    const headers = { ...(c.headers ?? {}) };
+    if (c.cookie) headers.cookie = `ag_session=${COOKIES[c.cookie]}`;
+    const payload = {};
+    if (body !== undefined && body !== null) {
+      headers["content-type"] = headers["content-type"] ?? "application/json";
+      // **A STREAM, NOT A STRING.** The source forwards `request.body`, so the corpus hands the doors a real
+      // `ReadableStream` — the same shape a browser or a relay sends — and `stubUpstream` records whether a
+      // stream was handed on. `duplex` is undici's own requirement for a stream body, not a Cloudflare one.
+      payload.body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(body));
+          controller.close();
+        },
+      });
+      payload.duplex = "half";
+    }
+    return new Request(`https://console.test${path}`, { method, headers, ...payload });
+  };
+
+  const rowsFor = (got) => [
+    ["status", String(got.status)],
+    ["headers", got.headers.join(" | ")],
+    ["body", got.body],
+    ["kv writes", got.writes.join(" ; ")],
+    ["upstream", got.calls.join(" ; ")],
+    ["relay", got.relay.join(" ; ")],
+  ];
+
+  const redacted = (got) => ({
+    ...got,
+    body: redactHosts(got.body),
+    headers: got.headers.map(redactHosts),
+    writes: got.writes.map(redactHosts),
+    calls: got.calls.map(redactHosts),
+    relay: got.relay.map(redactHosts),
+  });
+
+  const driveTs = async (c) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    const relay = [];
+    __clearCaches();
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const env = deviceEnv(kv, c.relay ? { RELAY: new Fetcher(relay) } : {});
+      const response = await shippingDoor.fetch(buildRequest(c), env, {});
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redacted({ status, body, headers, writes: kv.writes, calls, relay });
+  };
+
+  const driveWasm = async (c, i) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    const relay = [];
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    const worker = await import(`${pathToFileURL(BUILT).href}?proxy=${i}`);
+    const instance = new worker.default();
+    instance.env = deviceEnv(kv, c.relay ? { RELAY: new Fetcher(relay) } : {});
+    instance.ctx = {};
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await instance.fetch(buildRequest(c));
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redacted({ status, body, headers, writes: kv.writes, calls, relay });
+  };
+
+  // `seedAdmin` runs once per process and the FIRST request pays for it (it reads and can write
+  // `_admin_seeded`). It is the front door's work, not the route's, so it is spent on a throwaway KV before
+  // the cases, exactly as the device family's section does.
+  if (shippingDoor) {
+    try {
+      __clearCaches();
+      await shippingDoor.fetch(
+        new Request("https://console.test/api/devices", {
+          headers: { cookie: `ag_session=${COOKIES.admin}` },
+        }),
+        deviceEnv(makeKv(SEED)),
+        {},
+      );
+    } catch {
+      /* the prime is not a case */
+    }
+  }
+
+  const FIXTURE_PATH = new URL("./shipping-answers.json", import.meta.url);
+  const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+  const recorded = {};
+  let same = 0;
+  let different = 0;
+  const failures = [];
+
+  installDeterminism(FIXED_NOW);
+  for (const [i, c] of CASES.entries()) {
+    const shipped = shippingDoor ? await driveTs(c) : null;
+    if (shipped) {
+      recorded[c.name] = {
+        status: shipped.status,
+        body: shipped.body,
+        headers: shipped.headers,
+        writes: shipped.writes,
+        calls: shipped.calls,
+        relay: shipped.relay,
+      };
+    }
+    const reference = shipped ?? FIXTURE[c.name];
+    if (!reference) {
+      console.log(`      FAIL no recorded answer for ${JSON.stringify(c.name)} — re-record with PROXY_RECORD=1`);
+      different += 1;
+      failures.push(c.name);
+      continue;
+    }
+    const wasm = await driveWasm(c, i);
+    const want = rowsFor(reference);
+    const got = rowsFor(wasm);
+    const notes = [];
+    for (let r = 0; r < want.length; r++) {
+      if (want[r][1] !== got[r][1]) {
+        notes.push(
+          `${want[r][0]}: ship ${JSON.stringify(want[r][1]).slice(0, 200)} :: wasm ${JSON.stringify(got[r][1]).slice(0, 200)}`,
+        );
+      }
+    }
+    // **A ROW THAT SAYS THE CORPUS NEVER ANSWERED IS A FAILED CASE, ON EITHER SIDE.** `stubUpstream` throwing for
+    // a path is how a typo in an upstream key announces itself — but `deviceFetch` CATCHES that throw and answers
+    // `502 Device unreachable: the proxy corpus has no upstream answer for …`, on BOTH sides, so the case looks
+    // like a match while measuring nothing. Measured once already: 49 of 67 cases "identical" and the route never
+    // reached. This is the check that turns that silence into a failure.
+    if ([...want, ...got].some(([, value]) => value.includes(NEVER_ANSWERED))) {
+      notes.push(
+        "THE CORPUS NEVER ANSWERED THIS CASE'S UPSTREAM — the key is wrong, and the two sides would otherwise match on the same failure",
+      );
+    }
+    // **AND NEITHER DOES A CASE THAT THREW IN THE HARNESS.** `driveTs`/`driveWasm` catch a request that never
+    // produced a Response (`body = "THREW …"`, status 0) so the run continues — but two sides that threw for the
+    // same reason outside either implementation (an invalid header value, a body that cannot be built) are a
+    // matched pair of harness failures. Measured once: a `x-filename: 固件.bin` case recorded
+    // `THREW TypeError: Cannot convert argument to a ByteString` on BOTH sides and passed.
+    for (const [side, rows] of [
+      ["ship", want],
+      ["wasm", got],
+    ]) {
+      if (rows.some(([name, value]) => name === "body" && value.startsWith("THREW"))) {
+        notes.push(`${side}: THE HARNESS THREW BEFORE EITHER IMPLEMENTATION ANSWERED — this case measures the corpus, not the route`);
+      }
+    }
+    if (notes.length === 0) {
+      same += 1;
+      console.log(
+        `      ok   ${c.name} — status ${wasm.status}, ${wasm.body.length} bytes, ${wasm.calls.length} dial(s), ${wasm.relay.length} relay call(s)`,
+      );
+    } else {
+      different += 1;
+      failures.push(c.name);
+      console.log(`      FAIL ${c.name}`);
+      for (const note of notes) console.log(`           ${note}`);
+    }
+  }
+  // ── the response direction, which bytes alone cannot prove ──────────────────────────────────────
+  // **A BUFFERED PORT ANSWERS THIS CASE WITH A HANG, AND THAT IS THE MEASUREMENT.** Every other streaming case
+  // compares the body of a stream that ENDED — and a port that read that body into a `Vec<u8>` and re-sent it
+  // produces the same bytes. So the upstream here enqueues one frame and NEVER closes: a `new Response(resp.body,
+  // …)` passthrough delivers that frame immediately, and an implementation that waited for the end of the
+  // stream would deliver nothing until the 5 s read gives up. Both sides are read for their FIRST frame, and
+  // the case fails if either is empty.
+  {
+    const FRAME = "data: the-first-frame\n\n";
+    const STREAM_CASE = "GET /proxy/api/events/term — an upstream stream that NEVER ends: the first frame arrives";
+    // A FUNCTION of the path because the stream cannot be reused: each side needs its own, and the stub's
+    // function arm returns the ANSWER (`stubUpstream` calls `c.upstream(path, request)`) — a map here would be
+    // handed back as the answer itself, and `answer.body` would be `undefined`, i.e. a null body and a case
+    // measuring nothing. That mistake was made and caught by this case's own crash.
+    const neverEnding = () => ({
+      headers: { "content-type": "text/event-stream" },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(FRAME));
+          // …and deliberately never `close()`.
+        },
+      }),
+    });
+    const readFirstFrame = async (fetchIt) => {
+      const response = await fetchIt();
+      const headers = pairs(response.headers);
+      const reader = response.body.getReader();
+      let timer;
+      const frame = await Promise.race([
+        reader.read().then(({ value }) => (value ? Buffer.from(value).toString("utf8") : "")),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), 5_000);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      await reader.cancel().catch(() => {});
+      return { status: response.status, headers, frame };
+    };
+    const drive = async (c, i, wasmSide, cookie) => {
+      const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+      const calls = [];
+      randomCursor = 0;
+      stubUpstream(c, calls);
+      try {
+        return await readFirstFrame(async () => {
+          if (!wasmSide) {
+            __clearCaches();
+            return shippingDoor.fetch(buildRequest(c), deviceEnv(kv, {}), {});
+          }
+          const worker = await import(`${pathToFileURL(BUILT).href}?proxy=stream${i}`);
+          const instance = new worker.default();
+          instance.env = deviceEnv(kv, {});
+          instance.ctx = {};
+          return instance.fetch(buildRequest(c));
+        });
+      } finally {
+        globalThis.fetch = realFetchGlobal;
+      }
+    };
+    const c = {
+      req: ["GET", "/api/devices/d1/proxy/api/events/term", undefined],
+      cookie: "admin",
+      upstream: neverEnding,
+    };
+    const shipped = shippingDoor ? await drive(c, "ts", false) : null;
+    if (shipped) recorded[STREAM_CASE] = shipped;
+    const reference = shipped ?? FIXTURE[STREAM_CASE];
+    const wasm = await drive(c, "wasm", true);
+    const notes = [];
+    if (!reference) {
+      notes.push("no recorded answer — re-record with PROXY_RECORD=1");
+    } else {
+      if (String(reference.status) !== String(wasm.status)) {
+        notes.push(`status: ship ${reference.status} :: wasm ${wasm.status}`);
+      }
+      if (reference.headers.join(" | ") !== wasm.headers.join(" | ")) {
+        notes.push(`headers: ship ${JSON.stringify(reference.headers)} :: wasm ${JSON.stringify(wasm.headers)}`);
+      }
+      if (reference.frame !== wasm.frame) {
+        notes.push(`first frame: ship ${JSON.stringify(reference.frame)} :: wasm ${JSON.stringify(wasm.frame)}`);
+      }
+      if (wasm.frame !== FRAME) {
+        notes.push(
+          `wasm delivered ${JSON.stringify(wasm.frame)} — not the frame — so this side BUFFERED the upstream stream instead of passing it through`,
+        );
+      }
+      if (reference.frame !== FRAME) {
+        notes.push(
+          `ship delivered ${JSON.stringify(reference.frame)} — not the frame — so the RECORDING side buffered and cannot be an oracle here`,
+        );
+      }
+    }
+    if (notes.length === 0) {
+      same += 1;
+      console.log(`      ok   ${STREAM_CASE} — the frame arrived before the stream ended`);
+    } else {
+      different += 1;
+      failures.push(STREAM_CASE);
+      console.log(`      FAIL ${STREAM_CASE}`);
+      for (const note of notes) console.log(`           ${note}`);
+    }
+  }
+
+  Object.defineProperty(globalThis, "Request", {
+    value: RealRequestGlobal,
+    configurable: true,
+    writable: true,
+  });
+  restoreGlobals();
+
+  if (process.env.PROXY_RECORD) {
+    // **WRITTEN ONLY FROM A RUN WHERE EVERY CASE AGREED.** A fixture recorded from a failing run pins the
+    // failure; every other recorder in this file carries the same guard for the same reason.
+    if (different > 0) {
+      console.log(`  !! NOT recording: ${different} case(s) differ, so those answers are not a reference`);
+      process.exitCode = 1;
+    } else {
+      writeFileSync(FIXTURE_PATH, JSON.stringify({ ...FIXTURE, ...recorded }, null, 2) + "\n");
+      console.log(`  recorded ${Object.keys(recorded).length} device-proxy/upload answer(s) -> shipping-answers.json`);
+    }
+  }
+
+  console.log(
+    `  the device proxy and the file relay, shipping TypeScript against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing (the last case is the never-ending stream)`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;
@@ -5342,7 +6457,10 @@ const rowsFor = (got) => [
 // gate, the routes the slices did not port do NOT, and the `/v1` cutover is unchanged. **AND EVERY FAMILY HAS
 // ROWS IN BOTH DIRECTIONS**, which is what keeps an exclusion from being a comment: `/mcp` goes to the gate and
 // `GET /api/plugins/status` — the same plugin's other route, whose response carries the TypeScript registry's own
-// dispatch counters — does not. The stub answers a
+// dispatch counters — does not. **AND THE DEVICE FAMILY'S TWO EXCLUSIONS WERE THE LAST ONES**: slice 4 ported the
+// reverse proxy and `POST|PUT /api/upload`, so those rows now point at the gate and the one row left on that
+// prefix's TypeScript side is `GET /api/upload` — the verb the route does not answer — which is what keeps a
+// prefix rule from passing this section. The stub answers a
 // recognisable body, so a case that was supposed to reach it and did not is visible in the response rather than
 // assumed from a list.
 //
@@ -5406,9 +6524,11 @@ const rowsFor = (got) => [
     ["POST", "/api/devices/self-register", false, true, "the agent's self-registration, cookie-less by nature"],
     ["POST", "/api/install/tunnel-token", false, true, "the tunnel token, cookie-less by nature"],
     ["GET", "/api/devices/anything/else", true, true, "a path under the prefix the family does not serve (the worker's own 404, which is the front door's)"],
-    // NOT handed over:
-    ["GET", "/api/devices/d1/proxy/panel", true, false, "the reverse proxy is device-proxy.ts, not this slice"],
-    ["POST", "/api/devices/d1/proxy/mcp", true, false, "the reverse proxy accepts any method"],
+    // **THE FAMILY'S TWO EXCLUSIONS, HANDED OVER AS OF SLICE 4** — the same two rows, pointed the other way,
+    // which is how a deleted exclusion is measured rather than merely gone.
+    ["GET", "/api/devices/d1/proxy/panel", true, true, "the reverse proxy: `device_proxy.rs` since slice 4"],
+    ["POST", "/api/devices/d1/proxy/mcp", true, true, "…and it accepts any method, as the route always did"],
+    ["GET", "/api/devices/d1/proxyfoo", true, true, "…and the capture group is `(.*)`, so this is proxied too"],
     ["GET", "/api/devices", false, true, "NO session cookie: the Cloudflare Access arm is RUST now (slice 2), so a cookie-less admin goes to the worker like every other caller"],
     // ---- the identity surface (landing 5 slice 2) ----
     ["POST", "/api/auth/login", false, true, "the credential routes need no session"],
@@ -5423,7 +6543,9 @@ const rowsFor = (got) => [
     ["PUT", "/api/me/route", true, false, "…the same route's write"],
     ["POST", "/api/me/keys/test", true, false, "the key diagnostics dial six providers, and are not this slice"],
     ["POST", "/api/me/keys/usage", true, false, "…the same for the usage queries"],
-    ["POST", "/api/upload", true, false, "the file relay: a 100 MiB body passthrough this slice does not port"],
+    ["POST", "/api/upload", true, true, "the file relay's upload leg: `upload.rs` since slice 4"],
+    ["PUT", "/api/upload?name=a.bin", true, true, "…and its raw-stream verb"],
+    ["GET", "/api/upload", true, false, "…but the route is POST|PUT only, so the plugin still answers this one"],
     ["GET", "/api/health", true, false, "the public tooling route, unchanged"],
     // ---- the MCP surface (landing 5 slice 3) ----
     ["POST", "/mcp", false, true, "the JSON-RPC endpoint: its credential is a Bearer admin token, never a cookie"],

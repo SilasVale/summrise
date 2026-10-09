@@ -101,7 +101,8 @@ fn js_number_of(s: &str) -> Option<f64> {
 
 use std::time::Duration;
 
-use worker::wasm_bindgen::JsValue;
+use worker::wasm_bindgen::{JsCast, JsValue};
+use worker::{js_sys, wasm_bindgen_futures, web_sys};
 use worker::*;
 
 /// `deviceFetch`'s answer: the source's `{ status, ok, resp, error }`.
@@ -134,12 +135,35 @@ impl DeviceDial {
     }
 }
 
-/// The `init` half of a dial. The two callers differ in exactly these four things — the device family probes
-/// with a GET and a 15 s bound, the MCP terminal relay posts JSON with a 60 s one — and nothing else.
+/// **WHAT A DIAL SENDS AS ITS BODY — AND THE STREAM ARM IS THE ONE THE RELAYS NEED.**
+///
+/// The first two arms are the source's `init.body` as the two existing callers use it: absent (a GET probe) and
+/// a string (the MCP terminal relay's JSON). The third is the DEVICE PROXY's and the FILE RELAY's body — the
+/// caller's own `ReadableStream`, forwarded without being buffered.
+///
+/// **WHY A STREAM AND NOT BYTES.** `plugins/devices.ts` says it for the upload: 100 MiB, and "the worker then
+/// answers 500 with no manifest" when the old fixed timeout aborted it. Reading that body into a `Vec<u8>`
+/// first would put 100 MiB inside a 128 MB isolate before a single byte left — the passthrough the source
+/// deliberately wrote as `body: request.body`. `plugins/device-proxy.ts` forwards the same way for
+/// non-GET/HEAD.
+pub enum DialBody<'a> {
+    /// `undefined` — the source's default, and what a GET/HEAD passes.
+    None,
+    /// A string body.
+    Text(&'a str),
+    /// The caller's own stream, still unread.
+    Stream(web_sys::ReadableStream),
+}
+
+/// The `init` half of a dial. The callers differ in exactly these four things — the device family probes with a
+/// GET and a 15 s bound, the MCP terminal relay posts JSON with a 60 s one, the proxy forwards the caller's
+/// method, headers and stream — and nothing else.
 pub struct DialInit<'a> {
     pub method: Method,
-    pub body: Option<&'a str>,
-    pub content_type: Option<&'a str>,
+    pub body: DialBody<'a>,
+    /// The CALLER'S OWN headers, before this dial's hygiene. Empty for the two JSON callers; the proxy's
+    /// inbound set for the proxy, which is the only way the device sees the panel's `Range`, `Accept`, etc.
+    pub headers: Vec<(String, String)>,
     pub timeout_ms: u64,
 }
 
@@ -148,8 +172,8 @@ impl<'a> DialInit<'a> {
     pub fn get() -> Self {
         DialInit {
             method: Method::Get,
-            body: None,
-            content_type: None,
+            body: DialBody::None,
+            headers: Vec::new(),
             timeout_ms: 15_000,
         }
     }
@@ -160,8 +184,8 @@ impl<'a> DialInit<'a> {
     pub fn post_json(body: &'a str) -> Self {
         DialInit {
             method: Method::Post,
-            body: Some(body),
-            content_type: Some("application/json"),
+            body: DialBody::Text(body),
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
             timeout_ms: 60_000,
         }
     }
@@ -221,19 +245,57 @@ pub async fn device_fetch(
         return DeviceDial::refusal(400, &reason);
     }
 
+    // `const headers = new Headers(init.headers || {}); headers.delete("host"); headers.delete("cookie");
+    //  headers.set("Authorization", `Bearer ${device.token}`)` — in that order, and the ORDER is the source's
+    // too: a caller that sends its own `Authorization` (or `host`, or `cookie`) has it replaced or removed, so
+    // no path can smuggle a device's credential past this dial.
     let headers = Headers::new();
+    for (name, value) in &init.headers {
+        let _ = headers.set(name, value);
+    }
+    let _ = headers.delete("host");
+    let _ = headers.delete("cookie");
     let _ = headers.set("Authorization", &format!("Bearer {token}"));
-    if let Some(content_type) = init.content_type {
-        let _ = headers.set("content-type", content_type);
-    }
-    let mut request_init = RequestInit::new();
-    request_init.with_method(init.method);
-    request_init.with_headers(headers);
-    request_init.with_redirect(RequestRedirect::Manual);
-    if let Some(body) = init.body {
-        request_init.with_body(Some(JsValue::from_str(body)));
-    }
-    match fetch_with_timeout(&url, &request_init, init.timeout_ms).await {
+
+    // **TWO CONSTRUCTION PATHS, AND THE SECOND ONE EXISTS FOR ONE REASON.** `Request::new_with_init` is the
+    // proven one (it is what every other route in this worker dials with); it cannot carry a `ReadableStream`
+    // body, because `web_sys::RequestInit` has no `duplex` and the fetch standard requires it for a stream. So
+    // the stream arm builds the same request through the GLOBAL `Request` constructor with `duplex: "half"`,
+    // which is a platform call rather than a decision — and it is what makes the 100 MiB upload a passthrough
+    // here instead of a 100 MiB allocation.
+    let DialInit {
+        method,
+        body,
+        timeout_ms,
+        ..
+    } = init;
+    let request = match body {
+        DialBody::Stream(ref stream) => match streaming_request(&url, &method, &headers, stream) {
+            Ok(request) => request,
+            Err(message) => {
+                return DeviceDial::refusal(502, &format!("Device unreachable: {message}"))
+            }
+        },
+        other => {
+            let mut request_init = RequestInit::new();
+            request_init.with_method(method);
+            request_init.with_headers(headers);
+            request_init.with_redirect(RequestRedirect::Manual);
+            if let DialBody::Text(text) = other {
+                request_init.with_body(Some(JsValue::from_str(text)));
+            }
+            match Request::new_with_init(&url, &request_init) {
+                Ok(request) => request,
+                Err(error) => {
+                    return DeviceDial::refusal(
+                        502,
+                        &format!("Device unreachable: {}", thrown_message(&error)),
+                    )
+                }
+            }
+        }
+    };
+    match fetch_request_with_timeout(request, timeout_ms).await {
         Ok(resp) => {
             let status = resp.status_code();
             DeviceDial {
@@ -266,6 +328,16 @@ pub async fn fetch_with_timeout(
     timeout_ms: u64,
 ) -> std::result::Result<Response, String> {
     let request = Request::new_with_init(url, init).map_err(|e| thrown_message(&e))?;
+    fetch_request_with_timeout(request, timeout_ms).await
+}
+
+/// **THE RACE, OVER AN ALREADY-BUILT REQUEST** — split out so the STREAM arm can reach it: `fetch_with_timeout`
+/// builds through `web_sys::RequestInit`, and a `ReadableStream` body cannot be built that way (see
+/// [`streaming_request`]). The behaviour is identical; the split is plumbing.
+pub async fn fetch_request_with_timeout(
+    request: Request,
+    timeout_ms: u64,
+) -> std::result::Result<Response, String> {
     let fetcher = Fetch::Request(request);
     let fetch = fetcher.send();
     let delay = Delay::from(Duration::from_millis(timeout_ms));
@@ -281,6 +353,110 @@ pub async fn fetch_with_timeout(
         }),
         futures_util::future::Either::Right((_, _)) => Err(format!("timeout after {timeout_ms}ms")),
     }
+}
+
+/// `new Request(url, {method, headers, body, redirect, duplex})` — built through the GLOBAL constructor because
+/// `web_sys::RequestInit` has no `duplex` setter, and the fetch standard refuses a stream body without it.
+/// Without this, a passthrough would have to buffer the whole body first.
+///
+/// **RUST NAMES THE CALL AND JAVASCRIPT PERFORMS IT, WHICH IS THE BOUNDARY THIS FILE ALREADY CROSSES**: the same
+/// constructor is what `Request::new_with_init` calls underneath, one binding layer down. Nothing here decides
+/// anything — the method, the headers, the redirect mode and the body all come from the caller.
+///
+/// `redirect` is `Some("manual")` for every device dial and for the upload's host fallback, and `None` for a
+/// service binding (which cannot redirect at all, and where the source passes no redirect).
+pub fn js_request(
+    url: &str,
+    method: &Method,
+    headers: &Headers,
+    body: Option<&JsValue>,
+    redirect: Option<&str>,
+) -> std::result::Result<Request, String> {
+    let init = js_sys::Object::new();
+    let set = |key: &str, value: &JsValue| -> std::result::Result<(), String> {
+        js_sys::Reflect::set(&init, &JsValue::from_str(key), value)
+            .map(|_| ())
+            .map_err(|e| js_message(&e))
+    };
+    set("method", &JsValue::from_str(method.as_ref()))?;
+    set("headers", headers.as_ref())?;
+    if let Some(body) = body {
+        set("body", body)?;
+        // Required by the fetch standard (and by undici, which the harness runs on) for a stream body.
+        set("duplex", &JsValue::from_str("half"))?;
+    }
+    if let Some(redirect) = redirect {
+        set("redirect", &JsValue::from_str(redirect))?;
+    }
+    let constructor = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("Request"))
+        .map_err(|e| js_message(&e))?;
+    let constructor: js_sys::Function = constructor
+        .dyn_into()
+        .map_err(|_| "Request is not a constructor".to_string())?;
+    // **`Reflect::construct`, NOT `Function::call2`.** `Request` is a CLASS, and a class constructor cannot be
+    // invoked as a plain function — the first version of this asked for `Request(url, init)` and the runtime
+    // answered `Class constructor _Request cannot be invoked without 'new'` (measured, 2026-10-09, on this
+    // section's first run). `Reflect.construct` is the `new` the platform needs.
+    let args = js_sys::Array::of2(&JsValue::from_str(url), &init);
+    let built = js_sys::Reflect::construct(&constructor, &args).map_err(|e| js_message(&e))?;
+    let web_request: web_sys::Request = built
+        .dyn_into()
+        .map_err(|_| "the Request constructor returned something else".to_string())?;
+    Ok(Request::from(web_request))
+}
+
+/// The dial's stream arm: the same constructor, with the caller's `ReadableStream` as the body.
+fn streaming_request(
+    url: &str,
+    method: &Method,
+    headers: &Headers,
+    body: &web_sys::ReadableStream,
+) -> std::result::Result<Request, String> {
+    js_request(
+        url,
+        method,
+        headers,
+        Some(body.as_ref()),
+        Some("manual"),
+    )
+}
+
+/// **`Fetcher::fetch(request)` FOR A REQUEST THIS MODULE BUILT.** `workers-rs` 0.8.7's typed
+/// `Fetcher::fetch_request` needs `worker::Error: From<Infallible>` for the reflexive conversion, which is not
+/// in the crate — so this calls the binding's own `fetch` method, which is the same call `fetch_request` makes
+/// one layer down (`self.0.fetch(req.inner())`). The body is whatever the caller built, stream included.
+pub async fn service_fetch(
+    fetcher: &Fetcher,
+    request: &Request,
+) -> std::result::Result<Response, String> {
+    let value: &JsValue = fetcher.as_ref();
+    let fetch = js_sys::Reflect::get(value, &JsValue::from_str("fetch"))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+        .ok_or_else(|| "the service binding has no fetch method".to_string())?;
+    let promise = fetch
+        .call1(value, request.inner().as_ref())
+        .map_err(|e| js_message(&e))?;
+    let promise: js_sys::Promise = promise
+        .dyn_into()
+        .map_err(|_| "fetch did not return a promise".to_string())?;
+    let response = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|e| js_message(&e))?;
+    let web_response: web_sys::Response = response
+        .dyn_into()
+        .map_err(|_| "the service binding returned something that is not a Response".to_string())?;
+    Ok(Response::from(web_response))
+}
+
+/// **`e.message` FOR A JAVASCRIPT THROW THAT NEVER BECAME A `worker::Error`.** The source's `catch (e)` puts
+/// `e.message` in the refusal, which for a `TypeError` out of the `Request` constructor is the useful half —
+/// `RequestInit: duplex option is required when sending a body`, not `TypeError: RequestInit: …`.
+fn js_message(value: &JsValue) -> String {
+    js_sys::Reflect::get(value, &JsValue::from_str("message"))
+        .ok()
+        .and_then(|m| m.as_string())
+        .unwrap_or_else(|| "undefined".to_string())
 }
 
 /// `e.name === "AbortError"` — the runtime's own abort, which the source renames to a timeout.
