@@ -15,6 +15,13 @@ agent/target-staging.exe
 
 # any nested node_modules — the single rule now; the per-dir ones went with summrise-studio
 **/node_modules/
+# **AND THE BARE NAME TOO, BECAUSE THE SLASHED RULE MATCHES A DIRECTORY AND NOT A SYMLINK.** Measured
+# 2026-10-09: `gateway/node_modules` was a TRACKED symlink (mode 120000) pointing at
+# `/home/zss/summrise/gateway/node_modules` — itself — so `git add -A` had staged a self-referential link
+# that `**/node_modules/` could not match. It is the only one in the repository, and AGENTS.md already
+# records the class ("`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink, so `git add -A`
+# there stages the LINK"); this line is what stops the next one from being committed by accident.
+node_modules
 
 # build artifacts — never commit
 agent/deploy/cloudflared.exe
