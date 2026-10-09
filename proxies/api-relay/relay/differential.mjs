@@ -17,15 +17,35 @@
 // vrelay` (the Rust side), and it pins `SUMMRISE_RELAY_HEADER_TIMEOUT_MS=300` for BOTH so the two cases
 // that DO dial fail fast and deterministically instead of waiting thirty seconds for a real upstream.
 //
+// MUTATION (2), THE ONE THAT PROVES THE EXEMPTION WAS DANGEROUS, and it was run with the OLD file beside the
+// new one rather than argued: change the RUST side's sentence for a route that used to be exempt —
+// `"unsupported GitHub route", 400` -> `"unsupported GitHub route MUTATED", 400` in `src/main.rs` — rebuild,
+// and run BOTH files against the same binary pair.
+// RESULT (2): the OLD file printed `DIFF (route not wired)  github: route not wired` and
+// `differential: 13/14 byte-identical, 1 route-not-wired, 0 unexplained`, **exit 0** — a real divergence
+// between the two relays, reported as success. The NEW file printed `DIFF  github: unsupported route` and
+// `13/14 byte-identical, 1 unexplained`, **exit 1**. Measured 2026-10-09. So the exemption is not a
+// theoretical hazard: it excused a divergence this corpus can now catch.
+//
 // MUTATION: change one byte the JavaScript sends in a path this corpus covers — the BYOK refusal's
 // sentence, `caller Authorization required (BYOK)` -> `... (BYOK MUTATED)`, in `src/lib.rs` — rebuild the
 // binary with `cargo build --bin vrelay`, and run this.
-// RESULT: `DIFF  proxy: no key`, `differential: 11/14 byte-identical, 2 route-not-wired, 1 unexplained`,
-// exit 1. Restoring the sentence returns it to 12/14 and 0 unexplained. Measured 2026-10-02.
+// RESULT: `DIFF  proxy: no key`, `differential: 13/14 byte-identical, 1 unexplained`, exit 1. Restoring the
+// sentence returns it to `14/14 byte-identical, 0 unexplained`, exit 0. **RE-MEASURED 2026-10-09, when the
+// `unwired` exemption was deleted** — the old line read `11/14 ... 2 route-not-wired, 1 unexplained` and
+// `12/14`, and those numbers were only ever true while two routes were excused from the comparison.
 //
-// A DIFFERENCE IS NOT AUTOMATICALLY A DEFECT. `/api/github` and `/api/gform` are marked `unwired`: they
-// are routes of the shipping relay that the binary does not serve yet, and whether they are needed at all
-// is a question for the operator. An unexplained difference fails the run; an explained one is printed.
+// **AND THE EXEMPTION THIS FILE USED TO CARRY IS GONE, BECAUSE ITS REASON EXPIRED AND NOBODY NOTICED.**
+// `/api/github` and `/api/gform` were marked `unwired` — "routes of the shipping relay that the binary does
+// not serve yet, and whether they are needed at all is a question for the operator". That was true when it
+// was written and FALSE FROM 2026-10-07, when both were wired: `relay/src/main.rs` serves them and answers
+// the shipping relay's own **400 `{"error":"unsupported GitHub route"}`** for an unsupported path. So for a
+// week the file compared two routes it believed were absent, and a REAL divergence between them would have
+// been filed as "route not wired" and the run would still have exited 0 — a silent exemption, on the paths
+// where the header above says a difference is quiet rather than loud. Measured 2026-10-09: with the flag
+// removed the two are BYTE-IDENTICAL (`14/14 byte-identical, 0 unexplained`), so the exemption was not
+// hiding a defect; it was hiding the QUESTION. A difference now fails the run, and the mechanism that could
+// excuse one has been deleted rather than left standing with nothing to excuse.
 import { spawn } from "node:child_process";
 import { request } from "node:http";
 import { existsSync } from "node:fs";
@@ -64,8 +84,9 @@ const CORPUS = [
   { name: "git: backslash tail", method: "GET", path: "/api/git/%2Fa%5Cb" },
   { name: "git: dotdot tail", method: "GET", path: "/api/git/%2Fa%2F..%2Fb" },
   { name: "git: dials, upstream unreachable", method: "GET", path: "/api/git/o/r.git/info/refs" },
-  { name: "github: route not wired", method: "GET", path: "/api/github?path=%2Fweb%2Fo%2Fr", unwired: true },
-  { name: "gform: route not wired", method: "GET", path: "/api/gform?path=%2Fdocs%2Fx", unwired: true },
+  // The two routes that used to be exempt. They are ROUTES — 400, not 404 — on both sides.
+  { name: "github: unsupported route", method: "GET", path: "/api/github?path=%2Fweb%2Fo%2Fr" },
+  { name: "gform: unsupported route", method: "GET", path: "/api/gform?path=%2Fdocs%2Fx" },
 ];
 
 function send(port, item) {
@@ -119,7 +140,6 @@ try {
   } else {
     let same = 0;
     const unexplained = [];
-    const explained = [];
     for (const item of CORPUS) {
       const [a, b] = await Promise.all([send(JS_PORT, item), send(RS_PORT, item)]);
       const equal = a.status === b.status && a.type === b.type && a.body === b.body && a.acao === b.acao;
@@ -129,17 +149,12 @@ try {
         continue;
       }
       const detail = `${item.name}\n      node: ${a.status} ${a.type || "-"} acao=${a.acao || "-"} ${JSON.stringify(a.body.slice(0, 120))}\n      rust: ${b.status} ${b.type || "-"} acao=${b.acao || "-"} ${JSON.stringify(b.body.slice(0, 120))}`;
-      if (item.unwired) {
-        explained.push(detail);
-        console.log(`  DIFF (route not wired)  ${item.name}`);
-      } else {
-        unexplained.push(detail);
-        console.log(`  DIFF  ${detail}`);
-      }
+      unexplained.push(detail);
+      console.log(`  DIFF  ${detail}`);
     }
     console.log("");
     console.log(
-      `differential: ${same}/${CORPUS.length} byte-identical, ${explained.length} route-not-wired, ${unexplained.length} unexplained`,
+      `differential: ${same}/${CORPUS.length} byte-identical, ${unexplained.length} unexplained`,
     );
     exitCode = unexplained.length ? 1 : 0;
   }
