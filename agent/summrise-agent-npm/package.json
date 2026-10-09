@@ -15,6 +15,8 @@
     "summrise-desktop-electron/src/preload.js",
     "summrise-desktop-electron/src/summrise_url_policy.js",
     "summrise-desktop-electron/src/summrise_url_policy_bg.wasm",
+    "summrise-desktop-electron/src/summrise_shell_policy.js",
+    "summrise-desktop-electron/src/summrise_shell_policy_bg.wasm",
     "summrise-desktop-electron/icon.png",
     "summrise-desktop-electron/icon.ico"
   ],
@@ -26,7 +28,7 @@
   ],
   "license": "MIT",
   "scripts": {
-    "build": "npm exec --yes --package typescript@5.9.3 -- tsc -p ../summrise-desktop-electron/tsconfig.json --outDir /tmp/summrise-electron-fresh --noCheck && cp /tmp/summrise-electron-fresh/main.js ../summrise-desktop-electron/src/main.js && cp /tmp/summrise-electron-fresh/preload.js ../summrise-desktop-electron/src/preload.js && cp ../summrise-desktop-electron/src/main.js ../summrise-desktop-electron/src/preload.js ../summrise-desktop-electron/src/summrise_url_policy.js ../summrise-desktop-electron/src/summrise_url_policy_bg.wasm ./summrise-desktop-electron/src/ && rm -rf /tmp/summrise-electron-fresh",
+    "build": "npm exec --yes --package typescript@5.9.3 -- tsc -p ../summrise-desktop-electron/tsconfig.json --outDir /tmp/summrise-electron-fresh --noCheck && cp /tmp/summrise-electron-fresh/main.js ../summrise-desktop-electron/src/main.js && cp /tmp/summrise-electron-fresh/preload.js ../summrise-desktop-electron/src/preload.js && cp ../summrise-desktop-electron/src/main.js ../summrise-desktop-electron/src/preload.js ../summrise-desktop-electron/src/summrise_url_policy.js ../summrise-desktop-electron/src/summrise_url_policy_bg.wasm ../summrise-desktop-electron/src/summrise_shell_policy.js ../summrise-desktop-electron/src/summrise_shell_policy_bg.wasm ./summrise-desktop-electron/src/ && rm -rf /tmp/summrise-electron-fresh",
     "test": "node --test"
   }
 }

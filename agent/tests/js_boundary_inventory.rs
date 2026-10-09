@@ -203,6 +203,20 @@ fn every_tracked_js_file_is_classified_and_the_logic_list_only_shrinks() {
             .join("\n  ")
     );
 
+    // **AND IT PRINTS THE COUNT ON THE PASSING PATH TOO — ADDED 2026-10-09, BECAUSE READING THE MEASURED CAP
+    // USED TO REQUIRE BREAKING THE GATE.** The number lived only in the failure message, so measuring it meant
+    // setting the budget to 0, running, reading `LOGIC files: 103`, and restoring — and a measurement nobody
+    // can take without a deliberate break is one nobody takes, which is how a cap ends up COMPUTED instead
+    // (107 minus the files you moved) rather than measured. Three merges in the session that added this line
+    // would have taken arithmetic and been wrong, hence the coordinator's rule.
+    //
+    // NOTE THE HONEST LIMIT: a test's stdout is captured unless it fails, so this line is visible under
+    // `cargo test --test js_boundary_inventory -- --nocapture`. That is one flag rather than one mutation.
+    println!(
+        "LOGIC files: {} of a frozen budget of {MAX_LOGIC}",
+        logic.len()
+    );
+
     // **THE RATCHET, AND IT IS THE POINT OF THE FILE.** The list may shrink; it may not grow, and it may not be
     // silently re-labelled — lowering the cap is a deliberate edit that a reviewer sees in the diff.
     assert!(
@@ -351,6 +365,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                                 has one definition now, and it is in Rust
 ///     the fixture reader            ->   107     `scripts/test/lib/emitted-pieces.mjs` is what two
 ///                                                 live bash gates import, so it is BOUNDARY
+///     landing 6b (electron)         ->   103     − main.ts and preload.ts, which are the shell's HOST
+///                                                 now (its decisions are `summrise-shell-policy`,
+///                                                 wasm), and − ipc-door.test.mjs and
+///                                                 embedded-bridge.test.mjs, which pin the HOST's
+///                                                 call-site counts and the preload's bridge names.
+///                                                 FOUR files, named because a cap may only come DOWN
+///                                                 in a commit that says which file left
+///
+/// **THE LANDING 6b ROW IS THE FIRST ONE MEASURED RATHER THAN COMPUTED, AND THAT IS THE RULE.** Four files
+/// leaving four directory rules is arithmetic anyone can do, and arithmetic is not a measurement: the
+/// number below is what THIS GATE PRINTS on the tree that carries the reclassification, and it was
+/// re-derived after the manifest change rather than predicted before it. (Three merges this session
+/// resolved a cap conflict by running the gate and taking its number; twice the computed answer would have
+/// been wrong.)
 ///
 /// **AND TWO MORE MOVED FOR A THIRD REASON: ONE WAS ALREADY GONE IN EVERY SENSE BUT THE FILE.** The rule
 /// `scripts/test/lib/decomment.mjs` defines — a comment is not a producer, nor a derivation — has exactly one
@@ -443,4 +471,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// `.mjs` gates' `107 -> 102`, so the same landing reads `102 -> 101` here. The count came from the gate's own
 /// refusal — `const MAX_LOGIC` forced to **0**, which makes it print `LOGIC files: 101, and the frozen budget
 /// is 0` — because a cap resolved by picking one branch's number is a cap nobody measured.
-const MAX_LOGIC: usize = 101;
+/// **AND THE SAME PARAGRAPH, ONE LANDING LATER, FOR THE FOUR FILES THAT LEFT IN 6b.** `main.ts` and
+/// `preload.ts` did not stop mattering — they are the shell's HOST, and they are the ONLY two files in this
+/// repository that can create an Electron window or hold CDP :9333 open. What changed is that they decide
+/// nothing any more: the ~58 decision sites a classification found in `main.ts` (made before a line of Rust
+/// was written, and reported with line ranges) are `agent/summrise-shell-policy`'s, compiled to wasm and
+/// required the same way `agent/summrise-url-policy` is. The two `.mjs` files stayed and moved class for
+/// the manifest's own reason — "a test belongs to the code it tests" — and what they test is now the host:
+/// call-site counts in `main.ts`'s text and the preload's bridge names against the panel's fixture. A
+/// directory whose rule says LOGIC while every file in it is a boundary is the manifest lying to itself.
+///
+/// **101 -> 97, AND THE NUMBER IS MEASURED ON THE MERGED TREE RATHER THAN CARRIED FROM EITHER BRANCH.** The
+/// paragraph above measured 101 on the integration branch BEFORE this landing's conflicts were resolved, so
+/// its four files could not be counted yet; this branch's own reading was 103 on ITS base, where the five
+/// `.mjs` gates and the CLI's cutover had not landed. Neither number is the merged tree's. The gate's own
+/// refusal settles it — `const MAX_LOGIC` forced to **0**, which prints `LOGIC files: 97, and the frozen
+/// budget is 0` — and the four names are in the paragraph above. **A cap resolved by picking a branch's
+/// number is a cap nobody measured**, which is the rule the paragraph above states and this one obeys.
+const MAX_LOGIC: usize = 97;

@@ -41,6 +41,8 @@ GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts 
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.js | wasm-bindgen's glue for the shell's URL/cert policy | agent/summrise-url-policy
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.d.ts | wasm-bindgen's types for the shell's URL/cert policy | agent/summrise-url-policy
+GENERATED | agent/summrise-desktop-electron/src/summrise_shell_policy.js | wasm-bindgen's glue for the shell's remaining decisions (landing 6b) | agent/summrise-shell-policy
+GENERATED | agent/summrise-desktop-electron/src/summrise_shell_policy.d.ts | wasm-bindgen's types for the shell's remaining decisions | agent/summrise-shell-policy
 GENERATED | index/spike-rust-landing/dist/ | wasm-pack output of the landing spike | index/spike-rust-landing
 
 # ── RENDERING: a browser view, and its own tests ─────────────────────────────────────────────────────────────
@@ -85,6 +87,15 @@ BOUNDARY | agent/scripts/landing-design-sweep.mjs | the landing tool: it RENDERS
 # exported surface, the boundary coercions a wasm `&str` parameter gets wrong, and the refusal shape; a
 # harness that executes an artifact, exactly as gateway/wasm/verify.mjs is.
 BOUNDARY | agent/summrise-desktop-electron/test/url-policy-wasm.test.mjs | it requires the built glue and executes the committed .wasm in Node; it decides nothing (the cases are Rust)
+# THE SAME SPECIES, ONE LANDING LATER (6b), WITH ONE ASSERTION THE FIRST ONE HAS NO NEED FOR: the 57
+# exports of `summrise_shell_policy.js` must NOT include the url policy's 18 names. wasm-bindgen exports
+# the whole crate GRAPH, so a dependency between the two crates would make each glue compile its OWN
+# `.wasm` and url-policy's `thread_local!` port state would exist twice — `setAgentPort(7740)` through one
+# module leaving the other at 18080, which is a custom-port install where the DSH door admits the wrong
+# origin. That is not a boundary question; it is the shape of the artifact, and this is the only place it
+# can be seen. Everything else here is the first file's job: load the committed bytes, call every export,
+# pin the coercions.
+BOUNDARY | agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs | it requires the built glue and executes the committed .wasm in Node; it decides nothing (the cases are Rust)
 BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it runs `summrise-sweep-plan` and parses its stdout — one process call, no decision. The plan itself is Rust (agent/sweep-plan/)
 BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
@@ -110,8 +121,35 @@ LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side
 BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decision: it reads the PIECES module out of an emitter's artifact and hands it back as data. Two live bash gates import it — `panel-design-sweep.bash:92` and `sweep-judges.bash:134` — so it belongs to THEIR tooling the way the sweeps' in-page probes belong to theirs: it spawns no toolchain, computes no verdict, and a gate goes red if it stops reading. NOTE WHERE ITS SIBLING WENT: `scripts/test/lib/decomment.mjs` is DELETED in this commit, because the rule it defines now has exactly one definition and it is in Rust (`agent/tests/common/mod.rs`'s `decomment`/`decomment_line`/`decommented_corpus`, whose header says it took the rule FROM that file). Measured before deleting, as this repository requires: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line — a comment in its sibling naming it.
 LOGIC | scripts/test/ | the npm floor's SPAWN, and only that: the DECISION is `agent/tests/npm_test_floor.rs` (landing 3) and what stays is the `npm test` runner it has not absorbed — `scripts/test/npm-test-floored.mjs`. THIS RULE SAID "six gates that spawn a toolchain" UNTIL 2026-10-09, when the other five left for `agent/tests/`: `console_assets`, `console_smoke`, `panel_sheet_freshness`, `press_anchor` and `contrast_probe_emitted`
 LOGIC | agent/summrise-agent-npm/test/ | the package's suite, and since landing 4b's cutover it is the PACKAGING half: whether the tarball npm uploads can run at all (the `bin` is a file `files[]` packs, no entry is a directory, `required-in-tgz.txt` names nothing npm will not pack, no component artefact is boxed). The DECISIONS it used to re-test are Rust (agent/summrise-cli, 146 tests) and are pinned answer-by-answer by the corpus the TypeScript left behind (agent/summrise-cli/parity/expected.json, 162 cases) — re-asserting them here would be a second implementation of the same claims, which is the shape this file exists to stop
-LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's remaining decisions — token/auth, the loopback control server, agent lifecycle, window policy. The URL/origin/cert policy LEFT this directory in landing 6 (agent/summrise-url-policy, wasm), so what is here is main.ts's host half and whatever main.ts still decides for itself
-LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with it (landing 6)
+
+# ── AND THE ELECTRON SHELL LEFT THE LIST IN LANDING 6b, WHICH IS WHY ITS REASON IS LONGER THAN THE OTHERS ──
+# Landing 6a moved the URL/origin/certificate policy out of this directory and this rule's reason said the
+# remaining decisions were "token/auth, the loopback control server, agent lifecycle, window policy".
+# **THAT REASON WAS TRUE AND INCOMPLETE**: the classification made before landing 6b's port found ~58
+# decision sites and FOUR GROUPS THE REASON DID NOT NAME — the native MENU table (every label, accelerator
+# and command id), the SCHTASKS argv and the auto-launch plan, the `/api/status` parse plus the two
+# tray formatters, and the harness-door parse. A reason that is merely believed is how the next reader
+# re-derives the gap, so the four are named here and the crate's own module headers carry them.
+#
+# WHAT IS LEFT IS NOTHING THIS CLASS COVERS. `main.ts` is now the native host: it creates windows, owns
+# the tray, wires `ipcMain`, opens CDP :9333, spawns `schtasks`, reads `config.yaml` and makes HTTP
+# requests — platform calls that decide nothing, because every question they ask is answered by
+# `agent/summrise-shell-policy` (wasm) or `agent/summrise-url-policy` (wasm). The one document still
+# written here is the wait page, and it is a template with its own inline script: a RENDERER program, not
+# a decision this file makes. `preload.ts` was ALREADY pure boundary — four `contextBridge.exposeInWorld`
+# calls, straight pass-through to `ipcRenderer`, literal channel names, no branch — and it must stay
+# dependency-free, because the main window runs `sandbox: true`.
+BOUNDARY | agent/summrise-desktop-electron/src/ | the Electron shell's HOST: windows, tray, IPC wiring, the :9333 switch, schtasks spawns, config reads and HTTP requests — platform calls, and every decision they ask about moved to `agent/summrise-shell-policy` (landing 6b) or `agent/summrise-url-policy` (landing 6a). NAMED, because "every decision" is what the previous reason said and it named none of the four groups a reader would not guess: the native MENU TABLE (`menu.rs`), the SCHTASKS argv and the auto-launch create-if-absent / end-and-delete plan (`lifecycle.rs`), the `/api/status` parse and the tray's uptime and clock formatters (`tray.rs`), and the HARNESS-DOOR parse of `answer.harnesses[].local_port` (`lifecycle.rs`, `sessions.rs`) — with the token regex, the port precedence, the loopback control server's route table and CORS decision, the AUMID and the window and slot policy (`sessions.rs`, `boot.rs`) beside them. The one document written here is the wait page, a template plus its own inline script. `preload.ts` must stay dependency-free: the main window runs `sandbox: true`, so requiring wasm there is a risk the design does not need
+# THE SHELL'S TWO REMAINING TESTS ARE BOUNDARY FOR THE MANIFEST'S OWN REASON — "a test belongs to the code
+# it tests". What they test is the HOST: `ipc-door.test.mjs` counts CALL SITES in `main.ts`'s own text
+# (`ipcMain.handle` exactly once, `sanitizeBrowserUrl` exactly once, `loadTarget` used at least four
+# times, the preload's channels equal the door's), and `embedded-bridge.test.mjs` pins the preload's
+# exposed member names against the panel's fixture. Both are properties of an Electron boundary that can
+# only be checked by reading the two files, and neither computes anything. THE ONE ASSERTION THAT WAS A
+# DECISION — the shape of the forbidden-frame refusal, `{ok: false, error: "forbidden frame"}`, which the
+# SPA reads — moved to `agent/summrise-shell-policy/src/tests.rs` in landing 6b, and what the `.mjs` case
+# keeps is the count: the refusal is built once, from the policy, and the literal is not restated here.
+BOUNDARY | agent/summrise-desktop-electron/test/ | the two tests of the HOST's own wiring — call-site counts in main.ts and the preload's bridge names. The decision tests that used to live here are `agent/summrise-shell-policy`'s
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 LOGIC | gateway/config/ | the provider catalogue as TypeScript, becoming data (B)

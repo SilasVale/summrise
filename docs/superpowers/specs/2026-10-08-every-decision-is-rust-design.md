@@ -386,6 +386,39 @@ So there is nothing here for the migration to fix, and the honest statement is n
 assembler **stays JavaScript**, because it produces a JS artifact for `browser_run_script` — a BOUNDARY with the
 platform call named — and what 2b changes is only that the *plan* it embeds comes from Rust.
 
+### 6.6 Two wasm crates that depend on each other ship the module graph TWICE
+
+**FOUND WHILE BUILDING LANDING 6b, BY TRYING THE OBVIOUS THING AND THEN COUNTING.** Landing 6b adds
+`agent/summrise-shell-policy`, the Electron shell's remaining decisions, beside landing 6a's
+`agent/summrise-url-policy`. The shell needs three of the url policy's predicates — `parse_agent_port`,
+`is_dsh_url`, `is_desktop_spa_url` — so the first build took the dependency the obvious way, **by path**.
+wasm-bindgen accepted it and produced a module. What the generated glue showed is why it cannot stay:
+
+    grep -cE '^export function' agent/summrise-desktop-electron/src/summrise_shell_policy.d.ts
+      -> 75   with the path dependency (the url policy's 18 names among them)
+      -> 18   without it
+
+**THAT IS NOT A DUPLICATED NAME, IT IS A DUPLICATED MODULE.** wasm-bindgen exports every `#[wasm_bindgen]`
+item in the whole crate GRAPH, so `main.ts` would require `summrise_url_policy.js` AND a
+`summrise_shell_policy.js` that re-exports the same functions; each glue compiles its OWN
+`WebAssembly.Module` from its OWN `.wasm`, so the url-policy code exists twice with **two independent
+copies of its `thread_local!` port state**. `setAgentPort(7740)` through the first glue leaves the second
+glue's `AGENT_PORT` at 18080 — which means, on a custom-port install, that `dshTarget` admits the wrong
+door and the main-window tripwire snaps the panel back. **Silent, device-only, and exactly the class of
+failure this migration exists to remove.**
+
+**THE DECISION: wasm crates in this repository are PEERS, and they compose through the HOST.** Where a
+decision needs another crate's predicate, it takes that predicate's **answer as an argument** —
+`tripwire_allows(url, desktop_spa)`, `tray_should_watch(…, base_origin)`, `dsh_target(raw, admitted)` —
+and the host, which holds exactly one instance of each glue, evaluates it. One implementation, no shared
+state, and no second module.
+
+**AND IT IS PINNED, WHICH IS WHAT MAKES IT A DECISION RATHER THAN A PREFERENCE.**
+`agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs` fails if the shell-policy glue ever
+exports `setAgentPort`, `isBaseOrigin`, or any of the url policy's other 17 names again. **A future wasm
+crate that wants a sibling's function reads this section first, and the way to re-open it is to re-add the
+dependency and count the exports — not to re-assert the design.**
+
 ## 7 · Out of scope, with the measurements that put it there
 
 * **The React/TSX view layer.** A Leptos 0.8 floor measures **41,843 gz** against React+ReactDOM's **44,879 gz**, so

@@ -345,6 +345,14 @@ jobs:
           # which surfaces a design sweep visits and which passes measure there — the matrix that used to be
           # written out at 29 call sites in the payloads.
           cargo test -p summrise-sweep-plan --no-fail-fast
+          # **THE ELECTRON SHELL'S DECISIONS (2026-10-09, landing 6b).** Same story a third time, and this
+          # one was MEASURED rather than noticed: the crate carries **57 `#[test]` functions** and no job
+          # named it, so none of them ran in CI. `summrise-shell-policy` is the shell's boot/auth, native
+          # menu, browser-session and embedded-view policy, the loopback control server's routing, the
+          # agent-lifecycle watchdog and the tray's formats — the decisions that used to sit in
+          # `main.ts`. Its committed wasm is checked by `shell-policy-wasm-freshness`; THIS line is what
+          # runs the source's own tests.
+          cargo test -p summrise-shell-policy --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
@@ -1048,6 +1056,41 @@ jobs:
       # embeds) plus `release.yml` copying the exe it built. A cmp against a committed artifact is what
       # this step was for; there is no committed artifact any more, which is the stronger arrangement.
       #
+      # THE SECOND WASM POLICY'S FRESHNESS (landing 6b), the same shape, the same exit-2 convention and
+      # the same reason — and a SEPARATE gate rather than an extension of the one above because the two
+      # crates are peers that do not depend on each other, so one mutation proof cannot cover both.
+      # `summrise_shell_policy.js` and `summrise_shell_policy_bg.wasm` are wasm-pack output committed to
+      # the package (`main.js` requires the glue, which requires the module), so a change to
+      # `agent/summrise-shell-policy/` without a rebuild and a commit would ship a shell whose decisions
+      # disagree with its own source. THIS RUNNER HAS CARGO AND NO wasm-pack — MEASURED on the step above,
+      # which failed its first run with "n/a no wasm-pack on PATH" — so exit 2 is `n/a` and not red, and
+      # the gate's header names the `cmp` loops in publish-release.sh / this file / release.yml that still
+      # compare the shipped pair on such a host.
+      - name: shell-policy wasm freshness (rebuild + cmp)
+        run: |
+          set +e
+          bash scripts/test/shell-policy-wasm-freshness.bash
+          st=$?
+          set -e
+          if [ "$st" = 2 ]; then
+            echo "n/a — this runner has no wasm-pack; the gate's header names the cmp loops that still cover"
+            echo "      the shipped copy, so this is 'cannot run here' and not 'the artifacts are stale'"
+            exit 0
+          fi
+          exit "$st"
+      # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
+      # recompile src/summrise.ts with the tsc the electron step installed
+      # above and cmp against the committed bin/summrise.js — a src change
+      # without recompiling fails the PR, not the release.
+      - name: bin/summrise.js freshness (tsc recompile + cmp, same as release)
+        working-directory: agent
+        run: |
+          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/summrise-fresh-bin)
+          if ! cmp -s "/tmp/summrise-fresh-bin/summrise.js" "summrise-agent-npm/bin/summrise.js"; then
+            echo "::error::summrise-agent-npm/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile and commit bin/summrise.js"
+            exit 1
+          fi
+          echo "bin/summrise.js freshness check OK"
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
       # staged in this xwin-less job, so the exes are EXCLUDED) and assert
       # the other release.yml files are inside — a files[]/rename slip

@@ -3567,6 +3567,17 @@ name = "summrise-launch"
 version = "1.0.145"
 
 [[package]]
+name = "summrise-shell-policy"
+version = "1.0.145"
+dependencies = [
+ "js-sys",
+ "regex",
+ "serde_json",
+ "url",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "summrise-sweep-judge"
 version = "1.0.145"
 dependencies = [

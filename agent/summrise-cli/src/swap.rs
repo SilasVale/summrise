@@ -44,16 +44,24 @@ use crate::update::{
 };
 use std::path::{Path, PathBuf};
 
-/// The four sources `stageDesktopShell` ships, and the two icons beside them.
+/// The SIX sources `stageDesktopShell` ships, and the two icons beside them.
 ///
-/// A LIST, because the swap script's own desktop loop names the same four in the same order: the
+/// A LIST, because the swap script's own desktop loop copies the same files in the same order: the
 /// staging and the swap have to agree about what "the desktop shell's files" means, and the only way
 /// to make that structural is to have one list.
-pub const DESK_SHELL_SOURCES: [&str; 4] = [
+///
+/// **IT IS SIX AND NOT FOUR SINCE LANDING 6b, AND THE REASON IS THE FAILURE THIS COMMENT WARNS ABOUT.**
+/// The shell's `main.js` requires TWO policy glues now — `summrise_url_policy.js` (landing 6a) and
+/// `summrise_shell_policy.js` (6b), each requiring its own `.wasm`. A file that is staged but never
+/// copied into the shell's `src/` is a shell that dies on the device with
+/// `Cannot find module './summrise_shell_policy'`, so the two names have to travel together.
+pub const DESK_SHELL_SOURCES: [&str; 6] = [
     "main.js",
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",
+    "summrise_shell_policy.js",
+    "summrise_shell_policy_bg.wasm",
 ];
 
 /// The two icons, which go NEXT TO `src/` (`electron` loads `../icon.png`, and the Windows tray
@@ -217,8 +225,21 @@ pub fn swap_script(q: &str, qd: &str, rel_ver: &str, port: u16) -> Vec<String> {
         "Remove-Item -Force -ErrorAction SilentlyContinue '{q}\\scripts\\summrise-launch.new.exe'"
     ));
     // Desktop shell sources, with retry — the running Electron may hold them briefly.
+    //
+    // **THE NAMES COME FROM `DESK_SHELL_SOURCES`, AND THAT IS A FIX RATHER THAN A TIDY-UP: this loop
+    // used to spell them out a SECOND time, which made the constant's own comment ("the only way to
+    // make that structural is to have one list") false for the half that matters.** Adding a source to
+    // the constant without editing this literal stages a file the swap never copies into the shell's
+    // `src/`, and the shell then dies with `Cannot find module` — the failure the constant's doc names.
+    // The generated PowerShell is byte-identical: same names, same order, and `join(",")` with no space,
+    // which is what the literal had.
+    let desk_shell_list = DESK_SHELL_SOURCES
+        .iter()
+        .map(|f| format!("'{f}'"))
+        .collect::<Vec<_>>()
+        .join(",");
     s.push(format!(
-        "foreach($df in @('main.js','preload.js','summrise_url_policy.js','summrise_url_policy_bg.wasm')){{ $ds='{q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) {{ $ok2=$false; foreach($i in 1..8){{ try {{ Copy-Item -Force -ErrorAction Stop $ds ('{q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break }} catch {{ Start-Sleep -Milliseconds 500 }} }}; Remove-Item -Force -ErrorAction SilentlyContinue $ds; \"[$(Get-Date -Format o)] desk $df ok=$ok2\" | {log} }} }}"
+        "foreach($df in @({desk_shell_list})){{ $ds='{q}\\components\\summrise-desktop-electron\\src\\'+$df+'.new'; if (Test-Path $ds) {{ $ok2=$false; foreach($i in 1..8){{ try {{ Copy-Item -Force -ErrorAction Stop $ds ('{q}\\components\\summrise-desktop-electron\\src\\'+$df); $ok2=$true; break }} catch {{ Start-Sleep -Milliseconds 500 }} }}; Remove-Item -Force -ErrorAction SilentlyContinue $ds; \"[$(Get-Date -Format o)] desk $df ok=$ok2\" | {log} }} }}"
     ));
     // NEVER LEAVE THE DEVICE DARK. `try`/`finally` WITHOUT `catch` is deliberate: the failure still
     // propagates to the exit code, and the restart happens regardless — PowerShell runs a `finally`
