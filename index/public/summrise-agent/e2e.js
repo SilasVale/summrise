@@ -33,6 +33,7 @@
 //
 // Exit code: 0 = all selected sections passed; 1 = any failure.
 
+import { writeFileSync } from 'node:fs';
 const TOKEN = process.argv.includes('--token')
   ? process.argv[process.argv.indexOf('--token') + 1]
   : process.env.SUMMRISE_AGENT_TOKEN;
@@ -80,6 +81,17 @@ const H = { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function shotsJsonParse(resp) { try { return await resp.json(); } catch (e) { return null; } }
 
+// **THE RECORDING MODE EXISTS FOR THIS SCRIPT'S OWN MIGRATION, AND IT SITS AT THE ONE BOUNDARY EVERY
+// SECTION ALREADY GOES THROUGH.** `--record <path>` writes every tool call and its answer to a JSON file,
+// which is the corpus a Rust judge replays: the 75 `check(...)` calls below are DECISIONS (they compute,
+// compare and format), the HTTP calls are the boundary, and the answers are data. Without this the only
+// oracle for the port would be the JUDGED output — which proves nothing, because the judgements are the
+// thing being moved. The shape is `gateway/wasm/verify.mjs`'s `PROXY_RECORD=1`, for the same reason.
+const RECORD_PATH = (() => {
+  const i = process.argv.indexOf('--record');
+  return i >= 0 ? process.argv[i + 1] : null;
+})();
+const RECORDED = [];
 async function tool(name, body) {
   const r = await fetch(BASE + '/api/tools/' + name, {
     method: 'POST', headers: H, body: JSON.stringify(body || {}),
@@ -87,7 +99,9 @@ async function tool(name, body) {
   if (!r.ok) throw new Error('tool ' + name + ' HTTP ' + r.status);
   const j = await r.json();
   if (j && j.ok === false) throw new Error('tool ' + name + ' failed: ' + JSON.stringify(j).slice(0, 200));
-  return j && j.result !== undefined ? j.result : j;
+  const result = j && j.result !== undefined ? j.result : j;
+  if (RECORD_PATH) RECORDED.push({ name, body: body || {}, result });
+  return result;
 }
 
 /** HOW MANY TIMES A SESSION ROW WAS ASKED FOR — the outcome assertions below need the list, not the command. */
@@ -1017,9 +1031,21 @@ async function sectionRuns() {
   //
   // The exit codes, matching panel-render-audit.mjs: 0 ran and all passed,
   // 1 ran and something failed, 2 DID NOT RUN (bad --only, or no checks executed).
+  // **THE RECORDING IS WRITTEN HERE, AND THE FIRST ATTEMPT AT THIS PUT IT AFTER THE IIFE — WHERE IT NEVER
+  // RAN**, because `process.exit` above it ends the process first. That is the same "an instrument nobody
+  // runs is an instrument nobody has" class this repository keeps finding, caught by reading the file rather
+  // than trusting the edit. It is written on EVERY exit path, including the one that did not run, so an
+  // empty recording is a fact about the run rather than a missing file.
+  const finish = (code) => {
+    if (RECORD_PATH) {
+      writeFileSync(RECORD_PATH, JSON.stringify({ base: BASE, calls: RECORDED }, null, 1));
+      console.log(`recorded ${RECORDED.length} tool call(s) to ${RECORD_PATH}`);
+    }
+    process.exit(code);
+  };
   if (results.length === 0) {
     console.error('EXIT 2: THE SUITE DID NOT RUN — zero checks executed. A skip is not a pass.');
-    process.exit(2);
+    finish(2);
   }
-  process.exit(failed.length ? 1 : 0);
+  finish(failed.length ? 1 : 0);
 })();
