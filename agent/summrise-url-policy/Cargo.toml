@@ -1,0 +1,42 @@
+[package]
+name = "summrise-url-policy"
+version.workspace = true
+edition = "2021"
+description = "The Electron shell's URL/origin/certificate policy, ported out of agent/summrise-desktop-electron/src/url-policy.ts. Built to wasm with `wasm-pack --target nodejs` and required by the shell's main process; the shell's CDP host stays TypeScript (landing 6)."
+
+# `cdylib` is what wasm-pack emits; `rlib` is what `cargo test -p summrise-url-policy` links against, so
+# the SAME source is both the shipped artifact and the thing the ported cases run against. A crate that
+# could only be built for wasm could only be tested by loading the artifact in Node.
+[lib]
+name = "summrise_url_policy"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WHATWG URL — the same standard `new URL()` implements, which is the whole security story of this
+# crate. url-policy.ts's header records that `startsWith(BASE)` was BYPASSABLE (the userinfo trick:
+# `http://127.0.0.1:18080@evil.com` parses its host as evil.com), and that the control API's inline
+# regex had no `$` anchor. A hand-rolled parser here would be the third implementation of that same
+# mistake: this crate IS the browser's algorithm (the host parser, IDNA, default-port elision, the
+# IPv4 normalisation that turns `0x7f.1` into `127.0.0.1`), so the port compares what Chromium compares
+# rather than what a regex hopes.
+url = "2"
+# `parseAgentPort`'s two line patterns, transliterated rather than re-derived — with `\d` and `\s`
+# written out, because JavaScript's classes are not Rust's (see `src/js.rs`, which owns the one
+# spelling of JS whitespace that these patterns, the trim and the line split all share).
+regex = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# PINNED TO THE CLI THAT IS INSTALLED (wasm-pack REFUSES a mismatch). When the crate does not pin one,
+# wasm-pack fetches a matching `wasm-bindgen` CLI from a GitHub release — the download P0 measured
+# still crawling after 25 minutes on this box. The pin is the same generation `agent/resources/panel-logic`
+# and `gateway/ui-logic` carry, so the three wasm artifacts in this tree are built by one CLI.
+wasm-bindgen = "=0.2.129"
+# Only for `js_sys::Error`: `addDshPort` throws, and a THROWN STRING is not what the JavaScript threw.
+js-sys = "=0.3.106"
+
+# NO `[profile.release]` HERE, AND IT IS NOT AN OMISSION: this crate is a member of the `agent`
+# workspace (unlike `panel-logic`, which is its own workspace), and cargo IGNORES a member's profile
+# table with a warning while building with the ROOT's. Setting one here would look like a size
+# decision and change nothing; setting it at the root would change `summrise-agent.exe`'s bytes,
+# which the release audit compares across two builders. The wasm is built with the root's defaults.

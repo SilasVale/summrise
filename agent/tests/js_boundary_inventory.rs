@@ -75,7 +75,17 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// **THE RULE, stated so the next raise is judged rather than felt: silent growth is refused, and a raise is
 /// allowed only in a commit that NAMES the file and the reason** — the same rule `production_host.rs` follows for
 /// its own list.
-const MAX_LOGIC: usize = 146;
+/// **It went 152 -> 146 when the six-file sweep audit landed, and 146 -> 144 in landing 6** — the two
+/// files that left are `agent/summrise-desktop-electron/src/url-policy.ts` and its suite
+/// `agent/summrise-desktop-electron/test/url-policy.test.mjs`: the shell's URL/origin/certificate policy is
+/// `agent/summrise-url-policy` now, a Rust crate compiled to wasm and required by the shell's main process,
+/// and its 11 cases were ported into that crate's `src/tests.rs` case for case. NOTHING ELSE MOVED: the two
+/// wasm-pack products the landing ADDED (`src/summrise_url_policy.js` and its `.d.ts`) are GENERATED rules
+/// with the crate named as their producer, and the Node suite that loads the committed artifact in CI's
+/// place (`test/url-policy-wasm.test.mjs`) is a BOUNDARY exception, because it executes an artifact and
+/// decides nothing — the same reading that made `gateway/wasm/verify.mjs` a boundary. So the number fell by
+/// exactly the two files that left the class, which is the only way this constant is allowed to move down.
+const MAX_LOGIC: usize = 144;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.
