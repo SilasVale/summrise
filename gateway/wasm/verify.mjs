@@ -3760,6 +3760,31 @@ const rowsFor = (got) => [
 
   const BASE = { upstream: UPSTREAM };
 
+  // **A CARRIED ACAO ON THE FILE RELAY'S OWN ANSWER — THE ONE PAIRING THE CORPUS DID NOT HAVE.**
+  //
+  // The upload's host fallback RE-SERVES the index worker's headers (`finish_upload`'s strip list covers
+  // `set-cookie`/hop-by-hop framing and nothing else), so an `access-control-allow-origin` the worker sent
+  // arrives at the front door's stamp — and `withCors` has to take it away when the caller's origin is not
+  // allowlisted (`http.ts:124`). `Vary` rides along because the source's `else` deletes the ORIGIN ALONE:
+  // pinning one without the other is exactly how `cors.rs`'s unit test came to assert the opposite of the live
+  // code, and the pairing is what makes this case a measurement rather than a restatement.
+  //
+  // **WHY THE UPLOAD AND NOT THE PROXY, WHICH ALREADY HAS THIS CASE**: the reverse proxy stamps its own headers
+  // first (`device_proxy::stamp_cors_like_ts`), so it cannot show what the OUTER stamp does — the upload is the
+  // route whose answer reaches `with_cors` with an ACAO still on it. The gap is arm-independent (it is the last
+  // stamp on every response), which is why one case covers it rather than one per relay arm.
+  const UPLOAD_WITH_ACAO = {
+    "idx.test/api/upload": {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "https://relay.test",
+        vary: "Accept-Encoding",
+      },
+      body: '{"ok":true,"key":"claim/abc"}',
+    },
+  };
+
   // ── the cases ───────────────────────────────────────────────────────────────────────────────────
   // Every decision the two modules carry, its refusals as carefully as its successes.
   const CASES = [
@@ -4210,6 +4235,18 @@ const rowsFor = (got) => [
       req: ["POST", "/api/upload", "fallback-bytes"],
       cookie: "admin",
       ...BASE,
+    },
+    {
+      // **THE CASE THAT WOULD HAVE CAUGHT `with_cors`'S MISSING `else`, AND THE ONLY ONE OF ITS KIND.** Every
+      // other case in this file that carries an ACAO in its ANSWER is an ALLOWED origin, so the corpus was
+      // structurally blind to the refusal arm: the stamp's `if` was measured and its `else` was not. Here the
+      // index worker's answer carries an ACAO of its own AND the caller's origin is refused, which is the
+      // pairing — and the `Vary` in the same answer pins the other half (the source deletes the ORIGIN alone).
+      name: "POST /api/upload with a REFUSED origin — the ACAO the relay's answer CARRIED is removed, its Vary stays",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: "admin",
+      headers: { origin: "https://evil.test" },
+      upstream: UPLOAD_WITH_ACAO,
     },
     {
       name: "POST /api/upload through the RELAY — the binding is preferred when it is there",

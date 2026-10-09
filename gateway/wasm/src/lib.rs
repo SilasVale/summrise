@@ -293,6 +293,22 @@ fn not_found() -> Result<Response> {
 /// **AND THESE COMMENTS DO NOT SPELL THE HOST, WHICH IS A GATE'S RULE RATHER THAN STYLE**: the first version of
 /// this paragraph wrote the deployment's origins out, and `agent/tests/production_host.rs` failed the tree by
 /// naming this file — five occurrences, none of them code.
+/// **AND REFUSING HAS TO TAKE AN ORIGIN AWAY — THE `else` ARM THIS FUNCTION DID NOT HAVE.** `withCors` is
+/// `stampCors` applied to a response that may ALREADY carry an ACAO (an upstream's, or a route's own: the file
+/// relay re-serves the index worker's headers on its host fallback, and returns the relay's verbatim on the
+/// binding arm), and the source's `else` is one line — `headers.delete("Access-Control-Allow-Origin")`
+/// (`gateway/src/http.ts:124`). This port had only the `if`, so a response carrying an ACAO went to a caller the
+/// allowlist had just refused: the exact hole the delete exists to close, on the one stamp every response of
+/// this door passes through. **Found by reading the source against the shipping implementation, not by a failing
+/// case — and no case could have found it**: of the three recorded answers that carry an ACAO, all three are
+/// ALLOWED origins, and nothing paired "the answer already carries one" with "the caller's origin is refused".
+/// That case is in `verify.mjs` now (`… the ACAO the relay's answer CARRIED is removed, its Vary stays`).
+///
+/// **ONLY THE ORIGIN IS DELETED, WHICH IS THE SOURCE'S ASYMMETRY RATHER THAN AN OVERSIGHT.** `Vary` is replaced
+/// in the ALLOWED branch alone (`headers.set("Vary", "Origin")`), so a device's or a relay's own `Vary` survives
+/// a refusal — which is why the corpus case carries a `Vary` as well as an ACAO. (`cors.rs::stamp_cors`, which
+/// removes both, has no caller outside its own unit tests now; the two live stamps are this function and
+/// `device_proxy::stamp_cors_like_ts`.)
 fn with_cors(
     mut res: Response,
     origin: &str,
@@ -303,6 +319,8 @@ fn with_cors(
         let headers = res.headers_mut();
         headers.set("Access-Control-Allow-Origin", origin)?;
         headers.set("Vary", "Origin")?;
+    } else {
+        res.headers_mut().delete("Access-Control-Allow-Origin")?;
     }
     Ok(res)
 }

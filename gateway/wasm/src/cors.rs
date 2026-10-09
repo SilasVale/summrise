@@ -120,17 +120,25 @@ pub fn cors_headers_for(
 /// fresh set that never had an ACAO, so "not allowed" means "do not add one". This one is handed the
 /// UPSTREAM's headers, which may carry an ACAO of their own — so refusing has to take it away. A port that
 /// merely skipped the `if` would forward whatever the upstream said about origins.
+///
+/// **AND IT TAKES THE ORIGIN ALONE — `Vary` IS NOT ITS TO DELETE.** The source's `else` is one line,
+/// `headers.delete("Access-Control-Allow-Origin")` (`gateway/src/http.ts:124`); `Vary` is touched only in the
+/// ALLOWED branch, where the source's `headers.set("Vary", "Origin")` REPLACES whatever the upstream sent. This
+/// function removed both in every branch, which is a real difference from the console: measured on the file
+/// relay's own answer, a `vary: accept-encoding` sent to a refused origin came back DROPPED here and KEPT by the
+/// shipping implementation. It has no caller outside its own unit tests today — the two live stamps are
+/// `lib::with_cors` and `device_proxy::stamp_cors_like_ts` — which is exactly why it went unnoticed: a helper
+/// nothing calls cannot fail a corpus case, and the test beside it asserted the wrong behaviour as if it were
+/// the source's. Both are corrected together.
 pub fn stamp_cors(
     headers: &mut Vec<(String, String)>,
     origin: &str,
     request_host: Option<&str>,
     configured: Option<&str>,
 ) {
-    headers.retain(|(k, _)| {
-        let lower = k.to_ascii_lowercase();
-        lower != "access-control-allow-origin" && lower != "vary"
-    });
+    headers.retain(|(k, _)| !k.eq_ignore_ascii_case("access-control-allow-origin"));
     if is_allowed_origin(origin, request_host, configured) {
+        headers.retain(|(k, _)| !k.eq_ignore_ascii_case("vary"));
         headers.push((
             "Access-Control-Allow-Origin".to_string(),
             origin.to_string(),
@@ -216,9 +224,22 @@ mod oracle_corpus {
                 .any(|(k, _)| k.eq_ignore_ascii_case("access-control-allow-origin")),
             "the upstream's origin must be REMOVED: {headers:?}"
         );
-        assert!(
-            !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("vary")),
-            "and its Vary goes with it: {headers:?}"
+        // **AND ITS `Vary` STAYS — THIS ASSERTION USED TO SAY THE OPPOSITE, AND THAT IS WHY THE LIVE CODE READ
+        // AS CORRECT.** The source's `else` is ONE line, `headers.delete("Access-Control-Allow-Origin")`
+        // (`gateway/src/http.ts:124`); `Vary` is replaced only where the source replaces it, in the ALLOWED
+        // branch below (`headers.set("Vary", "Origin")`). A test asserting that refusing takes `Vary` with it
+        // made this function the authority for an asymmetry it does not have — and the function it "justified"
+        // is the one the door actually uses. Measured on the file relay's own answer: a device or a relay that
+        // sent `vary: accept-encoding` to a refused origin came back with it DROPPED here and KEPT by the
+        // shipping console. `verify.mjs` carries the pairing now; this pins it one level down.
+        assert_eq!(
+            headers
+                .iter()
+                .filter(|(k, _)| k.eq_ignore_ascii_case("vary"))
+                .map(|(_, v)| v.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Accept-Encoding"],
+            "an upstream Vary is not ours to delete when we refuse the origin: {headers:?}"
         );
         assert!(
             headers.iter().any(|(k, _)| k == "content-type"),
@@ -239,6 +260,19 @@ mod oracle_corpus {
             .map(|(_, v)| v)
             .collect();
         assert_eq!(acao, vec!["https://ai.saisi.online"], "{headers:?}");
+        // **AND HERE `Vary` IS REPLACED, WHICH IS THE OTHER HALF OF THE ASYMMETRY.** `Vary: Origin` is what the
+        // ALLOWED branch writes, so the upstream's `Accept-Encoding` does not survive it — the two branches
+        // differ in exactly this, and pinning only one of them is how the pair came to be misread.
+        let vary: Vec<&String> = headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("vary"))
+            .map(|(_, v)| v)
+            .collect();
+        assert_eq!(
+            vary,
+            vec!["Origin"],
+            "the allowed branch REPLACES the upstream's Vary: {headers:?}"
+        );
     }
 
     #[test]
