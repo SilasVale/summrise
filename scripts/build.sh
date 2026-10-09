@@ -13,6 +13,14 @@
 #   ./scripts/build.sh deploy          # build agent + deploy gateway/index
 #
 # Dependencies: cargo-xwin, wrangler (global 4.127.0, pinned with build-pins.bash), CLOUDFLARE_API_TOKEN (deploy
+# **AND `node_modules` IN THE DIRECTORY BEING DEPLOYED — MEASURED 2026-10-09, BECAUSE ITS ABSENCE BLOCKS A
+# DEPLOY WITHOUT SAYING SO.** `build.sh gateway` runs the gateway's own pre-deploy gates
+# (`format:check`, `typecheck`, `lint`, the suite), and `npm run format:check` with `prettier` missing from
+# `gateway/node_modules` exits **216 WITH NO OUTPUT AT ALL** — no "command not found", nothing. The deploy
+# stops at a gate that never ran, and the last thing on screen is a script header. `cd gateway && npm ci`
+# is the fix, and it is a real dependency of this path, so it is named here rather than left to be
+# rediscovered. (`agent/summrise-agent-npm` is the exception and says so itself: zero dependencies and no
+# lockfile, so `npm ci` there fails with EUSAGE.)
 # only, or a ~/.cloudflare-token file).
 set -euo pipefail
 
