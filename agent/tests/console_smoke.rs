@@ -49,13 +49,25 @@ const MIN_SMOKES: usize = 4;
 /// `/index-[^"]*\.js/` — the bundle `gateway/public/index.html` names, first match, or `None` when the
 /// console has never been built. Hand-rolled for the same reason `count_of` is: three anchored shapes do
 /// not justify a dependency in a crate that ships.
+///
+/// **THE `.js` SUFFIX IS PART OF THE PATTERN, AND A START POSITION THAT FAILS IT FALLS THROUGH.** MEASURED
+/// against this function's own first version, which read from the first `index-` to the next quote and
+/// stopped there: the same document names `index-<hash>.css`, so a listing that put the stylesheet FIRST
+/// would have handed the smokes a stylesheet path — the regex would not have. What is implemented is the
+/// regex's own semantics: from each `index-` (leftmost first), the LAST `.js` before the closing quote, or
+/// the next start position when this one has none.
 fn built_bundle(html: &str) -> Option<String> {
-    let open = html.find("index-")?;
-    let rest = &html[open..];
-    let end = rest
-        .find('"')
-        .expect("the bundle name is inside an attribute, so a quote follows it");
-    Some(rest[..end].to_string())
+    let mut from = 0usize;
+    while let Some(open) = html[from..].find("index-").map(|i| from + i) {
+        let rest = &html[open..];
+        if let Some(end) = rest.find('"') {
+            if let Some(js) = rest[..end].rfind(".js") {
+                return Some(rest[..js + ".js".len()].to_string());
+            }
+        }
+        from = open + 1;
+    }
+    None
 }
 
 #[test]

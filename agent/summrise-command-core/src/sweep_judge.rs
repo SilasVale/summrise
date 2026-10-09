@@ -19,7 +19,8 @@
 //!
 //! On 2026-09-28 the JS judge filed twelve findings against a live button — "renders NOTHING when pressed"
 //! — and a real pointer showed `:active` matching and `transform: none → matrix(1, 0, 0, 1, 0, 1)`. The
-//! criterion was wrong twice (`f4a65696`, `scripts/test/press-anchor-check.mjs`), and the fixes are the
+//! criterion was wrong twice (`f4a65696`; `scripts/test/press-anchor-check.mjs` then, and
+//! `agent/tests/press_anchor.rs` since landing 3), and the fixes are the
 //! reason the port is worth doing, so they are ported rather than the semantics that produced the false
 //! finding:
 //!

@@ -1,4 +1,5 @@
-//! `scripts/test/contrast-probe-check.mjs`, MINUS THE FOUR ASSERTIONS ABOUT THE EMITTED PROBE.
+//! MIGRATED FROM `scripts/test/contrast-probe-check.mjs` (DELETED), MINUS ITS FIVE ASSERTIONS ABOUT THE
+//! EMITTED PROBE — those are `agent/tests/contrast_probe_emitted.rs`, and the split is the point.
 //!
 //! WHAT THIS GATE IS FOR, in its own header: four rounds of contrast sweeps used an ad-hoc snippet
 //! retyped each time, and it was wrong twice. Both defects are assertions here, with the numbers they
@@ -11,14 +12,14 @@
 //!      skipped EVERY node in the panel and reported `checked=0, underAA=0`, which reads exactly like a
 //!      pass.
 //!
-//! # WHY THE `.mjs` STILL EXISTS, AND WHY IT IS NOW FOUR ASSERTIONS
+//! # AND THE OTHER FIVE ASSERTIONS ARE RUST TOO NOW
 //!
-//! `PROBE_SOURCE` is the probe the DESIGN SWEEPS INJECT INTO A BROWSER, and the plan's carve-out list
-//! keeps that JavaScript: `browser_run_script` takes a JS file, and the measurement runs in the DOM. Its
-//! four assertions — that the source is syntactically valid, that it COMPILES as the artifact it is, that
-//! it keeps its regex escapes, and that it carries these functions rather than a paraphrase — are about
-//! that artifact and cannot move until the probe itself is not JavaScript. They are named in the commit
-//! and in that file's header, which is the plan's rule for a gate that cannot follow its subject.
+//! `PROBE_SOURCE` is the probe the DESIGN SWEEPS INJECT INTO A BROWSER, and the plan's carve-out list keeps
+//! that JavaScript: `browser_run_script` takes a JS file, and the measurement runs in the DOM. Its five
+//! assertions — that the source is syntactically valid, that it COMPILES as the artifact it is, that it keeps
+//! its regex escapes, and that it carries these functions rather than a paraphrase — are about that artifact,
+//! and they are `agent/tests/contrast_probe_emitted.rs` (landing 3, 2026-10-09). The `.mjs` is deleted; the
+//! SUBJECT stays JavaScript, which is the point rather than an oversight.
 //!
 //! # THE COLOUR CORE IS A SECOND COPY, AND IT SAYS SO
 //!
@@ -326,7 +327,7 @@ mod tests {
 
     /// **THE BACKTICK GUARD EXISTS BY VIRTUE OF AN IMPORT, SO THE IMPORT IS WHAT TO PIN.**
     ///
-    /// `contrast-probe-check.mjs` says of itself: "NO SEPARATE BACKTICK CHECK, and the reason is worth
+    /// `contrast-probe-check.mjs` said of itself: "NO SEPARATE BACKTICK CHECK, and the reason is worth
     /// keeping. I wrote one three times and every version had a wrong premise … Then I noticed the guard
     /// ALREADY EXISTS: **this file IMPORTS the module**, so a stray backtick inside the template makes the
     /// import throw a SyntaxError and the whole test file fails loudly. **A hand-rolled parser for a case the
@@ -335,29 +336,31 @@ mod tests {
     /// **A CHECK THAT EXISTS BY ACCIDENT OF AN IMPORT IS A CHECK THAT CAN BE DELETED BY ACCIDENT.** Remove
     /// the import — or move `PROBE_SOURCE` to a module this file does not import — and the backtick guard
     /// disappears without a single test changing colour. This is what says so.
+    ///
+    /// **AND THE IMPORT MOVED WITH THE GATE (landing 3), WHICH IS EXACTLY THE ACCIDENT THIS TEST IS FOR.**
+    /// The file that imports `PROBE_SOURCE` now is `agent/tests/contrast_probe_emitted.rs`: its Node driver
+    /// is a STATIC `import` of the module, run in a child process, so a stray backtick still fails the gate
+    /// loudly. That is the shape this pins — a static import of the module, in the gate that owns the
+    /// artifact — because a future move of THAT import is what would quietly drop the guard.
     #[test]
-    fn the_javascript_still_imports_the_probe_source() {
+    fn the_gate_that_owns_the_artifact_still_imports_the_probe_source() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("the repository root")
-            .join("scripts/test/contrast-probe-check.mjs");
-        let js =
+            .join("tests/contrast_probe_emitted.rs");
+        let rust =
             std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         assert!(
-            js.contains("PROBE_SOURCE"),
-            "the .mjs no longer mentions PROBE_SOURCE at all"
+            rust.contains("PROBE_SOURCE"),
+            "agent/tests/contrast_probe_emitted.rs no longer mentions PROBE_SOURCE at all"
         );
-        let imports_it = js.lines().any(|l| {
-            l.trim_start().starts_with("import ")
-                && l.contains("PROBE_SOURCE")
-                && l.contains("contrast-probe.mjs")
-        });
+        let imports_it = rust
+            .lines()
+            .any(|l| l.trim_start().starts_with("import ") && l.contains("contrast-probe.mjs"));
         assert!(
             imports_it,
-            "scripts/test/contrast-probe-check.mjs no longer IMPORTS PROBE_SOURCE from \
-             agent/scripts/lib/contrast-probe.mjs — and that import IS its backtick guard: a stray backtick \
-             inside the template makes the import throw a SyntaxError. Without it, a broken probe passes \
-             silently. The file's own note explains why a hand-rolled replacement is worse."
+            "agent/tests/contrast_probe_emitted.rs no longer IMPORTS agent/scripts/lib/contrast-probe.mjs \
+             — and that import IS the backtick guard: a stray backtick inside the template makes the import \
+             throw a SyntaxError. Without it, a broken probe passes silently. The `.mjs`'s own note \
+             explains why a hand-rolled replacement is worse."
         );
     }
 
