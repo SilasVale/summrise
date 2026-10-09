@@ -19,10 +19,12 @@
 //! `LOGIC` entry", which is a gate that cannot be green until the migration is finished: it would have been red on
 //! every commit from today until the last landing, and a gate that cannot be green is a gate that gets disabled or
 //! ignored — the failure this repository has recorded often enough that the rule is written down twice. So `LOGIC`
-//! entries are ALLOWED, COUNTED and CAPPED at `MAX_LOGIC`, which may only fall; a landing that migrates a file
-//! lowers it in the same commit, and the migration is complete on the day it reaches 0. What the gate refuses is
-//! **growth** and **silence**: a file nobody classified, a `LOGIC` file past the cap, a `GENERATED` entry whose
-//! producer does not exist, and a stale cap that no longer matches the list.
+//! entries are ALLOWED, COUNTED and CAPPED at `MAX_LOGIC`; a landing that migrates a file lowers it in the same
+//! commit, and the migration is complete on the day it reaches 0. What the gate refuses is **SILENT growth** and
+//! **silence**: a file nobody classified, a `LOGIC` file past the cap, a `GENERATED` entry whose producer does not
+//! exist, and a stale cap that no longer matches the list. A raise is possible and has happened once — see the
+//! constant — but only in a commit that NAMES the file and the reason, which is the same rule `production_host.rs`
+//! follows for its own list, and it is a deliberate edit a reviewer sees in the diff rather than a drift.
 //!
 //! **THE MANIFEST IS PER DIRECTORY, WITH NAMED FILE EXCEPTIONS**, because a per-file list of 536 entries would be
 //! rewritten by every UI change and abandoned within a month. The most specific matching pattern wins, so a rule
@@ -61,7 +63,19 @@ const MANIFEST: &str = "agent/tests/fixtures/js-boundaries.txt";
 /// time, and `agent/scripts/lib/sweep/plan-runtime.cjs`, which places what the plan gave it — are BOUNDARY
 /// exceptions to the `agent/scripts/` rule, so they never entered it. A cap lowered for files that never joined
 /// the class would be finished work wearing a budget.
-const MAX_LOGIC: usize = 151;
+///
+/// **IT WENT UP BY ONE ON 2026-10-08, AND THE GATE IS WHAT SAID SO — which is the only way this number is allowed
+/// to move in that direction.** Porting the console's device registry added `gateway/test/devices-cutover.test.mjs`
+/// (131 lines): the test that pins WHICH half serves `/api/devices*` in both configurations, written because the
+/// first version of that predicate would have kept the public `POST /api/devices/self-register` on the TypeScript
+/// path forever — the bug the test exists to catch. It sits in `gateway/test/`, a LOGIC directory, because that
+/// directory's files only leave when the TypeScript they exercise does. So the count went 151 -> 152, the cap
+/// followed it in the same commit, and the alternative — folding the file into `devices.test.mjs` to keep the
+/// number at 151 — was rejected: a ratchet that is satisfied by moving a file is a ratchet that measures nothing.
+/// **THE RULE, stated so the next raise is judged rather than felt: silent growth is refused, and a raise is
+/// allowed only in a commit that NAMES the file and the reason** — the same rule `production_host.rs` follows for
+/// its own list.
+const MAX_LOGIC: usize = 152;
 
 /// A floor, not a claim: the scan must see the repository that exists today. A gate that looked at almost nothing
 /// must not pass, and `git ls-files` answering an empty list is exactly how that happens.

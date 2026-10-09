@@ -22,6 +22,12 @@ const ADMIN_PW = "test-admin-password";
 // backdate entries to reproduce real KV's expired-but-unreaped list names).
 function makeEnv(devices, links = {}) {
   return makeBaseEnv({
+    // **NO `WASM_GATE` BINDING, ON PURPOSE: THIS FILE TESTS THE TYPESCRIPT IMPLEMENTATION.** `index.ts` hands the
+    // device family to the Rust worker when that binding is present (the production configuration), so a test of
+    // the TypeScript handlers is a test of the ROLLBACK path — which is a real configuration (a `wrangler dev`
+    // without the sibling worker, a deployment whose binding was removed) and the one these assertions were always
+    // about. The cutover's own routing is pinned in `devices-cutover.test.mjs`.
+    wasmGate: false,
     // The hosts above are device hosts AND the install base, and both rules live in the env (round 120):
     // `DEVICE_HOST_SUFFIX` decides what a device hostname may be, `INDEX_WORKER_URL` where the install
     // manifest is read from — the two are configurable since rounds 87 and 93.

@@ -74,6 +74,16 @@
   // **EACH OF THE REMAINING THREE IS A DIVERGENCE IF IT IS MISSING, AND NONE OF THEM IS VISIBLE TO A HARNESS
   // THAT INJECTS ITS OWN ENV** — the sweep passes the vision vars explicitly, so it measured the decisions and
   // never the deployment. The secrets this worker still needs are named below.
+  // **THE SECRETS THE DEVICE FAMILY'S CUTOVER NEEDS HERE, AND A SECRET CANNOT BE READ BACK — so the check is a
+  // command, not this sentence.** `SESSION_SECRET` signs a console session on the live worker; `requireSession`
+  // prefers it and falls back to the admin-password HASH only for the rotation window. A worker that does not
+  // carry it therefore fails every signature check for a console that does, and answers 401 to the console's own
+  // admins on `/api/devices/<name>/…` — the whole family, at the cutover, with every response otherwise correct.
+  // `wrangler secret list --name summrise-gate` vs `--name vale-gate-wasm` is the measurement (AGENTS.md: a
+  // newly created worker needs its secrets, and that is cutover work rather than follow-up work).
+  // `ADMIN_PASSWORD` is the one-time `legacy:` fallback `getAdminPassword` migrates from when KV holds no
+  // `auth:admin_password`; the front door's `seedAdmin` writes that key before the handover, so it is
+  // belt-and-braces rather than the blocker.
   "vars": {
     "UPSTREAM_TIMEOUT_MS": "120000",
     "VISION_MODEL": "cm/deepseek/deepseek-v4.1-flash",

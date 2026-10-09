@@ -125,6 +125,68 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
   );
 }
 
+/**
+ * THE DEVICE FAMILY'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH TWO IT DOES NOT.
+ *
+ * The rule is the same one `/v1` already follows: the TypeScript front door hands a path to the `WASM_GATE`
+ * service binding, and the DECISION of what belongs to the family is ONE predicate, mirrored in Rust
+ * (`gateway/wasm/src/devices.rs::in_family`) so a path that is handed over is a path that is served. What is
+ * being cut over (2026-10-08, landing 5 slice 1): the console's device registry — `POST /api/register`,
+ * `POST /api/devices/self-register`, `POST /api/install/tunnel-token`, the register-key routes, `install-cmd`,
+ * `GET`/`POST /api/devices`, a device's `mcp`, `delete`, `rename` and `panel-grant`, and the panel-grant redeem —
+ * fifteen routes whose decisions are Rust now, proved case for case against this implementation by
+ * `gateway/wasm/verify.mjs` (67 cases, including the refusals: no session, a forged cookie, a non-admin, a spent
+ * claim, a name that is taken, a device that does not exist).
+ *
+ * **THE TWO EXCLUSIONS, EACH WITH ITS REASON:**
+ *
+ *   * `/api/devices/<name>/proxy/...` is `plugins/device-proxy.ts` — a reverse proxy that mints per-device
+ *     cookies, rewrites panel HTML and can upgrade a WebSocket. It is not this slice, and it is checked here
+ *     FIRST because it shares the prefix.
+ *   * `POST|PUT /api/upload` is not under `/api/devices` at all and is not in the predicate: a 100 MiB body
+ *     passthrough to the relay, which `workers-rs` 0.8.7 cannot forward as a stream.
+ *
+ * **AND `devicesRouteNeedsSession` IS A ROUTING TEST, NOT AN AUTHENTICATION ONE.** The Rust worker verifies the
+ * cookie itself — this only decides which implementation gets to, and it exists for ONE route family: the eleven
+ * routes whose first line is `requireAdmin`. `requireSession` has a second identity arm that is NOT yet ported —
+ * the Cloudflare Access JWT (`access.ts`), which authenticates an admin with NO console cookie — so an
+ * admin-gated request WITHOUT that cookie is kept on the TypeScript path, where the arm lives. The day the arm
+ * is ported this predicate loses the condition and the comment goes with it. Nothing is weakened by it: a caller
+ * who SENDS a bogus cookie is routed to the worker, which rejects it. The four routes that never asked for a
+ * session (`/api/register`, self-register, tunnel-token, panel-grant redeem) are handed over like the rest.
+ */
+function isDevicesFamily(method: string, path: string): boolean {
+  // The reverse proxy shares the prefix — see the header. Checked first.
+  if (/^\/api\/devices\/[^/]+\/proxy/.test(path)) return false;
+  if (path.startsWith("/api/devices")) return true;
+  return method === "POST" && (path === "/api/register" || path === "/api/install/tunnel-token");
+}
+
+/**
+ * The eleven routes whose handler starts with `requireAdmin` — the ones the Access arm serves cookie-lessly.
+ *
+ * **IT MIRRORS THE PLUGIN'S ROUTE TABLE BY METHOD, AND THE FIRST VERSION DID NOT.** It tested
+ * `^/api/devices/[^/]+$` for any method, which also matches `POST /api/devices/self-register` — a PUBLIC route —
+ * and would have kept it on the TypeScript path forever. `devices-cutover.test.mjs` is what caught it; the
+ * generic single-segment shape is the DELETE route and nothing else, because every other single-segment path is
+ * a specific route registered before it.
+ */
+function devicesRouteNeedsSession(method: string, path: string): boolean {
+  if (path === "/api/devices") return true; // GET list, POST add
+  if (path.startsWith("/api/devices/register-keys")) return true; // GET list, DELETE revoke
+  if (path === "/api/devices/register-key" || path === "/api/devices/install-cmd") return true;
+  if (path === "/api/devices/panel-grant/redeem" || path === "/api/devices/self-register")
+    return false;
+  if (/^\/api\/devices\/[^/]+\/(mcp|rename|panel-grant)$/.test(path)) return true;
+  // The device delete, and the ONLY route the bare single-segment shape belongs to.
+  return method === "DELETE" && /^\/api\/devices\/[^/]+$/.test(path);
+}
+
+/** Does this request carry the console session cookie at all? (Its VALIDITY is the Rust worker's decision.) */
+function hasSessionCookie(request: Request): boolean {
+  return (request.headers.get("cookie") || "").includes("ag_session=");
+}
+
 export default {
   async fetch(request: Request, env: any) {
     // Auth-core audit MED-1: global CSRF gate for cookie-authed mutations
@@ -215,6 +277,20 @@ export default {
 
       // ---- Console API + MCP endpoint (page hosts) — all plugin-owned ----
       if (isPageHost && (path.startsWith("/api/") || path === "/mcp")) {
+        // **THE DEVICE FAMILY GOES TO THE RUST WORKER WHEN THE BINDING IS THERE.** `seedAdmin` has already run
+        // (it is the front door's job and the worker does not do it), the CSRF gate above has already run, and
+        // the cookie test applies ONLY to the admin-gated routes — the Access-arm carve-out described on
+        // `isDevicesFamily`. Without the binding — a local `wrangler dev`, a test env, a deployment whose binding
+        // was removed — this falls through to the TypeScript plugin below, UNCHANGED: that is the rollback, and
+        // it is why `plugins/devices.ts` and `store/devices.ts` are still here. Deleting them is the last step of
+        // this landing, after the deploy that proves the worker serves this family.
+        if (
+          isDevicesFamily(request.method, path) &&
+          (!devicesRouteNeedsSession(request.method, path) || hasSessionCookie(request)) &&
+          wasmGate(env)
+        ) {
+          return await frontDoor(request, env, request);
+        }
         const pctx = ensurePluginCtx();
         const hit = dispatch(
           pctx,

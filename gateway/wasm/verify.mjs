@@ -629,6 +629,25 @@ for (const [i, c] of CASES.entries()) {
   bad += providerBad;
 }
 
+// ── THE HOSTNAME HASH, SHARED BY BOTH RECORDED SECTIONS ─────────────────────────────────────────
+//
+// The recorded answers carry the URLs the shipping worker dialled and, in one device-family refusal, the
+// deployment's default device host inside a MESSAGE — and `agent/tests/production_host.rs` refuses that name in
+// any file but its own declared list. **THE COMPARISON IS PRESERVED EXACTLY**: the same hash is applied to the
+// worker's own strings before they are compared, so a worker that named a DIFFERENT host still fails the case (a
+// different host is a different hash). What the repository does not carry is the name. Both sections apply it —
+// the `/v1` sweep to the upstream calls it compares, the device family on both sides of every row.
+const hashHost = (url) => {
+  let h = 2166136261;
+  for (let i = 0; i < url.length; i++) {
+    h ^= url.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `fnv:${(h >>> 0).toString(16)}`;
+};
+const redactHosts = (text) =>
+  String(text).replace(/\b((?:[a-z0-9-]+\.)*(?:saisi\.online|sdmctech\.com))\b/g, (m) => hashHost(m));
+
 // ── THE DIVERGENCE SWEEP — the number that answers "how much longer" ─────────────────────────────
 // **EVERY CUTOVER BLOCKER FOUND SINCE THE TAKEOVER WAS FOUND THE SAME WAY**: drive the SHIPPING front door and
 // the BUILT worker with the same inputs and compare. What was missing was the SUMMARY, so "are we done?" was a
@@ -649,26 +668,7 @@ for (const [i, c] of CASES.entries()) {
   // FAILING run would pin the failure.** The cases keep their meaning — status, body, headers, the upstream request
   // and the Durable Object call log, per case — and the wasm is now held to what the shipping worker answered
   // rather than to a second live copy of it.
-  // ── THE HOSTNAMES IN THE FIXTURE ARE HASHED, ON BOTH SIDES, AND THAT IS NOT A WEAKENING ─────────────────────
-  //
-  // The recorded answers carry the upstream URLs the shipping worker dialled, and some of them name a production
-  // host — which `agent/tests/production_host.rs` refuses in any file but its own declared list. **THE COMPARISON
-  // IS PRESERVED EXACTLY**: the same hash is applied to the wasm's URLs before they are compared, so a worker that
-  // dialled a DIFFERENT host still fails the case (a different host is a different hash). What the repository does
-  // not carry is the name.
-  const hashHost = (url) => {
-    let h = 2166136261;
-    for (let i = 0; i < url.length; i++) {
-      h ^= url.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return `fnv:${(h >>> 0).toString(16)}`;
-  };
-  const redactHosts = (text) =>
-    String(text).replace(
-      /\b((?:[a-z0-9-]+\.)*(?:saisi\.online|sdmctech\.com))\b/g,
-      (m) => hashHost(m),
-    );
+  // `hashHost`/`redactHosts` are defined once at module scope, above the sweep.
   const recorded = {};
   const FIXTURE_URL = new URL("./shipping-answers.json", import.meta.url);
   // Absent only on the RECORDING run (it is what that run writes); every other run requires it.
@@ -2529,6 +2529,954 @@ for (const [i, c] of CASES.entries()) {
     );
     bad += 1;
   }
+}
+
+// ── THE DEVICE FAMILY — the console's device registry, against the shipping TypeScript ───────────
+//
+// **WHAT THIS SECTION IS FOR.** `gateway/wasm/src/devices.rs` and its four sibling modules are the
+// `/api/devices` registry ported to Rust: fifteen routes whose decisions (which credential, which refusal,
+// what a row shows, what a rename keeps) are now Rust. The criterion is the one every other route in this
+// worker met: **the same request produces a byte-comparable answer from the TypeScript the console runs and
+// from the built worker**, and where a response cannot show the difference, the OBSERVABLE is compared too —
+// the KV writes the handler made and the requests it dialled.
+//
+// **THE RECORDING IS THE ORACLE, AND THE TYPESCRIPT IS STILL HERE TO RECORD FROM.** `DEVICES_RECORD=1 node
+// verify.mjs` drives `gateway/src/index.ts`'s own front door (the same default export the deployed console
+// runs) and writes every answer into `shipping-answers.json`; every other run replays those answers against
+// the built worker. A fixture recorded from a FAILING run would pin the failure, so the writer refuses unless
+// every case agreed on the run that produced it.
+//
+// **DETERMINISM IS INSTALLED, NOT ASSUMED, AND IT IS TWO PLATFORM CALLS.** The routes mint credentials
+// (`crypto.getRandomValues`) and stamp times (`Date.now()`), so a recorded answer that contained either would
+// never match again. Both sides therefore run under a pinned clock and a seeded CSPRNG: `Date` is replaced by
+// a subclass whose no-argument constructor and `now()` answer a fixed instant (`worker::Date::now()` IS
+// `new Date()`, so the Rust reads the same one), and `crypto` is a proxy whose `getRandomValues` fills from a
+// counter. **THE SEQUENCE MATTERS AND IS PART OF THE MEASUREMENT**: a port that drew its randomness in a
+// different order produces a different code and fails the byte comparison.
+//
+// **AND TWO THINGS THIS SECTION CANNOT SEE, NAMED RATHER THAN IMPLIED:**
+//
+//   * the CLOUDFLARE ACCESS identity arm of `requireSession` (`access.ts`) is NOT ported, so every case here
+//     runs with `ACCESS_AUD`/`ACCESS_TEAM_DOMAIN` unset on BOTH sides — the cookie arm and both envelopes are
+//     what is proved. That is also why the front door's cutover keeps cookie-less requests on the TypeScript
+//     path, which the section at the end of this block measures.
+//   * the worker's real KV, Durable Objects and runtime glue: `KEYS` is a stub, exactly as every other
+//     section of this file stubs it.
+{
+  const FIXED_NOW = 1_760_000_000_000; // 2025-10-05T02:13:20Z, and every recorded timestamp is this
+  const SESSION_SECRET = "device-family-session-secret";
+  const ADMIN_TOKEN_64 = "a".repeat(64);
+  const D1_TOKEN_64 = "1".repeat(64);
+  const D2_TOKEN_64 = "2".repeat(64);
+  const REG_KEY = "livekey01";
+  const TUNNEL_KEY = "tunnelkey01";
+  const GRANT_CODE = "c".repeat(32);
+
+  const { issueSessionToken } = await import(new URL("../src/auth.ts", import.meta.url).href);
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+
+  // ── the clock, the CSPRNG, and the upstream: three platform calls, pinned ──────────────────────
+  const RealDate = globalThis.Date;
+  const realCrypto = globalThis.crypto;
+  const realFetch = globalThis.fetch;
+  let randomCursor = 0;
+  let globalsInstalled = false;
+  const installDeterminism = () => {
+    if (globalsInstalled) return;
+    globalsInstalled = true;
+    class FixedDate extends RealDate {
+      constructor(...args) {
+        if (args.length === 0) super(FIXED_NOW);
+        else super(...args);
+      }
+      static now() {
+        return FIXED_NOW;
+      }
+    }
+    // **`Object.defineProperty`, NOT ASSIGNMENT.** Node's `globalThis.crypto` is a GETTER with no setter, so
+    // `globalThis.crypto = …` throws `TypeError: Cannot set property crypto of #<Object> which has only a
+    // getter` — measured on this file's first run, and the same class of mistake as the `let`-vs-`const` KV
+    // closure that once made every token 401 here.
+    Object.defineProperty(globalThis, "Date", { value: FixedDate, configurable: true, writable: true });
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: new Proxy(realCrypto, {
+        get(target, prop) {
+          if (prop === "getRandomValues") {
+            return (array) => {
+              for (let i = 0; i < array.length; i++) array[i] = (randomCursor + i) & 0xff;
+              randomCursor += array.length;
+              return array;
+            };
+          }
+          const value = target[prop];
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+    });
+  };
+  const restoreGlobals = () => {
+    globalsInstalled = false;
+    Object.defineProperty(globalThis, "Date", { value: RealDate, configurable: true, writable: true });
+    Object.defineProperty(globalThis, "crypto", { value: realCrypto, configurable: true });
+    globalThis.fetch = realFetch;
+  };
+
+  // ── the KV stub: a Map that RECORDS ITS WRITES ─────────────────────────────────────────────────
+  // A response-only comparison cannot see a handler that answered correctly and forgot to write (or wrote the
+  // wrong TTL). The write log is that dimension, and `expirationTtl` is part of it because two of the TTLs —
+  // the 60 s claim lock and the 120 s panel grant — ARE decisions.
+  const makeKv = (seed) => {
+    const map = new Map(Object.entries(seed));
+    const expirations = new Map();
+    const writes = [];
+    return {
+      writes,
+      async get(key, type) {
+        if (!map.has(key)) return null;
+        const value = map.get(key);
+        if (type === "json" && typeof value === "string") {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        }
+        return value;
+      },
+      async put(key, value, options = {}) {
+        map.set(key, String(value));
+        if (options.expirationTtl) {
+          expirations.set(key, Math.floor(FIXED_NOW / 1000) + options.expirationTtl);
+        }
+        writes.push(`put ${key}=${value}${options.expirationTtl ? ` ttl=${options.expirationTtl}` : ""}`);
+      },
+      async delete(key) {
+        map.delete(key);
+        writes.push(`del ${key}`);
+      },
+      async list(query = {}) {
+        const prefix = query.prefix || "";
+        return {
+          keys: [...map.keys()]
+            .filter((k) => k.startsWith(prefix))
+            .map((name) => ({ name, expiration: expirations.get(name) })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+
+  // ── the registry the cases read ─────────────────────────────────────────────────────────────────
+  // ONE seed for every case unless a case overrides it, so the cases differ by their REQUEST rather than by
+  // their fixture. The record shapes are the console's own: three devices, one of them carrying every optional
+  // field, one with no metadata at all.
+  const SEED = {
+    "auth:admin_password": "deadbeefdeadbeef:0123456789abcdef",
+    _admin_seeded: "1",
+    "user:admin": JSON.stringify({
+      id: "admin",
+      username: "admin",
+      role: "admin",
+      enabled: true,
+      createdAt: 1,
+      token: "admin-gateway-token",
+    }),
+    "user:bob": JSON.stringify({
+      id: "bob",
+      username: "bob",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: "bob-gateway-token",
+    }),
+    "user:suspended": JSON.stringify({
+      id: "suspended",
+      username: "suspended",
+      role: "admin",
+      enabled: false,
+      createdAt: 1,
+      token: "suspended-gateway-token",
+    }),
+    "devices:v1": JSON.stringify([
+      {
+        name: "d1",
+        hostname: "d1.agent.test",
+        token: D1_TOKEN_64,
+        proxySecret: "s".repeat(32),
+        registeredAt: 1700000000000,
+        lastSeenAt: 1700000100000,
+        lastVersion: "1.2.3",
+      },
+      { name: "d2", hostname: "d2.agent.test", token: D2_TOKEN_64, registeredAt: 1700000000001 },
+      { name: "taken", hostname: "taken.agent.test", token: "t".repeat(64) },
+    ]),
+    "plugins:v1": JSON.stringify({
+      liveplugin: { device: "d1", createdAt: 1, expiresAt: FIXED_NOW + 86_400_000 },
+      deadplugin: { device: "d2", createdAt: 1, expiresAt: FIXED_NOW - 1 },
+      legacyplugin: { device: "d2", createdAt: 1 },
+    }),
+    "regkey:livekey01": "1",
+    "regkey:expired01": "1",
+    "regkey:claimed01": "1",
+    "regclaim2:claimed01": "1",
+    "reggrant:grantlive1": "1",
+    "regkey:tunnelkey01": "1",
+    "regclaim:tunnelclaimed": "1",
+    "regkey:tunnelclaimed": "1",
+    "cf:api_token": "cf-account-token",
+    [`panelgrant:${GRANT_CODE}`]: JSON.stringify({ device: "d1", mintedAt: FIXED_NOW }),
+    "panelgrant:othergrant": JSON.stringify({ device: "d2", mintedAt: FIXED_NOW }),
+  };
+
+  // The expiry of an UNSPENT registration key is KV's own, so a seeded key has none reported by `list()` —
+  // which is exactly the "expired but not yet reaped" state the source's filter exists for.
+  const COOKIES = {
+    admin: await issueSessionToken(SESSION_SECRET, "admin", "admin"),
+    user: await issueSessionToken(SESSION_SECRET, "bob", "user"),
+    suspended: await issueSessionToken(SESSION_SECRET, "suspended", "admin"),
+    ghost: await issueSessionToken(SESSION_SECRET, "nobody", "admin"),
+    forged: await issueSessionToken("the-wrong-secret", "admin", "admin"),
+  };
+
+  const UPSTREAM_STATUS = {
+    status: 200,
+    body: JSON.stringify({ ok: true, name: "d1", proxy_secret: "p".repeat(40) }),
+  };
+  const UPSTREAM_STATUS_NO_SECRET = { status: 200, body: JSON.stringify({ ok: true, name: "d1" }) };
+  const UPSTREAM_STATUS_SHORT_SECRET = { status: 200, body: JSON.stringify({ proxy_secret: "too-short" }) };
+  const UPSTREAM_VERSION = {
+    status: 200,
+    body: JSON.stringify({ version: "9.9.9", download: "https://index.test/summrise-agent.tgz" }),
+  };
+  const UPSTREAM_STATUS_FOR_D1 = { "/api/status": UPSTREAM_STATUS };
+  const UPSTREAM_STATUS_NO_SECRET_FOR_D1 = { "/api/status": UPSTREAM_STATUS_NO_SECRET };
+  const UPSTREAM_STATUS_SHORT_FOR_D1 = { "/api/status": UPSTREAM_STATUS_SHORT_SECRET };
+  const UPSTREAM_VERSION_ONLY = { "/api/version": UPSTREAM_VERSION };
+
+  // ── the cases ───────────────────────────────────────────────────────────────────────────────────
+  // Every route of the family, its successes AND its refusals: a bad credential, a spent claim, a device that
+  // does not exist, a name that is taken, a verb the route does not answer.
+  const CASES = [
+    // ---- the registry, read and written ----
+    { name: "GET /api/devices (admin session)", req: ["GET", "/api/devices"], cookie: "admin" },
+    {
+      name: "GET /api/devices (no session)",
+      req: ["GET", "/api/devices"],
+      cookie: null,
+    },
+    { name: "GET /api/devices (a non-admin session)", req: ["GET", "/api/devices"], cookie: "user" },
+    { name: "GET /api/devices (a forged cookie)", req: ["GET", "/api/devices"], cookie: "forged" },
+    {
+      name: "GET /api/devices (a session for a SUSPENDED admin)",
+      req: ["GET", "/api/devices"],
+      cookie: "suspended",
+    },
+    {
+      name: "GET /api/devices (a session for a user who does not exist)",
+      req: ["GET", "/api/devices"],
+      cookie: "ghost",
+    },
+    {
+      name: "GET /api/devices (an allowlisted Origin)",
+      req: ["GET", "/api/devices"],
+      cookie: "admin",
+      headers: { origin: "https://console.test" },
+    },
+    {
+      name: "GET /api/devices (an origin that is NOT allowlisted)",
+      req: ["GET", "/api/devices"],
+      cookie: "admin",
+      headers: { origin: "https://evil.test" },
+    },
+    {
+      name: "POST /api/devices, a new device",
+      req: ["POST", "/api/devices", { name: "d3", hostname: "d3.agent.test", token: "3".repeat(64) }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, an existing device (registeredAt and proxySecret are kept)",
+      req: ["POST", "/api/devices", { name: "d1", hostname: "d1b.agent.test", token: "9".repeat(64) }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, a short name",
+      req: ["POST", "/api/devices", { name: "", hostname: "d4.agent.test", token: "4".repeat(64) }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, a hostname that is not a domain",
+      req: ["POST", "/api/devices", { name: "d4", hostname: "localhost", token: "4".repeat(64) }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, a hostname outside the device suffix",
+      req: ["POST", "/api/devices", { name: "d4", hostname: "d4.evil.test", token: "4".repeat(64) }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, a token shorter than eight characters",
+      req: ["POST", "/api/devices", { name: "d4", hostname: "d4.agent.test", token: "short" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices, no body at all",
+      req: ["POST", "/api/devices", null],
+      cookie: "admin",
+    },
+    { name: "GET /api/devices/d1/mcp", req: ["GET", "/api/devices/d1/mcp"], cookie: "admin" },
+    {
+      name: "GET /api/devices/d1/mcp, a name with a percent escape",
+      req: ["GET", "/api/devices/d%31/mcp"],
+      cookie: "admin",
+    },
+    {
+      name: "GET /api/devices/nope/mcp, a device that does not exist",
+      req: ["GET", "/api/devices/nope/mcp"],
+      cookie: "admin",
+    },
+    { name: "DELETE /api/devices/d2", req: ["DELETE", "/api/devices/d2"], cookie: "admin" },
+    {
+      name: "DELETE /api/devices/nope, a device that does not exist",
+      req: ["DELETE", "/api/devices/nope"],
+      cookie: "admin",
+    },
+    {
+      name: "DELETE /api/devices/d1 (it revokes the device's plugin links)",
+      req: ["DELETE", "/api/devices/d1"],
+      cookie: "admin",
+    },
+    // ---- rename ----
+    {
+      name: "POST /api/devices/d1/rename, a new name",
+      req: ["POST", "/api/devices/d1/rename", { name: "d9" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/d1/rename, a new name AND hostname",
+      req: ["POST", "/api/devices/d1/rename", { name: "d9", hostname: "d9.agent.test" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/d1/rename to a name that is taken",
+      req: ["POST", "/api/devices/d1/rename", { name: "d2" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/nope/rename, a device that does not exist",
+      req: ["POST", "/api/devices/nope/rename", { name: "d9" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/d1/rename, an invalid new name",
+      req: ["POST", "/api/devices/d1/rename", { name: "not a name" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/d1/rename, a hostname outside the device suffix",
+      req: ["POST", "/api/devices/d1/rename", { name: "d9", hostname: "d9.evil.test" }],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/d1/rename (renaming a device to its own name is not a conflict)",
+      req: ["POST", "/api/devices/d1/rename", { name: "d1" }],
+      cookie: "admin",
+    },
+    // ---- panel grants ----
+    {
+      name: "POST /api/devices/d1/panel-grant",
+      req: ["POST", "/api/devices/d1/panel-grant"],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/nope/panel-grant",
+      req: ["POST", "/api/devices/nope/panel-grant"],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, the grant's own device",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: GRANT_CODE }],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN_64}` },
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, a grant minted for ANOTHER device",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: "othergrant" }],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN_64}` },
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, an unknown grant",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: "d".repeat(32) }],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN_64}` },
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, a malformed grant code",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: "not-a-code" }],
+      cookie: null,
+      headers: { authorization: `Bearer ${D1_TOKEN_64}` },
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, no device token",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: GRANT_CODE }],
+      cookie: null,
+    },
+    {
+      name: "POST /api/devices/panel-grant/redeem, a device token nobody has",
+      req: ["POST", "/api/devices/panel-grant/redeem", { grant: GRANT_CODE }],
+      cookie: null,
+      headers: { authorization: `Bearer ${"f".repeat(64)}` },
+    },
+    // ---- registration keys ----
+    { name: "GET /api/devices/register-keys", req: ["GET", "/api/devices/register-keys"], cookie: "admin" },
+    {
+      name: "POST /api/devices/register-key",
+      req: ["POST", "/api/devices/register-key"],
+      cookie: "admin",
+    },
+    {
+      name: "DELETE /api/devices/register-keys/expired01",
+      req: ["DELETE", "/api/devices/register-keys/expired01"],
+      cookie: "admin",
+    },
+    {
+      name: "DELETE /api/devices/register-keys/nosuchkey",
+      req: ["DELETE", "/api/devices/register-keys/nosuchkey"],
+      cookie: "admin",
+    },
+    // ---- install-cmd ----
+    {
+      name: "GET /api/devices/install-cmd",
+      req: ["GET", "/api/devices/install-cmd"],
+      cookie: "admin",
+      upstream: UPSTREAM_VERSION_ONLY,
+    },
+    // ---- self-register ----
+    {
+      name: "POST /api/devices/self-register, a NEW device that answers with a proxy secret",
+      req: ["POST", "/api/devices/self-register", { name: "d5", hostname: "d5.agent.test", token: "5".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_FOR_D1,
+    },
+    {
+      name: "POST /api/devices/self-register, a new device whose tunnel answers WITHOUT a secret",
+      req: ["POST", "/api/devices/self-register", { name: "d6", hostname: "d6.agent.test", token: "6".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_NO_SECRET_FOR_D1,
+    },
+    {
+      name: "POST /api/devices/self-register, a new device whose tunnel answers with a SHORT secret",
+      req: ["POST", "/api/devices/self-register", { name: "d7", hostname: "d7.agent.test", token: "7".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_SHORT_FOR_D1,
+    },
+    {
+      name: "POST /api/devices/self-register, an existing device with the SAME token (refresh)",
+      req: ["POST", "/api/devices/self-register", { name: "d1", hostname: "D1.AGENT.TEST", token: D1_TOKEN_64 }],
+      cookie: null,
+    },
+    {
+      name: "POST /api/devices/self-register, an existing device with a DIFFERENT token and no proof",
+      req: ["POST", "/api/devices/self-register", { name: "d1", hostname: "d1.agent.test", token: "9".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_NO_SECRET_FOR_D1,
+    },
+    {
+      name: "POST /api/devices/self-register, an existing device whose STORED tunnel proves the rotation",
+      req: ["POST", "/api/devices/self-register", { name: "d1", hostname: "d1.agent.test", token: "9".repeat(64) }],
+      cookie: null,
+      upstream: { "/api/status": { status: 200, body: JSON.stringify({ proxy_secret: "s".repeat(32) }) } },
+    },
+    {
+      name: "POST /api/devices/self-register, a moved hostname",
+      req: ["POST", "/api/devices/self-register", { name: "d1", hostname: "moved.agent.test", token: D1_TOKEN_64 }],
+      cookie: null,
+    },
+    {
+      name: "POST /api/devices/self-register, a token that is not 64 hex characters",
+      req: ["POST", "/api/devices/self-register", { name: "d8", hostname: "d8.agent.test", token: "not-a-token" }],
+      cookie: null,
+    },
+    {
+      name: "POST /api/devices/self-register, a hostname outside the device suffix",
+      req: ["POST", "/api/devices/self-register", { name: "d8", hostname: "d8.evil.test", token: "8".repeat(64) }],
+      cookie: null,
+    },
+    // ---- the one-time registration key ----
+    {
+      name: "POST /api/register, a live key",
+      req: ["POST", "/api/register", { key: REG_KEY, name: "reg1", hostname: "reg1.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_FOR_D1,
+      headers: { "cf-connecting-ip": "203.0.113.11" },
+    },
+    {
+      name: "POST /api/register, the grant a spent key leaves behind",
+      req: ["POST", "/api/register", { key: "grantlive1", name: "reg2", hostname: "reg2.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_NO_SECRET_FOR_D1,
+      headers: { "cf-connecting-ip": "203.0.113.12" },
+    },
+    {
+      name: "POST /api/register, an UPPERCASE key (the key is lowercased before the claim)",
+      req: ["POST", "/api/register", { key: "LIVEKEY01", name: "reg3", hostname: "reg3.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      upstream: UPSTREAM_STATUS_NO_SECRET_FOR_D1,
+      headers: { "cf-connecting-ip": "203.0.113.13" },
+    },
+    {
+      name: "POST /api/register, a key that is already claimed",
+      req: ["POST", "/api/register", { key: "claimed01", name: "reg4", hostname: "reg4.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.14" },
+    },
+    {
+      name: "POST /api/register, a key that does not exist",
+      req: ["POST", "/api/register", { key: "nosuchkey", name: "reg5", hostname: "reg5.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.15" },
+    },
+    {
+      name: "POST /api/register, no key at all",
+      req: ["POST", "/api/register", { name: "reg6", hostname: "reg6.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.16" },
+    },
+    {
+      name: "POST /api/register, a name that is already registered",
+      req: ["POST", "/api/register", { key: REG_KEY, name: "d1", hostname: "d1.agent.test", token: "b".repeat(64) }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.17" },
+    },
+    {
+      name: "POST /api/register, a body the device rules refuse",
+      req: ["POST", "/api/register", { key: REG_KEY, name: "reg7", hostname: "reg7.agent.test", token: "short" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.18" },
+    },
+    {
+      name: "POST /api/register, a hostname outside the device suffix",
+      req: ["POST", "/api/register", { key: REG_KEY, name: "reg8", hostname: "reg8.evil.test", token: "b".repeat(64) }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.19" },
+    },
+    // ---- the tunnel token ----
+    {
+      name: "POST /api/install/tunnel-token, a live key (it spends the key)",
+      req: ["POST", "/api/install/tunnel-token", { key: TUNNEL_KEY }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.21" },
+    },
+    {
+      name: "POST /api/install/tunnel-token, a key that is already claimed",
+      req: ["POST", "/api/install/tunnel-token", { key: "tunnelclaimed" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.22" },
+    },
+    {
+      name: "POST /api/install/tunnel-token, a key that does not exist",
+      req: ["POST", "/api/install/tunnel-token", { key: "nosuchkey" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.23" },
+    },
+    // ---- the front door's own answers on this prefix ----
+    {
+      name: "GET /api/devices/d1/proxy/panel (NOT this family: the reverse proxy)",
+      req: ["GET", "/api/devices/d1/proxy/panel"],
+      cookie: "admin",
+      notInFamily: true,
+    },
+    { name: "GET /api/devices/anything/else/here", req: ["GET", "/api/devices/anything/else/here"], cookie: "admin" },
+    { name: "PUT /api/devices", req: ["PUT", "/api/devices"], cookie: "admin" },
+    { name: "OPTIONS /api/devices", req: ["OPTIONS", "/api/devices"], cookie: null },
+  ];
+
+  // ── the two doors ───────────────────────────────────────────────────────────────────────────────
+  const shippingDoor = process.env.DEVICES_RECORD
+    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
+    : null;
+
+  const buildRequest = (c, cookie) => {
+    const [method, path, body] = c.req;
+    const headers = { ...(c.headers ?? {}) };
+    if (c.cookie !== null) headers.cookie = `ag_session=${cookie}`;
+    if (body !== undefined && body !== null) headers["content-type"] = "application/json";
+    return new Request(`https://console.test${path}`, {
+      method,
+      headers,
+      ...(body === undefined || body === null ? {} : { body: JSON.stringify(body) }),
+    });
+  };
+
+  const stubUpstream = (c, capture) => {
+    globalThis.fetch = async (url, init = {}) => {
+      const request = new Request(url, init);
+      const auth = request.headers.get("authorization") ?? "-";
+      capture.push(`${request.method} ${request.url} auth=${auth}`);
+      const answer = (c.upstream ?? {})[new URL(request.url).pathname];
+      if (!answer) throw new Error(`the device family's sweep has no upstream answer for ${request.url}`);
+      return new Response(answer.body, {
+        status: answer.status ?? 200,
+        headers: { "content-type": answer.type ?? "application/json" },
+      });
+    };
+  };
+
+  const deviceEnv = (kv, extra = {}) => ({
+    KEYS: kv,
+    CONSOLE_HOST: "console.test",
+    CONSOLE_ORIGINS: "https://console.test",
+    DEVICE_HOST_SUFFIX: ".agent.test",
+    INDEX_WORKER_URL: "https://index.test",
+    SESSION_SECRET,
+    ...extra,
+  });
+
+  /// The five things a device-family case compares, with every deployment hostname hashed (see `redactHosts`).
+  const redacted = (got) => ({
+    ...got,
+    body: redactHosts(got.body),
+    headers: got.headers.map(redactHosts),
+    writes: got.writes.map(redactHosts),
+    calls: got.calls.map(redactHosts),
+  });
+
+  const rowsFor = (got) => [
+    ["status", String(got.status)],
+    ["headers", got.headers.join(" | ")],
+    ["body", got.body],
+    ["kv writes", got.writes.join(" ; ")],
+    ["upstream", got.calls.join(" ; ")],
+  ];
+
+  const driveTs = async (c, cookie) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    // **THE TYPESCRIPT SIDE IS ONE PROCESS WITH MODULE STATE, AND THE WASM SIDE IS A FRESH INSTANCE PER CASE.**
+    // `store/cache.ts`'s `__c` holds `devices:v1` / `plugins:v1` for up to a day, and `randomHex`'s sequence is
+    // process-wide, so without these two resets a case reads the PREVIOUS case's registry and draws the previous
+    // case's bytes. Measured on this section's first run: `GET /api/devices/d1/mcp` answered with the hostname
+    // an earlier case had written, and the panel-grant code was one draw further along than the worker's.
+    __clearCaches();
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await shippingDoor.fetch(buildRequest(c, cookie), deviceEnv(kv), {});
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetch;
+    // **REDACTED ON BOTH SIDES, AT THE ONE PLACE AN ANSWER BECOMES COMPARABLE** — so the recorded fixture and
+    // the worker's live answer are hashed by the same function, and a refusal message that names the deployment's
+    // default device host is compared rather than transcribed into this repository.
+    return redacted({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  const driveWasm = async (c, cookie, i) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    // The same reset as the shipping side, for the same reason: the draw sequence is per-REQUEST, and each side
+    // must start a case where the other one did.
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    const worker = await import(`${pathToFileURL(BUILT).href}?devices=${i}`);
+    const instance = new worker.default();
+    instance.env = deviceEnv(kv);
+    instance.ctx = {};
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await instance.fetch(buildRequest(c, cookie));
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetch;
+    return redacted({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  // **`seedAdmin` RUNS ONCE PER PROCESS AND THE FIRST REQUEST PAYS FOR IT** — it reads and can write
+  // (`_admin_seeded`, and the admin record itself on a deployment that has none). It is the FRONT DOOR's work,
+  // not the route's, and the seeded `_admin_seeded` makes it a no-op after the first call — so it is spent on a
+  // throwaway KV BEFORE the cases, and no case's write log carries it.
+  if (shippingDoor) {
+    try {
+      __clearCaches();
+      await shippingDoor.fetch(
+        new Request("https://console.test/api/devices", { headers: { cookie: `ag_session=${COOKIES.admin}` } }),
+        deviceEnv(makeKv(SEED)),
+        {},
+      );
+    } catch {
+      /* the prime is not a case */
+    }
+  }
+
+  const FIXTURE_PATH = new URL("./shipping-answers.json", import.meta.url);
+  const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+  const recorded = {};
+  let same = 0;
+  let different = 0;
+  const failures = [];
+
+  installDeterminism();
+  for (const [i, c] of CASES.entries()) {
+    const cookie = c.cookie === null ? "" : COOKIES[c.cookie ?? "admin"];
+    if (c.notInFamily) {
+      // **THE ONE PATH THAT MUST NOT BE HANDED OVER.** `/api/devices/<name>/proxy/...` is `device-proxy.ts`, a
+      // reverse proxy this slice does not port — so the family's dispatcher must refuse it and the front door
+      // must keep serving it. The shipped answer is recorded and replayed like any other; what makes it a case
+      // is that BOTH sides must produce it from their own code.
+      const wasm = await driveWasm(c, cookie, i);
+      const shipped = shippingDoor ? await driveTs(c, cookie) : null;
+      if (shipped) {
+        recorded[c.name] = {
+          status: shipped.status,
+          body: shipped.body,
+          headers: shipped.headers,
+          writes: shipped.writes,
+          calls: shipped.calls,
+        };
+      }
+      const reference = shipped ?? FIXTURE[c.name];
+      if (!reference) {
+        console.log(`      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with DEVICES_RECORD=1`);
+        different += 1;
+        failures.push(c.name);
+        continue;
+      }
+      // The TypeScript's proxy answers 401 to a cookie-less caller and proxies for an admin; either way the
+      // WASM must NOT be answering this path at all, which is what `writes`/`calls` being EMPTY shows.
+      const wasmIsSilent = wasm.writes.length === 0 && wasm.calls.length === 0;
+      if (wasmIsSilent) {
+        same += 1;
+        console.log(`      ok   ${c.name} — the family refuses it (404, no KV write, no dial)`);
+      } else {
+        different += 1;
+        failures.push(c.name);
+        console.log(`      FAIL ${c.name} — the wasm worker READ OR WROTE for a path it must not own`);
+      }
+      continue;
+    }
+    const shipped = shippingDoor ? await driveTs(c, cookie) : null;
+    if (shipped) {
+      recorded[c.name] = {
+        status: shipped.status,
+        body: shipped.body,
+        headers: shipped.headers,
+        writes: shipped.writes,
+        calls: shipped.calls,
+      };
+    }
+    const reference = shipped ?? FIXTURE[c.name];
+    if (!reference) {
+      console.log(`      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with DEVICES_RECORD=1`);
+      different += 1;
+      failures.push(c.name);
+      continue;
+    }
+    const wasm = await driveWasm(c, cookie, i);
+    const want = rowsFor(reference);
+    const got = rowsFor(wasm);
+    const notes = [];
+    for (let r = 0; r < want.length; r++) {
+      if (want[r][1] !== got[r][1]) {
+        notes.push(`${want[r][0]}: ship ${JSON.stringify(want[r][1]).slice(0, 160)} :: wasm ${JSON.stringify(got[r][1]).slice(0, 160)}`);
+      }
+    }
+    if (notes.length === 0) {
+      same += 1;
+      console.log(`      ok   ${c.name} — ${wasm.body.length} bytes, status ${wasm.status}, ${wasm.writes.length} KV write(s), ${wasm.calls.length} dial(s)`);
+    } else {
+      different += 1;
+      failures.push(c.name);
+      console.log(`      FAIL ${c.name}`);
+      for (const note of notes) console.log(`           ${note}`);
+    }
+  }
+
+  // ── the per-IP gate, which needs a budget rather than one request ───────────────────────────────
+  // The three public routes cost KV WRITES, and the source's gate is what bounds that ("an attacker firing
+  // random keys otherwise burned 2 KV writes per attempt"). One request cannot see a ten-per-minute budget, so
+  // this case makes eleven from one address and compares WHERE the first 429 lands.
+  {
+    const IP = "198.51.100.7";
+    const request = () =>
+      new Request("https://console.test/api/register", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": IP },
+        body: JSON.stringify({ key: "nosuchkey", name: "x", hostname: "x.agent.test", token: "x".repeat(16) }),
+      });
+    let shipFirst429 = null;
+    if (shippingDoor) {
+      __clearCaches();
+      const env = deviceEnv(makeKv(SEED));
+      for (let n = 1; n <= 11; n++) {
+        const response = await shippingDoor.fetch(request(), env, {});
+        await response.text();
+        if (response.status === 429 && shipFirst429 === null) shipFirst429 = n;
+      }
+    } else {
+      shipFirst429 = FIXTURE.__devicePublicRate?.first429 ?? null;
+    }
+    let wasmFirst429 = null;
+    {
+      const kv = makeKv(SEED);
+      const worker = await import(`${pathToFileURL(BUILT).href}?devices=rate`);
+      const instance = new worker.default();
+      instance.env = deviceEnv(kv);
+      instance.ctx = {};
+      stubUpstream({}, []);
+      for (let n = 1; n <= 11; n++) {
+        const response = await instance.fetch(request());
+        await response.text();
+        if (response.status === 429 && wasmFirst429 === null) wasmFirst429 = n;
+      }
+      globalThis.fetch = realFetch;
+    }
+    if (shippingDoor) recorded.__devicePublicRate = { first429: shipFirst429 };
+    if (shipFirst429 === wasmFirst429 && shipFirst429 !== null) {
+      same += 1;
+      console.log(`      ok   the public gate: the first 429 is request ${wasmFirst429} on both sides`);
+    } else {
+      different += 1;
+      failures.push("the public per-IP gate");
+      console.log(`      FAIL the public gate: first 429 at ${shipFirst429} (shipping) vs ${wasmFirst429} (wasm)`);
+    }
+  }
+  restoreGlobals();
+
+  if (process.env.DEVICES_RECORD) {
+    // **WRITTEN ONLY FROM A RUN WHERE EVERY CASE AGREED.** A fixture recorded from a failing run pins the
+    // failure; the /v1 sweep's recorder carries the same guard for the same reason. The existing entries are
+    // preserved — they were recorded from the TypeScript the `/v1` port replaced, and this run cannot re-record
+    // them (that implementation is deleted).
+    if (different > 0) {
+      console.log(`  !! NOT recording: ${different} case(s) differ, so those answers are not a reference`);
+      process.exitCode = 1;
+    } else {
+      writeFileSync(FIXTURE_PATH, JSON.stringify({ ...FIXTURE, ...recorded }, null, 2) + "\n");
+      console.log(`  recorded ${Object.keys(recorded).length} device-family answer(s) -> shipping-answers.json`);
+    }
+  }
+
+  let rateNote = "";
+  if (FIXTURE.__devicePublicRate && !shippingDoor) {
+    rateNote = ` (the public gate's first 429 is recorded as request ${FIXTURE.__devicePublicRate.first429})`;
+  }
+  console.log(
+    `  the device family, shipping TypeScript against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing${rateNote}`,
+  );
+  for (const name of failures) console.log(`      FAIL ${name}`);
+  bad += different;
+}
+
+// ── THE CUTOVER IS A ROUTING DECISION, AND THIS SECTION IS ITS PROOF ─────────────────────────────
+//
+// `./scripts/build.sh gateway` is what puts the new code in front of a user, and the CODE's half of the cutover
+// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family is served by the Rust
+// worker; without it, by the TypeScript plugin — which is the rollback, and the reason `plugins/devices.ts` and
+// `store/devices.ts` are still in the tree.
+//
+// **A BOUNDARY NOBODY MEASURES IS A BOUNDARY NOBODY HAS.** This section drives the SHIPPING front door with a
+// stub gate that RECORDS what reached it, and asserts the three things the handover claims: the family's routes
+// go to the gate, the two routes this slice does not port do NOT, and the `/v1` cutover is unchanged. The stub
+// answers a recognisable body, so a case that was supposed to reach it and did not is visible in the response
+// rather than assumed from a list.
+{
+  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
+  const forwarded = [];
+  const gateBody = JSON.stringify({ servedBy: "the-wasm-gate" });
+  const env = {
+    KEYS: {
+      async get() {
+        return null;
+      },
+      async put() {},
+      async delete() {},
+      async list() {
+        return { keys: [], list_complete: true, cursor: undefined };
+      },
+    },
+    CONSOLE_HOST: "console.test",
+    CONSOLE_ORIGINS: "https://console.test",
+    WASM_GATE: {
+      async fetch(request) {
+        forwarded.push(`${request.method} ${new URL(request.url).pathname}`);
+        return new Response(gateBody, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+  };
+  const session = await (await import(new URL("../src/auth.ts", import.meta.url).href)).issueSessionToken(
+    "cutover-secret",
+    "admin",
+    "admin",
+  );
+  const call = async (method, path, withCookie) => {
+    forwarded.length = 0;
+    const headers = withCookie ? { cookie: `ag_session=${session}` } : {};
+    const response = await shippingDoor.fetch(new Request(`https://console.test${path}`, { method, headers }), env, {});
+    const body = await response.text();
+    return { reached: forwarded.length > 0, body, status: response.status };
+  };
+
+  const CUTOVER_CASES = [
+    // [method, path, cookie?, should the GATE see it?, why]
+    ["GET", "/api/devices", true, true, "the family's list route"],
+    ["POST", "/api/devices", true, true, "the family's add route"],
+    ["GET", "/api/devices/d1/mcp", true, true, "a device's MCP config"],
+    ["DELETE", "/api/devices/d1", true, true, "a device's delete"],
+    ["POST", "/api/devices/d1/rename", true, true, "a device's rename"],
+    ["POST", "/api/devices/d1/panel-grant", true, true, "a panel grant"],
+    ["POST", "/api/devices/panel-grant/redeem", false, true, "the grant's redeem: the AGENT calls it with a device token and no cookie at all"],
+    ["GET", "/api/devices/register-keys", true, true, "the outstanding keys"],
+    ["POST", "/api/devices/register-key", true, true, "a new key"],
+    ["GET", "/api/devices/install-cmd", true, true, "the install command"],
+    ["POST", "/api/register", false, true, "the public registration, which never has a session"],
+    ["POST", "/api/devices/self-register", false, true, "the agent's self-registration, cookie-less by nature"],
+    ["POST", "/api/install/tunnel-token", false, true, "the tunnel token, cookie-less by nature"],
+    ["GET", "/api/devices/anything/else", true, true, "a path under the prefix the family does not serve (the worker's own 404, which is the front door's)"],
+    // NOT handed over:
+    ["GET", "/api/devices/d1/proxy/panel", true, false, "the reverse proxy is device-proxy.ts, not this slice"],
+    ["POST", "/api/devices/d1/proxy/mcp", true, false, "the reverse proxy accepts any method"],
+    ["GET", "/api/devices", false, false, "NO session cookie: the Cloudflare Access identity arm is not ported, so the implementation that has it keeps the request"],
+    ["POST", "/api/upload", true, false, "the file relay: a 100 MiB body passthrough this slice does not port"],
+    ["GET", "/api/health", true, false, "the public tooling route, unchanged"],
+  ];
+  let cutoverOk = 0;
+  let cutoverBad = 0;
+  for (const [method, path, cookie, expected, why] of CUTOVER_CASES) {
+    const got = await call(method, path, cookie);
+    const ok = got.reached === expected;
+    if (ok) cutoverOk += 1;
+    else cutoverBad += 1;
+    console.log(
+      `      ${ok ? "ok  " : "FAIL"} ${method} ${path}${cookie ? "" : " (no cookie)"} — ${got.reached ? "handed to the gate" : "kept on the TypeScript path"} (${why})`,
+    );
+  }
+  // The `/v1` cutover, which this change must not have disturbed.
+  const v1 = await call("GET", "/v1/models", false);
+  if (v1.reached) cutoverOk += 1;
+  else {
+    cutoverBad += 1;
+    console.log("      FAIL GET /v1/models — the existing cutover went to the gate before this change and must still");
+  }
+  console.log(`  the devices cutover, through the shipping front door with a stub gate: ${cutoverOk}/${CUTOVER_CASES.length + 1} routed as the boundary says`);
+  bad += cutoverBad;
 }
 
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
