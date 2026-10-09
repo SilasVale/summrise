@@ -347,6 +347,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                                 evidence is a PRODUCTION change: see below
 ///     the live probe's rule         ->   109     `live-panel-probe.mjs` had NO RULE, so the
 ///                                                 catch-all made it LOGIC: a manifest gap, not a port
+///     the orphaned helper           ->   108     `scripts/test/lib/decomment.mjs` DELETED: its rule
+///                                                 has one definition now, and it is in Rust
+///     the fixture reader            ->   107     `scripts/test/lib/emitted-pieces.mjs` is what two
+///                                                 live bash gates import, so it is BOUNDARY
+///
+/// **AND TWO MORE MOVED FOR A THIRD REASON: ONE WAS ALREADY GONE IN EVERY SENSE BUT THE FILE.** The rule
+/// `scripts/test/lib/decomment.mjs` defines — a comment is not a producer, nor a derivation — has exactly one
+/// definition in Rust (`agent/tests/common/mod.rs`), whose header says it took the rule FROM that file, and
+/// nothing imported the `.mjs` any more. Measured the way this repository requires before calling something
+/// unused: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line, a
+/// comment in its sibling naming it. So it is DELETED rather than reclassified — a file whose rule moved and
+/// whose importers moved with it is not a boundary, it is a leftover wearing one. Its SIBLING stayed for the
+/// opposite reason and got a rule: `emitted-pieces.mjs` is imported by two live bash gates
+/// (`panel-design-sweep.bash:92`, `sweep-judges.bash:134`), so it is their fixture reader — the same reading
+/// the sweeps' in-page probes get.
 ///
 /// **AND ONE FILE MOVED FOR A DIFFERENT REASON ENTIRELY: IT HAD NO RULE.** `agent/scripts/live-panel-probe.mjs`
 /// fell through to the catch-all `LOGIC | agent/scripts/` because nobody had written its rule — while `AGENTS.md`
@@ -397,4 +412,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 109;
+const MAX_LOGIC: usize = 107;
