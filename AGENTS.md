@@ -382,10 +382,17 @@ belongs beside it — and a command that merely CORRELATES with the number is no
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-{agent,launch}.exe agent/summrise-agent-npm/
-#    BOTH EXES. The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
+mkdir -p agent/summrise-agent-npm/bin
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-cli.exe agent/summrise-agent-npm/bin/summrise.exe
+#    THREE EXES, AND THE THIRD IS THE CLI. `bin/summrise.exe` is the npm `bin` (landing 4b) — the
+#    command a device runs — and its version is COMPILED IN from package.json, so the bump above is
+#    only in the binary if the build came after it. publish-release.sh dates the staged copy against
+#    that manifest and refuses one older than it, which is the deadlock guard: a CLI older than the
+#    release it manages tells the operator to install something npm cannot deliver.
+#    The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
 #    .vbs wrappers, and it is COPIED on the device, never built there — a release without it ships tasks
 #    that cannot start. publish-release.sh refuses a missing or stale staged copy and required-in-tgz.txt
-#    refuses a tarball without it, both BEFORE the upload.
+#    refuses a tarball without any of the three, both BEFORE the upload.
 #    ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no credentials, changes nothing, seconds.
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N --npm      # needs $NPM_TOKEN or ~/.npm-token
@@ -525,7 +532,7 @@ agent/src/tools/         TerminalManager + backends (pty/ssh/serial), serial poo
 agent/src/plugins/       terminal, update, mcp_client, design, playwright, memory, system,
                          runs, monitor
 agent/summrise-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (summrise_agent_core::)
-agent/summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.js)
+agent/summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.exe, a Rust binary)
 agent/resources/panel-react/  the panel SPA (React + vitest); resources/panel/ is its build output
 ```
 

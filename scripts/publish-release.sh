@@ -370,27 +370,80 @@ echo "exe provenance OK ($EXE_BUILD newer than all exe inputs)"
 
 # CHEAP artifact gates replicated from release.yml (a bare `npm pack` here
 # used to bypass all three CI gates and ship stale files to the CDN).
-# Fail fast before packing. tsc comes from the repo's own
-# summrise-agent-npm/node_modules (P1-2 pins typescript@5, same as CI) — no
-# network install here; a missing tsc fails with the install command.
-# (a) round-298 marker presence in bin/summrise.js — the exact grep the CI step
-# runs post-compile. A missing marker means src/summrise.ts changed without
-# recompiling (the 1.2.274 stale-bin lesson).
-if ! grep -q "summrise-release" "$NPM_DIR/bin/summrise.js"; then
-  echo "::error::$NPM_DIR/bin/summrise.js missing round-298 marker — recompile src/summrise.ts first:" >&2
-  echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22 && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/summrise.js bin/summrise.js)" >&2
+# Fail fast before packing.
+#
+# (a) THE CLI'S ARTIFACT (landing 4b). It WAS `bin/summrise.js` — a tsc emit whose freshness this
+# script proved by recompiling `src/summrise.ts` and comparing the bytes. `src/summrise.ts`,
+# `bin/summrise.js` and the package `tsconfig.json` are DELETED, the npm `bin` is
+# `bin/summrise.exe`, and the same question — "was this built from THIS tree?" — is now answered the
+# way the agent exe and the launcher above already answer it, because it is the same kind of thing:
+# a cargo artifact, not a compiler emit.
+#
+# TWO CHECKS, AND THEY CATCH DIFFERENT LIES:
+#   * `cmp` catches a hand-copied, foreign or stale binary — a `bin/summrise.exe` that no build in
+#     this tree produced;
+#   * the DATES catch a binary built from a tree that has since moved. `version.rs` include_str!s
+#     `package.json`, so the CLI's version IS that manifest's version at compile time — and that
+#     makes `package.json` a CLI INPUT in the strongest sense: an exe built before a version bump
+#     reports the OLD version. That is the deadlock AGENTS.md records (a CLI older than the release
+#     it manages tells the operator to install something npm cannot deliver), so the check is
+#     TWO-SIDED on purpose:
+#       - against the last COMMIT touching any CLI input, and
+#       - against the WORKING TREE's `package.json`, because the release flow bumps that file and
+#         publishes BEFORE committing (step 1 and step 2 of the release recipe). A commit-date check
+#         alone cannot see a bump that has not been committed yet, and that is exactly the order a
+#         release runs in.
+# `package.json` is therefore dated but NOT required clean: the documented flow publishes with it
+# deliberately dirty. Every OTHER CLI input must be clean, because those are not bumped per release.
+CLI_BUILD="agent/target/x86_64-pc-windows-msvc/release/summrise-cli.exe"
+CLI_STAGED="$NPM_DIR/bin/summrise.exe"
+if [ ! -f "$CLI_BUILD" ]; then
+  echo "::error::missing $CLI_BUILD — cross-compile first: ./scripts/build.sh agent" >&2
   exit 1
 fi
-echo "bin/summrise.js marker check OK"
-# P1-2 bin/summrise.js freshness (same gate as release.yml:140-143 + the CI
-# pack-chain step): recompile src/summrise.ts with the repo tsconfig into a
-# tmp dir and cmp against the committed bin/summrise.js. The marker grep above
-# only proves SOME build happened — this proves it was built from the
-# CURRENT source. No tsc here FAILS with the install command (never skip:
-# an uncheckable bin is an unshippable bin).
+if [ ! -f "$CLI_STAGED" ]; then
+  echo "::error::missing $CLI_STAGED — the npm \`bin\` would not exist in the tarball. Stage it:" >&2
+  echo "  cp $CLI_BUILD $CLI_STAGED" >&2
+  exit 1
+fi
+if ! cmp -s "$CLI_BUILD" "$CLI_STAGED"; then
+  echo "::error::staged $CLI_STAGED != fresh $CLI_BUILD — re-stage and retry:" >&2
+  echo "  cp $CLI_BUILD $CLI_STAGED" >&2
+  exit 1
+fi
+# Dated: every input whose change changes the binary. Clean: all of them except `package.json`.
+CLI_INPUTS="agent/summrise-cli agent/summrise-agent-npm/package.json agent/Cargo.toml agent/Cargo.lock"
+CLI_SRC_TS=$(git log -1 --format=%ct -- $CLI_INPUTS)
+if [ -z "$CLI_SRC_TS" ]; then
+  echo "::error::cannot date the CLI's inputs: 'git log -- <paths>' returned nothing (did a path move?). Refusing to disable the CLI-staleness gate silently." >&2
+  exit 1
+fi
+DIRTY_CLI=$(git status --porcelain -- agent/summrise-cli agent/Cargo.toml agent/Cargo.lock)
+if [ -n "$DIRTY_CLI" ]; then
+  echo "::error::CLI inputs have uncommitted changes (the exe is compiled from them) — commit (or stash), rebuild, re-stage:" >&2
+  echo "$DIRTY_CLI" >&2
+  exit 1
+fi
+CLI_TS=$(stat -c %Y "$CLI_STAGED")
+if [ "$CLI_TS" -lt "$CLI_SRC_TS" ]; then
+  echo "::error::$CLI_STAGED predates the newest CLI-input commit ($(date -u -d "@$CLI_SRC_TS" +%Y-%m-%dT%H:%M:%SZ)) — rebuild, re-stage, retry:" >&2
+  echo "  ./scripts/build.sh agent && cp $CLI_BUILD $CLI_STAGED" >&2
+  exit 1
+fi
+PKG_TS=$(stat -c %Y "$NPM_DIR/package.json")
+if [ "$CLI_TS" -lt "$PKG_TS" ]; then
+  echo "::error::$CLI_STAGED is OLDER than $NPM_DIR/package.json — the version was bumped after the CLI was built, so this binary reports the OLD version. The CLI's version is compiled in from that manifest (summrise-cli/src/version.rs), and a CLI older than the release it manages is the deadlock. Rebuild and re-stage:" >&2
+  echo "  ./scripts/build.sh agent && cp $CLI_BUILD $CLI_STAGED" >&2
+  exit 1
+fi
+echo "CLI artifact OK (bin/summrise.exe == $CLI_BUILD; newer than its inputs and than package.json)"
+# The tsc block below is the ELECTRON gate's (main.js/preload.js), and only that: no shipped file is
+# tsc output of a `.ts` in THIS package any more. tsc comes from the repo's own
+# summrise-agent-npm/node_modules — no network install here; a missing tsc fails with the install
+# command (never skip: an uncheckable emit is an unshippable emit).
 TSC="$NPM_DIR/node_modules/.bin/tsc"
 if [ ! -x "$TSC" ]; then
-  echo "::error::no tsc in $NPM_DIR (bin/summrise.js freshness uncheckable) — install and retry:" >&2
+  echo "::error::no tsc in $NPM_DIR (the electron src freshness gate is uncheckable) — install and retry:" >&2
   echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)" >&2
   exit 1
 fi
@@ -399,15 +452,6 @@ if ! "$TSC" --version | grep -q "Version 5\."; then
   echo "  (cd $NPM_DIR && npm install --no-save --ignore-scripts --force typescript@5 @types/node@22)" >&2
   exit 1
 fi
-"$TSC" -p "$NPM_DIR/tsconfig.json" --outDir /tmp/summrise-fresh-bin
-if ! cmp -s /tmp/summrise-fresh-bin/summrise.js "$NPM_DIR/bin/summrise.js"; then
-  echo "::error::$NPM_DIR/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile, commit, retry:" >&2
-  echo "  (cd $NPM_DIR && ./node_modules/.bin/tsc -p tsconfig.json && cp dist/summrise.js bin/summrise.js)" >&2
-  rm -rf /tmp/summrise-fresh-bin
-  exit 1
-fi
-rm -rf /tmp/summrise-fresh-bin
-echo "bin/summrise.js freshness check OK (tsc recompile + cmp)"
 # (c) electron freshness: COMMITTED-clean (as before — CI compiles the
 # committed state, so any local modification means this pack may not match
 # what CI builds) PLUS the fresh-emit compare, same gate as

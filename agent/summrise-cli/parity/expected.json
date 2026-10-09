@@ -1,0 +1,684 @@
+{
+  "cases": [
+    {
+      "id": "ascii_json:[1,2.5,\"x\",null,true]",
+      "value": "[1,2.5,\"x\",null,true]"
+    },
+    {
+      "id": "ascii_json:{\"a\":1,\"b\":true,\"c\":null}",
+      "value": "{\"a\":1,\"b\":true,\"c\":null}"
+    },
+    {
+      "id": "ascii_json:{\"id\":\"h:22\",\"text\":\"I rebooted it \u2014 not a fault\"}",
+      "value": "{\"id\":\"h:22\",\"text\":\"I rebooted it \\u2014 not a fault\"}"
+    },
+    {
+      "id": "ascii_json:{\"nested\":{\"deep\":[\"\ud83d\ude00\",{\"k\":\"\u2014\"}]}}",
+      "value": "{\"nested\":{\"deep\":[\"\\ud83d\\ude00\",{\"k\":\"\\u2014\"}]}}"
+    },
+    {
+      "id": "ascii_json:{\"t\":\"\u4e2d\u6587 / \u65e5\u672c\u8a9e / \u00e9moji \ud83d\ude80\"}",
+      "value": "{\"t\":\"\\u4e2d\\u6587 / \\u65e5\\u672c\\u8a9e / \\u00e9moji \\ud83d\\ude80\"}"
+    },
+    {
+      "id": "ascii_json:{}",
+      "value": "{}"
+    },
+    {
+      "id": "ascii_json_pretty:[1,2.5,\"x\",null,true]",
+      "value": "[\n  1,\n  2.5,\n  \"x\",\n  null,\n  true\n]"
+    },
+    {
+      "id": "ascii_json_pretty:{\"a\":1,\"b\":true,\"c\":null}",
+      "value": "{\n  \"a\": 1,\n  \"b\": true,\n  \"c\": null\n}"
+    },
+    {
+      "id": "ascii_json_pretty:{\"id\":\"h:22\",\"text\":\"I rebooted it \u2014 not a fault\"}",
+      "value": "{\n  \"id\": \"h:22\",\n  \"text\": \"I rebooted it \\u2014 not a fault\"\n}"
+    },
+    {
+      "id": "ascii_json_pretty:{\"nested\":{\"deep\":[\"\ud83d\ude00\",{\"k\":\"\u2014\"}]}}",
+      "value": "{\n  \"nested\": {\n    \"deep\": [\n      \"\\ud83d\\ude00\",\n      {\n        \"k\": \"\\u2014\"\n      }\n    ]\n  }\n}"
+    },
+    {
+      "id": "ascii_json_pretty:{\"t\":\"\u4e2d\u6587 / \u65e5\u672c\u8a9e / \u00e9moji \ud83d\ude80\"}",
+      "value": "{\n  \"t\": \"\\u4e2d\\u6587 / \\u65e5\\u672c\\u8a9e / \\u00e9moji \\ud83d\\ude80\"\n}"
+    },
+    {
+      "id": "ascii_json_pretty:{}",
+      "value": "{}"
+    },
+    {
+      "id": "autostart_argv:SummriseAgent:off",
+      "value": "schtasks /Change /TN SummriseAgent /DISABLE"
+    },
+    {
+      "id": "autostart_argv:SummriseAgent:on",
+      "value": "schtasks /Change /TN SummriseAgent /ENABLE"
+    },
+    {
+      "id": "autostart_argv:SummriseDesktop:off",
+      "value": "schtasks /Change /TN SummriseDesktop /DISABLE"
+    },
+    {
+      "id": "autostart_argv:SummriseDesktop:on",
+      "value": "schtasks /Change /TN SummriseDesktop /ENABLE"
+    },
+    {
+      "id": "behind_by:1.1.9:1.2.0",
+      "value": "a release line, not a patch count"
+    },
+    {
+      "id": "behind_by:1.2.0:garbage",
+      "value": "an unknown number of releases"
+    },
+    {
+      "id": "behind_by:1.2.3:1.2.3",
+      "value": "0 releases"
+    },
+    {
+      "id": "behind_by:1.2.5:1.2.1",
+      "value": "-4 releases"
+    },
+    {
+      "id": "behind_by:1.2.9:1.2.10",
+      "value": "1 release"
+    },
+    {
+      "id": "behind_by:1.2.9:1.2.12",
+      "value": "3 releases"
+    },
+    {
+      "id": "behind_by:garbage:1.2.0",
+      "value": "an unknown number of releases"
+    },
+    {
+      "id": "boot_task_ps:false",
+      "value": "$action = New-ScheduledTaskAction -Execute 'C:\\V\\summrise-agent.exe' -Argument ('\"' + 'C:\\V\\etc\\config.yaml' + '\"')\n$boot = New-ScheduledTaskTrigger -AtStartup\n$watch = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)\n$principal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest\n$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 8 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable\nRegister-ScheduledTask SummriseAgent -Action $action -Trigger @($boot,$watch) -Principal $principal -Settings $settings -Force | Out-Null"
+    },
+    {
+      "id": "boot_task_ps:true",
+      "value": "$action = New-ScheduledTaskAction -Execute 'C:\\V\\summrise-agent.exe' -Argument ('\"' + 'C:\\V\\etc\\config.yaml' + '\"')\n$boot = New-ScheduledTaskTrigger -AtStartup\n$watch = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)\n$principal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest\n$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 8 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable\nRegister-ScheduledTask SummriseAgent -Action $action -Trigger @($boot,$watch) -Principal $principal -Settings $settings -Force | Out-Null\nStart-ScheduledTask SummriseAgent"
+    },
+    {
+      "id": "busy_is_fresh:1699999340000:1700000000000",
+      "value": false
+    },
+    {
+      "id": "busy_is_fresh:1699999399999:1700000000000",
+      "value": false
+    },
+    {
+      "id": "busy_is_fresh:1699999460000:1700000000000",
+      "value": true
+    },
+    {
+      "id": "busy_is_fresh:1700000000000:1700000000000",
+      "value": true
+    },
+    {
+      "id": "busy_marker_ps",
+      "value": "(Join-Path $env:ProgramData 'SummriseAgent\\update-busy')"
+    },
+    {
+      "id": "component_fetch_url:cloudflared.exe",
+      "value": "https://mirror.test/summrise-agent/cloudflared.exe"
+    },
+    {
+      "id": "component_fetch_url:electron-win32-x64.zip",
+      "value": "https://agent.saisi.online/summrise-agent/electron-win32-x64.zip"
+    },
+    {
+      "id": "component_fetch_url:fix-tunnel.ps1",
+      "value": "https://agent.saisi.online/summrise-agent/fix-tunnel.ps1"
+    },
+    {
+      "id": "component_fetch_url:summrise-playwright.zip",
+      "value": "https://agent.saisi.online/summrise-agent/summrise-playwright.zip"
+    },
+    {
+      "id": "component_key:",
+      "value": null
+    },
+    {
+      "id": "component_key:cloudflared.exe",
+      "value": "cloudflared"
+    },
+    {
+      "id": "component_key:electron-win32-x64.zip",
+      "value": "electron"
+    },
+    {
+      "id": "component_key:fix-tunnel.ps1",
+      "value": null
+    },
+    {
+      "id": "component_key:summrise-playwright-mcp.tgz",
+      "value": "playwright"
+    },
+    {
+      "id": "component_key:summrise-playwright.zip",
+      "value": "playwright"
+    },
+    {
+      "id": "component_url:",
+      "value": "https://agent.saisi.online/summrise-agent/"
+    },
+    {
+      "id": "component_url:cloudflared.exe",
+      "value": "https://agent.saisi.online/summrise-agent/cloudflared.exe"
+    },
+    {
+      "id": "component_url:electron-win32-x64.zip",
+      "value": "https://agent.saisi.online/summrise-agent/electron-win32-x64.zip"
+    },
+    {
+      "id": "component_url:fix-tunnel.ps1",
+      "value": "https://agent.saisi.online/summrise-agent/fix-tunnel.ps1"
+    },
+    {
+      "id": "component_url:summrise-playwright-mcp.tgz",
+      "value": "https://agent.saisi.online/summrise-agent/summrise-playwright-mcp.tgz"
+    },
+    {
+      "id": "component_url:summrise-playwright.zip",
+      "value": "https://agent.saisi.online/summrise-agent/summrise-playwright.zip"
+    },
+    {
+      "id": "desk_shortcut_repair_ps",
+      "value": "$dLnk = Join-Path $env:PUBLIC 'Desktop\\Summrise.lnk'\n$dSm = Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Summrise.lnk'\n$dIco = 'D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico'\n$dPs1 = 'D:\\Summrise\\scripts\\start-desktop.ps1'\n$dId = 'online.saisi.summrise.desktop'\n$dRes = 'D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico,0'\n$dSet = $false\n$dShell = (Test-Path $dIco) -and (Test-Path $dPs1)\nif ($dShell) {\n  $dCs = @'\nusing System;\nusing System.Runtime.InteropServices;\npublic static class SummriseLnk {\n  [StructLayout(LayoutKind.Sequential, Pack = 4)]\n  struct PROPERTYKEY { public Guid fmtid; public uint pid; }\n  [StructLayout(LayoutKind.Sequential)]\n  struct PROPVARIANT { public ushort vt, r1, r2, r3; public IntPtr p, p2; }\n  [ComImport, Guid(\"886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n  interface IPropertyStore {\n    int GetCount(out uint c);\n    int GetAt(uint i, out PROPERTYKEY k);\n    int GetValue(ref PROPERTYKEY k, out PROPVARIANT v);\n    int SetValue(ref PROPERTYKEY k, ref PROPVARIANT v);\n    int Commit();\n  }\n  [ComImport, Guid(\"0000010b-0000-0000-C000-000000000046\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n  interface IPersistFile {\n    void GetClassID(out Guid g);\n    [PreserveSig] int IsDirty();\n    void Load([MarshalAs(UnmanagedType.LPWStr)] string f, uint m);\n    void Save([MarshalAs(UnmanagedType.LPWStr)] string f, [MarshalAs(UnmanagedType.Bool)] bool r);\n    void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string f);\n    void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string f);\n  }\n  static readonly Guid CLSID = new Guid(\"00021401-0000-0000-C000-000000000046\");\n  static readonly Guid FMT = new Guid(\"9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3\");\n  const uint RW = 2;\n  static PROPERTYKEY K(uint pid) { PROPERTYKEY k; k.fmtid = FMT; k.pid = pid; return k; }\n  static object New(string lnk, uint mode) {\n    object o = Activator.CreateInstance(Type.GetTypeFromCLSID(CLSID));\n    ((IPersistFile)o).Load(lnk, mode);\n    return o;\n  }\n  static string Get(string lnk, uint pid, uint mode) {\n    IPropertyStore s = (IPropertyStore)New(lnk, mode);\n    PROPERTYKEY k = K(pid); PROPVARIANT v;\n    if (s.GetValue(ref k, out v) != 0) return \"\";\n    if (v.vt != 31 || v.p == IntPtr.Zero) return \"\";\n    string r = Marshal.PtrToStringUni(v.p);\n    Marshal.FreeCoTaskMem(v.p);\n    return r;\n  }\n  static void Put(IPropertyStore s, uint pid, string val) {\n    PROPERTYKEY k = K(pid); PROPVARIANT v = new PROPVARIANT();\n    v.vt = 31; v.p = Marshal.StringToCoTaskMemUni(val);\n    try { int hr = s.SetValue(ref k, ref v); if (hr != 0) Marshal.ThrowExceptionForHR(hr); }\n    finally { Marshal.FreeCoTaskMem(v.p); }\n  }\n  public static string Read(string lnk) { return Get(lnk, 5, 0) + \"|\" + Get(lnk, 3, 0); }\n  public static void Write(string lnk, string id, string icon) {\n    object o = New(lnk, RW);\n    IPropertyStore s = (IPropertyStore)o;\n    Put(s, 5, id); Put(s, 3, icon);\n    int hr = s.Commit();\n    if (hr != 0) Marshal.ThrowExceptionForHR(hr);\n    ((IPersistFile)o).Save(lnk, true);\n  }\n}\n'@\n  try { if (-not ('SummriseLnk' -as [type])) { Add-Type -TypeDefinition $dCs }; $dSet = [bool]('SummriseLnk' -as [type]) } catch { ('desk: lnk identity helper unavailable: ' + $_.Exception.Message) | Write-Host }\n}\n$dNeed = $false\nif (Test-Path $dLnk) {\n  try { $dEx = (New-Object -ComObject WScript.Shell).CreateShortcut($dLnk); if (($dEx.TargetPath -like '*summrise-desktop.exe') -or ($dEx.TargetPath -like '*summrise-tray.exe') -or (-not (Test-Path $dEx.TargetPath))) { $dNeed = $true } } catch { $dNeed = $true }\n  if ($dSet) { try { if (([SummriseLnk]::Read($dLnk)) -ne ($dId + '|' + $dRes)) { $dNeed = $true } } catch { $dNeed = $true } }\n}\n$dSmNeed = $false\nif ($dShell) {\n  if (-not (Test-Path $dSm)) { $dSmNeed = $true }\n  elseif (-not $dSet) { $dSmNeed = $true }\n  else { try { if (([SummriseLnk]::Read($dSm)) -ne ($dId + '|' + $dRes)) { $dSmNeed = $true } } catch { $dSmNeed = $true } }\n}\nif ($dNeed -and $dShell) {\n  try { $dWs1 = New-Object -ComObject WScript.Shell; $dSc1 = $dWs1.CreateShortcut($dLnk); $dSc1.TargetPath = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'; $dSc1.Arguments = '-NoProfile -ExecutionPolicy Bypass -File \"' + $dPs1 + '\"'; $dSc1.WorkingDirectory = 'D:\\Summrise\\components\\summrise-desktop-electron'; $dSc1.IconLocation = $dIco + ',0'; $dSc1.Save(); 'desk: ' + $dLnk + ' repointed to electron shell' | Write-Host } catch { ('desk: ' + $dLnk + ' repair failed: ' + $_.Exception.Message) | Write-Host }\n  if ($dSet) { try { [SummriseLnk]::Write($dLnk, $dId, $dRes); ('desk: ' + $dLnk + ' taskbar identity [' + [SummriseLnk]::Read($dLnk) + ']') | Write-Host } catch { ('desk: ' + $dLnk + ' identity write failed: ' + $_.Exception.Message) | Write-Host } }\n}\nif ($dSmNeed -and $dShell) {\n  try { $dWs2 = New-Object -ComObject WScript.Shell; $dSc2 = $dWs2.CreateShortcut($dSm); $dSc2.TargetPath = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'; $dSc2.Arguments = '-NoProfile -ExecutionPolicy Bypass -File \"' + $dPs1 + '\"'; $dSc2.WorkingDirectory = 'D:\\Summrise\\components\\summrise-desktop-electron'; $dSc2.IconLocation = $dIco + ',0'; $dSc2.Save(); 'desk: ' + $dSm + ' repointed to electron shell' | Write-Host } catch { ('desk: ' + $dSm + ' repair failed: ' + $_.Exception.Message) | Write-Host }\n  if ($dSet) { try { [SummriseLnk]::Write($dSm, $dId, $dRes); ('desk: ' + $dSm + ' taskbar identity [' + [SummriseLnk]::Read($dSm) + ']') | Write-Host } catch { ('desk: ' + $dSm + ' identity write failed: ' + $_.Exception.Message) | Write-Host } }\n}\nforeach ($dRx in @('summrise-desktop.exe','summrise-tray.exe')) { $dRp = 'D:\\Summrise\\components\\summrise-desktop-electron\\' + $dRx; if (Test-Path $dRp) { try { Remove-Item -Force -ErrorAction Stop $dRp; ('desk: removed retired ' + $dRx) | Write-Host } catch { ('desk: retired ' + $dRx + ' locked, kept') | Write-Host } } }"
+    },
+    {
+      "id": "desktop_aumid",
+      "value": "online.saisi.summrise.desktop"
+    },
+    {
+      "id": "desktop_start_ps",
+      "value": "# written by `summrise desktop` -- ask for the window, or say it is already there.\n$ErrorActionPreference = 'Stop'\nif (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'already-running'; exit 0 }\n# DO NOT RE-REGISTER THE TASK TO START IT. Register-ScheduledTask needs the interactive\n# user's principal as DOMAIN\\user, and a shell running as a service account has no such\n# mapping -- the device answered \"No mapping between account names and security IDs was\n# done ... UserId\" from a PTY running as systemprofile, while the task itself was Ready.\n# The task already carries the right principal -- `summrise setup` creates it -- so starting\n# it is all that is needed.\n$t = Get-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue\nif (-not $t) { & powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Summrise\\scripts\\register-desktop-task.ps1\" }\nStart-ScheduledTask -TaskName SummriseDesktop -ErrorAction SilentlyContinue\nStart-Sleep -Seconds 3\nif (Get-Process electron -ErrorAction SilentlyContinue) { Write-Output 'started' } else { Write-Output 'not-started'; exit 1 }"
+    },
+    {
+      "id": "desktop_task_ps",
+      "value": "# written by `summrise setup` / `summrise desktop` -- the desktop shell's task + watchdog.\n$ErrorActionPreference = 'Stop'\n$q = 'C:\\Program Files\\Summrise'\n$en = Join-Path $q 'scripts\\ensure-desktop.ps1'\n$ln = Join-Path $q 'scripts\\summrise-launch.exe'\n$ps = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'\n$enBody = @'\n# written by `summrise setup` / `summrise desktop` / `summrise update` -- the desktop\n# shell's watchdog, run every 5 minutes by desktop-pulse.vbs under SummriseDesktop.\n# Start the shell if none is running, and RECORD WHICH OF THE TWO THINGS HAPPENED:\n# silence is not a status. The builder in src/summrise.ts carries the full reasoning,\n# including why the healthy case is one line an hour and not one per pulse.\n$log = 'C:\\ProgramData\\Summrise\\logs\\startup.log'\nNew-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null\n$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()\n$tail = @(Get-Content -Path $log -Tail 400 -ErrorAction SilentlyContinue)\n$p = @(Get-Process electron -ErrorAction SilentlyContinue)\nif ($p.Count -gt 0) {\n  $h = 'hour=' + (Get-Date -Format 'yyyy-MM-ddTHH')\n  if (-not ($tail -match ('desktop: electron shell alive .*' + $h))) {\n    $up = ($p | Sort-Object StartTime | Select-Object -First 1).StartTime\n    Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron shell alive -- ' + $p.Count + ' process(es), oldest since ' + $up + ' ' + $h) -ErrorAction SilentlyContinue\n  }\n  exit\n}\n$was = 'no earlier launch is recorded in the log tail'\n$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching .*\\(start=(\\d+)\\)' | Select-Object -Last 1\nif ($prev -and ($prev.Line -match '\\(start=(\\d+)\\)')) {\n  $E = [int]$Matches[1]\n  if ($tail -match ('desktop: electron\\.exe exited \\(start=' + $E + ' ')) { $was = 'the previous shell exited and its code is in the exited (start=' + $E + ') line' }\n  else { $was = 'the previous shell lived ' + ([int]$now - $E) + 's and left NO exit line -- it was KILLED, not exited: a Task Scheduler stop, a taskkill /T or a reboot leaves no exit code (start=' + $E + ')' }\n}\nAdd-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no electron shell is running -- the watchdog is starting it; previous: ' + $was) -ErrorAction SilentlyContinue\n& powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Program Files\\Summrise\\scripts\\start-desktop.ps1\"\n'@\nSet-Content -Path $en -Value $enBody -Force\nforeach ($v in @('C:\\Program Files\\Summrise\\scripts\\desktop-pulse.vbs','C:\\Program Files\\Summrise\\desktop-pulse.vbs','C:\\Program Files\\Summrise\\scripts\\run-hidden.vbs','C:\\Program Files\\Summrise\\playwright\\run-hidden.vbs')) { if (Test-Path $v) { try { Remove-Item -Force -ErrorAction Stop $v } catch {} } }\n$da = New-ScheduledTaskAction -Execute $ln -Argument ('\"' + $ps + '\" -NoProfile -ExecutionPolicy Bypass -File \"' + $en + '\"') -WorkingDirectory $q\n$dt1 = New-ScheduledTaskTrigger -AtLogOn\n$dw1 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Minutes 5)\n$pr = New-ScheduledTaskPrincipal -UserId ('{0}\\{1}' -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive -RunLevel Highest\n$st = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew\nRegister-ScheduledTask SummriseDesktop -Action $da -Trigger @($dt1,$dw1) -Principal $pr -Settings $st -Force | Out-Null\nStart-ScheduledTask -TaskName SummriseDesktop"
+    },
+    {
+      "id": "ensure_desktop_ps",
+      "value": "# written by `summrise setup` / `summrise desktop` / `summrise update` -- the desktop\n# shell's watchdog, run every 5 minutes by desktop-pulse.vbs under SummriseDesktop.\n# Start the shell if none is running, and RECORD WHICH OF THE TWO THINGS HAPPENED:\n# silence is not a status. The builder in src/summrise.ts carries the full reasoning,\n# including why the healthy case is one line an hour and not one per pulse.\n$log = 'C:\\ProgramData\\Summrise\\logs\\startup.log'\nNew-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null\n$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()\n$tail = @(Get-Content -Path $log -Tail 400 -ErrorAction SilentlyContinue)\n$p = @(Get-Process electron -ErrorAction SilentlyContinue)\nif ($p.Count -gt 0) {\n  $h = 'hour=' + (Get-Date -Format 'yyyy-MM-ddTHH')\n  if (-not ($tail -match ('desktop: electron shell alive .*' + $h))) {\n    $up = ($p | Sort-Object StartTime | Select-Object -First 1).StartTime\n    Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron shell alive -- ' + $p.Count + ' process(es), oldest since ' + $up + ' ' + $h) -ErrorAction SilentlyContinue\n  }\n  exit\n}\n$was = 'no earlier launch is recorded in the log tail'\n$prev = $tail | Select-String -Pattern 'desktop: electron.exe launching .*\\(start=(\\d+)\\)' | Select-Object -Last 1\nif ($prev -and ($prev.Line -match '\\(start=(\\d+)\\)')) {\n  $E = [int]$Matches[1]\n  if ($tail -match ('desktop: electron\\.exe exited \\(start=' + $E + ' ')) { $was = 'the previous shell exited and its code is in the exited (start=' + $E + ') line' }\n  else { $was = 'the previous shell lived ' + ([int]$now - $E) + 's and left NO exit line -- it was KILLED, not exited: a Task Scheduler stop, a taskkill /T or a reboot leaves no exit code (start=' + $E + ')' }\n}\nAdd-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: no electron shell is running -- the watchdog is starting it; previous: ' + $was) -ErrorAction SilentlyContinue\n& powershell -NoProfile -ExecutionPolicy Bypass -File \"D:\\Summrise\\scripts\\start-desktop.ps1\""
+    },
+    {
+      "id": "firewall_ps",
+      "value": "$fwPort = 7740;\nforeach ($fr in @(Get-NetFirewallRule -DisplayName 'Summrise Agent' -ErrorAction SilentlyContinue)) { try { $fp = @(Get-NetFirewallPortFilter -AssociatedNetFirewallRule $fr | Select-Object -ExpandProperty LocalPort); if ($fp -notcontains \"$fwPort\") { Remove-NetFirewallRule -Name $fr.Name -Confirm:$false -ErrorAction SilentlyContinue } } catch {} }\nif (-not (Get-NetFirewallRule -DisplayName 'Summrise Agent' -ErrorAction SilentlyContinue | Where-Object { @(Get-NetFirewallPortFilter -AssociatedNetFirewallRule $PSItem | Select-Object -ExpandProperty LocalPort) -contains \"$fwPort\" })) { New-NetFirewallRule -DisplayName 'Summrise Agent' -Direction Inbound -LocalPort $fwPort -Protocol TCP -Action Allow | Out-Null }"
+    },
+    {
+      "id": "fmt_duration:-5",
+      "value": "0s"
+    },
+    {
+      "id": "fmt_duration:0",
+      "value": "0s"
+    },
+    {
+      "id": "fmt_duration:1000",
+      "value": "1s"
+    },
+    {
+      "id": "fmt_duration:200000000",
+      "value": "2d 7h"
+    },
+    {
+      "id": "fmt_duration:3599999",
+      "value": "59m"
+    },
+    {
+      "id": "fmt_duration:3600000",
+      "value": "1h 00m"
+    },
+    {
+      "id": "fmt_duration:59999",
+      "value": "59s"
+    },
+    {
+      "id": "fmt_duration:60000",
+      "value": "1m"
+    },
+    {
+      "id": "fmt_duration:86400000",
+      "value": "1d 0h"
+    },
+    {
+      "id": "fmt_duration:999",
+      "value": "0s"
+    },
+    {
+      "id": "is_behind:1.1.9:1.2.0",
+      "value": false
+    },
+    {
+      "id": "is_behind:1.2.0:garbage",
+      "value": false
+    },
+    {
+      "id": "is_behind:1.2.3:1.2.3",
+      "value": false
+    },
+    {
+      "id": "is_behind:1.2.5:1.2.1",
+      "value": false
+    },
+    {
+      "id": "is_behind:1.2.9:1.2.10",
+      "value": true
+    },
+    {
+      "id": "is_behind:1.2.9:1.2.12",
+      "value": true
+    },
+    {
+      "id": "is_behind:garbage:1.2.0",
+      "value": false
+    },
+    {
+      "id": "lnk_identity",
+      "value": "online.saisi.summrise.desktop|D:\\Summrise\\components\\summrise-desktop-electron\\icon.ico,0"
+    },
+    {
+      "id": "migrate_layout_ps",
+      "value": "$summriseMg = (-not (Test-Path 'D:\\Summrise\\etc\\.layout-v2'))\nif ($summriseMg) { Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*D:\\Summrise*playwright*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\config.yaml') -and (-not (Test-Path 'D:\\Summrise\\etc\\config.yaml'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\etc\\config.yaml') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\config.yaml' -Destination 'D:\\Summrise\\etc\\config.yaml' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\summrise-agent.hostname') -and (-not (Test-Path 'D:\\Summrise\\etc\\summrise-agent.hostname'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\etc\\summrise-agent.hostname') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\summrise-agent.hostname' -Destination 'D:\\Summrise\\etc\\summrise-agent.hostname' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\tunnel.yml') -and (-not (Test-Path 'D:\\Summrise\\etc\\tunnel.yml'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\etc\\tunnel.yml') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\tunnel.yml' -Destination 'D:\\Summrise\\etc\\tunnel.yml' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\.summrise-release') -and (-not (Test-Path 'D:\\Summrise\\etc\\.summrise-release'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\etc\\.summrise-release') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\.summrise-release' -Destination 'D:\\Summrise\\etc\\.summrise-release' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\boxed-versions.json') -and (-not (Test-Path 'D:\\Summrise\\etc\\boxed-versions.json'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\etc\\boxed-versions.json') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\boxed-versions.json' -Destination 'D:\\Summrise\\etc\\boxed-versions.json' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\tools\\node')) { try { if (-not (Test-Path 'D:\\Summrise\\components\\node')) { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\components\\node') | Out-Null; Move-Item -Path 'D:\\Summrise\\tools\\node' -Destination 'D:\\Summrise\\components\\node' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\tools\\node' | ForEach-Object { if (-not (Test-Path (Join-Path 'D:\\Summrise\\components\\node' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'D:\\Summrise\\components\\node' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\tools\\npm-global')) { try { if (-not (Test-Path 'D:\\Summrise\\components\\npm-global')) { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\components\\npm-global') | Out-Null; Move-Item -Path 'D:\\Summrise\\tools\\npm-global' -Destination 'D:\\Summrise\\components\\npm-global' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\tools\\npm-global' | ForEach-Object { if (-not (Test-Path (Join-Path 'D:\\Summrise\\components\\npm-global' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'D:\\Summrise\\components\\npm-global' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\tools\\cloudflared.exe') -and (-not (Test-Path 'D:\\Summrise\\components\\cloudflared.exe'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\components\\cloudflared.exe') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\tools\\cloudflared.exe' -Destination 'D:\\Summrise\\components\\cloudflared.exe' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\playwright')) { try { if (-not (Test-Path 'D:\\Summrise\\components\\playwright')) { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\components\\playwright') | Out-Null; Move-Item -Path 'D:\\Summrise\\playwright' -Destination 'D:\\Summrise\\components\\playwright' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\playwright' | ForEach-Object { if (-not (Test-Path (Join-Path 'D:\\Summrise\\components\\playwright' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'D:\\Summrise\\components\\playwright' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\summrise-desktop-electron')) { try { if (-not (Test-Path 'D:\\Summrise\\components\\summrise-desktop-electron')) { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\components\\summrise-desktop-electron') | Out-Null; Move-Item -Path 'D:\\Summrise\\summrise-desktop-electron' -Destination 'D:\\Summrise\\components\\summrise-desktop-electron' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\summrise-desktop-electron' | ForEach-Object { if (-not (Test-Path (Join-Path 'D:\\Summrise\\components\\summrise-desktop-electron' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'D:\\Summrise\\components\\summrise-desktop-electron' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\ensure-desktop.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\ensure-desktop.ps1'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\ensure-desktop.ps1') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\ensure-desktop.ps1' -Destination 'D:\\Summrise\\scripts\\ensure-desktop.ps1' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\start-desktop.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\start-desktop.ps1'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\start-desktop.ps1') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\start-desktop.ps1' -Destination 'D:\\Summrise\\scripts\\start-desktop.ps1' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\summrise-online-setup.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\summrise-online-setup.ps1'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\summrise-online-setup.ps1') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\summrise-online-setup.ps1' -Destination 'D:\\Summrise\\scripts\\summrise-online-setup.ps1' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\fix-tunnel.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\fix-tunnel.ps1'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\fix-tunnel.ps1') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\fix-tunnel.ps1' -Destination 'D:\\Summrise\\scripts\\fix-tunnel.ps1' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\playwright\\playwright-probe.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\playwright-probe.ps1'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\playwright-probe.ps1') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\playwright\\playwright-probe.ps1' -Destination 'D:\\Summrise\\scripts\\playwright-probe.ps1' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\shell-integration')) { try { if (-not (Test-Path 'D:\\Summrise\\scripts\\shell-integration')) { New-Item -ItemType Directory -Force -Path (Split-Path 'D:\\Summrise\\scripts\\shell-integration') | Out-Null; Move-Item -Path 'D:\\Summrise\\shell-integration' -Destination 'D:\\Summrise\\scripts\\shell-integration' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\shell-integration' | ForEach-Object { if (-not (Test-Path (Join-Path 'D:\\Summrise\\scripts\\shell-integration' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'D:\\Summrise\\scripts\\shell-integration' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\installer.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\installer.log'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\logs\\installer.log') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\installer.log' -Destination 'C:\\ProgramData\\Summrise\\logs\\installer.log' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\install-result.txt') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\install-result.txt'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\logs\\install-result.txt') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\install-result.txt' -Destination 'C:\\ProgramData\\Summrise\\logs\\install-result.txt' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\summrise-update.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\summrise-update.log'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\logs\\summrise-update.log') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\summrise-update.log' -Destination 'C:\\ProgramData\\Summrise\\logs\\summrise-update.log' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\agent.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\agent.log'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\logs\\agent.log') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\agent.log' -Destination 'C:\\ProgramData\\Summrise\\logs\\agent.log' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\startup.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\startup.log'))) { try { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\logs\\startup.log') | Out-Null; Move-Item -Force -Path 'D:\\Summrise\\startup.log' -Destination 'C:\\ProgramData\\Summrise\\logs\\startup.log' -ErrorAction Stop } catch {} }\nif ($summriseMg -and (Test-Path 'D:\\Summrise\\pwout')) { try { if (-not (Test-Path 'C:\\ProgramData\\Summrise\\pwout')) { New-Item -ItemType Directory -Force -Path (Split-Path 'C:\\ProgramData\\Summrise\\pwout') | Out-Null; Move-Item -Path 'D:\\Summrise\\pwout' -Destination 'C:\\ProgramData\\Summrise\\pwout' -ErrorAction Stop } else { Get-ChildItem -Force 'D:\\Summrise\\pwout' | ForEach-Object { if (-not (Test-Path (Join-Path 'C:\\ProgramData\\Summrise\\pwout' $_.Name))) { Move-Item -Force -Path $_.FullName -Destination (Join-Path 'C:\\ProgramData\\Summrise\\pwout' $_.Name) -ErrorAction SilentlyContinue } } } } catch {} }\nif ($summriseMg -and (-not (((Test-Path 'D:\\Summrise\\config.yaml') -and (-not (Test-Path 'D:\\Summrise\\etc\\config.yaml'))) -or ((Test-Path 'D:\\Summrise\\summrise-agent.hostname') -and (-not (Test-Path 'D:\\Summrise\\etc\\summrise-agent.hostname'))) -or ((Test-Path 'D:\\Summrise\\tunnel.yml') -and (-not (Test-Path 'D:\\Summrise\\etc\\tunnel.yml'))) -or ((Test-Path 'D:\\Summrise\\.summrise-release') -and (-not (Test-Path 'D:\\Summrise\\etc\\.summrise-release'))) -or ((Test-Path 'D:\\Summrise\\boxed-versions.json') -and (-not (Test-Path 'D:\\Summrise\\etc\\boxed-versions.json'))) -or ((Test-Path 'D:\\Summrise\\tools\\node') -and (-not (Test-Path 'D:\\Summrise\\components\\node'))) -or ((Test-Path 'D:\\Summrise\\tools\\npm-global') -and (-not (Test-Path 'D:\\Summrise\\components\\npm-global'))) -or ((Test-Path 'D:\\Summrise\\tools\\cloudflared.exe') -and (-not (Test-Path 'D:\\Summrise\\components\\cloudflared.exe'))) -or ((Test-Path 'D:\\Summrise\\playwright') -and (-not (Test-Path 'D:\\Summrise\\components\\playwright'))) -or ((Test-Path 'D:\\Summrise\\summrise-desktop-electron') -and (-not (Test-Path 'D:\\Summrise\\components\\summrise-desktop-electron'))) -or ((Test-Path 'D:\\Summrise\\ensure-desktop.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\ensure-desktop.ps1'))) -or ((Test-Path 'D:\\Summrise\\start-desktop.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\start-desktop.ps1'))) -or ((Test-Path 'D:\\Summrise\\summrise-online-setup.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\summrise-online-setup.ps1'))) -or ((Test-Path 'D:\\Summrise\\fix-tunnel.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\fix-tunnel.ps1'))) -or ((Test-Path 'D:\\Summrise\\playwright\\playwright-probe.ps1') -and (-not (Test-Path 'D:\\Summrise\\scripts\\playwright-probe.ps1'))) -or ((Test-Path 'D:\\Summrise\\shell-integration') -and (-not (Test-Path 'D:\\Summrise\\scripts\\shell-integration'))) -or ((Test-Path 'D:\\Summrise\\installer.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\installer.log'))) -or ((Test-Path 'D:\\Summrise\\install-result.txt') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\install-result.txt'))) -or ((Test-Path 'D:\\Summrise\\summrise-update.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\summrise-update.log'))) -or ((Test-Path 'D:\\Summrise\\agent.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\agent.log'))) -or ((Test-Path 'D:\\Summrise\\startup.log') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\logs\\startup.log'))) -or ((Test-Path 'D:\\Summrise\\pwout') -and (-not (Test-Path 'C:\\ProgramData\\Summrise\\pwout')))))) { try { New-Item -ItemType Directory -Force -Path 'D:\\Summrise\\etc' | Out-Null; New-Item -ItemType File -Force -Path 'D:\\Summrise\\etc\\.layout-v2' | Out-Null } catch {} }"
+    },
+    {
+      "id": "monitors_json:all",
+      "value": "{\"device\":\"d1\",\"asked_at_ms\":1789000000000,\"interval_secs\":15,\"targets\":[{\"id\":\"192.168.1.1:22\",\"host\":\"192.168.1.1\",\"port\":22,\"path\":null,\"expect\":null,\"up\":true,\"up_pct\":100,\"since_ms\":111,\"drops\":0,\"latency_ms\":9,\"last_status\":null,\"last_expect_ok\":null,\"probes\":12,\"transitions\":[{\"at_ms\":100,\"up\":true,\"lasted_ms\":39000}]},{\"id\":\"h:80/\",\"host\":\"h\",\"port\":80,\"path\":\"/\",\"expect\":\"OpenWrt\",\"up\":false,\"up_pct\":50,\"since_ms\":222,\"drops\":1,\"latency_ms\":null,\"last_status\":200,\"last_expect_ok\":false,\"probes\":4,\"transitions\":[]}]}"
+    },
+    {
+      "id": "monitors_json:null",
+      "value": "{\"device\":\"d1\",\"asked_at_ms\":1,\"interval_secs\":null,\"targets\":[]}"
+    },
+    {
+      "id": "monitors_json:one",
+      "value": "{\"device\":\"d1\",\"asked_at_ms\":1,\"interval_secs\":15,\"targets\":[{\"id\":\"h:80/\",\"host\":\"h\",\"port\":80,\"path\":\"/\",\"expect\":\"OpenWrt\",\"up\":false,\"up_pct\":50,\"since_ms\":222,\"drops\":1,\"latency_ms\":null,\"last_status\":200,\"last_expect_ok\":false,\"probes\":4,\"transitions\":[]}]}"
+    },
+    {
+      "id": "monitors_json:unknown",
+      "value": "{\"device\":\"d1\",\"asked_at_ms\":1,\"interval_secs\":null,\"targets\":[{\"id\":\"x:1\",\"host\":\"x\",\"port\":1,\"path\":null,\"expect\":null,\"up\":null,\"up_pct\":null,\"since_ms\":null,\"drops\":null,\"latency_ms\":null,\"last_status\":null,\"last_expect_ok\":null,\"probes\":0,\"transitions\":[]}]}"
+    },
+    {
+      "id": "newest_of:1.1.9:1.2.0",
+      "value": "1.2.0"
+    },
+    {
+      "id": "newest_of:1.2.0:garbage",
+      "value": "1.2.0"
+    },
+    {
+      "id": "newest_of:1.2.3:1.2.3",
+      "value": "1.2.3"
+    },
+    {
+      "id": "newest_of:1.2.452:null",
+      "value": "1.2.452"
+    },
+    {
+      "id": "newest_of:1.2.5:1.2.1",
+      "value": "1.2.5"
+    },
+    {
+      "id": "newest_of:1.2.9:1.2.10",
+      "value": "1.2.10"
+    },
+    {
+      "id": "newest_of:1.2.9:1.2.12",
+      "value": "1.2.12"
+    },
+    {
+      "id": "newest_of::null",
+      "value": null
+    },
+    {
+      "id": "newest_of:garbage:1.2.0",
+      "value": "1.2.0"
+    },
+    {
+      "id": "newest_of:garbage:null",
+      "value": "garbage"
+    },
+    {
+      "id": "newest_of:null:",
+      "value": ""
+    },
+    {
+      "id": "newest_of:null:1.2.452",
+      "value": "1.2.452"
+    },
+    {
+      "id": "newest_of:null:garbage",
+      "value": "garbage"
+    },
+    {
+      "id": "newest_of:null:null",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:serial:\\n  port: 1234\\n",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:server:\\n  host: \"0.0.0.0\"\\n  port: 7740\\n",
+      "value": 7740
+    },
+    {
+      "id": "parse_agent_port:server:\\n  host: \"127.0.0.1\"\\n",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:server:\\n  port: \"7740\"  # a comment\\n",
+      "value": 7740
+    },
+    {
+      "id": "parse_agent_port:server:\\n  port: 0\\n",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:server:\\n  port: 18080\\n",
+      "value": 18080
+    },
+    {
+      "id": "parse_agent_port:server:\\n  port: 99999\\n",
+      "value": null
+    },
+    {
+      "id": "parse_agent_port:server:\\n  port:7740\\n",
+      "value": 7740
+    },
+    {
+      "id": "parse_agent_port:server:\\r\\n  port: 8080\\r\\n",
+      "value": 8080
+    },
+    {
+      "id": "parse_device_token:",
+      "value": null
+    },
+    {
+      "id": "parse_device_token:serial:\\n  device_token: nope\\n",
+      "value": null
+    },
+    {
+      "id": "parse_device_token:server:\\n  device_token: \"tok\"\\n",
+      "value": "tok"
+    },
+    {
+      "id": "parse_device_token:server:\\n  device_token: abc.DEF-123_x\\n",
+      "value": "abc.DEF-123_x"
+    },
+    {
+      "id": "parse_device_token:server:\\n  host: x\\n",
+      "value": null
+    },
+    {
+      "id": "parse_target_arg:",
+      "value": null
+    },
+    {
+      "id": "parse_target_arg:  h:22  ",
+      "value": {
+        "host": "h",
+        "port": 22,
+        "path": "",
+        "id": "h:22"
+      }
+    },
+    {
+      "id": "parse_target_arg:192.168.1.1:80",
+      "value": {
+        "host": "192.168.1.1",
+        "port": 80,
+        "path": "",
+        "id": "192.168.1.1:80"
+      }
+    },
+    {
+      "id": "parse_target_arg:192.168.1.1:80/health",
+      "value": {
+        "host": "192.168.1.1",
+        "port": 80,
+        "path": "/health",
+        "id": "192.168.1.1:80/health"
+      }
+    },
+    {
+      "id": "parse_target_arg:h:0",
+      "value": null
+    },
+    {
+      "id": "parse_target_arg:h:70000",
+      "value": null
+    },
+    {
+      "id": "parse_target_arg:h:80/x:y",
+      "value": {
+        "host": "h",
+        "port": 80,
+        "path": "/x:y",
+        "id": "h:80/x:y"
+      }
+    },
+    {
+      "id": "parse_target_arg:no-port",
+      "value": null
+    },
+    {
+      "id": "playwright_probe_ps",
+      "value": "param([string]$node, [string]$cli)\n$ErrorActionPreference = 'Continue'\n$pwout = Join-Path (Split-Path $node -Parent) '..\\pwout'\nif (!(Test-Path $pwout)) { New-Item -ItemType Directory -Path $pwout -Force | Out-Null }\n$ep = ''\nfunction Test-Port([int]$port) {\n  try {\n    $c = New-Object System.Net.Sockets.TcpClient\n    $iar = $c.BeginConnect('127.0.0.1', $port, $null, $null)\n    if ($iar.AsyncWaitHandle.WaitOne(1500)) { return $c.Connected }\n    $c.Close()\n  } catch { }\n  return $false\n}\nfor ($i = 1; $i -le 12; $i++) { if (Test-Port 9333) { $ep = 'http://127.0.0.1:9333'; break }; Start-Sleep -Seconds 5 }\nif ($ep) {\n  & $node $cli --port 9229 --host 127.0.0.1 --cdp-endpoint $ep --output-dir $pwout --ignore-https-errors --allowed-hosts '127.0.0.1:9229,localhost:9229'\n} else {\n  & $node $cli --port 9229 --browser chromium --host 127.0.0.1 --headless --output-dir $pwout --ignore-https-errors --allowed-hosts '127.0.0.1:9229,localhost:9229'\n}"
+    },
+    {
+      "id": "print_monitors_json",
+      "value": "{\"device\":\"d1\",\"asked_at_ms\":1789000000000,\"interval_secs\":15,\"targets\":[{\"id\":\"192.168.1.1:22\",\"host\":\"192.168.1.1\",\"port\":22,\"path\":null,\"expect\":null,\"up\":true,\"up_pct\":100,\"since_ms\":111,\"drops\":0,\"latency_ms\":9,\"last_status\":null,\"last_expect_ok\":null,\"probes\":12,\"transitions\":[{\"at_ms\":100,\"up\":true,\"lasted_ms\":39000}]},{\"id\":\"h:80/\",\"host\":\"h\",\"port\":80,\"path\":\"/\",\"expect\":\"OpenWrt\",\"up\":false,\"up_pct\":50,\"since_ms\":222,\"drops\":1,\"latency_ms\":null,\"last_status\":200,\"last_expect_ok\":false,\"probes\":4,\"transitions\":[]}]}"
+    },
+    {
+      "id": "probe_line",
+      "value": "DOWN h:80/  HTTP 200  no match for \"OpenWrt\"  12ms"
+    },
+    {
+      "id": "ps_argv:script",
+      "value": "-NoProfile\u001f-Command\u001f[$(Get-Date -Format o)] update requested 1.2.322 -> 1.2.323 \" | Out-File 'D:\\Summrise\\logs\\summrise-update.log' -Append; Write-Output \"a<b & c|d ^ e%f\""
+    },
+    {
+      "id": "psq:",
+      "value": ""
+    },
+    {
+      "id": "psq:'",
+      "value": "''"
+    },
+    {
+      "id": "psq:/plain/path",
+      "value": "/plain/path"
+    },
+    {
+      "id": "psq:C:\\Program Files\\Summrise\\a'b",
+      "value": "C:\\Program Files\\Summrise\\a''b"
+    },
+    {
+      "id": "psq:a'b'c",
+      "value": "a''b''c"
+    },
+    {
+      "id": "psq:it''s",
+      "value": "it''''s"
+    },
+    {
+      "id": "release_marker_verdict:blind",
+      "value": {
+        "writePin": false,
+        "exitCode": 1,
+        "message": "rollback: no release marker showing 1.2.322 within 90s (last read: empty or unreadable). NOT pinned (a pin would claim a version this device may not be running) and no release marker written. Check the update log and `summrise status`, then re-run 'summrise rollback 1.2.322'."
+      }
+    },
+    {
+      "id": "release_marker_verdict:proven",
+      "value": {
+        "writePin": true,
+        "exitCode": 0,
+        "message": "rollback: pinned to 1.2.322 -- auto-upgrade refused until 'summrise rollback --clear' or a forced agent_update"
+      }
+    },
+    {
+      "id": "release_marker_verdict:unproven",
+      "value": {
+        "writePin": false,
+        "exitCode": 1,
+        "message": "rollback: no release marker showing 1.2.322 within 90s (last read: 1.2.321). NOT pinned (a pin would claim a version this device may not be running) and no release marker written. Check the update log and `summrise status`, then re-run 'summrise rollback 1.2.322'."
+      }
+    },
+    {
+      "id": "rollback_version_ok:",
+      "value": false
+    },
+    {
+      "id": "rollback_version_ok:--clear",
+      "value": false
+    },
+    {
+      "id": "rollback_version_ok:0.0.1",
+      "value": true
+    },
+    {
+      "id": "rollback_version_ok:1.2",
+      "value": false
+    },
+    {
+      "id": "rollback_version_ok:1.2.3.4",
+      "value": false
+    },
+    {
+      "id": "rollback_version_ok:1.2.307",
+      "value": true
+    },
+    {
+      "id": "rollback_version_ok:1.2.307/../../evil",
+      "value": false
+    },
+    {
+      "id": "stage_advice",
+      "value": "run 'summrise setup' to stage it -- the component comes from the release host, not from the npm package."
+    },
+    {
+      "id": "start_desktop_ps",
+      "value": "# written by `summrise setup` / `summrise desktop` / `summrise update` -- start the\n# Electron shell, and leave a record of the launch and of the exit. The comments stay\n# IN the file on purpose: this is what an operator reads when the window is gone.\n#\n# WHAT THIS CANNOT SEE. The launch below WAITS, so it returns with the shell's exit code\n# when the shell exits OR crashes. It does NOT return when the whole process tree is\n# killed from outside -- a Task Scheduler execution limit, a `taskkill /T`, a machine\n# going down -- because this PowerShell dies first, and then NO exit code is written at\n# all. ensure-desktop.ps1 reports that absence on the next pulse; a log that recorded\n# only exits would silently omit the one death that actually happens here.\n#\n# WHY NOT `& electron.exe .` AND $LASTEXITCODE (measured on desktop-14rjcr8, 2026-09-28):\n# electron.exe is a GUI-subsystem binary and Windows PowerShell 5.1 does not set\n# $LASTEXITCODE for one. `& cmd /c 'exit 7'` set it to 7; the next `& electron.exe\n# --version` left it at 7, unchanged. The first version of this file used `&` and wrote\n# `exit code ` with the number missing -- a field that looks like a value and is not one.\n# System.Diagnostics.Process is the same CreateProcess, and its ExitCode is real.\n$dir = 'D:\\Summrise\\components\\summrise-desktop-electron'\n$log = 'C:\\ProgramData\\Summrise\\logs\\startup.log'\nNew-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null\n$E = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()\nAdd-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe launching from ' + $dir + ' (start=' + $E + ')') -ErrorAction SilentlyContinue\nSet-Location $dir\n$code = $null\ntry {\n  $si = New-Object System.Diagnostics.ProcessStartInfo\n  $si.FileName = \"$dir\\node_modules\\electron\\dist\\electron.exe\"\n  $si.Arguments = '.'\n  $si.WorkingDirectory = $dir\n  $si.UseShellExecute = $false\n  $p = [System.Diagnostics.Process]::Start($si)\n  $p.WaitForExit()\n  $code = $p.ExitCode\n} catch { $code = $null }\n$L = [int]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $E)\nif ($null -ne $code) {\n  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe exited (start=' + $E + ' exit code ' + $code + ' lived=' + $L + 's)') -ErrorAction SilentlyContinue\n} else {\n  Add-Content -Path $log -Value ('[' + (Get-Date -Format o) + '] desktop: electron.exe DID NOT RUN (start=' + $E + ') -- the launcher could not start it, so there is no exit code') -ErrorAction SilentlyContinue\n}"
+    },
+    {
+      "id": "status_report:behind",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.340\nthis CLI: 1.2.359\nupdate: none in flight\nupdate: device runs 1.2.340, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: 1.2.345 is on the CDN -- THIS DEVICE IS BEHIND by 5 releases; run 'summrise update'"
+    },
+    {
+      "id": "status_report:cdn-silent",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.340\nthis CLI: 1.2.359\nupdate: none in flight\nupdate: device runs 1.2.340, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: could NOT be checked (the release CDN did not answer) -- this says nothing about whether the device is current"
+    },
+    {
+      "id": "status_report:current",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.340\nthis CLI: 1.2.359\nupdate: none in flight\nupdate: device runs 1.2.340, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: 1.2.340 (this device is current)"
+    },
+    {
+      "id": "status_report:in-flight",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.321\nthis CLI: 1.2.359\nupdate: IN FLIGHT (marker 30s old -- a swap is running now; the connection drops for ~10s)\nupdate: device runs 1.2.321, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: 1.2.322 is on the CDN -- THIS DEVICE IS BEHIND by 1 release; run 'summrise update'"
+    },
+    {
+      "id": "status_report:marker-unreadable",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.340\nthis CLI: 1.2.359\nupdate: state UNKNOWN -- the busy marker exists but could not be read (permissions or a lock); do not assume no update is running\nupdate: device runs 1.2.340, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: 1.2.340 (this device is current)"
+    },
+    {
+      "id": "status_report:no-marker",
+      "value": "status: STOPPED\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: unknown (no release marker)\nthis CLI: 1.2.359\nupdate: none in flight"
+    },
+    {
+      "id": "status_report:running",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.359\nthis CLI: 1.2.359\nupdate: none in flight\nlatest: 1.2.359 (this device is current)"
+    },
+    {
+      "id": "status_report:stalled",
+      "value": "status: RUNNING\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.321\nthis CLI: 1.2.359\nupdate: a previous update STARTED AND DID NOT FINISH (marker 27 min old). Check the log tail, then re-run 'summrise update' -- a stale marker is safe to overwrite.\nupdate: device runs 1.2.321, this CLI is 1.2.359 -- run 'summrise update' to swap, then 'summrise status' again to confirm.\nlatest: 1.2.322 is on the CDN -- THIS DEVICE IS BEHIND by 1 release; run 'summrise update'"
+    },
+    {
+      "id": "status_report:stopped",
+      "value": "status: STOPPED\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.359\nthis CLI: 1.2.359\nupdate: none in flight\nlatest: 1.2.359 (this device is current)"
+    },
+    {
+      "id": "status_report:unknown-process",
+      "value": "status: UNKNOWN -- the process list could not be read (tasklist failed); this is not a verdict\ninstall dir: D:\\Summrise\npanel: http://127.0.0.1:18080/panel/\nrelease: 1.2.359\nthis CLI: 1.2.359\nupdate: none in flight\nlatest: 1.2.359 (this device is current)"
+    },
+    {
+      "id": "target_line:0",
+      "value": "UP   a:22                           up 1s  1 drop"
+    },
+    {
+      "id": "target_line:1",
+      "value": "UP   a:22                           up 1s  2 drops"
+    },
+    {
+      "id": "target_line:2",
+      "value": "UP   a:22                           up 1s"
+    },
+    {
+      "id": "target_line:3",
+      "value": "DOWN h:80/                          down 1s  HTTP 200  no match"
+    },
+    {
+      "id": "target_line:4",
+      "value": "UP   h:80/                          up 1s  HTTP 200  matches"
+    },
+    {
+      "id": "target_line:5",
+      "value": "UP   h:80/                          up 1s  HTTP 200"
+    },
+    {
+      "id": "target_line:6",
+      "value": "?    x:1                            no readings"
+    },
+    {
+      "id": "target_line:7",
+      "value": "UP   long-host-name.example.com:1234 up 1m  9ms avg  99% up  3 drops  \u2014 I rebooted it \u2014 ok"
+    },
+    {
+      "id": "uninstall_reg_body_ps",
+      "value": "try {\n  $rk = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SummriseAgent'\n  if (-not (Test-Path $rk)) { New-Item -Path $rk -Force | Out-Null }\n  Set-ItemProperty -Path $rk -Name DisplayVersion -Value '1.2.307' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name DisplayName -Value 'Summrise Agent 1.2.307' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name InstallLocation -Value 'D:\\Summrise' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name Publisher -Value 'Summrise' -ErrorAction Stop\n  $uv = 'D:\\Summrise\\components\\npm-global\\summrise.cmd'\n  if (-not (Test-Path $uv)) { $uv = 'D:\\Summrise\\tools\\npm-global\\summrise.cmd' }\n  if ((Test-Path $uv) -and (-not (Get-ItemProperty -Path $rk -Name UninstallString -ErrorAction SilentlyContinue))) { Set-ItemProperty -Path $rk -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath ''' + $uv + ''' -ArgumentList ''uninstall'' -Verb RunAs -Wait\"') -ErrorAction Stop }\n} catch {}"
+    },
+    {
+      "id": "uninstall_reg_body_ps:empty",
+      "value": ""
+    },
+    {
+      "id": "uninstall_version_ps",
+      "value": "if ($ok -and '1.2.307') {\ntry {\n  $rk = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SummriseAgent'\n  if (-not (Test-Path $rk)) { New-Item -Path $rk -Force | Out-Null }\n  Set-ItemProperty -Path $rk -Name DisplayVersion -Value '1.2.307' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name DisplayName -Value 'Summrise Agent 1.2.307' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name InstallLocation -Value 'C:\\Program Files\\Summrise' -ErrorAction Stop\n  Set-ItemProperty -Path $rk -Name Publisher -Value 'Summrise' -ErrorAction Stop\n  $uv = 'C:\\Program Files\\Summrise\\components\\npm-global\\summrise.cmd'\n  if (-not (Test-Path $uv)) { $uv = 'C:\\Program Files\\Summrise\\tools\\npm-global\\summrise.cmd' }\n  if ((Test-Path $uv) -and (-not (Get-ItemProperty -Path $rk -Name UninstallString -ErrorAction SilentlyContinue))) { Set-ItemProperty -Path $rk -Name UninstallString -Value ('powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath ''' + $uv + ''' -ArgumentList ''uninstall'' -Verb RunAs -Wait\"') -ErrorAction Stop }\n} catch {}\n}"
+    },
+    {
+      "id": "update_busy_path",
+      "value": "C:\\ProgramData/SummriseAgent/update-busy"
+    },
+    {
+      "id": "update_receipt_ps:D:\\Summrise",
+      "value": "\"[$(Get-Date -Format o)] update requested 1.2.321 -> 1.2.322 (CLI reached the device; the swap has not started yet)\" | Out-File 'D:\\Summrise\\logs\\summrise-update.log' -Append"
+    },
+    {
+      "id": "update_receipt_ps:D:\\it''s\\Summrise",
+      "value": "\"[$(Get-Date -Format o)] update requested 1.0.0 -> 1.0.1 (CLI reached the device; the swap has not started yet)\" | Out-File 'D:\\it''s\\Summrise\\logs\\summrise-update.log' -Append"
+    },
+    {
+      "id": "update_would_not_move:1.2.437:1.2.438",
+      "value": false
+    },
+    {
+      "id": "update_would_not_move:1.2.438:",
+      "value": false
+    },
+    {
+      "id": "update_would_not_move:1.2.438:1.2.438",
+      "value": true
+    },
+    {
+      "id": "update_would_not_move::1.2.438",
+      "value": false
+    }
+  ]
+}

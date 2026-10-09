@@ -7,6 +7,12 @@ gateway/public_backup/
 index/public/summrise-agent/*.exe
 index/public/summrise-agent/*.tgz
 agent/summrise-agent-npm/*.exe
+# …AND THE CLI'S OWN, WHICH LIVES ONE LEVEL DOWN (landing 4b). `bin/summrise.exe` is the npm `bin`
+# and a cargo artifact exactly like the two above: built by `cargo xwin build -p summrise-cli`,
+# staged by `scripts/build.sh`, checked byte-for-byte against the build output by
+# `publish-release.sh`, and never committed. `*` does not cross a `/`, so the line above does not
+# cover it — without this one a 2.5 MB binary would be committed on the next `git add -A`.
+agent/summrise-agent-npm/bin/*.exe
 agent/summrise-agent-npm/*.tgz
 agent/target-staging.exe
 

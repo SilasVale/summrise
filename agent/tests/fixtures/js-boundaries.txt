@@ -36,7 +36,6 @@ GENERATED | gateway/src/mcp-tools.ts | the MCP tool table, EMITTED from the Rust
 GENERATED | index/public/summrise-agent/landing/ | the landing arms, rendered by the Rust crate at build time | index/landing/build.sh
 GENERATED | index/public/summrise-agent/ | the emitted probes and the e2e bundle, written by `--emit` | agent/scripts
 GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
-GENERATED | agent/summrise-agent-npm/bin/ | tsc output of src/summrise.ts — the CLI npm executes | agent/summrise-agent-npm/src
 GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
@@ -65,7 +64,7 @@ BOUNDARY | index/worker/ | the same harness shape for the index worker
 BOUNDARY | index/landing/ | harnesses that render and verify the landing crate's output
 BOUNDARY | index/spike-rust-landing/ | the landing spike's measure/verify harness
 BOUNDARY | agent/summrise-workspace-dsh/ | the DSH plugin package — a plugin must be JS; the agent owns the connections
-BOUNDARY | agent/summrise-cli/parity/ | the parity instrument — it runs the built CLI and the Rust binary and diffs their answers; it decides nothing about the product
+BOUNDARY | agent/summrise-cli/parity/ | the CLI's decision corpus and the instrument that checks it. It WAS a differential (the TypeScript's answers against the Rust's, `ts.mjs` against `summrise-cli-parity`); the cutover deleted the TypeScript, so the answers were FROZEN into `expected.json` FIRST — 162 cases, captured while both implementations existed and agreed 0 differing — and `compare.mjs` now diffs the Rust against that file. It decides nothing about the product: it spawns a binary and compares strings
 BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-CHANGE emitter, executes the payload it prints against a stub browser, and diffs that trace against the Rust plan; it decides nothing about the product
 # ── AND THE THREE TOOLS ARE BOUNDARY, WHICH THE DIRECTORY RULE COULD NOT SEE (2026-10-09) ────────────────────
 # `agent/scripts/` is LOGIC as a rule, and the audit of the sweeps named what stays inside it: the judge's
@@ -110,8 +109,7 @@ BOUNDARY | proxies/summrise-relay/ | the retired relay worker's harness, kept fo
 LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)
 BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decision: it reads the PIECES module out of an emitter's artifact and hands it back as data. Two live bash gates import it — `panel-design-sweep.bash:92` and `sweep-judges.bash:134` — so it belongs to THEIR tooling the way the sweeps' in-page probes belong to theirs: it spawns no toolchain, computes no verdict, and a gate goes red if it stops reading. NOTE WHERE ITS SIBLING WENT: `scripts/test/lib/decomment.mjs` is DELETED in this commit, because the rule it defines now has exactly one definition and it is in Rust (`agent/tests/common/mod.rs`'s `decomment`/`decomment_line`/`decommented_corpus`, whose header says it took the rule FROM that file). Measured before deleting, as this repository requires: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line — a comment in its sibling naming it.
 LOGIC | scripts/test/ | six gates that spawn a toolchain (landing 3)
-LOGIC | agent/summrise-agent-npm/src/ | the CLI's decisions (landing 4)
-LOGIC | agent/summrise-agent-npm/test/ | the CLI's suite, ported with it (landing 4)
+LOGIC | agent/summrise-agent-npm/test/ | the package's suite, and since landing 4b's cutover it is the PACKAGING half: whether the tarball npm uploads can run at all (the `bin` is a file `files[]` packs, no entry is a directory, `required-in-tgz.txt` names nothing npm will not pack, no component artefact is boxed). The DECISIONS it used to re-test are Rust (agent/summrise-cli, 146 tests) and are pinned answer-by-answer by the corpus the TypeScript left behind (agent/summrise-cli/parity/expected.json, 162 cases) — re-asserting them here would be a second implementation of the same claims, which is the shape this file exists to stop
 LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's remaining decisions — token/auth, the loopback control server, agent lifecycle, window policy. The URL/origin/cert policy LEFT this directory in landing 6 (agent/summrise-url-policy, wasm), so what is here is main.ts's host half and whatever main.ts still decides for itself
 LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with it (landing 6)
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)

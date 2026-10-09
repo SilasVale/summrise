@@ -23,6 +23,9 @@
 
 use crate::components::cdn_base;
 use crate::dispatch::{rollback_decision, Outcome};
+// The one declared home for this crate's hostnames: the message below points the operator at the
+// release channel, and spelling it here would be a second file naming a production host.
+use crate::endpoints::DEFAULT_CDN_BASE;
 use crate::host::Host;
 use crate::paths::{win_join, Layout};
 use crate::update::rollback_version_ok;
@@ -136,7 +139,7 @@ pub fn rollback_to(host: &dyn Host, layout: &Layout, want: &str, from: Option<&s
         return Outcome::fail(
             1,
             format!(
-                "rollback: {want} is not on the release CDN (HTTP {}) -- the last-5-per-minor prune removed it; pick a retained version (see https://agent.saisi.online/summrise-agent/version.json for the current line)",
+                "rollback: {want} is not on the release CDN (HTTP {}) -- the last-5-per-minor prune removed it; pick a retained version (see {DEFAULT_CDN_BASE}/summrise-agent/version.json for the current line)",
                 if code.is_empty() { "?" } else { &code }
             ),
         );

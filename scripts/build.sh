@@ -138,6 +138,18 @@ build_agent() {
   ( cd "$ROOT/agent" && cargo xwin build --target "$TARGET" $flags -p summrise-launch )
   echo "    ok: agent/target/$TARGET/${profile}/summrise-launch.exe"
 
+  # THE CLI — and it is a RUST BINARY as of landing 4b. `summrise-agent-npm/package.json`'s `bin` is
+  # `bin/summrise.exe`, so this is the command a device runs; it used to be `bin/summrise.js`, a tsc
+  # artifact of `src/summrise.ts`, and both of those files are deleted. Built with the same RUSTFLAGS
+  # remap as the two above, for the same reason: `bin/summrise.exe` is byte-compared against this
+  # output, and a path baked in by one builder and not the other makes that comparison fail.
+  #
+  # THE VERSION IS COMPILED IN (`summrise-cli/src/version.rs` include_str!s the package manifest), so
+  # a version bump must be followed by this build — `publish-release.sh` holds that line by dating the
+  # artifact against `package.json`'s own commits.
+  ( cd "$ROOT/agent" && cargo xwin build --target "$TARGET" $flags -p summrise-cli )
+  echo "    ok: agent/target/$TARGET/${profile}/summrise-cli.exe (stage it as summrise-agent-npm/bin/summrise.exe)"
+
   # round-330: summrise-tray + summrise-desktop (Tauri) builds removed — both are
   # RETIRED (npm CLI replaced the tray; the Electron shell replaced the
   # Tauri desktop). They cost minutes per build_agent run and never enter

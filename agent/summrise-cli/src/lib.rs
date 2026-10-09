@@ -7,6 +7,21 @@
 //! **4b** moved the platform half (`monitor`, `uninstall`, `run`, `tunnel`, the staging and the
 //! swap), repointed the npm `bin` at this binary and deleted the TypeScript.
 //!
+//! **THE ORACLE IS DELETED, AND THE CITATIONS BELOW STILL RESOLVE.** Both files left the tree in
+//! 4b's cutover — the CLI that ships is this crate — and the port's own comments name the oracle
+//! case each assertion descends from (`Oracle: cli.test.mjs:2530 — …`) in about seventy places.
+//! Those line numbers are not dangling: they are read against the last commit at which the file
+//! existed, which is the merge this landing was built on. To follow one:
+//!
+//! ```text
+//! git show cd87d7d726a434316823f8e16208737cba603fc5:agent/summrise-agent-npm/test/cli.test.mjs
+//! ```
+//!
+//! The ANSWERS that oracle gave are not lost either: they are frozen, case by case, in
+//! `agent/summrise-cli/parity/expected.json` (162 cases, captured while the two implementations
+//! both existed and read 0 differing), and `parity/compare.mjs` still fails CI when this crate moves
+//! one of them.
+//!
 //! **WHAT IS HERE**: command dispatch and argv parsing ([`dispatch`]), version comparison
 //! ([`update`]), install/data directory resolution ([`paths`]), the config it reads ([`config`]),
 //! component resolution and sha256 verification ([`components`]), the release-channel comparison and

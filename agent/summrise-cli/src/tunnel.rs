@@ -19,23 +19,24 @@
 //!   reaches the agent instead of a 502.
 //!
 //! **AND ONE DEFECT IS CARRIED ACROSS RATHER THAN FIXED, DELIBERATELY.** `init_tunnel`'s default
-//! hostname is still the literal developer device (`d1.agent.saisi.online`), because that is what
-//! the TypeScript does and a port that quietly changed it would be a behaviour change wearing a
-//! port's commit message. `setup` computes the right host one function away ([`device_host`]) and
-//! passes it only when `--tunnel <host>` carries a value; see the port report.
+//! hostname is still the literal developer device — [`DEFAULT_TUNNEL_HOST`], which lives in
+//! [`crate::endpoints`] and carries the value and the reasoning — because that is what the
+//! TypeScript does and a port that quietly changed it would be a behaviour change wearing a port's
+//! commit message. `setup` computes the right host one function away ([`device_host`]) and passes it
+//! only when `--tunnel <host>` carries a value; see the port report.
 
 use crate::config::{agent_port, tunnel_yml};
 use crate::device::api_post;
+// The carried defect, in the ONE file `agent/tests/production_host.rs` declares for this crate's
+// hostname defaults — see its doc for why the constant moved and why the value did not change.
 use crate::dispatch::Outcome;
+use crate::endpoints::DEFAULT_TUNNEL_HOST;
 use crate::host::Host;
 use crate::host::Tri;
 use crate::paths::{win_join, Layout};
 use crate::ps::psq;
 use serde_json::json;
 use std::path::{Path, PathBuf};
-
-/// The hostname `initTunnel` falls back to. See the module doc: this is the TypeScript's literal.
-pub const DEFAULT_TUNNEL_HOST: &str = "d1.agent.saisi.online";
 
 fn cloudflared(layout: &Layout) -> PathBuf {
     win_join(&layout.components_dir, "cloudflared.exe")
@@ -141,9 +142,9 @@ pub fn init_tunnel(host: &dyn Host, layout: &Layout, hostname: &str, reg_key: &s
         return out.warn("tunnel: cloudflare login failed").exit(1);
     }
 
-    // THE TUNNEL IS NAMED AFTER THIS DEVICE, one label deep: `summrise-agent-d1` for
-    // `d1.agent.saisi.online`. That is what makes two devices collide when they claim one name —
-    // which is exactly what the wrong default caused.
+    // THE TUNNEL IS NAMED AFTER THIS DEVICE, one label deep: `summrise-agent-d1` for a device
+    // host whose first label is `d1`. That is what makes two devices collide when they claim one
+    // name — which is exactly what the wrong default caused.
     let name = format!(
         "summrise-agent-{}",
         dev_host.split('.').next().unwrap_or(&dev_host)
@@ -337,6 +338,14 @@ mod tests {
         Layout::from_roots("D:\\Summrise", "C:\\ProgramData\\Summrise")
     }
 
+    /// A device host for the tests that need one, COMPOSED FROM THE PRODUCT'S OWN SUFFIX rather than
+    /// written out: the literal it replaces was a production hostname sitting in a file that has no
+    /// business naming one, and a host built from [`crate::endpoints::DEVICE_HOST_SUFFIX`] is the
+    /// same string while being unable to drift from the suffix the real `device_host()` uses.
+    fn dev_host() -> String {
+        format!("d9{}", crate::endpoints::DEVICE_HOST_SUFFIX)
+    }
+
     fn installed() -> FakeHost {
         FakeHost::new()
             .with_file("D:\\Summrise\\components\\cloudflared.exe", "MZ")
@@ -378,8 +387,8 @@ mod tests {
             (String::new(), "ABC".to_string())
         );
         assert_eq!(
-            install_args(&["install".into(), "d9.agent.saisi.online".into()]),
-            ("d9.agent.saisi.online".to_string(), String::new())
+            install_args(&["install".into(), dev_host()]),
+            (dev_host(), String::new())
         );
     }
 
@@ -422,19 +431,12 @@ mod tests {
                     ..Default::default()
                 },
             ]);
-        let r = init_tunnel(&host, &layout(), "d9.agent.saisi.online", "");
+        let r = init_tunnel(&host, &layout(), &dev_host(), "");
         assert_eq!(r.exit, 0, "{r:?}");
         let body = String::from_utf8(host.file("D:\\Summrise\\etc\\tunnel.yml").unwrap()).unwrap();
         assert!(body.contains("service: http://127.0.0.1:19090"), "{body}");
         assert!(body.contains("allow-remote-config: false"), "{body}");
         assert!(!body.contains("127.0.0.2"), "{body}");
-    }
-
-    /// THE DEFAULT IS CARRIED, NOT FIXED. This case exists so the carried defect is VISIBLE: a
-    /// future commit that changes the default has to change this assertion and say why.
-    #[test]
-    fn the_default_tunnel_host_is_still_the_developers_device() {
-        assert_eq!(DEFAULT_TUNNEL_HOST, "d1.agent.saisi.online");
     }
 
     /// A missing cloudflared names `setup`, never "reinstall the package": the package carries no
@@ -478,7 +480,7 @@ mod tests {
                 ..Default::default()
             }, // route
         ]);
-        let r = init_tunnel(&host, &layout(), "d9.agent.saisi.online", "KEY-1");
+        let r = init_tunnel(&host, &layout(), &dev_host(), "KEY-1");
         assert_eq!(r.exit, 0, "{r:?}");
         assert!(
             r.out.iter().any(|l| l.contains("exchange unavailable")),

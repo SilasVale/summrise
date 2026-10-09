@@ -410,6 +410,15 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// inconvenient. `agent/summrise-desktop-electron/src/url-policy.ts` and its suite became
 /// `agent/summrise-url-policy`'s own tests, case for case, in a Rust crate compiled to wasm — the shell's
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
-/// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
+/// landing ADDED are GENERATED rules with the crate as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 107;
+///
+///     landing 4b's cutover         107 -> 106   `agent/summrise-agent-npm/src/summrise.ts` LEFT (and its
+///                                                `bin/` GENERATED rule with it): the npm `bin` is
+///                                                `bin/summrise.exe`, a cargo artifact, so the TypeScript CLI
+///                                                and the tsc emit nothing regenerates are deleted. Its 68-case
+///                                                suite left too and the packaging suite took the directory's
+///                                                place, which is why this is ONE step and not two — and why the
+///                                                number did not move for the suite: a test belongs to the code it
+///                                                tests, and this one now tests the tarball.
+const MAX_LOGIC: usize = 106;

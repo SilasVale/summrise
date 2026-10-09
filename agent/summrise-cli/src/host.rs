@@ -396,18 +396,133 @@ impl Host for RealHost {
     }
 
     fn package_dir(&self) -> String {
-        // THE SHIPPED LAYOUT FIRST: `<package>\bin\summrise.exe` -> `<package>`.
+        // THE SHIPPED LAYOUT FIRST: `<package>\bin\summrise.exe` -> `<package>`. See
+        // [`package_dir_from`], which holds the rule and is what the test drives — the layout npm
+        // installs cannot be stated here, because `current_exe()` in a test is the test binary.
         if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                if let Some(root) = dir.parent() {
-                    if root.join("package.json").is_file() {
-                        return root.to_string_lossy().to_string();
-                    }
-                }
+            if let Some(root) = package_dir_from(&exe) {
+                return root;
             }
         }
         // ...and otherwise the source tree this crate is built in, which is where the parity
         // harness, `cargo test` and the release scripts run it from.
         format!("{}/../summrise-agent-npm", env!("CARGO_MANIFEST_DIR"))
+    }
+}
+
+/// WHERE THIS CLI'S PACKAGE IS, GIVEN THE PATH OF THE RUNNING EXE — `None` when neither the exe's own
+/// directory nor its parent is a package (a `target/debug/` build, or any other loose copy).
+///
+/// **IT IS A FUNCTION OF THE PATH SO THE SHIPPED LAYOUT CAN BE TESTED.** `RealHost::package_dir`
+/// asks `std::env::current_exe()`, and in a test that is the test binary under `target/debug/deps/` —
+/// a path no staging can turn into a package. Taking the path as an argument makes "the layout npm
+/// installs" a case a test can state, which matters because this is the ONE thing about the cutover
+/// (landing 4b) that no other instrument on this box can check: get it wrong on a device and `setup`
+/// looks for `summrise-agent.exe` in a directory that does not exist.
+///
+/// BOTH LEVELS ARE TRIED, NEAREST FIRST, and the second is not decoration: npm's `bin` lives in
+/// `bin/` (`package.json`'s `bin` points at `bin/summrise.exe`), while the agent exe and the launcher
+/// sit at the package ROOT — so a staging change that moves the CLI up one level keeps working
+/// instead of falling through to the SOURCE-TREE fallback, which on a device is a path that does not
+/// exist. Only a directory holding `package.json` counts, so an unrelated `bin/` cannot match.
+pub fn package_dir_from(exe: &Path) -> Option<String> {
+    let mut dir = exe.parent();
+    for _ in 0..2 {
+        let d = dir?;
+        if d.join("package.json").is_file() {
+            return Some(d.to_string_lossy().to_string());
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory that removes itself. The unique suffix is the process id plus a counter, because
+    /// tests in one binary run on several threads and a shared path would let two of them race.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static N: AtomicU32 = AtomicU32::new(0);
+            let d = std::env::temp_dir().join(format!(
+                "summrise-cli-pkgdir-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).expect("a scratch dir must be creatable");
+            Scratch(d)
+        }
+
+        fn file(&self, rel: &str) {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"{}").unwrap();
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// THE SHIPPED LAYOUT, WHICH IS WHAT THE CUTOVER MADE LOAD-BEARING.
+    ///
+    /// `package.json`'s `bin` is `bin/summrise.exe`, so on a device this is the exe's real path. If
+    /// this case fails, `setup` on every device resolves the package to the source-tree fallback and
+    /// reports `summrise-agent.exe missing from package: <a path that does not exist>` — a fresh
+    /// install that cannot stage the agent.
+    ///
+    /// MUTATION: change the loop to try only the exe's own directory (`for _ in 0..1`) → RESULT:
+    /// fails with "the shipped layout must resolve to the package root".
+    #[test]
+    fn the_shipped_bin_layout_resolves_to_the_package_root() {
+        let s = Scratch::new();
+        s.file("package.json");
+        s.file("bin/summrise.exe");
+        let exe = s.0.join("bin").join("summrise.exe");
+        assert_eq!(
+            package_dir_from(&exe).as_deref(),
+            Some(s.0.to_string_lossy().as_ref()),
+            "the shipped layout must resolve to the package root: npm's bin is \
+             `<package>/bin/summrise.exe` and everything else the CLI stages (summrise-agent.exe, \
+             summrise-launch.exe, the desktop shell) is found through it"
+        );
+    }
+
+    /// AND THE ROOT LAYOUT, because the other two exes live there and a staging change that puts the
+    /// CLI beside them must not silently stop resolving.
+    #[test]
+    fn an_exe_at_the_package_root_resolves_too() {
+        let s = Scratch::new();
+        s.file("package.json");
+        let exe = s.0.join("summrise-cli.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        assert_eq!(
+            package_dir_from(&exe).as_deref(),
+            Some(s.0.to_string_lossy().as_ref()),
+            "an exe staged at the package root must resolve to that root"
+        );
+    }
+
+    /// A CARGO BUILD IS NOT A PACKAGE, and this is the case that keeps the fallback honest: if
+    /// `package_dir_from` answered for `target/debug/`, the source-tree fallback would never run and
+    /// the parity harness and the crate's own tests would read a package directory that is not there.
+    #[test]
+    fn a_loose_build_resolves_to_nothing() {
+        let s = Scratch::new();
+        s.file("debug/summrise-cli");
+        assert_eq!(
+            package_dir_from(&s.0.join("debug").join("summrise-cli")),
+            None,
+            "a directory with no package.json above it is not a package — the caller must fall back \
+             to the source tree rather than invent one"
+        );
     }
 }
