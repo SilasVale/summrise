@@ -241,6 +241,25 @@ fn empty_with_headers(headers: Vec<(String, String)>) -> Result<Response> {
     Ok(Response::empty()?.with_status(200).with_headers(h))
 }
 
+/// **WHY A ROUTE STOPPED WITHOUT A RESPONSE OF ITS OWN — THE ONE TYPE EVERY HANDLER'S ERROR IS.**
+///
+/// It exists because the two arms are answered by DIFFERENT LEVELS: `Threw` is the source raising
+/// (`body.username` on a `null` body, an Access JWKS key the runtime rejects, a record that vanished
+/// mid-request) and the shipping front door's own catch answers it `500 Internal error`; `Platform` is a
+/// `workers-rs` failure while BUILDING a response, which is not a decision at all and belongs to the runtime.
+/// Collapsing them into one status would turn a platform failure into a response the source never produces.
+#[derive(Debug)]
+pub enum RouteFailure {
+    Threw,
+    Platform(Error),
+}
+
+impl From<Error> for RouteFailure {
+    fn from(error: Error) -> Self {
+        RouteFailure::Platform(error)
+    }
+}
+
 /// The `jsonError(status, message, type)` envelope from `http.ts` — the ONE shape every refusal in this worker
 /// answers with (the device family's 401/403/404/409 arms and the front door's own 404).
 pub(crate) fn json_error(status: u16, message: &str, kind: &str) -> Result<Response> {
@@ -355,10 +374,31 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             None => not_found(),
         };
     }
+    // **THE IDENTITY SURFACE — the fourth route group: the session, the caller, and the caller's own
+    // credentials.** It is checked AFTER the device family because the two are disjoint lists of paths (the
+    // device family is `/api/devices*` + three public device routes; this one is `/api/auth/*` + `/api/me*`), and
+    // the order is written down so a future path that belongs to both is a visible decision rather than an
+    // accident of layout.
+    //
+    // `auth_routes::handle` answers its own 404 for a family path it does not own — that is not a fallback, it
+    // is the front door's answer for a path under a prefix whose plugin has no route for it, and the corpus
+    // compares it (`GET /api/auth/nonsense`).
+    if auth_routes::in_family(&req.method(), url.path()) {
+        return match auth_routes::handle(req, &env).await {
+            Ok(response) => Ok(response),
+            // The one arm the routes do not answer themselves: the source THREW (`Failure::Threw`) — a `null`
+            // body on `login`, an Access JWKS key the runtime rejects, a user record that vanished mid-request.
+            // The shipping front door's catch answers exactly this, and the corpus has cases for two of them.
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
     not_found()
 }
 
+pub mod access;
 pub mod auth;
+pub mod auth_routes;
 pub mod body_scan;
 pub mod byok;
 pub mod cors;
@@ -378,6 +418,7 @@ pub mod routing;
 pub mod session;
 pub mod session_gate;
 pub mod store;
+pub mod user_store;
 pub mod stream;
 pub mod tokens;
 pub mod tooling;

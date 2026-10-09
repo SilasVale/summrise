@@ -648,6 +648,171 @@ const hashHost = (url) => {
 const redactHosts = (text) =>
   String(text).replace(/\b((?:[a-z0-9-]+\.)*(?:saisi\.online|sdmctech\.com))\b/g, (m) => hashHost(m));
 
+// ── THE STUBS BOTH RECORDED SECTIONS STAND ON, DEFINED ONCE ─────────────────────────────────────
+//
+// The device family and the identity surface drive the same two doors with the same platform stubs: a KV Map
+// that RECORDS ITS WRITES, a fixed clock, a seeded CSPRNG, one `fetch` stub for the upstream, and a request
+// builder. They were written for the device family and copied into the identity section — a second KV stub is
+// how two harnesses come to disagree about what `expirationTtl` means, which is one of the things these rows
+// compare.
+//
+// **THE SEEDED CSPRNG IS PART OF THE MEASUREMENT, NOT A CONVENIENCE**: the routes mint tokens, salts and
+// collision suffixes, and the recorded answer contains them, so a port that drew its randomness in a different
+// ORDER produces different bytes and fails. `randomCursor` is module state — ONE cursor shared by both sections
+// — and every case resets it, on both sides, before its request.
+const RealDateGlobal = globalThis.Date;
+const realCryptoGlobal = globalThis.crypto;
+const realFetchGlobal = globalThis.fetch;
+let randomCursor = 0;
+let globalsInstalled = false;
+
+/** Install the pinned clock and the seeded CSPRNG. The first section to call it wins; `restoreGlobals` undoes it. */
+const installDeterminism = (fixedNow) => {
+  if (globalsInstalled) return;
+  globalsInstalled = true;
+  class FixedDate extends RealDateGlobal {
+    constructor(...args) {
+      if (args.length === 0) super(fixedNow);
+      else super(...args);
+    }
+    static now() {
+      return fixedNow;
+    }
+  }
+  // **`Object.defineProperty`, NOT ASSIGNMENT.** Node's `globalThis.crypto` is a GETTER with no setter, so
+  // `globalThis.crypto = …` throws `TypeError: Cannot set property crypto of #<Object> which has only a
+  // getter` — measured on the device family's first run, and the same class of mistake as the `let`-vs-`const`
+  // KV closure that once made every token 401 here.
+  Object.defineProperty(globalThis, "Date", {
+    value: FixedDate,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: new Proxy(realCryptoGlobal, {
+      get(target, prop) {
+        if (prop === "getRandomValues") {
+          return (array) => {
+            for (let i = 0; i < array.length; i++) array[i] = (randomCursor + i) & 0xff;
+            randomCursor += array.length;
+            return array;
+          };
+        }
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+  });
+};
+const restoreGlobals = () => {
+  globalsInstalled = false;
+  Object.defineProperty(globalThis, "Date", {
+    value: RealDateGlobal,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "crypto", { value: realCryptoGlobal, configurable: true });
+  globalThis.fetch = realFetchGlobal;
+};
+
+/** A Map-backed KV that records every write (the value AND the TTL), like the source's binding does. */
+const makeKvStub = (seed, fixedNow) => {
+  const map = new Map(Object.entries(seed));
+  const expirations = new Map();
+  const writes = [];
+  return {
+    writes,
+    async get(key, type) {
+      if (!map.has(key)) return null;
+      const value = map.get(key);
+      if (type === "json" && typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    },
+    async put(key, value, options = {}) {
+      map.set(key, String(value));
+      if (options.expirationTtl) {
+        expirations.set(key, Math.floor(fixedNow / 1000) + options.expirationTtl);
+      }
+      writes.push(`put ${key}=${value}${options.expirationTtl ? ` ttl=${options.expirationTtl}` : ""}`);
+    },
+    async delete(key) {
+      map.delete(key);
+      writes.push(`del ${key}`);
+    },
+    async list(query = {}) {
+      const prefix = query.prefix || "";
+      return {
+        keys: [...map.keys()]
+          .filter((k) => k.startsWith(prefix))
+          .map((name) => ({ name, expiration: expirations.get(name) })),
+        list_complete: true,
+        cursor: undefined,
+      };
+    },
+  };
+};
+
+/** `{method, path, body, headers, cookie}` → the Request BOTH doors are handed.
+ *
+ *  `rawBody` is the literal bytes — the ONE way to send the four characters `null`, which `readJson` turns into
+ *  the JavaScript value `null` rather than into `{}`, and which two of the identity routes answer differently
+ *  from an empty body (one 400s with V8's TypeError message, the other 500s). */
+const buildRequestFor = (c, cookie) => {
+  const [method, path, body] = c.req;
+  const headers = { ...(c.headers ?? {}) };
+  if (c.cookie !== null) headers.cookie = `ag_session=${cookie}`;
+  if (c.rawBody !== undefined) headers["content-type"] = "application/json";
+  else if (body !== undefined && body !== null) headers["content-type"] = "application/json";
+  const payload =
+    c.rawBody !== undefined
+      ? { body: c.rawBody }
+      : body === undefined || body === null
+        ? {}
+        : { body: JSON.stringify(body) };
+  return new Request(`https://console.test${path}`, { method, headers, ...payload });
+};
+
+/** The upstream `fetch` stub: one answer per PATH, and every dial recorded (method, url, credential). */
+const stubUpstreamFor = (c, capture) => {
+  globalThis.fetch = async (url, init = {}) => {
+    const request = new Request(url, init);
+    const auth = request.headers.get("authorization") ?? "-";
+    capture.push(`${request.method} ${request.url} auth=${auth}`);
+    const answer = (c.upstream ?? {})[new URL(request.url).pathname];
+    if (!answer) throw new Error(`this case has no upstream answer for ${request.url}`);
+    return new Response(answer.body, {
+      status: answer.status ?? 200,
+      headers: { "content-type": answer.type ?? "application/json" },
+    });
+  };
+};
+
+/** Every deployment hostname in a row, hashed — the same redaction both recorded sections apply. */
+const redactRow = (got) => ({
+  ...got,
+  body: redactHosts(got.body),
+  headers: got.headers.map(redactHosts),
+  writes: got.writes.map(redactHosts),
+  calls: got.calls.map(redactHosts),
+});
+
+/** The five rows a recorded case compares. */
+const rowsFor = (got) => [
+  ["status", String(got.status)],
+  ["headers", got.headers.join(" | ")],
+  ["body", got.body],
+  ["kv writes", got.writes.join(" ; ")],
+  ["upstream", got.calls.join(" ; ")],
+];
+
+
 // ── THE DIVERGENCE SWEEP — the number that answers "how much longer" ─────────────────────────────
 // **EVERY CUTOVER BLOCKER FOUND SINCE THE TAKEOVER WAS FOUND THE SAME WAY**: drive the SHIPPING front door and
 // the BUILT worker with the same inputs and compare. What was missing was the SUMMARY, so "are we done?" was a
@@ -2575,98 +2740,12 @@ const redactHosts = (text) =>
   const { issueSessionToken } = await import(new URL("../src/auth.ts", import.meta.url).href);
   const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
 
-  // ── the clock, the CSPRNG, and the upstream: three platform calls, pinned ──────────────────────
-  const RealDate = globalThis.Date;
-  const realCrypto = globalThis.crypto;
-  const realFetch = globalThis.fetch;
-  let randomCursor = 0;
-  let globalsInstalled = false;
-  const installDeterminism = () => {
-    if (globalsInstalled) return;
-    globalsInstalled = true;
-    class FixedDate extends RealDate {
-      constructor(...args) {
-        if (args.length === 0) super(FIXED_NOW);
-        else super(...args);
-      }
-      static now() {
-        return FIXED_NOW;
-      }
-    }
-    // **`Object.defineProperty`, NOT ASSIGNMENT.** Node's `globalThis.crypto` is a GETTER with no setter, so
-    // `globalThis.crypto = …` throws `TypeError: Cannot set property crypto of #<Object> which has only a
-    // getter` — measured on this file's first run, and the same class of mistake as the `let`-vs-`const` KV
-    // closure that once made every token 401 here.
-    Object.defineProperty(globalThis, "Date", { value: FixedDate, configurable: true, writable: true });
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: new Proxy(realCrypto, {
-        get(target, prop) {
-          if (prop === "getRandomValues") {
-            return (array) => {
-              for (let i = 0; i < array.length; i++) array[i] = (randomCursor + i) & 0xff;
-              randomCursor += array.length;
-              return array;
-            };
-          }
-          const value = target[prop];
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      }),
-    });
-  };
-  const restoreGlobals = () => {
-    globalsInstalled = false;
-    Object.defineProperty(globalThis, "Date", { value: RealDate, configurable: true, writable: true });
-    Object.defineProperty(globalThis, "crypto", { value: realCrypto, configurable: true });
-    globalThis.fetch = realFetch;
-  };
-
-  // ── the KV stub: a Map that RECORDS ITS WRITES ─────────────────────────────────────────────────
-  // A response-only comparison cannot see a handler that answered correctly and forgot to write (or wrote the
-  // wrong TTL). The write log is that dimension, and `expirationTtl` is part of it because two of the TTLs —
-  // the 60 s claim lock and the 120 s panel grant — ARE decisions.
-  const makeKv = (seed) => {
-    const map = new Map(Object.entries(seed));
-    const expirations = new Map();
-    const writes = [];
-    return {
-      writes,
-      async get(key, type) {
-        if (!map.has(key)) return null;
-        const value = map.get(key);
-        if (type === "json" && typeof value === "string") {
-          try {
-            return JSON.parse(value);
-          } catch {
-            return null;
-          }
-        }
-        return value;
-      },
-      async put(key, value, options = {}) {
-        map.set(key, String(value));
-        if (options.expirationTtl) {
-          expirations.set(key, Math.floor(FIXED_NOW / 1000) + options.expirationTtl);
-        }
-        writes.push(`put ${key}=${value}${options.expirationTtl ? ` ttl=${options.expirationTtl}` : ""}`);
-      },
-      async delete(key) {
-        map.delete(key);
-        writes.push(`del ${key}`);
-      },
-      async list(query = {}) {
-        const prefix = query.prefix || "";
-        return {
-          keys: [...map.keys()]
-            .filter((k) => k.startsWith(prefix))
-            .map((name) => ({ name, expiration: expirations.get(name) })),
-          list_complete: true,
-          cursor: undefined,
-        };
-      },
-    };
-  };
+  // ── the clock, the CSPRNG, the KV stub and the upstream: all shared, all pinned ────────────────
+  // `installDeterminism`, `restoreGlobals`, `makeKvStub`, `buildRequestFor`, `stubUpstreamFor` and `rowsFor`
+  // are defined once at module scope (see "THE STUBS BOTH RECORDED SECTIONS STAND ON"), because the identity
+  // surface drives the same two doors with the same stubs and a second KV stub is how two harnesses come to
+  // disagree about what `expirationTtl` means.
+  const makeKv = (seed) => makeKvStub(seed, FIXED_NOW);
 
   // ── the registry the cases read ─────────────────────────────────────────────────────────────────
   // ONE seed for every case unless a case overrides it, so the cases differ by their REQUEST rather than by
@@ -3173,7 +3252,7 @@ const redactHosts = (text) =>
     } catch (error) {
       body = `THREW ${error}`;
     }
-    globalThis.fetch = realFetch;
+    globalThis.fetch = realFetchGlobal;
     // **REDACTED ON BOTH SIDES, AT THE ONE PLACE AN ANSWER BECOMES COMPARABLE** — so the recorded fixture and
     // the worker's live answer are hashed by the same function, and a refusal message that names the deployment's
     // default device host is compared rather than transcribed into this repository.
@@ -3202,7 +3281,7 @@ const redactHosts = (text) =>
     } catch (error) {
       body = `THREW ${error}`;
     }
-    globalThis.fetch = realFetch;
+    globalThis.fetch = realFetchGlobal;
     return redacted({ status, body, headers, writes: kv.writes, calls });
   };
 
@@ -3230,7 +3309,7 @@ const redactHosts = (text) =>
   let different = 0;
   const failures = [];
 
-  installDeterminism();
+  installDeterminism(FIXED_NOW);
   for (const [i, c] of CASES.entries()) {
     const cookie = c.cookie === null ? "" : COOKIES[c.cookie ?? "admin"];
     if (c.notInFamily) {
@@ -3343,7 +3422,7 @@ const redactHosts = (text) =>
         await response.text();
         if (response.status === 429 && wasmFirst429 === null) wasmFirst429 = n;
       }
-      globalThis.fetch = realFetch;
+      globalThis.fetch = realFetchGlobal;
     }
     if (shippingDoor) recorded.__devicePublicRate = { first429: shipFirst429 };
     if (shipFirst429 === wasmFirst429 && shipFirst429 !== null) {
@@ -3382,18 +3461,1048 @@ const redactHosts = (text) =>
   bad += different;
 }
 
+// ── THE IDENTITY SURFACE — the session, the caller, and the caller's own credentials ────────────
+//
+// **THE SAME ORACLE THE DEVICE FAMILY USES, ON THE OTHER HALF OF THE CONSOLE.** The shipping front door
+// (`src/index.ts`, the same default export the deployed console runs) and the built worker are driven with the
+// same request, the same KV, the same env, the same pinned clock and the same seeded CSPRNG, and compared on
+// status, headers, body-as-bytes, the KV WRITES each made and the requests each dialled. `AUTH_RECORD=1 node
+// verify.mjs` records the shipping answers into `shipping-answers.json`; every other run replays them, and the
+// writer refuses to record from a run in which anything differed.
+//
+// **THE ACCESS ARM IS PROVED ON A REAL RS256 KEY PAIR.** `requireSession` falls back to the edge-verified
+// Cloudflare Access identity, and that arm verifies an RS256 JWT against the team's published certs. The key
+// pair below is generated in this process, the JWKS is built from its public half, and the tokens are SIGNED
+// with its private half — so both implementations do a real RSA verification of a real signature, and the
+// cases that must be refused (a foreign signature, a wrong `aud`, a wrong `iss`, an expired token, a `kid` that
+// is not published) are refused by the same code path that accepts the ones that must not be. **THE JWKS IS
+// HANDED OVER AS A VALUE** (`ACCESS_JWKS_JSON`), which is how `fetchJwks` is written — so the comparison does
+// not depend on a live network, and the ONE case that leaves it unset proves the fetch path through the same
+// `fetch` stub the device family dials through.
+//
+// **THE SEEDED CLOCK AND THE SEEDED CSPRNG ARE PART OF THE MEASUREMENT.** PBKDF2 hashes are computed by the
+// harness (the shipping `hashPassword`) and seeded into KV, so a login is a REAL 100,000-iteration derivation
+// on both sides; the salts and tokens the routes mint come from the seeded CSPRNG, so a port that drew them in
+// a different ORDER produces different bytes in the KV write log and fails the case.
+//
+// **THREE THINGS THIS SECTION CANNOT SEE, NAMED RATHER THAN IMPLIED:**
+//
+//   * the worker's real KV and runtime glue: `KEYS` is the same stub every other section uses;
+//   * `POST /api/me/keys/test` and `/api/me/keys/usage` — the key DIAGNOSTICS, which dial six providers and
+//     three usage endpoints. They are not identity and are not ported (`auth_routes.rs`'s header names them);
+//     their absence here is why the cutover keeps them on the TypeScript path, which the cutover section
+//     measures;
+//   * `GET|PUT /api/me/route` — the model-route selection, which resolves through the model CATALOGUE and
+//     `RouteDO`. Same reason, same carve-out.
+//
+// **AND THE FRONT DOOR'S CSRF GATE IS NOT DRIVEN HERE EITHER**: `csrfCookieViolation` runs in `index.ts` BEFORE
+// the handover, so no case in this section carries `sec-fetch-site` — a cookie-carrying cross-site mutation is
+// refused one level up and never reaches either implementation.
+{
+  const FIXED_NOW = 1_760_000_000_000; // 2025-10-05T02:13:20Z, the same instant the device family pins
+  const SESSION_SECRET = "identity-surface-session-secret";
+  const ADMIN_PW = "admin-hunter2";
+  const ADMIN_SALT = "0123456789abcdef";
+  const BOB_PW = "bob-password";
+  const BOB_SALT = "fedcba9876543210";
+  const TEAM = "summrise-team.cloudflareaccess.test";
+  const AUD = "access-aud-0001";
+  const ADMIN_EMAIL = "owner@corp.test";
+  const KID = "kid-2026-10";
+  const IP = "203.0.113.40"; // one address per case family; see the note on the module-state caches below
+
+  const { issueSessionToken, hashPassword } = await import(new URL("../src/auth.ts", import.meta.url).href);
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+
+  // ── the two credential hashes the seed carries ──────────────────────────────────────────────────
+  // **THE HASH IS THE SHIPPING IMPLEMENTATION'S**, computed by the same `hashPassword` the worker runs, so a
+  // login case is a real PBKDF2 verification on both sides rather than a string compare against a fixture.
+  const ADMIN_HASH = `${ADMIN_SALT}:${await hashPassword(ADMIN_PW, ADMIN_SALT)}`;
+  const BOB_HASH = `${BOB_SALT}:${await hashPassword(BOB_PW, BOB_SALT)}`;
+
+  // ── the RS256 key pair, the JWKS built from it, and the tokens signed with it ────────────────────
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const foreignKeyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  const JWKS = { keys: [{ ...publicJwk, kid: KID, alg: "RS256", use: "sig" }] };
+  // The SAME public key, published with a different `alg`: `keyJwk.alg !== "RS256"` is a refusal, and it is a
+  // refusal that happens BEFORE the import — so this case is a 401 while the malformed-JWK case below is a 500.
+  const NOT_RS256_JWKS = { keys: [{ ...publicJwk, kid: KID, alg: "RS512", use: "sig" }] };
+  // A published key whose `alg` is right and whose JWK the runtime cannot read: `importKey` REJECTS it, and
+  // that rejection is OUTSIDE `verifyAccessJwt`'s try/catch — so the request answers 500, not 401. The case
+  // below is that arm, and it is here because a port that answered 401 would be a different response on a real
+  // request.
+  const BAD_JWKS = { keys: [{ kid: KID, alg: "RS256", kty: "RSA", n: "!!!not-a-modulus!!!", e: "AQAB" }] };
+
+  const b64url = (text) => Buffer.from(text, "utf8").toString("base64url");
+  const signAccess = async (claims, { key = keyPair.privateKey, kid = KID } = {}) => {
+    const header = b64url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+    const payload = b64url(JSON.stringify(claims));
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      new TextEncoder().encode(`${header}.${payload}`),
+    );
+    return `${header}.${payload}.${Buffer.from(signature).toString("base64url")}`;
+  };
+  const accessClaims = (over = {}) => ({
+    aud: [AUD],
+    iss: `https://${TEAM}`,
+    exp: Math.floor(FIXED_NOW / 1000) + 3600,
+    email: "newcomer@corp.test",
+    ...over,
+  });
+  const VALID_JWT = await signAccess(accessClaims());
+
+  // ── the session tokens, one per purpose (see the module-state note below) ───────────────────────
+  /** A token with a payload this harness chose — `issueSessionToken` always stamps `Date.now() + TTL`. */
+  const handMadeToken = async (secret, uid, role, exp) => {
+    const payload = b64url(JSON.stringify({ uid, role, exp }));
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+    return `${payload}.${Buffer.from(signature).toString("base64url")}`;
+  };
+
+  // **EVERY HARNESS-BUILT TOKEN IS STAMPED WITH THE PINNED CLOCK, NOT THE REAL ONE.** `issueSessionToken` uses
+  // `Date.now()`, and these are built at SETUP — before `installDeterminism` — so a token built with it carries
+  // the wall clock and its bytes differ between the recording run and every replay. That is invisible until a
+  // case WRITES the token somewhere the fixture compares, which the logout blacklist does: measured on the
+  // first replay, where the recorded write and the replayed one differed by exactly the 22 seconds between the
+  // two runs. `handMadeToken` writes the same three claims in the same order, with the same 24-hour life.
+  const SESSION_EXP = FIXED_NOW + 24 * 3600 * 1000;
+  const token = (uid, role, secret = SESSION_SECRET) => handMadeToken(secret, uid, role, SESSION_EXP);
+  const COOKIES = {
+    admin: await token("admin", "admin"),
+    user: await token("bob", "user"),
+    suspended: await token("suspended", "admin"),
+    ghost: await token("nobody", "admin"),
+    forged: await token("admin", "admin", "the-wrong-secret"),
+    oldkey: await token("admin", "admin", ADMIN_HASH),
+    expired: await handMadeToken(SESSION_SECRET, "admin", "admin", FIXED_NOW - 1000),
+    revoked: await token("revoked-user", "user"),
+    logout: await token("logout-probe", "admin"),
+    logoutExpired: await handMadeToken(SESSION_SECRET, "logout-probe", "admin", FIXED_NOW - 90_000),
+    // A signature that is ONE CHARACTER from a valid one: the constant-time comparison is what refuses it.
+    tampered: `${(await token("admin", "admin")).slice(0, -1)}A`,
+    garbage: "not-a-token-at-all",
+  };
+
+
+  // ── the seed every case reads, unless it overrides it ────────────────────────────────────────────
+  const SEED = {
+    "auth:admin_password": ADMIN_HASH,
+    _admin_seeded: "1",
+    "user:admin": JSON.stringify({
+      id: "admin",
+      username: "admin",
+      role: "admin",
+      enabled: true,
+      createdAt: 1,
+      token: "admin-gateway-token",
+    }),
+    "user:bob": JSON.stringify({
+      id: "bob",
+      username: "bob",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      passwordHash: BOB_HASH,
+      salt: BOB_SALT,
+      token: "bob-gateway-token",
+    }),
+    "user:suspended": JSON.stringify({
+      id: "suspended",
+      username: "suspended",
+      role: "admin",
+      enabled: false,
+      createdAt: 1,
+      token: "suspended-gateway-token",
+    }),
+    "user:relayuser": JSON.stringify({
+      id: "relayuser",
+      username: "relayuser",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: "relay-user-token",
+      relayToken: "relay-token-1",
+    }),
+    "ukeys:bob": JSON.stringify({ DEEPSEEK_API_KEY: "sk-bob-deepseek" }),
+    "invite:INVITE01": "1",
+    "invclaim:TAKENINV": "1",
+    "settings:US_PROXY": "1",
+    "user:user": JSON.stringify({
+      id: "user",
+      username: "user",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: "taken-base-token",
+    }),
+    "user:taken": JSON.stringify({
+      id: "taken",
+      username: "taken",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: "taken-token",
+    }),
+    "access-email:bound@corp.test": "bob",
+    "access-email:suspended@corp.test": "suspended",
+  };
+
+  // ── the cases ───────────────────────────────────────────────────────────────────────────────────
+  // **THE REFUSALS ARE COVERED AS CAREFULLY AS THE SUCCESSES, AND EACH FAMILY HAS ITS OWN ADDRESS OR COOKIE.**
+  // The shipping implementation is ONE process with module-level state (the login burst table, the failure
+  // counters, the plugin's per-IP limiter, the revoked-session negative cache, the JWKS cache) while the built
+  // worker is a FRESH instance per case — so a case that reused an address or a cookie would compare a warm
+  // table against a cold one and report a difference that is the harness's. Every login case therefore carries
+  // the header that gives it its own counter key, and every cookie value is used with ONE revocation state.
+  const CASES = [
+    // ── GET /api/me: the session refusals, one arm each ──────────────────────────────────────────
+    { name: "GET /api/me (admin session)", req: ["GET", "/api/me"], cookie: "admin" },
+    { name: "GET /api/me (no cookie)", req: ["GET", "/api/me"], cookie: null },
+    { name: "GET /api/me (a cookie that is not a token)", req: ["GET", "/api/me"], cookie: "garbage" },
+    { name: "GET /api/me (a forged cookie: the wrong signing key)", req: ["GET", "/api/me"], cookie: "forged" },
+    { name: "GET /api/me (a tampered signature)", req: ["GET", "/api/me"], cookie: "tampered" },
+    { name: "GET /api/me (an EXPIRED token)", req: ["GET", "/api/me"], cookie: "expired" },
+    {
+      name: "GET /api/me (a revoked cookie: the logout blacklist)",
+      req: ["GET", "/api/me"],
+      cookie: "revoked",
+      seed: { [`sess-revoked:${COOKIES.revoked}`]: "1" },
+    },
+    { name: "GET /api/me (a session for a SUSPENDED admin)", req: ["GET", "/api/me"], cookie: "suspended" },
+    { name: "GET /api/me (a session for a user who does not exist)", req: ["GET", "/api/me"], cookie: "ghost" },
+    {
+      name: "GET /api/me (the admin-password fallback: SESSION_SECRET unset, cookie signed with the hash)",
+      req: ["GET", "/api/me"],
+      cookie: "oldkey",
+      env: { SESSION_SECRET: undefined },
+    },
+    {
+      name: "GET /api/me (rotation compat: SESSION_SECRET set, cookie signed with the admin hash)",
+      req: ["GET", "/api/me"],
+      cookie: "oldkey",
+    },
+    { name: "GET /api/me (a non-admin session: the role is NOT required here)", req: ["GET", "/api/me"], cookie: "user" },
+    {
+      name: "GET /api/me (no admin password configured at all)",
+      req: ["GET", "/api/me"],
+      cookie: "admin",
+      seed: { "auth:admin_password": "" },
+    },
+    {
+      name: "GET /api/me (the caller's own keys are masked, and the deployment's are named)",
+      req: ["GET", "/api/me"],
+      cookie: "user",
+    },
+    {
+      name: "GET /api/me (a truthy NON-STRING key value: maskKey has no .slice, so this is a 500)",
+      req: ["GET", "/api/me"],
+      cookie: "user",
+      seed: { "ukeys:bob": JSON.stringify({ DEEPSEEK_API_KEY: 5 }) },
+    },
+
+    // ── the Access arm, on a real RS256 key pair ────────────────────────────────────────────────
+    {
+      name: "GET /api/me (an Access JWT that verifies: a FIRST-TIME email is provisioned)",
+      req: ["GET", "/api/me", undefined],
+      cookie: null,
+      jwt: "VALID",
+    },
+    {
+      name: "GET /api/me (an Access JWT for ACCESS_ADMIN_EMAIL: the seeded admin, no provisioning)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "ADMIN_EMAIL",
+    },
+    {
+      name: "GET /api/me (an Access JWT for an email already bound to a user)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "BOUND",
+    },
+    {
+      name: "GET /api/me (an Access JWT for a DISABLED bound account: no provisioning either)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "SUSPENDED_BOUND",
+    },
+    {
+      name: "GET /api/me (an Access JWT whose local part is taken: the suffix loop)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "TAKEN_LOCAL",
+    },
+    {
+      name: "GET /api/me (an Access JWT with TEN collisions: the uniqueness loop gives up and throws)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "EXHAUSTED",
+      seed: {
+        "user:user-0001": "x",
+        "user:user-0203": "x",
+        "user:user-0405": "x",
+        "user:user-0607": "x",
+        "user:user-0809": "x",
+        "user:user-0a0b": "x",
+        "user:user-0c0d": "x",
+        "user:user-0e0f": "x",
+        "user:user-1011": "x",
+        "user:user-1213": "x",
+      },
+    },
+    {
+      name: "GET /api/me (an Access JWT signed by ANOTHER key)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "FOREIGN_SIGNATURE",
+    },
+    {
+      name: "GET /api/me (an Access JWT for another audience — the array shape)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "WRONG_AUD",
+    },
+    {
+      name: "GET /api/me (an Access JWT whose aud is a bare STRING that matches — the other legal shape)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "STRING_AUD",
+    },
+    {
+      name: "GET /api/me (an Access JWT from ANOTHER team: the issuer is pinned)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "WRONG_ISS",
+    },
+    {
+      name: "GET /api/me (an EXPIRED Access JWT)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "EXPIRED",
+    },
+    {
+      name: "GET /api/me (an Access JWT with no kid: it can never be looked up)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "NO_KID",
+    },
+    {
+      name: "GET /api/me (an Access JWT whose kid is not published)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "UNKNOWN_KID",
+    },
+    {
+      name: "GET /api/me (an Access JWT whose published key is not RS256)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "NOT_RS256",
+      env: { ACCESS_JWKS_JSON: JSON.stringify(NOT_RS256_JWKS) },
+    },
+    {
+      name: "GET /api/me (an Access JWT with two parts, and one whose header is not base64)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "MALFORMED",
+    },
+    {
+      name: "GET /api/me (an Access JWT that verifies but carries NO email)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "NO_EMAIL",
+    },
+    {
+      name: "GET /api/me (an Access JWT whose published JWK the runtime REJECTS: a 500, not a 401)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "VALID",
+      env: { ACCESS_JWKS_JSON: JSON.stringify(BAD_JWKS) },
+    },
+    {
+      name: "GET /api/me (the Access arm DISABLED: ACCESS_AUD unset, so a valid JWT is ignored)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "VALID",
+      env: { ACCESS_AUD: undefined },
+    },
+    // **THE ORDER OF THESE TWO IS PART OF THE CASE, NOT THE LAYOUT.** `fetchJwks` caches the fetched certs for
+    // an hour in MODULE state, and the shipping side is one process while the built worker is a fresh instance
+    // per case — so the FAILING fetch must come first. Reverse them and the shipping side answers the second
+    // case from its cache (no dial, a 200) while the worker dials again and gets the 500: the divergence would
+    // be the harness's, and it was measured here before the order was fixed.
+    {
+      name: "GET /api/me (the certs endpoint answers 500: the arm declines rather than throwing)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "FETCHED",
+      env: { ACCESS_JWKS_JSON: undefined },
+      upstream: { "/cdn-cgi/access/certs": { status: 500, body: "{}" } },
+    },
+    {
+      name: "GET /api/me (an Access JWT verified through the FETCHED certs, not ACCESS_JWKS_JSON)",
+      req: ["GET", "/api/me"],
+      cookie: null,
+      jwt: "FETCHED",
+      env: { ACCESS_JWKS_JSON: undefined },
+      upstream: { "/cdn-cgi/access/certs": { body: JSON.stringify(JWKS) } },
+    },
+
+    // ── register ────────────────────────────────────────────────────────────────────────────────
+    {
+      name: "POST /api/auth/register (a live invite: the record, the token mapping and the cookie)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "carol-password", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.51" },
+    },
+    {
+      name: "POST /api/auth/register (an invite that does not exist)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "carol-password", inviteCode: "NOPE" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.52" },
+    },
+    {
+      name: "POST /api/auth/register (an invite whose claim is already held)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "carol-password", inviteCode: "TAKENINV" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.53" },
+    },
+    {
+      name: "POST /api/auth/register (a username that is already taken — checked BEFORE the invite)",
+      req: ["POST", "/api/auth/register", { username: "bob", password: "carol-password", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.54" },
+    },
+    {
+      name: "POST /api/auth/register (a password under six characters)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "short", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.55" },
+    },
+    {
+      name: "POST /api/auth/register (a username outside [A-Za-z0-9_.-]{2,32})",
+      req: ["POST", "/api/auth/register", { username: "c", password: "carol-password", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.56" },
+    },
+    {
+      name: "POST /api/auth/register (no body at all parses to {})",
+      req: ["POST", "/api/auth/register"],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.57" },
+    },
+    {
+      name: "POST /api/auth/register (a NULL body: the TypeError becomes 400 with V8's message)",
+      req: ["POST", "/api/auth/register"],
+      rawBody: "null",
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.58" },
+    },
+    {
+      name: "POST /api/auth/register (no SESSION_SECRET: the user IS created, then the issuance fails closed)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "carol-password", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.59" },
+      env: { SESSION_SECRET: undefined },
+    },
+    {
+      name: "POST /api/auth/register (no admin password configured)",
+      req: ["POST", "/api/auth/register", { username: "carol", password: "carol-password", inviteCode: "INVITE01" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.60" },
+      seed: { "auth:admin_password": "" },
+    },
+
+    // ── login ───────────────────────────────────────────────────────────────────────────────────
+    {
+      name: "POST /api/auth/login (the admin, right password: a real PBKDF2 verification)",
+      req: ["POST", "/api/auth/login", { username: "admin", password: ADMIN_PW }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.61" },
+    },
+    {
+      name: "POST /api/auth/login (the admin, wrong password)",
+      req: ["POST", "/api/auth/login", { username: "admin", password: "wrong" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.62" },
+    },
+    {
+      name: "POST /api/auth/login (a user account, right password: its own hash and salt)",
+      req: ["POST", "/api/auth/login", { username: "bob", password: BOB_PW }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.63" },
+    },
+    {
+      name: "POST /api/auth/login (a user account, right password, UNTRIMMED username)",
+      req: ["POST", "/api/auth/login", { username: "  bob  ", password: BOB_PW }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.64" },
+    },
+    {
+      name: "POST /api/auth/login (a user who does not exist: the PBKDF2 burn)",
+      req: ["POST", "/api/auth/login", { username: "nobody", password: "whatever" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.65" },
+    },
+    {
+      name: "POST /api/auth/login (a DISABLED user: the same burn, the same 401)",
+      req: ["POST", "/api/auth/login", { username: "suspended", password: "whatever" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.66" },
+    },
+    {
+      name: "POST /api/auth/login (the caller is already locked out)",
+      req: ["POST", "/api/auth/login", { username: "admin", password: ADMIN_PW }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.67" },
+      seed: { "login-lock:203.0.113.67:admin": "1" },
+    },
+    {
+      name: "POST /api/auth/login (a NULL body: outside any try, so the front door's catch answers 500)",
+      req: ["POST", "/api/auth/login"],
+      rawBody: "null",
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.68" },
+    },
+    {
+      name: "POST /api/auth/login (no admin password configured)",
+      req: ["POST", "/api/auth/login", { username: "admin", password: ADMIN_PW }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.69" },
+      seed: { "auth:admin_password": "" },
+    },
+
+    // ── logout ──────────────────────────────────────────────────────────────────────────────────
+    {
+      name: "POST /api/auth/logout (a live cookie: the blacklist write and the cleared cookie)",
+      req: ["POST", "/api/auth/logout"],
+      cookie: "logout",
+      headers: { "cf-connecting-ip": "203.0.113.71" },
+    },
+    {
+      name: "POST /api/auth/logout (a cookie whose token is EXPIRED: the 60 s floor)",
+      req: ["POST", "/api/auth/logout"],
+      cookie: "logoutExpired",
+      headers: { "cf-connecting-ip": "203.0.113.72" },
+    },
+    {
+      name: "POST /api/auth/logout (a malformed cookie: ignored, and the cookie is STILL cleared)",
+      req: ["POST", "/api/auth/logout"],
+      cookie: "not-a-token",
+      headers: { "cf-connecting-ip": "203.0.113.73" },
+    },
+    {
+      name: "POST /api/auth/logout (no cookie at all)",
+      req: ["POST", "/api/auth/logout"],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.74" },
+    },
+
+    // ── reset-password ──────────────────────────────────────────────────────────────────────────
+    {
+      name: "POST /api/auth/reset-password (the admin token: a new salt and hash are written)",
+      req: ["POST", "/api/auth/reset-password", { adminKey: "admin-gateway-token", newPassword: "a-new-password" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.81" },
+    },
+    {
+      name: "POST /api/auth/reset-password (the wrong admin key)",
+      req: ["POST", "/api/auth/reset-password", { adminKey: "not-the-token", newPassword: "a-new-password" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.82" },
+    },
+    {
+      name: "POST /api/auth/reset-password (a new password under eight characters)",
+      req: ["POST", "/api/auth/reset-password", { adminKey: "admin-gateway-token", newPassword: "short" }],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.83" },
+    },
+    {
+      name: "POST /api/auth/reset-password (missing fields)",
+      req: ["POST", "/api/auth/reset-password", {}],
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.84" },
+    },
+    {
+      name: "POST /api/auth/reset-password (a NULL body: optional chaining makes this a clean 400)",
+      req: ["POST", "/api/auth/reset-password"],
+      rawBody: "null",
+      cookie: null,
+      headers: { "cf-connecting-ip": "203.0.113.85" },
+    },
+
+    // ── the caller's own credentials ────────────────────────────────────────────────────────────
+    {
+      name: "POST /api/me/token/regenerate (the admin token is rotated and its old mapping deleted)",
+      req: ["POST", "/api/me/token/regenerate"],
+      cookie: "admin",
+    },
+    {
+      name: "POST /api/me/token/regenerate (the sweep must NOT delete the relay mapping)",
+      req: ["POST", "/api/me/token/regenerate"],
+      cookie: "relayuser",
+      seed: { "token:relay-token-1": "relayuser", "token:relay-user-token": "relayuser" },
+    },
+    {
+      name: "POST /api/me/token/relay (issue the scoped relay credential)",
+      req: ["POST", "/api/me/token/relay"],
+      cookie: "user",
+    },
+    {
+      name: "DELETE /api/me/token/relay (revoke an existing one)",
+      req: ["DELETE", "/api/me/token/relay"],
+      cookie: "relayuser",
+      seed: { "token:relay-token-1": "relayuser" },
+    },
+    {
+      name: "DELETE /api/me/token/relay (there is none: revoked=false)",
+      req: ["DELETE", "/api/me/token/relay"],
+      cookie: "user",
+    },
+    {
+      name: "POST /api/me/token/relay/reveal (one exists)",
+      req: ["POST", "/api/me/token/relay/reveal"],
+      cookie: "relayuser",
+    },
+    {
+      name: "POST /api/me/token/relay/reveal (none exists: 404)",
+      req: ["POST", "/api/me/token/relay/reveal"],
+      cookie: "user",
+    },
+    {
+      name: "PUT /api/me/keys (a valid save: the response carries the MASK)",
+      req: ["PUT", "/api/me/keys", { name: "OPENROUTER_API_KEY", value: "  sk-or-1234567890  " }],
+      cookie: "user",
+    },
+    {
+      name: "PUT /api/me/keys (an empty value)",
+      req: ["PUT", "/api/me/keys", { name: "OPENROUTER_API_KEY", value: "   " }],
+      cookie: "user",
+    },
+    {
+      name: "PUT /api/me/keys (a value that is not a string)",
+      req: ["PUT", "/api/me/keys", { name: "OPENROUTER_API_KEY", value: 12345 }],
+      cookie: "user",
+    },
+    {
+      name: "PUT /api/me/keys (a name outside USER_KEY_NAMES)",
+      req: ["PUT", "/api/me/keys", { name: "NOT_A_KEY", value: "sk-x" }],
+      cookie: "user",
+    },
+    {
+      name: "PUT /api/me/keys (no session)",
+      req: ["PUT", "/api/me/keys", { name: "OPENROUTER_API_KEY", value: "sk-x" }],
+      cookie: null,
+    },
+    {
+      name: "DELETE /api/me/keys?name=OPENROUTER_API_KEY",
+      req: ["DELETE", "/api/me/keys?name=OPENROUTER_API_KEY"],
+      cookie: "user",
+      seed: { "ukeys:bob": JSON.stringify({ OPENROUTER_API_KEY: "sk-or-old", DEEPSEEK_API_KEY: "sk-ds" }) },
+    },
+    {
+      name: "DELETE /api/me/keys?name=NOT_A_KEY",
+      req: ["DELETE", "/api/me/keys?name=NOT_A_KEY"],
+      cookie: "user",
+    },
+    {
+      name: "POST /api/me/keys/reveal (the caller's OWN key, in the clear)",
+      req: ["POST", "/api/me/keys/reveal", { name: "DEEPSEEK_API_KEY" }],
+      cookie: "user",
+    },
+    {
+      name: "POST /api/me/keys/reveal (not configured: 404)",
+      req: ["POST", "/api/me/keys/reveal", { name: "GMI_API_KEY" }],
+      cookie: "user",
+    },
+    {
+      name: "POST /api/me/keys/reveal (no session)",
+      req: ["POST", "/api/me/keys/reveal", { name: "DEEPSEEK_API_KEY" }],
+      cookie: null,
+    },
+    {
+      name: "GET /api/me/usproxy (the switch is ON in KV)",
+      req: ["GET", "/api/me/usproxy"],
+      cookie: "user",
+    },
+    {
+      name: "GET /api/me/usproxy (an explicit \"0\" reads as OFF — the round-95 normalization)",
+      req: ["GET", "/api/me/usproxy"],
+      cookie: "user",
+      seed: { "settings:US_PROXY": "0" },
+    },
+    {
+      name: "GET /api/me/usproxy (no KV value: the Worker var answers)",
+      req: ["GET", "/api/me/usproxy"],
+      cookie: "user",
+      seed: { "settings:US_PROXY": undefined },
+      env: { US_PROXY: "1" },
+    },
+    { name: "GET /api/me/usproxy (no session)", req: ["GET", "/api/me/usproxy"], cookie: null },
+    {
+      name: "PUT /api/me/usproxy (an admin turns it OFF: the explicit \"0\" is WRITTEN)",
+      req: ["PUT", "/api/me/usproxy", { enabled: false }],
+      cookie: "admin",
+    },
+    {
+      name: "PUT /api/me/usproxy (an admin turns it ON)",
+      req: ["PUT", "/api/me/usproxy", { enabled: true }],
+      cookie: "admin",
+      seed: { "settings:US_PROXY": "0" },
+    },
+    {
+      name: "PUT /api/me/usproxy (a NON-ADMIN session: 403 \"Admin only\"/\"forbidden\")",
+      req: ["PUT", "/api/me/usproxy", { enabled: true }],
+      cookie: "user",
+    },
+
+    // ── the front door's own answers on these prefixes ──────────────────────────────────────────
+    { name: "GET /api/auth/nonsense (a path under the base with no route)", req: ["GET", "/api/auth/nonsense"], cookie: null },
+    { name: "GET /api/me/anything/else (a path under /api/me with no route)", req: ["GET", "/api/me/anything/else"], cookie: "admin" },
+    { name: "PUT /api/auth/login (the wrong verb for a real path)", req: ["PUT", "/api/auth/login", {}], cookie: null },
+  ];
+
+  // ── the JWTs the cases present, built once from the key pair above ───────────────────────────────
+  // Each entry is a real token: the ones that must verify are signed with the harness's private key, and the
+  // ones that must not are signed with a FOREIGN key, carry another audience/issuer, or are simply malformed.
+  const JWTS = {
+    VALID: VALID_JWT,
+    ADMIN_EMAIL: await signAccess(accessClaims({ email: ADMIN_EMAIL })),
+    BOUND: await signAccess(accessClaims({ email: "bound@corp.test" })),
+    SUSPENDED_BOUND: await signAccess(accessClaims({ email: "suspended@corp.test" })),
+    TAKEN_LOCAL: await signAccess(accessClaims({ email: "taken@corp.test" })),
+    EXHAUSTED: await signAccess(accessClaims({ email: "user@corp.test" })),
+    FOREIGN_SIGNATURE: await signAccess(accessClaims(), { key: foreignKeyPair.privateKey }),
+    WRONG_AUD: await signAccess(accessClaims({ aud: ["another-audience"] })),
+    STRING_AUD: await signAccess(accessClaims({ aud: AUD })),
+    WRONG_ISS: await signAccess(accessClaims({ iss: "https://another-team.cloudflareaccess.test" })),
+    EXPIRED: await signAccess(accessClaims({ exp: Math.floor(FIXED_NOW / 1000) - 60 })),
+    NO_KID: await signAccess(accessClaims(), { kid: "" }),
+    UNKNOWN_KID: await signAccess(accessClaims(), { kid: "kid-not-published" }),
+    NOT_RS256: await signAccess(accessClaims()),
+    MALFORMED: "only.two",
+    NO_EMAIL: await signAccess(accessClaims({ email: "no-at-sign" })),
+    FETCHED: VALID_JWT,
+  };
+
+  // ── the two doors ───────────────────────────────────────────────────────────────────────────────
+  const shippingDoor = process.env.AUTH_RECORD
+    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
+    : null;
+
+  /** The seed for a case: the shared registry, the case's overrides, and `null`/`undefined` meaning REMOVE. */
+  const seedFor = (c) => {
+    const merged = { ...SEED, ...(c.seed ?? {}) };
+    for (const key of Object.keys(merged)) {
+      if (merged[key] === undefined || merged[key] === null) delete merged[key];
+    }
+    return merged;
+  };
+
+  /** The env for a case — the deployment's own vars, plus the ones the identity surface reads. */
+  const envFor = (kv, c) => {
+    const env = {
+      KEYS: kv,
+      CONSOLE_HOST: "console.test",
+      CONSOLE_ORIGINS: "https://console.test",
+      SESSION_SECRET,
+      ACCESS_AUD: AUD,
+      ACCESS_TEAM_DOMAIN: TEAM,
+      ACCESS_JWKS_JSON: JSON.stringify(JWKS),
+      ACCESS_ADMIN_EMAIL: ADMIN_EMAIL,
+      // A DEPLOYMENT key: `userKeysStatus` reports `source: "deployment"` for a channel whose own key the
+      // worker holds, which is the state a console page got wrong before 2026-09-21.
+      DEEPSEEK_API_KEY: "sk-deployment-deepseek",
+      ...(c.env ?? {}),
+    };
+    for (const key of Object.keys(env)) {
+      if (env[key] === undefined) delete env[key];
+    }
+    return env;
+  };
+
+  const requestFor = (c, cookie) => {
+    const headers = { ...(c.headers ?? {}) };
+    if (c.jwt) headers["cf-access-jwt-assertion"] = JWTS[c.jwt];
+    return buildRequestFor({ ...c, headers }, cookie);
+  };
+
+  const driveTs = async (c, cookie) => {
+    const kv = makeKvStub(seedFor(c), FIXED_NOW);
+    const calls = [];
+    // **THE MODULE-STATE RESETS ARE NOT OPTIONAL.** `store/cache.ts`'s `__c` holds users and key blobs, and
+    // `randomHex`'s sequence is process-wide: without both, a case reads the previous case's records and draws
+    // the previous case's bytes. (The tables the PLUGIN keeps — the login burst counter, the failure counter,
+    // the per-IP limiter, the revoked-session negative cache — have no reset hook, which is why every case that
+    // touches one carries its own address or its own cookie value; see the note above the case list.)
+    __clearCaches();
+    randomCursor = 0;
+    stubUpstreamFor(c, calls);
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await shippingDoor.fetch(requestFor(c, cookie), envFor(kv, c), {});
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redactRow({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  const driveWasm = async (c, cookie, i) => {
+    const kv = makeKvStub(seedFor(c), FIXED_NOW);
+    const calls = [];
+    randomCursor = 0;
+    stubUpstreamFor(c, calls);
+    const worker = await import(`${pathToFileURL(BUILT).href}?auth=${i}`);
+    const instance = new worker.default();
+    instance.env = envFor(kv, c);
+    instance.ctx = {};
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await instance.fetch(requestFor(c, cookie));
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redactRow({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  // **`seedAdmin` RUNS ONCE PER PROCESS AND THE FIRST REQUEST PAYS FOR IT.** It is the FRONT DOOR's work, not
+  // the route's (the Rust worker never does it), and the seeded `_admin_seeded` makes it a no-op — so it is
+  // spent on a throwaway KV BEFORE the cases, and no case's write log carries it.
+  if (shippingDoor) {
+    try {
+      __clearCaches();
+      await shippingDoor.fetch(
+        new Request("https://console.test/api/health"),
+        envFor(makeKvStub(SEED, FIXED_NOW), {}),
+        {},
+      );
+    } catch {
+      /* the prime is not a case */
+    }
+  }
+
+  const FIXTURE_PATH = new URL("./shipping-answers.json", import.meta.url);
+  const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+  const recorded = {};
+  let same = 0;
+  let different = 0;
+  const failures = [];
+
+  installDeterminism(FIXED_NOW);
+  for (const [i, c] of CASES.entries()) {
+    const cookie = c.cookie === null ? "" : COOKIES[c.cookie ?? "admin"];
+    const shipped = shippingDoor ? await driveTs(c, cookie) : null;
+    if (shipped) {
+      recorded[c.name] = {
+        status: shipped.status,
+        body: shipped.body,
+        headers: shipped.headers,
+        writes: shipped.writes,
+        calls: shipped.calls,
+      };
+    }
+    const reference = shipped ?? FIXTURE[c.name];
+    if (!reference) {
+      console.log(
+        `      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with AUTH_RECORD=1`,
+      );
+      different += 1;
+      failures.push(c.name);
+      continue;
+    }
+    const wasm = await driveWasm(c, cookie, i);
+    const want = rowsFor(reference);
+    const got = rowsFor(wasm);
+    const notes = [];
+    for (let r = 0; r < want.length; r++) {
+      if (want[r][1] !== got[r][1]) {
+        notes.push(
+          `${want[r][0]}: ship ${JSON.stringify(want[r][1]).slice(0, 220)} :: wasm ${JSON.stringify(got[r][1]).slice(0, 220)}`,
+        );
+      }
+    }
+    if (notes.length === 0) {
+      same += 1;
+      console.log(
+        `      ok   ${c.name} — ${wasm.body.length} bytes, status ${wasm.status}, ${wasm.writes.length} KV write(s)`,
+      );
+    } else {
+      different += 1;
+      failures.push(c.name);
+      console.log(`      FAIL ${c.name}`);
+      for (const note of notes) console.log(`           ${note}`);
+    }
+  }
+
+  // ── the three in-memory gates, which need a BUDGET rather than one request ──────────────────────
+  // The login burst counter, the failure counter that arms the KV lock, and the plugin's own per-IP limiter are
+  // all per-address and per-window: one request cannot see any of them. Each block uses an address no other
+  // case has touched, because the shipping side keeps these tables for the LIFE of the process while the built
+  // worker is a fresh instance per case — a shared address would compare a warm table against a cold one.
+  const SEQUENCES = {
+    __authLoginBurst: {
+      count: 11,
+      tag: "burst",
+      name: "the login burst gate: the eleventh rapid attempt 429s",
+      request: () =>
+        new Request("https://console.test/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.21" },
+          body: JSON.stringify({ username: "admin", password: "admin-hunter2" }),
+        }),
+    },
+    __authLoginLock: {
+      count: 6,
+      tag: "lock",
+      name: "the login failure lock: the fifth wrong password arms it, and the sixth is refused",
+      request: () =>
+        new Request("https://console.test/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.22" },
+          body: JSON.stringify({ username: "admin", password: "wrong" }),
+        }),
+    },
+    __authLogoutRate: {
+      count: 31,
+      tag: "logoutrate",
+      name: "the plugin's own limiter: the thirty-first logout 429s",
+      request: () =>
+        new Request("https://console.test/api/auth/logout", {
+          method: "POST",
+          headers: { "cf-connecting-ip": "198.51.100.23" },
+        }),
+    },
+  };
+
+  const driveSequence = async (spec, kv, drive) => {
+    const statuses = [];
+    for (let n = 0; n < spec.count; n++) statuses.push(await drive(spec.request));
+    return { statuses, writes: kv.writes };
+  };
+
+  for (const [key, spec] of Object.entries(SEQUENCES)) {
+    const kv = makeKvStub(SEED, FIXED_NOW);
+    let shipped = null;
+    if (shippingDoor) {
+      const env = envFor(makeKvStub(SEED, FIXED_NOW), {});
+      const seen = { statuses: [] };
+      for (let n = 0; n < spec.count; n++) {
+        const response = await shippingDoor.fetch(spec.request(), env, {});
+        await response.text();
+        seen.statuses.push(response.status);
+      }
+      recorded[key] = { statuses: seen.statuses, writes: kv.writes };
+      shipped = recorded[key];
+    } else {
+      shipped = FIXTURE[key];
+    }
+    if (!shipped) {
+      console.log(`      FAIL no recorded answer for ${JSON.stringify(key)} — re-record with AUTH_RECORD=1`);
+      different += 1;
+      failures.push(spec.name);
+      continue;
+    }
+    const worker = await import(`${pathToFileURL(BUILT).href}?auth=${spec.tag}`);
+    const instance = new worker.default();
+    instance.env = envFor(kv, {});
+    instance.ctx = {};
+    stubUpstreamFor({}, []);
+    const wasm = await driveSequence(spec, kv, async (request) => {
+      const response = await instance.fetch(request());
+      await response.text();
+      return response.status;
+    });
+    globalThis.fetch = realFetchGlobal;
+    // **THE WHOLE SEQUENCE IS COMPARED, STATUSES AND WRITES** — the point of the fifth failure is not its 401
+    // (every failure answers 401) but the lock it ARMS with its 60 s TTL, which a status-only comparison cannot
+    // see.
+    const want = `${shipped.statuses.join(",")} :: ${(shipped.writes ?? []).join(" ; ")}`;
+    const got = `${wasm.statuses.join(",")} :: ${wasm.writes.join(" ; ")}`;
+    if (want === got) {
+      same += 1;
+      console.log(`      ok   ${spec.name} — ${wasm.statuses.join(",")}`);
+    } else {
+      different += 1;
+      failures.push(spec.name);
+      console.log(`      FAIL ${spec.name}\n           ship ${want}\n           wasm ${got}`);
+    }
+  }
+  restoreGlobals();
+
+  if (process.env.AUTH_RECORD) {
+    // **WRITTEN ONLY FROM A RUN WHERE EVERY CASE AGREED.** A fixture recorded from a failing run pins the
+    // failure; the two recorders above carry the same guard for the same reason.
+    if (different > 0) {
+      console.log(`  !! NOT recording: ${different} case(s) differ, so those answers are not a reference`);
+      process.exitCode = 1;
+    } else {
+      writeFileSync(FIXTURE_PATH, JSON.stringify({ ...FIXTURE, ...recorded }, null, 2) + "\n");
+      console.log(`  recorded ${Object.keys(recorded).length} identity-surface answer(s) -> shipping-answers.json`);
+    }
+  }
+
+  console.log(
+    `  the identity surface, shipping TypeScript against the built worker: ${same}/${CASES.length + Object.keys(SEQUENCES).length} identical, ${different} differing`,
+  );
+  for (const name of failures) console.log(`      FAIL ${name}`);
+  bad += different;
+}
+
 // ── THE CUTOVER IS A ROUTING DECISION, AND THIS SECTION IS ITS PROOF ─────────────────────────────
 //
 // `./scripts/build.sh gateway` is what puts the new code in front of a user, and the CODE's half of the cutover
-// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family is served by the Rust
-// worker; without it, by the TypeScript plugin — which is the rollback, and the reason `plugins/devices.ts` and
-// `store/devices.ts` are still in the tree.
+// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family and the identity surface are
+// served by the Rust worker; without it, by the TypeScript plugins — which is the rollback, and the reason
+// `plugins/devices.ts`, `plugins/auth.ts` and the stores are still in the tree.
 //
 // **A BOUNDARY NOBODY MEASURES IS A BOUNDARY NOBODY HAS.** This section drives the SHIPPING front door with a
-// stub gate that RECORDS what reached it, and asserts the three things the handover claims: the family's routes
-// go to the gate, the two routes this slice does not port do NOT, and the `/v1` cutover is unchanged. The stub
-// answers a recognisable body, so a case that was supposed to reach it and did not is visible in the response
-// rather than assumed from a list.
+// stub gate that RECORDS what reached it, and asserts what the handover claims: the two families' routes go to
+// the gate, the routes neither slice ported do NOT, and the `/v1` cutover is unchanged. The stub answers a
+// recognisable body, so a case that was supposed to reach it and did not is visible in the response rather than
+// assumed from a list.
+//
+// **AND ONE ROW IS SLICE 2's POINT, WRITTEN WHERE IT WAS MEASURED.** `GET /api/devices` with NO cookie was
+// asserted as "kept on the TypeScript path" while `requireSession`'s Access arm was unported; that arm is Rust
+// now, the condition is deleted, and the row asserts the direction the code now takes — a cookie-less admin is
+// served by the worker. A cutover that only ever grows a list is a cutover whose deletions are untested.
 {
   const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
   const forwarded = [];
@@ -3453,7 +4562,20 @@ const redactHosts = (text) =>
     // NOT handed over:
     ["GET", "/api/devices/d1/proxy/panel", true, false, "the reverse proxy is device-proxy.ts, not this slice"],
     ["POST", "/api/devices/d1/proxy/mcp", true, false, "the reverse proxy accepts any method"],
-    ["GET", "/api/devices", false, false, "NO session cookie: the Cloudflare Access identity arm is not ported, so the implementation that has it keeps the request"],
+    ["GET", "/api/devices", false, true, "NO session cookie: the Cloudflare Access arm is RUST now (slice 2), so a cookie-less admin goes to the worker like every other caller"],
+    // ---- the identity surface (landing 5 slice 2) ----
+    ["POST", "/api/auth/login", false, true, "the credential routes need no session"],
+    ["POST", "/api/auth/register", false, true, "…and neither does registration"],
+    ["GET", "/api/me", true, true, "the account route"],
+    ["GET", "/api/me", false, true, "the account route with NO cookie: the Access arm decides"],
+    ["POST", "/api/me/token/regenerate", true, true, "a token rotation"],
+    ["PUT", "/api/me/keys", true, true, "a key save"],
+    ["GET", "/api/auth/nonsense", false, true, "a path under the base the worker answers with its own 404"],
+    // NOT handed over:
+    ["GET", "/api/me/route", true, false, "the model-route selection resolves through the catalogue and RouteDO, and is not this slice"],
+    ["PUT", "/api/me/route", true, false, "…the same route's write"],
+    ["POST", "/api/me/keys/test", true, false, "the key diagnostics dial six providers, and are not this slice"],
+    ["POST", "/api/me/keys/usage", true, false, "…the same for the usage queries"],
     ["POST", "/api/upload", true, false, "the file relay: a 100 MiB body passthrough this slice does not port"],
     ["GET", "/api/health", true, false, "the public tooling route, unchanged"],
   ];
@@ -3475,7 +4597,7 @@ const redactHosts = (text) =>
     cutoverBad += 1;
     console.log("      FAIL GET /v1/models — the existing cutover went to the gate before this change and must still");
   }
-  console.log(`  the devices cutover, through the shipping front door with a stub gate: ${cutoverOk}/${CUTOVER_CASES.length + 1} routed as the boundary says`);
+  console.log(`  the two cutovers, through the shipping front door with a stub gate: ${cutoverOk}/${CUTOVER_CASES.length + 1} routed as the boundary says`);
   bad += cutoverBad;
 }
 

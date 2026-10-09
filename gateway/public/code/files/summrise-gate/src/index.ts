@@ -146,14 +146,14 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
  *   * `POST|PUT /api/upload` is not under `/api/devices` at all and is not in the predicate: a 100 MiB body
  *     passthrough to the relay, which `workers-rs` 0.8.7 cannot forward as a stream.
  *
- * **AND `devicesRouteNeedsSession` IS A ROUTING TEST, NOT AN AUTHENTICATION ONE.** The Rust worker verifies the
- * cookie itself — this only decides which implementation gets to, and it exists for ONE route family: the eleven
- * routes whose first line is `requireAdmin`. `requireSession` has a second identity arm that is NOT yet ported —
- * the Cloudflare Access JWT (`access.ts`), which authenticates an admin with NO console cookie — so an
- * admin-gated request WITHOUT that cookie is kept on the TypeScript path, where the arm lives. The day the arm
- * is ported this predicate loses the condition and the comment goes with it. Nothing is weakened by it: a caller
- * who SENDS a bogus cookie is routed to the worker, which rejects it. The four routes that never asked for a
- * session (`/api/register`, self-register, tunnel-token, panel-grant redeem) are handed over like the rest.
+ * **AND THE COOKIE CONDITION IS GONE (landing 5 slice 2).** Until this slice `devicesRouteNeedsSession` kept the
+ * eleven admin-gated routes on the TypeScript path when the request carried NO console cookie, because
+ * `requireSession`'s second identity arm — the Cloudflare Access JWT (`access.ts`), which authenticates an admin
+ * with no console cookie at all — was not ported. **That arm is Rust now** (`gateway/wasm/src/access.rs`, proved
+ * on a real RS256 key pair by the identity-surface corpus), so the condition and its helper are DELETED rather
+ * than narrowed: the whole family goes to the worker, and a cookie-less Access admin is served the same way
+ * every other caller is. Nothing was weakened on the way — a caller who SENDS a bogus cookie was always routed
+ * to the worker, which rejects it, and now a caller who sends none is too.
  */
 function isDevicesFamily(method: string, path: string): boolean {
   // The reverse proxy shares the prefix — see the header. Checked first.
@@ -163,28 +163,43 @@ function isDevicesFamily(method: string, path: string): boolean {
 }
 
 /**
- * The eleven routes whose handler starts with `requireAdmin` — the ones the Access arm serves cookie-lessly.
+ * THE IDENTITY SURFACE'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH FOUR IT DOES NOT.
  *
- * **IT MIRRORS THE PLUGIN'S ROUTE TABLE BY METHOD, AND THE FIRST VERSION DID NOT.** It tested
- * `^/api/devices/[^/]+$` for any method, which also matches `POST /api/devices/self-register` — a PUBLIC route —
- * and would have kept it on the TypeScript path forever. `devices-cutover.test.mjs` is what caught it; the
- * generic single-segment shape is the DELETE route and nothing else, because every other single-segment path is
- * a specific route registered before it.
+ * What is being cut over (2026-10-09, landing 5 slice 2): the console's session, its callers and their own
+ * credentials — `POST /api/auth/register|login|reset-password|logout`, `GET /api/me`, the three
+ * `/api/me/token/*` routes, `PUT|DELETE /api/me/keys`, `POST /api/me/keys/reveal` and `GET|PUT /api/me/usproxy`.
+ * Their decisions are Rust now (`gateway/wasm/src/auth_routes.rs`, `session_gate.rs`, `user_store.rs`,
+ * `access.rs`) and are proved case for case against this implementation by `gateway/wasm/verify.mjs` (93 cases:
+ * the whole refusal list — no cookie, a forged cookie, a tampered signature, an expired token, a revoked one, a
+ * suspended user, a user who does not exist — plus the Access arm on a real RS256 key pair and the two bodies
+ * the source THROWS on).
+ *
+ * **THE FOUR EXCLUSIONS, EACH WITH ITS REASON:**
+ *
+ *   * `GET|PUT /api/me/route` — the per-user `model=auto` selection. Its handler resolves through
+ *     `resolveAutoModel` (`model-route.ts`), which reads the model CATALOGUE (`store/models.ts`) and the
+ *     `RouteDO` Durable Object: a different surface with its own corpus, not identity.
+ *   * `POST /api/me/keys/test` and `POST /api/me/keys/usage` — the key DIAGNOSTICS. They dial six providers and
+ *     three usage endpoints; the decisions in them are the providers' wire shapes, not the caller's identity.
+ *
+ * **`/api/auth/<anything>` IS THE FAMILY, INCLUDING THE SHAPES THE PLUGIN DOES NOT REGISTER**, because the
+ * worker answers the front door's own 404 for those and the corpus compares one (`GET /api/auth/nonsense`).
+ * The predicate is mirrored EXACTLY in Rust (`auth_routes::in_family`), including the three exclusions — a path
+ * handed over is a path the worker answers.
+ *
+ * **AND THE CSRF GATE RUNS BEFORE EITHER IMPLEMENTATION.** `csrfCookieViolation` is checked at the top of
+ * `fetch`, so a cookie-carrying cross-site mutation is refused here and never reaches the worker; porting it
+ * into Rust would be a second copy of a decision that is not this surface's.
  */
-function devicesRouteNeedsSession(method: string, path: string): boolean {
-  if (path === "/api/devices") return true; // GET list, POST add
-  if (path.startsWith("/api/devices/register-keys")) return true; // GET list, DELETE revoke
-  if (path === "/api/devices/register-key" || path === "/api/devices/install-cmd") return true;
-  if (path === "/api/devices/panel-grant/redeem" || path === "/api/devices/self-register")
-    return false;
-  if (/^\/api\/devices\/[^/]+\/(mcp|rename|panel-grant)$/.test(path)) return true;
-  // The device delete, and the ONLY route the bare single-segment shape belongs to.
-  return method === "DELETE" && /^\/api\/devices\/[^/]+$/.test(path);
-}
-
-/** Does this request carry the console session cookie at all? (Its VALIDITY is the Rust worker's decision.) */
-function hasSessionCookie(request: Request): boolean {
-  return (request.headers.get("cookie") || "").includes("ag_session=");
+function isAuthFamily(path: string): boolean {
+  if (path === "/api/auth" || path.startsWith("/api/auth/")) return true;
+  if (path === "/api/me") return true;
+  if (!path.startsWith("/api/me/")) return false;
+  return !(
+    path === "/api/me/route" ||
+    path === "/api/me/keys/test" ||
+    path === "/api/me/keys/usage"
+  );
 }
 
 export default {
@@ -284,11 +299,13 @@ export default {
         // was removed — this falls through to the TypeScript plugin below, UNCHANGED: that is the rollback, and
         // it is why `plugins/devices.ts` and `store/devices.ts` are still here. Deleting them is the last step of
         // this landing, after the deploy that proves the worker serves this family.
-        if (
-          isDevicesFamily(request.method, path) &&
-          (!devicesRouteNeedsSession(request.method, path) || hasSessionCookie(request)) &&
-          wasmGate(env)
-        ) {
+        if (isDevicesFamily(request.method, path) && wasmGate(env)) {
+          return await frontDoor(request, env, request);
+        }
+        // **THE IDENTITY SURFACE GOES TO THE SAME PLACE, BY THE SAME RULE.** Same placement, same reasons: after
+        // `seedAdmin` (the front door's job, which the worker does not do) and after the CSRF gate above, and
+        // with the TypeScript plugin as the rollback when the binding is absent.
+        if (isAuthFamily(path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         const pctx = ensurePluginCtx();

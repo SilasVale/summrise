@@ -25,6 +25,12 @@ const DEVICE = { name: "d1", hostname: "d1.agent.summrise.test", token: "devtok"
 // seeding never needed but never hurts).
 function makeEnv() {
   return makeBaseEnv({
+    // **NO `WASM_GATE` BINDING, ON PURPOSE: THIS FILE TESTS THE TYPESCRIPT IMPLEMENTATION.** `index.ts` hands the
+    // identity surface (`/api/auth/*` and the ported `/api/me*` routes) to the Rust worker when that binding is
+    // present — the production configuration — so a test of these handlers is a test of the ROLLBACK path, which
+    // is a real configuration and the one these assertions were always about. The cutover's own routing is pinned
+    // in `auth-cutover.test.mjs`.
+    wasmGate: false,
     devices: [DEVICE],
     links: {
       "tok-d1": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },

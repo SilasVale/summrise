@@ -24,7 +24,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 #[derive(Default)]
@@ -85,6 +85,69 @@ impl Drop for KeyGuard<'_> {
     fn drop(&mut self) {
         self.lock.release();
     }
+}
+
+/* ─────────────────────────── the KEYED table ─────────────────────────── */
+
+/// **`withKeyLock(key, fn)`'s `__locks` MAP, WHICH IS WHAT THE USER STORE NEEDS AND THE DEVICE STORE DOES NOT.**
+///
+/// The two device blobs are known at compile time, so one `KeyLock` static each is the whole mechanism. The user
+/// store's keys are not: `createUser` serializes on `user:<name>` and then, INSIDE that section, on
+/// `invclaim:<code>` — two different keys held at once, so a single lock would DEADLOCK and no per-key static can
+/// be written for a name that arrives in a request. This is the keyed form, and it is the form the source has.
+///
+/// **THE 512-KEY BOUND IS THE SOURCE'S, AND IT EVICTS THE OLDEST** — with the cost its round-124 comment already
+/// records: *"a pending chain there loses its queue (its own RMW still completes; only a NEW caller for that key
+/// can now race it)"*. A `KeyLock` evicted from this table is still the lock its holder is using, so the section
+/// in flight is serialized exactly as before; what is lost is a queue, not a section.
+pub struct KeyedLocks {
+    locks: Mutex<Vec<(String, Arc<KeyLock>)>>,
+}
+
+impl Default for KeyedLocks {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl KeyedLocks {
+    pub const fn new() -> Self {
+        Self {
+            locks: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The lock for `key`, created on first use. It answers an `Arc` so the caller holds the lock itself across
+    /// its awaits rather than borrowing this table — borrowing it would hold THIS mutex for the whole section.
+    pub fn lock_for(&self, key: &str) -> Arc<KeyLock> {
+        let Ok(mut locks) = self.locks.lock() else {
+            // A poisoned table cannot happen on this single-threaded runtime (nothing panics while holding it),
+            // and refusing to serialize would be worse than running the section unserialized — the same arm
+            // `Acquire::poll` takes.
+            return Arc::new(KeyLock::new());
+        };
+        if let Some((_, lock)) = locks.iter().find(|(k, _)| k == key) {
+            return lock.clone();
+        }
+        let lock = Arc::new(KeyLock::new());
+        locks.push((key.to_string(), lock.clone()));
+        if locks.len() > 512 {
+            locks.remove(0);
+        }
+        lock
+    }
+}
+
+/// `withKeyLock(key, fn)` — the source's call shape, as one awaitable section: the guard is held for the whole
+/// of `section`. (It takes the future rather than a closure so a caller can write
+/// `with_key_lock(&LOCKS, &key, async { … }).await` around its own borrows.)
+pub async fn with_key_lock<T, F>(locks: &KeyedLocks, key: &str, section: F) -> T
+where
+    F: Future<Output = T>,
+{
+    let lock = locks.lock_for(key);
+    let _guard = lock.lock().await;
+    section.await
 }
 
 struct Acquire<'a> {
@@ -168,5 +231,63 @@ mod tests {
             assert!(guard.as_mut().poll(&mut cx).is_ready());
             drop(guard);
         }
+    }
+
+    /// **TWO DIFFERENT KEYS MUST NOT BLOCK EACH OTHER, OR `createUser` DEADLOCKS.** It holds `user:<name>` and
+    /// takes `invclaim:<code>` INSIDE that section; a keyed table that answered one lock for every key would
+    /// hang every registration on the second acquisition.
+    ///
+    /// MUTATION: `KeyedLocks::lock_for` returns the same lock for every key (a single `Arc` field).
+    /// RESULT:   `different_keys_are_different_locks` fails — `invclaim:a` is pending while `user:x` is held.
+    #[test]
+    fn different_keys_are_different_locks() {
+        let locks = KeyedLocks::new();
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let user = locks.lock_for("user:x");
+        let mut held = Box::pin(user.lock());
+        // **THE GUARD MUST BE HELD, NOT MERELY OBSERVED** — the same trap the reuse test above records:
+        // `assert!(…is_ready())` DROPS the poll's guard, which releases the lock and makes the assertions below
+        // measure nothing.
+        let guard = match held.as_mut().poll(&mut cx) {
+            Poll::Ready(guard) => guard,
+            Poll::Pending => panic!("the first acquires"),
+        };
+        // A different key acquires immediately...
+        let claim = locks.lock_for("invclaim:c");
+        let mut other = Box::pin(claim.lock());
+        let other_guard = match other.as_mut().poll(&mut cx) {
+            Poll::Ready(guard) => guard,
+            Poll::Pending => panic!("a different key must not wait"),
+        };
+        // ...and the SAME key waits, which is the property the section needs.
+        let again = locks.lock_for("user:x");
+        let mut same = Box::pin(again.lock());
+        assert!(same.as_mut().poll(&mut cx).is_pending(), "the same key waits");
+        drop(guard);
+        assert!(same.as_mut().poll(&mut cx).is_ready());
+        drop(other_guard);
+    }
+
+    /// The 512-key bound evicts the OLDEST key. A test that only counted would pass on a table that evicted the
+    /// NEWEST, which is the one entry a burst is about to use again.
+    #[test]
+    fn the_keyed_table_evicts_the_oldest() {
+        let locks = KeyedLocks::new();
+        for i in 0..512 {
+            let _ = locks.lock_for(&format!("k{i}"));
+        }
+        assert_eq!(locks.locks.lock().unwrap().len(), 512);
+        let _ = locks.lock_for("fresh");
+        let keys: Vec<String> = locks
+            .locks
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
+        assert_eq!(keys.len(), 512);
+        assert_eq!(keys[0], "k1", "the oldest went, not the newest");
+        assert_eq!(keys[511], "fresh");
     }
 }

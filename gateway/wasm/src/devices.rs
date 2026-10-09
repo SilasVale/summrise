@@ -295,18 +295,18 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Option<Response>>
 /// `requireAdmin(request, env)` — `None` when the caller is an admin, `Some(response)` when the handler must
 /// return the refusal directly (401 not logged in, 403 not an admin).
 async fn admin_check(request: &Request, env: &Env) -> Result<Option<Response>> {
-    match session_gate::require_session(request, env).await {
-        None => Ok(Some(crate::json_error(
-            401,
-            "Not logged in or session expired",
-            "authentication_error",
+    // **`requireAdmin` IS `session_gate.rs`'S NOW, SHARED WITH THE AUTH ROUTES.** The two refusals are the
+    // source's own bytes, so this call site is the same answer it always gave; what changed is that it is the
+    // same FUNCTION the console's own `/api/me` routes call, rather than a second copy of the gate. The `Err`
+    // arm is the Access arm's throw (`access.rs`), which the front door's catch answers as a 500.
+    match session_gate::require_admin(request, env).await {
+        Ok(Ok(_)) => Ok(None),
+        Ok(Err(response)) => Ok(Some(response)),
+        Err(_) => Ok(Some(crate::json_error(
+            500,
+            "Internal error",
+            "api_error",
         )?)),
-        Some(user) if user.role != "admin" => Ok(Some(crate::json_error(
-            403,
-            "Admin permission required",
-            "authorization_error",
-        )?)),
-        Some(_) => Ok(None),
     }
 }
 

@@ -7,13 +7,17 @@
 // and `panel-grant.test.mjs` exercise the TypeScript handlers and therefore run WITHOUT the binding, and this
 // file is what says the other configuration routes where it claims to.
 //
-// **THE TWO EXCLUSIONS AND THE ONE CONDITION, EACH ASSERTED:**
+// **THE TWO EXCLUSIONS, EACH ASSERTED:**
 //   * `/api/devices/<name>/proxy/...` is `plugins/device-proxy.ts` — a reverse proxy this slice does not port,
 //     and it shares the prefix, so it is the case most likely to be swept up by a prefix rule.
 //   * `/api/upload` is a 100 MiB body passthrough, not ported.
-//   * an ADMIN-gated route with NO console cookie stays on the TypeScript path, because `requireSession`'s
-//     Cloudflare Access arm (`access.ts`) is not ported and that is the arm which serves a cookie-less admin. A
-//     bogus cookie is routed to the worker, which rejects it — the condition is routing, not authentication.
+//
+// **AND THE COOKIE CONDITION IS GONE — THIS FILE IS WHERE IT WAS MEASURED AND WHERE IT IS NOW MEASURED ABSENT.**
+// Until landing 5 slice 2 the eleven admin-gated routes stayed on the TypeScript path when the request carried
+// no console cookie, because `requireSession`'s Cloudflare Access arm (`access.ts`) — the arm that authenticates
+// an admin with NO console cookie — was not ported. It IS ported now (`gateway/wasm/src/access.rs`, proved on a
+// real RS256 key pair by `gateway/wasm/verify.mjs`), so the cookie-less request goes to the worker like every
+// other one, and the test below asserts THAT instead of the old carve-out.
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
@@ -88,7 +92,11 @@ test("with the binding: the routes that never asked for a session are handed ove
   }
 });
 
-test("with the binding: an ADMIN route with no cookie stays on the TypeScript path (the Access arm)", async () => {
+test("with the binding: an ADMIN route with no cookie IS handed over — the Access arm is Rust now", async () => {
+  // **THIS IS THE CONDITION SLICE 2 REMOVED, ASSERTED IN THE DIRECTION IT NOW POINTS.** With no `ag_session`
+  // cookie at all these four used to stay on the TypeScript path; they now reach the binding, because
+  // `requireSession`'s Cloudflare Access arm — which is how a cookie-less admin authenticates — is served by the
+  // worker. The stub gate answers 200, so a request that was NOT handed over is visible as the plugin's 401.
   for (const [method, path] of [
     ["GET", "/api/devices"],
     ["GET", "/api/devices/d1/mcp"],
@@ -97,9 +105,8 @@ test("with the binding: an ADMIN route with no cookie stays on the TypeScript pa
   ]) {
     const env = envWith();
     const got = await call(env, method, path, { session: false });
-    assert.deepEqual(env._frontDoor, [], `${method} ${path} must NOT reach the binding without a cookie`);
-    // ...and the TypeScript it stayed on answers its own gate, not the stub gate's 200.
-    assert.equal(got.status, 401, `${method} ${path} answered by the plugin's requireAdmin`);
+    assert.deepEqual(env._frontDoor, [`${method} ${path}`], `${method} ${path} must reach the binding`);
+    assert.equal(got.status, 200, `${method} ${path} answered by the stub gate`);
   }
 });
 

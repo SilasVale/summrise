@@ -433,53 +433,6 @@ pub async fn cf_token(env: &Env) -> String {
         .unwrap_or_default()
 }
 
-/// `getUser(env, uid)` — **THE CACHE HOLDS THE ABSENCE TOO** ("caches null too — no zombie lookups"), which is
-/// why a missing user is a cached `Null` rather than a re-read on every request.
-pub async fn get_user(env: &Env, uid: &str) -> Option<Value> {
-    let value = kv_json_cached(env, &format!("user:{uid}")).await;
-    value.filter(|v| !v.is_null())
-}
-
-/// `getAdminPassword(env)` — KV is authoritative; the `ADMIN_PASSWORD` Worker secret is migrated ONCE, hashed
-/// in the same `salt:hash` format `verifyAdminPassword` expects (a bare hash there "made verification
-/// permanently fail — admin locked out of the console").
-pub async fn admin_password(env: &Env) -> String {
-    const KEY: &str = "auth:admin_password";
-    let now = now_ms();
-    if let Some(hit) = crate::store::cached_get(KEY, now) {
-        return hit.as_str().unwrap_or_default().to_string();
-    }
-    let secret = env
-        .var("ADMIN_PASSWORD")
-        .ok()
-        .map(|v| v.to_string())
-        .filter(|v| !v.is_empty());
-    if env.kv("KEYS").is_err() {
-        // The source's no-KV arm returns WITHOUT caching, because there is no store to be consistent with.
-        return match secret {
-            Some(password) => format!("legacy:{}", legacy_hash(&password).await),
-            None => String::new(),
-        };
-    }
-    let mut value = kv_text(env, KEY).await.unwrap_or_default();
-    if value.is_empty() {
-        if let Some(password) = secret {
-            value = format!("legacy:{}", legacy_hash(&password).await);
-            kv_put(env, KEY, &value, None).await;
-        }
-    }
-    crate::store::cache_put(KEY, Value::String(value.clone()), now);
-    value
-}
-
-/// `hashPassword(password, "legacy")` — PBKDF2-SHA256, 100,000 iterations, hex.
-async fn legacy_hash(password: &str) -> String {
-    match crate::webcrypto::pbkdf2_sha256(password, "legacy", 100_000).await {
-        Some(bits) => crate::webcrypto::hex(&bits),
-        None => String::new(),
-    }
-}
-
 /// `sess-revoked:<cookie>` — the logout blacklist read, with the source's 60 s negative cache and its 512 bound.
 pub async fn session_revoked(env: &Env, cookie: &str) -> bool {
     let now = now_ms();
