@@ -2,10 +2,13 @@
 #
 # WHY A FILE, and why this exact list. Round 278/282: a file missing from the tarball does not
 # fail anything — the device's update flow swaps what is there and silently KEEPS THE STALE FILE
-# for what is not, so the release looks fine and the device runs a mixture. The list is the set of
-# files that flow swaps, which is why it is written down rather than derived from package.json's
-# `files[]`: that array used to list `bin/` as a DIRECTORY, and a gate that checked for a directory
-# entry would pass while the CLI itself was missing.
+# for what is not, so the release looks fine and the device runs a mixture. What the list names is
+# therefore everything a packed tgz MUST carry: the two exes and the desktop shell's sources (which
+# the device's update flow swaps) plus the npm `bin` (which npm replaces rather than the swap — a
+# missing one is a command that does not exist after `npm i -g`). It is written down rather than
+# derived from package.json's `files[]`, and THAT reason is measured rather than stylistic: the
+# array used to list `bin/` as a DIRECTORY, and a gate that checked for a directory entry would pass
+# while the CLI itself was missing.
 #
 # THAT HAZARD IS GONE (landing 4b): `files[]` lists `bin/summrise.exe`, a FILE, because that is what
 # the CLI is now — a Rust binary the release builds, not a `.js` tsc emitted. The list is still
