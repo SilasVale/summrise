@@ -429,4 +429,18 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// rule STAYS and is not narrowed: `scripts/test/npm-test-floored.mjs` is still there on purpose, because only
 /// its DECISION moved (`agent/tests/npm_test_floor.rs`) and the spawn that runs `npm test` in six directories
 /// has not. **107 -> 102.**
-const MAX_LOGIC: usize = 102;
+///
+///     landing 4b's cutover         102 -> 101   `agent/summrise-agent-npm/src/summrise.ts` LEFT (and its `bin/`
+///                                                GENERATED rule with it): the npm `bin` is `bin/summrise.exe`, a
+///                                                cargo artifact, so the TypeScript CLI and the tsc emit that
+///                                                regenerated nothing are deleted. Its 68-case suite left too and
+///                                                the packaging suite took the directory's place — ONE step and not
+///                                                two, and the number did not move for the suite, because a test
+///                                                belongs to the code it tests and this one now tests the tarball.
+///
+/// **AND THE TWO NUMBERS IN THAT PARAGRAPH ARE MEASURED ON THE MERGED TREE, NOT CARRIED FROM THE BRANCH THAT
+/// WROTE THEM.** It arrived saying `107 -> 106`, which was true on ITS base; this tree already carried the five
+/// `.mjs` gates' `107 -> 102`, so the same landing reads `102 -> 101` here. The count came from the gate's own
+/// refusal — `const MAX_LOGIC` forced to **0**, which makes it print `LOGIC files: 101, and the frozen budget
+/// is 0` — because a cap resolved by picking one branch's number is a cap nobody measured.
+const MAX_LOGIC: usize = 101;

@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 48] = [
+const ALLOWED: [(&str, &str); 49] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -182,6 +182,16 @@ const ALLOWED: [(&str, &str); 48] = [
     // ratchet working as intended and costing one constant — raised visibly, with the reason, in the
     // same commit as the sentence that needs it.
     ("docs/superpowers/plans/2026-09-28-the-product-moves-to-rust.md", "the migration plan, which names the CDN worker's canary host and the smoke that used it"),
+    // ADDED WITH THE CUTOVER (landing 4b), AND IT IS A FIXTURE RATHER THAN A DEFAULT — the same
+    // shape `agent/tests/fixtures/` is declared under. `agent/summrise-cli/parity/expected.json`
+    // holds the 162 answers the TypeScript CLI gave, frozen before it was deleted, and nine of them
+    // are component URLs on the release host (`component_url:cloudflared.exe` and its siblings) —
+    // that IS what those decisions return. The values cannot be reworded to avoid the hostname
+    // without falsifying the corpus, which would turn the one instrument that still checks the port
+    // into a file that checks itself. The alternative considered and rejected: dropping those nine
+    // cases from the corpus, which would delete the coverage of `component_url` — a function whose
+    // whole output is that hostname.
+    ("agent/summrise-cli/parity/expected.json", "the frozen decision corpus: nine cases ARE the release host the CLI returns, verbatim, as the TypeScript returned it"),
 ];
 
 /// THE LIST MAY ONLY SHRINK, AND THAT SENTENCE HAD NO GATE (round 155). It was written twice in the JS
@@ -211,7 +221,14 @@ const ALLOWED: [(&str, &str); 48] = [
 // port that CONSOLIDATES is a file to declare, not a host to add. (The comment above says 46 -> 47 while the
 // constant read 46, because the list shrank back by one after that raise and this file's prose did not follow
 // it; the number below is the one the ratchet checks, and the ratchet checks both directions.)
-const MAX_ALLOWED: usize = 48;
+//
+// 48 -> 49 ON 2026-10-09, FOR ONE FIXTURE, and the OTHER TWO FILES THIS LANDING TOUCHED WENT THE OTHER WAY:
+// the cutover added `agent/summrise-cli/parity/expected.json` (nine frozen component URLs, declared above)
+// and it REMOVED two files from the undeclared list by consolidating them into the already-declared
+// `agent/summrise-cli/src/endpoints.rs` — `tunnel.rs`'s carried `d1` default and `rollback.rs`'s
+// version.json URL. So the OCCURRENCES in the crate went DOWN while the declared FILES went up by one, which
+// is the direction this list is for. The raise is one, it is visible, and the reason is beside the entry.
+const MAX_ALLOWED: usize = 49;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -401,9 +418,14 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
         "{}",
         ok.stdout
     );
+    // DERIVED FROM THE LIST, NOT WRITTEN OUT: this assertion spelled `48` and broke the moment the
+    // list grew by the one entry landing 4b added — a second owner of a number the constant already
+    // owns, and the kind of copy that turns a raise into a scavenger hunt.
     assert!(
-        ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 48"),
+        ok.stdout.starts_with(&format!(
+            "production-host: 1 occurrence(s) in 1 file(s); {}",
+            ALLOWED.len()
+        )),
         "{}",
         ok.stdout
     );

@@ -2,10 +2,18 @@
 #
 # WHY A FILE, and why this exact list. Round 278/282: a file missing from the tarball does not
 # fail anything — the device's update flow swaps what is there and silently KEEPS THE STALE FILE
-# for what is not, so the release looks fine and the device runs a mixture. The list is the set of
-# files that flow swaps, which is why it is written down rather than derived from package.json's
-# `files[]`: that array lists `bin/` as a DIRECTORY, and a gate that checked for a directory entry
-# would pass while the CLI itself was missing.
+# for what is not, so the release looks fine and the device runs a mixture. What the list names is
+# therefore everything a packed tgz MUST carry: the two exes and the desktop shell's sources (which
+# the device's update flow swaps) plus the npm `bin` (which npm replaces rather than the swap — a
+# missing one is a command that does not exist after `npm i -g`). It is written down rather than
+# derived from package.json's `files[]`, and THAT reason is measured rather than stylistic: the
+# array used to list `bin/` as a DIRECTORY, and a gate that checked for a directory entry would pass
+# while the CLI itself was missing.
+#
+# THAT HAZARD IS GONE (landing 4b): `files[]` lists `bin/summrise.exe`, a FILE, because that is what
+# the CLI is now — a Rust binary the release builds, not a `.js` tsc emitted. The list is still
+# written down rather than derived, for the reason above and because this file is what both builders
+# READ; keeping it the one owner is the point, not the derivation.
 #
 # IT USED TO EXIST TWICE — verbatim, in scripts/publish-release.sh and .github/workflows/release.yml
 # — which is two owners of one fact as long as nobody edits it, and a release gate that checks
@@ -17,13 +25,13 @@
 # AND TWO ENTRIES ARE A PAIR OF BINARY ARTIFACTS RATHER THAN SOURCES (landing 6): the desktop shell's
 # URL/certificate policy is a Rust crate built to wasm, and `main.js` requires its glue, which requires
 # the module. `src/url-policy.js` left this list when the TypeScript it named was deleted; the two
-# `summrise_url_policy*` entries are what the swap stages in its place (summrise.ts's file list names
+# `summrise_url_policy*` entries are what the swap stages in its place (the CLI's file list names
 # the same four files), because a device that received the new main.js and not the module would fail to
 # start the shell at all.
 summrise-agent.exe
 summrise-launch.exe
 README.md
-bin/summrise.js
+bin/summrise.exe
 summrise-desktop-electron/src/main.js
 summrise-desktop-electron/src/preload.js
 summrise-desktop-electron/src/summrise_url_policy.js
