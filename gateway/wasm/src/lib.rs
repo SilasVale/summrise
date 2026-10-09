@@ -393,6 +393,20 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             Err(RouteFailure::Platform(error)) => Err(error),
         };
     }
+    // **THE MCP SURFACE — `/mcp`, the JSON-RPC endpoint a model drives a device through.** One path, and the
+    // predicate is mirrored EXACTLY in `mcp.rs::in_family`, so a path handed over is a path served. The
+    // plugin's OTHER route (`GET /api/plugins/status`) is deliberately NOT in the family: its response carries
+    // the TypeScript plugin registry's own dispatch counters, which this worker does not have and must not
+    // invent. The harness's cutover section proves that it stays where it is.
+    if mcp::in_family(&req.method(), url.path()) {
+        return match mcp::handle(req, &env).await {
+            Ok(response) => Ok(response),
+            // The one arm the endpoint does not answer itself: the source THREW (a JSON body that is a literal
+            // `null` destructures to a TypeError). The shipping front door's catch answers exactly this.
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
     not_found()
 }
 
@@ -408,6 +422,10 @@ pub mod device_store;
 pub mod devices;
 pub mod ip_rate_limit;
 pub mod key_lock;
+pub mod mcp;
+pub mod mcp_browser;
+pub mod mcp_errors;
+pub mod mcp_tools;
 pub mod rate_limit;
 pub mod redact;
 pub mod registry;

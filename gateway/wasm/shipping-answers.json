@@ -3443,5 +3443,797 @@
       429
     ],
     "writes": []
-  }
+  },
+  "tools/list — THE TABLE, all 39 tools, byte for byte": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"tools\":[{\"name\":\"terminal_open\",\"description\":\"Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). THE DEVICE HAS A SESSION CAP: opening one when it is reached EVICTS the idle-longest session, so a session you opened earlier can disappear — expect a later call on it to fail, and check terminal_list before assuming it is still there. Returns session ID.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name from the console Devices list. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"kind\":{\"type\":\"string\",\"enum\":[\"pty\",\"ssh\",\"serial\"]},\"target\":{\"type\":\"string\",\"description\":\"pty: optional (blank = default shell); ssh: user@host:port; serial: port_name (?baud=N&parity=E&data=8&stop=1 optional)\"},\"password\":{\"type\":\"string\",\"description\":\"SSH password (optional — keychain/file store fallback)\"},\"rows\":{\"type\":\"integer\",\"description\":\"Initial terminal rows. Default 0 (backend default).\"},\"cols\":{\"type\":\"integer\",\"description\":\"Initial terminal columns. Default 0 (backend default).\"},\"data_bits\":{\"type\":\"integer\",\"description\":\"(serial) Data bits 5-8. Overrides the target string.\"},\"parity\":{\"type\":\"string\",\"description\":\"(serial) Parity: none|odd|even. Overrides the target string.\"},\"stop_bits\":{\"type\":\"integer\",\"description\":\"(serial) Stop bits 1 or 2. Overrides the target string.\"},\"key_path\":{\"type\":\"string\",\"description\":\"(ssh) Path to a private key file. When set, public-key auth is used; password (if any) is the key passphrase.\"},\"auto_reconnect\":{\"type\":\"boolean\",\"description\":\"(serial) Auto-reconnect when the port disappears (unplug / device reboot): the session stays open and re-opens the SAME port with the SAME framing when it reappears. Default false.\"}},\"required\":[\"kind\"]}},{\"name\":\"terminal_screen\",\"description\":\"Get the current on-screen text of a terminal session — the tail of the output buffer (ANSI-stripped), for AI readability. Returns up to `lines` lines (default 60).\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"},\"lines\":{\"type\":\"integer\",\"description\":\"Number of lines from the tail. Default 60.\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_execute\",\"description\":\"Run a command. If `session_id` is given, writes the command to that session and waits for output (prompt-marker detection on PTY shells, quiet-period fallback otherwise). Otherwise spawns a local shell with enforced timeout. Session mode returns {kind, state, text, read_from, wait_reason, exit_code, truncated, still_running}: state=done means text is COMPLETE; partial/timeout means text is a PREFIX and `still_running=true` — the command is STILL RUNNING, continue with terminal_read(offset=read_from) until you see the prompt/exit. NEVER re-run a command or open a new session just because a partial was returned: the output arrives in the SAME session's buffer; opening new sessions (terminal_open) while old commands run is what causes output to look interleaved/queued. Long silent SSH commands: prefer run_in_background:true or bigger timeout_secs (idle window scales: ssh 3s, serial 4s, pty 1s). Local mode returns {kind, text, truncated}. `run_in_background: true` (session mode) writes the command and returns immediately with a read_from cursor — collect output via terminal_read; do NOT busy-poll, the wait loop is the foreground path. Note: a quiet timeout or truncation does not prove the foreground command exited.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"},\"input\":{\"type\":\"string\",\"description\":\"The command to run in the session\"},\"timeout_secs\":{\"type\":\"integer\",\"description\":\"Max wait time in seconds. Default 30.\"},\"quiet_ms\":{\"type\":\"integer\",\"description\":\"(fallback) Quiet period in ms before considering output complete. Default 200.\"},\"run_in_background\":{\"type\":\"boolean\",\"description\":\"(Session mode) Write the command and return immediately with a read_from cursor; collect via terminal_read. Default false.\"},\"intent\":{\"type\":\"string\",\"description\":\"Optional: WHY you are running this, in one sentence. Recorded with the command and shown to the operator on the session's path — it is what turns a list of commands into a readable account of what you were doing and why. Send it whenever the reason is not obvious from the command itself.\"},\"considered\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Optional: the alternatives you passed over for this step (short labels, max 8). Recorded and shown as the branches NOT taken, which is the part a command log can never reconstruct. Send it when you made a real choice — not for the only way to do something.\"},\"plan_step\":{\"type\":\"integer\",\"description\":\"Optional: which step of your declared terminal_plan this command advances (1-based). Lets the operator see the plan being followed — or quietly abandoned — instead of having to guess which command served which step.\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this command belongs to. One run spans many commands AND browser actions, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id verbatim.\"},\"approval_id\":{\"type\":\"string\",\"description\":\"Optional: the approval id from a result whose state was `awaiting_approval`. If the operator has since approved, the command runs without asking again; the permit covers exactly this command text, once. Omit it for a normal execute.\"}},\"required\":[\"input\"]}},{\"name\":\"terminal_write\",\"description\":\"Write data to a terminal session, or assert a line BREAK on a serial one. `data` is UTF-8 text (JSON strings cannot carry arbitrary bytes); use `data_base64` for binary frames (control bytes, non-UTF-8 serial protocols) — it is decoded and written exactly as given. For shell commands on Unix devices (serial/ssh to Linux), the command must end with a newline (\\\\n) — otherwise the shell joins it with whatever is typed next, mangling both. For Windows PowerShell use \\\\r\\\\n. Control characters (e.g. \\\\u0003 for Ctrl+C) are sent verbatim and need no newline. `break_ms` (serial sessions only) asserts a BREAK on the line for that many milliseconds — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor, and the one thing a browser terminal cannot send.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"},\"data\":{\"type\":\"string\",\"description\":\"UTF-8 text to write. Required unless data_base64 or break_ms is given.\"},\"data_base64\":{\"type\":\"string\",\"description\":\"Base64-encoded bytes to write (for binary frames). Takes precedence over data.\"},\"break_ms\":{\"type\":\"integer\",\"description\":\"Assert a BREAK on a serial line for this many ms (default 250, max 5000) — the signal that interrupts a bootloader's autoboot or drops into a ROM monitor. Serial sessions only; a PTY/SSH session refuses by name. Takes precedence over data.\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_read\",\"description\":\"Read buffered output from a terminal session. Non-destructive: uses a cursor so repeating the call without `offset` returns only new output since last read. `offset` is an ABSOLUTE byte offset into the session's byte stream; the response's `start`/`end` are the absolute span actually returned. A single read returns AT MOST 1 MiB: for a session that has produced more, the oldest bytes in the requested window are not returned, and `start` will be GREATER than the `offset` you asked for — that gap is the only signal, and it cannot be retrieved by any offset, so treat a `start` above your `offset` as the head being unavailable. Reads work on closed sessions (retained history). ANSI escapes are stripped and line endings normalized by default (AI-readable); pass `clean: false` for raw bytes.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\",\"description\":\"ABSOLUTE byte offset to start reading from. 0 = beginning. Default = last cursor position.\"},\"clean\":{\"type\":\"boolean\",\"description\":\"Strip ANSI escapes and normalize \\\\r\\\\n → \\\\n. Default true.\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_resize\",\"description\":\"Resize a terminal session (PTY or SSH). `rows`/`cols` are OPTIONAL and default to 24x80 — the handler has always defaulted them, so declaring them required was a schema claim the code contradicted, and it forbade a call the device answers.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"},\"rows\":{\"type\":\"integer\"},\"cols\":{\"type\":\"integer\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_select\",\"description\":\"Set the active terminal session. This is a client-liveness heartbeat: it keeps the idle sweeper from reaping a quiet-but-watched session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_plan\",\"description\":\"Declare, revise, clear or read this session's PLAN — the steps you intend to take, in order. Call it before starting a multi-step task so the operator can see what you are about to do and judge it; call it again with a revised list when the plan changes. Pass an empty array to clear it. With `plan` omitted it just returns the current plan. Steps are short labels, not explanations — put the reasoning for a specific command in terminal_execute's `intent`, and name the step a command advances with terminal_execute's `plan_step`.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\",\"description\":\"The session this plan is for.\"},\"plan\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"The steps, in order (max 24, each a short line). An empty array CLEARS the plan. Omit the key entirely to read the current plan without changing it.\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this plan belongs to. A declared plan belongs to the run that declared it, so passing the id lets an operator see what a run said it would do next to what it actually did.\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_history\",\"description\":\"List ALL terminal sessions, including closed ones retained in history. Each entry: {id, kind, label, status: 'live'|'closed', bytes, closed_at? (unix seconds), exit_code? (natural shell exit code)}. Closed entries sorted newest-first. (This said \\\"closed sessions\\\" only, contradicting its own `limit` parameter below and the device, which always includes live sessions.)\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"limit\":{\"type\":\"integer\",\"description\":\"Max entries to return (default 20; live sessions are always included).\"}},\"required\":[]}},{\"name\":\"terminal_list\",\"description\":\"List all active terminal sessions (PTY, SSH, and serial).\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"terminal_list_ports\",\"description\":\"List available serial ports on this machine.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"terminal_close\",\"description\":\"Close a terminal session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}},{\"name\":\"terminal_diag_write\",\"description\":\"POST a diagnostic line from the terminal panel (poll results, adopt events, SSE status, errors). Stored in a process-lifetime ring buffer (cap 200), read via terminal_diag_read.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"line\":{\"type\":\"string\"}},\"required\":[\"line\"]}},{\"name\":\"terminal_diag_read\",\"description\":\"Read the panel diagnostic ring buffer (newest last). Returns {entries: [...]}.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"secret_set\",\"description\":\"Store a secret (an SSH password) for a target host, so later sessions to that host do not need it inline. The device is a SERVICE, not a desktop app: it tries the OS keychain first and falls back to a file store, so this works headless. PREFER THIS over putting a password in a command — the audit trail records full command text, and a password in it is a password in the record. Lives on the device agent — the browser extension is not involved.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"target\":{\"type\":\"string\",\"description\":\"SSH target (user@host:port)\"},\"password\":{\"type\":\"string\"}},\"required\":[\"target\",\"password\"]}},{\"name\":\"secret_get\",\"description\":\"Retrieve a stored secret for a target host. Returns the password or null. The store is the DEVICE agent's own — OS keychain first, then a file.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"target\":{\"type\":\"string\"}},\"required\":[\"target\"]}},{\"name\":\"secret_delete\",\"description\":\"Delete a stored secret for a target host. The store is the DEVICE agent's own — OS keychain first, then a file.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"target\":{\"type\":\"string\"}},\"required\":[\"target\"]}},{\"name\":\"terminal_saved_connections\",\"description\":\"List saved terminal connections (successfully-opened sessions). Each entry has id (kind:target), kind, target, label and the original open params — reconnect with terminal_connect_saved. Connect-failures are not saved; a reconnect updates the entry.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"terminal_jobs\",\"description\":\"Background-job registry. With no params: list recent run_in_background jobs {job_id, command, done, exit_code}. With {job_id, wait_secs}: block until that job finishes or the timeout elapses, then return its final state. THIS IS HOW A run_in_background EXECUTION IS COLLECTED — terminal_execute advertises run_in_background, and the job record exists precisely so callers poll here instead of blind-reading the session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"job_id\":{\"type\":\"string\",\"description\":\"Job id returned by terminal_execute(run_in_background:true).\"},\"wait_secs\":{\"type\":\"integer\",\"description\":\"Max seconds to wait for completion when job_id is given. Default 0 (instant snapshot).\"}},\"required\":[]}},{\"name\":\"terminal_forget_saved\",\"description\":\"Remove a saved terminal connection by id (from terminal_saved_connections) and delete its stored password (ssh targets). The live session, if any, is untouched.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"id\":{\"type\":\"string\",\"description\":\"The id (kind:target) from terminal_saved_connections.\"}},\"required\":[\"id\"]}},{\"name\":\"terminal_connect_saved\",\"description\":\"Reconnect to a saved terminal connection (from terminal_saved_connections) by id. Replays the saved params through terminal_open; returns the new session id. Optional params override the saved ones.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"id\":{\"type\":\"string\"},\"rows\":{\"type\":\"integer\",\"description\":\"Override the saved row count.\"},\"cols\":{\"type\":\"integer\",\"description\":\"Override the saved column count.\"}},\"required\":[\"id\"]}},{\"name\":\"terminal_env\",\"description\":\"Environment info for the AI when driving this device's terminal: default shell, install dir, bundled node.exe (for one-off node scripts run via terminal_execute), and usage guidance. Run BEFORE opening sessions/executing commands.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"browser_pw_info\",\"description\":\"Info about the BUNDLED Playwright runtime on this device (no install needed — AI agents must reuse it instead of installing their own): returns pw_dir, playwright-core version, node.exe path, chromium availability, screenshot output dir, and a ready-to-use script template. Combined with browser_run_script this is the canonical way to drive this device's browser.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"browser_run_script\",\"description\":\"Run a self-contained Node/Playwright script with the device's BUNDLED node + playwright-core (never install your own). Scripts run with SUMMRISE_BROWSER_HELPER set (acquireBrowser(): attaches to the visible embedded view when present so actions show live, else private headless) — prefer it over launching your own browser; headless only for batch jobs that must not disturb the watched screen. Concurrency: calls run as independent processes with NO runner lock — headless runs are fully parallel, but attached runs SHARE the single visible tab (one view shows one page; parallel visible drivers interleave, so keep interactive work serial). Screenshot namespacing: pass shots as \\\"<SUMMRISE_RUN_ID>-*.png\\\" (env, unique per call) for exact attribution under concurrency; the returned list is otherwise a best-effort before/after diff. Params: script (JS source, CommonJS; follow the browser_pw_info template), timeout_secs (default 120, max 600). Screenshots saved to the pwout dir are listed in the result. Returns exit_code, stdout, stderr (each capped), screenshots, timed_out.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"script\":{\"type\":\"string\"},\"timeout_secs\":{\"type\":\"integer\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands. This is NOT SUMMRISE_RUN_ID (the per-call env stem used for screenshot namespacing) — pass back the id run_begin gave you.\"}},\"required\":[\"script\"]}},{\"name\":\"system_file_upload\",\"description\":\"Send a local file to the Summrise relay and return its one-time download URL (the other half of the file-transfer pair: hand that URL to system_file_download on the receiving device, or fetch it here on Linux). THE BYTES NEVER PASS THROUGH THE AI CONTEXT, so a 100 MB image is fine. The agent DOES read the file into memory before relaying it, so the cost is bounded by the 100 MiB transfer cap and the upload is NOT streamed from disk — this sentence claimed streaming, which the code has never done (`fs::read` + a buffered body); the DOWNLOAD direction really does stream, which is what made the claim look verified (system_file_write is the ≤4 MiB inline path only). The relay holds it until first download or 24 h. Returns {ok, url, bytes}.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"path\":{\"type\":\"string\",\"description\":\"Absolute path of the file on the device to send.\"}},\"required\":[\"path\"]}},{\"name\":\"system_file_download\",\"description\":\"Receive a file onto THIS device (the agent host) from a URL — the device fetches it directly, so the bytes NEVER pass through the AI context (this is how a 100 MB firmware image moves; system_file_write is only for ≤4 MiB inline text). Pair with system_file_upload: the sender uploads to the Summrise relay and hands back the one-time URL, this tool lands it. Returns {ok, path, bytes}. Destination is any absolute path (parents are created; relative = <data dir>/downloads). The write is staged as <path>.part and renamed, so a truncated transfer never appears complete. IP-literal hosts are refused (SSRF guard) — use a hostname.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"url\":{\"type\":\"string\",\"description\":\"HTTP/HTTPS URL to fetch (a relay URL from system_file_upload).\"},\"path\":{\"type\":\"string\",\"description\":\"Destination on the device (absolute recommended, e.g. D:\\\\Summrise\\\\downloads\\\\fw.bin). Parent dirs are created; a relative name lands under <data dir>/downloads.\"}},\"required\":[\"url\",\"path\"]}},{\"name\":\"browser_open\",\"description\":\"Open/navigate the controlled tab for a device to a URL. Returns a snapshot.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"},\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}},{\"name\":\"browser_snapshot\",\"description\":\"Get the interactive element tree of the controlled tab.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"}},\"required\":[]}},{\"name\":\"browser_screenshot\",\"description\":\"Capture a PNG screenshot of the controlled tab (image).\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"},\"fullPage\":{\"type\":\"boolean\"}},\"required\":[]}},{\"name\":\"browser_click\",\"description\":\"Click an element (by ref from a snapshot, e.g. 6 for e6) in the controlled tab. Returns a snapshot.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"},\"element_ref\":{\"type\":\"integer\",\"description\":\"snapshot ref number (rendered as e<N> target)\"}},\"required\":[\"element_ref\"]}},{\"name\":\"browser_type\",\"description\":\"Focus an element and type text into it (real input events). Returns a snapshot.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"},\"element_ref\":{\"type\":\"integer\"},\"text\":{\"type\":\"string\"}},\"required\":[\"element_ref\",\"text\"]}},{\"name\":\"browser_wait\",\"description\":\"Wait in the controlled tab: for `text` to appear, for `text_gone` to disappear, or for `time` seconds to pass. The server requires at least one; none is marked required here so its rule is the one that applies. Returns a snapshot.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"},\"text\":{\"type\":\"string\",\"description\":\"Wait for this text to appear.\"},\"text_gone\":{\"type\":\"string\",\"description\":\"Wait for this text to disappear.\"},\"time\":{\"type\":\"number\",\"description\":\"Seconds to wait.\"}}}},{\"name\":\"browser_close\",\"description\":\"Close the controlled tab for a device.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"Optional: the id returned by run_begin, naming the execution this browser action belongs to. One run spans browser actions AND terminal commands, so this is what lets an operator see a coherent piece of work instead of the day's traffic. Pass back the id run_begin gave you.\"}},\"required\":[]}},{\"name\":\"run_begin\",\"description\":\"Declare the start of ONE run — one execution of your work on this device — and get back the `run_id` that names it. Call it when you begin a piece of work that spans more than a single command, then pass the id to run_end when you stop. The device cannot tell two AIs apart (the token identifies the device, not the caller), so this declared boundary is what lets an operator see that a set of commands and browser actions belonged to one execution rather than to the day's whole traffic. The id is minted here and embeds its start time; store it and pass it back verbatim.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"label\":{\"type\":\"string\",\"description\":\"Optional: a short human-readable name for this run, e.g. \\\"provision the ONU on VLAN 100\\\". Shown to the operator, so keep it to a phrase. A blank label is recorded as absent, not as an empty string.\"},\"goal\":{\"type\":\"string\",\"description\":\"Optional: the objective this run is pursuing, when you know it. Distinct from the session goal the OPERATOR sets — one goal can span several runs (a retry after a failure), and a run can have no goal at all.\"}},\"required\":[]}},{\"name\":\"run_end\",\"description\":\"Declare that a run started with run_begin is finished, so an operator sees a closed interval instead of work that never stopped. Pass back the `run_id` run_begin gave you. A run left unclosed is NOT an error — the device renders it as open with the extent of the events it actually carries, because a client may still be working, may have stopped, or the agent may have restarted. `known` in the reply says whether this id was ever minted here; it is information for you, never a permission.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"run_id\":{\"type\":\"string\",\"description\":\"The id returned by run_begin.\"},\"outcome\":{\"type\":\"string\",\"description\":\"Optional: how it ended, in a word or a short phrase (\\\"done\\\", \\\"failed: ONU did not register\\\"). Omit it rather than guessing — an absent outcome is rendered as nothing, never as a failure.\"}},\"required\":[\"run_id\"]}},{\"name\":\"monitor_list\",\"description\":\"List the host:port targets this device watches over TCP, with each one's summary and its most recent probes. The summary carries what an operator asks first: `up_now`, `since_ms` (when the CURRENT state began — the number that turns a state into a story), `up_pct`, the latency range, `drops` (how many times it fell from up to down inside the window — a target that is down now contributes the drop that started it), `last_status` (the HTTP status code, for a target watched with a path) and `last_expect_ok` (whether the body contained the expected text, when one was given). The series is oldest-first; a probe with `ok: false` carries NO latency (nothing was measured) and a GAP in time is a probe that failed. `transitions` is the LOG of state changes — when it went down or came back, and how long the state it ended had lasted (for a recovery, the OUTAGE), which is the form a person writes into a report. The device probes every 15 s on its own timer, so this is what happened while you were doing something else — including whether something you did took a host down.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"}},\"required\":[]}},{\"name\":\"monitor_add\",\"description\":\"Start watching a host:port on this device and leave the watch in place. The list is PERSISTED, so a watch you add survives an agent restart and is still there for the operator afterwards — add one when something you are about to touch must be seen coming back. The probe is a TCP connect: a REFUSED connection counts as down (the service is not there), which is the question this instrument answers. Adding the same host:port (and path) twice is idempotent — it is the same watch, not a second one. A port is required: name the SERVICE (22 for SSH, 80 for a web UI), because guessing it would probe the wrong thing and report it as fact.          `path` turns the check into a real HTTP GET of that path (\\\"/\\\" for a UI's front page, \\\"/api/health\\\" for a health endpoint): the probe then records the STATUS CODE, and `ok` means a response arrived with a status below 500 — so a UI answering 500 is DOWN while one answering 401 is UP (it wants credentials, and it is serving). Without a path the probe is a bare TCP connect, which cannot tell those apart. HTTP only: a TLS check needs a certificate story this instrument does not have. When `expect` is given, `ok` also means the body contained it — so a UI answering 200 with a login page is DOWN.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"host\":{\"type\":\"string\",\"description\":\"IP address or name, e.g. \\\"192.168.1.1\\\".\"},\"port\":{\"type\":\"integer\",\"description\":\"TCP port to connect to, 1-65535.\"},\"path\":{\"type\":\"string\",\"description\":\"Optional HTTP path to GET, e.g. \\\"/\\\" or \\\"/api/health\\\". Omit for a plain TCP connect check.\"},\"expect\":{\"type\":\"string\",\"description\":\"Optional text the response body MUST contain (needs a path). A page that answers 200 without it counts as down — the difference between a working UI and a login page or a starting-up stub.\"}},\"required\":[\"host\",\"port\"]}},{\"name\":\"monitor_remove\",\"description\":\"Stop watching a target. `removed` says whether anything was being watched under that id — removing one that is not there is reported as a no-op, never as a success. Removing a watch DISCARDS its series: the record is gone, not hidden.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"id\":{\"type\":\"string\",\"description\":\"The target id from monitor_list (\\\"host:port\\\").\"}},\"required\":[\"id\"]}},{\"name\":\"monitor_probe\",\"description\":\"Probe one watched target RIGHT NOW and return the result plus the refreshed summary — the synchronous half of the instrument, against the 15 s timer that runs on its own. Use it as a BEFORE and AFTER around anything that could take a host down or bring it back: probe, act, probe. It is recorded in the series like any other probe, so the pair also becomes part of what the operator sees.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"device\":{\"type\":\"string\",\"description\":\"Device name. OPTIONAL — omit when only one device is registered (it is used automatically).\"},\"id\":{\"type\":\"string\",\"description\":\"The target id from monitor_list (\\\"host:port\\\").\"}},\"required\":[\"id\"]}}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with no Authorization at all": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with an unknown token": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with a USER-role token": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with a SUSPENDED admin's token": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with the RELAY token (ADR-0007's downgrade resolves to role relay)": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with a token whose user record is gone": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with a lowercase `bearer` prefix": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/list with `Bearer` and no token": {
+    "status": 401,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Unauthorized: admin token required\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /mcp": {
+    "status": 405,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Method not allowed\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "DELETE /mcp": {
+    "status": 405,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Method not allowed\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /mcp with a body that is not JSON": {
+    "status": 400,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /mcp with an EMPTY body": {
+    "status": 400,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /mcp with the literal body `null`": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /mcp with a JSON string body": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found: undefined\"}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /mcp with a JSON number body": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found: undefined\"}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "ping": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "ping with id null": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":null}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "ping with NO id key at all": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "ping with a string id": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":\"abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "ping with an object id": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":{\"a\":1}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "initialize with no params": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"summrise-gate\",\"version\":\"0.1.0\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "initialize with a protocolVersion": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"summrise-gate\",\"version\":\"0.1.0\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "initialize with a FALSY protocolVersion": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"summrise-gate\",\"version\":\"0.1.0\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "initialize with a numeric protocolVersion": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"protocolVersion\":5,\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"summrise-gate\",\"version\":\"0.1.0\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "notifications/initialized": {
+    "status": 202,
+    "body": "",
+    "headers": [],
+    "writes": [],
+    "calls": []
+  },
+  "notifications/cancelled": {
+    "status": 202,
+    "body": "",
+    "headers": [],
+    "writes": [],
+    "calls": []
+  },
+  "an unknown method": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found: nonsense/method\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "a method that is a number": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found: 5\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with an unknown tool name": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Unknown tool: nosuch_tool\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with no tool name at all": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Unknown tool: undefined\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with a NUMERIC tool name": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Unknown tool: 5\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call for a browser tool with NO devices registered": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"No devices registered — register one on the console Devices page first\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with several devices and no device name": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Multiple devices registered — specify device: d1, d2\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with a typo'd device name": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Unknown device: og. Registered devices: d1, d2\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with a NUMERIC device name": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Unknown device: 5. Registered devices: d1, d2\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "tools/call with ONE device and no name — the fallback executes on it": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "tools/call with arguments as a STRING": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"0\":\"a\",\"1\":\"b\"}"
+    ]
+  },
+  "tools/call with arguments as an ARRAY": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"0\":\"x\",\"1\":\"y\"}"
+    ]
+  },
+  "tools/call with arguments as a NUMBER": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "tools/call with arguments null": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "tools/call with NO arguments key": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "terminal_list": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":[{\\\"id\\\":\\\"term-1\\\",\\\"kind\\\":\\\"pty\\\"}]}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "terminal_execute — the rename, the stripped device, the quiet default": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":{\\\"state\\\":\\\"done\\\",\\\"text\\\":\\\"ok\\\"}}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-1\",\"timeout_secs\":30,\"command\":\"ls -la\",\"quiet_ms\":200}"
+    ]
+  },
+  "terminal_execute with quiet_ms 0 — NULLISH, not falsy": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":{}}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"quiet_ms\":0,\"command\":\"ls\"}"
+    ]
+  },
+  "terminal_execute with every optional field the device takes": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":{}}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-1\",\"timeout_secs\":5,\"quiet_ms\":250,\"run_in_background\":true,\"intent\":\"why\",\"considered\":[\"a\",\"b\"],\"plan_step\":2,\"run_id\":\"run-1\",\"approval_id\":\"app-1\",\"command\":\"uptime\"}"
+    ]
+  },
+  "terminal_write — data and data_base64 forwarded verbatim": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_write auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-1\",\"data_base64\":\"AAEC\"}"
+    ]
+  },
+  "a tool the DEVICE does not have (the agent's own typed refusal)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool system_file_upload failed: no such tool: system_file_upload\",\"data\":{\"code\":\"TOOL_ERROR\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/system_file_upload auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"path\":\"/tmp/x\"}"
+    ]
+  },
+  "a device answer that is NOT JSON (a proxy error page)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: Device returned 502 with a body that is not JSON (an empty or truncated reply, or a proxy's error page). Nothing was executed as far as this call can tell.\",\"data\":{\"code\":\"TOOL_ERROR\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "a device answer that is the literal `null`": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: Device returned 200 with a body that is not JSON (an empty or truncated reply, or a proxy's error page). Nothing was executed as far as this call can tell.\",\"data\":{\"code\":\"TOOL_ERROR\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "the device is OFFLINE (the transport throws)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: Device unreachable: connect ECONNREFUSED 10.0.0.1:443\",\"data\":{\"code\":\"DEVICE_UNREACHABLE\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "the device TIMES OUT (the runtime aborts)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: Device unreachable: timeout after 60000ms\",\"data\":{\"code\":\"TIMEOUT\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "a device hostname that is PRIVATE (the SSRF guard)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: device hostname resolves to a private/internal address\",\"data\":{\"code\":\"DEVICE_UNREACHABLE\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "a device hostname outside the suffix allowlist": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_list failed: hostname must be under .agent.test\",\"data\":{\"code\":\"DEVICE_UNREACHABLE\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "the device's own session_busy code": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: Session busy\",\"data\":{\"code\":\"SESSION_BUSY\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-1\",\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "the device's own ssh_timeout code": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: ssh timed out after 30s\",\"data\":{\"code\":\"TIMEOUT\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "a typed code this side has no better name for (device UP, tool failed)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: serial port not found: COM9\",\"data\":{\"code\":\"TOOL_ERROR\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "an UNTYPED device refusal, matched by its message": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: Session not found: term-9\",\"data\":{\"code\":\"SESSION_NOT_FOUND\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "an untitled device refusal with no message at all": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: Device returned 500\",\"data\":{\"code\":\"DEVICE_UNREACHABLE\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "terminal_execute on a STALE session retargets to the one live session": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":{\\\"state\\\":\\\"done\\\",\\\"text\\\":\\\"ok\\\"},\\\"note\\\":\\\"session_id term-old was stale (agent restart?) — call retargeted to the live session term-new\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-old\",\"command\":\"ls\",\"quiet_ms\":200}",
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}",
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-new\",\"command\":\"ls\",\"quiet_ms\":200}"
+    ]
+  },
+  "a stale session and NO live sessions — the pointer at terminal_open": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: session term-old not found and the device has no live sessions — open one with terminal_open first\",\"data\":{\"code\":\"SESSION_NOT_FOUND\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-old\",\"command\":\"ls\",\"quiet_ms\":200}",
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "a stale session and SEVERAL live ones — the list comes back": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool terminal_execute failed: session term-old not found. Live sessions on d1: term-a, term-b — pass one of these as session_id\",\"data\":{\"code\":\"SESSION_NOT_FOUND\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-old\",\"command\":\"ls\",\"quiet_ms\":200}",
+      "POST /api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "terminal_close on a session that is already gone is a SUCCESS": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"note\\\":\\\"session term-old was already gone (agent restart?) — nothing to close\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/terminal_close auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"session_id\":\"term-old\"}"
+    ]
+  },
+  "browser_open — the tool map and the arguments": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"snapshot text\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"},\"run_id\":\"run-1\"}"
+    ]
+  },
+  "browser_open with timeout_secs 5000 — clamped to 300": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\",\"timeout_secs\":300}}"
+    ]
+  },
+  "browser_click — element_ref becomes the {target, element} protocol": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"clicked\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_click\",\"arguments\":{\"device\":\"d1\",\"target\":\"e6\",\"element\":\"target element\"}}"
+    ]
+  },
+  "browser_click with an already-prefixed ref": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"clicked\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_click\",\"arguments\":{\"device\":\"d1\",\"target\":\"e7\",\"element\":\"target element\"}}"
+    ]
+  },
+  "browser_type — element_ref plus text": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"typed\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_type\",\"arguments\":{\"device\":\"d1\",\"text\":\"hello\",\"target\":\"e2\",\"element\":\"target element\"}}"
+    ]
+  },
+  "browser_wait — text_gone becomes the shipped server's textGone": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"waited\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_wait_for\",\"arguments\":{\"device\":\"d1\",\"textGone\":\"Loading\"},\"run_id\":\"run-2\"}"
+    ]
+  },
+  "browser_screenshot — a data-URL result becomes an image block": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"QUJDRA==\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_take_screenshot\",\"arguments\":{\"device\":\"d1\",\"fullPage\":true}}"
+    ]
+  },
+  "browser_close": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"closed\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_close\",\"arguments\":{\"device\":\"d1\"}}"
+    ]
+  },
+  "browser_pw_info — DEVICE-DIRECT, not the bridge (the routing partition)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":{\\\"pw_dir\\\":\\\"D:/Summrise/pw\\\"}}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/browser_pw_info auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={}"
+    ]
+  },
+  "browser_run_script — DEVICE-DIRECT too": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"exit_code\\\":0,\\\"stdout\\\":\\\"1\\\\n\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/browser_run_script auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=manual body={\"script\":\"return 1;\",\"timeout_secs\":60}"
+    ]
+  },
+  "the browser bridge SELF-HEALS: not connected → start → connect → retry": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"healed\\\"}\"}]},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"}}",
+      "POST /api/plugins/playwright/start auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body=-",
+      "POST /api/tools/mcp_client_connect auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={}",
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"}}"
+    ]
+  },
+  "the browser bridge gives up after the retry (an UNCODED failure)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool browser_open failed: not connected\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"}}",
+      "POST /api/plugins/playwright/start auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body=-",
+      "POST /api/tools/mcp_client_connect auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={}",
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"}}"
+    ]
+  },
+  "a browser call on a PRIVATE hostname (the bridge's own SSRF guard)": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool browser_open failed: device hostname resolves to a private/internal address\",\"data\":{\"code\":\"DEVICE_UNREACHABLE\"}},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "a browser call whose device answers with a body that is not JSON": {
+    "status": 200,
+    "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool browser_open failed: mcp_client_call failed: 500\"},\"id\":1}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST /api/tools/mcp_client_call auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 redirect=follow body={\"tool\":\"browser_navigate\",\"arguments\":{\"device\":\"d1\",\"url\":\"https://example.test/\"}}"
+    ]
+  },
+  "GET /mcp — the SSE stream: status, headers, and the first keep-alive frame": {
+    "status": 200,
+    "headers": [
+      "cache-control: no-cache",
+      "content-type: text/event-stream"
+    ],
+    "frame": ": keepalive\n\n"
+  },
+  "the per-device browser semaphore: four in flight, the fifth SESSION_BUSY": [
+    "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Tool browser_open failed: too many concurrent browser calls on device d1 — retry shortly\",\"data\":{\"code\":\"SESSION_BUSY\"}},\"id\":1}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}"
+  ]
 }

@@ -44,12 +44,11 @@
 //! install.
 
 use std::sync::Mutex;
-use std::time::Duration;
 
-use futures_util::future::Either;
 use serde_json::{json, Map, Value};
 use worker::*;
 
+use crate::device::DialInit;
 use crate::device_registry as registry;
 use crate::device_store as store;
 use crate::session_gate;
@@ -134,18 +133,6 @@ pub fn decode_device_name(segment: &str) -> Option<String> {
 
 /// `/^[a-z][a-z0-9+.-]*:/i` — a leading scheme in the authority prefix, which is the other way a `restPath` can
 /// re-root the URL the device token is sent to.
-fn starts_like_a_scheme(authority: &str) -> bool {
-    let Some((head, _)) = authority.split_once(':') else {
-        return false;
-    };
-    let mut chars = head.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
-}
-
 /// Does this request belong to the family at all? Used by the front door's cutover AND by `handle`, so a path
 /// that is handed over is a path that is served — the two cannot drift.
 pub fn in_family(method: &Method, path: &str) -> bool {
@@ -326,109 +313,12 @@ fn public_rate_limited(request: &Request) -> bool {
     crate::ip_rate_limit::check(crate::ip_rate_limit::PUBLIC_RATE, &mut counters, &ip, now)
 }
 
-/* ─────────────────────────── the device dial ─────────────────────────── */
-
-/// The answer `deviceFetch` gives its callers.
-struct DeviceDial {
-    /// `deviceFetch`'s `{ status, ok, resp, error }`, of which this slice's two dial sites read `resp` alone.
-    /// The status is kept because it IS the contract — the reverse-proxy slice reads it, and a port that
-    /// dropped it would have to re-derive it from the response.
-    #[allow(dead_code)]
-    status: u16,
-    resp: Option<Response>,
-}
-
-/// `deviceFetch(env, device, "/api/status")` — the dial the registration paths make to read the device's
-/// `proxy_secret`, with the SSRF guard stack the source documents: the authority-prefix rejection, the parsed
-/// hostname equality, the private-IP blocklist, the suffix allowlist, and `redirect: "manual"`.
-async fn device_fetch(env: &Env, hostname: &str, token: &str, rest_path: &str) -> DeviceDial {
-    // round-120/121: a `restPath` carrying userinfo or a scheme can re-root the URL, and the token goes with it.
-    // The check is narrowed to the AUTHORITY-relevant prefix (up to the first `/`, `?` or `#`) because an
-    // at-sign in a query string is legitimate.
-    let authority = rest_path.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') || starts_like_a_scheme(authority) {
-        return DeviceDial {
-            status: 400,
-            resp: None,
-        };
-    }
-    let path = if rest_path.starts_with('/') {
-        rest_path.to_string()
-    } else {
-        format!("/{rest_path}")
-    };
-    let url = format!("https://{hostname}{path}");
-    let parsed = match Url::parse(&url) {
-        Ok(url) => url,
-        Err(_) => {
-            return DeviceDial {
-                status: 400,
-                resp: None,
-            }
-        }
-    };
-    if parsed.host_str().unwrap_or_default().to_lowercase() != hostname.to_lowercase() {
-        return DeviceDial {
-            status: 400,
-            resp: None,
-        };
-    }
-    if crate::device::device_host_error(parsed.host_str().unwrap_or_default()).is_some() {
-        return DeviceDial {
-            status: 400,
-            resp: None,
-        };
-    }
-    let suffix = env
-        .var("DEVICE_HOST_SUFFIX")
-        .ok()
-        .map(|v| v.to_string())
-        .filter(|v| !v.is_empty());
-    if crate::device::host_allow_error(hostname, suffix.as_deref()).is_some() {
-        return DeviceDial {
-            status: 400,
-            resp: None,
-        };
-    }
-
-    let headers = Headers::new();
-    let _ = headers.set("Authorization", &format!("Bearer {token}"));
-    let mut init = RequestInit::new();
-    init.with_method(Method::Get);
-    init.with_headers(headers);
-    init.with_redirect(RequestRedirect::Manual);
-    match fetch_with_timeout(&url, &init, 15_000).await {
-        Ok(resp) => DeviceDial {
-            status: resp.status_code(),
-            resp: Some(resp),
-        },
-        Err(_) => DeviceDial {
-            status: 502,
-            resp: None,
-        },
-    }
-}
-
-/// `fetchWithTimeout(url, init, ms)` — the same shape `v1.rs` uses and for the same recorded reason: 0.8.7's
-/// `RequestInit` has no `signal`, so this RACES the fetch against a `Delay`.
-async fn fetch_with_timeout(url: &str, init: &RequestInit, timeout_ms: u64) -> Result<Response> {
-    let request = Request::new_with_init(url, init)?;
-    let fetcher = Fetch::Request(request);
-    let fetch = fetcher.send();
-    let delay = Delay::from(Duration::from_millis(timeout_ms));
-    futures_util::pin_mut!(fetch);
-    futures_util::pin_mut!(delay);
-    match futures_util::future::select(fetch, delay).await {
-        Either::Left((result, _)) => result,
-        Either::Right((_, _)) => Err(Error::RustError("timeout".into())),
-    }
-}
-
 /// `deviceFetch(env, device, "/api/status")` → the `proxy_secret` a NEW record should carry, when the device
 /// answers with one at least 32 characters long. Every failure arm — unreachable, non-JSON, too short — is the
 /// source's `catch`, and the caller carries on without a secret.
 async fn probe_proxy_secret(env: &Env, hostname: &str, token: &str) -> Option<String> {
-    let dial = device_fetch(env, hostname, token, "/api/status").await;
+    let dial =
+        crate::device::device_fetch(env, hostname, token, "/api/status", DialInit::get()).await;
     let mut resp = dial.resp?;
     let text = resp.text().await.ok()?;
     let body: Value = serde_json::from_str(&text).ok()?;
@@ -569,7 +459,14 @@ async fn handle_self_register(request: &mut Request, env: &Env) -> Result<Respon
             let proved = match &stored_secret {
                 Some(secret) => {
                     let dial =
-                        device_fetch(env, &stored_hostname, &stored_token, "/api/status").await;
+                        crate::device::device_fetch(
+                            env,
+                            &stored_hostname,
+                            &stored_token,
+                            "/api/status",
+                            DialInit::get(),
+                        )
+                        .await;
                     match dial.resp {
                         Some(mut resp) => resp
                             .text()
@@ -929,7 +826,7 @@ async fn fetch_install_manifest(env: &Env) -> (Option<String>, Option<String>) {
     let source = format!("{base}/api/version");
     let mut init = RequestInit::new();
     init.with_method(Method::Get);
-    let Ok(mut response) = fetch_with_timeout(&source, &init, 8_000).await else {
+    let Ok(mut response) = crate::device::fetch_with_timeout(&source, &init, 8_000).await else {
         return (None, None);
     };
     // `res.ok` — a 4xx/5xx is not a manifest, and the page falls back rather than showing an error.

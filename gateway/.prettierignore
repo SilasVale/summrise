@@ -2,3 +2,11 @@ dist/
 node_modules/
 test/
 *.js
+
+# **A GENERATED FILE IS NOT FORMATTED, IT IS EMITTED — AND A FORMATTER IS A SECOND PRODUCER OF THE SAME BYTES.**
+# `src/mcp-tools.ts` is the MCP tool table, whose single source is `wasm/src/mcp_tools.rs`; the file is written
+# by `render_typescript()` there and `cargo test -p summrise-gate-wasm` refuses a committed copy that disagrees
+# with it byte for byte. Running prettier over it would rewrite the emission, the freshness check would then
+# fail on a file no human touched, and the fix would look like "run the formatter" instead of "re-run the
+# producer". The check that DOES apply to it is the stronger one: byte equality with the Rust table.
+src/mcp-tools.ts

@@ -30,7 +30,9 @@ use worker::*;
 
 use crate::byok::BYOK_CHANNELS;
 use crate::device_registry::{js_falsy, js_falsy_string, js_to_string, mask_key};
-use crate::device_store::{kv_delete, kv_json_cached, kv_list_prefix, kv_put, kv_text, now_ms};
+use crate::device_store::{
+    kv_delete, kv_json_cached, kv_list_prefix, kv_put, kv_text, kv_text_cached, now_ms,
+};
 use crate::key_lock::{with_key_lock, KeyedLocks};
 
 /// `ADMIN_ID` — the seeded account, and the id whose login goes through the ADMIN password rather than the
@@ -157,6 +159,46 @@ pub async fn get_user(env: &Env, uid: &str) -> Option<Value> {
 /// `findUserByUsername(env, username)` — `getUser(String(username || "").trim())`.
 pub async fn find_user_by_username(env: &Env, username: Option<&Value>) -> Option<Value> {
     get_user(env, js_falsy_string(username).trim()).await
+}
+
+/// `findUserByToken(env, token)` — **THE CONSOLE API TOKEN'S OWNER, AND THE ROLE THAT COMES WITH IT.**
+///
+/// `token:<token>` is an INDEX into the user namespace (`store/users.ts` writes it beside the record), so this
+/// is one cached KV read plus the record read the caller would have made anyway. The absence is CACHED — the
+/// source says why in the same breath as `getUser`'s ("caches null too — no zombie lookups"), and
+/// `kv_text_cached` writes the `Null` that makes a missing token free on the second ask.
+///
+/// **THE RELAY TOKEN IS THE SECOND ARM, AND IT IS A ROLE DOWNGRADE RATHER THAN A SECOND USER** (ADR-0007 step
+/// 1): a caller presenting a user's scoped relay token resolves to that user with role `"relay"`, so `/v1`'s
+/// translate and models routes dual-accept it while `/mcp` (admin-only, below) and the adminKey recovery gates
+/// reject it. The record is CLONED for that arm — the source returns a copy "so the cached record's role is
+/// never mutated", and mutating it in place would corrupt the isolate's cache for every later caller.
+///
+/// `safeEq` on both comparisons, and the ORDER is the source's: the admin token is tested first, so the
+/// impossible double-match resolves to the real role rather than to `"relay"`.
+pub async fn find_user_by_token(env: &Env, token: &str) -> Option<Value> {
+    // `if (!token) return null` — the empty token never reaches KV, which is what makes `token:` itself
+    // unreadable as a credential.
+    if token.is_empty() {
+        return None;
+    }
+    let name = kv_text_cached(env, &format!("token:{token}")).await?;
+    // `if (!name) return null` — an index with no owner answers null rather than an error.
+    if name.is_empty() {
+        return None;
+    }
+    let user = get_user(env, &name).await?;
+    let token_field = user.get("token");
+    if token_field.is_some_and(|v| !js_falsy(v) && crate::auth::safe_eq(token, &js_to_string(v))) {
+        return Some(user);
+    }
+    let relay_field = user.get("relayToken");
+    if relay_field.is_some_and(|v| !js_falsy(v) && crate::auth::safe_eq(token, &js_to_string(v))) {
+        let mut downgraded = user.clone();
+        downgraded["role"] = json!("relay");
+        return Some(downgraded);
+    }
+    Some(user)
 }
 
 /// `generateGatewayToken()` — 24 bytes of the platform CSPRNG, hex.

@@ -20,6 +20,13 @@ const ADMIN_TOKEN = "test-admin-mcp-token";
 // the fixed gateway-token mapping; keeps the makeEnv(devices, links) shape.
 function makeEnv(devices, links = {}) {
   return makeBaseEnv({
+    // **WHICH IMPLEMENTATION THIS FILE TESTS, DECLARED RATHER THAN INHERITED.** `makeBaseEnv` stubs the
+    // `WASM_GATE` binding by default (it exists for the `/v1` alias tests), and since landing 5 slice 3 the
+    // front door hands `/mcp` to that binding when it is present — so without this line every test below would
+    // be driving a stub that answers a model list, not the MCP endpoint. `wasmGate: false` is the no-binding
+    // configuration, which is exactly the ROLLBACK path: the TypeScript plugin. `test/mcp-cutover.test.mjs`
+    // pins WHICH half serves `/mcp` in BOTH configurations, so the pair is measured rather than assumed.
+    wasmGate: false,
     // ONE env helper, so the hostname rule is declared once (round 119). Every mention in this file is a device host —
     // call sites and string assertions alike — which is the simplest shape this migration has had.
     extra: { DEVICE_HOST_SUFFIX: ".agent.summrise.test" },

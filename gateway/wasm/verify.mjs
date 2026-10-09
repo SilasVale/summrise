@@ -44,7 +44,7 @@
 // BreakerDO's `/check` returns (reliability.ts compares the TEXT to "1").
 import { register } from "node:module";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 register("./loader.mjs", import.meta.url);
@@ -67,7 +67,36 @@ const URL_UNDER_TEST = "https://console.test/api/health";
 // tree: `ENOENT: no such file or directory, open '…/gateway/wasm/build/index_bg.wasm.mjs'` — the file it
 // writes below, into a directory that did not exist. `index/worker/verify.mjs` and both satellite
 // harnesses build first; this one does now too, and `--build` forces it.
-if (!existsSync(BUILT) || process.argv.includes("--build")) {
+// **AND IT REBUILDS WHEN THE SOURCES ARE NEWER THAN THE ARTIFACT, WHICH IS NOT A CONVENIENCE.** The first
+// version only built when `build/index.js` was MISSING, so a Rust change with no `--build` was measured against
+// the PREVIOUS artifact — and the failure is silent in the worst direction: the corpus reports `identical` for
+// a worker that does not contain the change. Measured on this slice: `terminal_read`'s description was
+// corrected in `src/mcp_tools.rs` and re-emitted to `gateway/src/mcp-tools.ts`, and the next run still answered
+// with the old text from a stale `build/index_bg.wasm` — a whole recording pass, caught only because the
+// `tools/list` case compares the two implementations' bytes. The mtimes are the cheap honest test: any source
+// or manifest newer than the wasm means the wasm is not what the tree says.
+const sourceStamp = () => {
+  let newest = 0;
+  const consider = (path) => {
+    try {
+      const at = statSync(path).mtimeMs;
+      if (at > newest) newest = at;
+    } catch {
+      /* a file that is not there cannot be newer */
+    }
+  };
+  for (const name of readdirSync(`${HERE}src`)) consider(`${HERE}src/${name}`);
+  consider(`${HERE}Cargo.toml`);
+  return newest;
+};
+const artifactAt = () => {
+  try {
+    return statSync(`${HERE}build/index_bg.wasm`).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+if (!existsSync(BUILT) || sourceStamp() > artifactAt() || process.argv.includes("--build")) {
   console.log("  building with worker-build --release …");
   execFileSync("worker-build", ["--release"], { cwd: HERE, stdio: "inherit" });
 }
@@ -4486,16 +4515,834 @@ const rowsFor = (got) => [
   bad += different;
 }
 
+// ── THE MCP SURFACE — the console's endpoint, against the shipping TypeScript ────────────────────
+//
+// ── THE MUTATION THAT MUST FAIL THIS SECTION ────────────────────────────────────────────────────
+// Read this when you change this section: the mutation is how you find out whether the check can still fail
+// at all. A check that cannot be broken is worse than no check.
+//
+// MUTATION: in `src/mcp_tools.rs`, make `terminal_open`'s `"required": ["kind"]` an empty array — and do NOT
+//           re-emit `gateway/src/mcp-tools.ts`.
+// RESULT:   TWO gates fail, and that is the point of single-sourcing the table:
+//             cargo test mcp_tools        FAILED — "…/gateway/src/mcp-tools.ts is stale vs the Rust table —
+//                                          run SUMMRISE_REFRESH_MCP_TOOLS=1 cargo test mcp_tools and commit it"
+//                                          (4 passed, 1 failed)
+//             node verify.mjs             77/78, 1 differing — the `tools/list` case, naming both lengths:
+//                                          `body: ship (34790 B) … :: wasm (34784 B) …`
+//           Measured 2026-10-09. The Rust table and its emission cannot drift, and a drift that somehow
+//           survived the freshness check would still be caught here, because the two implementations are
+//           asked the same question and their answers are compared as bytes.
+//
+// **WHAT THIS SECTION IS FOR.** `gateway/wasm/src/mcp.rs`, `mcp_tools.rs`, `mcp_browser.rs` and
+// `mcp_errors.rs` are `/mcp` ported to Rust: the JSON-RPC transport, the tool TABLE (39 tools, single-sourced
+// in Rust and emitted to `gateway/src/mcp-tools.ts`), the device-direct relay with its stale-session
+// self-heal, and the playwright bridge. The criterion is the one every other route in this worker met — the
+// same request produces a byte-comparable answer from the TypeScript the console runs and from the built
+// worker — and where a response cannot show the difference, the OBSERVABLE is compared too: the KV writes each
+// made and the requests each dialled (method, path, credential, BODY and redirect mode).
+//
+// **THE BODY IS IN THE ROW, AND IT IS THE POINT.** The relay's body is where three decisions are visible that
+// no response can show: the `device` field is stripped, `input` is renamed to `command` (round 227), and
+// `terminal_execute` gains `quiet_ms: 200` when it was nullish. A port that forwarded the caller's arguments
+// unchanged would answer identically here and behave differently on the device.
+//
+// **THE RECORDING IS THE ORACLE, AND THE TYPESCRIPT IS STILL HERE TO RECORD FROM.** `MCP_RECORD=1 node
+// verify.mjs` drives `gateway/src/index.ts`'s own front door (the same default export the deployed console
+// runs) and writes every answer into `shipping-answers.json`; every other run replays those answers against
+// the built worker. A fixture recorded from a FAILING run would pin the failure, so the writer refuses unless
+// every case agreed on the run that produced it.
+//
+// **AND ONE CASE IS A STREAM, WHICH IS COMPARED BY ITS HEADERS AND ITS FIRST FRAME.** `GET /mcp` answers an
+// open SSE stream (Claude Code probes GET first and treats 405 as server failure), so its BODY has no end to
+// compare. The status and every header are compared like any other case, and then both sides are read for
+// their FIRST keep-alive frame — `: keepalive\n\n`, 15 s away on each — CONCURRENTLY, so the case costs one
+// 15 s wait rather than two and the frame is compared as bytes.
+{
+  const FIXED_NOW = 1_760_000_000_000; // 2025-10-05T02:13:20Z, and every recorded timestamp is this
+  const SESSION_SECRET = "mcp-surface-session-secret";
+  const ADMIN_TOKEN = "admin-mcp-token";
+  const USER_TOKEN = "user-mcp-token";
+  const RELAY_TOKEN = "relay-mcp-token";
+  const SUSPENDED_TOKEN = "suspended-mcp-token";
+  const GHOST_TOKEN = "ghost-mcp-token";
+  const D1_TOKEN = "1".repeat(64);
+  const D2_TOKEN = "2".repeat(64);
+
+  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+
+  // The KV stub is the SHARED one (see "THE STUBS BOTH RECORDED SECTIONS STAND ON"), with this section's clock.
+  const makeKv = (seed) => makeKvStub(seed, FIXED_NOW);
+
+  // ── the seed every case reads, unless it overrides it ───────────────────────────────────────────
+  // ONE seed for every case, so the cases differ by their REQUEST rather than by their fixture. The token index
+  // (`token:<token>` → the username) is the one `findUserByToken` reads, and it is written the way
+  // `store/users.ts` writes it — including the relay token, whose index points at the SAME user.
+  const SEED = {
+    "auth:admin_password": "deadbeefdeadbeef:0123456789abcdef",
+    _admin_seeded: "1",
+    [`token:${ADMIN_TOKEN}`]: "admin",
+    [`token:${USER_TOKEN}`]: "bob",
+    [`token:${RELAY_TOKEN}`]: "bob",
+    [`token:${SUSPENDED_TOKEN}`]: "suspended",
+    [`token:${GHOST_TOKEN}`]: "nobody",
+    "user:admin": JSON.stringify({
+      id: "admin",
+      username: "admin",
+      role: "admin",
+      enabled: true,
+      createdAt: 1,
+      token: ADMIN_TOKEN,
+    }),
+    "user:bob": JSON.stringify({
+      id: "bob",
+      username: "bob",
+      role: "user",
+      enabled: true,
+      createdAt: 1,
+      token: USER_TOKEN,
+      relayToken: RELAY_TOKEN,
+    }),
+    "user:suspended": JSON.stringify({
+      id: "suspended",
+      username: "suspended",
+      role: "admin",
+      enabled: false,
+      createdAt: 1,
+      token: SUSPENDED_TOKEN,
+    }),
+    "devices:v1": JSON.stringify([
+      { name: "d1", hostname: "d1.agent.test", token: D1_TOKEN },
+      { name: "d2", hostname: "d2.agent.test", token: D2_TOKEN },
+    ]),
+  };
+  const ONE_DEVICE = {
+    "devices:v1": JSON.stringify([{ name: "d1", hostname: "d1.agent.test", token: D1_TOKEN }]),
+  };
+  const NO_DEVICES = { "devices:v1": JSON.stringify([]) };
+
+  // ── the upstream stub: the device's own answers, and every dial recorded ────────────────────────
+  // A FUNCTION of (path, body, attempt) rather than a path-keyed table, because four cases here are about the
+  // SECOND attempt: the stale-session self-heal and the browser bridge's start → connect → retry both answer
+  // differently once the first call has failed, and a static table could not express that.
+  const OK_LIST = { body: JSON.stringify({ ok: true, result: [{ id: "term-1", kind: "pty" }] }) };
+  const stubUpstream = (c, capture) => {
+    const attempts = new Map();
+    globalThis.fetch = async (url, init = {}) => {
+      // **THE TWO DOORS CALL `fetch` DIFFERENTLY, AND THE STUB HAS TO SEE THE SAME THING.** The TypeScript
+      // passes `(url, init)`; `workers-rs`'s `Fetch::Request` passes a `Request` as the ONLY argument — so the
+      // method, the headers, the redirect mode AND THE BODY all live on that object there, and reading them off
+      // `init` alone recorded `body=-` for every Rust dial (measured on this section's first run). Everything
+      // below is read from the Request, which is what both callers really send.
+      const request = url instanceof Request ? url : new Request(url, init);
+      const path = new URL(request.url).pathname;
+      let body = "-";
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        try {
+          const text = await request.clone().text();
+          if (text !== "") body = text;
+        } catch {
+          /* a body that cannot be read is recorded as absent, which is what a GET looks like */
+        }
+      }
+      const auth = request.headers.get("authorization") ?? "-";
+      const redirect = request.redirect ?? "-";
+      capture.push(
+        `${request.method} ${path} auth=${auth} redirect=${redirect} body=${body}`,
+      );
+      const attempt = (attempts.get(path) ?? 0) + 1;
+      attempts.set(path, attempt);
+      const answer =
+        typeof c.upstream === "function" ? c.upstream(path, body, attempt) : (c.upstream ?? {})[path];
+      if (!answer) throw new Error(`the MCP corpus has no upstream answer for ${path}`);
+      if (answer.throws) {
+        // A bare `throw` is the transport failing; `name: "AbortError"` is what the RUNTIME throws when an
+        // abort fires, which `fetchWithTimeout` renames to a timeout and `deviceFetch` reports as
+        // `Device unreachable: timeout after 60000ms`. The corpus drives that arm without waiting 60 s, and the
+        // Rust side reads the same `name` off the same thrown object.
+        const error = new Error(answer.throws);
+        if (answer.name) error.name = answer.name;
+        throw error;
+      }
+      return new Response(answer.body, {
+        status: answer.status ?? 200,
+        headers: { "content-type": answer.type ?? "application/json" },
+      });
+    };
+  };
+
+  // ── the cases ───────────────────────────────────────────────────────────────────────────────────
+  const call = (name, args, extra = {}) => ({
+    req: [
+      "POST",
+      "/mcp",
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, ...(args === undefined ? {} : { arguments: args }) } },
+    ],
+    upstream: { "/api/tools/terminal_list": OK_LIST },
+    ...extra,
+  });
+  const rpc = (method, params, extra = {}) => ({
+    req: ["POST", "/mcp", { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) }],
+    ...extra,
+  });
+
+  const CASES = [
+    // ---- the transport, and who may use it ----
+    { name: "tools/list — THE TABLE, all 39 tools, byte for byte", ...rpc("tools/list") },
+    { name: "tools/list with no Authorization at all", ...rpc("tools/list"), token: null },
+    { name: "tools/list with an unknown token", ...rpc("tools/list"), token: "not-a-token" },
+    { name: "tools/list with a USER-role token", ...rpc("tools/list"), token: USER_TOKEN },
+    { name: "tools/list with a SUSPENDED admin's token", ...rpc("tools/list"), token: SUSPENDED_TOKEN },
+    {
+      name: "tools/list with the RELAY token (ADR-0007's downgrade resolves to role relay)",
+      ...rpc("tools/list"),
+      token: RELAY_TOKEN,
+    },
+    {
+      name: "tools/list with a token whose user record is gone",
+      ...rpc("tools/list"),
+      token: GHOST_TOKEN,
+    },
+    { name: "tools/list with a lowercase `bearer` prefix", ...rpc("tools/list"), token: null, headers: { authorization: `bearer ${ADMIN_TOKEN}` } },
+    { name: "tools/list with `Bearer` and no token", ...rpc("tools/list"), token: null, headers: { authorization: "Bearer " } },
+    { name: "PUT /mcp", req: ["PUT", "/mcp", undefined] },
+    { name: "DELETE /mcp", req: ["DELETE", "/mcp", undefined] },
+    { name: "POST /mcp with a body that is not JSON", req: ["POST", "/mcp"], rawBody: "not json at all" },
+    { name: "POST /mcp with an EMPTY body", req: ["POST", "/mcp"], rawBody: "" },
+    // A JSON body of the four characters `null` destructures to a TypeError, and the front door's catch answers
+    // it 500 — the ONE arm this endpoint does not answer itself.
+    { name: "POST /mcp with the literal body `null`", req: ["POST", "/mcp"], rawBody: "null" },
+    // A JSON body that is a STRING destructures (no throw) and has no `method` — the `undefined` arm.
+    { name: "POST /mcp with a JSON string body", req: ["POST", "/mcp"], rawBody: '"hello"' },
+    { name: "POST /mcp with a JSON number body", req: ["POST", "/mcp"], rawBody: "7" },
+
+    // ---- the JSON-RPC envelopes ----
+    { name: "ping", ...rpc("ping") },
+    { name: "ping with id null", req: ["POST", "/mcp", { jsonrpc: "2.0", id: null, method: "ping" }] },
+    { name: "ping with NO id key at all", req: ["POST", "/mcp", { jsonrpc: "2.0", method: "ping" }] },
+    { name: "ping with a string id", req: ["POST", "/mcp", { jsonrpc: "2.0", id: "abc", method: "ping" }] },
+    { name: "ping with an object id", req: ["POST", "/mcp", { jsonrpc: "2.0", id: { a: 1 }, method: "ping" }] },
+    { name: "initialize with no params", ...rpc("initialize") },
+    { name: "initialize with a protocolVersion", ...rpc("initialize", { protocolVersion: "2024-11-05" }) },
+    { name: "initialize with a FALSY protocolVersion", ...rpc("initialize", { protocolVersion: "" }) },
+    { name: "initialize with a numeric protocolVersion", ...rpc("initialize", { protocolVersion: 5 }) },
+    { name: "notifications/initialized", ...rpc("notifications/initialized") },
+    { name: "notifications/cancelled", ...rpc("notifications/cancelled") },
+    { name: "an unknown method", ...rpc("nonsense/method") },
+    { name: "a method that is a number", req: ["POST", "/mcp", { jsonrpc: "2.0", id: 1, method: 5 }] },
+
+    // ---- tools/call: the lookup, the device, the refusals ----
+    { name: "tools/call with an unknown tool name", ...call("nosuch_tool", {}) },
+    { name: "tools/call with no tool name at all", req: ["POST", "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/call", params: {} }] },
+    { name: "tools/call with a NUMERIC tool name", req: ["POST", "/mcp", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: 5 } }] },
+    { name: "tools/call for a browser tool with NO devices registered", ...call("browser_snapshot", {}, { seed: NO_DEVICES }) },
+    { name: "tools/call with several devices and no device name", ...call("terminal_list", {}, {}) },
+    { name: "tools/call with a typo'd device name", ...call("terminal_list", { device: "og" }, {}) },
+    { name: "tools/call with a NUMERIC device name", ...call("terminal_list", { device: 5 }, {}) },
+    {
+      name: "tools/call with ONE device and no name — the fallback executes on it",
+      ...call("terminal_list", {}, { seed: ONE_DEVICE }),
+    },
+    // THE MALFORMED ARGS BODY: `arguments` is a string, so `{...args}` spreads its CODE UNITS into index keys
+    // and `args?.device` is undefined — which is why the device fallback then applies.
+    { name: "tools/call with arguments as a STRING", ...call("terminal_list", "ab", { seed: ONE_DEVICE }) },
+    { name: "tools/call with arguments as an ARRAY", ...call("terminal_list", ["x", "y"], { seed: ONE_DEVICE }) },
+    { name: "tools/call with arguments as a NUMBER", ...call("terminal_list", 42, { seed: ONE_DEVICE }) },
+    { name: "tools/call with arguments null", ...call("terminal_list", null, { seed: ONE_DEVICE }) },
+    { name: "tools/call with NO arguments key", ...call("terminal_list", undefined, { seed: ONE_DEVICE }) },
+
+    // ---- the device-direct relay: the forwarded body is the observable ----
+    { name: "terminal_list", ...call("terminal_list", { device: "d1" }) },
+    {
+      name: "terminal_execute — the rename, the stripped device, the quiet default",
+      ...call("terminal_execute", { device: "d1", session_id: "term-1", input: "ls -la", timeout_secs: 30 }),
+      upstream: { "/api/tools/terminal_execute": { body: JSON.stringify({ ok: true, result: { state: "done", text: "ok" } }) } },
+    },
+    {
+      name: "terminal_execute with quiet_ms 0 — NULLISH, not falsy",
+      ...call("terminal_execute", { device: "d1", input: "ls", quiet_ms: 0 }),
+      upstream: { "/api/tools/terminal_execute": { body: JSON.stringify({ ok: true, result: {} }) } },
+    },
+    {
+      name: "terminal_execute with every optional field the device takes",
+      ...call("terminal_execute", {
+        device: "d1",
+        session_id: "term-1",
+        input: "uptime",
+        timeout_secs: 5,
+        quiet_ms: 250,
+        run_in_background: true,
+        intent: "why",
+        considered: ["a", "b"],
+        plan_step: 2,
+        run_id: "run-1",
+        approval_id: "app-1",
+      }),
+      upstream: { "/api/tools/terminal_execute": { body: JSON.stringify({ ok: true, result: {} }) } },
+    },
+    {
+      name: "terminal_write — data and data_base64 forwarded verbatim",
+      ...call("terminal_write", { device: "d1", session_id: "term-1", data_base64: "AAEC" }),
+      upstream: { "/api/tools/terminal_write": { body: JSON.stringify({ ok: true }) } },
+    },
+    {
+      name: "a tool the DEVICE does not have (the agent's own typed refusal)",
+      ...call("system_file_upload", { device: "d1", path: "/tmp/x" }),
+      upstream: {
+        "/api/tools/system_file_upload": {
+          status: 404,
+          body: JSON.stringify({ ok: false, code: "not_found", error: "no such tool: system_file_upload" }),
+        },
+      },
+    },
+    {
+      name: "a device answer that is NOT JSON (a proxy error page)",
+      ...call("terminal_list", { device: "d1" }),
+      upstream: { "/api/tools/terminal_list": { status: 502, type: "text/html", body: "<html>bad gateway</html>" } },
+    },
+    {
+      name: "a device answer that is the literal `null`",
+      ...call("terminal_list", { device: "d1" }),
+      upstream: { "/api/tools/terminal_list": { body: "null" } },
+    },
+    {
+      name: "the device is OFFLINE (the transport throws)",
+      ...call("terminal_list", { device: "d1" }),
+      upstream: { "/api/tools/terminal_list": { throws: "connect ECONNREFUSED 10.0.0.1:443" } },
+    },
+    {
+      name: "the device TIMES OUT (the runtime aborts)",
+      ...call("terminal_list", { device: "d1" }),
+      upstream: { "/api/tools/terminal_list": { throws: "The operation was aborted", name: "AbortError" } },
+    },
+    {
+      name: "a device hostname that is PRIVATE (the SSRF guard)",
+      ...call("terminal_list", { device: "d1" }),
+      seed: { "devices:v1": JSON.stringify([{ name: "d1", hostname: "127.0.0.1", token: D1_TOKEN }]) },
+    },
+    {
+      name: "a device hostname outside the suffix allowlist",
+      ...call("terminal_list", { device: "d1" }),
+      seed: { "devices:v1": JSON.stringify([{ name: "d1", hostname: "elsewhere.example", token: D1_TOKEN }]) },
+    },
+    {
+      name: "the device's own session_busy code",
+      ...call("terminal_execute", { device: "d1", session_id: "term-1", input: "ls" }),
+      upstream: {
+        "/api/tools/terminal_execute": { body: JSON.stringify({ ok: false, code: "session_busy", error: "Session busy" }) },
+      },
+    },
+    {
+      name: "the device's own ssh_timeout code",
+      ...call("terminal_execute", { device: "d1", input: "ls" }),
+      upstream: {
+        "/api/tools/terminal_execute": { body: JSON.stringify({ ok: false, code: "ssh_timeout", error: "ssh timed out after 30s" }) },
+      },
+    },
+    {
+      name: "a typed code this side has no better name for (device UP, tool failed)",
+      ...call("terminal_execute", { device: "d1", input: "ls" }),
+      upstream: {
+        "/api/tools/terminal_execute": {
+          body: JSON.stringify({ ok: false, code: "serial_port_not_found", error: "serial port not found: COM9" }),
+        },
+      },
+    },
+    {
+      name: "an UNTYPED device refusal, matched by its message",
+      ...call("terminal_execute", { device: "d1", input: "ls" }),
+      upstream: {
+        "/api/tools/terminal_execute": { body: JSON.stringify({ ok: false, error: "Session not found: term-9" }) },
+      },
+    },
+    {
+      name: "an untitled device refusal with no message at all",
+      ...call("terminal_execute", { device: "d1", input: "ls" }),
+      upstream: { "/api/tools/terminal_execute": { status: 500, body: JSON.stringify({ ok: false }) } },
+    },
+
+    // ---- the stale-session self-heal ----
+    {
+      name: "terminal_execute on a STALE session retargets to the one live session",
+      ...call("terminal_execute", { device: "d1", session_id: "term-old", input: "ls" }),
+      upstream: (path, body) => {
+        if (path === "/api/tools/terminal_execute") {
+          if (JSON.parse(body).session_id === "term-old")
+            return {
+              body: JSON.stringify({
+                ok: false,
+                code: "session_not_found",
+                error: "Session not found: term-old. This session existed before the last agent restart - PTYs cannot survive restarts.",
+              }),
+            };
+          return { body: JSON.stringify({ ok: true, result: { state: "done", text: "ok" } }) };
+        }
+        if (path === "/api/tools/terminal_list")
+          return { body: JSON.stringify({ ok: true, result: [{ id: "term-new", kind: "pty" }] }) };
+        return null;
+      },
+    },
+    {
+      name: "a stale session and NO live sessions — the pointer at terminal_open",
+      ...call("terminal_execute", { device: "d1", session_id: "term-old", input: "ls" }),
+      upstream: (path) => {
+        if (path === "/api/tools/terminal_execute")
+          return { body: JSON.stringify({ ok: false, code: "session_not_found", error: "Session not found: term-old" }) };
+        if (path === "/api/tools/terminal_list") return { body: JSON.stringify({ ok: true, result: [] }) };
+        return null;
+      },
+    },
+    {
+      name: "a stale session and SEVERAL live ones — the list comes back",
+      ...call("terminal_execute", { device: "d1", session_id: "term-old", input: "ls" }),
+      upstream: (path) => {
+        if (path === "/api/tools/terminal_execute")
+          return { body: JSON.stringify({ ok: false, code: "session_not_found", error: "Session not found: term-old" }) };
+        if (path === "/api/tools/terminal_list")
+          return { body: JSON.stringify({ ok: true, result: [{ id: "term-a" }, { id: "term-b" }] }) };
+        return null;
+      },
+    },
+    {
+      name: "terminal_close on a session that is already gone is a SUCCESS",
+      ...call("terminal_close", { device: "d1", session_id: "term-old" }),
+      upstream: {
+        "/api/tools/terminal_close": { body: JSON.stringify({ ok: false, code: "session_not_found", error: "Session not found: term-old" }) },
+      },
+    },
+
+    // ---- the browser bridge ----
+    {
+      name: "browser_open — the tool map and the arguments",
+      ...call("browser_open", { device: "d1", url: "https://example.test/", run_id: "run-1" }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "snapshot text" }) } },
+    },
+    {
+      name: "browser_open with timeout_secs 5000 — clamped to 300",
+      ...call("browser_open", { device: "d1", url: "https://example.test/", timeout_secs: 5000 }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "ok" }) } },
+    },
+    {
+      name: "browser_click — element_ref becomes the {target, element} protocol",
+      ...call("browser_click", { device: "d1", element_ref: 6 }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "clicked" }) } },
+    },
+    {
+      name: "browser_click with an already-prefixed ref",
+      ...call("browser_click", { device: "d1", element_ref: "e7" }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "clicked" }) } },
+    },
+    {
+      name: "browser_type — element_ref plus text",
+      ...call("browser_type", { device: "d1", element_ref: 2, text: "hello" }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "typed" }) } },
+    },
+    {
+      name: "browser_wait — text_gone becomes the shipped server's textGone",
+      ...call("browser_wait", { device: "d1", text_gone: "Loading", run_id: "run-2" }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "waited" }) } },
+    },
+    {
+      name: "browser_screenshot — a data-URL result becomes an image block",
+      ...call("browser_screenshot", { device: "d1", fullPage: true }),
+      upstream: {
+        "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "data:image/png;base64,QUJDRA==" }) },
+      },
+    },
+    {
+      name: "browser_close",
+      ...call("browser_close", { device: "d1" }),
+      upstream: { "/api/tools/mcp_client_call": { body: JSON.stringify({ ok: true, result: "closed" }) } },
+    },
+    {
+      name: "browser_pw_info — DEVICE-DIRECT, not the bridge (the routing partition)",
+      ...call("browser_pw_info", { device: "d1" }),
+      upstream: { "/api/tools/browser_pw_info": { body: JSON.stringify({ ok: true, result: { pw_dir: "D:/Summrise/pw" } }) } },
+    },
+    {
+      name: "browser_run_script — DEVICE-DIRECT too",
+      ...call("browser_run_script", { device: "d1", script: "return 1;", timeout_secs: 60 }),
+      upstream: { "/api/tools/browser_run_script": { body: JSON.stringify({ ok: true, exit_code: 0, stdout: "1\n" }) } },
+    },
+    {
+      name: "the browser bridge SELF-HEALS: not connected → start → connect → retry",
+      ...call("browser_open", { device: "d1", url: "https://example.test/" }),
+      upstream: (path, body, attempt) => {
+        if (path === "/api/tools/mcp_client_call")
+          return attempt === 1
+            ? { body: JSON.stringify({ ok: false, error: "mcp_client_call failed: not connected" }) }
+            : { body: JSON.stringify({ ok: true, result: "healed" }) };
+        if (path === "/api/plugins/playwright/start") return { body: JSON.stringify({ ok: true }) };
+        if (path === "/api/tools/mcp_client_connect") return { body: JSON.stringify({ ok: true }) };
+        return null;
+      },
+    },
+    {
+      name: "the browser bridge gives up after the retry (an UNCODED failure)",
+      ...call("browser_open", { device: "d1", url: "https://example.test/" }),
+      upstream: (path) => {
+        if (path === "/api/tools/mcp_client_call")
+          return { body: JSON.stringify({ ok: false, error: "not connected" }) };
+        return { body: JSON.stringify({ ok: true }) };
+      },
+    },
+    {
+      name: "a browser call on a PRIVATE hostname (the bridge's own SSRF guard)",
+      ...call("browser_open", { device: "d1", url: "https://example.test/" }),
+      seed: { "devices:v1": JSON.stringify([{ name: "d1", hostname: "169.254.169.254", token: D1_TOKEN }]) },
+    },
+    {
+      name: "a browser call whose device answers with a body that is not JSON",
+      ...call("browser_open", { device: "d1", url: "https://example.test/" }),
+      upstream: { "/api/tools/mcp_client_call": { status: 500, type: "text/plain", body: "boom" } },
+    },
+  ];
+
+  // ── the two doors ───────────────────────────────────────────────────────────────────────────────
+  const shippingDoor = process.env.MCP_RECORD
+    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
+    : null;
+
+  const buildRequest = (c) => {
+    const [method, path, body] = c.req;
+    const headers = { ...(c.headers ?? {}) };
+    if (c.token !== null) headers.authorization = `Bearer ${c.token ?? ADMIN_TOKEN}`;
+    if (c.rawBody !== undefined) headers["content-type"] = "application/json";
+    else if (body !== undefined && body !== null) headers["content-type"] = "application/json";
+    const payload =
+      c.rawBody !== undefined
+        ? { body: c.rawBody }
+        : body === undefined || body === null
+          ? {}
+          : { body: JSON.stringify(body) };
+    return new Request(`https://console.test${path}`, { method, headers, ...payload });
+  };
+
+  const mcpEnv = (kv, extra = {}) => ({
+    KEYS: kv,
+    CONSOLE_HOST: "console.test",
+    CONSOLE_ORIGINS: "https://console.test",
+    DEVICE_HOST_SUFFIX: ".agent.test",
+    SESSION_SECRET,
+    ...extra,
+  });
+
+  const driveTs = async (c) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    // **THE TYPESCRIPT SIDE IS ONE PROCESS WITH MODULE STATE, AND THE WASM SIDE IS A FRESH INSTANCE PER CASE.**
+    // `store/cache.ts`'s `__c` holds `devices:v1` and every `user:` record for up to a day, so without this
+    // reset a case reads the PREVIOUS case's registry — the device family's own first-run bug.
+    __clearCaches();
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await shippingDoor.fetch(buildRequest(c), mcpEnv(kv), {});
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redactRow({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  const driveWasm = async (c, i) => {
+    const kv = makeKv({ ...SEED, ...(c.seed ?? {}) });
+    const calls = [];
+    randomCursor = 0;
+    stubUpstream(c, calls);
+    const worker = await import(`${pathToFileURL(BUILT).href}?mcp=${i}`);
+    const instance = new worker.default();
+    instance.env = mcpEnv(kv);
+    instance.ctx = {};
+    let status = 0;
+    let body = "";
+    let headers = [];
+    try {
+      const response = await instance.fetch(buildRequest(c));
+      status = response.status;
+      body = await response.text();
+      headers = pairs(response.headers);
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    return redactRow({ status, body, headers, writes: kv.writes, calls });
+  };
+
+  // `seedAdmin` runs ONCE PER PROCESS and the first request pays for it — it is the FRONT DOOR's work, not the
+  // route's, and the seeded `_admin_seeded` makes it a no-op afterwards. Spent on a throwaway KV before the
+  // cases, so no case's write log carries it.
+  if (shippingDoor) {
+    try {
+      __clearCaches();
+      await shippingDoor.fetch(
+        new Request("https://console.test/mcp", {
+          method: "POST",
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+        }),
+        mcpEnv(makeKv(SEED)),
+        {},
+      );
+    } catch {
+      /* the prime is not a case */
+    }
+  }
+
+  const FIXTURE_PATH = new URL("./shipping-answers.json", import.meta.url);
+  const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+  const recorded = {};
+  let same = 0;
+  let different = 0;
+  const failures = [];
+
+  installDeterminism(FIXED_NOW);
+  for (const [i, c] of CASES.entries()) {
+    const shipped = shippingDoor ? await driveTs(c) : null;
+    if (shipped) {
+      recorded[c.name] = {
+        status: shipped.status,
+        body: shipped.body,
+        headers: shipped.headers,
+        writes: shipped.writes,
+        calls: shipped.calls,
+      };
+    }
+    const reference = shipped ?? FIXTURE[c.name];
+    if (!reference) {
+      console.log(`      FAIL no recorded answer for case ${JSON.stringify(c.name)} — re-record with MCP_RECORD=1`);
+      different += 1;
+      failures.push(c.name);
+      continue;
+    }
+    const wasm = await driveWasm(c, i);
+    const want = rowsFor(reference);
+    const got = rowsFor(wasm);
+    const notes = [];
+    for (let r = 0; r < want.length; r++) {
+      if (want[r][1] !== got[r][1]) {
+        // A BODY MISMATCH NAMES BOTH LENGTHS, because the first differing character of two 34 KB tool tables is
+        // not where the difference is: `tools/list` is one JSON document, and the count is what says whether a
+        // whole tool moved or one field did.
+        const bytes = (row, value) => (row === "body" ? ` (${value.length} B)` : "");
+        notes.push(
+          `${want[r][0]}: ship${bytes(want[r][0], want[r][1])} ${JSON.stringify(want[r][1]).slice(0, 200)} :: wasm${bytes(got[r][0], got[r][1])} ${JSON.stringify(got[r][1]).slice(0, 200)}`,
+        );
+      }
+    }
+    if (notes.length === 0) {
+      same += 1;
+      console.log(
+        `      ok   ${c.name} — ${wasm.body.length} bytes, status ${wasm.status}, ${wasm.calls.length} dial(s)`,
+      );
+    } else {
+      different += 1;
+      failures.push(c.name);
+      console.log(`      FAIL ${c.name}`);
+      for (const note of notes) console.log(`           ${note}`);
+    }
+  }
+
+  // ── GET /mcp: the keep-alive stream, compared by its headers AND its first frame ────────────────
+  // Claude Code v2.1.84+ probes GET first and treats a 405 as server failure, so this response is a
+  // `text/event-stream` with no end. Status and every header are compared like any other row; the first
+  // keep-alive frame is 15 s away on BOTH sides, so the two reads run CONCURRENTLY and the case costs one wait.
+  {
+    const GET_CASE = "GET /mcp — the SSE stream: status, headers, and the first keep-alive frame";
+    const readFirstFrame = async (fetchIt) => {
+      const response = await fetchIt();
+      const headers = pairs(response.headers);
+      const reader = response.body.getReader();
+      let timer;
+      const frame = await Promise.race([
+        reader.read().then(({ value }) => (value ? Buffer.from(value).toString("utf8") : "")),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), 25_000);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      // Cancel the stream: the source's `cancel()` clears its 15 s interval, and a reader left open would keep
+      // this process alive after the last line.
+      await reader.cancel().catch(() => {});
+      return { status: response.status, headers, frame };
+    };
+    const shipped = shippingDoor
+      ? await readFirstFrame(() =>
+          shippingDoor.fetch(
+            new Request("https://console.test/mcp", {
+              method: "GET",
+              headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+            }),
+            mcpEnv(makeKv(SEED)),
+            {},
+          ),
+        )
+      : null;
+    if (shipped) recorded[GET_CASE] = shipped;
+    const reference = shipped ?? FIXTURE[GET_CASE];
+    const wasm = await readFirstFrame(async () => {
+      const worker = await import(`${pathToFileURL(BUILT).href}?mcp=sse`);
+      const instance = new worker.default();
+      instance.env = mcpEnv(makeKv(SEED));
+      instance.ctx = {};
+      return instance.fetch(
+        new Request("https://console.test/mcp", {
+          method: "GET",
+          headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+        }),
+      );
+    });
+    if (!reference) {
+      different += 1;
+      failures.push(GET_CASE);
+      console.log(`      FAIL no recorded answer for ${JSON.stringify(GET_CASE)} — re-record with MCP_RECORD=1`);
+    } else {
+      const notes = [];
+      if (String(reference.status) !== String(wasm.status))
+        notes.push(`status: ship ${reference.status} :: wasm ${wasm.status}`);
+      if (reference.headers.join(" | ") !== wasm.headers.join(" | "))
+        notes.push(
+          `headers: ship ${JSON.stringify(reference.headers)} :: wasm ${JSON.stringify(wasm.headers)}`,
+        );
+      if (reference.frame !== wasm.frame)
+        notes.push(
+          `first frame: ship ${JSON.stringify(reference.frame)} :: wasm ${JSON.stringify(wasm.frame)}`,
+        );
+      if (notes.length === 0) {
+        same += 1;
+        console.log(`      ok   ${GET_CASE} — ${JSON.stringify(wasm.frame)} after the 15 s tick`);
+      } else {
+        different += 1;
+        failures.push(GET_CASE);
+        console.log(`      FAIL ${GET_CASE}`);
+        for (const note of notes) console.log(`           ${note}`);
+      }
+    }
+  }
+  // ── the per-device browser semaphore: four in flight, and the fifth is refused ─────────────────
+  // The bridge's ONE guardrail that no single request can show. `__browserInflight` admits
+  // `BROWSER_MAX_CONCURRENT_PER_DEVICE` (4) calls per device and answers the next with `SESSION_BUSY`, so a
+  // client backs off instead of dogpiling a hung device. Four calls are held in flight on a stubbed upstream
+  // that does not answer until the fourth has ARRIVED, so the fifth is issued while the other four are pending
+  // — and the five answers are compared as a SORTED MULTISET, because which of five concurrent calls is the
+  // refused one is a property of the event loop rather than of the decision this case is about.
+  {
+    const BUSY_CASE = "the per-device browser semaphore: four in flight, the fifth SESSION_BUSY";
+    const request = () =>
+      new Request("https://console.test/mcp", {
+        method: "POST",
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "browser_open", arguments: { device: "d1", url: "https://example.test/" } },
+        }),
+      });
+    const holdFour = () => {
+      let release;
+      const gate = new Promise((resolve) => {
+        release = resolve;
+      });
+      let arrived = 0;
+      const calls = [];
+      globalThis.fetch = async (url, init = {}) => {
+        const sent = url instanceof Request ? url : new Request(url, init);
+        calls.push(`${sent.method} ${new URL(sent.url).pathname}`);
+        arrived += 1;
+        if (arrived >= 4) release();
+        await gate;
+        return new Response(JSON.stringify({ ok: true, result: "ok" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      };
+      return calls;
+    };
+    const answersOf = async (fetchIt) => {
+      const bodies = await Promise.all(Array.from({ length: 5 }, () => fetchIt()));
+      globalThis.fetch = realFetchGlobal;
+      return bodies.slice().sort();
+    };
+
+    const shipped = shippingDoor
+      ? await answersOf(async () => {
+          __clearCaches();
+          holdFour();
+          const env = mcpEnv(makeKv(SEED));
+          const response = await shippingDoor.fetch(request(), env, {});
+          return await response.text();
+        })
+      : null;
+    if (shipped) recorded[BUSY_CASE] = shipped;
+    const reference = shipped ?? FIXTURE[BUSY_CASE];
+    const calls = holdFour();
+    const wasm = await answersOf(async () => {
+      const worker = await import(`${pathToFileURL(BUILT).href}?mcp=busy`);
+      const instance = new worker.default();
+      instance.env = mcpEnv(makeKv(SEED));
+      instance.ctx = {};
+      const response = await instance.fetch(request());
+      return await response.text();
+    });
+    if (!reference) {
+      different += 1;
+      failures.push(BUSY_CASE);
+      console.log(`      FAIL no recorded answer for ${JSON.stringify(BUSY_CASE)} — re-record with MCP_RECORD=1`);
+    } else if (JSON.stringify(reference) === JSON.stringify(wasm)) {
+      const refused = wasm.filter((b) => b.includes("too many concurrent")).length;
+      same += 1;
+      console.log(
+        `      ok   ${BUSY_CASE} — ${wasm.length - refused} answered, ${refused} refused, ${calls.length} dial(s)`,
+      );
+    } else {
+      different += 1;
+      failures.push(BUSY_CASE);
+      console.log(`      FAIL ${BUSY_CASE}`);
+      console.log(`           ship ${JSON.stringify(reference).slice(0, 300)}`);
+      console.log(`           wasm ${JSON.stringify(wasm).slice(0, 300)}`);
+    }
+  }
+  restoreGlobals();
+
+  if (process.env.MCP_RECORD) {
+    // **WRITTEN ONLY FROM A RUN WHERE EVERY CASE AGREED.** A fixture recorded from a failing run pins the
+    // failure; the device family's and the identity surface's recorders carry the same guard for the same
+    // reason. The existing entries are preserved — they were recorded from implementations this run cannot
+    // re-record.
+    if (different > 0) {
+      console.log(`  !! NOT recording: ${different} case(s) differ, so those answers are not a reference`);
+      process.exitCode = 1;
+    } else {
+      writeFileSync(FIXTURE_PATH, JSON.stringify({ ...FIXTURE, ...recorded }, null, 2) + "\n");
+      console.log(`  recorded ${Object.keys(recorded).length} MCP-surface answer(s) -> shipping-answers.json`);
+    }
+  }
+
+  console.log(
+    `  the MCP surface, shipping TypeScript against the built worker: ${same}/${CASES.length + 2} identical, ${different} differing`,
+  );
+  for (const name of failures) console.log(`      FAIL ${name}`);
+  bad += different;
+}
+
 // ── THE CUTOVER IS A ROUTING DECISION, AND THIS SECTION IS ITS PROOF ─────────────────────────────
 //
 // `./scripts/build.sh gateway` is what puts the new code in front of a user, and the CODE's half of the cutover
-// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family and the identity surface are
-// served by the Rust worker; without it, by the TypeScript plugins — which is the rollback, and the reason
-// `plugins/devices.ts`, `plugins/auth.ts` and the stores are still in the tree.
+// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family, the identity surface and the
+// MCP endpoint are served by the Rust worker; without it, by the TypeScript plugins — which is the rollback, and
+// the reason `plugins/devices.ts`, `plugins/auth.ts`, `plugins/mcp.ts` and the stores are still in the tree.
 //
 // **A BOUNDARY NOBODY MEASURES IS A BOUNDARY NOBODY HAS.** This section drives the SHIPPING front door with a
-// stub gate that RECORDS what reached it, and asserts what the handover claims: the two families' routes go to
-// the gate, the routes neither slice ported do NOT, and the `/v1` cutover is unchanged. The stub answers a
+// stub gate that RECORDS what reached it, and asserts what the handover claims: each family's routes go to the
+// gate, the routes the slices did not port do NOT, and the `/v1` cutover is unchanged. **AND EVERY FAMILY HAS
+// ROWS IN BOTH DIRECTIONS**, which is what keeps an exclusion from being a comment: `/mcp` goes to the gate and
+// `GET /api/plugins/status` — the same plugin's other route, whose response carries the TypeScript registry's own
+// dispatch counters — does not. The stub answers a
 // recognisable body, so a case that was supposed to reach it and did not is visible in the response rather than
 // assumed from a list.
 //
@@ -4578,6 +5425,12 @@ const rowsFor = (got) => [
     ["POST", "/api/me/keys/usage", true, false, "…the same for the usage queries"],
     ["POST", "/api/upload", true, false, "the file relay: a 100 MiB body passthrough this slice does not port"],
     ["GET", "/api/health", true, false, "the public tooling route, unchanged"],
+    // ---- the MCP surface (landing 5 slice 3) ----
+    ["POST", "/mcp", false, true, "the JSON-RPC endpoint: its credential is a Bearer admin token, never a cookie"],
+    ["GET", "/mcp", false, true, "…and the GET probe Claude Code makes first, which is the SSE stream"],
+    ["PUT", "/mcp", false, true, "…and a verb it answers 405 to, which is still the family's answer to give"],
+    // NOT handed over:
+    ["GET", "/api/plugins/status", true, false, "the plugin's OTHER route: its `routes` field is the TypeScript plugin registry's own dispatch counters, which this worker does not have and must not invent"],
   ];
   let cutoverOk = 0;
   let cutoverBad = 0;
