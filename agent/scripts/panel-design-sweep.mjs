@@ -101,7 +101,8 @@
 //        It prints its summary and rewrites C:\ProgramData\Summrise\pwout\design-sweep.json (~390 KB).
 //        NOTE: top-level await is NOT valid there — wrap any driver in an async IIFE.
 //     4. upload that report, curl it down, and judge it with `summrise-sweep-judge --tool panel` — a bare
-//        judgeReport(report, {}) reports the div.tabrow artifacts as findings, which is what they are not.
+//        judge reports the div.tabrow artifacts as findings, which is what they are not, so the panel's own
+//        options (its `implicitStates`, its floors) are what make the verdict the panel's.
 //   * THE STATE TOKENS AS GRAPHICS, AUDITED (round 122). The probe measures TEXT, so a border or a mark
 //     has no row at all — and the two real graphic defects this session found (the flapping chip's border,
 //     the boot triangle) were both found BY HAND. Round 122 grepped every `color:`/`border*:` declaration
