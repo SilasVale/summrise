@@ -76,8 +76,16 @@ INSTALLER_URL="https://agent.saisi.online/summrise-agent/summrise-agent-latest.t
 SETUP_URL="https://agent.saisi.online/summrise-agent/SummriseAgent-Setup.exe"
 ./target/release/gen render dist/served-setup.html "$CONSOLE_URL" "$INSTALLER_URL" "$SETUP_URL" >/dev/null
 
-WASM_RAW=$(stat -c%s "$BG")
-WASM_GZ=$(gzip -9 -c "$BG" | wc -c)
+# **THE FILE MOVED FOURTEEN LINES AGO, AND THIS STAT HAS BEEN BROKEN SINCE 2026-09-30 — MEASURED
+# 2026-10-09, WHEN `build.sh index` REFUSED TO DEPLOY FOR IT.** The scratch-directory change above
+# (`STAGE="$(mktemp -d)"` … `mv "$STAGE/…" "$PKG/"`) moved the wasm OUT of `$STAGE`, and these two lines
+# went on reading `$BG` — the path it used to be at. The failure is silent in the worst way: `stat` fails,
+# the script refuses to deploy, and the last thing on screen is "the landing did not build", which reads like
+# a compile error rather than a path that moved. **LINE 81 BELOW HAD IT RIGHT ALL ALONG** — it reads
+# `$PKG/summrise_landing.js` — which is how this is a two-line typo rather than a design problem, and why
+# nothing caught it: no CI job runs this build, and the served pair was already in place.
+WASM_RAW=$(stat -c%s "$PKG/summrise_landing_bg.wasm")
+WASM_GZ=$(gzip -9 -c "$PKG/summrise_landing_bg.wasm" | wc -c)
 JS_GZ=$(gzip -9 -c "$PKG/summrise_landing.js" | wc -c)
 HTML=$(stat -c%s dist/served-setup.html)
 HTML_GZ=$(gzip -9 -c dist/served-setup.html | wc -c)

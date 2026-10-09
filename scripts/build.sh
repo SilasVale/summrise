@@ -13,6 +13,14 @@
 #   ./scripts/build.sh deploy          # build agent + deploy gateway/index
 #
 # Dependencies: cargo-xwin, wrangler (global 4.127.0, pinned with build-pins.bash), CLOUDFLARE_API_TOKEN (deploy
+# **AND `node_modules` IN THE DIRECTORY BEING DEPLOYED — MEASURED 2026-10-09, BECAUSE ITS ABSENCE BLOCKS A
+# DEPLOY WITHOUT SAYING SO.** `build.sh gateway` runs the gateway's own pre-deploy gates
+# (`format:check`, `typecheck`, `lint`, the suite), and `npm run format:check` with `prettier` missing from
+# `gateway/node_modules` exits **216 WITH NO OUTPUT AT ALL** — no "command not found", nothing. The deploy
+# stops at a gate that never ran, and the last thing on screen is a script header. `cd gateway && npm ci`
+# is the fix, and it is a real dependency of this path, so it is named here rather than left to be
+# rediscovered. (`agent/summrise-agent-npm` is the exception and says so itself: zero dependencies and no
+# lockfile, so `npm ci` there fails with EUSAGE.)
 # only, or a ~/.cloudflare-token file).
 set -euo pipefail
 
@@ -301,8 +309,21 @@ deploy_worker() {
     # PREVIOUS assets, printed 9 "DRIFT" lines, and this step reported a deploy
     # that had SUCCEEDED as a failure — the one verdict a deploy gate must not
     # get wrong. See check-live-parity.sh (PARITY_ATTEMPTS/PARITY_RETRY_SLEEP).
-    bash "$ROOT/gateway/scripts/check-live-parity.sh" \
-      || { echo "  !! live parity check failed — live worker differs from repo" >&2; return 1; }
+    # **AND AN EXIT OF 2 IS `n/a`, NOT A FAILED DEPLOY — MEASURED 2026-10-09.** The probe now separates a
+    # CONTENT drift (exit 1) from a FETCH failure (exit 2), because `curl -sL` succeeds on a 404 and a
+    # FETCH-FAIL therefore means the host was unreachable: on the deploy box 20 of 41 files failed with
+    # `curl` exit **28**, and this line reported a deploy as FAILED while the upload had succeeded
+    # (`Uploaded summrise-gate (6.54 sec)`, `Current Version ID: 3b11c8ab`). A deploy is what FIXES a stale
+    # worker, so being unable to read the live one must not block the thing that would correct it. The
+    # probe's own comments call this "the one verdict a deploy gate must not get wrong".
+    local parity_st=0
+    bash "$ROOT/gateway/scripts/check-live-parity.sh" || parity_st=$?
+    if [ "$parity_st" = 2 ]; then
+      echo "  !! live parity could NOT be checked — the probe could not reach $ROOT's CDN; the deploy stands" >&2
+    elif [ "$parity_st" != 0 ]; then
+      echo "  !! live parity check failed — live worker differs from repo" >&2
+      return 1
+    fi
   fi
   # Post-publish smoke (round-58, reworked round-324): /api/version derives
   # from the version.json asset (round-297) — the OLD smoke grepped static
@@ -371,7 +392,17 @@ deploy_relay() {
   # **AND THE TOKEN TRAVELS WITH THE COMMAND**: in a non-interactive shell wrangler refuses without it, and
   # it refuses AFTER the build — measured 2026-10-08 on the wasm front door's path, which is why
   # `scripts/test/release-lib.bash` refuses a `wrangler deploy` in this file that lacks the prefix.
-  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler deploy ) || return 1
+  # **THE DEPLOY TOOL IS THE GLOBAL ONE, AND `npx` IS NOT IT — MEASURED 2026-10-09, WHEN THIS PATH COULD NOT
+  # DEPLOY AT ALL.** The header above names the dependency: "wrangler (global 4.127.0, pinned with
+  # build-pins.bash)". `npx wrangler` ignores that global: it looks for a LOCAL `node_modules/.bin/wrangler`
+  # first, and NEITHER `gateway/` NOR `gateway/wasm/` HAS ONE (measured: `ls gateway/wasm/node_modules/.bin/
+  # wrangler` -> not found). With no local copy, npx falls back to the registry — and in a non-interactive
+  # shell, on a box whose registry access is slow, that produces NO OUTPUT AND NO DEPLOY: `npx wrangler
+  # --version` printed nothing in 90 s while the global answered `4.147.0` immediately. The failure is
+  # invisible because `wrangler`'s own build step never runs, so the last thing on screen is the deploy
+  # header. **THE CONSOLE'S PATH NEVER HAD THIS BUG** — it calls `wrangler` directly, which is why
+  # `build.sh gateway` deployed on 2026-10-07 while `build.sh gateway-wasm` silently did nothing.
+  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" wrangler deploy ) || return 1
   echo "  ok: $name deployed"
   # **THE SMOKE IS THE DOWNLOAD LEG, END TO END, AND IT NEEDS NO UPLOAD.** A token that names no object
   # must answer the claim Durable Object's own 404 envelope — which proves three things at once: the zone
@@ -464,7 +495,7 @@ PY
   # carry the prefix, and so does every deploy path outside this file; this one was written without it.
   # `scripts/test/release-lib.bash` now refuses a `wrangler deploy` in this file that lacks the prefix,
   # because "a new deploy path forgets the one thing every deploy path needs" is the class.
-  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" npx wrangler deploy --var "CONSOLE_HOST:${console_host}" )
+  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" wrangler deploy --var "CONSOLE_HOST:${console_host}" )
 }
 
 cmd="${1:-agent}"

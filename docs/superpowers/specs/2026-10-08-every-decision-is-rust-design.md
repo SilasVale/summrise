@@ -172,7 +172,16 @@ takes a JS file — and they are BOUNDARY entries in the manifest with the platf
 **AND THE AUDIT THAT FOLLOWED SLICE 1 FOUND DECISIONS STILL IN THE PAYLOADS — AND THEN FOUND THAT ONE OF ITS OWN
 FINDINGS WAS WRONG, which is the more useful half of this paragraph.**
 
-1. **The contrast verdict is still computed in JavaScript, and this one holds.** `panel-run.cjs:1134` and
+1. **The contrast verdict is still computed in JavaScript, and this one holds — but it names TWO sites and
+   there are THREE, which is recorded here because this paragraph is the design authority and it was wrong.**
+   MEASURED 2026-10-09 by the agent doing the port: the push sites are `panel-run.cjs:1134`,
+   `console-run.cjs:332` **and** `console-run.cjs:411`. This paragraph named `:411` and not `:332`; the
+   coordinator's brief named `:332` and not `:411`. **And the two console sites are DIFFERENT RULES, not one
+   rule written twice**: `:332` excludes graphics (`r.kind !== 'graphic'`) and uses NO `4.5` default, emitting
+   `sel cr<need`; `:411` applies the panel's rule (`r.cr !== null && !r.inactive && r.cr < (r.need ?? 4.5)`)
+   with a shorter sentence, `sel "text16" cr<need`. A port that treats "the console's rule" as one thing would
+   silently change one of the two. All three rules and all three sentences have to be preserved, and the Rust
+   must say which is which. `panel-run.cjs:1134` and
    `console-run.cjs:411` compare each row's measured ratio against its requirement (`r.cr < need`) and build
    `underAA` **with the sentence already formatted**; the Rust judge then READS `underAA` (`report.rs:1073`) and only
    wraps it — *"N element(s) below AA while hovered — …"*. So the comparison AND the per-element message are
