@@ -131,6 +131,12 @@ export function makeEnv({
   links = null,
   kv = {},
   extra = {},
+  // **THE BINDING IS PRESENT BY DEFAULT BECAUSE `/v1/*` HAS NO TYPESCRIPT IMPLEMENTATION LEFT.** A test that
+  // exercises a route the RUST WORKER now serves in production — the device family since 2026-10-08 — has to say
+  // which implementation it is testing: `wasmGate: false` is the no-binding configuration, which is exactly the
+  // ROLLBACK (see `index.ts`'s cutover), and with the binding present those requests are handed over and never
+  // reach the plugin. This is a knob about WHICH CODE ANSWERS, not a weakened assertion.
+  wasmGate = true,
 } = {}) {
   __clearCaches();
   const map = new Map();
@@ -171,16 +177,20 @@ export function makeEnv({
     // deleted, so a test env without this binding gets the front door's loud 503 — which is correct behaviour and
     // useless as a test of the alias. The stub answers a fixed model list AND pushes every request it receives onto
     // `_frontDoor`, so a test can assert the PATH the alias rewrote rather than only that something answered.
-    WASM_GATE: {
-      async fetch(request) {
-        const url = new URL(request.url);
-        env._frontDoor.push(`${request.method} ${url.pathname}`);
-        return new Response(
-          JSON.stringify({ object: "list", data: [{ id: "og/deepseek-v4.1-flash", object: "model" }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      },
-    },
+    ...(wasmGate
+      ? {
+          WASM_GATE: {
+            async fetch(request) {
+              const url = new URL(request.url);
+              env._frontDoor.push(`${request.method} ${url.pathname}`);
+              return new Response(
+                JSON.stringify({ object: "list", data: [{ id: "og/deepseek-v4.1-flash", object: "model" }] }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            },
+          },
+        }
+      : {}),
     // Test hooks: raw map for seed/inspection assertions, expiry map for
     // reproducing expired-but-unreaped KV list() entries, and the front door's
     // request log.

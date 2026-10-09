@@ -1506,5 +1506,827 @@
   },
   "__rateLimit": {
     "first429": 49
+  },
+  "GET /api/devices (admin session)": {
+    "status": 200,
+    "body": "{\"devices\":[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"111…1111\",\"mcp\":{\"url\":\"https://d1.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d1.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 1111111111111111111111111111111111111111111111111111111111111111\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"222…2222\",\"mcp\":{\"url\":\"https://d2.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d2.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 2222222222222222222222222222222222222222222222222222222222222222\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"ttt…tttt\",\"mcp\":{\"url\":\"https://taken.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://taken.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\\\"\\n      }\\n    }\\n  }\\n}\"}}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (no session)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (a non-admin session)": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Admin permission required\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (a forged cookie)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (a session for a SUSPENDED admin)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (a session for a user who does not exist)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (an allowlisted Origin)": {
+    "status": 200,
+    "body": "{\"devices\":[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"111…1111\",\"mcp\":{\"url\":\"https://d1.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d1.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 1111111111111111111111111111111111111111111111111111111111111111\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"222…2222\",\"mcp\":{\"url\":\"https://d2.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d2.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 2222222222222222222222222222222222222222222222222222222222222222\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"ttt…tttt\",\"mcp\":{\"url\":\"https://taken.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://taken.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\\\"\\n      }\\n    }\\n  }\\n}\"}}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "access-control-allow-origin: https://console.test",
+      "content-type: application/json",
+      "vary: Origin"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices (an origin that is NOT allowlisted)": {
+    "status": 200,
+    "body": "{\"devices\":[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"111…1111\",\"mcp\":{\"url\":\"https://d1.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d1.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 1111111111111111111111111111111111111111111111111111111111111111\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"222…2222\",\"mcp\":{\"url\":\"https://d2.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d2.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 2222222222222222222222222222222222222222222222222222222222222222\\\"\\n      }\\n    }\\n  }\\n}\"},\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"ttt…tttt\",\"mcp\":{\"url\":\"https://taken.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://taken.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\\\"\\n      }\\n    }\\n  }\\n}\"}}]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices, a new device": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d3\",\"hostname\":\"d3.agent.test\",\"token\":\"333…3333\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"d3\",\"hostname\":\"d3.agent.test\",\"token\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"registeredAt\":1760000000000}]"
+    ],
+    "calls": []
+  },
+  "POST /api/devices, an existing device (registeredAt and proxySecret are kept)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d1\",\"hostname\":\"d1b.agent.test\",\"token\":\"999…9999\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1b.agent.test\",\"token\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"registeredAt\":1700000000000,\"proxySecret\":\"ssssssssssssssssssssssssssssssss\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": []
+  },
+  "POST /api/devices, a short name": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Device name must be 1-32 chars: letters/digits/_ -\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices, a hostname that is not a domain": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"hostname must be a domain like fnv:c9db0649\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices, a hostname outside the device suffix": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"hostname must be under .agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices, a token shorter than eight characters": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Token must be at least 8 chars\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices, no body at all": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Device name must be 1-32 chars: letters/digits/_ -\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices/d1/mcp": {
+    "status": 200,
+    "body": "{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"mcp\":{\"url\":\"https://d1.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d1.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 1111111111111111111111111111111111111111111111111111111111111111\\\"\\n      }\\n    }\\n  }\\n}\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices/d1/mcp, a name with a percent escape": {
+    "status": 200,
+    "body": "{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"mcp\":{\"url\":\"https://d1.agent.test/mcp\",\"json\":\"{\\n  \\\"mcpServers\\\": {\\n    \\\"summrise-agent\\\": {\\n      \\\"type\\\": \\\"http\\\",\\n      \\\"url\\\": \\\"https://d1.agent.test/mcp\\\",\\n      \\\"headers\\\": {\\n        \\\"Authorization\\\": \\\"Bearer 1111111111111111111111111111111111111111111111111111111111111111\\\"\\n      }\\n    }\\n  }\\n}\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices/nope/mcp, a device that does not exist": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Device not found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "DELETE /api/devices/d2": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put plugins:v1={\"liveplugin\":{\"device\":\"d1\",\"createdAt\":1,\"expiresAt\":1760086400000}}",
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": []
+  },
+  "DELETE /api/devices/nope, a device that does not exist": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": []
+  },
+  "DELETE /api/devices/d1 (it revokes the device's plugin links)": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put plugins:v1={\"deadplugin\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1759999999999},\"legacyplugin\":{\"device\":\"d2\",\"createdAt\":1}}",
+      "put devices:v1=[{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename, a new name": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d9\",\"hostname\":\"d1.agent.test\",\"token\":\"111…1111\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d9\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]",
+      "put plugins:v1={\"liveplugin\":{\"device\":\"d9\",\"createdAt\":1,\"expiresAt\":1760086400000},\"deadplugin\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1759999999999},\"legacyplugin\":{\"device\":\"d2\",\"createdAt\":1}}"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename, a new name AND hostname": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d9\",\"hostname\":\"d9.agent.test\",\"token\":\"111…1111\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d9\",\"hostname\":\"d9.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]",
+      "put plugins:v1={\"liveplugin\":{\"device\":\"d9\",\"createdAt\":1,\"expiresAt\":1760086400000},\"deadplugin\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1759999999999},\"legacyplugin\":{\"device\":\"d2\",\"createdAt\":1}}"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename to a name that is taken": {
+    "status": 409,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"conflict\",\"message\":\"Device 'd2' already registered\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/nope/rename, a device that does not exist": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Device not found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename, an invalid new name": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Device name must be 1-32 chars: letters/digits/_ -\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename, a hostname outside the device suffix": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"hostname must be under .agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/d1/rename (renaming a device to its own name is not a conflict)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"111…1111\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]",
+      "put plugins:v1={\"liveplugin\":{\"device\":\"d1\",\"createdAt\":1,\"expiresAt\":1760086400000},\"deadplugin\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1759999999999},\"legacyplugin\":{\"device\":\"d2\",\"createdAt\":1}}"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/d1/panel-grant": {
+    "status": 200,
+    "body": "{\"ok\":true,\"url\":\"https://d1.agent.test/panel/?grant=000102030405060708090a0b0c0d0e0f\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put panelgrant:000102030405060708090a0b0c0d0e0f={\"device\":\"d1\",\"mintedAt\":1760000000000} ttl=120"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/nope/panel-grant": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Device not found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, the grant's own device": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "del panelgrant:cccccccccccccccccccccccccccccccc"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, a grant minted for ANOTHER device": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Grant not found or expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, an unknown grant": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Grant not found or expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, a malformed grant code": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Grant not found or expired\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, no device token": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Missing device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/panel-grant/redeem, a device token nobody has": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices/register-keys": {
+    "status": 200,
+    "body": "{\"keys\":[]}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/register-key": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"0001020304050607\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regkey:0001020304050607=1 ttl=3600"
+    ],
+    "calls": []
+  },
+  "DELETE /api/devices/register-keys/expired01": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "del regkey:expired01"
+    ],
+    "calls": []
+  },
+  "DELETE /api/devices/register-keys/nosuchkey": {
+    "status": 200,
+    "body": "{\"ok\":true}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "del regkey:nosuchkey"
+    ],
+    "calls": []
+  },
+  "GET /api/devices/install-cmd": {
+    "status": 200,
+    "body": "{\"ok\":true,\"version\":\"9.9.9\",\"download\":\"https://index.test/summrise-agent.tgz\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET https://index.test/api/version auth=-"
+    ]
+  },
+  "POST /api/devices/self-register, a NEW device that answers with a proxy secret": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d5\",\"hostname\":\"d5.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"d5\",\"hostname\":\"d5.agent.test\",\"token\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"proxySecret\":\"pppppppppppppppppppppppppppppppppppppppp\",\"registeredAt\":1760000000000}]"
+    ],
+    "calls": [
+      "GET https://d5.agent.test/api/status auth=Bearer 5555555555555555555555555555555555555555555555555555555555555555"
+    ]
+  },
+  "POST /api/devices/self-register, a new device whose tunnel answers WITHOUT a secret": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d6\",\"hostname\":\"d6.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"d6\",\"hostname\":\"d6.agent.test\",\"token\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"registeredAt\":1760000000000}]"
+    ],
+    "calls": [
+      "GET https://d6.agent.test/api/status auth=Bearer 6666666666666666666666666666666666666666666666666666666666666666"
+    ]
+  },
+  "POST /api/devices/self-register, a new device whose tunnel answers with a SHORT secret": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d7\",\"hostname\":\"d7.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"d7\",\"hostname\":\"d7.agent.test\",\"token\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"registeredAt\":1760000000000}]"
+    ],
+    "calls": [
+      "GET https://d7.agent.test/api/status auth=Bearer 7777777777777777777777777777777777777777777777777777777777777777"
+    ]
+  },
+  "POST /api/devices/self-register, an existing device with the SAME token (refresh)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d1\",\"hostname\":\"d1.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": []
+  },
+  "POST /api/devices/self-register, an existing device with a DIFFERENT token and no proof": {
+    "status": 409,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"conflict\",\"message\":\"Device 'd1' already registered with a different token — use the console (admin)\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET https://d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111"
+    ]
+  },
+  "POST /api/devices/self-register, an existing device whose STORED tunnel proves the rotation": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"d1\",\"hostname\":\"d1.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"}]"
+    ],
+    "calls": [
+      "GET https://d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111"
+    ]
+  },
+  "POST /api/devices/self-register, a moved hostname": {
+    "status": 409,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"conflict\",\"message\":\"Device 'd1' hostname is fixed — change it from the console (admin)\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/self-register, a token that is not 64 hex characters": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Invalid device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/devices/self-register, a hostname outside the device suffix": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"hostname must be under .agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/register, a live key": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"reg1\",\"hostname\":\"reg1.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:livekey01=1 ttl=60",
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"reg1\",\"hostname\":\"reg1.agent.test\",\"token\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proxySecret\":\"pppppppppppppppppppppppppppppppppppppppp\",\"registeredAt\":1760000000000}]",
+      "del regkey:livekey01",
+      "del reggrant:livekey01",
+      "del regclaim2:livekey01"
+    ],
+    "calls": [
+      "GET https://reg1.agent.test/api/status auth=Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  },
+  "POST /api/register, the grant a spent key leaves behind": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"reg2\",\"hostname\":\"reg2.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:grantlive1=1 ttl=60",
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"reg2\",\"hostname\":\"reg2.agent.test\",\"token\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"registeredAt\":1760000000000}]",
+      "del regkey:grantlive1",
+      "del reggrant:grantlive1",
+      "del regclaim2:grantlive1"
+    ],
+    "calls": [
+      "GET https://reg2.agent.test/api/status auth=Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  },
+  "POST /api/register, an UPPERCASE key (the key is lowercased before the claim)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"device\":{\"name\":\"reg3\",\"hostname\":\"reg3.agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:livekey01=1 ttl=60",
+      "put devices:v1=[{\"name\":\"d1\",\"hostname\":\"d1.agent.test\",\"token\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"proxySecret\":\"ssssssssssssssssssssssssssssssss\",\"registeredAt\":1700000000000,\"lastSeenAt\":1700000100000,\"lastVersion\":\"1.2.3\"},{\"name\":\"d2\",\"hostname\":\"d2.agent.test\",\"token\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"registeredAt\":1700000000001},{\"name\":\"taken\",\"hostname\":\"taken.agent.test\",\"token\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},{\"name\":\"reg3\",\"hostname\":\"reg3.agent.test\",\"token\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"registeredAt\":1760000000000}]",
+      "del regkey:livekey01",
+      "del reggrant:livekey01",
+      "del regclaim2:livekey01"
+    ],
+    "calls": [
+      "GET https://reg3.agent.test/api/status auth=Bearer bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  },
+  "POST /api/register, a key that is already claimed": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Registration key already in use\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/register, a key that does not exist": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Invalid or used registration key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/register, no key at all": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Invalid or used registration key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/register, a name that is already registered": {
+    "status": 409,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"conflict\",\"message\":\"Device 'd1' already registered — use the console (admin) to update it\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:livekey01=1 ttl=60",
+      "del regclaim2:livekey01"
+    ],
+    "calls": []
+  },
+  "POST /api/register, a body the device rules refuse": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Token must be at least 8 chars\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:livekey01=1 ttl=60",
+      "del regclaim2:livekey01"
+    ],
+    "calls": []
+  },
+  "POST /api/register, a hostname outside the device suffix": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"hostname must be under .agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim2:livekey01=1 ttl=60",
+      "del regclaim2:livekey01"
+    ],
+    "calls": []
+  },
+  "POST /api/install/tunnel-token, a live key (it spends the key)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"apiToken\":\"cf-account-token\"}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put regclaim:tunnelkey01=1 ttl=60",
+      "del regkey:tunnelkey01",
+      "put reggrant:tunnelkey01=1 ttl=900"
+    ],
+    "calls": []
+  },
+  "POST /api/install/tunnel-token, a key that is already claimed": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Registration key already in use\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "POST /api/install/tunnel-token, a key that does not exist": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authorization_error\",\"message\":\"Invalid or used registration key\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "GET /api/devices/d1/proxy/panel (NOT this family: the reverse proxy)": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device unreachable: the device family's sweep has no upstream answer for https://d1.agent.test/panel\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET https://d1.agent.test/panel auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111"
+    ]
+  },
+  "GET /api/devices/anything/else/here": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "PUT /api/devices": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "OPTIONS /api/devices": {
+    "status": 200,
+    "body": "",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT"
+    ],
+    "writes": [],
+    "calls": []
+  },
+  "__devicePublicRate": {
+    "first429": 11
   }
 }

@@ -241,11 +241,15 @@ fn empty_with_headers(headers: Vec<(String, String)>) -> Result<Response> {
     Ok(Response::empty()?.with_status(200).with_headers(h))
 }
 
+/// The `jsonError(status, message, type)` envelope from `http.ts` — the ONE shape every refusal in this worker
+/// answers with (the device family's 401/403/404/409 arms and the front door's own 404).
+pub(crate) fn json_error(status: u16, message: &str, kind: &str) -> Result<Response> {
+    let body = serde_json::json!({"type": "error", "error": {"type": kind, "message": message}});
+    json(serde_json::to_string(&body)?, status)
+}
+
 fn not_found() -> Result<Response> {
-    json(
-        r#"{"type":"error","error":{"type":"not_found_error","message":"Not Found"}}"#.to_string(),
-        404,
-    )
+    json_error(404, "Not Found", "not_found_error")
 }
 
 /// **`withCors` — THE PER-REQUEST STAMP, APPLIED TO EVERY RESPONSE THE DOOR SENDS.**
@@ -342,6 +346,15 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     if v1::is_v1_route(&req.method(), url.path()) {
         return v1::handle(req, env).await;
     }
+    // **THE DEVICE FAMILY — the console's registry, the third route group.** `devices::in_family` is the SAME
+    // predicate the TypeScript front door uses to decide what to hand over, so a path this worker is given is a
+    // path it answers: the routes it serves, and the front door's own 404 for the shapes it does not.
+    if devices::in_family(&req.method(), url.path()) {
+        return match devices::handle(req, &env).await? {
+            Some(response) => Ok(response),
+            None => not_found(),
+        };
+    }
     not_found()
 }
 
@@ -350,6 +363,11 @@ pub mod body_scan;
 pub mod byok;
 pub mod cors;
 pub mod device;
+pub mod device_registry;
+pub mod device_store;
+pub mod devices;
+pub mod ip_rate_limit;
+pub mod key_lock;
 pub mod rate_limit;
 pub mod redact;
 pub mod registry;
@@ -358,6 +376,7 @@ pub mod request_shape;
 pub mod responses;
 pub mod routing;
 pub mod session;
+pub mod session_gate;
 pub mod store;
 pub mod stream;
 pub mod tokens;
@@ -365,3 +384,4 @@ pub mod tooling;
 pub mod translate;
 pub mod v1;
 pub mod vision;
+pub mod webcrypto;

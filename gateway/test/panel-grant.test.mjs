@@ -23,6 +23,12 @@ const D2 = { name: "d2", hostname: "d2.agent.summrise.test", token: "b".repeat(6
 
 function makeEnv(devices) {
   return makeBaseEnv({
+    // **NO `WASM_GATE` BINDING, ON PURPOSE: THIS FILE TESTS THE TYPESCRIPT IMPLEMENTATION.** `index.ts` hands the
+    // device family to the Rust worker when that binding is present (the production configuration), so a test of
+    // the TypeScript handlers is a test of the ROLLBACK path — which is a real configuration (a `wrangler dev`
+    // without the sibling worker, a deployment whose binding was removed) and the one these assertions were always
+    // about. The cutover's own routing is pinned in `devices-cutover.test.mjs`.
+    wasmGate: false,
     devices,
     users: {
       admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" },

@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 47] = [
+const ALLOWED: [(&str, &str); 48] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -103,6 +103,14 @@ const ALLOWED: [(&str, &str); 47] = [
     // ADDED 2026-10-02, same branch: `routing.rs` is the Rust port of `upstream.ts`'s `pickRoute`, and the US
     // egress base's DEFAULT is a production hostname — the entry above declares the TypeScript for that.
     ("gateway/wasm/src/routing.rs", "the US_PROXY_BASE fallback, ported: the same default upstream.ts carries"),
+    // ADDED 2026-10-08, WITH THE DEVICE FAMILY'S PORT, AND IT IS THE SAME DEBT `gateway/src/plugins/devices.ts`
+    // ALREADY CARRIES one directory over: the install manifest's base URL (`INDEX_WORKER_URL`) has a DEFAULT, and
+    // that default is the release host a device downloads its installer from. The ported route cannot answer
+    // `GET /api/devices/install-cmd` without it, and the alternative — reading the var and answering `null` when
+    // it is unset — is a different decision from the source's. MAX_ALLOWED 47 -> 48 in this commit, as the
+    // failure message requires: 47 -> 48 is a HOST being added, and the sentence above it says why it belongs.
+    ("gateway/wasm/src/devices.rs", "the install manifest's INDEX_WORKER_URL default, ported from gateway/src/plugins/devices.ts"),
+
     ("gateway/src/device-fetch.ts", "the DEVICE_HOST_SUFFIX fallback — the rule that decides what a device hostname is"),
     ("gateway/src/plugins/devices.ts", "the INDEX_WORKER_URL / INSTALL_SOURCE fallbacks"),
     ("gateway/ui/", "the console's own API client defaults"),
@@ -203,7 +211,7 @@ const ALLOWED: [(&str, &str); 47] = [
 // port that CONSOLIDATES is a file to declare, not a host to add. (The comment above says 46 -> 47 while the
 // constant read 46, because the list shrank back by one after that raise and this file's prose did not follow
 // it; the number below is the one the ratchet checks, and the ratchet checks both directions.)
-const MAX_ALLOWED: usize = 47;
+const MAX_ALLOWED: usize = 48;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
@@ -395,7 +403,7 @@ fn a_declared_prefix_may_name_the_host_and_an_undeclared_path_may_not() {
     );
     assert!(
         ok.stdout
-            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 47"),
+            .starts_with("production-host: 1 occurrence(s) in 1 file(s); 48"),
         "{}",
         ok.stdout
     );
