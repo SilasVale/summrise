@@ -647,4 +647,46 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// of the tree it was written on and became the mistake it warns about one merge later. The rule is the
 /// one the session paid for three times: **a number without its tree is a number about somebody else's
 /// tree.**
-const MAX_LOGIC: usize = 92;
+/// **AND THE E2E SUITE'S SPLIT IS THE ENTRY THAT MOVES THIS CONSTANT ON THE MERGED TREE.** The
+/// reclassification above was RIGHT — the file's call sites computed their conditions and derived the details a
+/// reader acts on — and it is what made the port happen. The port then took the logic OUT of the file: the plan,
+/// the section order, the checks and thirty timing literals are `agent/e2e-judge/` now, the driver performs
+/// platform calls and decides nothing, and `agent/scripts/e2e/` is BOUNDARY again — this time by its control flow
+/// rather than by its name. So the constant falls by one, and it falls by MEASUREMENT rather than by arithmetic:
+///
+///     the e2e suite's judge   93 -> 92   `agent/scripts/e2e/` left LOGIC because the logic left IT — the
+///                                        75th-to-last entry in this table, and the one that CLOSES it.
+///                                                 The counts in this table are about FOUR different trees —
+///                                                 `main` at 107, the slices at 94, the branch that read 93,
+///                                                 and the merge of them — which is the rule this session paid
+///                                                 for three times: **a number without its tree is a number
+///                                                 about somebody else's tree.**
+///
+/// **AND THE COUNT IN THE FILE'S OWN COMMENT WAS WRONG, WHICH IS A THING THE PORT FOUND AND READING DID NOT.**
+/// It says "the 75 `check(...)` calls below are DECISIONS"; the file carries **74 call sites** — the 75th
+/// `check(` in it is the function's own definition and the 76th is that comment. A clean run registers **76**
+/// checks, because the six `mcp` ones run once per transport and four sites are alternative arms. A count
+/// corrected by the thing that had to reproduce it is worth more than one corrected by reading.
+///
+/// **AND THIS NUMBER IS 92 BECAUSE IT WAS MEASURED ON THE MERGED TREE** — this branch after merging
+/// `integration/the-seven-slices` — the way the rule says: `const MAX_LOGIC` forced to **0** and the gate's own
+/// refusal read back: `LOGIC files: 92, and the frozen budget is 0`. It was PREDICTED as 92 (93 minus the one
+/// file this landing moves out of LOGIC) and it was not written until the gate said it, which is the difference
+/// between a number and a fact.
+/// ── AND THE THIRD TREE READ **91**, WHICH IS WHY BOTH PARENTS' 92s WERE NOT REUSED ─────────────────
+///
+/// **THE TREE: the merge of `main@181daf8b` into `gates/the-floor-is-rust@233a3fd6`, 2026-10-10.**
+///
+/// Both sides of this conflict said 92 and both were RIGHT about their own tree — this branch because it
+/// deleted two LOGIC rules, `main` because the e2e split moved one directory out of the class. The merge
+/// takes both facts, so the merged tree is a third tree and the arithmetic that looks obvious (92 minus
+/// one) is the arithmetic this constant must never be set by. It was measured the way the rule says —
+/// constant forced to 0, gate run, its own refusal read back:
+///
+///     LOGIC files: 91, and the frozen budget is 0 — the migration may only shrink this number.
+///
+/// **AND 91 IS THE PREDICTION CONFIRMED, NOT THE PREDICTION USED**: the sentence above says what the
+/// arithmetic suggests, and it was written only after the gate printed the number — the order matters,
+/// because the two parents agreeing on 92 is exactly the coincidence that would have hidden a wrong 92
+/// here. A number without its tree is a number about somebody else's tree.
+const MAX_LOGIC: usize = 91;
