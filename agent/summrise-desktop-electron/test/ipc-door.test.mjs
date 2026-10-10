@@ -103,13 +103,31 @@ test("main.ts calls ipcMain.handle exactly once — inside the door helper", () 
     /if\s*\(!frameOk\(e\)\)\s*return\s+FORBIDDEN_FRAME\s*;/,
     "the door must return the ONE refusal for a forbidden frame",
   );
-  // ONE refusal shape, stated once. It used to be two (`{ ok: false }` for six handlers), and the SPA
-  // reads `j?.ok`, so the bare form was indistinguishable from a dead view.
-  const refusals = matches(code, /forbidden frame/g);
-  assert.equal(refusals.length, 1, `the refusal must be stated once (found ${refusals.length}) — a second copy is a second shape`);
-  const declaration = code.slice(code.indexOf("const FORBIDDEN_FRAME"), code.indexOf("const FORBIDDEN_FRAME") + 200);
-  assert.match(declaration, /ok:\s*false/, "the refusal must answer ok: false");
-  assert.match(declaration, /error:\s*"forbidden frame"/, 'the refusal must carry error: "forbidden frame"');
+  // ONE refusal shape, stated once.
+  //
+  // **THE VALUE MOVED TO RUST IN LANDING 6b AND THIS ASSERTION MOVED WITH IT.** It used to be two
+  // shapes (`{ ok: false }` for six handlers), and the SPA reads `j?.ok`, so the bare form was
+  // indistinguishable from a dead view. The string and the shape are now
+  // `agent/summrise-shell-policy`'s `forbiddenFrame()`, where
+  // `the_forbidden_frame_refusal_is_stated_once_and_carries_its_reason` asserts them; what is left for
+  // THIS file — the only thing it can see, because `main.ts` imports electron — is that the door builds
+  // the refusal exactly once and does not restate the literal. A hard-coded copy here would be the second
+  // shape coming back through the door the first one was removed from.
+  const declared = code.split("\n").filter((line) => line.includes("const FORBIDDEN_FRAME"));
+  assert.equal(
+    declared.length,
+    1,
+    `the refusal must be declared exactly ONCE (found ${declared.length}) — a second copy is a second shape`,
+  );
+  assert.match(
+    declared[0],
+    /forbiddenFrame\s*\(\s*\)/,
+    "the refusal's value must come from the policy crate (forbiddenFrame()), not a literal in this file",
+  );
+  assert.ok(
+    !code.includes('"forbidden frame"'),
+    'main.ts must not restate the refusal string — the policy crate owns it, and the shape is pinned by `cargo test -p summrise-shell-policy`',
+  );
 });
 
 test("the channels the preload invokes are exactly the channels the door registers", () => {

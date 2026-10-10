@@ -7,10 +7,12 @@
 // and `panel-grant.test.mjs` exercise the TypeScript handlers and therefore run WITHOUT the binding, and this
 // file is what says the other configuration routes where it claims to.
 //
-// **THE TWO EXCLUSIONS, EACH ASSERTED:**
-//   * `/api/devices/<name>/proxy/...` is `plugins/device-proxy.ts` — a reverse proxy this slice does not port,
-//     and it shares the prefix, so it is the case most likely to be swept up by a prefix rule.
-//   * `/api/upload` is a 100 MiB body passthrough, not ported.
+// **THE TWO EXCLUSIONS ARE GONE (landing 5 slice 4), AND THE CASES BELOW ARE THE SAME TWO ROWS POINTED THE OTHER
+// WAY** — the shape the identity slice used when it deleted the cookie condition. `/api/devices/<name>/proxy/...`
+// and `POST|PUT /api/upload` were the "not this slice" rows; both are Rust now, so the test that asserted they
+// stayed on the TypeScript path asserts the handover instead. A cutover that only ever grows a list is a cutover
+// whose exclusions are untested, and an exclusion deleted without moving its assertion is an exclusion that is
+// merely gone.
 //
 // **AND THE COOKIE CONDITION IS GONE — THIS FILE IS WHERE IT WAS MEASURED AND WHERE IT IS NOW MEASURED ABSENT.**
 // Until landing 5 slice 2 the eleven admin-gated routes stayed on the TypeScript path when the request carried
@@ -110,14 +112,37 @@ test("with the binding: an ADMIN route with no cookie IS handed over — the Acc
   }
 });
 
-test("with the binding: the reverse proxy and the file relay are NOT handed over", async () => {
-  const proxy = envWith();
-  await call(proxy, "GET", "/api/devices/d1/proxy/panel/", { session: true });
-  assert.deepEqual(proxy._frontDoor, [], "device-proxy.ts is not this slice");
-
-  const upload = envWith();
-  await call(upload, "POST", "/api/upload", { session: true });
-  assert.deepEqual(upload._frontDoor, [], "the 100 MiB body passthrough is not this slice");
+test("with the binding: the reverse proxy and the file relay ARE handed over now", async () => {
+  // The two rows that were asserted as "kept on the TypeScript path" until slice 4, asserted in the direction
+  // the code now takes. The proxy accepts ANY method and authenticates with a plugin token as well as a cookie,
+  // so it is exercised with both a GET and a POST; the upload is POST and PUT.
+  for (const [method, path] of [
+    ["GET", "/api/devices/d1/proxy/panel/"],
+    ["POST", "/api/devices/d1/proxy/api/tools/terminal_execute"],
+    ["POST", "/api/devices/d1/proxyfoo"],
+  ]) {
+    const env = envWith();
+    const got = await call(env, method, path, { session: true });
+    assert.deepEqual(env._frontDoor, [`${method} ${path}`], `${method} ${path} is the worker's now`);
+    assert.equal(got.status, 200, `${method} ${path} answered by the stub gate`);
+  }
+  // The upload's PUT carries the filename in the query — the stub records the PATHNAME, so the row names the
+  // path the gate saw, and the query is the request's own (`upload.rs` forwards it; `devices.test.mjs` pins
+  // that for the TypeScript).
+  for (const [method, path, seen] of [
+    ["POST", "/api/upload", "POST /api/upload"],
+    ["PUT", "/api/upload?name=firmware.bin", "PUT /api/upload"],
+  ]) {
+    const env = envWith();
+    const got = await call(env, method, path, { session: true });
+    assert.deepEqual(env._frontDoor, [seen], `${method} ${path} is the worker's now`);
+    assert.equal(got.status, 200, `${method} ${path} answered by the stub gate`);
+  }
+  // …and the shapes that are still NOT the family, so the new clauses cannot swallow a neighbour: a GET of the
+  // upload path (the route is POST|PUT only) and a device name that is not there.
+  const crossed = envWith();
+  await call(crossed, "GET", "/api/upload", { session: true });
+  assert.deepEqual(crossed._frontDoor, [], "GET /api/upload is the plugin's 404, not the relay's");
 });
 
 test("with the binding: the /v1 cutover is unchanged", async () => {

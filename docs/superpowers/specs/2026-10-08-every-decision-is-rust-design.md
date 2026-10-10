@@ -190,6 +190,34 @@ FINDINGS WAS WRONG, which is the more useful half of this paragraph.**
    neither `panel-design-sweep.bash` nor `sweep-judges.bash` contains the string `underAA` — so the oracle has to be
    built with the change (a parity harness over recorded rows, the shape `agent/summrise-cli/parity/` uses) rather
    than borrowed.
+
+   **DONE 2026-10-09, AND THE TWO HALVES OF ITS ORACLE ARE DIFFERENT IN KIND — WHICH IS THE PART TO CARRY FORWARD.**
+   The correction is not only that the site count was wrong (**THREE** hover sites, not two: `console-run.cjs` has
+   one in its overview-dark pass and a second in its widths pass, with **different rules and different sentences** —
+   they are not one rule written twice), but that **THE END-TO-END SWEEP CANNOT BE THE ORACLE AT ALL.** Measured by
+   running the SAME payload against the SAME harness twice: `hover (panel/light)` reported **16** elements below AA
+   the first time and **17** the second, with the session label `"stc@192.168.1.1"` in one run and `"d1"` in the
+   other, a ring sampled at `rgb(250, 233, 217)` and then `rgb(250, 235, 220)`, and `button.btn-new` at `1.92` and
+   then `1.79`. The console arm moves the same way (9 then 10 on its dark pass, four of its seven surfaces changed).
+   **THE SWEEP MEASURES A LIVE PAGE, AND A LIVE PAGE IS NOT REPRODUCIBLE BETWEEN RUNS** — so diffing two runs and
+   concluding the port is broken is the mistake this paragraph exists to prevent.
+
+   **WHAT REPLACES IT: HOLD THE INPUT CONSTANT AND VARY ONLY THE IMPLEMENTATION.** A defect was planted in the
+   SURFACE — `#b9b9b9` on `#ffffff` (1.96:1) as the hover colour of every control, in a copy of the generated panel
+   harness and in a fresh `vite build` of `gateway/ui` — and the payloads at the commit BEFORE the change were run
+   to record, **in one pass**, both the sentence the JavaScript printed and the raw row behind it. Every row was
+   then replayed ONE AT A TIME through the Rust judge:
+
+       panel   61 rows over 4 surfaces · byte-identical 61 · DIFFERENT 0
+       console 58 rows over 7 surfaces · byte-identical 58 · DIFFERENT 0   (9 dark, 49 light)
+       TOTAL  119 rows                · 0 differences
+
+   The corpus carries what a fixture written from the format cannot: a browser's own numbers
+   (`11.313705444335938px`), the ring idiom, `need: 3` against `4.5`, an empty selector text, and a 16-UNIT
+   truncation of a two-unit character (`"中"`). **THE FIXTURE ORACLE IS THE PROOF; THE END-TO-END RUN IS THE
+   INTEGRATION CHECK** — it shows the payload's `rule` reaching the judge and its sentences coming back in the
+   payload's own spellings, and it is not evidence of byte-equality between two live runs, because two live runs
+   are never the same measurement.
 2. **~~The acknowledgement's note text is computed twice.~~ WRONG, RETRACTED, AND THE MEASUREMENT IS WHY.** This
    section said the payload's `ackNotes` call (`console-run.cjs:499`) duplicates the judge's, so deleting it would
    lose nothing. Reading both control flows says otherwise: the payload's call prints a note for **every** ack row,
@@ -385,6 +413,39 @@ design job.
 So there is nothing here for the migration to fix, and the honest statement is narrower than the first draft: the
 assembler **stays JavaScript**, because it produces a JS artifact for `browser_run_script` — a BOUNDARY with the
 platform call named — and what 2b changes is only that the *plan* it embeds comes from Rust.
+
+### 6.6 Two wasm crates that depend on each other ship the module graph TWICE
+
+**FOUND WHILE BUILDING LANDING 6b, BY TRYING THE OBVIOUS THING AND THEN COUNTING.** Landing 6b adds
+`agent/summrise-shell-policy`, the Electron shell's remaining decisions, beside landing 6a's
+`agent/summrise-url-policy`. The shell needs three of the url policy's predicates — `parse_agent_port`,
+`is_dsh_url`, `is_desktop_spa_url` — so the first build took the dependency the obvious way, **by path**.
+wasm-bindgen accepted it and produced a module. What the generated glue showed is why it cannot stay:
+
+    grep -cE '^export function' agent/summrise-desktop-electron/src/summrise_shell_policy.d.ts
+      -> 75   with the path dependency (the url policy's 18 names among them)
+      -> 18   without it
+
+**THAT IS NOT A DUPLICATED NAME, IT IS A DUPLICATED MODULE.** wasm-bindgen exports every `#[wasm_bindgen]`
+item in the whole crate GRAPH, so `main.ts` would require `summrise_url_policy.js` AND a
+`summrise_shell_policy.js` that re-exports the same functions; each glue compiles its OWN
+`WebAssembly.Module` from its OWN `.wasm`, so the url-policy code exists twice with **two independent
+copies of its `thread_local!` port state**. `setAgentPort(7740)` through the first glue leaves the second
+glue's `AGENT_PORT` at 18080 — which means, on a custom-port install, that `dshTarget` admits the wrong
+door and the main-window tripwire snaps the panel back. **Silent, device-only, and exactly the class of
+failure this migration exists to remove.**
+
+**THE DECISION: wasm crates in this repository are PEERS, and they compose through the HOST.** Where a
+decision needs another crate's predicate, it takes that predicate's **answer as an argument** —
+`tripwire_allows(url, desktop_spa)`, `tray_should_watch(…, base_origin)`, `dsh_target(raw, admitted)` —
+and the host, which holds exactly one instance of each glue, evaluates it. One implementation, no shared
+state, and no second module.
+
+**AND IT IS PINNED, WHICH IS WHAT MAKES IT A DECISION RATHER THAN A PREFERENCE.**
+`agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs` fails if the shell-policy glue ever
+exports `setAgentPort`, `isBaseOrigin`, or any of the url policy's other 17 names again. **A future wasm
+crate that wants a sibling's function reads this section first, and the way to re-open it is to re-add the
+dependency and count the exports — not to re-assert the design.**
 
 ## 7 · Out of scope, with the measurements that put it there
 

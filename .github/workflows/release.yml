@@ -199,6 +199,13 @@ jobs:
           # `wscript.exe <…>.vbs` wrappers, and a device copies it out of this tarball rather than
           # building it. Same RUSTFLAGS as the line above, so the two builders produce the same bytes.
           cargo xwin build -p summrise-launch --target x86_64-pc-windows-msvc --release
+          # THE CLI — the npm package's `bin` since landing 4b, and a RUST BINARY rather than the
+          # `bin/summrise.js` this job used to compile from `src/summrise.ts` (both deleted). Same
+          # RUSTFLAGS as the two above, and for a stronger reason than symmetry: `bin/summrise.exe`
+          # is byte-compared against the release box's build of this same crate, so a path one
+          # builder bakes in and the other does not would make that comparison fail for a reason
+          # that has nothing to do with the code.
+          cargo xwin build -p summrise-cli --target x86_64-pc-windows-msvc --release
           # THE SEGMENT TABLE IS THE POINT: every .text$*/.rdata$* contribution with its Start and Length.
           # Whoever compares this against the release box's map is looking for ONE line whose Start differs
           # by 0x130 -- and that line's NAME is the answer this investigation has been circling.
@@ -239,16 +246,25 @@ jobs:
           # that registers a task naming a program it does not ship is Task Scheduler's `0x2`.
           sha256sum target/x86_64-pc-windows-msvc/release/summrise-launch.exe
           cp target/x86_64-pc-windows-msvc/release/summrise-launch.exe summrise-agent-npm/summrise-launch.exe
-          # round-298 lesson: bin/summrise.js is a COMMITTED tsc artifact; a
-          # stale copy (source changed, build not re-run) would ship the
-          # old CLI. Compile it fresh — typescript + @types/node only (the
-          # electron postinstall download is not needed for tsc).
+          # THE CLI (landing 4b). It WAS a committed tsc emit — `bin/summrise.js`, compiled from
+          # `src/summrise.ts` right here and grep'd for the round-298 marker to prove SOME build had
+          # happened. Both files are deleted and the npm `bin` is a cargo artifact, so the round-298
+          # lesson ("a stale committed emit must not ship") is answered the way the two exes above
+          # answer it: the artifact is NOT committed at all — it is gitignored, built by the step
+          # above, copied here, and required by required-in-tgz.txt.
+          #
+          # `mkdir -p` IS LOAD-BEARING: `bin/` holds nothing that git tracks any more, so a fresh
+          # checkout has no such directory and the copy would fail on the runner, not on a box where
+          # somebody's earlier build left it behind.
+          mkdir -p summrise-agent-npm/bin
+          sha256sum target/x86_64-pc-windows-msvc/release/summrise-cli.exe
+          cp target/x86_64-pc-windows-msvc/release/summrise-cli.exe summrise-agent-npm/bin/summrise.exe
+          # typescript + @types/node are still installed for the ELECTRON freshness gate below (the
+          # electron postinstall download is not needed for tsc). Nothing in this package is tsc
+          # output of its own source any more.
           # summrise-agent-npm package.json is os:win32 — --force skips the
           # platform check on the Linux runner.
           (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22)
-          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json)
-          cp summrise-agent-npm/dist/summrise.js summrise-agent-npm/bin/summrise.js
-          grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker"; exit 1; }
           # round-321: electron main/preload/url-policy .js are COMMITTED tsc
           # artifacts (tsc outDir is dist/, the npm package ships src/*.js) —
           # a stale copy ships silently. Compile the electron TS fresh and

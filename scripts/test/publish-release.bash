@@ -430,7 +430,7 @@ rm -f "$LED" "$EMPTY"
 # DELETING or TRUNCATING it would disable the gate in both builders at once.
 REQ="agent/summrise-agent-npm/required-in-tgz.txt"
 req_n=$(grep -vcE '^[[:space:]]*(#|$)' "$REQ" 2>/dev/null || echo 0)
-if [ -f "$REQ" ] && [ "$req_n" -ge 5 ] && grep -qx 'summrise-agent\.exe' "$REQ" && grep -qx 'bin/summrise\.js' "$REQ"; then
+if [ -f "$REQ" ] && [ "$req_n" -ge 5 ] && grep -qx 'summrise-agent\.exe' "$REQ" && grep -qx 'bin/summrise\.exe' "$REQ"; then
   ok "the packed-tgz content list has $req_n entries, with the exe and the CLI among them"
 else
   bad "the packed-tgz content list is missing, empty, or lacks the exe/CLI: $REQ"
@@ -514,10 +514,10 @@ fi
 FIX_MODE=$(mktemp -d)
 git -C "$FIX_MODE" init -q
 mkdir -p "$FIX_MODE/agent/summrise-agent-npm/bin"
-printf 'x\n' > "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.js"
+printf 'MZ\n' > "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.exe"
 printf 'root\n' > "$FIX_MODE/README.md"
 printf '#!/bin/sh\n' > "$FIX_MODE/tool.sh"
-chmod 644 "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.js" "$FIX_MODE/README.md"
+chmod 644 "$FIX_MODE/agent/summrise-agent-npm/bin/summrise.exe" "$FIX_MODE/README.md"
 chmod 755 "$FIX_MODE/tool.sh"
 git -C "$FIX_MODE" add -A
 git -C "$FIX_MODE" -c user.email=t@t -c user.name=t commit -qm fixture

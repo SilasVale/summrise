@@ -1,0 +1,69 @@
+[package]
+name = "summrise-shell-policy"
+version.workspace = true
+edition = "2021"
+description = "The Electron shell's remaining decisions — boot/auth, the native menu, browser-session and embedded-view policy, the loopback control server's routing, the agent-lifecycle watchdog and the tray's formats — ported out of agent/summrise-desktop-electron/src/main.ts. The URL/origin/certificate half is agent/summrise-url-policy (landing 6a); the two crates are siblings that do NOT depend on each other, and the reason is in the comment below."
+
+# `cdylib` is what wasm-pack emits; `rlib` is what `cargo test -p summrise-shell-policy` links against, so
+# the SAME source is both the shipped artifact and the thing the ported cases run against — the arrangement
+# `summrise-url-policy` records, and for the same reason: a crate that could only be built for wasm could
+# only be tested by loading the artifact in Node.
+[lib]
+name = "summrise_shell_policy"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# **THIS CRATE DELIBERATELY DOES NOT DEPEND ON `summrise-url-policy`, AND THE FIRST BUILD OF IT DID.**
+#
+# The dependency looked obviously right — `resolve_agent_port` wants `parse_agent_port`, the DSH view's
+# door wants `is_dsh_url`, the tripwire wants `is_desktop_spa_url` — and wasm-bindgen accepted it and
+# produced a module. What the generated glue showed is why it cannot stay: **wasm-bindgen exports every
+# `#[wasm_bindgen]` item in the whole crate GRAPH**, so `summrise_shell_policy.js` came out with 75
+# exports, the 18 url-policy names among them (MEASURED: `grep -cE '^export function'` on the generated
+# `.d.ts` before the dependency was removed).
+#
+# THAT IS NOT A DUPLICATED NAME, IT IS A DUPLICATED MODULE. `main.ts` requires `summrise_url_policy.js`
+# and would also require `summrise_shell_policy.js`; each glue compiles its OWN `WebAssembly.Module` from
+# its OWN `.wasm`, so the url-policy code exists TWICE with **two independent copies of its
+# `thread_local!` port state**. `setAgentPort(7740)` through the first glue would leave the second one's
+# `AGENT_PORT` at 18080 — which means, on a custom-port install, that `dshTarget` would admit the wrong
+# door and the main-window tripwire would snap the panel back. Silent, device-only, and exactly the class
+# of failure this migration exists to remove.
+#
+# SO THE TWO CRATES COMMUNICATE THROUGH THE HOST. Where a decision here composes one of url-policy's
+# predicates, it takes that predicate's ANSWER as an argument (`tripwire_allows(url, desktop_spa)`,
+# `tray_should_watch(…, base_origin)`, `dsh_target(raw, admitted)`) and the host — which holds exactly one
+# instance of each glue — evaluates it. Nothing is re-implemented and no state is shared, because there
+# is no state to share. `test/shell-policy-wasm.test.mjs` PINS this: it fails if the shell-policy glue
+# ever exports `setAgentPort`, `isBaseOrigin` or any of the other 17 again.
+#
+# The one thing this crate still needs from the platform is the WHATWG parser — `dshTarget`'s serializer
+# and the control server's request parse — and that is the `url` crate, which is a LIBRARY rather than
+# the sibling policy crate and therefore carries no state.
+# The device token's line pattern. `\d` and `\s` are written out from `js::JS_WS`, because the regex
+# crate's classes are not JavaScript's.
+regex = "1"
+# JSON is this crate's boundary for STRUCTURED answers (the menu table, the browser-open plan, the tray's
+# facts) and its parser for the agent's `/api/status` body. Strings rather than `JsValue` objects keep the
+# generated `.d.ts` honest (`string`, not `any`) at the cost of one `JSON.parse` at each call site — and
+# the parse is where a malformed answer has to be REFUSED, which is a decision this crate owns.
+serde_json = "1"
+# `new URL(raw, base)` and `new URL(raw).toString()` — the WHATWG parser and serializer, which is the
+# browser's algorithm rather than a regex's, for the reason the url-policy crate's header records.
+url = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# PINNED TO THE CLI THAT IS INSTALLED (wasm-pack REFUSES a mismatch), and to the same generation
+# `summrise-url-policy`, `agent/resources/panel-logic` and `gateway/ui-logic` carry, so every wasm
+# artifact in this tree is built by one CLI.
+wasm-bindgen = "=0.2.129"
+# `js_sys::Reflect`/`Array`/`JsString`, and the two JavaScript functions this crate must CALL rather than
+# imitate: `Number(...)` (the shell ports its env values through it) and `Object.freeze` (the IPC door's
+# refusal is frozen).
+js-sys = "=0.3.106"
+
+# NO `[profile.release]` HERE, for the reason `summrise-url-policy`'s Cargo.toml records: this crate is a
+# member of the `agent` workspace, and cargo IGNORES a member's profile table with a warning while
+# building with the ROOT's. The overrides this crate asks for are set in the environment by `build.sh`,
+# which is the one place that builds it.

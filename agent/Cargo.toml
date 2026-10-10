@@ -17,9 +17,11 @@
 # its output, so the plan a browser-side payload consumes is Rust data.
 # `summrise-cli` is a member so `cargo fmt --all` and the workspace's lockfile see it, and it is NOT a
 # default member for the same reason as the three above: it is not part of `summrise-agent.exe`. It is the
-# Rust home of the `summrise` CLI's decisions, ported from `summrise-agent-npm/src/summrise.ts` with that
-# package's own `node --test` suite as the oracle. The npm `bin` is deliberately NOT repointed yet: the
-# port is proven first, and the cutover is a later landing.
+# Rust home of the `summrise` CLI, ported from `summrise-agent-npm/src/summrise.ts` with that package's
+# own `node --test` suite as the oracle — and since landing 4b's cutover it IS the CLI: the npm `bin` is
+# `bin/summrise.exe`, this crate's cross-compiled output, and the TypeScript, its tsc emit and its 68-case
+# suite are deleted. The 162 answers that oracle gave are frozen in `summrise-cli/parity/expected.json`,
+# which CI still checks this crate against.
 # `summrise-url-policy` is a member so `cargo fmt --all`, `cargo clippy` and the workspace's lockfile see
 # it, and it is NOT a default member for the same reason as the four above: it is not part of
 # `summrise-agent.exe` — it is built to wasm (`wasm-pack --target nodejs`) and REQUIRED by the Electron
@@ -27,7 +29,7 @@
 # workspace (`agent/resources/panel-logic` is the other arrangement for a wasm crate here) because its
 # decisions are Rust the agent's toolchain lints and tests, and `cargo test -p summrise-url-policy` is
 # part of the landing's bar.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy"]
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy", "summrise-shell-policy", "model-drift"]
 default-members = ["."]
 resolver = "2"
 

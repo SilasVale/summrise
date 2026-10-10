@@ -48,6 +48,37 @@ fn without_comments(text: &str, marker: char) -> String {
         .join("\n")
 }
 
+/// The CLI's PowerShell generators, from the RUST THAT SHIPS THEM — `summrise-cli/src/psgen.rs`,
+/// with its `//` comment lines removed so prose can neither satisfy nor trip an ordering pin.
+///
+/// THE SHIPPING HALF, AND THAT IS THE WHOLE POINT OF THIS HELPER (landing 4b). Three pins below
+/// used to read `summrise-agent-npm/src/summrise.ts`; the npm `bin` is `bin/summrise.exe` now, so
+/// that file is not on any device and a pin reading it would have measured a museum.
+fn psgen_code() -> String {
+    without_comments(&read("summrise-cli/src/psgen.rs"), '/')
+}
+
+/// `desktop_task_ps`'s own text, out of [`psgen_code`] — from its `pub fn` to the closing brace at
+/// column 0.
+///
+/// SCOPED RATHER THAN WHOLE-FILE, because the agent's own task is built in the same file and shares
+/// two of the values asserted here (`-RunLevel Highest`, and NO execution limit). An unscoped
+/// `contains` is satisfied by that neighbour and stops noticing the desktop task's own line.
+///
+/// MUTATION: change the desktop task's settings to `-ExecutionTimeLimit (New-TimeSpan -Minutes 10)`
+/// → RESULT: `the_task_has_one_definition` fails with "must give SummriseDesktop NO execution limit".
+fn desktop_task_gen() -> String {
+    let code = psgen_code();
+    let start = code
+        .find("pub fn desktop_task_ps(")
+        .expect("the CLI must still build the desktop task");
+    let rest = &code[start..];
+    let end = rest
+        .find("\n}")
+        .expect("desktop_task_ps must still close at column 0");
+    rest[..end].to_string()
+}
+
 /// The CDN fallback must verify the download against the version manifest before
 /// npm is allowed to install it — and the check must be wired in, not merely
 /// present in a library nobody calls.
@@ -295,10 +326,24 @@ fn every_prestaged_component_is_verified() {
 /// registers it TOO, and its step runs AFTER setup — so its definition is the one that
 /// survives, and it used to pass neither, overwriting the hardened one on every
 /// install. Both ends now carry both, and this fails if either drifts.
+///
+/// MUTATION: `summrise-cli/src/psgen.rs`'s desktop task, `-ExecutionTimeLimit (New-TimeSpan
+/// -Seconds 0)` → `(New-TimeSpan -Minutes 10)` → RESULT: fails with "the CLI's desktop_task_ps must
+/// give SummriseDesktop NO execution limit: its action WAITS on electron … Found:  (New-TimeSpan
+/// -Minutes 10)".
+///
+/// MUTATION: delete `-Principal $pr` from the installer's `Register-ScheduledTask SummriseDesktop`
+/// line → RESULT: fails with "the installer must pass the principal".
 #[test]
 fn the_task_has_one_definition() {
     let ps1 = read("deploy/summrise-online-setup.ps1");
-    let cli = read("summrise-agent-npm/src/summrise.ts");
+    // THE CLI'S HALF IS RUST (landing 4b, the cutover). It was
+    // `summrise-agent-npm/src/summrise.ts`, which no device runs any more — a pin left on it would
+    // have kept passing while the generator that SHIPS the task drifted away from the installer.
+    // SCOPED to `desktop_task_ps`'s own text, unlike the unscoped `contains` this replaces: the
+    // agent's task in the same file also passes `-RunLevel Highest`, so a whole-file scan could be
+    // satisfied by the neighbour.
+    let cli = desktop_task_gen();
     // The two facts that were missing from the weaker end.
     for (needle, who) in [
         ("New-ScheduledTaskPrincipal", "the -Principal argument"),
@@ -352,27 +397,17 @@ fn the_task_has_one_definition() {
     //
     // AND IT IS SCOPED TO THE DESKTOP TASK'S OWN TEXT, which a weaker draft of this assertion
     // taught me by surviving a mutation: "this file contains `-Seconds 0` somewhere" PASSED with
-    // the desktop line changed to `-Seconds 30`, because src/summrise.ts holds FOUR such lines —
-    // the agent task, the desktop task, the update flow's heal and SummrisePlaywright — and the
-    // neighbours satisfied it. Every `ExecutionTimeLimit` in the desktop task's own text must be
+    // the desktop line changed to `-Seconds 30`, because the generator holds MORE THAN ONE such
+    // line — the agent task's own settings set is the neighbour, in the same Rust file — and the
+    // neighbour satisfied it. Every `ExecutionTimeLimit` in the desktop task's own text must be
     // the unlimited one, AND there must be at least one, because an ABSENT limit is Task
     // Scheduler's 72-hour default: the round-118 defect arriving from the other side.
     const UNLIMITED: &str = " (New-TimeSpan -Seconds 0)";
     let ps1_code = without_comments(&ps1, '#');
-    let cli_code = without_comments(&cli, '/');
-    let desktop_fn = {
-        let start = cli_code
-            .find("export function desktopTaskPs(")
-            .expect("the CLI must still build the desktop task");
-        let rest = &cli_code[start..];
-        let end = rest
-            .find("\n}")
-            .expect("desktopTaskPs must still close at column 0");
-        &rest[..end]
-    };
+    let desktop_fn = desktop_task_gen();
     for (text, who) in [
         (ps1_code.as_str(), "the installer"),
-        (desktop_fn, "the CLI's desktopTaskPs"),
+        (desktop_fn.as_str(), "the CLI's desktop_task_ps"),
     ] {
         let mut seen = 0;
         for tail in text.split("ExecutionTimeLimit").skip(1) {
@@ -395,8 +430,10 @@ fn the_task_has_one_definition() {
     // AND THE UPDATE PATH MUST CARRY THE SETTINGS, because that is the only route that reaches a
     // machine already installed. `Set-ScheduledTask` PRESERVES the components it is not given, so
     // a task carrying the old limit kept it through every update while the log said "hardened" —
-    // the fix would have needed a reinstall to land anywhere.
-    let heal = cli_code
+    // the fix would have needed a reinstall to land anywhere. It lives in the SWAP generator, not
+    // in `psgen.rs`: the same Rust crate, a different file, and the pin follows the line.
+    let swap_code = without_comments(&read("summrise-cli/src/swap.rs"), '/');
+    let heal = swap_code
         .lines()
         .find(|l| l.contains("Set-ScheduledTask -TaskName 'SummriseDesktop'"))
         .expect("the update flow must still re-register SummriseDesktop");
@@ -417,6 +454,12 @@ fn the_task_has_one_definition() {
     // task's execution limit and revived by the guarded pulse, and `logs\startup.log` (4,015
     // lines) contained ZERO occurrences of `desktop`, `electron` or `ExecutionTimeLimit`. The
     // record had to be recovered from the Task Scheduler's own operational log.
+    //
+    // THE WHOLE GENERATOR HERE, not `desktop_task_gen()`: these three lines are written by
+    // `ensure_desktop_ps`, which `desktop_task_ps` CALLS — they are in the same file but not inside
+    // the scoped function, which is exactly why the pin reads the file and the other clauses read
+    // the function.
+    let gen = psgen_code();
     for (needle, what) in [
         (
             "desktop: no electron shell is running",
@@ -437,7 +480,7 @@ fn the_task_has_one_definition() {
              step 6 runs last, so its copy is the one that survives an NSIS install"
         );
         assert!(
-            cli.contains(needle),
+            gen.contains(needle),
             "the CLI must write {what} — `summrise setup`, `summrise desktop` and \
              `summrise update` all write these launchers"
         );
@@ -452,7 +495,7 @@ fn the_task_has_one_definition() {
     // installer's own prose say it differently), so a scan that matches it cannot be satisfied
     // by a paragraph about the code.
     const KILL_LEAVES_NOTHING: &str = "a taskkill /T or a reboot leaves no exit code";
-    for (text, who) in [(ps1.as_str(), "the installer"), (cli.as_str(), "the CLI")] {
+    for (text, who) in [(ps1.as_str(), "the installer"), (gen.as_str(), "the CLI")] {
         assert!(
             text.contains(KILL_LEAVES_NOTHING),
             "{who} must keep the line that says an outside kill leaves no exit code, because a \
@@ -478,14 +521,26 @@ fn the_task_has_one_definition() {
 ///   3. the CLI stages it out of the package, and fails loudly when the package has none;
 ///   4. the package ships it and the build produces it.
 ///
-/// MUTATION: put `-Execute 'wscript.exe'` back into `desktopTaskPs` in `src/summrise.ts` →
-/// RESULT: fails with "the CLI must not register wscript.exe as a task action".
+/// MUTATION: put `-Execute 'wscript.exe'` back into `desktop_task_ps` in `summrise-cli/src/psgen.rs`
+/// → RESULT: fails with "the CLI must not register wscript.exe as a task action".
 ///
 /// MUTATION: delete `"summrise-launch.exe"` from `summrise-agent-npm/package.json`'s `files` →
 /// RESULT: fails with "the package must ship summrise-launch.exe".
+///
+/// MUTATION: rename the install path's destination, `Path::new(&layout.launcher_dst)` →
+/// `Path::new(&layout.launcher_dst_mutant)` in `summrise-cli/src/setup.rs` →
+/// RESULT: fails with "the CLI must stage the launcher (Path::new(&layout.launcher_dst) missing)".
+/// **THIS MUTATION IS WHY THE ASSERTION NAMES THE WHOLE EXPRESSION RATHER THAN THE IDENTIFIER**, and
+/// it was run: the first draft asserted `contains("layout.launcher_dst")` and the mutant PASSED,
+/// because the renamed identifier still CONTAINS the original as a prefix.
 #[test]
 fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
-    let cli = read("summrise-agent-npm/src/summrise.ts");
+    // THE SHIPPING GENERATOR, not the retired TypeScript (landing 4b): `psgen_code()` is
+    // `summrise-cli/src/psgen.rs` with its comment lines removed, and `setup_rs`/`swap_rs` are the
+    // two Rust files that stage the launcher — `setup` on a fresh install, `swap` on an update.
+    let cli = psgen_code();
+    let setup_rs = read("summrise-cli/src/setup.rs");
+    let swap_rs = read("summrise-cli/src/swap.rs");
     let ps1 = read("deploy/summrise-online-setup.ps1");
     let pkg = read("summrise-agent-npm/package.json");
     let build = read("../scripts/build.sh");
@@ -512,13 +567,14 @@ fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
 
     // 2. BOTH MUST NAME THE LAUNCHER, and at the path it derives `<install>\logs\launcher.log` from
     //    (one directory up from its own exe), so a copy placed elsewhere logs where nobody looks.
-    //    ASSERTED BY LINE AND NOT BY SPELLING: the TypeScript writes `scripts\\summrise-launch.exe`
-    //    (a template literal needs the doubled backslash) and the PowerShell writes
-    //    `scripts\summrise-launch.exe` — a pin written against either spelling fails on the other
-    //    while the wiring is correct, which is a test reporting its host rather than the behaviour.
+    //    ASSERTED BY LINE AND NOT BY SPELLING: the Rust writes `scripts\\summrise-launch.exe` (a
+    //    Rust string literal needs the doubled backslash for the same reason a template literal
+    //    does) and the PowerShell writes `scripts\summrise-launch.exe` — a pin written against
+    //    either spelling fails on the other while the wiring is correct, which is a test reporting
+    //    its host rather than the behaviour.
     //    THE LINE MUST CARRY BOTH FACTS, because the first mention of the name in each file is the
-    //    PACKAGE source (`path.join(__dirname, "..", "summrise-launch.exe")`), which says nothing
-    //    about where the device puts it.
+    //    PACKAGE source (`win_join(&pkg_dir, "summrise-launch.exe")`), which says nothing about
+    //    where the DEVICE puts it.
     for (text, who) in [
         (cli.as_str(), "the CLI"),
         (ps1.as_str(), "the online installer"),
@@ -538,18 +594,39 @@ fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
         );
     }
 
-    // 3. THE CLI STAGES IT, AND A MISSING ONE IS FATAL. Both scheduled tasks name the launcher, so a
-    //    device without it has two tasks that cannot start anything — the silent-watchdog failure
-    //    this change exists to end. `LAUNCHER_SRC`/`LAUNCHER_DST` are the two ends of that copy.
-    for needle in [
-        "const LAUNCHER_SRC",
-        "const LAUNCHER_DST",
-        "copyFileSync(LAUNCHER_SRC",
+    // 3. THE CLI STAGES IT, ON BOTH PATHS, AND A MISSING ONE IS FATAL. Both scheduled tasks name the
+    //    launcher, so a device without it has two tasks that cannot start anything — the
+    //    silent-watchdog failure this change exists to end. THREE FACTS, and the Rust states them
+    //    more plainly than the TypeScript's `LAUNCHER_SRC`/`LAUNCHER_DST` pair did: the source is
+    //    the package's copy, the destination is `layout.launcher_dst`, and the two consumers are
+    //    the fresh install (`setup.rs`) and the update that stages a `.new` for the swap
+    //    (`swap.rs`) — the update path is the one a device on 1.2.N actually takes, and a pin that
+    //    read only the install path would not have seen it.
+    for (text, needle, who) in [
+        (
+            setup_rs.as_str(),
+            "summrise-launch.exe missing from package",
+            "the fresh install must FAIL rather than skip when the package has no launcher",
+        ),
+        (
+            // THE WHOLE EXPRESSION, NOT THE IDENTIFIER, and that is a correction this pin's own
+            // mutation test forced: `contains("layout.launcher_dst")` PASSED with the destination
+            // renamed to `layout.launcher_dst_mutant`, because the mutant contains the original as
+            // a prefix. A pin that a rename survives is a pin that is not reading the copy.
+            setup_rs.as_str(),
+            "Path::new(&layout.launcher_dst)",
+            "the install path must copy it to the destination the tasks name",
+        ),
+        (
+            swap_rs.as_str(),
+            "summrise-launch.new.exe",
+            "the UPDATE path must stage a new launcher for the swap",
+        ),
     ] {
         assert!(
-            cli.contains(needle),
-            "the CLI must stage the launcher ({needle} missing): registered-but-not-staged is the \
-             failure mode this pin is for"
+            text.contains(needle),
+            "the CLI must stage the launcher ({needle} missing): {who} — registered-but-not-staged \
+             is the failure mode this pin is for"
         );
     }
 
@@ -577,7 +654,7 @@ fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
     }
     //     …and the playwright action builds its argument one line up, so the program is asserted
     //     there instead of on the action line.
-    let pw_args = cli
+    let pw_args = swap_rs
         .lines()
         .find(|l| l.contains("$pwArgs = "))
         .expect("the playwright task's argument builder must still exist");
@@ -599,15 +676,23 @@ fn the_desktop_task_runs_the_launcher_not_a_vbs_wrapper() {
     // AND THE WRAPPERS THEMSELVES MUST NOT BE WRITTEN ANY MORE. `CreateObject("WScript.Shell").Run`
     // is the wrapper's whole body — the precise marker of a generated `.vbs`, and the thing that
     // cannot run without the engine. The retired paths still appear in the DELETION line, which is
-    // why this asserts on the body rather than on the file name.
-    assert!(
-        !cli.contains(r#"CreateObject("WScript.Shell").Run"#),
-        "the CLI must not generate a .vbs wrapper any more"
-    );
-    assert!(
-        !cli.contains("Dim sh,cmd,i"),
-        "the run-hidden wrapper's body must be gone, not merely unreferenced"
-    );
+    // why this asserts on the body rather than on the file name. SCANNED ACROSS EVERY RUST FILE THAT
+    // WRITES POWERSHELL (landing 4b): the generators span three files, and the TypeScript's single
+    // file was the only reason one `cli.contains` could cover them all.
+    for (text, who) in [
+        (psgen_code(), "summrise-cli/src/psgen.rs"),
+        (swap_rs.clone(), "summrise-cli/src/swap.rs"),
+        (setup_rs.clone(), "summrise-cli/src/setup.rs"),
+    ] {
+        assert!(
+            !text.contains(r#"CreateObject("WScript.Shell").Run"#),
+            "{who} must not generate a .vbs wrapper any more"
+        );
+        assert!(
+            !text.contains("Dim sh,cmd,i"),
+            "{who}: the run-hidden wrapper's body must be gone, not merely unreferenced"
+        );
+    }
 }
 
 /// A FAILED INSTALL MUST STILL BE REMOVABLE (round 147).
@@ -882,10 +967,12 @@ fn every_exit_closes_the_install_log() {
 
 /// ONE SETTING, THREE READERS, ONE RULE — and the installer was the one that did not follow it.
 ///
-/// The agent's HTTP port is read in three places: `summrise-agent-npm/src/summrise.ts` and the
-/// Electron shell's policy (both `parseAgentPort`, both "the first `port:` inside the top-level
+/// The agent's HTTP port is read in three places: `summrise-cli` (landing 4b — it was
+/// `summrise-agent-npm/src/summrise.ts`, and the reader is
+/// `summrise-cli/src/config.rs`'s `parse_agent_port` now that the CLI the device runs is Rust) and
+/// the Electron shell's policy (both `parseAgentPort`, both "the first `port:` inside the top-level
 /// `server:` section; nothing when absent/invalid") and this installer, whose receipt writes the URL
-/// the finish page offers. **THE SHELL'S READER IS RUST NOW** (landing 6): it was
+/// the finish page offers. **THE SHELL'S READER IS RUST TOO** (landing 6): it was
 /// `summrise-desktop-electron/src/url-policy.ts` and it is `agent/summrise-url-policy/src/lib.rs`,
 /// whose `parse_agent_port` states the same rule — which is why clause 4 below reads THAT file, and
 /// reads the rule in it in ORDER rather than as a string that happens to be present. The installer
@@ -950,7 +1037,7 @@ fn the_installer_scopes_the_port_to_the_server_section() {
 
     // 3. THE WIRING: the function is called, its result feeds `$port`, and the 18080 default is
     //    still assigned BEFORE the call, so an absent/unreadable config leaves it in place. That
-    //    default is the same 18080 both TS readers fall back to — this fix invents no new one.
+    //    default is the same 18080 both Rust readers fall back to — this fix invents no new one.
     let call = code
         .find("$p = Get-AgentPort ")
         .expect("the receipt must call the scoped parse, not an inline scan");
@@ -973,19 +1060,42 @@ fn the_installer_scopes_the_port_to_the_server_section() {
     // 4. AND THE OTHER TWO READERS must still state the rule this one now follows; without this
     //    the pin measures agreement with a rule that may no longer exist on their side.
     //
-    //    THE SAME TWO READERS, ONE OF THEM IN ANOTHER LANGUAGE (landing 6): the Electron shell's
-    //    policy is `agent/summrise-url-policy`, a Rust crate, and its `parse_agent_port` states the
-    //    rule the TypeScript stated. So the clause is asserted the same way — on the source text —
-    //    but for the Rust it asserts the ORDER, exactly as clause 2 does for the installer: the
-    //    section anchor decides `in_server`, the guard skips every line before it, and only then is
-    //    the port pattern tried. A port pattern matched before the guard is the installer's old
-    //    whole-file scan wearing a function, in either language.
-    let npm_reader = read("summrise-agent-npm/src/summrise.ts");
+    //    BOTH OF THEM ARE RUST (landings 4b and 6). The CLI's reader was
+    //    `summrise-agent-npm/src/summrise.ts`'s `parseAgentPort`; it is
+    //    `summrise-cli/src/config.rs`'s `parse_agent_port` now, and the Electron shell's policy is
+    //    `agent/summrise-url-policy`. So BOTH clauses assert the ORDER, exactly as clause 2 does for
+    //    the installer: the section anchor decides `in_server`, the guard skips every line before it,
+    //    and only then is the port pattern tried. A port pattern matched before the guard is the
+    //    installer's old whole-file scan wearing a function, in any language.
+    //
+    //    THIS CLAUSE GOT STRONGER, NOT WEAKER, WHEN THE READER BECAME RUST: on the TypeScript side it
+    //    could only assert that two strings were PRESENT in a 4,475-line file, which a comment or a
+    //    second copy could satisfy. The order assertion is the one the wasm reader already had.
+    let cli_reader = without_comments(&read("summrise-cli/src/config.rs"), '/');
+    let cstart = cli_reader
+        .find("pub fn parse_agent_port(")
+        .expect("the CLI reader's parse must stay a named function this pin can point at");
+    let cend = cstart
+        + cli_reader[cstart..]
+            .find("\n}\n")
+            .expect("the function must still end with a closing brace at column 0")
+        + 3;
+    let cbody = &cli_reader[cstart..cend];
+    let canchor = cbody
+        .find("in_server = line.trim_start().starts_with(\"server\")")
+        .expect("the function must decide `in_server` from the top-level `server:` line");
+    let cguard = cbody
+        .find("if !in_server")
+        .expect("and must skip every line until it is inside that section");
+    let cport = cbody
+        .find("port_line(line)")
+        .expect("and must match `port:` only there");
     assert!(
-        npm_reader.contains("parseAgentPort") && npm_reader.contains("^server\\s*:"),
-        "summrise-agent-npm/src/summrise.ts is one of the three readers of this one setting and \
-         must still scope the parse to the top-level `server:` section"
+        canchor < cguard && cguard < cport,
+        "the CLI reader's scoping must be WIRED, not merely present: server-anchor={canchor}, \
+         section-guard={cguard}, port-pattern={cport} — expected anchor < guard < pattern"
     );
+
     let wasm_reader = read("summrise-url-policy/src/lib.rs");
     let pstart = wasm_reader
         .find("pub fn parse_agent_port(")

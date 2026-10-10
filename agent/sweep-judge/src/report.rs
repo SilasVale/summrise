@@ -1084,26 +1084,44 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
     }
 
     // ── HOVER ───────────────────────────────────────────────────────────────────────────────────────
+    // THE PAYLOADS HAND OVER THE ROW THEY MEASURED, AND THIS DECIDES (2026-10-09). Until then the three
+    // hover sites built the sentence themselves — `sel "text" cr<need painted …` in JavaScript — and this
+    // clause only wrapped it, so the comparison and the per-element message had two implementations in two
+    // languages. `crate::hover` owns all three rules and all three sentences; what is left here is the
+    // queue's own line and the `take(3)` that keeps a 200-row report readable.
     for h in arr(get(report, "hover")) {
-        let under_aa = arr(get(h, "underAA"));
+        let where_ = format!(
+            "{}/{}",
+            if truthy(get(h, "density")) {
+                js_str(get(h, "density"))
+            } else {
+                "?".to_string()
+            },
+            if truthy(get(h, "theme")) {
+                js_str(get(h, "theme"))
+            } else {
+                "?".to_string()
+            }
+        );
+        // A REPORT THIS JUDGE CANNOT READ IS REFUSED, NOT SKIPPED. The payloads wrote a key called
+        // `underAA` holding finished sentences until 2026-10-09, and a report from then would leave every
+        // rule above with nothing to compare while this clause printed NOTHING about a pass that may have
+        // measured eleven failing elements. Silence is the one answer a stale shape must not get.
+        if let Some(why) = crate::hover::unreadable(h) {
+            findings.push(Finding::text(format!(
+                "hover ({where_}): {why}, so its hover axis proves nothing"
+            )));
+            continue;
+        }
+        let under_aa = crate::hover::sentences(h);
         if !under_aa.is_empty() {
             findings.push(Finding::text(format!(
-                "hover ({}/{}): {} element(s) below AA while hovered — {}",
-                if truthy(get(h, "density")) {
-                    js_str(get(h, "density"))
-                } else {
-                    "?".to_string()
-                },
-                if truthy(get(h, "theme")) {
-                    js_str(get(h, "theme"))
-                } else {
-                    "?".to_string()
-                },
+                "hover ({where_}): {} element(s) below AA while hovered — {}",
                 under_aa.len(),
                 under_aa
                     .iter()
                     .take(3)
-                    .map(|x| js_str(Some(x)))
+                    .cloned()
                     .collect::<Vec<_>>()
                     .join("; ")
             )));

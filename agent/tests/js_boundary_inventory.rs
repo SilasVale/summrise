@@ -203,6 +203,20 @@ fn every_tracked_js_file_is_classified_and_the_logic_list_only_shrinks() {
             .join("\n  ")
     );
 
+    // **AND IT PRINTS THE COUNT ON THE PASSING PATH TOO — ADDED 2026-10-09, BECAUSE READING THE MEASURED CAP
+    // USED TO REQUIRE BREAKING THE GATE.** The number lived only in the failure message, so measuring it meant
+    // setting the budget to 0, running, reading `LOGIC files: 103`, and restoring — and a measurement nobody
+    // can take without a deliberate break is one nobody takes, which is how a cap ends up COMPUTED instead
+    // (107 minus the files you moved) rather than measured. Three merges in the session that added this line
+    // would have taken arithmetic and been wrong, hence the coordinator's rule.
+    //
+    // NOTE THE HONEST LIMIT: a test's stdout is captured unless it fails, so this line is visible under
+    // `cargo test --test js_boundary_inventory -- --nocapture`. That is one flag rather than one mutation.
+    println!(
+        "LOGIC files: {} of a frozen budget of {MAX_LOGIC}",
+        logic.len()
+    );
+
     // **THE RATCHET, AND IT IS THE POINT OF THE FILE.** The list may shrink; it may not grow, and it may not be
     // silently re-labelled — lowering the cap is a deliberate edit that a reviewer sees in the diff.
     assert!(
@@ -260,6 +274,63 @@ fn every_tracked_js_file_is_classified_and_the_logic_list_only_shrinks() {
             println!("  {n:>3}  {pattern}\n       {reason}");
         }
     }
+}
+
+/// **A RULE THAT MATCHES NO TRACKED FILE IS DEAD WEIGHT IN THE FILE THAT ANSWERS "MAY I WRITE THIS IN JS".**
+///
+/// `LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)` sat
+/// in this manifest after every file it described had left — the judge is Rust and the two payloads are
+/// BOUNDARY — so it matched NOTHING, and a reader consulting the manifest would have been told that a directory
+/// with nothing in it is LOGIC. The same thing happened to `LOGIC | scripts/ |`, which a person removed by hand
+/// when the last `.mjs` under it became a crate. **This test is what stops the next one from needing a person to
+/// notice.**
+///
+/// It asks the manifest's own matcher (`Rule::matches`), NOT `classify`: a rule that is merely SHADOWED by a
+/// longer one is not dead, it is a rule whose files are also covered by something more specific — and calling
+/// that dead would be a gate that cannot be satisfied.
+///
+/// MUTATION: add `BOUNDARY | scripts/nothing-here/ | a rule for a directory that does not exist` to
+///           `agent/tests/fixtures/js-boundaries.txt`.
+/// RESULT:   measured, with `BOUNDARY | scripts/nothing-here/ | a rule for a directory that does not exist`
+///           appended to the manifest:
+///
+///               a rule in the manifest matches nothing, so it describes a tree that is not this one:
+///                 agent/tests/fixtures/js-boundaries.txt:139: `scripts/nothing-here/` is BOUNDARY and
+///                 matches no tracked file
+///               FIX: delete the rule (the files it described are gone or reclassified), or correct its
+///               pattern to where those files actually live.
+///
+///           exit 101. Restoring the manifest returns all four tests to green.
+#[test]
+fn no_rule_matches_nothing() {
+    let rules = manifest();
+    let files: Vec<String> = common::git_ls_files_all()
+        .into_iter()
+        .filter(|f| is_js_family(f))
+        .collect();
+    assert!(
+        !files.is_empty(),
+        "the scan saw no JavaScript at all — this proves nothing"
+    );
+    let dead: Vec<String> = rules
+        .iter()
+        .filter(|r| !files.iter().any(|f| r.matches(f)))
+        .map(|r| {
+            format!(
+                "{MANIFEST}:{}: `{}` is {} and matches no tracked file",
+                r.line,
+                r.pattern,
+                r.class.name()
+            )
+        })
+        .collect();
+    assert!(
+        dead.is_empty(),
+        "a rule in the manifest matches nothing, so it describes a tree that is not this one:\n  {}\n\
+         FIX: delete the rule (the files it described are gone or reclassified), or correct its pattern to \
+         where those files actually live.",
+        dead.join("\n  ")
+    );
 }
 
 /// **A `GENERATED` RULE MUST NAME A PRODUCER THAT EXISTS.** This is the direction that keeps the manifest from
@@ -351,6 +422,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                                 has one definition now, and it is in Rust
 ///     the fixture reader            ->   107     `scripts/test/lib/emitted-pieces.mjs` is what two
 ///                                                 live bash gates import, so it is BOUNDARY
+///     landing 6b (electron)         ->   103     − main.ts and preload.ts, which are the shell's HOST
+///                                                 now (its decisions are `summrise-shell-policy`,
+///                                                 wasm), and − ipc-door.test.mjs and
+///                                                 embedded-bridge.test.mjs, which pin the HOST's
+///                                                 call-site counts and the preload's bridge names.
+///                                                 FOUR files, named because a cap may only come DOWN
+///                                                 in a commit that says which file left
+///
+/// **THE LANDING 6b ROW IS THE FIRST ONE MEASURED RATHER THAN COMPUTED, AND THAT IS THE RULE.** Four files
+/// leaving four directory rules is arithmetic anyone can do, and arithmetic is not a measurement: the
+/// number below is what THIS GATE PRINTS on the tree that carries the reclassification, and it was
+/// re-derived after the manifest change rather than predicted before it. (Three merges this session
+/// resolved a cap conflict by running the gate and taking its number; twice the computed answer would have
+/// been wrong.)
 ///
 /// **AND TWO MORE MOVED FOR A THIRD REASON: ONE WAS ALREADY GONE IN EVERY SENSE BUT THE FILE.** The rule
 /// `scripts/test/lib/decomment.mjs` defines — a comment is not a producer, nor a derivation — has exactly one
@@ -406,10 +491,135 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// (`GET /api/plugins/status`, whose `routes` field is the TypeScript plugin registry's own dispatch counters).
 /// A ratchet that moves for a file that merely changed class is measuring the manifest rather than the work.
 ///
+/// **AND ONE MOVEMENT TOOK A RULE WITH IT, WHICH IS THE PART WORTH READING (2026-10-09).**
+/// `scripts/model-drift.mjs` (137 lines) is `agent/model-drift/` now: the three pure functions, the
+/// report's sentences, the argv and the exit codes are Rust, and `cargo test -p summrise-model-drift`
+/// — named in the `agent` job, because a workspace member that is not a default member is a crate no
+/// job tests — is what runs the ported cases. Its manifest rule was not only its own: the catch-all
+/// `LOGIC | scripts/ | the root build/release tooling (landing 3)` matched that file and NOTHING ELSE
+/// (the rest of `scripts/` is extensionless hook scripts, which this inventory does not count, and
+/// `scripts/test/` is covered by its own longer rule), so once the file left, the rule matched
+/// nothing — and a rule that matches nothing is dead weight in the file that answers "may I write
+/// this in JS". It is deleted with the file, which is also what makes a future `.mjs` in `scripts/`
+/// land as UNCLASSIFIED instead of being quietly swallowed by a directory rule. The number below was
+/// MEASURED, not computed: the cap was set to 0 and the gate's own failure line read back on THIS
+/// tree (`LOGIC files: 106, and the frozen budget is 0`), because only the merged tree's number is a
+/// fact about the merged tree.
+///
 /// AND THE SOUND OF A DOWNWARD STEP IS NAMED: the two files landing 6 removed did not go away because they were
 /// inconvenient. `agent/summrise-desktop-electron/src/url-policy.ts` and its suite became
 /// `agent/summrise-url-policy`'s own tests, case for case, in a Rust crate compiled to wasm — the shell's
 /// URL/origin/certificate policy is now machine-checked in the language of the policy. The wasm-pack products that
 /// landing ADDED are GENERATED rules with the crate named as producer, and the Node suite that loads the committed
 /// artifact in CI's place is a BOUNDARY exception because it executes an artifact and decides nothing.
-const MAX_LOGIC: usize = 107;
+///
+/// **IT FELL BY FIVE ON 2026-10-09, AND THE FIVE ARE NAMED** — the rule this constant carries is that a cap may
+/// come down only in a commit that says which file left, so that a number which falls without its reason cannot
+/// be audited:
+///
+///   `scripts/test/console-assets-check.mjs`        -> `agent/tests/console_assets.rs`
+///   `scripts/test/console-smoke-check.mjs`         -> `agent/tests/console_smoke.rs`
+///   `scripts/test/panel-sheet-freshness-check.mjs` -> `agent/tests/panel_sheet_freshness.rs`
+///   `scripts/test/press-anchor-check.mjs`          -> `agent/tests/press_anchor.rs`
+///   `scripts/test/contrast-probe-check.mjs`        -> `agent/tests/contrast_probe.rs` (13 assertions) plus
+///                                                     `agent/tests/contrast_probe_emitted.rs` (5)
+///
+/// Each was ported with the Node gate still beside it, the two were run on one tree until they agreed, and the
+/// `.mjs` was deleted — the differential is in the commit that landed each port. The `scripts/test/` manifest
+/// rule STAYS and is not narrowed: `scripts/test/npm-test-floored.mjs` is still there on purpose, because only
+/// its DECISION moved (`agent/tests/npm_test_floor.rs`) and the spawn that runs `npm test` in six directories
+/// has not. **107 -> 102.**
+///
+///     landing 4b's cutover         102 -> 101   `agent/summrise-agent-npm/src/summrise.ts` LEFT (and its `bin/`
+///                                                GENERATED rule with it): the npm `bin` is `bin/summrise.exe`, a
+///                                                cargo artifact, so the TypeScript CLI and the tsc emit that
+///                                                regenerated nothing are deleted. Its 68-case suite left too and
+///                                                the packaging suite took the directory's place — ONE step and not
+///                                                two, and the number did not move for the suite, because a test
+///                                                belongs to the code it tests and this one now tests the tarball.
+///
+/// **AND THE TWO NUMBERS IN THAT PARAGRAPH ARE MEASURED ON THE MERGED TREE, NOT CARRIED FROM THE BRANCH THAT
+/// WROTE THEM.** It arrived saying `107 -> 106`, which was true on ITS base; this tree already carried the five
+/// `.mjs` gates' `107 -> 102`, so the same landing reads `102 -> 101` here. The count came from the gate's own
+/// refusal — `const MAX_LOGIC` forced to **0**, which makes it print `LOGIC files: 101, and the frozen budget
+/// is 0` — because a cap resolved by picking one branch's number is a cap nobody measured.
+/// **AND THE SAME PARAGRAPH, ONE LANDING LATER, FOR THE FOUR FILES THAT LEFT IN 6b.** `main.ts` and
+/// `preload.ts` did not stop mattering — they are the shell's HOST, and they are the ONLY two files in this
+/// repository that can create an Electron window or hold CDP :9333 open. What changed is that they decide
+/// nothing any more: the ~58 decision sites a classification found in `main.ts` (made before a line of Rust
+/// was written, and reported with line ranges) are `agent/summrise-shell-policy`'s, compiled to wasm and
+/// required the same way `agent/summrise-url-policy` is. The two `.mjs` files stayed and moved class for
+/// the manifest's own reason — "a test belongs to the code it tests" — and what they test is now the host:
+/// call-site counts in `main.ts`'s text and the preload's bridge names against the panel's fixture. A
+/// directory whose rule says LOGIC while every file in it is a boundary is the manifest lying to itself.
+///
+/// **101 -> 97, AND THE NUMBER IS MEASURED ON THE MERGED TREE RATHER THAN CARRIED FROM EITHER BRANCH.** The
+/// paragraph above measured 101 on the integration branch BEFORE this landing's conflicts were resolved, so
+/// its four files could not be counted yet; this branch's own reading was 103 on ITS base, where the five
+/// `.mjs` gates and the CLI's cutover had not landed. Neither number is the merged tree's. The gate's own
+/// refusal settles it — `const MAX_LOGIC` forced to **0**, which prints `LOGIC files: 97, and the frozen
+/// budget is 0` — and the four names are in the paragraph above. **A cap resolved by picking a branch's
+/// number is a cap nobody measured**, which is the rule the paragraph above states and this one obeys.
+///
+///     the contrast verdict    97 -> 95   `agent/scripts/lib/sweep/panel-run.cjs` and `lib/sweep/console-run.cjs`
+///                                         LEFT: the two payloads that carried the under-AA comparison are BOUNDARY
+///                                         now (they build a payload and decide nothing), and the JUDGE is Rust —
+///                                         `summrise-sweep-judge` plus the same clause in `summrise-command-core`'s
+///                                         `sweep_judge.rs`. **`agent/scripts/` NO LONGER APPEARS IN THE LOGIC-
+///                                         REMAINING RULES AT ALL**: these were the last two, which is the whole
+///                                         point of the design-sweep item. Verified by replaying **119 recorded
+///                                         rows** through the Rust judge one at a time — 61 panel + 58 console,
+///                                         sentence against sentence, 0 differences.
+///
+/// **AND 97 -> 95 IS MEASURED HERE, NOT CARRIED.** The branch that wrote this landing says `107 -> 105`, which
+/// was true on ITS base; this tree had already taken the five `.mjs` gates, the CLI's cutover and the Electron
+/// shell, so the same landing reads `97 -> 95`. The count came from forcing this constant to **0** and reading
+/// the gate's own refusal: `LOGIC files: 95, and the frozen budget is 0`. Three different branches produced
+/// three different numbers for one landing today; **only the merged tree's is a fact about the merged tree.**
+///
+///     the model-drift tool     95 -> 94   `scripts/model-drift.mjs` LEFT: its three decisions (the name
+///                                         normalisation, the advertised/offered diff, and the report's own
+///                                         sentences) are `summrise-model-drift`, a crate with a binary. **THE
+///                                         MANIFEST'S `LOGIC | scripts/ |` RULE WENT WITH IT** — that file was
+///                                         its only `.js` match (the rest of `scripts/` is extensionless hook
+///                                         scripts, which this gate does not count), so the rule was deleted
+///                                         rather than left matching nothing.
+///
+/// **AND THIS NUMBER IS 93 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 94 - 1 = 93.** The branch that
+/// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
+/// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
+/// to 0, is where it came from: `LOGIC files: 94`.
+///
+/// **AND THIS ONE WENT UP, ON PURPOSE, WHICH THE RULE ALLOWS ONLY WITH A NAME AND A REASON.** `MAX_LOGIC` may
+/// come down only in a commit naming the file that left — and it may go UP only when a file was in the wrong
+/// class, which is what happened here:
+///
+///     the e2e suite           94 -> 95   `agent/scripts/e2e/` was BOUNDARY and is LOGIC: its 75
+///                                        `check(name, cond, detail)` calls COMPUTE their conditions and DERIVE
+///                                        the details a reader acts on, which is this manifest's own definition
+///                                        of LOGIC. The old reason justified the page-side half and said nothing
+///                                        about the judge. **A count that only ever falls would have kept this
+///                                        file out of the migration forever.**
+///     the packaging suite        94 -> 93   `agent/summrise-agent-npm/test/packaging.test.mjs` LEFT, and it
+///                                         left for the reason the class exists: its ten cases were all
+///                                         VALIDATIONS, so they were LOGIC and had to become Rust. They are
+///                                         `agent/tests/npm_package.rs` (11 cases) — the SPAWN stayed a boundary
+///                                         (`npm pack --dry-run --json` decides the entry list; it is asked to
+///                                         pack, never to judge) and the checks are Rust. **THE PACKAGE NOW HAS
+///                                         NO JAVASCRIPT AT ALL**, so the manifest's
+///                                         `LOGIC | agent/summrise-agent-npm/test/` rule was deleted rather than
+///                                         left matching nothing, and the paragraph where it stood names this.
+///                                         MEASURED THE SAME WAY, on THIS tree, with the constant forced to 0:
+///                                         `LOGIC files: 93`.
+///     the catalogue document   107 -> 106   `gateway/config/models.ts` was RECLASSIFIED LOGIC -> BOUNDARY, not
+///                                         ported: it is three EMPTY arrays behind `satisfies CatalogueFile`, so
+///                                         it decides nothing, and its `.ts` form is what makes `tsc` refuse a
+///                                         misspelled facet before anything parses it at runtime. The decisions
+///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
+///                                         of the console's rollback.
+///
+/// **AND THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`.** The same reclassification on
+/// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — will read 93. Both are facts
+/// about their own trees, which is the rule this session paid for three times: **a number without its tree is a
+/// number about somebody else's tree.**
+const MAX_LOGIC: usize = 93;

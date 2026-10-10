@@ -19,7 +19,8 @@
 //!
 //! On 2026-09-28 the JS judge filed twelve findings against a live button — "renders NOTHING when pressed"
 //! — and a real pointer showed `:active` matching and `transform: none → matrix(1, 0, 0, 1, 0, 1)`. The
-//! criterion was wrong twice (`f4a65696`, `scripts/test/press-anchor-check.mjs`), and the fixes are the
+//! criterion was wrong twice (`f4a65696`; `scripts/test/press-anchor-check.mjs` then, and
+//! `agent/tests/press_anchor.rs` since landing 3), and the fixes are the
 //! reason the port is worth doing, so they are ported rather than the semantics that produced the false
 //! finding:
 //!
@@ -1138,14 +1139,24 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
         }
     }
     for h in list(report.get("hover")) {
-        let under = list(h.get("underAA"));
+        let where_ = format!("{}/{}", or_q(h.get("density")), or_q(h.get("theme")));
+        // A REPORT IN THE OLD SHAPE IS REFUSED, NOT SKIPPED, exactly as the standalone judge refuses it:
+        // `underAA` held finished sentences until 2026-10-09, so a report written then would leave every
+        // rule with nothing to compare while this clause printed nothing at all.
+        if let Some(why) = hover_unreadable(h) {
+            findings.push(format!(
+                "hover ({where_}): {why}, so its hover axis proves nothing"
+            ));
+            continue;
+        }
+        // THE ENTRY'S RULE DECIDES AND FORMATS (2026-10-09) — the payloads hand over the row, not the
+        // sentence. See `hover_sentences` for the three rules and why there are three.
+        let under = hover_sentences(h);
         if !under.is_empty() {
             findings.push(format!(
-                "hover ({}/{}): {} element(s) below AA while hovered — {}",
-                or_q(h.get("density")),
-                or_q(h.get("theme")),
+                "hover ({where_}): {} element(s) below AA while hovered — {}",
                 under.len(),
-                join(&under[..under.len().min(3)], "; ")
+                under[..under.len().min(3)].join("; ")
             ));
         }
     }
@@ -1345,6 +1356,178 @@ pub fn report_summary(label: &str, report: &Value) -> String {
         out.push_str(&format!(" · {blind} unmeasurable"));
     }
     out
+}
+
+/// ── THE HOVER CONTRAST RULES, AND THE SENTENCE EACH ONE PRODUCES ─────────────────────────────────────
+///
+/// THE PAYLOADS HAND OVER THE ROW THEY MEASURED, AND THIS DECIDES (2026-10-09). Three sites in two payloads
+/// used to compare the ratio AND build the sentence the reader sees, in JavaScript, with the judge only
+/// wrapping the finished string. The rows cross the wire now and these rules compare and format, so the
+/// sentence has one implementation.
+///
+/// THE THREE ARE NOT ONE RULE WRITTEN THREE TIMES, so the ENTRY names which one it measured rather than the
+/// judge inferring it from `density`/`theme`/`page`:
+///
+///   * [`HoverRule::Panel`] — `cr !== null`, not `inactive`, `cr < (need ?? 4.5)`. The sentence quotes the
+///     element, its text (16 units), the ratio, the bar, and what was painted on what.
+///   * [`HoverRule::ConsoleLight`] — the SAME comparison as the panel's, with a sentence that stops after
+///     the bar. It does not exclude graphics.
+///   * [`HoverRule::ConsoleDark`] — a DIFFERENT comparison: it skips `kind === 'graphic'`, it has NO `4.5`
+///     default (an absent `need` makes the comparison false), and `cr: null` coerces to `0` and CAN be
+///     reported as `"… null<4.5"`. A port that "tidied" that would stop reproducing the sweep.
+///
+/// THE TWIN OF THIS IS `agent/sweep-judge/src/hover.rs`, which the sweeps' own judge runs. The two are
+/// deliberately the same rules and the same sentences — a report has one reader, and two judges that described
+/// one row differently would be the defect this move exists to remove — and they are written out in both
+/// because they are separate crates with separate fixture corpora, exactly as `ack_notes` already is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoverRule {
+    Panel,
+    ConsoleLight,
+    ConsoleDark,
+}
+
+/// The WCAG default the panel and the console's light pass fall back to when a row carries no `need`.
+const DEFAULT_NEED: f64 = 4.5;
+
+impl HoverRule {
+    /// The rule an entry measured, read off the name the payload wrote on it. A missing or unrecognised name
+    /// is the PANEL's rule: it is the first and simplest of the three, the shape a report carried before the
+    /// payloads named their passes, and a documented floor beats a guess.
+    pub fn of(entry: &Value) -> Self {
+        match entry.get("rule").and_then(Value::as_str) {
+            Some("console-hover-light") => HoverRule::ConsoleLight,
+            Some("console-hover-dark") => HoverRule::ConsoleDark,
+            _ => HoverRule::Panel,
+        }
+    }
+
+    /// The name the payload writes on an entry for this rule.
+    pub fn name(self) -> &'static str {
+        match self {
+            HoverRule::Panel => "panel-hover",
+            HoverRule::ConsoleLight => "console-hover-light",
+            HoverRule::ConsoleDark => "console-hover-dark",
+        }
+    }
+
+    /// `r.cr < (r.need ?? 4.5)`, with the two guards the panel and the console's light pass share.
+    ///
+    /// The comparison goes through `Number`, so an absent `cr` is `NaN` and every comparison against it is
+    /// false, which is exactly what the JavaScript relies on. JavaScript compares LEXICOGRAPHICALLY when both
+    /// operands are strings (`"2" < "10"` is false there); the probe emits numbers, so that residual is
+    /// unreachable from a sweep report and is named here rather than hidden.
+    fn panel_like(r: &Value) -> bool {
+        if matches!(r.get("cr"), Some(Value::Null)) || truthy(r.get("inactive")) {
+            return false;
+        }
+        let need = match r.get("need") {
+            None | Some(Value::Null) => DEFAULT_NEED,
+            other => number(other),
+        };
+        number(r.get("cr")) < need
+    }
+
+    /// `r.kind !== 'graphic' && !r.inactive && r.cr < r.need` — the console's dark pass, and the only one of
+    /// the three that is not [`HoverRule::panel_like`]. No default: an absent `need` leaves it false.
+    fn console_dark(r: &Value) -> bool {
+        if jsf(r.get("kind")) == "graphic" || truthy(r.get("inactive")) {
+            return false;
+        }
+        number(r.get("cr")) < number(r.get("need"))
+    }
+
+    /// Does this row fail this rule?
+    fn fails(self, r: &Value) -> bool {
+        match self {
+            HoverRule::Panel | HoverRule::ConsoleLight => Self::panel_like(r),
+            HoverRule::ConsoleDark => Self::console_dark(r),
+        }
+    }
+
+    /// The sentence the JavaScript built, byte for byte — including `String()`'s rendering of an absent field
+    /// as `undefined` and of an explicit null as `null`, and the 16-UNIT truncation of the text.
+    fn sentence(self, r: &Value) -> String {
+        let sel = jsf(r.get("sel"));
+        let cr = jsf(r.get("cr"));
+        match self {
+            HoverRule::Panel => format!(
+                "{sel} \"{}\" {cr}<{} painted {} on {}, {}px {}",
+                js_slice(&jsf(r.get("text")), 16),
+                need_display(r),
+                jsf(r.get("paint")),
+                jsf(r.get("surface")),
+                jsf(r.get("size")),
+                jsf(r.get("kind")),
+            ),
+            HoverRule::ConsoleLight => format!(
+                "{sel} \"{}\" {cr}<{}",
+                js_slice(&jsf(r.get("text")), 16),
+                need_display(r),
+            ),
+            HoverRule::ConsoleDark => format!("{sel} {cr}<{}", jsf(r.get("need"))),
+        }
+    }
+}
+
+/// `r.need ?? 4.5`, rendered the way the sentence interpolates it — the DEFAULT is what the comparison used,
+/// so a row with no `need` reports `<4.5` rather than `<undefined`.
+fn need_display(r: &Value) -> String {
+    match r.get("need") {
+        None | Some(Value::Null) => js_num(DEFAULT_NEED),
+        other => jsf(other),
+    }
+}
+
+/// WHY A HOVER ENTRY CANNOT BE JUDGED, or `None` when it can.
+///
+/// TWO SHAPES ARE REFUSED, AND BOTH WOULD OTHERWISE BE SILENCE — a hover pass that measured eleven failing
+/// elements reading exactly like one that measured none, which is the failure this repository keeps finding
+/// in its own checks:
+///
+///   * `underAA`, THE KEY THE PAYLOADS WROTE BEFORE 2026-10-09. It held finished SENTENCES, so the rows are
+///     simply absent and every rule below finds nothing to compare. The key is refused BY NAME rather than
+///     by its contents, because a stale report must not read as a clean one.
+///   * an element of `rows` that is not a row — a string, a number, a null.
+///
+/// The standalone judge (`agent/sweep-judge/src/hover.rs`) refuses both the same way.
+pub fn hover_unreadable(entry: &Value) -> Option<String> {
+    if entry.get("underAA").is_some() {
+        return Some(
+            "`underAA` holds the SENTENCES the payloads built until 2026-10-09 — this report predates the shape change and its rows are not here"
+                .to_string(),
+        );
+    }
+    let rows = list(entry.get("rows"));
+    let bad = rows.iter().filter(|r| !r.is_object()).count();
+    if bad > 0 {
+        return Some(format!(
+            "{bad} of {} entry(ies) in `rows` is not a row",
+            rows.len()
+        ));
+    }
+    None
+}
+
+/// The rows an entry reports, under the entry's own rule, as the sentences a reader sees.
+///
+/// THE DEDUPLICATION IS HERE BECAUSE IT WAS A `Set` OVER THE SENTENCES. The payloads pushed
+/// `[...new Set(underAA)]` of FORMATTED STRINGS, so two rows that print the same sentence printed it once —
+/// and a `Set` over the raw rows would not have been that set, because rows differ in fields the sentence does
+/// not quote. Order is the probe's, first occurrence wins.
+pub fn hover_sentences(entry: &Value) -> Vec<String> {
+    let rule = HoverRule::of(entry);
+    let mut seen: Vec<String> = Vec::new();
+    for r in list(entry.get("rows")) {
+        if !rule.fails(r) {
+            continue;
+        }
+        let line = rule.sentence(r);
+        if !seen.contains(&line) {
+            seen.push(line);
+        }
+    }
+    seen
 }
 
 /// EVERY ACK ROW'S NUMBERS, AS LINES — one definition for both sweeps.
@@ -1792,6 +1975,158 @@ mod tests {
             "😀😀😀😀😀😀😀😀😀😀😀😀"
         );
         assert_eq!(js_slice("abcdef", 4), "abcd");
+    }
+
+    /// ── THE HOVER RULES ──────────────────────────────────────────────────────────────────────────────
+    /// The rows are real: they are what a 2026-10-09 sweep measured on the rendered panel harness with a
+    /// planted `#b9b9b9 on #ffffff` defect, so the expected sentences are what the JavaScript actually
+    /// printed rather than lines written to match this function.
+    fn hover_entry(rule: &str, rows: Value) -> Value {
+        serde_json::json!({ "rule": rule, "rows": rows })
+    }
+
+    #[test]
+    fn a_hover_entry_the_judge_cannot_read_is_refused_rather_than_skipped() {
+        // `underAA` is the key the payloads wrote until 2026-10-09, holding finished sentences; a `rows`
+        // element that is not a row gives every rule nothing to compare. Both used to be silence.
+        let stale = hover_unreadable(
+            &serde_json::json!({"rule": "panel-hover", "underAA": ["a.link 3.9"]}),
+        )
+        .expect("the pre-2026-10-09 key is refused even when it is empty");
+        assert!(stale.contains("underAA"), "{stale}");
+        let bad = hover_unreadable(&hover_entry(
+            "panel-hover",
+            serde_json::json!([{"sel": "a"}, "a.link 3.9"]),
+        ))
+        .expect("a non-row is refused");
+        assert!(bad.contains("1 of 2"), "{bad}");
+        // AND A JUDGEABLE ENTRY IS NOT REFUSED, which is what makes the two above evidence rather than a
+        // clause that fails everything.
+        assert_eq!(
+            hover_unreadable(&hover_entry(
+                "panel-hover",
+                serde_json::json!([{"sel": "a"}])
+            )),
+            None
+        );
+        assert_eq!(
+            hover_unreadable(&hover_entry("panel-hover", serde_json::json!([]))),
+            None
+        );
+    }
+
+    #[test]
+    fn the_hover_rule_is_read_off_the_entry_and_defaults_to_the_panels() {
+        assert_eq!(
+            HoverRule::of(&hover_entry("panel-hover", Value::Null)),
+            HoverRule::Panel
+        );
+        assert_eq!(
+            HoverRule::of(&hover_entry("console-hover-light", Value::Null)),
+            HoverRule::ConsoleLight
+        );
+        assert_eq!(
+            HoverRule::of(&hover_entry("console-hover-dark", Value::Null)),
+            HoverRule::ConsoleDark
+        );
+        assert_eq!(HoverRule::of(&serde_json::json!({})), HoverRule::Panel);
+        assert_eq!(
+            HoverRule::of(&serde_json::json!({ "rule": "nonsense" })),
+            HoverRule::Panel
+        );
+        for r in [
+            HoverRule::Panel,
+            HoverRule::ConsoleLight,
+            HoverRule::ConsoleDark,
+        ] {
+            assert_eq!(HoverRule::of(&hover_entry(r.name(), Value::Null)), r);
+        }
+    }
+
+    #[test]
+    fn the_panels_hover_sentence_is_the_one_the_payload_built() {
+        let rows = serde_json::json!([{
+            "sel": "span.side-label", "text": "serial:COM4", "cr": 1.96, "need": 4.5,
+            "paint": "rgb(185, 185, 185) (text)", "surface": "rgb(255, 255, 255)",
+            "size": 13, "kind": "text", "inactive": false
+        }]);
+        assert_eq!(
+            hover_sentences(&hover_entry("panel-hover", rows)),
+            vec![r#"span.side-label "serial:COM4" 1.96<4.5 painted rgb(185, 185, 185) (text) on rgb(255, 255, 255), 13px text"#.to_string()]
+        );
+    }
+
+    #[test]
+    fn the_three_hover_rules_disagree_about_the_same_rows() {
+        // The graphic is reported by the panel and by the console's LIGHT pass and skipped by its DARK one;
+        // the row with no `need` is reported by the panel (4.5 by default) and by neither console pass,
+        // because `4.2 < null` is `4.2 < 0`. Only the third row is under AA for all three.
+        let rows = serde_json::json!([
+            { "sel": "span.badge", "text": "2", "cr": 2.33, "need": 4.5, "kind": "graphic" },
+            { "sel": "div.dot", "text": "", "cr": 4.2, "need": null, "kind": "text" },
+            { "sel": "a.link", "text": "docs", "cr": 3.0, "need": 4.5, "kind": "text" }
+        ]);
+        assert_eq!(
+            hover_sentences(&hover_entry("panel-hover", rows.clone())).len(),
+            3
+        );
+        assert_eq!(
+            hover_sentences(&hover_entry("console-hover-light", rows.clone())).len(),
+            3
+        );
+        assert_eq!(
+            hover_sentences(&hover_entry("console-hover-dark", rows)),
+            vec!["a.link 3<4.5".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_unmeasurable_hover_row_is_reported_by_the_dark_pass_and_not_by_the_others() {
+        let rows = serde_json::json!([
+            { "sel": "a.null", "cr": null, "need": 4.5, "kind": "text" },
+            { "sel": "a.absent", "need": 4.5, "kind": "text" }
+        ]);
+        assert!(hover_sentences(&hover_entry("panel-hover", rows.clone())).is_empty());
+        assert!(hover_sentences(&hover_entry("console-hover-light", rows.clone())).is_empty());
+        assert_eq!(
+            hover_sentences(&hover_entry("console-hover-dark", rows)),
+            vec!["a.null null<4.5".to_string()]
+        );
+    }
+
+    #[test]
+    fn two_hover_rows_that_print_the_same_sentence_print_it_once() {
+        let rows = serde_json::json!([
+            { "sel": "div.dot", "cr": 2.0, "need": 4.5, "kind": "text" },
+            { "sel": "div.dot", "cr": 2.0, "need": 4.5, "kind": "shadow" },
+            { "sel": "div.dot", "cr": 3.0, "need": 4.5, "kind": "text" }
+        ]);
+        assert_eq!(
+            hover_sentences(&hover_entry("console-hover-dark", rows)),
+            vec!["div.dot 2<4.5".to_string(), "div.dot 3<4.5".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_hover_row_that_passes_its_rule_is_not_a_finding() {
+        let rows = serde_json::json!([
+            { "sel": "p.ok", "text": "fine", "cr": 7.0, "need": 4.5, "kind": "text" },
+            { "sel": "p.inactive", "text": "dim", "cr": 1.1, "need": 4.5, "kind": "text", "inactive": true }
+        ]);
+        for rule in ["panel-hover", "console-hover-light", "console-hover-dark"] {
+            assert!(
+                hover_sentences(&hover_entry(rule, rows.clone())).is_empty(),
+                "{rule} reported a row above its bar, or one the page marked inactive"
+            );
+            // AND IT MUST STILL REPORT A ROW THAT FAILS IT, or the assertion above is satisfied by an
+            // implementation that reports nothing at all.
+            let failing = serde_json::json!([{ "sel": "p.bad", "text": "dim", "cr": 1.1, "need": 4.5, "kind": "text" }]);
+            assert_eq!(
+                hover_sentences(&hover_entry(rule, failing)).len(),
+                1,
+                "{rule} stopped reporting a row that is genuinely under its bar"
+            );
+        }
     }
 
     /// THE PRESS FLOOR IS DERIVED FROM WHAT THE PAGE HAD. `found: 1` makes one delivered press a complete

@@ -360,7 +360,7 @@ rm -rf "$R"
 # pin whose extraction reads nothing must fail, not pass silently.
 D="$T/pin"
 pin_fixture() {
-  mkdir -p "$D/index/worker/src" "$D/agent/deploy" "$D/agent/summrise-agent-npm/src" "$D/scripts"
+  mkdir -p "$D/index/worker/src" "$D/agent/deploy" "$D/agent/summrise-cli/src" "$D/scripts"
   # THE ROUTE TABLE IS THE RUST ONE, because that is what `index/wrangler.jsonc` deploys. The fixture also
   # carries a `#[cfg(test)]` module with sample addresses, so this file proves the exclusion rather than
   # assuming it: without that, a grep over the whole file would turn the samples into served paths.
@@ -383,7 +383,7 @@ mod tests {
 EOF
   printf '%s\n' '{"cloudflared":{"url":"https://agent.saisi.online/summrise-agent/cloudflared.exe","sha256":"aa"}}' > "$D/index/components.json"
   printf '%s\n' 'Download-File "$CdnBase/summrise-agent/cloudflared.exe" $cfDest "cloudflared" | Out-Null' > "$D/agent/deploy/summrise-online-setup.ps1"
-  printf '%s\n' 'const zip = resolveComponent(' '  "cloudflared.exe",' '  path.join(__dirname, "..", "cloudflared.exe"),' ');' > "$D/agent/summrise-agent-npm/src/summrise.ts"
+  printf '%s\n' 'pub fn stage(host: &dyn Host) {' '    let (cf, _log) = resolve_component_logged(host, "cloudflared.exe", &pkg_cf);' '}' > "$D/agent/summrise-cli/src/setup.rs"
   printf '%s\n' 'OUT="${OUT:-$ROOT/index/public/summrise-agent/summrise-playwright.zip}"' > "$D/scripts/build-playwright-bundle.sh"
 }
 pin_says() { # pin_says <desc> <substring the refusal must carry>
@@ -423,7 +423,7 @@ pin_says "a MISSING worker fails the pin" "the index worker's route table is mis
 
 pin_drift "a renamed path in the PIN FILE is refused" index/components.json 's|cloudflared\.exe|cloudflared-x64.exe|' "index/components.json publishes /summrise-agent/cloudflared-x64.exe"
 pin_drift "a renamed path in the INSTALLER's fallback is refused" agent/deploy/summrise-online-setup.ps1 's|cloudflared\.exe|cloudflared-x64.exe|' "summrise-online-setup.ps1 spells /summrise-agent/cloudflared-x64.exe"
-pin_drift "a renamed path in the CLI's call site is refused" agent/summrise-agent-npm/src/summrise.ts 's|"cloudflared\.exe"|"cloudflared-x64.exe"|' "summrise.ts asks setup for /summrise-agent/cloudflared-x64.exe"
+pin_drift "a renamed path in the CLI's call site is refused" agent/summrise-cli/src/setup.rs 's|"cloudflared\.exe"|"cloudflared-x64.exe"|' "agent/summrise-cli/src asks the release host for /summrise-agent/cloudflared-x64.exe"
 pin_drift "a renamed path in the BUNDLE PRODUCER is refused" scripts/build-playwright-bundle.sh 's|summrise-playwright\.zip|playwright.zip|' "build-playwright-bundle.sh writes index/public/summrise-agent/playwright.zip"
 # …and the ROUTE is the derivation: moving it is what every copy must follow, so a copy left
 # behind is refused the same way. This is the direction that a "does the file exist" check misses.
@@ -436,8 +436,8 @@ pin_fixture
 printf '%s\n' '# the fallbacks moved elsewhere' > "$D/agent/deploy/summrise-online-setup.ps1"
 pin_says "an installer with no fallback left is a FAILURE, not silence" "no \$CdnBase/summrise-agent path could be read"
 pin_fixture
-printf '%s\n' 'const other = 1;' > "$D/agent/summrise-agent-npm/src/summrise.ts"
-pin_says "a CLI whose loader moved is a FAILURE, not silence" "no resolveComponent call site could be read"
+printf '%s\n' 'pub fn other() -> u8 { 1 }' > "$D/agent/summrise-cli/src/setup.rs"
+pin_says "a CLI whose loader moved is a FAILURE, not silence" "no resolve_component_logged call site could be read"
 pin_fixture
 : > "$D/index/components.json"
 pin_says "a pin file with no components is a FAILURE, not silence" "no component url could be read"

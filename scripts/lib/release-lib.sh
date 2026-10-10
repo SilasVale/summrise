@@ -591,23 +591,26 @@ for k, v in sorted(pins.items()):
     [ "$n" -gt 0 ] || report="${report}no \$CdnBase/summrise-agent path could be read from agent/deploy/summrise-online-setup.ps1 — the fallbacks moved, so this proves nothing"$'\n'
   fi
 
-  # 3. THE CLI'S CALL SITES. resolveComponent's first argument is the file the release host is
-  # asked for when the manifest is silent, so it must be a name the worker serves — the manifest
-  # url wins while it is there, which is exactly what would hide this drift until the first device
-  # that cannot read the manifest.
-  local ts="$root/agent/summrise-agent-npm/src/summrise.ts"
-  if [ -f "$ts" ]; then
+  # 3. THE CLI'S CALL SITES. The second argument of `resolve_component_logged` is the file the release
+  # host is asked for when the manifest is silent, so it must be a name the worker serves — the
+  # manifest url wins while it is there, which is exactly what would hide this drift until the first
+  # device that cannot read the manifest.
+  #
+  # IT READ `src/summrise.ts`'s `resolveComponent(...)` UNTIL LANDING 4b, when the CLI became a Rust
+  # binary and that file stopped shipping. This is the same extraction over the thing that ships: the
+  # Rust passes the SAME literal file names, at three call sites in two files (`setup.rs` fetches the
+  # playwright bundle and cloudflared, `swap.rs` the electron runtime), so the scan is the directory
+  # they live in rather than one file — and the floor below still fires when the pattern stops
+  # matching, which is the direction that matters: a gate that reads nothing must not pass.
+  local clidir="$root/agent/summrise-cli/src"
+  if [ -d "$clidir" ]; then
     n=0
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       n=$((n + 1))
-      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/summrise-agent-npm/src/summrise.ts asks setup for /summrise-agent/$p, which index/worker/src/routes.rs does not serve"$'\n'
-    done < <(python3 -c "
-import re
-src = open('$ts').read()
-print('\n'.join(sorted(set(re.findall(r'resolveComponent\(\s*\"([A-Za-z0-9._-]+)\"', src)))))
-")
-    [ "$n" -gt 0 ] || report="${report}no resolveComponent call site could be read from agent/summrise-agent-npm/src/summrise.ts — the loader moved, so this proves nothing"$'\n'
+      grep -qxF "/summrise-agent/$p" <<<"$served" || report="${report}agent/summrise-cli/src asks the release host for /summrise-agent/$p, which index/worker/src/routes.rs does not serve"$'\n'
+    done < <(grep -rhoP 'resolve_component_logged\(\s*host,\s*"\K[A-Za-z0-9._-]+' "$clidir" | sort -u)
+    [ "$n" -gt 0 ] || report="${report}no resolve_component_logged call site could be read from agent/summrise-cli/src — the loader moved, so this proves nothing"$'\n'
   fi
 
   # 4. THE BUNDLE PRODUCER. build-playwright-bundle.sh writes the artefact the worker serves at

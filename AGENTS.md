@@ -45,7 +45,7 @@ passed a local `tsc --noEmit` carrying six type errors, because the `ui` job run
 | `gateway/` | `npm run typecheck` · `npm test` · `npm run lint` · `npm run format:check` |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` — **not** `tsc --noEmit`, which is the check that missed those six |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` |
-| `agent/summrise-agent-npm/` | `npm test` (= `node --test`) — **no install step**: zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` |
+| `agent/summrise-agent-npm/` | **no JavaScript suite any more, and no step of its own**: its packaging validations are `agent/tests/npm_package.rs`, reached by the `agent` job's `cargo test -p summrise-agent`. It has zero dependencies and no lockfile (`npm ci` there fails with `EUSAGE`), so `npm pack --dry-run --json` — which the Rust gate spawns — needs no install step |
 | `agent/summrise-desktop-electron/` | `npm test` |
 | `agent/` | `cargo fmt --all -- --check`, then the clippy and test commands the `agent` job names — **read them out of `ci.yml` rather than from here**: several crates are workspace members that are deliberately NOT default members, so a bare `cargo test` does not reach them, and a copy of the list in this file goes stale (this row named "59 cases" for a suite that had grown to 68) |
 
@@ -165,12 +165,45 @@ mid-round. **Check `uptime` before theorising about what deleted a file.**
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
-like `console-assets-check.mjs` refuse a dirty tree, which is how it surfaces. The fix is a clone-local `.git/info/exclude`
+like `agent/tests/console_assets.rs` refuse a dirty tree, which is how it surfaces. The fix is a clone-local `.git/info/exclude`
 line for the bare name `node_modules`.
 
 **AND START LONG WORK IN THE BACKGROUND — a CI run, an `all-gates` run, a build, a subagent — then do the next thing and
 collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
 branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
+
+**AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home
+directories ran **1h34m**, and `grep -rn underAA --include=* .` ran **45 minutes**; both were left behind by
+tracks that had moved on, and between them they held load at ~23 while a linker collected **5 CPU ticks in 15
+seconds** and every cargo gate in every worktree crawled. Neither was killing anything (both are re-runnable),
+so the cost was pure time — and **the first one was visible in a process listing for two rounds before anyone
+acted on it.** Check `ps` for long-running read-only commands before blaming the machine, and prefer the `grep`
+TOOL over shell `grep -r`: this file already said shell grep "crawls or hangs", and the repo-wide form with
+`--include=*` is that hazard at box scale.
+
+**AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
+tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon —
+`&` (the child died silently), `| tail -40` (the job lived but its output was swallowed, and `ps` could not find
+it), and a second managed job whose process had already gone. The tool's own fallback is the mechanism: no `&`,
+no pipe, and the output streams while it runs.
+**AND A MEASUREMENT BELONGS TO THE TREE IT WAS TAKEN ON — NAME THE BASE, OR IT WILL BE USED ON ANOTHER ONE.** On
+2026-10-09 that mistake was made **three times in one session**, by a coordinator briefing agents and by an agent
+reading a coordinator's brief:
+
+* a brief said "branch from `main`" and quoted a cap of **94** and a fixture of **399 keys** — both measured on
+  the integration branch, while `main` was at **107** and **330**. Following it would have deleted the console's
+  TypeScript rollback on a tree where the Rust worker refuses two of those routes **by construction**, so the
+  deletion would have succeeded and the routes would have died. **The agent stopped before the first `git rm` and
+  sent the table instead** — which is the behaviour this rule is asking for;
+* the same brief pointed at a commit (`main@64686ae8`) rather than the ref, so a report that "the CORS fix is not
+  on `main`" was right about the commit and wrong about the branch — the fix was on `main`, one merge later;
+* a rule deleted from the manifest because it was dead **on the integration branch** was deleted on `main`
+  instead, where two files still matched it. **The inventory gate caught that one immediately**, which is the
+  point of having both directions of it.
+
+So: **quote the ref or the commit you measured, not the word "main"** — and when a brief hands you a number,
+check it against the tree you were given before you act on it. A number without its tree is a number about
+somebody else's tree.
 
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
 install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
@@ -185,6 +218,21 @@ The backstop is `agent/tests/main_shape.rs`, which reads the commit OBJECT of `m
 two parents — it caught this in CI on the next push, which is the gate working, and it is also why the repair is a MERGE
 onto the bad tip rather than a history rewrite: a new merge commit gives `main` two parents without moving anything
 already published.
+
+**AND THE ABSOLUTE PATH HAS A COST, MEASURED 2026-10-09: A COMMIT IN ANY WORKTREE RUNS THE MAIN CHECKOUT'S HOOK.**
+That was the fix — worktrees silently losing every hook — and the price is that the hook cannot match the branch
+being committed. Main's copy still named `scripts/test/contrast-probe-check.mjs`, which another branch had
+DELETED, so a merge was refused for a file that did not exist on the tree being merged. **Run the worktree's own
+hook instead of bypassing it**, by giving the worktree its own `.githooks/` (gitignored, the same two links) and
+committing with:
+
+    git -c core.hooksPath="$PWD/.githooks" commit
+
+**AND THE HOOK NEEDS A TOOLCHAIN IT CANNOT SEE.** Its emitters refuse with *"the sweep plan is Rust and there is
+neither a cargo on PATH nor a built …/summrise-sweep-plan"* — the hook runs without `~/.cargo/bin`, so **put
+`cargo` on PATH for the commit** (or build `summrise-sweep-plan` once). Measured the hard way: a commit was
+bypassed with `--no-verify` and blamed on the worktree's dependency trees, which were not the cause and whose
+symlinking changed nothing. **A cause that survives its own attempted fix is not a cause.**
 
 ## A status says what was CHECKED
 
@@ -268,23 +316,30 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 **A GATE NOBODY CAN NAME IS A GATE NOBODY RUNS BY HAND.** These are the gate scripts the workflow invokes. A gate is named where a person can find it, or it does not exist.
 
-**AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no Node, no browser, no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
+**AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
+
+**FIVE OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NOW NEEDS NODE — AND TWO `node_modules`.** `console_assets` and `console_smoke` build and render the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react` (an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer `cargo test` holds (measured: 45s and still waiting; 32.9s with its own target dir). **AND `console_assets` REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by name while editing, which is also why the worktree recipe above says a symlinked `node_modules` is EXCLUDED rather than staged.
 
 **Each carries its own mutation proof in its header.** Read it when you change the gate.
 
 `all-gates.bash`, `build-pins.bash`
-`console-smoke-check.mjs`, `contrast-probe-check.mjs`
 `hook-finds-its-repo.bash`
 `main-only-by-merge.bash`, `main-shape-shallow.bash`, `rust-byte-checks.bash`
 `panel-design-sweep.bash`
-`npm-test-floored.mjs`, `console-assets-check.mjs`
-`press-anchor-check.mjs`
+`npm-test-floored.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
 `smoke-helpers.bash`, `smoke-index.bash`
 `sweep-judges.bash`
 
-`token-contract-check.mjs` moved 2026-09-30: it is `agent/tests/token_contract.rs` now, and it left this
-list for the reason the paragraph above gives.
+**AND FIVE MORE LEFT ON 2026-10-09 (landing 3), ALL BUT ONE OF `scripts/test/`'s JAVASCRIPT** —
+`console-assets-check`, `console-smoke-check`, `panel-sheet-freshness-check` and `press-anchor-check` are
+`agent/tests/console_assets.rs`, `console_smoke.rs`, `panel_sheet_freshness.rs` and `press_anchor.rs` now, and
+`contrast-probe-check` is `contrast_probe.rs` (the rules) plus `contrast_probe_emitted.rs` (the artifact),
+each ported with the Node gate still beside it and deleted only after the two agreed on one tree — the
+differential is in the commit that landed each port. **`npm-test-floored.mjs` STAYS**, and the reason is the
+rule rather than the count: only its DECISION moved (`agent/tests/npm_test_floor.rs`), and the `npm test`
+spawn it runs is still JavaScript. `token-contract-check.mjs` moved 2026-09-30, and it is
+`agent/tests/token_contract.rs` now.
 
 ## Where the long form lives
 
@@ -390,10 +445,17 @@ belongs beside it — and a command that merely CORRELATES with the number is no
 # 1. bump agent/summrise-agent-npm/package.json "version" to 1.2.N, then:
 touch agent/src/lib.rs && ./scripts/build.sh agent
 cp agent/target/x86_64-pc-windows-msvc/release/summrise-{agent,launch}.exe agent/summrise-agent-npm/
-#    BOTH EXES. The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
+mkdir -p agent/summrise-agent-npm/bin
+cp agent/target/x86_64-pc-windows-msvc/release/summrise-cli.exe agent/summrise-agent-npm/bin/summrise.exe
+#    THREE EXES, AND THE THIRD IS THE CLI. `bin/summrise.exe` is the npm `bin` (landing 4b) — the
+#    command a device runs — and its version is COMPILED IN from package.json, so the bump above is
+#    only in the binary if the build came after it. publish-release.sh dates the staged copy against
+#    that manifest and refuses one older than it, which is the deadlock guard: a CLI older than the
+#    release it manages tells the operator to install something npm cannot deliver.
+#    The launcher is what SummriseDesktop and SummrisePlaywright run instead of the retired
 #    .vbs wrappers, and it is COPIED on the device, never built there — a release without it ships tasks
 #    that cannot start. publish-release.sh refuses a missing or stale staged copy and required-in-tgz.txt
-#    refuses a tarball without it, both BEFORE the upload.
+#    refuses a tarball without any of the three, both BEFORE the upload.
 #    ./scripts/publish-release.sh 1.2.N --dry-run — every gate, no credentials, changes nothing, seconds.
 # 2. publish to BOTH channels (pack + manifest + prune + deploy + smoke; it does NOT commit):
 ./scripts/publish-release.sh 1.2.N --npm      # needs $NPM_TOKEN or ~/.npm-token
@@ -533,7 +595,7 @@ agent/src/tools/         TerminalManager + backends (pty/ssh/serial), serial poo
 agent/src/plugins/       terminal, update, mcp_client, design, playwright, memory, system,
                          runs, monitor
 agent/summrise-command-core/ Plugin/ToolDef/Config/EventBus/DeviceError (summrise_agent_core::)
-agent/summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.js)
+agent/summrise-agent-npm/    the npm package + the `summrise` CLI (bin/summrise.exe, a Rust binary)
 agent/resources/panel-react/  the panel SPA (React + vitest); resources/panel/ is its build output
 ```
 

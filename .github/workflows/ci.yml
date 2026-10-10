@@ -93,7 +93,7 @@ jobs:
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
 
   ui:
-    name: ui (tsc + build + test + render smoke)
+    name: ui (tsc + build + test)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -109,22 +109,19 @@ jobs:
       - name: Unit tests
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: gateway/ui
-      # ONE COMMAND FOR ALL OF THEM, AND THE SET IS DISCOVERED. This step used to run
-      # `render-smoke.mjs` alone, written inline; overview-render-smoke.mjs recorded the consequence
-      # in its own comment — "Nothing runs this smoke in CI (ci.yml runs render-smoke.mjs only),
-      # which is why the drift survived" — and by then two of its checks, one of them scene 3, the
-      # file's whole point, were asserting on the empty string. A smoke that runs nowhere is worse
-      # than no smoke, because its green is read as coverage.
-      - name: Render smokes (jsdom) — every one, discovered
-        run: node scripts/test/console-smoke-check.mjs
+      # TWO STEPS STOOD HERE (before `panel:`) AND NEITHER IS REPLACED, DELIBERATELY. `console-smoke-check.mjs`
+      # ran every `*-render-smoke.mjs` discovered in this directory — the set is DISCOVERED, not listed, and
+      # the floor of 4 is what tells "the tree moved" from "there are no smokes any more" — and
+      # `console-assets-check.mjs` rebuilt the console and refused a committed asset set that did not match
+      # its source. Both are RUST now (`agent/tests/console_smoke.rs`, `agent/tests/console_assets.rs`) and run
+      # in the `agent` job's `cargo test -p summrise-agent`, which gained this directory's `npm ci` for exactly
+      # that reason. The checks are unchanged; the two steps that would run them a second time are not here.
+      # (`console-assets-check`'s first placement failed in `pack-chain` with "Cannot find type definition file
+      # for 'vite/client'" — a missing dependency, not a stale asset — which is why the port's dependency is
+      # named in the agent job's own install step rather than left to this one.)
 
   # panel-react SPA tests — previously only ran in the release workflow
   # (added round-283); every main-branch CI run must cover them too.
-      # A CONSOLE SOURCE CHANGE OWES ITS BUILT ASSETS (round 178 of the standing goal). It belongs HERE rather than among the
-      # repo-wide gates: it runs `npm run build`, which needs this job's `npm ci`, and its first placement failed in
-      # pack-chain with "Cannot find type definition file for 'vite/client'" — a missing dependency, not a stale asset.
-      - name: the console's committed assets match its source
-        run: node ${{ github.workspace }}/scripts/test/console-assets-check.mjs
 
   panel:
     name: panel (vitest)
@@ -149,12 +146,13 @@ jobs:
       - name: Test
         run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
         working-directory: agent/resources/panel-react
-      # THE PANEL SHEET'S FRESHNESS (round 177, relocated round 190). Five gates read the COMMITTED
-      # agent/resources/panel/panel.css and nothing compared it to its source. THIS JOB is the one that
-      # installs agent/resources/panel-react's dependencies — round 190 moved it here after the `ui` job,
-      # which installs only gateway/ui's, reported the missing types as a failed panel build.
-      - name: Panel sheet freshness
-        run: node ${{ github.workspace }}/scripts/test/panel-sheet-freshness-check.mjs
+      # THE PANEL SHEET'S FRESHNESS (round 177). Five gates read the COMMITTED
+      # agent/resources/panel/panel.css and nothing compared it to its source. IT IS A RUST GATE NOW
+      # (`agent/tests/panel_sheet_freshness.rs`, landing 3) and it runs in the `agent` job's
+      # `cargo test -p summrise-agent`, which installs THIS directory's dependencies for it — the round-190
+      # lesson is kept: a host without them prints `n/a` rather than reporting a failed build, and the job
+      # that installs them is where the real measurement happens. The Build step above stays and answers a
+      # different question ("does the SPA still build?") — moving the freshness check did not make it redundant.
 
   # THE DESIGN SUITE, ON EVERY PUSH. Rounds 184-213 found the delivery pipeline lying to the sweep four times
   # over — a console bundle two generations old, a harness carrying a reverted change, a probe reading a
@@ -272,6 +270,17 @@ jobs:
       - name: summrise-launch, for the target it is staged onto
         run: cargo clippy -p summrise-launch --target x86_64-pc-windows-msvc -- -D warnings
         working-directory: agent
+      # **THE NODE THIS JOB'S PORTED GATES SPAWN, PINNED — AND IT WAS NOT PINNED BEFORE.** `console_assets`
+      # and `console_smoke` ran here on the runner's DEFAULT node until landing 3 finished, which is a version
+      # this file never named; `panel_sheet_freshness` needs a `panel-react` build, whose own job pins 24. One
+      # version for all three, and it is the one the committed console assets were built with.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            gateway/ui/package-lock.json
+            agent/resources/panel-react/package-lock.json
       # **THE CONSOLE DEPENDENCIES, BECAUSE TWO GATES NOW BUILD AND RENDER THE CONSOLE.** Landing 3 ported
       # `console-assets-check` and `console-smoke-check` into `cargo test`, which is what made them run on
       # every change — and it is also what made this job need what only the `ui` job had. Measured in CI on
@@ -284,6 +293,14 @@ jobs:
       - name: console dependencies (the UI build and the render smokes' jsdom)
         run: npm ci
         working-directory: gateway/ui
+      # **AND THE PANEL'S, FOR THE THIRD PORTED GATE** — the same rule one package over. `panel_sheet_freshness`
+      # REBUILDS `agent/resources/panel-react` and asserts the committed sheet under `agent/resources/panel/`
+      # is what the source produces; without this install it declares `n/a` and proves nothing, which is
+      # correct on a host that cannot build the panel and is a LOST CHECK in the one job that can. The port's
+      # own header names this job as an installer, and the `panel` job's step went with the `.mjs`.
+      - name: panel dependencies (the ported sheet-freshness gate rebuilds the panel)
+        run: npm ci --include=optional
+        working-directory: agent/resources/panel-react
       - name: Tests
         # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
@@ -328,6 +345,39 @@ jobs:
           # which surfaces a design sweep visits and which passes measure there — the matrix that used to be
           # written out at 29 call sites in the payloads.
           cargo test -p summrise-sweep-plan --no-fail-fast
+          # **THE ELECTRON SHELL'S DECISIONS (2026-10-09, landing 6b).** Same story a third time, and this
+          # one was MEASURED rather than noticed: the crate carries **57 `#[test]` functions** and no job
+          # named it, so none of them ran in CI. `summrise-shell-policy` is the shell's boot/auth, native
+          # menu, browser-session and embedded-view policy, the loopback control server's routing, the
+          # agent-lifecycle watchdog and the tray's formats — the decisions that used to sit in
+          # `main.ts`. Its committed wasm is checked by `shell-policy-wasm-freshness`; THIS line is what
+          # runs the source's own tests.
+          cargo test -p summrise-shell-policy --no-fail-fast
+          # **FOUR CRATES WHOSE TESTS RAN IN NO JOB AT ALL — MEASURED 2026-10-09, NOT SUSPECTED.** The rule
+          # above is the whole argument: "a workspace member that is not a default member is a crate no job
+          # tests unless it is named here" — and four were not named. The measurement, per crate:
+          #
+          #     grep -rh '#\[test\]' agent/<crate>/src agent/<crate>/tests | wc -l
+          #     summrise-command-core 34 · summrise-exec-argv 29 · sweep-judge 37 · summrise-url-policy 14
+          #
+          # **171 `#[test]` FUNCTIONS, AND FOUR OF THE FIVE CRATES WERE UNRUN** (the fifth, shell-policy,
+          # arrived with its own line on the Electron branch). This is the shape a green CI hides best: the
+          # tests exist, they pass when a person runs them, and nothing has ever run them on a merge — so the
+          # only thing standing behind them was somebody's memory.
+          #
+          # **AND IT WAS INVISIBLE FROM BOTH SIDES AT ONCE, WHICH IS WHY IT SURVIVED**: `all-gates.bash`
+          # parses THIS FILE, so naming a crate here is also what makes the local gate run it. The local
+          # gate and the CI job were silent together, and neither could report the other's silence.
+          cargo test -p summrise-agent-core --no-fail-fast
+          cargo test -p summrise-exec-argv --no-fail-fast
+          cargo test -p summrise-sweep-judge --no-fail-fast
+          cargo test -p summrise-url-policy --no-fail-fast
+          # **THE MODEL-DRIFT TOOL (2026-10-09).** Same story, same reason: a workspace member that is not
+          # a default member is a crate no job tests unless it is named here. `summrise-model-drift` is the
+          # Rust home of `scripts/model-drift.mjs` — the ops tool that compares the catalogue the gateway
+          # advertises against what each channel's upstream actually lists — and that `.mjs` is DELETED in
+          # the same landing, so this line is the only thing that runs the ported cases.
+          cargo test -p summrise-model-drift --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
@@ -380,6 +430,7 @@ jobs:
           cargo clippy -p summrise-agent-core --all-targets -- -D warnings
           cargo clippy -p summrise-cli --all-targets -- -D warnings
           cargo clippy -p summrise-sweep-plan --all-targets -- -D warnings
+          cargo clippy -p summrise-model-drift --all-targets -- -D warnings
         working-directory: agent
       - name: Format check
         run: cargo fmt --all -- --check
@@ -515,10 +566,12 @@ jobs:
         working-directory: agent
 
   # Pack-chain gates WITHOUT the exe/xwin (fast, well under 3 min) — the
-  # release-only gates (round-298 marker, round-321 electron freshness, the
-  # npm CLI tests) never ran on PRs, so a stale artifact broke the release
-  # instead of the PR. Commands mirror release.yml's pack step (copy, don't
-  # reinvent — working-directory agent keeps the paths identical).
+  # release-only gates (round-321 electron freshness, the npm CLI tests) never
+  # ran on PRs, so a stale artifact broke the release instead of the PR.
+  # Commands mirror release.yml's pack step (copy, don't reinvent —
+  # working-directory agent keeps the paths identical). The round-298 marker
+  # gate left this list with the file it grep'd (landing 4b): see the note
+  # where that step used to be.
   pack-chain:
     name: pack-chain (npm artifact gates, no exe)
     runs-on: ubuntu-latest
@@ -548,20 +601,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # THE CONSOLE'S DEPENDENCIES, BECAUSE A GATE HERE NEEDS THEM. `console-smoke-check.mjs` runs the
-      # jsdom render smokes, and this job invokes it twice: as its own step, and from
-      # `gate-mutations-check`, whose rule is that a gate must be GREEN before its mutation is applied.
-      # Without them every smoke fails to LOAD ("Cannot find module 'jsdom'"), 0/4, and the mutation
-      # reports "1 gate(s) unproven" — the whole job red, for four rounds, while it was green locally
-      # where the ui job's node_modules is always present. Found 2026-09-24 by reproducing CI's
-      # condition (hiding that directory) rather than by reading the log, which showed only the summary.
+      # THE CONSOLE'S DEPENDENCIES, BECAUSE A GATE HERE NEEDS THEM — AND THE GATE IS RUST NOW, WHICH IS WHY
+      # THE DEPENDENCIES STAY. `agent/tests/console_smoke.rs` runs the jsdom render smokes (it was
+      # `console-smoke-check.mjs` when this step was added), and this job reaches it TWICE: through
+      # `all-gates.bash` below — which derives the `agent` job's `cargo test -p summrise-agent --no-fail-fast`
+      # line and therefore runs every ported gate — and through that same command run by hand. Without these,
+      # every smoke fails to LOAD ("Cannot find module 'jsdom'"), 0/4, and what the run reports is a red job
+      # four rounds in a row for a missing dependency, while it was green locally where the ui job's
+      # node_modules is always present. Found 2026-09-24 by reproducing CI's condition (hiding that
+      # directory) rather than by reading the log, which showed only the summary. (`gate-mutations-check` was
+      # the second invoker this comment used to name; it is gone, and `all-gates` is the second one now.
+      # `console_assets`, which `all-gates` also reaches, needs the same install to build the console.)
       - name: console dependencies (the render smokes' jsdom)
         run: npm ci
         working-directory: gateway/ui
-      # (a) round-298 marker in the COMMITTED bin/summrise.js — the same grep
-      # release.yml runs post-compile. Here it guards the committed file
-      # itself: a src/summrise.ts change without recompiling fails the PR, not
-      # the release.
+      # (a) THE MARKER GATE THAT STOOD HERE IS DELETED with the committed artifact it guarded
+      # (`bin/summrise.js`; landing 4b) — the step is gone, and the paragraph where it lived names
+      # what replaced it. This comment is kept as a tombstone rather than removed because the (a)/(b)
+      # letters below still refer to it.
       # Release-lib regression: the last-5-per-minor prune + version.json
       # writer that publish-release.sh sources (extracted for testability).
       - name: release-lib regression checks
@@ -783,23 +840,26 @@ jobs:
             exit 1
           fi
           pwsh -NoProfile -File agent/deploy/lib/SummriseIntegrity.tests.ps1
-      # The contrast math, pinned. Four rounds of sweeps used an ad-hoc snippet
-      # retyped each time and it was wrong twice: it read a translucent
-      # background as WHITE (20 of 50 findings were that), and a skip rule that
-      # looked reasonable silently disabled the whole sweep and reported zero
-      # findings as a pass. Both are assertions here, with the numbers they cost.
-      # The functions tested are the ones the BROWSER runs — the probe embeds them
-      # via Function.prototype.toString() — so this is not a copy that can drift.
-      - name: contrast-probe regression checks
-        run: node scripts/test/contrast-probe-check.mjs
-      # A PRESS MEASURED AGAINST REST IS A HOVER WEARING A PRESS'S NAME (round 95).
-      # `pressPass` took its baseline with the pointer parked away from the control, so a sheet that answered
-      # `:hover` and had NO `:active` rule still produced a difference and the row read `changed: true`. Measured
-      # on the device: the landing's theme toggle changes background+color on hover and NOTHING on press, and both
-      # gates missed it — this pass for that reason, `feedback-check.mjs` because it did not read the landing's
-      # inline sheet. The check pins the rule as a pure function AND the wiring in all three emitted artifacts.
-      - name: press anchor checks
-        run: node scripts/test/press-anchor-check.mjs
+      # THE CONTRAST MATH AND THE PRESS ANCHOR ARE NOT HERE ANY MORE (landing 3, 2026-10-09), AND THE
+      # REASONING ABOVE IS KEPT BECAUSE IT IS WHY THEY EXIST. Two steps ran the `.mjs` gates named in it:
+      #
+      #   * `contrast-probe-check.mjs` pinned the contrast math — four rounds of sweeps used an ad-hoc snippet
+      #     retyped each time and it was wrong twice: it read a translucent background as WHITE (20 of 50
+      #     findings were that), and a skip rule that looked reasonable silently disabled the whole sweep and
+      #     reported zero findings as a pass. Both are assertions, with the numbers they cost, and the
+      #     functions tested are the ones the BROWSER runs (the probe embeds them via
+      #     Function.prototype.toString(), so it is not a copy that can drift). That is
+      #     `agent/tests/contrast_probe.rs` (the rules) and `agent/tests/contrast_probe_emitted.rs` (the
+      #     artifact) now.
+      #   * `press-anchor-check.mjs` pinned that a press is measured against the HOVER, not against rest
+      #     (round 95): `pressPass` took its baseline with the pointer parked away, so a sheet that answered
+      #     `:hover` and had NO `:active` rule still produced a difference and the row read `changed: true` —
+      #     measured on the device, the landing's theme toggle changes background+color on hover and NOTHING
+      #     on press, and both gates missed it. That is `agent/tests/press_anchor.rs` now.
+      #
+      # BOTH RUN IN THE `agent` JOB'S `cargo test -p summrise-agent`, which is the same step the migrated
+      # gates before them run in — and a step this job does not have, because there is no Rust toolchain here.
+      # Nothing about what they check changed; the two steps that ran the Node versions are gone with the files.
       # THE TOKEN CONTRACT IS NOT HERE ANY MORE (2026-09-30, P1 of the migration). It was the last
       # gate in this repository that could move into `cargo test`: it reads two stylesheets and
       # computes, with no dependency to spawn, and its proof lives in this repository. It is
@@ -949,9 +1009,13 @@ jobs:
       # stdlib-only python, same convention (exit 0 = green).
       - name: scan-dups regression checks
         run: python3 scripts/test/scan-dups-check.py
-      - name: bin/summrise.js round-298 marker
-        working-directory: agent
-        run: grep -q "summrise-release" summrise-agent-npm/bin/summrise.js || { echo "::error::compiled bin/summrise.js missing round-298 marker — recompile src/summrise.ts and commit bin/summrise.js"; exit 1; }
+      # THE `bin/summrise.js` MARKER STEP IS DELETED (landing 4b's cutover, 2026-10-09). It grep'd a
+      # committed tsc emit for the round-298 marker, to prove SOME build had happened; `bin/summrise.js`
+      # and its source `src/summrise.ts` are both deleted, the npm `bin` is `bin/summrise.exe`, and this
+      # job has no cargo-xwin, so there is no artifact here to check instead. The freshness question
+      # moved to the two builders that DO produce it — `release.yml` copies the exe it just built, and
+      # `publish-release.sh` refuses a staged copy that is not byte-identical to the build output or
+      # that is older than `package.json`, whose version is compiled into the binary.
       # (b) the SAME electron freshness gate as release.yml (the
       # typescript@5.9.3 install is ~15s) — FAIL on mismatch. typeRoots points
       # at summrise-agent-npm's own @types and --noCheck skips typechecking
@@ -1010,6 +1074,36 @@ jobs:
             exit 0
           fi
           exit "$st"
+      # P1-2 `bin/summrise.js` FRESHNESS IS DELETED (landing 4b's cutover, 2026-10-09), for the same
+      # reason as the marker step above: it recompiled `src/summrise.ts` with the tsc the electron step
+      # installed and cmp'd the emit against the committed `bin/summrise.js`, and both files are gone.
+      # Its replacement is NOT a step here — it is `publish-release.sh`'s provenance gate (staged exe ==
+      # build output, and newer than every CLI input INCLUDING `package.json`, whose version the binary
+      # embeds) plus `release.yml` copying the exe it built. A cmp against a committed artifact is what
+      # this step was for; there is no committed artifact any more, which is the stronger arrangement.
+      #
+      # THE SECOND WASM POLICY'S FRESHNESS (landing 6b), the same shape, the same exit-2 convention and
+      # the same reason — and a SEPARATE gate rather than an extension of the one above because the two
+      # crates are peers that do not depend on each other, so one mutation proof cannot cover both.
+      # `summrise_shell_policy.js` and `summrise_shell_policy_bg.wasm` are wasm-pack output committed to
+      # the package (`main.js` requires the glue, which requires the module), so a change to
+      # `agent/summrise-shell-policy/` without a rebuild and a commit would ship a shell whose decisions
+      # disagree with its own source. THIS RUNNER HAS CARGO AND NO wasm-pack — MEASURED on the step above,
+      # which failed its first run with "n/a no wasm-pack on PATH" — so exit 2 is `n/a` and not red, and
+      # the gate's header names the `cmp` loops in publish-release.sh / this file / release.yml that still
+      # compare the shipped pair on such a host.
+      - name: shell-policy wasm freshness (rebuild + cmp)
+        run: |
+          set +e
+          bash scripts/test/shell-policy-wasm-freshness.bash
+          st=$?
+          set -e
+          if [ "$st" = 2 ]; then
+            echo "n/a — this runner has no wasm-pack; the gate's header names the cmp loops that still cover"
+            echo "      the shipped copy, so this is 'cannot run here' and not 'the artifacts are stale'"
+            exit 0
+          fi
+          exit "$st"
       # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
       # recompile src/summrise.ts with the tsc the electron step installed
       # above and cmp against the committed bin/summrise.js — a src change
@@ -1024,8 +1118,8 @@ jobs:
           fi
           echo "bin/summrise.js freshness check OK"
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
-      # staged in this xwin-less job, so the exe is EXCLUDED) and assert
-      # the other 6 release.yml files are inside — a files[]/rename slip
+      # staged in this xwin-less job, so the exes are EXCLUDED) and assert
+      # the other release.yml files are inside — a files[]/rename slip
       # fails the PR, not the release.
       - name: Pack + content subset gate (no exe in this job)
         working-directory: agent
@@ -1036,39 +1130,54 @@ jobs:
           tar tzf "/tmp/packcheck/$TGZ_NAME" > /tmp/tgz-list-ci.txt
           # THE ONE OWNER (architecture round C4): summrise-agent-npm/required-in-tgz.txt, which
           # scripts/publish-release.sh and release.yml read too — this list used to be a fourth
-          # verbatim copy. This job has no cargo-xwin, so summrise-agent.exe is skipped: the job
-          # name says so, and build-pins.bash checks that the exception stays documented.
+          # verbatim copy. This job has no cargo-xwin, so the exes are skipped: the job name says so,
+          # and build-pins.bash checks that the exception stays documented.
           REQUIRED_IN_TGZ="summrise-agent-npm/required-in-tgz.txt"
           [ -f "$REQUIRED_IN_TGZ" ] || { echo "::error::the packed-tgz content list is missing: $REQUIRED_IN_TGZ"; exit 1; }
           n=0
           while IFS= read -r F; do
             case "$F" in ''|'#'*) continue ;; esac
-            # The two Windows exes, and only they: this job has no cargo-xwin, so both are absent
-            # from the tgz it packs. The job name says so, and build-pins.bash checks that every
-            # exception here stays documented.
+            # THE THREE WINDOWS EXES, AND ONLY THEY — all three are cargo-xwin output and this job has
+            # none, so all three are absent from the tgz it packs. `bin/summrise.exe` is the third
+            # (landing 4b's cutover): it is the npm `bin`, this job cannot build it, and MEASURED
+            # without this line the loop above fails with
+            # `::error::packed tgz missing required file: bin/summrise.exe`. What still holds the CLI
+            # in the tarball on a builder that CAN build it is required-in-tgz.txt itself, read by
+            # publish-release.sh (staged == build output, and newer than package.json) and release.yml
+            # (it copies the exe it just built), plus the packaging suite's `required-in-tgz.txt` vs
+            # `files[]` case. The job name says so, and build-pins.bash checks that every exception
+            # here stays documented.
             [ "$F" = "summrise-agent.exe" ] && continue
             [ "$F" = "summrise-launch.exe" ] && continue
+            [ "$F" = "bin/summrise.exe" ] && continue
             if ! grep -qE "(^|/)${F}$" /tmp/tgz-list-ci.txt; then
               echo "::error::packed tgz missing required file: $F"
               exit 1
             fi
             n=$((n+1))
           done < "$REQUIRED_IN_TGZ"
-          echo "pack content check OK ($n files, both exes excluded — no xwin in this job)"
-      # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
-      # package has zero dependencies and no lockfile, so npm ci would
-      # fail with EUSAGE. `npm test` (node --test over node builtins) runs
-      # against the committed bin/summrise.js with nothing installed.
-      - name: npm CLI tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
-        working-directory: agent/summrise-agent-npm
-
+          echo "pack content check OK ($n files, all three exes excluded — no xwin in this job)"
+      # (c) THE `npm test` STEP FOR `summrise-agent-npm` IS DELETED (2026-10-10), WITH THE SUITE IT RAN.
+      # That package has NO JAVASCRIPT LEFT: the CLI's decisions are `summrise-cli` (Rust), and its last
+      # JavaScript file — `test/packaging.test.mjs`, ten packaging validations — is
+      # `agent/tests/npm_package.rs` now, reached by the `agent` job's `cargo test -p summrise-agent`.
+      #
+      # DELETED RATHER THAN LEFT RUNNING, because leaving it is a green that proves nothing followed by a
+      # red that proves the same thing: with no test files, `npm test` there prints `ℹ tests 0` and EXITS
+      # 0, and `scripts/test/npm-test-floored.mjs` — whose whole purpose is that a step which ran zero
+      # tests is not a passing step — refuses it. MEASURED before deleting: `FAIL
+      # …/agent/summrise-agent-npm: the suite ran 0 test(s) and exited 0. A suite that tests nothing
+      # passes everything`, rc=1.
+      #
+      # `npm-test-floored.mjs` ITSELF STAYS: five other packages still run `node --test` through it.
       # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
       # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
       # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`
-      # job because it needs BOTH ends — the committed JavaScript that a device runs (`ts.mjs` requires
-      # `bin/summrise.js`, not the TypeScript source) and the Rust binary. This job already has node and a
-      # toolchain, and the port's own suite runs in the `agent` job.
+      # job because it needs BOTH ends — until landing 4b those were the JavaScript a device ran
+      # (`ts.mjs` required `bin/summrise.js`, not the TypeScript source) and the Rust binary; the
+      # JavaScript is deleted, so `compare.mjs` now diffs the Rust against the answers that
+      # JavaScript gave, FROZEN in `parity/expected.json` while both existed and agreed 162/0. This
+      # job already has node and a toolchain, and the port's own suite runs in the `agent` job.
       #
       # It is a real gate, not a formality: on its first run it found three differences, one of which is a
       # genuine TypeScript defect (`newestOf` can return `""`, which `statusReport` renders as a channel that

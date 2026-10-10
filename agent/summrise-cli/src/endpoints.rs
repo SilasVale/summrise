@@ -29,5 +29,48 @@ pub const DEVICE_HOST_SUFFIX: &str = ".agent.saisi.online";
 /// with `SUMMRISE_API_BASE`.
 pub const DEFAULT_API_BASE: &str = "https://api.saisi.online";
 
+/// The hostname `init_tunnel` falls back to when `--tunnel`/`--hostname` carries nothing.
+///
+/// **A KNOWN DEFECT, CARRIED ACROSS RATHER THAN FIXED** (landing 4b moved the CONSTANT here, not the
+/// behaviour): it is the literal DEVELOPER'S DEVICE, so a fresh install that reaches this fallback
+/// claims `d1` and collides with the real one. The TypeScript does the same, and a port that quietly
+/// changed it would be a behaviour change wearing a port's commit message. [`DEVICE_HOST_SUFFIX`] is
+/// the default that names nobody, and `setup` computes the right host one function away
+/// ([`crate::tunnel::device_host`]) — fixing this is a separate decision, with a device to measure it
+/// on.
+///
+/// **IT LIVES HERE RATHER THAN IN `tunnel.rs`, AND THAT IS A MEASURED MOVE.** This file is the ONE
+/// path `agent/tests/production_host.rs` declares for the CLI's hostname defaults, so the constant
+/// sitting in `tunnel.rs` read to that gate as the debt twice over when it is one default written
+/// once — the shape this module's own header says does not happen. The value is unchanged, character
+/// for character, and the pin below is what keeps the carried defect visible.
+pub const DEFAULT_TUNNEL_HOST: &str = "d1.agent.saisi.online";
+
 /// The registry's dist-tags endpoint: a few bytes, where the packument is a document.
 pub const NPM_DIST_TAGS_URL: &str = "https://registry.npmjs.org/-/package/summrise-agent/dist-tags";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// THE DEFAULT IS CARRIED, NOT FIXED. This case exists so the carried defect is VISIBLE: a
+    /// future commit that changes the default has to change this assertion and say why.
+    ///
+    /// It moved here WITH the constant (landing 4b) so the literal stays inside the one file
+    /// `production_host.rs` declares — the pin and the thing it pins, in one place.
+    #[test]
+    fn the_default_tunnel_host_is_still_the_developers_device() {
+        assert_eq!(DEFAULT_TUNNEL_HOST, "d1.agent.saisi.online");
+    }
+
+    /// And the suffix is the answer that names nobody — the two constants are different answers to
+    /// one question, which is what makes the defect above worth pinning.
+    #[test]
+    fn the_device_host_suffix_names_nobody() {
+        assert_eq!(DEVICE_HOST_SUFFIX, ".agent.saisi.online");
+        assert!(
+            !DEVICE_HOST_SUFFIX.starts_with("d1"),
+            "the suffix must not carry the developer's device name"
+        );
+    }
+}

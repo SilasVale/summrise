@@ -13,6 +13,7 @@
 //! `console.error` / `console.log` produced.
 
 pub mod contrast;
+pub mod hover;
 pub mod js;
 pub mod marks;
 pub mod out;

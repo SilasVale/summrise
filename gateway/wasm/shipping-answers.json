@@ -2281,19 +2281,6 @@
     "writes": [],
     "calls": []
   },
-  "GET /api/devices/d1/proxy/panel (NOT this family: the reverse proxy)": {
-    "status": 502,
-    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device unreachable: the device family's sweep has no upstream answer for https://d1.agent.test/panel\"}}",
-    "headers": [
-      "access-control-allow-headers: *",
-      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
-      "content-type: application/json"
-    ],
-    "writes": [],
-    "calls": [
-      "GET https://d1.agent.test/panel auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111"
-    ]
-  },
   "GET /api/devices/anything/else/here": {
     "status": 404,
     "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not Found\"}}",
@@ -4235,5 +4222,866 @@
     "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
     "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}",
     "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"result\\\":\\\"ok\\\"}\"}]},\"id\":1}"
-  ]
+  ],
+  "GET /api/devices/d1/proxy/panel (the reverse proxy, IN the family since slice 4)": {
+    "status": 200,
+    "body": "<script>window.__PANEL_TOKEN__=\"\"</script><a href=\"/api/devices/d1/proxy/api/status\">s</a>",
+    "headers": [
+      "content-type: text/html; charset=utf-8"
+    ],
+    "writes": [],
+    "calls": [
+      "GET https://d1.agent.test/panel auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111"
+    ]
+  },
+  "GET /proxy/panel/ with an admin session — the text rewrite, token scrubbed": {
+    "status": 200,
+    "body": "<!doctype html><html><head><title>panel</title></head><body><script>window.__PANEL_TOKEN__=\"\"</script><a href=\"/api/devices/d1/proxy/api/status\">status</a><script src=\"./panel.js\"></script><script>const u = `https://${h}/api/devices/d1/proxy/api/events/term`;</script></body></html>",
+    "headers": [
+      "content-length: 282",
+      "content-type: text/html; charset=utf-8"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/panel/ auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/status with an admin session — proxy_secret stripped, key order kept": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "content-length: 47",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/status.masked — a JSON passthrough is NOT re-serialised": {
+    "status": 200,
+    "body": "{ \"ok\" : true , \"name\" : \"d1\" }",
+    "headers": [
+      "content-type: application/json; charset=utf-8"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status.masked auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/events/term — the SSE stream passes through untouched": {
+    "status": 200,
+    "body": "data: hello\n\ndata: world\n\n",
+    "headers": [
+      "content-type: text/event-stream"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/events/term auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/file — the octet-stream passes through as BYTES, streamed": {
+    "status": 200,
+    "body": "PK\u0003\u0004ÿþ binary ÿ",
+    "headers": [
+      "content-type: application/octet-stream"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/file auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/plain — any text/ type is rewritten": {
+    "status": 200,
+    "body": "see \"/api/devices/d1/proxy/api/status\" for more",
+    "headers": [
+      "content-type: text/plain; charset=utf-8"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/plain auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/nobody — a 204 with no body at all": {
+    "status": 204,
+    "body": "",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/nobody auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/moved — a 3xx the dial does NOT follow comes back to the caller": {
+    "status": 302,
+    "body": "",
+    "headers": [
+      "content-type: text/plain;charset=UTF-8",
+      "location: https://elsewhere.test/x"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/moved auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/broken — an upstream 5xx is passed through, not translated": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"boom\"}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/broken auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "POST /proxy/api/tools/terminal_execute — the caller's BODY is streamed to the device": {
+    "status": 200,
+    "body": "{\"ok\":true,\"output\":\"done\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST d1.agent.test/api/tools/terminal_execute auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=yes body={\"command\":\"whoami\"}"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/status with an allowlisted Origin — ACAO reflected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "access-control-allow-origin: https://console.test",
+      "content-length: 47",
+      "content-type: application/json",
+      "vary: Origin"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/status with a foreign Origin — the UPSTREAM's ACAO is removed, Vary kept": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\"}",
+    "headers": [
+      "content-type: application/json",
+      "vary: Accept-Encoding"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/status — the caller's x-forwarded-for, cf-connecting-ip and x-summrise-auth go": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "content-length: 47",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET proxy for a device that does NOT exist, as an admin — 404 is the admin's to see": {
+    "status": 404,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Device not found\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy for a device that does NOT exist, with NO session — 401, not a name oracle": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy for a device that does NOT exist, as a NON-admin — 401, still no oracle": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with a malformed percent-escape in the device name — 400, not a 500": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Invalid device name\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with no credential at all — 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with an unknown Bearer token — 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with the DEVICE's own config token — not a proxy credential: 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with a NON-admin session and no plugin token — 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with the paired plugin token — proxied, device Bearer minted server-side": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "cache-control: no-store",
+      "content-length: 47",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET proxy with a plugin token paired to ANOTHER device — 401, and nothing is dialled": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with an EXPIRED plugin link (revoked/rotated) — 401 and the record is swept": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [
+      "put plugins:v1={\"live-plugin-link\":{\"device\":\"d1\",\"createdAt\":1,\"expiresAt\":1760086400000},\"other-device-link\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1760086400000}}"
+    ],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with a ROTATED token — the old token is simply not in the map: 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with the per-device cookie the 302 minted — proxied": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "cache-control: no-store",
+      "content-length: 47",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET proxy with a MALFORMED per-device cookie — treated as absent: 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with ANOTHER device's per-device cookie — 401 (the key carries the name)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy navigation with ?token= — 302, token stripped, per-device cookie minted": {
+    "status": 302,
+    "body": "",
+    "headers": [
+      "cache-control: no-store",
+      "location: /api/devices/d1/proxy/panel/",
+      "set-cookie: summrise_pt_d1=live-plugin-link; Path=/api/devices/d1/proxy; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy navigation with ?token= and OTHER query params — only the token is dropped": {
+    "status": 302,
+    "body": "",
+    "headers": [
+      "cache-control: no-store",
+      "location: /api/devices/d1/proxy/panel/?a=1&b=%E5%9B%BA",
+      "set-cookie: summrise_pt_d1=live-plugin-link; Path=/api/devices/d1/proxy; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST proxy with ?token= on a NON-navigation — 401: a leaked URL is not a credential": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid plugin token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy navigation with an EXPIRED ?token= — the readable HTML page, not JSON": {
+    "status": 401,
+    "body": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Summrise — session expired</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f7;color:#1d1d1f;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:32px 40px;max-width:400px;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,.12)}h1{font-size:18px;margin:0 0 8px}p{color:#6e6e73;font-size:14px;margin:0 0 4px}.mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;background:#1d1d1f;color:#fff;font-weight:700;font-size:24px;margin-bottom:14px}</style></head><body><div class=\"card\"><span class=\"mark\">V</span><h1>Device session expired</h1><p>This device pairing has expired or the browser was restarted.</p><p>Expired session — sign in to the console again to get a fresh device link.</p></div></body></html>",
+    "headers": [
+      "content-type: text/html; charset=utf-8"
+    ],
+    "writes": [
+      "put plugins:v1={\"live-plugin-link\":{\"device\":\"d1\",\"createdAt\":1,\"expiresAt\":1760086400000},\"other-device-link\":{\"device\":\"d2\",\"createdAt\":1,\"expiresAt\":1760086400000}}"
+    ],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy navigation with NO credential at all — the same readable page": {
+    "status": 401,
+    "body": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Summrise — session expired</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f7;color:#1d1d1f;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.card{background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:32px 40px;max-width:400px;text-align:center;box-shadow:0 12px 32px rgba(0,0,0,.12)}h1{font-size:18px;margin:0 0 8px}p{color:#6e6e73;font-size:14px;margin:0 0 4px}.mark{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;background:#1d1d1f;color:#fff;font-weight:700;font-size:24px;margin-bottom:14px}</style></head><body><div class=\"card\"><span class=\"mark\">V</span><h1>Device session expired</h1><p>This device pairing has expired or the browser was restarted.</p><p>Expired session — sign in to the console again to get a fresh device link.</p></div></body></html>",
+    "headers": [
+      "content-type: text/html; charset=utf-8"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy with a valid Authorization AND ?token= — proxied, no token upstream, no-store": {
+    "status": 200,
+    "body": "{\"ok\":true,\"name\":\"d1\",\"z\":1,\"version\":\"1.2.3\"}",
+    "headers": [
+      "cache-control: no-store",
+      "content-length: 47",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "POST /proxy/api/tools/terminal_sftp — WITHHELD from the MCP surface, refused here too": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"forbidden\",\"message\":\"The device proxy does not relay terminal_sftp: superseded by the relay pair; takes arbitrary SSH credentials\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /proxy/api/tools/mcp_client_call — the bridge's plumbing, refused": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"forbidden\",\"message\":\"The device proxy does not relay mcp_client_call: internal bridge plumbing\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /proxy/api/tools/agent_update — the panel calls it through this proxy: forwarded": {
+    "status": 200,
+    "body": "{\"ok\":true,\"updated\":true}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST d1.agent.test/api/tools/agent_update auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=yes body={}"
+    ],
+    "relay": []
+  },
+  "POST /proxy/api/tools/memory_search — a panel-surface tool is forwarded": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device unreachable: the proxy corpus has no upstream answer for d1.agent.test/api/tools/terminal_list\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST d1.agent.test/api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=yes body={}"
+    ],
+    "relay": []
+  },
+  "POST /proxy/api/tools/%74erminal_sftp — the name is DECODED before the policy reads it": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"forbidden\",\"message\":\"The device proxy does not relay terminal_sftp: superseded by the relay pair; takes arbitrary SSH credentials\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /proxy/api/tools/toString — the object-literal lookup's INHERITED arm (a defect, kept)": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"forbidden\",\"message\":\"The device proxy does not relay toString: undefined\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /proxy/api/tools/ — the regex wants a name, so the policy never runs: forwarded": {
+    "status": 200,
+    "body": "{\"ok\":true,\"empty-name\":true}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST d1.agent.test/api/tools/ auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=yes body={}"
+    ],
+    "relay": []
+  },
+  "POST /proxy/api/tools/terminal%zz — a malformed escape THROWS: the front door's 500": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal error\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy to a record whose hostname is PRIVATE — refused before any dial": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"device hostname resolves to a private/internal address\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy to a hostname outside the suffix allowlist — refused before any dial": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"hostname must be under .agent.test\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy@evil.test/x — userinfo in the rest path tries to re-root the URL: refused": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"invalid proxy path\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxyhttps:/evil.test/x — a scheme in the authority prefix: refused": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"invalid proxy path\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "GET proxy//evil.test/x — a protocol-relative rest path stays on the DEVICE's host": {
+    "status": 200,
+    "body": "{\"ok\":true,\"same-host\":true}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test//evil.test/x auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "GET proxyfoo (the capture group is `(.*)`, so this is the path `foo`)": {
+    "status": 200,
+    "body": "{\"ok\":true,\"foo\":true}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/foo auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "an upstream that never answers (AbortError) — 502 with the renamed timeout": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device unreachable: timeout after 15000ms\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "an upstream transport failure — 502 with the reason the device gave": {
+    "status": 502,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"proxy_error\",\"message\":\"Device unreachable: connect ECONNREFUSED\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "GET d1.agent.test/api/status auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=no body=-"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with no credential — 401": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or missing device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /api/upload with an unknown Bearer — 401, nothing dialled": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /api/upload with a NON-admin session — 401 (the session arm wants an admin)": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or missing device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /api/upload with the DEVICE's config token — the device leg, streamed": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=raw-bytes"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with a paired plugin link — accepted, like the docs say": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=raw-bytes"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with an admin session — the UPLOAD_KEY is injected, cookies are not": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=raw-bytes"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with the admin API token (the /mcp credential) — the Linux→device leg": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=raw-bytes"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with a RELAY-role token — refused: relay is for the translate path": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid device token\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /api/upload with a declared 101 MiB — 413 without touching the network": {
+    "status": 413,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Upload too large (max 100MB)\"}}",
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": []
+  },
+  "POST /api/upload with a declared length AT the bound — not refused here": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=x"
+    ],
+    "relay": []
+  },
+  "POST /api/upload with a declared length that is NOT a number — no bound is applied": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=x"
+    ],
+    "relay": []
+  },
+  "POST /api/upload where the relay answers 500 — the status and body pass through": {
+    "status": 500,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=x"
+    ],
+    "relay": []
+  },
+  "POST /api/upload WITHOUT the RELAY binding — the host fallback, redirect manual": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=fallback-bytes"
+    ],
+    "relay": []
+  },
+  "POST /api/upload through the RELAY — the binding is preferred when it is there": {
+    "status": 200,
+    "body": "{\"ok\":true,\"stored\":true}",
+    "headers": [
+      "connection: keep-alive",
+      "content-type: application/json",
+      "set-cookie: relay=1; Path=/",
+      "x-kept: yes"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": [
+      "relay POST summrise-relay.internal/api/upload auth=Bearer the-upload-key ct=application/json xf=- xct=- cookie=- stream=yes body=relay-bytes"
+    ]
+  },
+  "PUT /api/upload?name=a.bin through the RELAY — the stream and the query both survive": {
+    "status": 200,
+    "body": "{\"ok\":true,\"stored\":true}",
+    "headers": [
+      "connection: keep-alive",
+      "content-type: application/json",
+      "set-cookie: relay=1; Path=/",
+      "x-kept: yes"
+    ],
+    "writes": [],
+    "calls": [],
+    "relay": [
+      "relay PUT summrise-relay.internal/api/upload?name=a.bin auth=Bearer the-upload-key ct=application/json xf=- xct=- cookie=- stream=yes body=relay-stream-bytes"
+    ]
+  },
+  "POST /proxy/api/tools/terminal_list — a panel-surface tool is forwarded": {
+    "status": 200,
+    "body": "{\"ok\":true,\"result\":[]}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "POST d1.agent.test/api/tools/terminal_list auth=Bearer 1111111111111111111111111111111111111111111111111111111111111111 xsa=ssssssssssssssssssssssssssssssss xfp=https cookie=- stream=yes body={}"
+    ],
+    "relay": []
+  },
+  "PUT /api/upload?name=%E5%9B%BA%E4%BB%B6.bin with the raw-metadata headers — the query is forwarded": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json"
+    ],
+    "writes": [],
+    "calls": [
+      "PUT idx.test/api/upload?name=%E5%9B%BA%E4%BB%B6.bin auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=firmware-bytes"
+    ],
+    "relay": []
+  },
+  "GET /proxy/api/events/term — an upstream stream that NEVER ends: the first frame arrives": {
+    "status": 200,
+    "headers": [
+      "content-type: text/event-stream"
+    ],
+    "frame": "data: the-first-frame\n\n"
+  },
+  "POST /api/upload with a REFUSED origin — the ACAO the relay's answer CARRIED is removed, its Vary stays": {
+    "status": 200,
+    "body": "{\"ok\":true,\"key\":\"claim/abc\"}",
+    "headers": [
+      "content-type: application/json",
+      "vary: Accept-Encoding"
+    ],
+    "writes": [],
+    "calls": [
+      "POST idx.test/api/upload auth=Bearer the-upload-key xsa=- xfp=- cookie=- stream=yes body=raw-bytes"
+    ],
+    "relay": []
+  }
 }
