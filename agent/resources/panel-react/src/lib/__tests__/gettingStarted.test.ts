@@ -2,7 +2,7 @@
 // repo has merged and deleted plenty) or a command that was pruned. These tests are the pin — the
 // guide may only talk about things that exist, and it must say enough for a reader to act.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGE_ICONS } from "../../components/IconRail";
@@ -43,7 +43,19 @@ describe("getting started: the content is checked, not trusted", () => {
   it("a monospace ACTION is a command the CLI actually has", () => {
     // The one real command in the guide. If the CLI ever loses `monitor add`, the guide must not go
     // on telling people to type it — so this reads the shipped CLI and checks the usage line.
-    const cli = readFileSync(path.join(ROOT, "summrise-agent-npm", "bin", "summrise.js"), "utf8");
+    // **THE CLI IS RUST NOW (landing 4b), AND THIS TEST READ THE FILE THE CUTOVER DELETED.** It went red
+    // on `main` with `ENOENT: … summrise-agent-npm/bin/summrise.js` — a failure that named a missing file
+    // rather than a wrong answer, which is the shape this repository keeps finding. The CONTRACT is
+    // unchanged and still worth checking: the guide must not tell somebody to type a command the CLI does
+    // not have. The usage lines are Rust string literals now (`summrise-cli/src/monitor.rs` carries
+    // `usage: summrise monitor [list [--json] | add …]`), so this reads every source file of the crate and
+    // matches the same regex — `readdirSync` rather than one named file, because the guide's second
+    // command may live in any module and a test that reads one file cannot notice that.
+    const cliSrc = path.join(ROOT, "summrise-cli", "src");
+    const cli = readdirSync(cliSrc)
+      .filter((f) => f.endsWith(".rs"))
+      .map((f) => readFileSync(path.join(cliSrc, f), "utf8"))
+      .join("\n");
     const commands = STEPS.flatMap((s) => (s.action ? [s.action] : []));
     expect(commands.length, "the guide should show at least one real command").toBeGreaterThan(0);
     for (const cmd of commands) {
