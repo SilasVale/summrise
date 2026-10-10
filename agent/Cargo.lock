@@ -3559,6 +3559,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-e2e-judge"
+version = "1.0.145"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "summrise-exec-argv"
 version = "1.0.145"
 

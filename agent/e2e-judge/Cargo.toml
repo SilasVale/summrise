@@ -1,0 +1,26 @@
+[package]
+name = "summrise-e2e-judge"
+version.workspace = true
+edition = "2021"
+description = "The device e2e suite's plan and judge: what runs and in what order, and whether the device passed — ported out of agent/scripts/e2e/e2e.js"
+
+[[bin]]
+name = "summrise-e2e-judge"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_e2e_judge"
+path = "src/lib.rs"
+
+[dependencies]
+# The rows document is the driver's output and this crate's input, and the plan it carries is the
+# same plan this crate printed. `preserve_order` is NOT cosmetic here either: the judge walks the
+# evidence arrays in the order the driver recorded them, and several checks (the xterm poll series,
+# the SPA bar poll series, the mcp click attempts) take the LAST value the series reached — a
+# BTreeMap would reorder them and change the verdict.
+serde_json = { version = "1", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }
+# Two checks read back a base64 page the driver uploaded (`file single-read download` decodes it and
+# requires every byte to be the fill byte). Hand-rolling a decoder would be a second implementation
+# of base64 in a repository that already ships one in every build.
+base64 = "0.22"

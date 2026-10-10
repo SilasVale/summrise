@@ -1,1057 +1,1007 @@
 #!/usr/bin/env node
-// Summrise Agent E2E suite (runs on the DEVICE, e.g. d1).
+// Summrise Agent E2E suite — THE DRIVER.
 //
-// Purpose: repeatable, device-side verification that the AI-facing surface
-// works end-to-end. Exercises the same paths a real AI client uses:
-//   POST /api/tools/{name} with body = the args object (no {tool,args}
-//   wrapper); terminal_open returns the sid as a string; terminal_read
-//   wraps under .result.
+// ── WHAT THIS FILE IS, AND WHAT IT IS NOT ────────────────────────────────────────────────────────────────────
 //
-// Sections (each exits PASS/FAIL independently):
-//   1. terminal  — open session, execute in session mode, run_in_background
-//                  + collect via read (round-268 contract)
-//   2. file      — stat -> append pages up -> paged raw read down
-//                  (round-266 bidirectional transfer)
-//   3. workflow  — cross-plugin chain: process_list -> execute -> file_write
-//                  -> stat -> memory_save -> memory_search (round-267)
-//   4. browser   — browser_run_script drives the embedded view via CDP 9333
-//                  and the SPA address bar follows (round-268)
-//   5. panel     — AI writes a unique marker into a terminal session; the
-//                  SPA's VISIBLE xterm must show it (round-264 display
-//                  verification, now repeatable)
-//   6. evidence  — an AI screenshot lands in pwout and /api/browser/pwshots
-//                  (the Evidence drawer data source) lists it
-//   7. mcp       — stdio connect auto-selects the embedded view; the first
-//                  browser_navigate drives it (round-281 regression)
+// IT IS THE PLATFORM HALF, AND IT DECIDES NOTHING. It opens PTY sessions over the product's own HTTP surface,
+// drives the desktop SPA over CDP 9333, hands `browser_run_script` its payloads, talks to playwright-mcp on two
+// transports, and reads and writes the device's own files. Then it writes down what it ASKED and what came
+// back, and stops.
+//
+// IT IS NOT THE VERDICT AND IT IS NOT THE PLAN.
+//
+//   * THE PLAN is Rust (`agent/e2e-judge/src/plan.rs`): which sections run, in what order, what `--only` may
+//     name, every command and marker the suite types or requires, and the policy caps and floors (poll counts,
+//     retry counts and the waits between them). It arrives as DATA — `--plan <file>`, or the constant
+//     `BUNDLED_PLAN` below, which `summrise-e2e-judge --bundle` fills in when it writes the copy a device
+//     fetches. This file has no fixture of its own and no section ladder of its own.
+//   * THE JUDGE is Rust too (`--rows`): the conditions, the sentences a reader triages a failure from, the two
+//     skip arms and the exit code.
+//
+// WHY THE SPLIT, IN THE REPOSITORY'S OWN WORDS. A decision is Rust; a platform call that decides nothing stays
+// JavaScript and says which call it performs. This file used to hold BOTH halves: 75 `check(name, cond, detail)`
+// calls were decisions (`.some(...)`, `rs === 'OK'`, `text.includes('E2E-SESSION-OK')`, `state === 'partial'`)
+// sitting beside the fetches that fed them — and the design sweeps had already made this exact cut, their
+// in-page COLLECTOR staying JavaScript while the JUDGE and the PLAN became Rust. `--record` existed for this
+// port; the record is now the only output there is.
+//
+// ── THE TWO THINGS THIS FILE IS STILL ALLOWED, AND WHY NEITHER IS A VERDICT ──────────────────────────────────
+//
+//   1. A POLL'S TERMINATION CONDITION. A driver must know when to stop driving: whether the shell has produced
+//      a prompt, whether the embedded view has arrived, whether the address bar has caught up. Those are
+//      built out of the plan's own data (`panel_marker_prefix`, `mcp_click_targets`, `browser_bar_fragment`)
+//      and the series they produce is RE-JUDGED in Rust — which is why the series is recorded rather than
+//      collapsed into a boolean here.
+//   2. A HANDLE READ OUT OF AN ANSWER, so the next call can be made at all: the session id `terminal_open`
+//      answers, the `[ref=…]` a snapshot carries for `browser_click`. A driver that could not read the handle
+//      could not drive.
+//
+// What is never computed here is what an answer MEANS.
+//
+// ── TWO THINGS A READER OF A DEVICE TRANSCRIPT NEEDS TO KNOW ────────────────────────────────────────────────
+//
+//   1. THE DRIVER'S EXIT CODE SAYS WHETHER IT COLLECTED, NOT WHETHER THE DEVICE PASSED. 0 = the rows were
+//      written; 1 = no token; 2 = it could not run at all (no plan, or a section it does not implement). A run
+//      that aborted mid-way still writes its rows, and those rows carry `driver.abort`, which the judge reports
+//      as a failure. Run `summrise-e2e-judge --rows <file>` for the verdict — this process does not have one.
+//   2. EVERY CHECK IS JUDGED FROM THE ROWS, SO THE ROWS MUST LEAVE THE DEVICE. On a box with a toolchain that
+//      is the next command. On the device it means carrying the file, which is the same problem the recorded
+//      corpus has; it is named in `agent/scripts/e2e/README.md` rather than left to be discovered.
 //
 // Usage:
-//   node e2e.js --token <agent-token> [--base http://127.0.0.1:18080]
-//                [--only terminal,file,panel] [--no-browser]
+//   node e2e.js --token <agent-token> [--base http://127.0.0.1:18080] [--rows e2e-rows.json]
+//   node e2e.js --plan plan.json --token <t> --rows out.json      # a subset: the plan is data
 //
-// Requires: agent running on the device; for section 4 also the Electron
-// desktop (CDP 9333) + a playwright install at D:\Summrise\playwright.
-//
-// Exit code: 0 = all selected sections passed; 1 = any failure.
+// Requires: agent running on the device; for the CDP sections also the Electron desktop (9333) and the bundled
+// Playwright. The emitted bundle (`summrise-e2e-judge --bundle`) carries the plan and needs only `--token`.
 
-const TOKEN = process.argv.includes('--token')
-  ? process.argv[process.argv.indexOf('--token') + 1]
-  : process.env.SUMMRISE_AGENT_TOKEN;
-const BASE = (() => {
-  const i = process.argv.indexOf('--base');
-  return i >= 0 ? process.argv[i + 1] : 'http://127.0.0.1:18080';
-})();
-// THE SECTION NAMES, DECLARED ONCE, so `--only` can be CHECKED against them.
-// `want()` below is driven by these; a name that is not in this list selects
-// nothing, and that used to be indistinguishable from success — see the guard
-// after the suite for what that cost.
-const SECTIONS = ['terminal', 'file', 'workflow', 'panel', 'mcp', 'evidence', 'browser', 'governance', 'runs'];
-const ONLY = (() => {
-  const i = process.argv.indexOf('--only');
-  if (i < 0) return null;
-  const asked = String(process.argv[i + 1] || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  // An unknown section is a CONFIGURATION ERROR, not a filter that matches
-  // nothing. CI runs `--only governance,runs`; rename a section and the step
-  // would otherwise keep "passing" while testing nothing at all.
-  const unknown = asked.filter((s) => !SECTIONS.includes(s));
-  if (unknown.length) {
-    console.error('unknown --only section(s): ' + unknown.join(', '));
-    console.error('known sections: ' + SECTIONS.join(', '));
-    console.error('EXIT 2: THE SUITE DID NOT RUN — a name that selects nothing is not a pass.');
+const fs = require('node:fs');
+
+// ── THE PLAN ────────────────────────────────────────────────────────────────────────────────────────────────
+//
+// THE LINE BELOW IS THE EMITTER'S MARKER, and it is EXACT: `summrise-e2e-judge --bundle` refuses to emit unless
+// it appears exactly once, and replaces it with the plan as JSON. The source carries `null` on purpose, so
+// running the source with no `--plan` REFUSES rather than inventing a section order that Rust would then judge
+// as though the caller had asked for it.
+const BUNDLED_PLAN = {"sections":["terminal","file","workflow","panel","mcp","evidence","browser","governance","runs"],"fixtures":{"evidence_dir":"C:\\ProgramData\\Summrise\\pwout","pw_dir":"D:\\Summrise\\components\\playwright","session_command":"Write-Output E2E-SESSION-OK","session_marker":"E2E-SESSION-OK","failing_command":"summrise-e2e-no-such-command","background_command":"Start-Sleep -Seconds 2; Write-Output E2E-BG-DONE","background_marker":"E2E-BG-DONE","unknown_session":"no-such-session-e2e","write_marker_prefix":"E2E-WRITE-","write_command_template":"Write-Output \"{marker}\"\r\n","panel_command_template":"Write-Output \"{marker}\"","marker_url_template":"https://example.com/{marker}","transfer_name":"e2e_suite_transfer.bin","transfer_page_bytes":153600,"transfer_pages":2,"transfer_fill":66,"text_name":"e2e_suite_text.txt","text_payload":"E2E-TEXT-OK","missing_name":"e2e_no_such_file_xyz","workflow_name":"e2e_wf.json","workflow_command":"echo E2E-WF-1","workflow_marker":"E2E-WF-1","memory_title":"E2E suite marker","memory_tags":["e2e","suite"],"memory_token_prefix":"toolchain-","memory_update_prefix":"toolchain-upd-","memory_list_limit":50,"panel_marker_prefix":"PANEL-VIS-","mcp_transports":[{"tag":"stdio","args":{"name":"pw","transport":"stdio"}},{"tag":"http","args":{"name":"pw-http","transport":"http","url":"http://127.0.0.1:9229/mcp"}}],"mcp_home_url":"https://example.com/","mcp_link_labels":["E2E-INNER-LINK","Learn more"],"mcp_click_targets":["inner-click-test","iana.org"],"evidence_shot_prefix":"e2e_evidence_","evidence_shot_suffix":".png","browser_home_url":"https://www.example.com","browser_title_line":"TITLE=Example Domain","browser_bar_fragment":"example.com","focus_marker_prefix":"focus-trap-","gov_goal":"provision the ONU at 0/1 on VLAN 100","gov_command":"echo governed","gov_intent":"confirm the session is responsive before changing anything","gov_considered":["skip the check","reopen the session instead"],"gov_sibling_command":"echo granted-sibling","gov_grant_word":"echo","runs_label_prefix":"e2e-run-","runs_goal":"prove run identity end to end","runs_inside_command":"echo inside-the-run","runs_loose_command":"echo loose-work","runs_unknown_id":"run-does-not-exist"},"budgets":{"prompt_polls":12,"prompt_interval_ms":1000,"execute_attempts":2,"execute_retry_ms":3000,"background_collect_ms":4000,"screen_settle_ms":3000,"panel_open_settle_ms":2500,"panel_list_settle_ms":3000,"panel_rail_settle_ms":1500,"panel_tab_settle_ms":2500,"panel_xterm_polls":6,"panel_xterm_interval_ms":2000,"mcp_disconnect_settle_ms":1500,"mcp_view_polls":15,"mcp_view_interval_ms":1000,"mcp_nav_settle_ms":3000,"mcp_inject_settle_ms":1000,"mcp_click_attempts":2,"mcp_click_retry_ms":3000,"evidence_rail_settle_ms":2000,"evidence_shots_settle_ms":2000,"spa_rail_settle_ms":500,"browser_bar_settle_ms":4000,"browser_bar_polls":8,"browser_bar_interval_ms":2000,"browser_rail_settle_ms":3000,"browser_trap_polls":8,"browser_trap_interval_ms":2000,"gov_pending_polls":25,"gov_pending_interval_ms":200,"gov_sibling_ms":5000,"ws_close_immediate_ms":100,"ws_close_grace_ms":3000,"ws_eval_timeout_ms":15000}}; // @e2e-plan — written by `summrise-e2e-judge --bundle`; the plan is Rust (agent/e2e-judge/src/plan.rs)
+
+const argv = process.argv.slice(2);
+const flag = (name) => {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : null;
+};
+const has = (name) => argv.includes(name);
+
+const TOKEN = flag('--token') || process.env.SUMMRISE_AGENT_TOKEN;
+const BASE = flag('--base') || 'http://127.0.0.1:18080';
+const ROWS_PATH = flag('--rows') || 'e2e-rows.json';
+const PLAN_PATH = flag('--plan');
+
+// **`--only` AND `--no-browser` ARE REFUSED HERE, AND THAT IS THE POINT.** Both are decisions about WHICH
+// sections run, and the vocabulary they are checked against lives in Rust — the guard that refuses a name
+// selecting nothing was written because `--only governance-typo` used to be indistinguishable from success.
+// Re-implementing the filter here would put that decision back in JavaScript. Ask the judge for a plan instead;
+// the message says how.
+if (has('--only') || has('--no-browser')) {
+  console.error(
+    'the section list is DATA and this file cannot re-derive it: --only and --no-browser are resolved by the\n' +
+      'judge, not by the driver.\n' +
+      '  summrise-e2e-judge --plan --only <a,b> [--no-browser] > plan.json\n' +
+      '  node e2e.js --plan plan.json --rows out.json --token <token>\n' +
+      'The bundled copy a device runs already carries the full plan; use --plan for a subset.',
+  );
+  process.exit(2);
+}
+
+let PLAN = BUNDLED_PLAN;
+if (PLAN_PATH) {
+  try {
+    PLAN = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'));
+  } catch (e) {
+    console.error('cannot read the plan ' + PLAN_PATH + ': ' + e.message);
     process.exit(2);
   }
-  if (!asked.length) {
-    console.error('--only was given with no section names');
-    console.error('known sections: ' + SECTIONS.join(', '));
-    process.exit(2);
-  }
-  return asked;
-})();
-const NO_BROWSER = process.argv.includes('--no-browser');
-const PW_DIR = process.env.SUMMRISE_PW_DIR || 'D:\\Summrise\\components\\playwright';
-// Layout v2 (ADR 0008): AI evidence lives under DataDir\pwout (was the
-// install-root pwout\). Pre-migration devices: SUMMRISE_EVIDENCE_DIR override
-// (same pattern as SUMMRISE_PW_DIR above).
-const EVIDENCE_DIR = process.env.SUMMRISE_EVIDENCE_DIR || 'C:\\ProgramData\\Summrise\\pwout';
+}
+if (!PLAN || !Array.isArray(PLAN.sections) || !PLAN.fixtures || !PLAN.budgets) {
+  console.error(
+    'no plan. This driver runs what it is given and refuses to invent an order:\n' +
+      '  summrise-e2e-judge --plan > plan.json && node e2e.js --plan plan.json --token <token>\n' +
+      'or run the emitted bundle, which carries the plan inside it.',
+  );
+  process.exit(2);
+}
+const FX = PLAN.fixtures;
+const B = PLAN.budgets;
+
+// The two runtime overrides the suite has always carried, with their DEFAULTS in the plan: a device that keeps
+// its evidence or its Playwright somewhere else says so in the environment, and the driver just reads it.
+const EVIDENCE_DIR = process.env.SUMMRISE_EVIDENCE_DIR || FX.evidence_dir;
+const PW_DIR = process.env.SUMMRISE_PW_DIR || FX.pw_dir;
+
+if (!TOKEN) {
+  console.error('missing token: pass --token or SUMMRISE_AGENT_TOKEN');
+  process.exit(1);
+}
 
 const H = { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' };
+const START = Date.now();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function shotsJsonParse(resp) { try { return await resp.json(); } catch (e) { return null; } }
+const jstr = (v) => JSON.stringify(v);
 
-// **THE RECORDING MODE EXISTS FOR THIS SCRIPT'S OWN MIGRATION, AND IT SITS AT THE ONE BOUNDARY EVERY
-// SECTION ALREADY GOES THROUGH.** `--record <path>` writes every tool call and its answer to a JSON file,
-// which is the corpus a Rust judge replays: the 75 `check(...)` calls below are DECISIONS (they compute,
-// compare and format), the HTTP calls are the boundary, and the answers are data. Without this the only
-// oracle for the port would be the JUDGED output — which proves nothing, because the judgements are the
-// thing being moved. The shape is `gateway/wasm/verify.mjs`'s `PROXY_RECORD=1`, for the same reason.
-const RECORD_PATH = (() => {
-  const i = process.argv.indexOf('--record');
-  return i >= 0 ? process.argv[i + 1] : null;
-})();
-const RECORDED = [];
-async function tool(name, body) {
-  const r = await fetch(BASE + '/api/tools/' + name, {
-    method: 'POST', headers: H, body: JSON.stringify(body || {}),
-  });
-  if (!r.ok) throw new Error('tool ' + name + ' HTTP ' + r.status);
-  const j = await r.json();
-  if (j && j.ok === false) throw new Error('tool ' + name + ' failed: ' + JSON.stringify(j).slice(0, 200));
-  const result = j && j.result !== undefined ? j.result : j;
-  if (RECORD_PATH) RECORDED.push({ name, body: body || {}, result });
-  return result;
+// ── THE RECORD ──────────────────────────────────────────────────────────────────────────────────────────────
+//
+// One entry per question asked. `args` is what was asked, `result` is what came back, `error` is the transport
+// failure that used to `throw` out of the suite. Nothing here is derived: no condition is evaluated and no
+// detail string is composed, because both of those are the judge's.
+const observations = [];
+function record(id, fields) {
+  const o = { id, at_ms: Date.now() - START };
+  if (fields.args !== undefined) o.args = fields.args;
+  if (fields.result !== undefined) o.result = fields.result;
+  if (fields.error !== undefined) o.error = fields.error;
+  observations.push(o);
+  console.log('obs ' + id);
+  return fields.result;
 }
 
-/** HOW MANY TIMES A SESSION ROW WAS ASKED FOR — the outcome assertions below need the list, not the command. */
-async function rowOf(id) {
-  const list = await tool('terminal_list', {});
-  return (Array.isArray(list) ? list : (list && list.sessions) || []).find((s) => s && s.id === id);
-}
+/** A run-stopping failure. The JS suite threw out of its one `try` and reported `suite: <message>`; the judge
+ *  reports the same thing from `driver.abort`, so the message stays the raw one rather than a new invention. */
+class Stop extends Error {}
 
-/** DO THE CALLER AND THE SESSION ROW AGREE ABOUT THE LAST COMMAND? (round 96)
+/**
+ * ONE CALL TO THE PRODUCT'S OWN TOOL SURFACE, in the shape external AI clients use: POST /api/tools/{name}
+ * with the args object as the body (no `{tool,args}` wrapper).
  *
- *  AGREEMENT, NOT A NUMBER, and the difference was measured rather than reasoned: on a bash PTY in CI no shell
- *  marker fires, the execute wait ends `state=partial`, and NEITHER side has a code — which is the correct
- *  answer ("no code was observed"), not a missing feature. A check that demanded a number would be a check about
- *  the runner's shell. What must never happen is the two audiences DISAGREEING — one reporting a code the other
- *  never saw — which is exactly what this fails on, in both directions. The number itself is pinned by the
- *  device's unit test (`the_row_carries_the_last_command_outcome_and_forgets_it_on_the_next_write`), which sets,
- *  replaces and clears it. */
-function sameOutcome(row, result) {
-  const caller = result && result.exit_code;
-  const onRow = row && row.last_exit_code;
-  return typeof caller === 'number' ? onRow === caller : typeof onRow !== 'number';
-}
-
-const results = [];
-// A CHECK WHOSE ARM DOES NOT APPLY ON THIS DEVICE IS *SKIPPED*, NOT PASSED AND NOT FAILED (round 103).
-// This suite had only two states, so a section that cannot apply here had to either lie (PASS) or report a defect
-// that is not one (FAIL) -- and the mcp thread spent eleven rounds on the second. A skip carries its reason, and
-// the summary counts it separately (see the reporting block at the end: skips are excluded from BOTH numbers).
-function skip(name, reason) {
-  results.push({ name, pass: null, detail: reason || '' });
-  const safe = String(reason || '').replace(/[^\x20-\x7E]/g, '?');
-  console.log('SKIP ' + name + (reason ? '  -- ' + safe : ''));
-}
-
-function check(name, cond, detail) {
-  results.push({ name, pass: !!cond, detail: detail || '' });
-  // ASCII-only separator: the device console is GBK (cp936) — a UTF-8
-  // em-dash here mojibakes to `鈥?` in PowerShell transcripts. Same for
-  // detail: OS error strings arrive in Chinese ("系统找不到指定的文件")
-  // and PowerShell's `>` redirect decodes node UTF-8 output as GBK,
-  // baking mojibake into the log — sanitize to printable ASCII.
-  const safe = String(detail || '').replace(/[^\x20-\x7E]/g, '?');
-  console.log((cond ? 'PASS ' : 'FAIL ') + name + (detail ? '  -- ' + safe : ''));
-}
-
-// ── 1. terminal: session execute + background collect ──────────────────────
-// + interaction checks: list/resize/write+screen/bad-session/history.
-async function sectionTerminal() {
-  const sid = await tool('terminal_open', { kind: 'pty' });
-  if (typeof sid !== 'string' && !(sid && sid.sid)) throw new Error('terminal_open bad result');
-  const sessionId = typeof sid === 'string' ? sid : sid.sid;
-  // A REAL GATE, NOT A SLEEP WEARING ONE'S NAME (round 113). This was `await sleep(2500)` with the comment
-  // "let the shell boot (first-prompt gate)" — but a fixed sleep is not a gate: under load the first PowerShell
-  // prompt can take longer, the command lands in a shell still starting, and the check below fails with
-  // `state=partial exit=null` while nothing is wrong with the product (round 104 caught exactly that, and round 93
-  // established the class). So poll for evidence the shell is up, the way the click check polls for its view.
-  for (let i = 0; i < 12; i++) {
-    await sleep(1000);
-    const sc = await tool('terminal_read', { session_id: sessionId, offset: 0 });
-    const txt = (sc && (sc.text || sc)) || '';
-    if (String(txt).trim().length > 0) break; // the shell has produced its prompt
-  }
-  const ls = await tool('terminal_list', {});
-  const lsArr = Array.isArray(ls) ? ls : (ls && ls.sessions) || [];
-  check('terminal list contains session', lsArr.some((s) => (s && s.id) === sessionId || s === sessionId),
-    'sessions=' + lsArr.length);
-  const rs = await tool('terminal_resize', { session_id: sessionId, rows: 30, cols: 120 });
-  check('terminal resize ok', rs === 'OK', String(rs).slice(0, 20));
-  // AND TWO ATTEMPTS, because a command that arrives while the shell is still settling can legitimately come back
-  // partial — the click check uses the same shape for the same reason ("a click can land while the view is
-  // mid-navigation"). The proof stays strict: the marker must actually appear, `state: 'done'`.
-  let ex = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await sleep(3000);
-    ex = await tool('terminal_execute', {
-      command: 'Write-Output E2E-SESSION-OK',
-      session_id: sessionId, timeout_secs: 30,
+ * `bestEffort` is the JS suite's `.catch(() => {})` — cleanup it does not depend on. Everything else stops the
+ * run, which is what the suite did: one `try` wrapped every section, so a failed call ended it.
+ */
+async function tool(id, name, body, opts) {
+  const args = body || {};
+  let result;
+  try {
+    const r = await fetch(BASE + '/api/tools/' + name, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(args),
     });
-    if (ex && ex.state === 'done' && (ex.text || '').includes('E2E-SESSION-OK')) break;
+    if (!r.ok) throw new Error('tool ' + name + ' HTTP ' + r.status);
+    const j = await r.json();
+    if (j && j.ok === false) throw new Error('tool ' + name + ' failed: ' + jstr(j).slice(0, 200));
+    result = j && j.result !== undefined ? j.result : j;
+  } catch (e) {
+    const message = String((e && e.message) || e);
+    record(id, { args: (opts && opts.recordArgs) || args, error: message });
+    if (opts && opts.bestEffort) return null;
+    throw new Stop(message);
   }
-  // THE MARKER IS THE PROOF; THE STATE NAME IS REPORTED, NOT DEMANDED (round 114). This check required
-  // `ex.state === 'done'` AND the marker — and on this device a PTY execute of `Write-Output` returns
-  // `state=partial, exit_code=null` EVERY TIME with the marker present and correct. Measured twice in a row
-  // (round 113: two runs, both `FAIL ... state=partial exit=null`, with a real prompt gate, a retry and a 30 s
-  // timeout in place), so it was never a timing flake. **The discriminator is the panel section, which runs the
-  // same call and has passed since round 87 with `PASS panel ai write -- state=partial`, because it only asks for
-  // the marker in the text.** So this asserts what the suite actually wants — the command's OUTPUT — and records
-  // the state beside it, where a reader can see the shape the device produces without the check pretending it is
-  // wrong. If a caller ever genuinely needs `done`, that belongs in a check of its own with a measurement behind it.
-  check('terminal session execute', ex && (ex.text || '').includes('E2E-SESSION-OK'),
-    'state=' + (ex && ex.state) + ' exit=' + (ex && ex.exit_code));
-  // THE DEVICE REPORTS THE LAST COMMAND'S OUTCOME ON THE ROW EVERY CLIENT POLLS (round 96).
-  // `ex.exit_code` is the answer the execute CALLER gets; `last_exit_code` is the same fact on `terminal_list`,
-  // which is what lets a surface say FAILED about a session whose audit trail it has never loaded. Driven here
-  // against the REAL binary, because the unit test drives the manager directly — this is the wire.
-  const okRow = await rowOf(sessionId);
-  check('terminal_list agrees with the caller about the last command outcome',
-    !!okRow && sameOutcome(okRow, ex),
-    'row=' + (okRow && okRow.last_exit_code) + ' caller=' + (ex && ex.exit_code) + ' state=' + (ex && ex.state));
-  // ...AND A FAILURE IS THE NUMBER, NOT A BOOLEAN. A command that does not exist leaves the shell ALIVE, which is
-  // the whole point of a per-session fact rather than a dead session's last words; if the shell reported a code at
-  // all it must be NON-ZERO, and the row must carry the same one.
-  const failedEx = await tool('terminal_execute', {
-    command: 'summrise-e2e-no-such-command', session_id: sessionId, timeout_secs: 20,
-  });
-  check('a failing command does not report success',
-    !!failedEx && (typeof failedEx.exit_code !== 'number' || failedEx.exit_code !== 0),
-    'exit=' + (failedEx && failedEx.exit_code) + ' state=' + (failedEx && failedEx.state));
-  const badRow = await rowOf(sessionId);
-  check('and the session row carries whatever the caller was told',
-    !!badRow && sameOutcome(badRow, failedEx),
-    'row=' + (badRow && badRow.last_exit_code) + ' caller=' + (failedEx && failedEx.exit_code));
-  const bg = await tool('terminal_execute', {
-    command: 'Start-Sleep -Seconds 2; Write-Output E2E-BG-DONE',
-    session_id: sessionId, run_in_background: true,
-  });
-  check('terminal run_in_background', !!bg && (bg.status === 'running' || bg.job_id),
-    'job=' + (bg && bg.job_id));
-  await sleep(4000);
-  const rd = await tool('terminal_read', { session_id: sessionId });
-  const txt = typeof rd === 'string' ? rd : (rd.text || '');
-  check('terminal background collect', txt.includes('E2E-BG-DONE'), 'len=' + txt.length);
-  // keystroke path (not execute): write raw text + CRLF, the shell runs it
-  // and terminal_screen (tail view) must show the echo.
-  const wmarker = 'E2E-WRITE-' + Date.now();
-  const wr = await tool('terminal_write', { session_id: sessionId, data: 'Write-Output "' + wmarker + '"\r\n' });
-  check('terminal write ok', wr === 'OK', String(wr).slice(0, 20));
-  await sleep(3000);
-  const sc = await tool('terminal_screen', { session_id: sessionId });
-  const screen = typeof sc === 'string' ? sc : (sc.screen || '');
-  check('terminal screen shows write', screen.includes(wmarker), 'len=' + screen.length);
-  // unknown session must report evicted (not throw, not empty-ok).
-  const bad = await tool('terminal_read', { session_id: 'no-such-session-e2e' });
-  check('terminal read unknown evicted', !!(bad && bad.evicted === true), JSON.stringify(bad).slice(0, 60));
-  await tool('terminal_close', { session_id: sessionId }).catch(() => {});
-  // closed sessions stay queryable via history (audit/retain path).
-  const hist = await tool('terminal_history', {});
-  const histArr = Array.isArray(hist) ? hist : [];
-  const hrow = histArr.find((h) => h && h.id === sessionId);
-  check('terminal history retains closed', !!(hrow && hrow.status === 'closed'), hrow ? hrow.status : 'missing');
+  return record(id, { args: (opts && opts.recordArgs) || args, result });
 }
 
-// ── 2. file: stat + append-up + paged raw read down ────────────────────────
-async function sectionFile() {
-  const path = EVIDENCE_DIR + '\\e2e_suite_transfer.bin';
-  const chunk = Buffer.alloc(150 * 1024, 'B').toString('base64');
-  const w1 = await tool('system_file_write', { path, data: chunk });
-  const w2 = await tool('system_file_write', { path, data: chunk, append: true });
-  check('file upload 2 pages', w1 && w1.ok !== false && w2 && w2.ok !== false,
-    JSON.stringify([w1 && w1.bytes, w2 && w2.bytes]).slice(0, 60));
-  const st = await tool('system_file_stat', { path });
-  check('file stat', st && st.size === 300 * 1024, 'size=' + (st && st.size));
-  const r1 = await tool('system_file_read', { path, offset: 0, limit: 1048576, raw: true });
-  const bytes = Buffer.from(r1.data || '', 'base64');
-  check('file single-read download', bytes.length === 300 * 1024 && bytes.every((b) => b === 66),
-    'bytes=' + bytes.length);
-  // list must show the uploaded file (same dir the suite writes to).
-  const fl = await tool('system_file_list', { path: EVIDENCE_DIR });
-  const entries = (fl && fl.entries) || [];
-  check('file list contains upload', entries.some((e) => (e.name || '').includes('e2e_suite_transfer.bin')),
-    'entries=' + entries.length);
-  // missing path is a data-shaped {ok:false}, not a transport error.
-  const miss = await tool('system_file_stat', { path: EVIDENCE_DIR + '\\e2e_no_such_file_xyz' });
-  check('file stat missing ok:false', !!(miss && miss.ok === false), (miss && miss.error || '').slice(0, 60));
-  // text mode (not just base64 pages): write text, read it back as text.
-  const tpath = EVIDENCE_DIR + '\\e2e_suite_text.txt';
-  const tw = await tool('system_file_write', { path: tpath, text: 'E2E-TEXT-OK' });
-  check('file text write', !!(tw && tw.ok !== false), '');
-  const tr = await tool('system_file_read', { path: tpath });
-  check('file text read', !!(tr && (tr.text || '').includes('E2E-TEXT-OK')), 'bytes=' + (tr && tr.bytes));
-  require('fs').unlinkSync(path);
-  require('fs').unlinkSync(tpath);
+/** A session-control call: the JS read these as `{status, json}` and the checks assert on the STATUS too. */
+async function ctl(id, sessionId, body) {
+  const path = '/api/sessions/' + encodeURIComponent(sessionId) + '/control';
+  const r = await fetch(BASE + path, { method: 'POST', headers: H, body: JSON.stringify(body) });
+  return record(id, { args: body, result: { status: r.status, json: await jsonOrNull(r) } });
 }
 
-// ── 3. workflow: cross-plugin chain ─────────────────────────────────────────
-async function sectionWorkflow() {
-  const pl = await tool('system_process_list', { name: 'electron' });
-  const n = pl && pl.processes ? pl.processes.length : (Array.isArray(pl) ? pl.length : -1);
-  check('workflow process_list', n >= 0, 'electron procs=' + n);
-  const ex = await tool('terminal_execute', { command: 'echo E2E-WF-1', timeout_secs: 15 });
-  check('workflow local execute', !!(ex && (ex.text || '').includes('E2E-WF-1')), '');
-  const cfg = JSON.stringify({ e2e: true, ts: Date.now() });
-  const fw = await tool('system_file_write', { path: EVIDENCE_DIR + '\\e2e_wf.json', text: cfg });
-  check('workflow file_write', !!(fw && fw.ok !== false), '');
-  const st = await tool('system_file_stat', { path: EVIDENCE_DIR + '\\e2e_wf.json' });
-  check('workflow file_stat', st && st.size === Buffer.byteLength(cfg), 'size=' + (st && st.size));
-  const tok = 'toolchain-' + Date.now();
-  const ms = await tool('memory_save', {
-    title: 'E2E suite marker', content: tok, tags: ['e2e', 'suite'],
+/** An endpoint the JS read with a bare `.json()`: approval, grants, the session trail, the run timeline. */
+async function jsonCall(id, method, path, body) {
+  const r = await fetch(BASE + path, {
+    method,
+    headers: H,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  check('workflow memory_save', !!(ms && ms.ok !== false && ms.id), 'id=' + (ms && ms.id));
-  const mq = await tool('memory_search', { query: 'E2E suite marker' });
-  check('workflow memory_search', !!(mq && mq.results && mq.results.length > 0), 'hits=' + (mq && mq.results && mq.results.length));
-  // list must enumerate the saved entry (newest-first, no filter).
-  const ml = await tool('memory_list', { limit: 50 });
-  check('workflow memory_list', !!(ml && ml.results && ml.results.some((r) => r && r.id === (ms && ms.id))),
-    'rows=' + (ml && ml.results && ml.results.length));
-  // update the entry, then prove the new token is searchable.
-  const tok2 = 'toolchain-upd-' + Date.now();
-  const mu = await tool('memory_update', { id: ms && ms.id, content: tok2 });
-  check('workflow memory_update', !!(mu && mu.ok !== false), '');
-  const mq2 = await tool('memory_search', { query: tok2 });
-  check('workflow memory_search updated', !!(mq2 && mq2.results && mq2.results.length > 0), 'hits=' + (mq2 && mq2.results && mq2.results.length));
-  // export must include the entry (JSONL backup path).
-  const me = await tool('memory_export', {});
-  check('workflow memory_export', !!(me && me.lines >= 1 && String(me.export || '').includes(ms && ms.id)),
-    'lines=' + (me && me.lines));
-  // self-clean: delete the marker so repeated runs don't accumulate entries
-  // (device-caught round-294: memory_search hits grew across runs)
-  if (ms && ms.id) await tool('memory_delete', { id: ms.id }).catch(() => {});
-  // ... and prove the delete took (search the unique token → zero hits).
-  const mq3 = await tool('memory_search', { query: tok2 });
-  check('workflow memory_delete verified', !!(mq3 && mq3.results && mq3.results.length === 0),
-    'hits=' + (mq3 && mq3.results && mq3.results.length));
-  require('fs').unlinkSync(EVIDENCE_DIR + '\\e2e_wf.json');
+  return record(id, {
+    args: body === undefined ? { method, path } : { method, path, body },
+    result: await jsonOrNull(r),
+  });
 }
 
-// ── 4. browser: browser_run_script drives the view; SPA bar follows ────────
-// ── 4b. panel: does the desktop SPA actually SHOW what the AI wrote? ──────
-async function sectionPanel() {
-  // 1. AI opens a session and writes a unique marker into it
-  const marker = 'PANEL-VIS-' + Date.now();
-  const sid = await tool('terminal_open', { kind: 'pty' });
-  const sessionId = typeof sid === 'string' ? sid : sid.sid;
-  await sleep(2500);
-  const ex = await tool('terminal_execute', {
-    command: 'Write-Output "' + marker + '"',
-    session_id: sessionId, timeout_secs: 20,
-  });
-  check('panel ai write', !!(ex && (ex.text || '').includes(marker)), 'state=' + (ex && ex.state));
+async function jsonOrNull(resp) {
+  try {
+    return await resp.json();
+  } catch (e) {
+    return null;
+  }
+}
 
-  // 2. read the SPA's xterm DOM: the marker must be visible in the panel
-  await sleep(3000);
+/** The CDP target list the SPA and the embedded view are found in. */
+async function cdpTargets(id) {
+  const r = await fetch('http://127.0.0.1:9333/json/list');
+  return record(id, { args: { url: 'http://127.0.0.1:9333/json/list' }, result: await r.json() });
+}
+
+/** A GENERATED VALUE IS AN OBSERVATION TOO. The marker suffixes are the run's own clock; the plan carries only
+ *  the prefix, so the judge learns the value the same way it learns every other fact — from the record. */
+const mint = (id, value) => record(id, { result: value });
+
+/** `Write-Output "<marker>"` and friends: the TEMPLATE is the plan's, the value is the run's. */
+const fill = (template, values) =>
+  String(template).replace(/\{(\w+)\}/g, (_, k) => (values[k] === undefined ? '' : String(values[k])));
+
+// ── CDP, OVER THE SPA'S OWN DEBUGGER SOCKET ────────────────────────────────────────────────────────────────
+//
+// The evaluate round trip and the close handshake are platform calls. The EXPRESSIONS are page-side source
+// strings — the half the sweeps also left in JavaScript — and what they return is read here only far enough to
+// decide whether to keep polling.
+
+async function evalInSpa(ws, id, expression, timeoutMs) {
+  const r = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), timeoutMs);
+    const onMsg = (m) => {
+      let o;
+      try {
+        o = JSON.parse(m.data);
+      } catch (e) {
+        return;
+      }
+      if (o.id === id) {
+        clearTimeout(t);
+        ws.removeEventListener('message', onMsg);
+        resolve(o);
+      }
+    };
+    ws.addEventListener('message', onMsg);
+    ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+  });
+  const raw = r && r.result && r.result.result && r.result.result.value;
+  return raw === undefined || raw === null ? null : raw;
+}
+
+/** Open a socket to the desktop SPA target, if there is one. */
+async function spaSocket() {
   const list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-  const spa = list.find((t) => t.url.includes('/desktop/'));
-  if (!spa) { check('panel xterm shows ai output', false, 'no desktop SPA target'); return; }
+  const spa = (list || []).find((t) => t.url.includes('/desktop/'));
+  if (!spa) return null;
   const ws = new WebSocket(spa.webSocketDebuggerUrl);
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-  const evalInSpa = async (id, expression) => {
-    const r = await new Promise((resolve) => {
-      const t = setTimeout(() => resolve(null), 15000);
-      const onMsg = (m) => {
-        const o = JSON.parse(m.data);
-        if (o.id === id) { clearTimeout(t); ws.removeEventListener('message', onMsg); resolve(o); }
-      };
-      ws.addEventListener('message', onMsg);
-      ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
-    });
-    try {
-      const raw = r && r.result && r.result.result && r.result.result.value;
-      return raw !== undefined && raw !== null ? raw : null;
-    } catch (e) { return null; }
-  };
-  // 3. make sure the SPA is on the Terminal page (rail button), then click
-  //    the LAST session tab — the session we just opened is the newest, and
-  //    the visible xterm follows the ACTIVE tab
-  const railClick = await evalInSpa(200, "(function(){ var bs = document.querySelectorAll('button, [role=button], [class*=rail] > *'); for (var i=0;i<bs.length;i++){ var el = bs[i]; var t = (el.getAttribute('aria-label')||el.title||el.textContent||'').trim(); if (t === 'Terminal' || t.indexOf('Terminal') === 0 && t.length < 12) { el.click(); return 'clicked'; } } return 'no-rail'; })()");
-  await sleep(1500);
-  // SCOPED TO THE SESSION STRIP. `role=tab` is ALSO the view switch's (Terminal / Trajectory / Path), and the
-  // unscoped `querySelectorAll('[role=tab]')` + `[length-1]` therefore clicked the **Path PAGE**, navigated the
-  // SPA away from the terminal, and left no `.term-host` to read — so the marker could never be found, six reads
-  // over twelve seconds, by construction. Measured on the device (round 89, panel-spa-probe.js): the tab strip is
-  // powershell|powershell 2|powershell 3|Terminal|Trajectory|Path. The panel's OWN test file names this trap:
-  // `DesktopShell.test.tsx` scopes its queries to `.dtab[role="tab"]` and says in a comment that `role=tab` is
-  // also the view switch's. The e2e suite was the one place that had not been told.
-  const tabClick = await evalInSpa(205, "(function(){ var ts = document.querySelectorAll('.dtab[role=tab]'); if (!ts.length) return 'no-tabs'; ts[ts.length - 1].click(); return 'clicked-last-session'; })()");
-  await sleep(2500);
-  // 4. read the visible xterm's text (round-264 method: visible .term-host
-  //    .xterm-rows spans — hidden hosts exist per session)
-  let found = false;
-  for (let attempt = 0; attempt < 6 && !found; attempt++) {
-    const raw = await evalInSpa(201 + attempt, "(function(){ var hosts = document.querySelectorAll('.term-host'); var vis = null; for (var i=0;i<hosts.length;i++){ var r = hosts[i].getBoundingClientRect(); if (r.width > 50 && r.height > 50) { vis = hosts[i]; break; } } if (!vis) return 'NO_VISIBLE'; var rows = vis.querySelectorAll('.xterm-rows > div'); var all = ''; for (var j=0;j<rows.length;j++){ all += rows[j].textContent + String.fromCharCode(10); } return all; })()");
-    if (raw && raw !== 'NO_VISIBLE' && raw.indexOf('PANEL-VIS-') >= 0) { found = raw.indexOf(marker) >= 0; break; }
-    if (raw && raw !== 'NO_VISIBLE') { found = raw.indexOf(marker) >= 0; }
-    await sleep(2000);
-  }
-  check('panel xterm shows ai output', found, 'marker=' + marker.slice(0, 22));
-  // cleanup: close the session + the WS
-  await tool('terminal_close', { session_id: sessionId }).catch(() => {});
+  await new Promise((res, rej) => {
+    ws.onopen = res;
+    ws.onerror = rej;
+  });
+  return ws;
+}
+
+/** Closing a CDP WebSocket immediately after `send` can trip Node's `UV_HANDLE_CLOSING` assert on Windows, so
+ *  the close is AWAITED rather than fired and forgotten. */
+async function closeSocket(ws) {
   await new Promise((resolve) => {
     ws.onclose = resolve;
-    setTimeout(() => { try { ws.close(); } catch (e) {} }, 100);
-    setTimeout(resolve, 3000);
+    setTimeout(() => {
+      try {
+        ws.close();
+      } catch (e) {}
+    }, B.ws_close_immediate_ms);
+    setTimeout(resolve, B.ws_close_grace_ms);
   });
 }
 
-// ── 4c2. mcp: stdio connect auto-selects the embedded view (round-281) ──
-// Shared: connect (given transport/url) -> immediate navigate -> the
-// embedded view must reach the marker URL with NO manual tab select, and
-// the SPA must stay intact. Returns the transport tag for check names.
-async function mcpAutoselectProbe(tag, connArgs) {
-  // round-306: start CLEAN — a leftover connection from a previous run
-  // makes connect return already_connected and the check fails spuriously
-  // (observed repeatedly on long-running devices).
-  await tool('mcp_client_disconnect', {}).catch(() => {});
-  await sleep(1500);
-  const marker = 'mcp-autoselect-' + Date.now();
-  const c = await tool('mcp_client_connect', connArgs);
-  check('mcp ' + tag + ' connect', c && c.status === 'connected', (c && c.status) || JSON.stringify(c).slice(0, 60));
-  if (!c || c.status !== 'connected') { return; }
-  const nav = await tool('mcp_client_call', { tool: 'browser_navigate', arguments: { url: 'https://example.com/' + marker } });
-  check('mcp ' + tag + ' navigate ok', nav && nav.ok, (nav && JSON.stringify(nav).slice(0, 60)) || 'no result');
-  // Poll (not fixed sleep) for the navigate to become visible on CDP: after
-  // a transport switch the view can still show the previous probe's page
-  // for several seconds (device-caught: http probe kept seeing the stdio
-  // probe's iana.org landing past the old fixed 6s sleep). Same predicate,
-  // more time — mirrors the click poll below.
-  let embedded = null;
-  let list = [];
-  for (let i = 0; i < 15; i++) {
-    await sleep(1000);
-    try {
-      list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-      embedded = list.find((t) => !t.url.includes('/desktop/'));
-      if (embedded && embedded.url.includes(marker)) break;
-    } catch {}
+// ── §1 terminal: session execute + background collect ───────────────────────────────────────────────────────
+
+async function sectionTerminal() {
+  const sid = await tool('terminal.open', 'terminal_open', { kind: 'pty' });
+  const sessionId = typeof sid === 'string' ? sid : sid && sid.sid;
+  if (!sessionId) throw new Stop('terminal_open answered no session id');
+
+  // A REAL GATE, NOT A SLEEP WEARING ONE'S NAME (round 113). A fixed wait is not a gate: under load the first
+  // prompt takes longer, the command lands in a shell still starting, and the device is reported broken when
+  // nothing is wrong with it.
+  for (let i = 0; i < B.prompt_polls; i++) {
+    await sleep(B.prompt_interval_ms);
+    const sc = await tool('terminal.prompt.' + i, 'terminal_read', { session_id: sessionId, offset: 0 });
+    const txt = (sc && (sc.text || sc)) || '';
+    if (String(txt).trim().length > 0) break;
   }
-  const spaOk = list.some((t) => t.url.includes('/desktop/'));
-  // THE ARM, DECIDED ONCE PER TRANSPORT. Only the HTTP transport can be on playwright-mcp's PRIVATE-HEADLESS
-  // fork: the product probes for the desktop CDP and attaches when it is up, and falls back to a private
-  // headless browser when it is not (tools.rs:507, ":530 when up, else none (headless fork)") -- stdio spawns
-  // and owns its own child, so it is always on the browser the panel can see. Measured on d1 (round 100):
-  // the long-running 9229 was launched `--headless`, its tab list is one about:blank, and `[select]` cannot
-  // find the embedded-view tab because that tab belongs to a DIFFERENT browser. On that fork "the embedded view
-  // followed" is not a contract that can hold, so asserting it is asserting a missing PRECONDITION -- which is
-  // what this check did for eleven rounds. On the private arm the honest assertions are the ones that remain:
-  // that the transport connected, that the tool reported ok, and that it drove the browser it owns.
-  const privateArm = tag === 'http' && !(embedded && embedded.url.includes(marker));
-  if (privateArm) {
-    skip('mcp ' + tag + ' drives embedded view', 'private-headless arm (9229 launched without a desktop view): the tool drove its own browser');
-  } else {
-    check('mcp ' + tag + ' drives embedded view', embedded && embedded.url.includes(marker), (embedded && embedded.url.slice(0, 60)) || 'NO VIEW');
+
+  await tool('terminal.list.sessions', 'terminal_list', {});
+  await tool('terminal.resize', 'terminal_resize', { session_id: sessionId, rows: 30, cols: 120 });
+
+  // TWO ATTEMPTS, because a command that arrives while the shell is still settling can legitimately come back
+  // partial — and the proof stays strict: the marker must actually appear.
+  for (let attempt = 0; attempt < B.execute_attempts; attempt++) {
+    if (attempt > 0) await sleep(B.execute_retry_ms);
+    const ex = await tool('terminal.execute.' + attempt, 'terminal_execute', {
+      command: FX.session_command,
+      session_id: sessionId,
+      timeout_secs: 30,
+    });
+    if (ex && ex.state === 'done' && String(ex.text || '').includes(FX.session_marker)) break;
   }
-  check('mcp ' + tag + ' SPA intact', spaOk, 'targets=' + list.length);
-  // round-313: AI INTERACTION (not just navigation) must drive the view:
-  // snapshot example.com, click "Learn more", the embedded view follows to
-  // iana.org (playwright-mcp browser_click takes {target} = the snapshot ref).
-  // The marker URL above is example.com/<marker> (404 page, no links) —
-  // navigate to the example.com HOMEPAGE first so the snapshot has links.
-  await tool('mcp_client_call', { tool: 'browser_navigate', arguments: { url: 'https://example.com/' } });
-  await sleep(3000);
-  // Deterministic click target: inject a big same-origin link and click IT
-  // (a real snapshot-ref mouse click driving a real navigation — the
-  // round-313 proof). The external "Learn more" link's cross-origin
-  // redirect chain flakes under load (device-caught: ok clicks with valid
-  // geometry that never commit, while same-origin clicks land in seconds).
-  // Falls back to Learn more when injection yields no ref.
-  await tool('mcp_client_call', { tool: 'browser_evaluate', arguments: { function: "() => { document.body.innerHTML = '<a id=e2e href=/inner-click-test style=display:block;font-size:40px;padding:60px>E2E-INNER-LINK</a>'; return 'INJECTED'; }" } }).catch(() => null);
-  await sleep(1000);
-  // Snapshot + click + poll, up to 2 attempts with a FRESH snapshot each
-  // time: under contention (parallel drivers on one box) a click can land
-  // while the view is mid-navigation and silently do nothing (device-caught:
-  // back-to-back misses with valid geometry, manual retry navigates fine).
-  // The proof stays strict — a real click must still drive the navigation.
-  let clickOk = false;
-  let clickRef = null;
-  let clickWant = 'inner-click-test';
-  let emb2 = null;
-  for (let attempt = 0; attempt < 2 && !(emb2 && (emb2.url.includes('inner-click-test') || emb2.url.includes('iana.org'))); attempt++) {
-    if (attempt > 0) await sleep(3000);
-    const snap = await tool('mcp_client_call', { tool: 'browser_snapshot', arguments: {} });
-    const snapTxt = JSON.stringify(snap);
-    // Prefer the injected link; fall back to "Learn more". NOTE: snapTxt is
-    // JSON.stringify'd, so inner quotes are escaped \" and the text is
-    // double-escaped (\\") — match the ref after the label without
-    // depending on the exact quote escaping.
-    let lmIdx = snapTxt.indexOf('E2E-INNER-LINK');
-    let refMatch = lmIdx >= 0 ? /\[ref=(\w+)\]/.exec(snapTxt.slice(lmIdx, lmIdx + 200)) : null;
-    if (!refMatch) {
-      lmIdx = snapTxt.indexOf('Learn more');
-      refMatch = lmIdx >= 0 ? /\[ref=(\w+)\]/.exec(snapTxt.slice(lmIdx, lmIdx + 200)) : null;
-      if (refMatch) clickWant = 'iana.org';
-    }
-    clickRef = refMatch && refMatch[1];
-    if (clickRef) {
-      const cl = await tool('mcp_client_call', { tool: 'browser_click', arguments: { target: clickRef } });
-      clickOk = clickOk || !!(cl && cl.ok);
-    }
-    // Poll for the navigation (slow loads committed after the old fixed 5s
-    // sleep flaked 16/18 on 1.2.297 — same predicate, more time).
-    for (let i = 0; i < 15; i++) {
-      await sleep(1000);
-      try {
-        const list2 = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-        emb2 = list2.find((t) => !t.url.includes('/desktop/'));
-        if (emb2 && (emb2.url.includes('inner-click-test') || emb2.url.includes('iana.org'))) break;
-      } catch {}
-    }
-  }
-  check('mcp ' + tag + ' click learn-more', clickOk, 'ref=' + clickRef + ' want=' + clickWant);
-  const clickDrove = !!(emb2 && (emb2.url.includes('inner-click-test') || emb2.url.includes('iana.org')));
-  if (!clickDrove) {
-    // Geometry triage (diagnostic only, not a check): a physical click
-    // that misses for viewport reasons looks identical to a broken click
-    // path — log viewport + link rect so the next failure is instantly
-    // triaged instead of needing a CDP probe round-trip.
-    console.log('  [triage] click missed; geometry:', await clickGeom());
-  }
-  if (privateArm) {
-    skip('mcp ' + tag + ' click drives embedded view', 'private-headless arm: the click drove the browser the tool owns, which no embedded view shows');
-  } else {
-    check('mcp ' + tag + ' click drives embedded view', clickDrove, (emb2 && emb2.url.slice(0, 60)) || 'NO VIEW');
-  }
-  await tool('mcp_client_disconnect', {}).catch(() => {});
+
+  await tool('terminal.row.after_exec', 'terminal_list', {});
+  await tool('terminal.exec.fail', 'terminal_execute', {
+    command: FX.failing_command,
+    session_id: sessionId,
+    timeout_secs: 20,
+  });
+  await tool('terminal.row.after_fail', 'terminal_list', {});
+
+  await tool('terminal.exec.bg', 'terminal_execute', {
+    command: FX.background_command,
+    session_id: sessionId,
+    run_in_background: true,
+  });
+  await sleep(B.background_collect_ms);
+  await tool('terminal.read.bg', 'terminal_read', { session_id: sessionId });
+
+  // The keystroke path (not execute): raw text + CRLF, the shell runs it, and the tail view shows the echo.
+  const wmarker = mint('mint.terminal_write', FX.write_marker_prefix + Date.now());
+  await tool('terminal.write', 'terminal_write', {
+    session_id: sessionId,
+    data: fill(FX.write_command_template, { marker: wmarker }),
+  });
+  await sleep(B.screen_settle_ms);
+  await tool('terminal.screen', 'terminal_screen', { session_id: sessionId });
+
+  // An unknown session must report `evicted` — not throw, and not empty-ok.
+  await tool('terminal.read.unknown', 'terminal_read', { session_id: FX.unknown_session });
+  await tool('terminal.close', 'terminal_close', { session_id: sessionId }, { bestEffort: true });
+  await tool('terminal.history', 'terminal_history', {});
 }
 
-// Best-effort CDP geometry snapshot for click-miss triage (see above).
-// Never throws, never affects check counts — returns a log string.
+// ── §2 file: stat + append-up + paged raw read down ────────────────────────────────────────────────────────
+
+async function sectionFile() {
+  const path = EVIDENCE_DIR + '\\' + FX.transfer_name;
+  const chunk = Buffer.alloc(FX.transfer_page_bytes, FX.transfer_fill).toString('base64');
+  for (let page = 0; page < FX.transfer_pages; page++) {
+    const body = { path, data: chunk };
+    if (page > 0) body.append = true;
+    await tool('file.write.page.' + page, 'system_file_write', body);
+  }
+  await tool('file.stat', 'system_file_stat', { path });
+  await tool('file.read.raw', 'system_file_read', { path, offset: 0, limit: 1048576, raw: true });
+  await tool('file.list', 'system_file_list', { path: EVIDENCE_DIR });
+
+  // A missing path is a data-shaped `{ok:false}`, not a transport error.
+  await tool('file.stat.missing', 'system_file_stat', { path: EVIDENCE_DIR + '\\' + FX.missing_name });
+
+  // Text mode, not only base64 pages.
+  const tpath = EVIDENCE_DIR + '\\' + FX.text_name;
+  await tool('file.text.write', 'system_file_write', { path: tpath, text: FX.text_payload });
+  await tool('file.text.read', 'system_file_read', { path: tpath });
+
+  // The suite must not litter the device.
+  for (const p of [path, tpath]) {
+    try {
+      fs.unlinkSync(p);
+    } catch (e) {}
+  }
+}
+
+// ── §3 workflow: the cross-plugin chain ─────────────────────────────────────────────────────────────────────
+
+async function sectionWorkflow() {
+  await tool('workflow.process_list', 'system_process_list', { name: 'electron' });
+  await tool('workflow.execute', 'terminal_execute', { command: FX.workflow_command, timeout_secs: 15 });
+
+  const cfg = jstr({ e2e: true, ts: Date.now() });
+  mint('mint.workflow_config', cfg);
+  const wpath = EVIDENCE_DIR + '\\' + FX.workflow_name;
+  await tool('workflow.file.write', 'system_file_write', { path: wpath, text: cfg });
+  await tool('workflow.file.stat', 'system_file_stat', { path: wpath });
+
+  const tok = mint('mint.memory_token', FX.memory_token_prefix + Date.now());
+  const ms = await tool('workflow.memory.save', 'memory_save', {
+    title: FX.memory_title,
+    content: tok,
+    tags: FX.memory_tags,
+  });
+  await tool('workflow.memory.search', 'memory_search', { query: FX.memory_title });
+  await tool('workflow.memory.list', 'memory_list', { limit: FX.memory_list_limit });
+
+  // Update the entry, then prove the NEW token is searchable.
+  const tok2 = mint('mint.memory_update', FX.memory_update_prefix + Date.now());
+  await tool('workflow.memory.update', 'memory_update', { id: ms && ms.id, content: tok2 });
+  await tool('workflow.memory.search.updated', 'memory_search', { query: tok2 });
+  await tool('workflow.memory.export', 'memory_export', {});
+
+  // Self-clean so repeated runs do not accumulate entries (device-caught round 294), and then search the token
+  // again: whether the delete TOOK is a verdict and it is the judge's; issuing it is driving.
+  if (ms && ms.id) {
+    await tool('workflow.memory.delete', 'memory_delete', { id: ms.id }, { bestEffort: true });
+  }
+  await tool('workflow.memory.search.deleted', 'memory_search', { query: tok2 });
+  try {
+    fs.unlinkSync(wpath);
+  } catch (e) {}
+}
+
+// ── §4b panel: does the desktop SPA actually SHOW what the AI wrote? ────────────────────────────────────────
+
+async function sectionPanel() {
+  const marker = mint('mint.panel_marker', FX.panel_marker_prefix + Date.now());
+  const sid = await tool('panel.open', 'terminal_open', { kind: 'pty' });
+  const sessionId = typeof sid === 'string' ? sid : sid && sid.sid;
+  if (!sessionId) throw new Stop('terminal_open answered no session id');
+  await sleep(B.panel_open_settle_ms);
+  await tool('panel.exec', 'terminal_execute', {
+    command: fill(FX.panel_command_template, { marker }),
+    session_id: sessionId,
+    timeout_secs: 20,
+  });
+
+  // Read the SPA's xterm DOM: the marker must be visible in the panel.
+  await sleep(B.panel_list_settle_ms);
+  const targets = await cdpTargets('panel.cdp.targets');
+  const spa = (targets || []).find((t) => t.url.includes('/desktop/'));
+  if (!spa) {
+    await tool('panel.close', 'terminal_close', { session_id: sessionId }, { bestEffort: true });
+    return;
+  }
+
+  let ws = null;
+  try {
+    ws = new WebSocket(spa.webSocketDebuggerUrl);
+    await new Promise((res, rej) => {
+      ws.onopen = res;
+      ws.onerror = rej;
+    });
+    // Make sure the SPA is on the Terminal page, then click the LAST session tab — the session just opened is
+    // the newest, and the visible xterm follows the ACTIVE tab. SCOPED TO `.dtab`, because `role=tab` is ALSO
+    // the view switch's (Terminal / Trajectory / Path) and an unscoped `[length-1]` clicks the Path PAGE.
+    mint(
+      'panel.rail.click',
+      await evalInSpa(
+        ws,
+        200,
+        "(function(){ var bs = document.querySelectorAll('button, [role=button], [class*=rail] > *'); for (var i=0;i<bs.length;i++){ var el = bs[i]; var t = (el.getAttribute('aria-label')||el.title||el.textContent||'').trim(); if (t === 'Terminal' || t.indexOf('Terminal') === 0 && t.length < 12) { el.click(); return 'clicked'; } } return 'no-rail'; })()",
+        B.ws_eval_timeout_ms,
+      ),
+    );
+    await sleep(B.panel_rail_settle_ms);
+    mint(
+      'panel.tab.click',
+      await evalInSpa(
+        ws,
+        205,
+        "(function(){ var ts = document.querySelectorAll('.dtab[role=tab]'); if (!ts.length) return 'no-tabs'; ts[ts.length - 1].click(); return 'clicked-last-session'; })()",
+        B.ws_eval_timeout_ms,
+      ),
+    );
+    await sleep(B.panel_tab_settle_ms);
+
+    // The visible xterm's text (round-264 method: a visible `.term-host`'s `.xterm-rows` spans — hidden hosts
+    // exist per session). The stop rule is "the marker FAMILY is on screen"; WHICH marker, and whether it is
+    // the right one, is decided in Rust from the recorded series.
+    for (let attempt = 0; attempt < B.panel_xterm_polls; attempt++) {
+      const raw = await evalInSpa(
+        ws,
+        201 + attempt,
+        "(function(){ var hosts = document.querySelectorAll('.term-host'); var vis = null; for (var i=0;i<hosts.length;i++){ var r = hosts[i].getBoundingClientRect(); if (r.width > 50 && r.height > 50) { vis = hosts[i]; break; } } if (!vis) return 'NO_VISIBLE'; var rows = vis.querySelectorAll('.xterm-rows > div'); var all = ''; for (var j=0;j<rows.length;j++){ all += rows[j].textContent + String.fromCharCode(10); } return all; })()",
+        B.ws_eval_timeout_ms,
+      );
+      record('panel.xterm.' + attempt, { result: raw });
+      if (typeof raw === 'string' && raw.includes(FX.panel_marker_prefix)) break;
+      await sleep(B.panel_xterm_interval_ms);
+    }
+  } finally {
+    await tool('panel.close', 'terminal_close', { session_id: sessionId }, { bestEffort: true });
+    if (ws) await closeSocket(ws);
+  }
+}
+
+// ── §4c2 mcp: connect auto-selects the embedded view (round-281) ────────────────────────────────────────────
+//
+// Shared: connect -> immediate navigate -> the embedded view must reach the marker URL with NO manual tab
+// select, the SPA must stay intact, and a real snapshot-ref CLICK must drive it too.
+
+async function mcpProbe(tag, connArgs) {
+  // round-306: start CLEAN — a leftover connection from a previous run makes connect return already_connected
+  // and the check fails spuriously (observed repeatedly on long-running devices).
+  await tool('mcp.' + tag + '.disconnect', 'mcp_client_disconnect', {}, { bestEffort: true });
+  await sleep(B.mcp_disconnect_settle_ms);
+  const marker = mint('mcp.' + tag + '.mint', tag + '-autoselect-' + Date.now());
+  const c = await tool('mcp.' + tag + '.connect', 'mcp_client_connect', connArgs);
+  if (!c || c.status !== 'connected') return;
+
+  await tool('mcp.' + tag + '.navigate', 'mcp_client_call', {
+    tool: 'browser_navigate',
+    arguments: { url: fill(FX.marker_url_template, { marker }) },
+  });
+
+  // Poll rather than sleep: after a transport switch the view can still show the previous probe's page for
+  // several seconds (device-caught: an http probe kept seeing the stdio probe's landing past a fixed 6 s).
+  let embedded = null;
+  for (let i = 0; i < B.mcp_view_polls; i++) {
+    await sleep(B.mcp_view_interval_ms);
+    let list = null;
+    try {
+      list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
+    } catch (e) {
+      record('mcp.' + tag + '.view.' + i, {
+        args: { url: 'http://127.0.0.1:9333/json/list' },
+        error: String((e && e.message) || e),
+      });
+      continue;
+    }
+    record('mcp.' + tag + '.view.' + i, { args: { url: 'http://127.0.0.1:9333/json/list' }, result: list });
+    embedded = (list || []).find((t) => !t.url.includes('/desktop/'));
+    if (embedded && embedded.url.includes(marker)) break;
+  }
+
+  // The marker URL above is example.com/<marker> (a 404 page with no links), so navigate to the HOMEPAGE first,
+  // then inject a BIG same-origin link and click THAT: a real snapshot-ref mouse click driving a real
+  // navigation. The external "Learn more" link is the fallback, because its cross-origin redirect chain flakes
+  // under load (device-caught: ok clicks with valid geometry that never commit, while same-origin ones land).
+  await tool('mcp.' + tag + '.navigate.home', 'mcp_client_call', {
+    tool: 'browser_navigate',
+    arguments: { url: FX.mcp_home_url },
+  });
+  await sleep(B.mcp_nav_settle_ms);
+  const inject =
+    "() => { document.body.innerHTML = '<a id=e2e href=/" +
+    FX.mcp_click_targets[0] +
+    " style=display:block;font-size:40px;padding:60px>" +
+    FX.mcp_link_labels[0] +
+    "</a>'; return 'INJECTED'; }";
+  await tool(
+    'mcp.' + tag + '.inject',
+    'mcp_client_call',
+    { tool: 'browser_evaluate', arguments: { function: inject } },
+    { bestEffort: true },
+  );
+  await sleep(B.mcp_inject_settle_ms);
+
+  // Snapshot + click + poll, up to `mcp_click_attempts` with a FRESH snapshot each time: under contention a
+  // click can land while the view is mid-navigation and silently do nothing.
+  let emb2 = null;
+  const drove = () => !!(emb2 && FX.mcp_click_targets.some((t) => emb2.url.includes(t)));
+  for (let attempt = 0; attempt < B.mcp_click_attempts && !drove(); attempt++) {
+    if (attempt > 0) await sleep(B.mcp_click_retry_ms);
+    const snap = await tool('mcp.' + tag + '.snapshot.' + attempt, 'mcp_client_call', {
+      tool: 'browser_snapshot',
+      arguments: {},
+    });
+    // The ref is read out of the snapshot because the click NEEDS it — a handle, not a verdict. The snapshot is
+    // JSON.stringify'd, so inner quotes are escaped and the ref is matched after the label without depending on
+    // the escaping.
+    const snapTxt = jstr(snap);
+    let ref = null;
+    let label = FX.mcp_link_labels[0];
+    for (const candidate of FX.mcp_link_labels) {
+      const at = snapTxt.indexOf(candidate);
+      const m = at >= 0 ? /\[ref=(\w+)\]/.exec(snapTxt.slice(at, at + 200)) : null;
+      if (m) {
+        ref = m[1];
+        label = candidate;
+        break;
+      }
+    }
+    if (ref) {
+      await tool(
+        'mcp.' + tag + '.click.' + attempt,
+        'mcp_client_call',
+        { tool: 'browser_click', arguments: { target: ref } },
+        { recordArgs: { target: ref, label } },
+      );
+    }
+    for (let i = 0; i < B.mcp_view_polls; i++) {
+      await sleep(B.mcp_view_interval_ms);
+      let list = null;
+      try {
+        list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
+      } catch (e) {
+        record('mcp.' + tag + '.view2.' + attempt + '.' + i, {
+          args: { url: 'http://127.0.0.1:9333/json/list' },
+          error: String((e && e.message) || e),
+        });
+        continue;
+      }
+      record('mcp.' + tag + '.view2.' + attempt + '.' + i, {
+        args: { url: 'http://127.0.0.1:9333/json/list' },
+        result: list,
+      });
+      emb2 = (list || []).find((t) => !t.url.includes('/desktop/'));
+      if (drove()) break;
+    }
+  }
+
+  // Geometry triage (DIAGNOSTIC ONLY, never a check): a physical click that misses for viewport reasons looks
+  // identical to a broken click path, so the viewport and the link's rect are recorded beside the failure. The
+  // judge prints them only when the click did not drive.
+  if (!drove()) record('mcp.' + tag + '.geometry', { result: await clickGeom() });
+  await tool('mcp.' + tag + '.disconnect.2', 'mcp_client_disconnect', {}, { bestEffort: true });
+}
+
+/** Best-effort CDP geometry snapshot for click-miss triage. Never throws, and it says WHICH of the two states
+ *  that used to read identically as `geometry: null` it saw: the link not being in the view, or the probe
+ *  answering nothing. Those need opposite responses from the next reader. */
 async function clickGeom() {
-  if (typeof WebSocket === "undefined") return "no-websocket (node < 22)";
+  if (typeof WebSocket === 'undefined') return 'no-websocket (node < 22)';
   let ws = null;
   try {
     const l = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-    const t = l.find((x) => !x.url.includes('/desktop/'));
-    if (!t) return "no-view";
+    const t = (l || []).find((x) => !x.url.includes('/desktop/'));
+    if (!t) return 'no-view';
     ws = new WebSocket(t.webSocketDebuggerUrl);
     await Promise.race([
       new Promise((res, rej) => {
-        ws.addEventListener("open", res, { once: true });
-        ws.addEventListener("error", rej, { once: true });
+        ws.addEventListener('open', res, { once: true });
+        ws.addEventListener('error', rej, { once: true });
       }),
-      sleep(10000).then(() => { throw new Error("ws-timeout"); }),
+      sleep(B.ws_eval_timeout_ms).then(() => {
+        throw new Error('ws-timeout');
+      }),
     ]);
     let seq = 0;
     const pend = new Map();
-    ws.addEventListener("message", (ev) => {
+    ws.addEventListener('message', (ev) => {
       const m = JSON.parse(String(ev.data));
-      if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); }
+      if (m.id && pend.has(m.id)) {
+        pend.get(m.id)(m);
+        pend.delete(m.id);
+      }
     });
-    const send = (method, params) => new Promise((res, rej) => {
-      seq += 1;
-      pend.set(seq, res);
-      ws.send(JSON.stringify({ id: seq, method, params }));
-      sleep(10000).then(() => { if (pend.has(seq)) { pend.delete(seq); rej(new Error("cdp-timeout")); } });
-    });
-    const r = await send("Runtime.evaluate", {
-      expression: "JSON.stringify((() => { const a = [...document.querySelectorAll('a')].find((x) => x.textContent.trim() === 'Learn more'); if (!a) return null; const b = a.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), vw: window.innerWidth, vh: window.innerHeight }; })())",
+    const send = (method, params) =>
+      new Promise((res, rej) => {
+        seq += 1;
+        pend.set(seq, res);
+        ws.send(JSON.stringify({ id: seq, method, params }));
+        sleep(B.ws_eval_timeout_ms).then(() => {
+          if (pend.has(seq)) {
+            pend.delete(seq);
+            rej(new Error('cdp-timeout'));
+          }
+        });
+      });
+    const r = await send('Runtime.evaluate', {
+      expression:
+        "JSON.stringify((() => { const a = [...document.querySelectorAll('a')].find((x) => x.textContent.trim() === 'Learn more'); if (!a) return null; const b = a.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), vw: window.innerWidth, vh: window.innerHeight }; })())",
       returnByValue: true,
     });
     ws.close();
     ws = null;
-    // THE TWO FAILURES LOOKED IDENTICAL, AND A REAL FULL RUN PROVED IT (round 9 of the standing goal). The expression
-    // returns `JSON.stringify(null)` when the link is not on the page, so `value` is the four-character STRING "null" —
-    // truthy, so the old line returned it verbatim and the log read `geometry: null`. A reader cannot tell "the link was
-    // not in the embedded view" from "the CDP probe answered nothing", and those two need OPPOSITE responses: the first
-    // is the click path losing the page (the thing this triage exists to show), the second is this instrument being
-    // broken. A diagnostic that cannot say which is a diagnostic that costs the next round instead of saving it.
     const value = r.result && r.result.result && r.result.result.value;
-    if (value === undefined || value === null) return "no-value-from-cdp (the probe answered, the expression produced nothing)";
-    if (value === "null") return "no-link-in-view (the Learn more link is not in the embedded view right now)";
+    if (value === undefined || value === null)
+      return 'no-value-from-cdp (the probe answered, the expression produced nothing)';
+    if (value === 'null') return 'no-link-in-view (the Learn more link is not in the embedded view right now)';
     return value;
   } catch (e) {
-    try { ws && ws.close(); } catch {}
-    return "geom-error:" + String((e && e.message) || e).slice(0, 80);
+    try {
+      ws && ws.close();
+    } catch (e2) {}
+    return 'geom-error:' + String((e && e.message) || e).slice(0, 80);
   }
 }
 
 async function sectionMcp() {
-  // round-281 regression (stdio) + round-285 regression (http/9229):
-  // mcp_client_connect must auto-select the EMBEDDED-VIEW tab so the first
-  // browser_navigate drives the page the user watches (not the desktop SPA).
-  await mcpAutoselectProbe('stdio', { name: 'pw', transport: 'stdio' });
-  await mcpAutoselectProbe('http', { name: 'pw-http', transport: 'http', url: 'http://127.0.0.1:9229/mcp' });
+  for (const t of FX.mcp_transports) await mcpProbe(t.tag, t.args);
 }
 
-// ── 4c. evidence: an AI screenshot lands in pwout and shows in pwshots ────
-// Shared: switch the desktop SPA to the given rail page so the embedded
-// view has non-zero bounds (the WebContentsView is placed only while the
-// Browser page is active — device-caught round-291: screenshot of a
-// hidden view fails with "Cannot take screenshot with 0 width").
+// ── §4c evidence: an AI screenshot lands in pwout and shows in pwshots ──────────────────────────────────────
+
+/** Switch the desktop SPA to the named rail page, so the embedded view has non-zero bounds: the
+ *  WebContentsView is placed only while the Browser page is active (device-caught round-291 — a screenshot of
+ *  a hidden view fails with "Cannot take screenshot with 0 width"). */
 async function spaRailClick(label) {
-  const list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-  const spa = list.find((t) => t.url.includes('/desktop/'));
-  if (!spa) return false;
-  const ws = new WebSocket(spa.webSocketDebuggerUrl);
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-  const raw = await new Promise((resolve) => {
-    const t = setTimeout(() => resolve(null), 15000);
-    const onMsg = (m) => {
-      const o = JSON.parse(m.data);
-      if (o.id === 1) { clearTimeout(t); ws.removeEventListener('message', onMsg); resolve(o); }
-    };
-    ws.addEventListener('message', onMsg);
-    ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: {
-      expression: "(function(){ var bs = document.querySelectorAll('button, [role=button]'); for (var i=0;i<bs.length;i++){ var el = bs[i]; var t = (el.getAttribute('aria-label')||el.title||el.textContent||'').trim(); if (t === '" + label + "' || (t.indexOf('" + label + "') === 0 && t.length < 15)) { el.click(); return 'clicked'; } } return 'no-rail'; })()",
-      returnByValue: true } }));
-  });
-  await new Promise((r) => setTimeout(r, 500));
-  try { ws.close(); } catch (e) {}
-  const v = raw && raw.result && raw.result.result && raw.result.result.value;
-  return v === 'clicked';
+  const ws = await spaSocket();
+  if (!ws) return false;
+  try {
+    const raw = await evalInSpa(
+      ws,
+      1,
+      "(function(){ var bs = document.querySelectorAll('button, [role=button]'); for (var i=0;i<bs.length;i++){ var el = bs[i]; var t = (el.getAttribute('aria-label')||el.title||el.textContent||'').trim(); if (t === '" +
+        label +
+        "' || (t.indexOf('" +
+        label +
+        "') === 0 && t.length < 15)) { el.click(); return 'clicked'; } } return 'no-rail'; })()",
+      B.ws_eval_timeout_ms,
+    );
+    await sleep(B.spa_rail_settle_ms);
+    return raw === 'clicked';
+  } finally {
+    await closeSocket(ws);
+  }
 }
 
 async function sectionEvidence() {
-  // 0. the embedded view only has non-zero bounds while the SPA shows the
-  //    Browser page — switch there first so the screenshot can succeed
-  await spaRailClick('Browser');
-  await sleep(2000);
-  // 1. AI takes a screenshot of the embedded view (browser_run_script,
-  //    screenshot saved into the pwout dir — the round-252 evidence path)
-  const name = 'e2e_evidence_' + Date.now() + '.png';
+  mint('evidence.rail.click', await spaRailClick('Browser'));
+  await sleep(B.evidence_rail_settle_ms);
+
+  // The AI takes a screenshot of the embedded view through `browser_run_script`, into the pwout directory —
+  // the round-252 evidence path.
+  const name = mint('mint.evidence_shot', FX.evidence_shot_prefix + Date.now() + FX.evidence_shot_suffix);
   const script = [
     "const { chromium } = require('" + PW_DIR.replace(/\\/g, '/') + "/node_modules/playwright');",
-    "(async () => {",
+    '(async () => {',
     "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9333', { timeout: 10000 });",
-    "  const pages = browser.contexts().flatMap(c => c.pages());",
+    '  const pages = browser.contexts().flatMap(c => c.pages());',
     "  const view = pages.find(p => !p.url().includes('/desktop/'));",
     "  if (!view) { console.log('NO_VIEW'); await browser.close(); return; }",
-    "  await view.screenshot({ path: '" + EVIDENCE_DIR.replace(/\\/g, '\\\\') + "\\\\" + name + "' });",
+    "  await view.screenshot({ path: '" + EVIDENCE_DIR.replace(/\\/g, '\\\\') + '\\\\' + name + "' });",
     "  console.log('SHOT_SAVED');",
-    "  await browser.close();",
+    '  await browser.close();',
     "})().catch(e => { console.log('FAIL:' + String(e).slice(0, 200)); process.exit(1); });",
   ].join('\n');
-  const br = await tool('browser_run_script', { script });
-  const out = (br && br.stdout) || '';
-  check('evidence screenshot saved', br && br.exit_code === 0 && out.includes('SHOT_SAVED'),
-    out.trim().slice(0, 60));
-  // 2. the pwshots API (Evidence drawer data source) must list it
-  await sleep(2000);
-  const pwH = { Authorization: 'Bearer ' + TOKEN };
-  const shotsResp = await fetch(BASE + '/api/browser/pwshots', { headers: pwH });
-  const shotsJson = shotsResp.ok ? await shotsJsonParse(shotsResp) : null;
-  const list = (shotsJson && shotsJson.shots) || [];
-  check('evidence pwshots lists it', list.some((f) => (f.name || '').includes(name)),
-    'shots=' + list.length + ' looking=' + name.slice(0, 30));
-  // 3. self-clean the test screenshot (same policy as the file/terminal
-  //    sections — the suite must not litter pwout)
-  try { require('fs').unlinkSync(EVIDENCE_DIR + '\\' + name); } catch (e) { /* best-effort */ }
+  await tool('evidence.screenshot', 'browser_run_script', { script });
+
+  // The pwshots API — the Evidence drawer's data source — must list it. No Content-Type here: this is a plain
+  // GET, the way the JS suite made it.
+  await sleep(B.evidence_shots_settle_ms);
+  const shotsResp = await fetch(BASE + '/api/browser/pwshots', { headers: { Authorization: 'Bearer ' + TOKEN } });
+  record('evidence.pwshots', {
+    args: { method: 'GET', path: '/api/browser/pwshots' },
+    result: shotsResp.ok ? await jsonOrNull(shotsResp) : null,
+  });
+
+  // Self-clean (same policy as the file and terminal sections — the suite must not litter pwout).
+  try {
+    fs.unlinkSync(EVIDENCE_DIR + '\\' + name);
+  } catch (e) {}
 }
+
+// ── §4 browser: browser_run_script drives the view; the SPA bar follows ─────────────────────────────────────
 
 async function sectionBrowser() {
-  // pwinfo: the bundled-runtime discovery every AI client starts from.
-  const pi = await tool('browser_pw_info', {});
-  check('browser pwinfo bundled', !!(pi && pi.pw_dir && pi.playwright_core_version),
-    'core=' + (pi && pi.playwright_core_version));
-  // fail path: a throwing script must report exit_code != 0 (bounded runner
-  // surfaces the error instead of hanging until timeout).
-  const fail = await tool('browser_run_script', {
-    script: "(async () => { console.log('E2E-FAIL-PATH'); throw new Error('e2e-intentional'); })().catch(e => { console.log('FAIL:' + e.message); process.exit(1); });",
+  await tool('browser.pw_info', 'browser_pw_info', {});
+
+  // The FAIL path: a throwing script must report exit_code != 0, so the bounded runner surfaces the error
+  // instead of hanging until its timeout.
+  await tool('browser.script.fail', 'browser_run_script', {
+    script:
+      "(async () => { console.log('E2E-FAIL-PATH'); throw new Error('e2e-intentional'); })().catch(e => { console.log('FAIL:' + e.message); process.exit(1); });",
     timeout_secs: 60,
   });
-  const fout = (fail && fail.stdout || '') + (fail && fail.stderr || '');
-  check('browser_run_script fail path', !!(fail && fail.exit_code !== 0 && fout.includes('FAIL:e2e-intentional')),
-    'exit=' + (fail && fail.exit_code));
-  const script = [
+
+  const drive = [
     "const { chromium } = require('" + PW_DIR.replace(/\\/g, '/') + "/node_modules/playwright');",
-    "(async () => {",
+    '(async () => {',
     "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9333', { timeout: 10000 });",
-    "  const pages = browser.contexts().flatMap(c => c.pages());",
+    '  const pages = browser.contexts().flatMap(c => c.pages());',
     "  const view = pages.find(p => !p.url().includes('/desktop/'));",
     "  if (!view) { console.log('NO_VIEW'); await browser.close(); return; }",
-    "  await view.goto('https://www.example.com');",
+    "  await view.goto('" + FX.browser_home_url + "');",
     "  console.log('TITLE=' + await view.title());",
-    "  await browser.close();",
+    '  await browser.close();',
     "})().catch(e => { console.log('FAIL:' + String(e).slice(0, 200)); process.exit(1); });",
   ].join('\n');
-  const br = await tool('browser_run_script', { script });
-  const out = (br && br.stdout) || '';
-  check('browser_run_script drives view', br && br.exit_code === 0 && out.includes('TITLE=Example Domain'),
-    out.trim().slice(0, 80));
-  // SPA address bar should now show example.com (did-navigate push).
-  // NOTE: right after a playwright-driven navigation the SPA can take
-  // several seconds to respond to Runtime.evaluate (observed undefined
-  // result.value ~3s after nav, fine at ~8s — Electron CDP quirk), so
-  // poll generously and tolerate malformed/empty responses.
-  await sleep(4000);
-  const list = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-  const spa = list.find((t) => t.url.includes('/desktop/'));
-  if (!spa) { check('browser SPA bar sync', false, 'no desktop SPA target'); return; }
-  const ws = new WebSocket(spa.webSocketDebuggerUrl);
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-  // read the bar; if the SPA is not on the Browser page, click the rail first
-  const evalUrl = async () => {
-    const r = await new Promise((resolve) => {
-      const t = setTimeout(() => resolve(null), 15000);
-      const onMsg = (m) => {
-        const o = JSON.parse(m.data);
-        if (o.id === 100) { clearTimeout(t); ws.removeEventListener('message', onMsg); resolve(o); }
-      };
-      ws.addEventListener('message', onMsg);
-      ws.send(JSON.stringify({ id: 100, method: 'Runtime.evaluate',
-        params: { expression: "JSON.stringify({ onBrowser: !!document.querySelector('.browser-url'), url: (document.querySelector('.browser-url')||{}).value || '' })", returnByValue: true } }));
-    });
-    // tolerate the Electron quirk where result.value is missing on the
-    // first evaluates after a nav
-    try {
-      const raw = r && r.result && r.result.result && r.result.result.value;
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) { return null; }
-  };
-  let state = { onBrowser: false, url: '' };
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const parsed = await evalUrl();
-    if (parsed && parsed.url && parsed.url.includes('example.com')) { state = parsed; break; }
-    if (parsed) state = parsed;
-    if (parsed && !parsed.onBrowser) { state = parsed; break; } // need rail click below
-    await sleep(2000);
-  }
-  if (!state.onBrowser) {
-    await new Promise((resolve) => {
-      const t = setTimeout(() => resolve(''), 10000);
-      const onMsg = (m) => {
-        const o = JSON.parse(m.data);
-        if (o.id === 101) { clearTimeout(t); ws.removeEventListener('message', onMsg); resolve(''); }
-      };
-      ws.addEventListener('message', onMsg);
-      ws.send(JSON.stringify({ id: 101, method: 'Runtime.evaluate',
-        params: { expression: "var bs = document.querySelectorAll('button'); for (var i=0;i<bs.length;i++){ if (bs[i].getAttribute('aria-label')==='Browser' || bs[i].textContent.trim()==='Browser') { bs[i].click(); break; } } 'ok'", returnByValue: true } }));
-    });
-    await sleep(3000);
-    const s2 = await evalUrl();
-    state = s2 || state; // evalUrl already returns the parsed object or null
-  }
-  // wait for the close handshake so Node doesn't hit the UV_HANDLE_CLOSING assert
-  await new Promise((resolve) => {
-    ws.onclose = resolve;
-    setTimeout(() => { try { ws.close(); } catch (e) {} }, 100);
-    setTimeout(resolve, 3000);
-  });
-  check('browser SPA bar sync', (state.url || '').includes('example.com'), 'bar=' + (state.url || '').slice(0, 60));
+  await tool('browser.script.drive', 'browser_run_script', { script: drive });
 
-  // Focus-trap regression: FOCUS the address bar without typing (the stuck
-  // state is focus-without-blur — e.g. the user clicked the bar then the
-  // native view, whose clicks never fire SPA blur), drive a navigation, and
-  // require the bar to follow WITHOUT re-entering the panel. Pre-fix the
-  // push is dropped and the bar stays stale.
-  {
-    const marker = 'focus-trap-' + Date.now();
-    const list3 = await (await fetch('http://127.0.0.1:9333/json/list')).json();
-    const spa3 = list3.find((t) => t.url.includes('/desktop/'));
-    if (!spa3) {
-      check('browser focus-trap bar follows', false, 'no desktop SPA target');
-    } else {
-      const ws3 = new WebSocket(spa3.webSocketDebuggerUrl);
-      await new Promise((res, rej) => { ws3.onopen = res; ws3.onerror = rej; });
-      const eval3 = (id, expression) => new Promise((resolve) => {
-        const t = setTimeout(() => resolve(null), 15000);
-        const onMsg = (m) => {
-          const o = JSON.parse(m.data);
-          if (o.id === id) { clearTimeout(t); ws3.removeEventListener('message', onMsg); resolve(o); }
-        };
-        ws3.addEventListener('message', onMsg);
-        ws3.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
-      });
-      const rawOf = (r) => {
-        try {
-          const raw = r && r.result && r.result.result && r.result.result.value;
-          return raw !== undefined && raw !== null ? raw : null;
-        } catch (e) { return null; }
-      };
-      await eval3(300, "(function(){ var el = document.querySelector('.browser-url'); if (!el) return 'no-bar'; el.focus(); return 'focused'; })()");
-      const fscript = [
-        "const { chromium } = require('" + PW_DIR.replace(/\\/g, '/') + "/node_modules/playwright');",
-        "(async () => {",
-        "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9333', { timeout: 10000 });",
-        "  const pages = browser.contexts().flatMap(c => c.pages());",
-        "  const view = pages.find(p => !p.url().includes('/desktop/'));",
-        "  if (!view) { console.log('NO_VIEW'); await browser.close(); return; }",
-        "  await view.goto('https://example.com/" + marker + "');",
-        "  console.log('NAV-OK');",
-        "  await browser.close();",
-        "})().catch(e => { console.log('FAIL:' + String(e).slice(0, 200)); process.exit(1); });",
-      ].join('\n');
-      await tool('browser_run_script', { script: fscript });
-      let barOk = false;
-      let barVal = '';
-      for (let attempt = 0; attempt < 8; attempt++) {
-        const raw = await eval3(310 + attempt, "JSON.stringify({ url: (document.querySelector('.browser-url')||{}).value || '' })");
-        try {
-          const parsed = rawOf(raw) ? JSON.parse(rawOf(raw)) : null;
-          barVal = (parsed && parsed.url) || '';
-          if (barVal.includes(marker)) { barOk = true; break; }
-        } catch (e) {}
-        await sleep(2000);
-      }
-      // Restore: blur the bar so later runs/sections start from a clean state.
-      await eval3(399, "(function(){ var el = document.querySelector('.browser-url'); if (el) el.blur(); return 'ok'; })()");
-      await new Promise((resolve) => {
-        ws3.onclose = resolve;
-        setTimeout(() => { try { ws3.close(); } catch (e) {} }, 100);
-        setTimeout(resolve, 3000);
-      });
-      check('browser focus-trap bar follows', barOk, 'bar=' + barVal.slice(0, 60));
+  // Right after a Playwright-driven navigation the SPA can answer `Runtime.evaluate` without a value for
+  // several seconds (Electron CDP quirk, observed ~3 s and fine at ~8 s), so poll generously rather than
+  // sleeping once.
+  await sleep(B.browser_bar_settle_ms);
+  const targets = await cdpTargets('browser.cdp.targets');
+  const spa = (targets || []).find((t) => t.url.includes('/desktop/'));
+  if (!spa) return;
+
+  let ws = null;
+  try {
+    ws = new WebSocket(spa.webSocketDebuggerUrl);
+    await new Promise((res, rej) => {
+      ws.onopen = res;
+      ws.onerror = rej;
+    });
+    const bar =
+      "JSON.stringify({ onBrowser: !!document.querySelector('.browser-url'), url: (document.querySelector('.browser-url')||{}).value || '' })";
+    let onBrowser = false;
+    for (let attempt = 0; attempt < B.browser_bar_polls; attempt++) {
+      const raw = await evalInSpa(ws, 100, bar, B.ws_eval_timeout_ms);
+      record('browser.bar.poll.' + attempt, { result: raw });
+      const parsed = raw ? safeParse(raw) : null;
+      if (parsed) onBrowser = !!parsed.onBrowser;
+      if (parsed && parsed.url && parsed.url.includes(FX.browser_bar_fragment)) break;
+      if (parsed && !parsed.onBrowser) break;
+      await sleep(B.browser_bar_interval_ms);
     }
+    if (!onBrowser) {
+      // The SPA is not on the Browser page, so click the rail — the driver may do that; what the bar says
+      // afterwards is the judge's to read.
+      record(
+        'browser.rail.click',
+        {
+          result: await evalInSpa(
+            ws,
+            101,
+            "var bs = document.querySelectorAll('button'); for (var i=0;i<bs.length;i++){ if (bs[i].getAttribute('aria-label')==='Browser' || bs[i].textContent.trim()==='Browser') { bs[i].click(); break; } } 'ok'",
+            B.ws_eval_timeout_ms,
+          ),
+        },
+      );
+      await sleep(B.browser_rail_settle_ms);
+      record('browser.bar.after_rail', { result: await evalInSpa(ws, 100, bar, B.ws_eval_timeout_ms) });
+    }
+
+    // Focus-trap regression: FOCUS the address bar without typing (the stuck state is focus-without-blur — the
+    // operator clicked the bar and then the native view, whose clicks never fire SPA blur), drive a navigation,
+    // and require the bar to follow WITHOUT re-entering the panel.
+    const marker = mint('mint.focus_marker', FX.focus_marker_prefix + Date.now());
+    record(
+      'browser.trap.focus',
+      {
+        result: await evalInSpa(
+          ws,
+          300,
+          "(function(){ var el = document.querySelector('.browser-url'); if (!el) return 'no-bar'; el.focus(); return 'focused'; })()",
+          B.ws_eval_timeout_ms,
+        ),
+      },
+    );
+    const focusScript = [
+      "const { chromium } = require('" + PW_DIR.replace(/\\/g, '/') + "/node_modules/playwright');",
+      '(async () => {',
+      "  const browser = await chromium.connectOverCDP('http://127.0.0.1:9333', { timeout: 10000 });",
+      '  const pages = browser.contexts().flatMap(c => c.pages());',
+      "  const view = pages.find(p => !p.url().includes('/desktop/'));",
+      "  if (!view) { console.log('NO_VIEW'); await browser.close(); return; }",
+      "  await view.goto('" + fill(FX.marker_url_template, { marker }) + "');",
+      "  console.log('NAV-OK');",
+      '  await browser.close();',
+      "})().catch(e => { console.log('FAIL:' + String(e).slice(0, 200)); process.exit(1); });",
+    ].join('\n');
+    await tool('browser.trap.nav', 'browser_run_script', { script: focusScript });
+    for (let attempt = 0; attempt < B.browser_trap_polls; attempt++) {
+      const raw = await evalInSpa(
+        ws,
+        310 + attempt,
+        "JSON.stringify({ url: (document.querySelector('.browser-url')||{}).value || '' })",
+        B.ws_eval_timeout_ms,
+      );
+      record('browser.trap.bar.' + attempt, { result: raw });
+      const parsed = raw ? safeParse(raw) : null;
+      if (parsed && String(parsed.url || '').includes(marker)) break;
+      await sleep(B.browser_trap_interval_ms);
+    }
+    // Restore: blur the bar so later runs and sections start from a clean state.
+    record(
+      'browser.trap.blur',
+      {
+        result: await evalInSpa(
+          ws,
+          399,
+          "(function(){ var el = document.querySelector('.browser-url'); if (el) el.blur(); return 'ok'; })()",
+          B.ws_eval_timeout_ms,
+        ),
+      },
+    );
+  } finally {
+    if (ws) await closeSocket(ws);
   }
 }
 
-// ── 8. governance: goal / approval gate / grants / intent ──────────────────
-// The "game design" surface end to end: the operator states a goal, arms the
-// gate, approves a command (with a grant), and the audit trail explains WHY a
-// later command ran unasked. Section added round-9 of that work.
-//
-// The trail assertions are the point of this section. Every other check here
-// passed while ARMING THE GATE left no trace at all — found only by driving a
-// real agent, because each piece was individually correct and only the joined-up
-// history was missing.
+function safeParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── §8 governance: goal / approval gate / grants / intent ───────────────────────────────────────────────────
+
 async function sectionGovernance() {
-  const sid = await tool('terminal_open', { kind: 'pty', rows: 24, cols: 80 });
-  check('gov: session opens', typeof sid === 'string' && sid.length > 0, 'sid=' + sid);
+  const sid = await tool('gov.open', 'terminal_open', { kind: 'pty', rows: 24, cols: 80 });
+  const sessionId = typeof sid === 'string' ? sid : sid && sid.sid;
+  if (!sessionId) throw new Stop('terminal_open answered no session id');
+  const apath = (suffix) => '/api/sessions/' + encodeURIComponent(sessionId) + suffix;
 
-  const ctl = async (body) => {
-    const r = await fetch(BASE + '/api/sessions/' + encodeURIComponent(sid) + '/control', {
-      method: 'POST', headers: H, body: JSON.stringify(body),
-    });
-    return { status: r.status, json: await shotsJsonParse(r) };
-  };
+  // The operator states intent; the goal is a partial patch and must not clear what it did not mention.
+  await ctl('gov.control.goal', sessionId, { goal: FX.gov_goal });
+  await tool('gov.list.after_goal', 'terminal_list', {});
 
-  // --- goal: the operator states intent, the AI reads it for free ---
-  const g = await ctl({ goal: 'provision the ONU at 0/1 on VLAN 100' });
-  check('gov: goal accepted', g.status === 200 && g.json && g.json.goal === 'provision the ONU at 0/1 on VLAN 100',
-    JSON.stringify(g.json));
-  // A partial patch must not clear what it did not mention.
-  check('gov: partial patch leaves holder alone', g.json && g.json.held_by_human === null, JSON.stringify(g.json));
+  // Arm the gate TWICE: the repeat must not double-record.
+  await ctl('gov.control.arm.0', sessionId, { approval_required: true });
+  await ctl('gov.control.arm.1', sessionId, { approval_required: true });
 
-  const rows = await tool('terminal_list', {});
-  const row = (Array.isArray(rows) ? rows : []).find((x) => x.id === sid);
-  check('gov: the AI reads the goal off terminal_list', !!row && row.goal === 'provision the ONU at 0/1 on VLAN 100',
-    row ? 'goal=' + row.goal : 'session not listed');
+  // An execute BLOCKS at the gate carrying its intent. It is ISSUED here and collected after the approval,
+  // which is what makes it a park rather than a failure — and its rejection is caught so that the RECORD, not
+  // an exception, is what the judge reads.
+  const pending = tool('gov.exec.result', 'terminal_execute', {
+    session_id: sessionId,
+    command: FX.gov_command,
+    intent: FX.gov_intent,
+    considered: FX.gov_considered,
+  }).then(
+    (r) => ({ landed: true, r }),
+    (e) => ({ landed: false, e: String((e && e.message) || e) }),
+  );
 
-  // --- arm the gate (twice: the repeat must not double-record) ---
-  await ctl({ approval_required: true });
-  await ctl({ approval_required: true });
-
-  // --- an execute blocks at the gate, carrying its intent ---
-  const execP = tool('terminal_execute', {
-    session_id: sid,
-    command: 'echo governed',
-    intent: 'confirm the session is responsive before changing anything',
-    considered: ['skip the check', 'reopen the session instead'],
-  }).then((r) => ({ ok: true, r }), (e) => ({ ok: false, e: String(e.message) }));
-
-  let apid = '';
-  for (let i = 0; i < 25; i++) {
-    const l = await tool('terminal_list', {});
-    const r = (Array.isArray(l) ? l : []).find((x) => x.id === sid);
-    apid = (r && r.pending_approval && r.pending_approval.id) || '';
-    if (apid) break;
-    await sleep(200);
+  for (let i = 0; i < B.gov_pending_polls; i++) {
+    await sleep(B.gov_pending_interval_ms);
+    const parked = await tool('gov.pending.' + i, 'terminal_list', {});
+    const r = (Array.isArray(parked) ? parked : []).find((x) => x.id === sessionId);
+    if (r && r.pending_approval && r.pending_approval.id) break;
   }
-  check('gov: the gate publishes the pending command', !!apid, 'id=' + apid);
 
-  const decided = await (await fetch(BASE + '/api/sessions/' + encodeURIComponent(sid) + '/approval', {
-    method: 'POST', headers: H,
-    body: JSON.stringify({ id: apid, approve: true, grant: true }),
-  })).json();
-  check('gov: approve+grant decides', decided && decided.decided === true, JSON.stringify(decided));
-  check('gov: the grant is the command WORD, server-derived',
-    decided && Array.isArray(decided.approval_grants) && decided.approval_grants.includes('echo'),
-    JSON.stringify(decided && decided.approval_grants));
+  // The approval carries the id off the row the poll just read — a handle, read because the call needs it.
+  const last = observations[observations.length - 1];
+  const parkedList = (last && last.result) || [];
+  const parkedRow = (Array.isArray(parkedList) ? parkedList : []).find((x) => x.id === sessionId);
+  const apid = (parkedRow && parkedRow.pending_approval && parkedRow.pending_approval.id) || '';
+  await jsonCall('gov.approval', 'POST', apath('/approval'), { id: apid, approve: true, grant: true });
 
-  const exec = await execP;
-  check('gov: the approved command ran', exec.ok, exec.ok ? 'state=' + (exec.r && exec.r.state) : exec.e);
-  // AND THE ROW EVERY CLIENT POLLS CARRIES THE OUTCOME (round 96). `exec.r.exit_code` is what the execute caller
-  // got; `last_exit_code` is the same fact on `terminal_list`, which is what lets a surface say FAILED about a
-  // session whose audit trail it has never loaded. THE ASSERTION IS EQUALITY, not a hardcoded number, because the
-  // shell differs per runner — and it lives in THIS section as well as in the terminal one because this is the
-  // section CI runs (`--only governance,runs`): a check in a section nothing invokes is a check that never runs.
-  // WHAT IS ASSERTED IS AGREEMENT, IN BOTH DIRECTIONS — not "there is a code". Measured on this runner: the
-  // approved command ends `state=partial`, because no shell marker fired, so the caller got NO code and the row
-  // must carry NONE either (absent means "no code was observed"; see TermSessionInfo::last_exit_code). Demanding
-  // a number here would have been a check about the runner's shell, not about the wire. What must never happen is
-  // the two audiences DISAGREEING — a code on one side and not the other — and that is what this fails on.
-  const govRows = await tool('terminal_list', {});
-  const govRow = (Array.isArray(govRows) ? govRows : (govRows && govRows.sessions) || []).find((x) => x && x.id === sid);
-  check('gov: the session row agrees with the caller about the last command outcome',
-    exec.ok && !!govRow && sameOutcome(govRow, exec.r),
-    'row=' + (govRow && govRow.last_exit_code) + ' caller=' + (exec.ok && exec.r && exec.r.exit_code) +
-      ' state=' + (exec.ok && exec.r && exec.r.state));
+  await pending; // the parked execute settles once the gate decides
+  await tool('gov.list.after_exec', 'terminal_list', {});
 
-  // --- the granted family does NOT ask again ---
+  // The granted family does NOT ask again — and HOW LONG it took is a fact the judge compares to the plan.
   const t0 = Date.now();
-  const again = await tool('terminal_execute', { session_id: sid, command: 'echo granted-sibling' });
-  const dt = Date.now() - t0;
-  check('gov: a granted sibling runs without asking', !!again && dt < 5000, dt + 'ms');
+  await tool('gov.exec.sibling', 'terminal_execute', { session_id: sessionId, command: FX.gov_sibling_command });
+  mint('gov.sibling_ms', Date.now() - t0);
 
-  // --- revoke, then disarm ---
-  const rev = await (await fetch(BASE + '/api/sessions/' + encodeURIComponent(sid) + '/grants', {
-    method: 'POST', headers: H, body: JSON.stringify({ all: true }),
-  })).json();
-  check('gov: revoke-all empties the grants', rev && Array.isArray(rev.approval_grants) && rev.approval_grants.length === 0,
-    JSON.stringify(rev && rev.approval_grants));
-  await ctl({ approval_required: false });
+  await jsonCall('gov.grants.revoke', 'POST', apath('/grants'), { all: true });
+  await ctl('gov.control.disarm', sessionId, { approval_required: false });
 
-  // --- THE TRAIL: does it explain why a command ran unasked? ---
-  const sess = await (await fetch(BASE + '/api/sessions/' + encodeURIComponent(sid), { headers: H })).json();
-  const evs = (sess && sess.events) || [];
-  const posture = evs.filter((e) => e.kind === 'approval').map((e) => e.status + ':' + (e.text || ''));
-  // The `asked` event sits between arming and the decision, and that ORDER is
-  // the point: it records that a question was PUT to a person before anything
-  // answered it. Added in round 14 (the gate became answerable) and not
-  // reflected here until now — this assertion had been failing ever since,
-  // silently, because the e2e suite is not wired into CI. Found by running the
-  // suite rather than by reading it.
-  check('gov: the trail records the whole approval posture',
-    posture.join(',') === 'armed:,asked:echo governed,approved:echo governed,granted:echo,revoked:,disarmed:',
-    posture.join(','));
-  const armedCount = posture.filter((p) => p === 'armed:').length;
-  check('gov: a repeated arm request is not recorded twice', armedCount === 1, 'armed x' + armedCount);
-
-  const start = evs.find((e) => e.kind === 'command/start' && e.command === 'echo governed');
-  check('gov: intent is recorded beside the command',
-    !!start && start.intent === 'confirm the session is responsive before changing anything',
-    start ? 'intent=' + start.intent : 'no command/start');
-  check('gov: the alternatives are recorded',
-    !!start && Array.isArray(start.considered) && start.considered.length === 2,
-    start ? JSON.stringify(start.considered) : 'no command/start');
-
-  const goalEv = evs.filter((e) => e.kind === 'goal');
-  check('gov: the goal statement is durable', goalEv.length === 1 && goalEv[0].text === 'provision the ONU at 0/1 on VLAN 100',
-    JSON.stringify(goalEv.map((e) => e.text)));
-
-  await tool('terminal_close', { session_id: sid });
+  // THE TRAIL: does it explain why a command ran unasked?
+  await jsonCall('gov.session', 'GET', apath(''));
+  await tool('gov.close', 'terminal_close', { session_id: sessionId }, { bestEffort: true });
 }
 
-// ── 8. runs: one AI execution gets a name, and the work wears it --------
-//
-// Run identity (round 13) shipped with unit and integration tests and NO
-// coverage in the one suite that drives the REAL binary end to end — and an
-// absent end-to-end check is precisely what let the round-14 parked-question
-// bug reach a device with every gate green. The property here is a JOIN
-// ACROSS LAYERS: a tool mints the id, a producer stamps it, and
-// /api/operation returns the boundary and the stamped event on one axis. Each
-// layer can be green alone while the id is minted and forgotten, which is
-// exactly what happened before the feature was wired.
-//
-// Platform-neutral: terminal + HTTP only, no Electron, no screenshots.
+// ── §8 runs: one AI execution gets a name, and the work wears it ────────────────────────────────────────────
+
 async function sectionRuns() {
-  const sid = await tool('terminal_open', { kind: 'pty', rows: 24, cols: 80 });
-  check('runs: session opens', typeof sid === 'string' && sid.length > 0, 'sid=' + sid);
+  const sid = await tool('runs.open', 'terminal_open', { kind: 'pty', rows: 24, cols: 80 });
+  const sessionId = typeof sid === 'string' ? sid : sid && sid.sid;
+  if (!sessionId) throw new Stop('terminal_open answered no session id');
 
-  // A UNIQUE label, so the assertions cannot match an earlier run still inside
-  // the retention window on a device that has been used before.
-  const marker = 'e2e-run-' + Date.now();
-  const begun = await tool('run_begin', { label: marker, goal: 'prove run identity end to end' });
+  // A UNIQUE label, so the assertions cannot match an earlier run still inside the retention window on a
+  // device that has been used before.
+  const marker = mint('mint.runs_label', FX.runs_label_prefix + Date.now());
+  const begun = await tool('runs.begin', 'run_begin', { label: marker, goal: FX.runs_goal });
   const runId = begun && begun.run_id;
-  check('runs: run_begin mints an id', typeof runId === 'string' && runId.startsWith('run-'),
-    'id=' + runId);
 
-  // Work INSIDE the run, carrying the id.
-  await tool('terminal_execute', {
-    session_id: sid,
-    command: 'echo inside-the-run',
+  // Work INSIDE the run, carrying the id... and work OUTSIDE it, which must stay unattributed rather than
+  // being absorbed into whatever run happens to precede it.
+  await tool('runs.exec.in', 'terminal_execute', {
+    session_id: sessionId,
+    command: FX.runs_inside_command,
     intent: 'the work the run names',
     run_id: runId,
   });
-  // ...and work OUTSIDE it, which must stay unattributed rather than being
-  // absorbed into whatever run happens to precede it.
-  await tool('terminal_execute', { session_id: sid, command: 'echo loose-work' });
+  await tool('runs.exec.loose', 'terminal_execute', { session_id: sessionId, command: FX.runs_loose_command });
 
-  const snap = async () => (await (await fetch(BASE + '/api/operation', { headers: H })).json());
+  await jsonCall('runs.operation.before_end', 'GET', '/api/operation');
+  await tool('runs.end', 'run_end', { run_id: runId, outcome: 'done' });
+  await jsonCall('runs.operation.after_end', 'GET', '/api/operation');
 
-  let op = await snap();
-  const begin = (op.runs || []).find((r) => r.kind === 'run/begin' && r.run_id === runId);
-  check('runs: the boundary is on the timeline', !!begin && begin.label === marker,
-    begin ? 'label=' + begin.label : 'no run/begin for ' + runId);
-  check('runs: the run carries the goal it was given',
-    !!begin && begin.goal === 'prove run identity end to end',
-    begin ? 'goal=' + begin.goal : 'missing');
-
-  const mine = (op.events || []).find((e) => e.command === 'echo inside-the-run');
-  check('runs: the command wears the id run_begin minted',
-    !!mine && mine.run_id === runId,
-    mine ? 'run_id=' + mine.run_id : 'command not on the timeline');
-
-  const loose = (op.events || []).find((e) => e.command === 'echo loose-work');
-  check('runs: work sent without a run is NOT absorbed into one',
-    !!loose && loose.run_id === null,
-    loose ? 'run_id=' + JSON.stringify(loose.run_id) : 'command not on the timeline');
-
-  // The boundary precedes the work it brackets (ordering is by ts_ms).
-  if (begin && mine) {
-    check('runs: the boundary precedes the work it names', begin.ts_ms <= mine.ts_ms,
-      'begin=' + begin.ts_ms + ' event=' + mine.ts_ms);
-  } else {
-    check('runs: the boundary precedes the work it names', false, 'prerequisites missing');
-  }
-
-  // Close it, and the closure is visible.
-  await tool('run_end', { run_id: runId, outcome: 'done' });
-  op = await snap();
-  const end = (op.runs || []).find((r) => r.kind === 'run/end' && r.run_id === runId);
-  check('runs: run_end closes the run with its outcome',
-    !!end && end.outcome === 'done', end ? 'outcome=' + end.outcome : 'no run/end');
-
-  // A LABEL, NEVER A CREDENTIAL: an id that was never minted is ACCEPTED and
-  // reported as `known:false` rather than refused — the runs log is
-  // best-effort, so a client that lost its begin record must still be able to
-  // close. The auth half of the rule is covered by the harness's 401 checks.
-  const unknown = await tool('run_end', { run_id: 'run-does-not-exist', outcome: 'done' });
-  check('runs: an unregistered id is accepted and reported as unknown',
-    !!unknown && unknown.known === false, JSON.stringify(unknown));
-
-  await tool('terminal_close', { session_id: sid });
+  // A LABEL, NEVER A CREDENTIAL: an id that was never minted is ACCEPTED and reported as `known:false`.
+  await tool('runs.end.unknown', 'run_end', { run_id: FX.runs_unknown_id, outcome: 'done' });
+  await tool('runs.close', 'terminal_close', { session_id: sessionId }, { bestEffort: true });
 }
 
+// ── THE RUN ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+const SECTIONS = {
+  terminal: sectionTerminal,
+  file: sectionFile,
+  workflow: sectionWorkflow,
+  panel: sectionPanel,
+  mcp: sectionMcp,
+  evidence: sectionEvidence,
+  browser: sectionBrowser,
+  governance: sectionGovernance,
+  runs: sectionRuns,
+};
+
 (async () => {
-  if (!TOKEN) { console.error('missing token: pass --token or SUMMRISE_AGENT_TOKEN'); process.exit(1); }
-  const want = (s) => !ONLY || ONLY.includes(s);
+  // A plan naming a section this driver does not implement is a REFUSAL, not a silent omission: the judge would
+  // otherwise report a verdict about a run that never happened.
+  const unknown = PLAN.sections.filter((s) => !SECTIONS[s]);
+  if (unknown.length) {
+    console.error('the plan names section(s) this driver does not implement: ' + unknown.join(', '));
+    console.error('EXIT 2: THE SUITE DID NOT RUN.');
+    process.exit(2);
+  }
+
   try {
-    if (want('terminal')) await sectionTerminal();
-    if (want('file')) await sectionFile();
-    if (want('workflow')) await sectionWorkflow();
-    if (want('panel') && !NO_BROWSER) await sectionPanel();
-    if (want('mcp') && !NO_BROWSER) await sectionMcp();
-    if (want('evidence') && !NO_BROWSER) await sectionEvidence();
-    if (want('browser') && !NO_BROWSER) await sectionBrowser();
-    if (want('governance')) await sectionGovernance();
-    if (want('runs')) await sectionRuns();
-  } catch (e) {
-    console.error('SECTION ERROR: ' + e.message);
-    results.push({ name: 'suite', pass: false, detail: e.message });
-  }
-  // SKIPS ARE EXCLUDED FROM BOTH NUMBERS. `!r.pass` was true for a skip, so a skipped arm would have counted as a
-  // FAILURE; and counting it as a PASS would be worse -- this suite's numbers are read as a BASELINE, and a pass
-  // for something that did not run is the third instrument in the mcp thread to report success for a non-event
-  // (round 90's unscoped selector, round 95's predicate a stale value already satisfied, and this). The line
-  // therefore says how much of the suite actually RAN, and names the skips beside it.
-  const skipped = results.filter((r) => r.pass === null);
-  const failed = results.filter((r) => r.pass === false);
-  const counted = results.length - skipped.length;
-  console.log('\n== ' + (counted - failed.length) + '/' + counted + ' passed ==' + (skipped.length ? ' (' + skipped.length + ' skipped)' : ''));
-  // ZERO CHECKS IS NOT A PASS. `exit(failed.length ? 1 : 0)` read an empty result
-  // list as success, so a run that executed NOTHING printed "== 0/0 passed ==" and
-  // exited 0 — observed with `--only governance-typo,nonexistent` before this guard
-  // existed. CI runs this with `--only governance,runs`: one renamed section and the
-  // gate would have gone on reporting success while testing nothing.
-  //
-  // The exit codes, matching panel-render-audit.mjs: 0 ran and all passed,
-  // 1 ran and something failed, 2 DID NOT RUN (bad --only, or no checks executed).
-  // **THE RECORDING IS WRITTEN HERE, AND THE FIRST ATTEMPT AT THIS PUT IT AFTER THE IIFE — WHERE IT NEVER
-  // RAN**, because `process.exit` above it ends the process first. That is the same "an instrument nobody
-  // runs is an instrument nobody has" class this repository keeps finding, caught by reading the file rather
-  // than trusting the edit. It is written on EVERY exit path, including the one that did not run, so an
-  // empty recording is a fact about the run rather than a missing file.
-  // **THE DUMP IMPORTS `fs` DYNAMICALLY, AND THAT IS NOT A STYLE CHOICE — MEASURED ON THE DEVICE.**
-  // The first version of this used a static `import { writeFileSync } from 'node:fs'`, and the device's
-  // bundled Node is **v20.18.0**, where `require` is NOT available once a file has loaded as ESM. This suite
-  // calls `require('fs')` at five sites and passed 55/55 twice before that line existed; with it, the run
-  // died in the third section — "SECTION ERROR: require is not defined", 19/20 — because a single static
-  // import is what decides the module system. The dynamic form is what the file already used everywhere else.
-  const finish = async (code) => {
-    if (RECORD_PATH) {
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(RECORD_PATH, JSON.stringify({ base: BASE, calls: RECORDED }, null, 1));
-      console.log(`recorded ${RECORDED.length} tool call(s) to ${RECORD_PATH}`);
+    for (const name of PLAN.sections) {
+      console.log('-- ' + name);
+      await SECTIONS[name]();
     }
-    process.exit(code);
-  };
-  if (results.length === 0) {
-    console.error('EXIT 2: THE SUITE DID NOT RUN — zero checks executed. A skip is not a pass.');
-    await finish(2);
+  } catch (e) {
+    // ONE `try` AROUND EVERY SECTION, which is what the JS suite always did: a failed call ends the run, and
+    // the checks that already ran still count. The judge reports this as `suite`.
+    record('driver.abort', { error: String((e && e.message) || e) });
   }
-  await finish(failed.length ? 1 : 0);
+
+  const doc = { schema: 1, base: BASE, plan: PLAN, observations };
+  try {
+    fs.writeFileSync(ROWS_PATH, JSON.stringify(doc));
+  } catch (e) {
+    console.error('could not write ' + ROWS_PATH + ': ' + e.message);
+    process.exit(2);
+  }
+  console.log('wrote ' + observations.length + ' observation(s) to ' + ROWS_PATH);
+  // THE EXIT CODE IS NOT THE VERDICT, and saying so is cheaper than a reader assuming otherwise.
+  console.log("the verdict is the judge's: summrise-e2e-judge --rows " + ROWS_PATH);
+  process.exit(0);
 })();

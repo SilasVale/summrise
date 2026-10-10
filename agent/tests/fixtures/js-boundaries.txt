@@ -18,6 +18,16 @@
 # DEVICE's HTTP surface, whose subject is already Rust, so it is a harness rather than work that is left. A test
 # whose subject is Rust is not a migration item; a test whose subject is JavaScript goes with its subject.
 #
+# **AND A TEST FILE IS TWO THINGS, WHICH THIS RULE WAS READ AS ONE.** The e2e suite was cleared as BOUNDARY on
+# the sentence above, and the sentence was true of half of it: the DRIVING is a harness. The other half was 74
+# `check(...)` call sites that computed their conditions, derived the details a reader acts on, and decided
+# whether a device passed — the ASSERTIONS, which are this manifest's LOGIC definition verbatim and which the
+# rule above says nothing about. Read by its control flow rather than its name (which is the standard the audit
+# of 2026-10-08 set and did not apply here), the assertion half moved to `agent/e2e-judge/`, and the rule is
+# now true of the whole file rather than of its subject. **A test's SETUP is a boundary; a test's VERDICT is
+# not** — and the same reading applies to the sweeps' payloads, which is why their probe snippets stay JS and
+# their judge does not.
+#
 # A FIXTURE IS NOT A DECISION. `panel-stub.cjs` answers thirty comparisons and every one of them decides what the
 # FAKE device returns — test data, not product behaviour. The same reading covers a probe SOURCE (it ships as text
 # into a page), an assembler (a build step), and a harness renderer (it builds the surface under test). What makes
@@ -34,7 +44,8 @@ GENERATED | gateway/public/assets/ | the built console bundle, served by the con
 GENERATED | gateway/public/code/files/ | the Source Viewer's byte-for-byte mirror of tracked sources | gateway/scripts/sync-code-viewer.sh
 GENERATED | gateway/src/mcp-tools.ts | the MCP tool table, EMITTED from the Rust single source (`render_typescript`), whose freshness is a cargo test | gateway/wasm/src/mcp_tools.rs
 GENERATED | index/public/summrise-agent/landing/ | the landing arms, rendered by the Rust crate at build time | index/landing/build.sh
-GENERATED | index/public/summrise-agent/ | the emitted probes and the e2e bundle, written by `--emit` | agent/scripts
+GENERATED | index/public/summrise-agent/e2e.js | THE DEVICE E2E DRIVER AS THE DEVICE FETCHES IT — the JavaScript source with the PLAN EMBEDDED, written by `summrise-e2e-judge --bundle` (the same emit-time shape the sweeps' `sweep-plan.mjs` uses, and for the same reason: the box that runs it has a device and no toolchain). `agent/e2e-judge/tests/bundle.rs` fails when the committed bytes are not what the emitter produces today, because a fix that lands in the source and not in this copy changes nothing on the device | agent/e2e-judge
+GENERATED | index/public/summrise-agent/ | the emitted probes, written by `--emit` | agent/scripts
 GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
 GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
@@ -70,7 +81,8 @@ BOUNDARY | agent/summrise-cli/parity/ | the CLI's decision corpus and the instru
 BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-CHANGE emitter, executes the payload it prints against a stub browser, and diffs that trace against the Rust plan; it decides nothing about the product
 # ── AND THE THREE TOOLS ARE BOUNDARY, WHICH THE DIRECTORY RULE COULD NOT SEE (2026-10-09) ────────────────────
 # `agent/scripts/` is LOGIC as a rule, and the audit of the sweeps named what stays inside it: the judge's
-# JavaScript twin, the two payloads that drive and decide, the two small checkers, and the e2e suite. The three
+# JavaScript twin, the two payloads that drive and decide, the two small checkers, and the e2e suite — whose
+# DRIVER is what stays now: its plan and its judge left for `agent/e2e-judge/` on 2026-10-10. The three
 # TOOLS were never in that list, and reading them line by line says why: each one dispatches on argv, FORWARDS
 # `--passes` to the Rust plan without interpreting it, holds path constants and (for the landing) the fixture's
 # URLs and page list, and assembles the emitted bundle through `lib/sweep-bundle.mjs`. The decisions they look
@@ -99,7 +111,7 @@ BOUNDARY | agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs | it 
 BOUNDARY | agent/scripts/lib/sweep-plan.mjs | the EMIT-TIME half of the plan: it runs `summrise-sweep-plan` and parses its stdout — one process call, no decision. The plan itself is Rust (agent/sweep-plan/)
 BOUNDARY | agent/scripts/lib/sweep/plan-runtime.cjs | the PAYLOAD-side half: it turns a surface's fields into `page.setViewportSize` / `goto` / `emulateMedia` / `reload` and answers `wants(name)` from the plan's own map — platform calls, and it decides nothing (every boolean it reads is serialized by the Rust rather than defaulted here)
 BOUNDARY | agent/src/plugins/playwright/helper.js | the page-side helper the playwright plugin drives
-LOGIC | agent/scripts/e2e/ | **THE JUDGE, AND IT WAS CLASSIFIED BOUNDARY BY ITS NAME RATHER THAN ITS CONTROL FLOW.** The suite's page-side half does run where `browser_run_script` runs, which is what the old reason said — but it also carries **75 `check(name, cond, detail)` calls** that COMPUTE their conditions (`.some(...)`, `rs === 'OK'`, `text.includes('E2E-SESSION-OK')`, `state === 'partial'`), DERIVE the detail strings a reader acts on, and decide whether a device passed. That is this manifest's own LOGIC definition verbatim, and the precedent is the design sweeps: their in-page COLLECTOR stayed JS while **the JUDGE and DRIVER became Rust**. The manifest's own comment above the sweep rules says the audit that cleared six files did it *"by reading its control flow rather than its name"* — this rule was not read that way. **THE PORT IS TRACTABLE BECAUSE THE CORPUS EXISTS**: a device run on 2026-10-09 recorded **906 KB** of raw tool answers to `e2e-rec.json` through the `--record` mode added for exactly this, so the Rust judge replays recorded answers instead of needing a device.
+BOUNDARY | agent/scripts/e2e/ | **THE DRIVER — AND THIS RULE WAS `LOGIC` FOR A DAY, WHICH IS THE PART WORTH KEEPING.** It was classified BOUNDARY by its NAME, reclassified LOGIC on 2026-10-10 by reading its CONTROL FLOW (the standard the manifest's own comment above sets, and the reading this rule had not been given), and is BOUNDARY again because the thing that made it LOGIC has LEFT THE FILE: its `check(...)` call sites — which COMPUTED their conditions (`.some(...)`, `rs === 'OK'`, `text.includes('E2E-SESSION-OK')`, `state === 'partial'`) and DERIVED the sentences a reader triages a failure from — are `agent/e2e-judge/` now, with the section ladder that chose what ran and the policy caps and floors. That is the cut the design sweeps made, their in-page COLLECTOR staying JS while the JUDGE and the PLAN became Rust. **AND THE RECLASSIFICATION WAS RIGHT ABOUT THE CLASS WHILE OFF BY ONE ON THE COUNT**: it says 75 calls, and the file carries **74 call sites** — the 75th `check(` in it is the function's own DEFINITION and the 76th is that comment; a clean run registers 76 checks, because the six `mcp` ones run once per transport and four sites are alternative arms a green run does not take. **The port found that, which is what a count is for.** What is left here performs the platform calls — `fetch` against the agent's own tool surface, a CDP WebSocket to 9333, the `browser_run_script` payload STRINGS a browser evaluates, `require('node:fs')` for its own scratch files, and the polling loops that wait for an answer to arrive — and then writes down what it asked and what came back: no condition, no detail string, no count, no verdict exit code. The two predicates it keeps are named in its header: a poll's TERMINATION condition (built out of the plan's own data, and re-judged from the recorded series) and a HANDLE read out of an answer (`terminal_open`'s sid, a snapshot's `[ref=…]`) so the next call can be made at all. **AND THE GENERATED COPY HAS A PRODUCER NOW**: `index/public/summrise-agent/e2e.js` was a hand-`cp`'d copy that no gate compared to its source, and it is `summrise-e2e-judge --bundle`'s output, pinned by `agent/e2e-judge/tests/bundle.rs`
 # ── AND THE SIX THE SWEEPS' AUDIT OF 2026-10-08 CLEARED, EACH BY READING ITS CONTROL FLOW RATHER THAN ITS NAME ──
 # The audit was run because the paragraph that used to claim "everything left is a boundary" was written without one,
 # and it retracted two of its own findings (see the spec's §4.1). These six are the part that survived: none of them

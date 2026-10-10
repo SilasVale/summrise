@@ -378,6 +378,14 @@ jobs:
           # advertises against what each channel's upstream actually lists — and that `.mjs` is DELETED in
           # the same landing, so this line is the only thing that runs the ported cases.
           cargo test -p summrise-model-drift --no-fail-fast
+          # **THE DEVICE E2E SUITE'S PLAN AND JUDGE (2026-10-10).** Same story a fourth time, and this one is
+          # the largest: `agent/scripts/e2e/e2e.js` carried **74 `check(...)` call sites** — 76 checks at
+          # runtime, because the mcp probe runs twice — that COMPUTED their conditions and DERIVED the sentences
+          # a reader triages a failure from, and the section ORDER they ran in. The platform half stays
+          # JavaScript; the plan and the judge are `agent/e2e-judge/`. This line is what runs the 42 tests that
+          # pin both: a green whole-suite fixture, one planted defect per check, the plan/fixture contract with
+          # the driver in both directions, and the emitted bundle's freshness.
+          cargo test -p summrise-e2e-judge --no-fail-fast
         # **THE LINE MY LAST PATCH ATE.** The repo root has NO `Cargo.toml` — the crates live in `agent/` —
         # so these three commands only work from there, and `working-directory: agent` sat between them and
         # the next `- name:` step. A text-range patch that ends at the next step's name deleted it, and the
@@ -431,6 +439,7 @@ jobs:
           cargo clippy -p summrise-cli --all-targets -- -D warnings
           cargo clippy -p summrise-sweep-plan --all-targets -- -D warnings
           cargo clippy -p summrise-model-drift --all-targets -- -D warnings
+          cargo clippy -p summrise-e2e-judge --all-targets -- -D warnings
         working-directory: agent
       - name: Format check
         run: cargo fmt --all -- --check
@@ -497,7 +506,32 @@ jobs:
         run: |
           TOKEN=$(grep -o 'device_token: [a-f0-9]*' /tmp/summrise-e2e/config.yaml | awk '{print $2}')
           test -n "$TOKEN" || { echo "no device_token in the scratch config"; exit 1; }
-          node scripts/e2e/e2e.js --token "$TOKEN" --base http://127.0.0.1:18811 --only governance,runs
+          # THE THREE COMMANDS ARE THE SPLIT, IN ORDER, AND EACH ONE IS A DIFFERENT LANGUAGE ON PURPOSE.
+          #
+          # 1. RUST DECIDES WHAT RUNS: which sections, in what order, and on what numbers. `--only` is
+          #    validated here, so a renamed section is a failure in THIS step rather than a suite that selects
+          #    nothing and reports success.
+          # 2. JAVASCRIPT DRIVES THE DEVICE and writes down what it asked and what came back. It decides
+          #    nothing, and its exit code says whether it COLLECTED rather than whether the agent passed — so
+          #    it is never the last command in this step.
+          # 3. RUST JUDGES THE ROWS, and `--expect` is what refuses a recording that ran something other than
+          #    what this step asked for. THIS exit code is the job's: 0 all passed, 1 something failed,
+          #    2 DID NOT RUN.
+          cargo run --quiet -p summrise-e2e-judge -- --plan --only governance,runs \
+            > /tmp/summrise-e2e/plan.json
+          node scripts/e2e/e2e.js --plan /tmp/summrise-e2e/plan.json --token "$TOKEN" \
+            --base http://127.0.0.1:18811 --rows /tmp/summrise-e2e/rows.json
+          cargo run --quiet -p summrise-e2e-judge -- --rows /tmp/summrise-e2e/rows.json \
+            --expect governance,runs
+      - name: Show the rows and the verdict when the suite fails
+        if: failure()
+        working-directory: agent
+        run: |
+          # THE ROWS ARE THE EVIDENCE, so a red run leaves them where the judge read them. `head -c` rather
+          # than `cat`: the file section uploads 300 KB of base64 on a full run, and a job log does not need it.
+          test -f /tmp/summrise-e2e/rows.json && head -c 20000 /tmp/summrise-e2e/rows.json || true
+          cargo run --quiet -p summrise-e2e-judge -- --rows /tmp/summrise-e2e/rows.json \
+            --expect governance,runs || true
       - name: Show the agent log when the suite fails
         if: failure()
         run: tail -50 /tmp/summrise-e2e/agent.log || true
