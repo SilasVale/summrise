@@ -108,44 +108,48 @@ writeFileSync(
     `export default new WebAssembly.Module(readFileSync(new URL("./index_bg.wasm", import.meta.url)));\n`,
 );
 
-// ── the old route: the TypeScript the deployed worker runs ──────────────────────────────────────
-const { buildHealth } = await import(new URL("../src/tooling.ts", import.meta.url).href);
-const { jsonOk } = await import(new URL("../src/http.ts", import.meta.url).href);
-const { __clearDegradedCache } = await import(new URL("../src/reliability.ts", import.meta.url).href);
-
-/** The Durable Object namespace stub — `constructor.name` is what workers-rs' binding check reads. */
-class DurableObjectNamespace {
-  constructor(check) {
-    this.check = check;
+// ── THE HEALTH ROUTE: THE WASM AGAINST THE FROZEN ANSWER ────────────────────────────────────────
+//
+// **THIS IS THE ONE SECTION THAT HAD NO FIXTURE, WHICH IS WHY IT IS THE ONE THAT NEEDED A CAPTURE.**
+// Every other section below compares the built worker against a recorded answer keyed by case name; this
+// one compared LIVE against LIVE — the shipping `buildHealth`, wrapped in the shipping `jsonOk` exactly as
+// `index.ts` wraps it, against the worker's answer, in the same process. Retiring the TypeScript takes the
+// left-hand side away, so the two answers were captured once, while both sides still existed and agreed
+// byte for byte (`1228` and `1378` bytes, the same two numbers this section printed on its last green run),
+// and they are constants here.
+//
+// **WHAT IS LOST, NAMED RATHER THAN IMPLIED**: a change to the shipping `buildHealth` can no longer fail
+// this section, because there is no shipping `buildHealth` to change. What remains is what the corpus keeps
+// everywhere else — the worker must still produce exactly these bytes, and a worker that stopped would say so.
+const HEALTH_ANSWERS = {
+  "0": {
+    "status": 200,
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "body": "{\"channels\":[{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-max-preview\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-flash\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/deepseek-v4.1-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/deepseek-v4.1-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/gpt-5.6-luna\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/mimo-v2.5\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/mimo-v2.6-flash\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/ox-alpha-free\"},{\"id\":\"og\",\"ok\":true,\"model\":\"og/muse-spark-1.3-contributor\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/openai/gpt-5.6-luna:floor[1m]\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/z-ai/glm-5.2:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/stealth/ox-alpha\"},{\"id\":\"nv\",\"ok\":true,\"model\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M3\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M2.7\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/deepseek/deepseek-v4.1-flash\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/meituan/LongCat-2.0:free\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/poolside/laguna-s-2.1-free\"},{\"id\":\"r4\",\"ok\":true,\"model\":\"r4/deepseek-v4.1-flash\"}],\"recommended\":{\"channel\":\"cm\",\"model\":\"cm/deepseek/deepseek-v4.1-flash\"}}"
+  },
+  "1": {
+    "status": 200,
+    "headers": [
+      "access-control-allow-headers: *",
+      "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+      "content-type: application/json"
+    ],
+    "body": "{\"channels\":[{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-max-preview\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/qwen3.8-flash\"},{\"id\":\"qw\",\"ok\":true,\"model\":\"qw/deepseek-v4.1-flash\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/deepseek-v4.1-flash\",\"reason\":\"circuit open\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/gpt-5.6-luna\",\"reason\":\"circuit open\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/mimo-v2.5\",\"reason\":\"circuit open\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/mimo-v2.6-flash\",\"reason\":\"circuit open\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/ox-alpha-free\",\"reason\":\"circuit open\"},{\"id\":\"og\",\"ok\":false,\"model\":\"og/muse-spark-1.3-contributor\",\"reason\":\"circuit open\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/openai/gpt-5.6-luna:floor[1m]\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/z-ai/glm-5.2:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/nvidia/nemotron-3-ultra-550b-a55b:free\"},{\"id\":\"or\",\"ok\":true,\"model\":\"or/stealth/ox-alpha\"},{\"id\":\"nv\",\"ok\":true,\"model\":\"nv/nvidia/nemotron-3-ultra-550b-a55b\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M3\"},{\"id\":\"gmi\",\"ok\":true,\"model\":\"gmi/MiniMaxAI/MiniMax-M2.7\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/deepseek/deepseek-v4.1-flash\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/meituan/LongCat-2.0:free\"},{\"id\":\"cm\",\"ok\":true,\"model\":\"cm/poolside/laguna-s-2.1-free\"},{\"id\":\"r4\",\"ok\":true,\"model\":\"r4/deepseek-v4.1-flash\"}],\"recommended\":{\"channel\":\"cm\",\"model\":\"cm/deepseek/deepseek-v4.1-flash\"}}"
   }
-  idFromName() {
-    return {};
-  }
-  get() {
-    const { check } = this;
-    return { fetch: async () => new Response(check) };
-  }
-}
-const envFor = (check) => ({ BREAKER: new DurableObjectNamespace(check), DO_AUTH: "stub-do-auth" });
-
-const CASES = [
-  { check: "0", label: "breaker closed — every card ok" },
-  { check: "1", label: "breaker open — the og cards carry reason" },
-];
+};
 
 const pairs = (headers) =>
   [...headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
 
 let bad = 0;
 for (const [i, c] of CASES.entries()) {
-  // The old side. `__clearDegradedCache()` because `degradedCache` is module state with a 5 s TTL,
-  // and a stale value would make the second case answer with the first case's bytes.
-  __clearDegradedCache();
-  const tsResponse = jsonOk(await buildHealth(envFor(c.check)));
-  const tsBody = Buffer.from(await tsResponse.arrayBuffer());
-
-  // The new side, in a FRESH module instance per case — the same reason, one level down: the Rust
-  // cache is also isolate state, and a fresh instance is also what a new isolate looks like.
+  const want = HEALTH_ANSWERS[c.check];
+  // The worker, in a FRESH module instance per case: the Rust health cache is isolate state, and a fresh
+  // instance is what a new isolate looks like.
   const worker = await import(`${pathToFileURL(BUILT).href}?case=${i}`);
   const instance = new worker.default();
   instance.env = envFor(c.check);
@@ -154,26 +158,26 @@ for (const [i, c] of CASES.entries()) {
   const rsBody = Buffer.from(await rsResponse.arrayBuffer());
 
   const rows = [
-    ["status", String(tsResponse.status), String(rsResponse.status)],
-    ["headers", pairs(tsResponse.headers).join(" | "), pairs(rsResponse.headers).join(" | ")],
-    ["body bytes", String(tsBody.length), String(rsBody.length)],
-    ["body", tsBody.toString("utf8"), rsBody.toString("utf8")],
+    ["status", String(want.status), String(rsResponse.status)],
+    ["headers", want.headers.join(" | "), pairs(rsResponse.headers).join(" | ")],
+    ["body bytes", String(Buffer.byteLength(want.body, "utf8")), String(rsBody.length)],
+    ["body", want.body, rsBody.toString("utf8")],
   ];
   let differs = 0;
-  for (const [what, want, got] of rows) if (want !== got) differs++;
+  for (const [what, w, got] of rows) if (w !== got) differs++;
 
   console.log(`  ${c.label}`);
-  console.log(`      ${differs ? "FAIL" : "ok  "} ${URL_UNDER_TEST} — ${tsBody.length} bytes, status ${tsResponse.status}`);
+  console.log(`      ${differs ? "FAIL" : "ok  "} ${URL_UNDER_TEST} — ${rsBody.length} bytes, status ${rsResponse.status}`);
   if (differs) {
     bad++;
-    for (const [what, want, got] of rows) {
-      if (want === got) continue;
+    for (const [what, w, got] of rows) {
+      if (w === got) continue;
       console.log(`      ${what} DIFFERS`);
-      console.log(`        ts  : ${JSON.stringify(want).slice(0, 400)}`);
-      console.log(`        rust: ${JSON.stringify(got).slice(0, 400)}`);
+      console.log(`        frozen: ${JSON.stringify(w).slice(0, 400)}`);
+      console.log(`        wasm  : ${JSON.stringify(got).slice(0, 400)}`);
     }
   } else {
-    console.log(`      body is byte-identical (${tsBody.length} bytes), and so are status and headers`);
+    console.log(`      body is byte-identical to the frozen answer (${rsBody.length} bytes), and so are status and headers`);
   }
 }
 
@@ -842,6 +846,49 @@ const rowsFor = (got) => [
 ];
 
 
+// ── THE SESSION TOKENS, FROZEN — THE FIRST HALF OF RETIRING THE TYPESCRIPT ORACLE ────────────────
+//
+// **THE HARNESS MINTS ITS OWN CREDENTIALS, AND IT MUST STOP ASKING `../src/auth.ts` TO DO IT.** Every section
+// below drives the built worker with a session cookie; until now it built that cookie with the shipping
+// `issueSessionToken`, which is one of the files the rollback retirement deletes. The freeze is a CAPTURE
+// rather than a re-implementation — the same three claims, in the same order, with the same 24-hour life — and
+// it is the IDENTITY SECTION'S OWN SOLUTION, hoisted here because a second copy is how two sections come to
+// mint tokens that disagree.
+//
+// **AND IT IS DETERMINISTIC, WHICH IS WHY IT IS NOT SIMPLY A COPIED STRING.** `issueSessionToken` stamps
+// `Date.now() + TTL`, and the device and proxy sections mint at SETUP — before `installDeterminism` — so their
+// tokens carried the WALL CLOCK. A captured string would work (its `exp` is in the future relative to the
+// pinned instant, permanently) but it would freeze a value nobody can regenerate; the identity section already
+// found the better shape and recorded why: a wall-clock token made the recorded logout-blacklist WRITE differ
+// by exactly the 22 seconds between the recording run and the first replay.
+//
+// The pinned instant is the one every section already uses (`FIXED_NOW`), and the worker validates `exp`
+// against it because the harness patches `Date` — `worker::Date::now()` IS `new Date()`.
+const FROZEN_NOW = 1_760_000_000_000; // 2025-10-05T02:13:20Z, the instant every section pins
+const FROZEN_SESSION_LIFE_MS = 24 * 3600 * 1000;
+const frozenB64url = (text) => Buffer.from(text, "utf8").toString("base64url");
+/** `issueSessionToken(secret, uid, role)` under the pinned clock: the same claims, the same order, the same life. */
+const frozenSession = async (secret, uid, role, exp = FROZEN_NOW + FROZEN_SESSION_LIFE_MS) => {
+  const payload = frozenB64url(JSON.stringify({ uid, role, exp }));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return `${payload}.${Buffer.from(signature).toString("base64url")}`;
+};
+
+// ── THE TWO PASSWORD HASHES THE IDENTITY SEED CARRIES, FROZEN THE SAME WAY ──────────────────────
+//
+// `hashPassword(pw, salt)` is PBKDF2 over a FIXED salt, so it is deterministic and was captured once
+// (verified `deterministic: true` across two calls) rather than re-derived here: the derivation is 100,000
+// iterations and belongs to the shipping implementation, which is the thing being retired.
+const FROZEN_ADMIN_HASH = "0123456789abcdef:2f2e18e2edee7949453a16a119ab3c0a0757eea8d1d65e25c72c258323bc45ef";
+const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345c8c158eb566e276d70d1d31e87";
+
 // ── THE DIVERGENCE SWEEP — the number that answers "how much longer" ─────────────────────────────
 // **EVERY CUTOVER BLOCKER FOUND SINCE THE TAKEOVER WAS FOUND THE SAME WAY**: drive the SHIPPING front door and
 // the BUILT worker with the same inputs and compare. What was missing was the SUMMARY, so "are we done?" was a
@@ -869,10 +916,10 @@ const rowsFor = (got) => [
   const FIXTURE = existsSync(FIXTURE_URL)
     ? JSON.parse(redactHosts(readFileSync(FIXTURE_URL, "utf8")))
     : {};
-  const shippingDoor = process.env.SWEEP_RECORD
-    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
-    : null;
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  const shippingDoor = null; // the TypeScript oracle is retired: this section is corpus-only now
+  // The shipping TypeScript is retired, so the module state this cleared no longer exists; the WASM side
+  // is isolated by a FRESH MODULE INSTANCE per case, which is the isolation that actually matters here.
+  const __clearCaches = () => {};
 
   const UID = "u-sweep";
   const TOKEN = "tok-sweep";
@@ -2537,12 +2584,8 @@ const rowsFor = (got) => [
     "https://breaker/reset",
     "https://breaker/reset",
   ];
-  const { __clearCaches: clearCaches2 } = await import(
-    new URL("../src/store/cache.ts", import.meta.url).href
-  );
-  const { __clearDegradedCache: clearDegraded2 } = await import(
-    new URL("../src/reliability.ts", import.meta.url).href
-  );
+  const clearCaches2 = () => {}; // see the note on `__clearCaches`: no shipping module state is left
+  const clearDegraded2 = () => {}; // ditto: the shipping `degradedCache` went with `reliability.ts`
 
   // **AND THE CLASS MUST BE NAMED `DurableObjectNamespace`.** workers-rs duck-types a DO binding on
   // `constructor.name === "DurableObjectNamespace"` (`worker-0.8.7/src/env.rs:148`), so a stub with any other
@@ -2766,8 +2809,9 @@ const rowsFor = (got) => [
   const TUNNEL_KEY = "tunnelkey01";
   const GRANT_CODE = "c".repeat(32);
 
-  const { issueSessionToken } = await import(new URL("../src/auth.ts", import.meta.url).href);
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  // The shipping TypeScript is retired, so the module state this cleared no longer exists; the WASM side
+  // is isolated by a FRESH MODULE INSTANCE per case, which is the isolation that actually matters here.
+  const __clearCaches = () => {};
 
   // ── the clock, the CSPRNG, the KV stub and the upstream: all shared, all pinned ────────────────
   // `installDeterminism`, `restoreGlobals`, `makeKvStub`, `buildRequestFor`, `stubUpstreamFor` and `rowsFor`
@@ -2841,11 +2885,12 @@ const rowsFor = (got) => [
   // The expiry of an UNSPENT registration key is KV's own, so a seeded key has none reported by `list()` —
   // which is exactly the "expired but not yet reaped" state the source's filter exists for.
   const COOKIES = {
-    admin: await issueSessionToken(SESSION_SECRET, "admin", "admin"),
-    user: await issueSessionToken(SESSION_SECRET, "bob", "user"),
-    suspended: await issueSessionToken(SESSION_SECRET, "suspended", "admin"),
-    ghost: await issueSessionToken(SESSION_SECRET, "nobody", "admin"),
-    forged: await issueSessionToken("the-wrong-secret", "admin", "admin"),
+    admin: await frozenSession(SESSION_SECRET, "admin", "admin"),
+    user: await frozenSession(SESSION_SECRET, "bob", "user"),
+    suspended: await frozenSession(SESSION_SECRET, "suspended", "admin"),
+    ghost: await frozenSession(SESSION_SECRET, "nobody", "admin"),
+    // A token signed with the WRONG key: the forged-cookie case, which must be rejected on both sides.
+    forged: await frozenSession("the-wrong-secret", "admin", "admin"),
   };
 
   const UPSTREAM_STATUS = {
@@ -3212,9 +3257,7 @@ const rowsFor = (got) => [
   ];
 
   // ── the two doors ───────────────────────────────────────────────────────────────────────────────
-  const shippingDoor = process.env.DEVICES_RECORD
-    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
-    : null;
+  const shippingDoor = null; // the TypeScript oracle is retired: this section is corpus-only now
 
   const buildRequest = (c, cookie) => {
     const [method, path, body] = c.req;
@@ -3547,8 +3590,9 @@ const rowsFor = (got) => [
   const UPLOAD_KEY = "the-upload-key";
   const PROXY_SECRET = "s".repeat(32);
 
-  const { issueSessionToken } = await import(new URL("../src/auth.ts", import.meta.url).href);
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  // The shipping TypeScript is retired, so the module state this cleared no longer exists; the WASM side
+  // is isolated by a FRESH MODULE INSTANCE per case, which is the isolation that actually matters here.
+  const __clearCaches = () => {};
 
   const makeKv = (seed) => makeKvStub(seed, FIXED_NOW);
 
@@ -3589,8 +3633,8 @@ const rowsFor = (got) => [
     }),
   };
   const COOKIES = {
-    admin: await issueSessionToken(SESSION_SECRET, "admin", "admin"),
-    user: await issueSessionToken(SESSION_SECRET, "bob", "user"),
+    admin: await frozenSession(SESSION_SECRET, "admin", "admin"),
+    user: await frozenSession(SESSION_SECRET, "bob", "user"),
   };
 
   const deviceEnv = (kv, extra = {}) => ({
@@ -4266,9 +4310,7 @@ const rowsFor = (got) => [
   ];
 
   // ── the two doors ───────────────────────────────────────────────────────────────────────────────
-  const shippingDoor = process.env.PROXY_RECORD
-    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
-    : null;
+  const shippingDoor = null; // the TypeScript oracle is retired: this section is corpus-only now
 
   // ── **NODE REQUIRES `duplex` FOR A STREAM BODY; WORKERD DOES NOT, AND THAT IS THE ONE PLATFORM
   // DIFFERENCE THIS SECTION HAS TO NORMALIZE.** ────────────────────────────────────────────────────
@@ -4655,14 +4697,15 @@ const rowsFor = (got) => [
   const KID = "kid-2026-10";
   const IP = "203.0.113.40"; // one address per case family; see the note on the module-state caches below
 
-  const { issueSessionToken, hashPassword } = await import(new URL("../src/auth.ts", import.meta.url).href);
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  // The shipping TypeScript is retired, so the module state this cleared no longer exists; the WASM side
+  // is isolated by a FRESH MODULE INSTANCE per case, which is the isolation that actually matters here.
+  const __clearCaches = () => {};
 
   // ── the two credential hashes the seed carries ──────────────────────────────────────────────────
   // **THE HASH IS THE SHIPPING IMPLEMENTATION'S**, computed by the same `hashPassword` the worker runs, so a
   // login case is a real PBKDF2 verification on both sides rather than a string compare against a fixture.
-  const ADMIN_HASH = `${ADMIN_SALT}:${await hashPassword(ADMIN_PW, ADMIN_SALT)}`;
-  const BOB_HASH = `${BOB_SALT}:${await hashPassword(BOB_PW, BOB_SALT)}`;
+  const ADMIN_HASH = FROZEN_ADMIN_HASH;
+  const BOB_HASH = FROZEN_BOB_HASH;
 
   // ── the RS256 key pair, the JWKS built from it, and the tokens signed with it ────────────────────
   const keyPair = await crypto.subtle.generateKey(
@@ -5356,9 +5399,7 @@ const rowsFor = (got) => [
   };
 
   // ── the two doors ───────────────────────────────────────────────────────────────────────────────
-  const shippingDoor = process.env.AUTH_RECORD
-    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
-    : null;
+  const shippingDoor = null; // the TypeScript oracle is retired: this section is corpus-only now
 
   /** The seed for a case: the shared registry, the case's overrides, and `null`/`undefined` meaning REMOVE. */
   const seedFor = (c) => {
@@ -5683,7 +5724,9 @@ const rowsFor = (got) => [
   const D1_TOKEN = "1".repeat(64);
   const D2_TOKEN = "2".repeat(64);
 
-  const { __clearCaches } = await import(new URL("../src/store/cache.ts", import.meta.url).href);
+  // The shipping TypeScript is retired, so the module state this cleared no longer exists; the WASM side
+  // is isolated by a FRESH MODULE INSTANCE per case, which is the isolation that actually matters here.
+  const __clearCaches = () => {};
 
   // The KV stub is the SHARED one (see "THE STUBS BOTH RECORDED SECTIONS STAND ON"), with this section's clock.
   const makeKv = (seed) => makeKvStub(seed, FIXED_NOW);
@@ -6113,9 +6156,7 @@ const rowsFor = (got) => [
   ];
 
   // ── the two doors ───────────────────────────────────────────────────────────────────────────────
-  const shippingDoor = process.env.MCP_RECORD
-    ? (await import(new URL("../src/index.ts", import.meta.url).href)).default
-    : null;
+  const shippingDoor = null; // the TypeScript oracle is retired: this section is corpus-only now
 
   const buildRequest = (c) => {
     const [method, path, body] = c.req;
@@ -6445,136 +6486,21 @@ const rowsFor = (got) => [
   bad += different;
 }
 
-// ── THE CUTOVER IS A ROUTING DECISION, AND THIS SECTION IS ITS PROOF ─────────────────────────────
+// ── THE CUTOVER SECTION IS DELETED, AND THIS IS WHERE IT STOOD ──────────────────────────────────
 //
-// `./scripts/build.sh gateway` is what puts the new code in front of a user, and the CODE's half of the cutover
-// is `index.ts`'s handover: with the `WASM_GATE` binding present, the device family, the identity surface and the
-// MCP endpoint are served by the Rust worker; without it, by the TypeScript plugins — which is the rollback, and
-// the reason `plugins/devices.ts`, `plugins/auth.ts`, `plugins/mcp.ts` and the stores are still in the tree.
+// **IT ASSERTED THE BOUNDARY BETWEEN TWO IMPLEMENTATIONS, AND THE BOUNDARY IS WHAT RETIRED.** Every row was of
+// the form "this path is HANDED TO THE GATE" versus "this path is KEPT ON THE TYPESCRIPT PATH", driven through
+// the shipping front door with a stub gate; with the fallback gone there is no second path, so the assertion
+// has no subject left to be about.
 //
-// **A BOUNDARY NOBODY MEASURES IS A BOUNDARY NOBODY HAS.** This section drives the SHIPPING front door with a
-// stub gate that RECORDS what reached it, and asserts what the handover claims: each family's routes go to the
-// gate, the routes the slices did not port do NOT, and the `/v1` cutover is unchanged. **AND EVERY FAMILY HAS
-// ROWS IN BOTH DIRECTIONS**, which is what keeps an exclusion from being a comment: `/mcp` goes to the gate and
-// `GET /api/plugins/status` — the same plugin's other route, whose response carries the TypeScript registry's own
-// dispatch counters — does not. **AND THE DEVICE FAMILY'S TWO EXCLUSIONS WERE THE LAST ONES**: slice 4 ported the
-// reverse proxy and `POST|PUT /api/upload`, so those rows now point at the gate and the one row left on that
-// prefix's TypeScript side is `GET /api/upload` — the verb the route does not answer — which is what keeps a
-// prefix rule from passing this section. The stub answers a
-// recognisable body, so a case that was supposed to reach it and did not is visible in the response rather than
-// assumed from a list.
+// **AND WHAT IT PROTECTED IS NOT LOST — IT MOVED, WHICH IS WHY THIS IS A DELETION RATHER THAN A GAP.** That
+// section checked the HANDOVER; the corpus checks the ANSWER, per path, byte for byte, for all 399 recorded
+// cases — a strictly stronger statement, because a path can be handed over to a worker that answers it wrongly
+// and the handover section would have called that green. The same reading retires
+// `gateway/test/devices-cutover.test.mjs`, `auth-cutover.test.mjs` and `mcp-cutover.test.mjs`: a test belongs
+// to the code it tests, and their code is the fallback.
 //
-// **AND ONE ROW IS SLICE 2's POINT, WRITTEN WHERE IT WAS MEASURED.** `GET /api/devices` with NO cookie was
-// asserted as "kept on the TypeScript path" while `requireSession`'s Access arm was unported; that arm is Rust
-// now, the condition is deleted, and the row asserts the direction the code now takes — a cookie-less admin is
-// served by the worker. A cutover that only ever grows a list is a cutover whose deletions are untested.
-{
-  const shippingDoor = (await import(new URL("../src/index.ts", import.meta.url).href)).default;
-  const forwarded = [];
-  const gateBody = JSON.stringify({ servedBy: "the-wasm-gate" });
-  const env = {
-    KEYS: {
-      async get() {
-        return null;
-      },
-      async put() {},
-      async delete() {},
-      async list() {
-        return { keys: [], list_complete: true, cursor: undefined };
-      },
-    },
-    CONSOLE_HOST: "console.test",
-    CONSOLE_ORIGINS: "https://console.test",
-    WASM_GATE: {
-      async fetch(request) {
-        forwarded.push(`${request.method} ${new URL(request.url).pathname}`);
-        return new Response(gateBody, {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      },
-    },
-  };
-  const session = await (await import(new URL("../src/auth.ts", import.meta.url).href)).issueSessionToken(
-    "cutover-secret",
-    "admin",
-    "admin",
-  );
-  const call = async (method, path, withCookie) => {
-    forwarded.length = 0;
-    const headers = withCookie ? { cookie: `ag_session=${session}` } : {};
-    const response = await shippingDoor.fetch(new Request(`https://console.test${path}`, { method, headers }), env, {});
-    const body = await response.text();
-    return { reached: forwarded.length > 0, body, status: response.status };
-  };
-
-  const CUTOVER_CASES = [
-    // [method, path, cookie?, should the GATE see it?, why]
-    ["GET", "/api/devices", true, true, "the family's list route"],
-    ["POST", "/api/devices", true, true, "the family's add route"],
-    ["GET", "/api/devices/d1/mcp", true, true, "a device's MCP config"],
-    ["DELETE", "/api/devices/d1", true, true, "a device's delete"],
-    ["POST", "/api/devices/d1/rename", true, true, "a device's rename"],
-    ["POST", "/api/devices/d1/panel-grant", true, true, "a panel grant"],
-    ["POST", "/api/devices/panel-grant/redeem", false, true, "the grant's redeem: the AGENT calls it with a device token and no cookie at all"],
-    ["GET", "/api/devices/register-keys", true, true, "the outstanding keys"],
-    ["POST", "/api/devices/register-key", true, true, "a new key"],
-    ["GET", "/api/devices/install-cmd", true, true, "the install command"],
-    ["POST", "/api/register", false, true, "the public registration, which never has a session"],
-    ["POST", "/api/devices/self-register", false, true, "the agent's self-registration, cookie-less by nature"],
-    ["POST", "/api/install/tunnel-token", false, true, "the tunnel token, cookie-less by nature"],
-    ["GET", "/api/devices/anything/else", true, true, "a path under the prefix the family does not serve (the worker's own 404, which is the front door's)"],
-    // **THE FAMILY'S TWO EXCLUSIONS, HANDED OVER AS OF SLICE 4** — the same two rows, pointed the other way,
-    // which is how a deleted exclusion is measured rather than merely gone.
-    ["GET", "/api/devices/d1/proxy/panel", true, true, "the reverse proxy: `device_proxy.rs` since slice 4"],
-    ["POST", "/api/devices/d1/proxy/mcp", true, true, "…and it accepts any method, as the route always did"],
-    ["GET", "/api/devices/d1/proxyfoo", true, true, "…and the capture group is `(.*)`, so this is proxied too"],
-    ["GET", "/api/devices", false, true, "NO session cookie: the Cloudflare Access arm is RUST now (slice 2), so a cookie-less admin goes to the worker like every other caller"],
-    // ---- the identity surface (landing 5 slice 2) ----
-    ["POST", "/api/auth/login", false, true, "the credential routes need no session"],
-    ["POST", "/api/auth/register", false, true, "…and neither does registration"],
-    ["GET", "/api/me", true, true, "the account route"],
-    ["GET", "/api/me", false, true, "the account route with NO cookie: the Access arm decides"],
-    ["POST", "/api/me/token/regenerate", true, true, "a token rotation"],
-    ["PUT", "/api/me/keys", true, true, "a key save"],
-    ["GET", "/api/auth/nonsense", false, true, "a path under the base the worker answers with its own 404"],
-    // NOT handed over:
-    ["GET", "/api/me/route", true, false, "the model-route selection resolves through the catalogue and RouteDO, and is not this slice"],
-    ["PUT", "/api/me/route", true, false, "…the same route's write"],
-    ["POST", "/api/me/keys/test", true, false, "the key diagnostics dial six providers, and are not this slice"],
-    ["POST", "/api/me/keys/usage", true, false, "…the same for the usage queries"],
-    ["POST", "/api/upload", true, true, "the file relay's upload leg: `upload.rs` since slice 4"],
-    ["PUT", "/api/upload?name=a.bin", true, true, "…and its raw-stream verb"],
-    ["GET", "/api/upload", true, false, "…but the route is POST|PUT only, so the plugin still answers this one"],
-    ["GET", "/api/health", true, false, "the public tooling route, unchanged"],
-    // ---- the MCP surface (landing 5 slice 3) ----
-    ["POST", "/mcp", false, true, "the JSON-RPC endpoint: its credential is a Bearer admin token, never a cookie"],
-    ["GET", "/mcp", false, true, "…and the GET probe Claude Code makes first, which is the SSE stream"],
-    ["PUT", "/mcp", false, true, "…and a verb it answers 405 to, which is still the family's answer to give"],
-    // NOT handed over:
-    ["GET", "/api/plugins/status", true, false, "the plugin's OTHER route: its `routes` field is the TypeScript plugin registry's own dispatch counters, which this worker does not have and must not invent"],
-  ];
-  let cutoverOk = 0;
-  let cutoverBad = 0;
-  for (const [method, path, cookie, expected, why] of CUTOVER_CASES) {
-    const got = await call(method, path, cookie);
-    const ok = got.reached === expected;
-    if (ok) cutoverOk += 1;
-    else cutoverBad += 1;
-    console.log(
-      `      ${ok ? "ok  " : "FAIL"} ${method} ${path}${cookie ? "" : " (no cookie)"} — ${got.reached ? "handed to the gate" : "kept on the TypeScript path"} (${why})`,
-    );
-  }
-  // The `/v1` cutover, which this change must not have disturbed.
-  const v1 = await call("GET", "/v1/models", false);
-  if (v1.reached) cutoverOk += 1;
-  else {
-    cutoverBad += 1;
-    console.log("      FAIL GET /v1/models — the existing cutover went to the gate before this change and must still");
-  }
-  console.log(`  the two cutovers, through the shipping front door with a stub gate: ${cutoverOk}/${CUTOVER_CASES.length + 1} routed as the boundary says`);
-  bad += cutoverBad;
-}
+// Left as a comment rather than as nothing, so the next reader can tell a deliberate deletion from a lost test.
 
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");
