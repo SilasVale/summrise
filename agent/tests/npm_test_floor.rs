@@ -251,6 +251,19 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
             Runner::NodeTest => {}
         }
         let out = Spawn::new("npm").args(["test"]).cwd(repo().join(dir)).run();
+        // **AND THE FAILING TESTS' NAMES, BECAUSE A TAIL OF 12 LINES DOES NOT REACH THEM.** MEASURED 2026-10-10:
+        // CI reported `gateway: `npm test` exited 1 … 64 !== 73` and nothing else, so the one thing a reader needs
+        // — WHICH test — was 300 lines above the tail. `node --test` prints them as `✖ <name> (<ms>)`, and this is
+        // the same move `scripts/test/all-gates.bash` makes for cargo's `panicked at`: **a gate whose output does
+        // not name the failure is a gate somebody re-runs hoping.**
+        let failing: String = out
+            .both()
+            .lines()
+            .filter(|l| l.trim_start().starts_with('✖'))
+            .take(6)
+            .collect::<Vec<_>>()
+            .join("
+");
         let tail: String = out
             .both()
             .lines()
@@ -264,7 +277,7 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
         if !out.ok() {
             failures.push(format!(
                 "{dir}: `npm test` exited {} — the suite failed, which is the suite's own verdict and this \
-                 floor passes it through. Output tail:\n{tail}",
+                 floor passes it through.\nFailing tests:\n{failing}\nOutput tail:\n{tail}",
                 out.code()
             ));
             continue;
