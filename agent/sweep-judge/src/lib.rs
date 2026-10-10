@@ -30,6 +30,8 @@ pub mod press;
 pub mod report;
 pub mod summary;
 pub mod tools;
+pub mod waivers;
 
 pub use loudness::{loudness_of, Loudness};
 pub use press::{press_delta, KEYS as PRESS_KEYS};
+pub use waivers::{decorative, is_waived, waived_at, Decorative};

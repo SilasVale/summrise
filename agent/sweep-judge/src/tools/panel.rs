@@ -10,9 +10,9 @@ use crate::paths;
 use crate::report::{judge_report, Finding, IgnoreRule, JudgeOpts};
 use crate::summary::report_summary;
 use crate::tools::{read_report, verdict};
+use crate::waivers::{decorative, Decorative};
 use regex::Regex;
 use serde_json::Value;
-use std::sync::OnceLock;
 
 /// THE PANEL'S IGNORE LIST. `ignore` entries are consulted against FINDINGS, and this is the only entry:
 /// the working rail dot's halo, matched UNANCHORED so one ordered pattern cannot cover one path and miss
@@ -107,46 +107,14 @@ pub fn options() -> JudgeOpts<'static> {
 // suppression it no longer performs. It is dropped here rather than carried as a setting that does
 // nothing; see the report beside this change.
 
-/// DECORATIVE GRAPHICS: drawn to DELIMIT, not to inform. WCAG 1.4.11 applies to a non-text element that
-/// CARRIES MEANING; a chip's 1px hairline does not. The waivers live in ONE place because the panel's OTHER
-/// instrument reads the same rows, and two instruments disagreeing about one measurement is what round 265
-/// fixed.
-pub struct Decorative {
-    pub pattern: Regex,
-    /// `String(entry.match)` — the note prints the RegExp, slashes and all.
-    pub display: &'static str,
-    pub values: &'static [(f64, f64)],
-    pub slack: Option<f64>,
-    pub reason: &'static str,
-}
-
-pub fn decorative() -> &'static [Decorative] {
-    static LIST: OnceLock<Vec<Decorative>> = OnceLock::new();
-    LIST.get_or_init(|| {
-        vec![
-            Decorative {
-                pattern: Regex::new(r"^span\.approval-grant$").expect("compiles"),
-                display: r"/^span\.approval-grant$/",
-                // FOUR SURFACES, FOUR RATIOS — 1.19, 1.20, 1.25, 1.27, measured on the device round 95 —
-                // because the outline composites over a different surface on each. The band is that range
-                // plus the declared slack, and the slack is the only margin left to argue about.
-                values: &[(1.17, 1.29)],
-                // PROBE ROUNDING ONLY: the ratios are printed to two decimals, so a true 1.185 reports as
-                // 1.19 and a band written at the printed value would refuse it.
-                slack: Some(0.02),
-                reason: "the grant chip's outline delimits the pill at 1.19; the signal is its command text (worst 5.53 of 4.5) and its revoke control (5.33 of 4.5) — both measured every run",
-            },
-            Decorative {
-                pattern: Regex::new(r"^span\.nm-ico$").expect("compiles"),
-                display: r"/^span\.nm-ico$/",
-                values: &[(1.03, 1.12)],
-                slack: Some(0.02),
-                reason: "the icon chip's BACKGROUND delimits a coloured glyph at 1.05/1.10; the glyph itself is measured by the SVG rule since round 94 and clears 3:1 — the lane colour it carries has its own row now",
-            },
-        ]
-    })
-}
-
+/// DECORATIVE GRAPHICS: drawn to DELIMIT, not to inform. **THE LIST ITSELF IS `crate::waivers`** — it moved
+/// there in landing 2 so that the JavaScript array a browser is served and the Rust list the judge decides
+/// with are compared by a gate (`sweep-judge/tests/waivers.rs`) instead of by nobody, which is what the
+/// second copy had been doing since round 265. What stays here is the three JUDGEMENTS over it: the
+/// band-refusal finding below, the band-width note, and the stale-entry note — each of which reads
+/// `decorative()` and none of which owns an entry.
+/// The default slack when an entry declares none. `crate::waivers` carries the entries; this is the
+/// judge's own fallback for the band-WIDTH note.
 const BAND_SLACK: f64 = 0.02;
 
 /// `--expect` coverage. WHAT THIS REPORT WAS SUPPOSED TO COVER: the sweep outgrew its caller's timeout, so
