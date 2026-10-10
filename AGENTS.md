@@ -173,11 +173,8 @@ rule is not "avoid /tmp" but the sharper one: **a worktree is a working copy, an
 in it can be deleted by the operating system.** Commit before leaving a track idle, and keep the tree where a
 reboot cannot reach.
 
-**AND THE CAUSE IS A REBOOT, NOT A SWEEPER — MEASURED RATHER THAN ASSUMED, BECAUSE THE FIRST VERSION OF THIS
-PARAGRAPH SAID "A `/tmp` SWEEP" AND THAT SENDS THE NEXT READER HUNTING FOR SOMETHING THAT IS NOT THERE.**
-`who -b` says *system boot Oct 9 15:44*, and `/tmp`'s tmpfiles rule is `D /tmp 1777 root root 30d` — **30 days**, so
-the sweeper cannot have deleted a file from the same afternoon. **Check `uptime` before theorising about what deleted
-a file.**
+**AND CHECK `uptime` BEFORE THEORISING ABOUT WHAT DELETED A FILE.** A `/tmp` sweeper was blamed once; `who -b` said
+otherwise, and the measurement is in the commit that corrected it.
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
@@ -190,9 +187,8 @@ branch at a time (the ref is shared), but a merge is seconds, and the other trac
 
 **AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home directories ran
 **1h34m** and `grep -rn underAA --include=* .` ran **45 minutes**, holding load at ~23 while every cargo gate in every
-worktree crawled — and **the first was visible in a process listing for two rounds before anyone acted on it.**
-Neither was killing anything, so the cost was pure time. **Check `ps` for long-running read-only commands before
-blaming the machine, and prefer the `grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
+worktree crawled. **Check `ps` for long-running read-only commands before blaming the machine, and prefer the
+`grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
 
 **AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
 tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon — `&` (the
