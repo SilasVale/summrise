@@ -29,7 +29,12 @@
 # workspace (`agent/resources/panel-logic` is the other arrangement for a wasm crate here) because its
 # decisions are Rust the agent's toolchain lints and tests, and `cargo test -p summrise-url-policy` is
 # part of the landing's bar.
-members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy", "summrise-shell-policy", "model-drift"]
+# `e2e-judge` is a member so `cargo fmt --all`, `cargo clippy` and the workspace's lockfile see it, and it
+# is NOT a default member for the same reason as the six above: it is not part of `summrise-agent.exe`. It
+# is the Rust home of the DEVICE E2E SUITE's plan and judge — `agent/scripts/e2e/e2e.js` used to carry both,
+# as 75 `check(name, cond, detail)` calls and the section order they ran in. The driver that stays JavaScript
+# is the platform half, and `summrise-e2e-judge --bundle` is the emitter for the copy the device fetches.
+members = [".", "summrise-command-core", "summrise-exec-argv", "summrise-launch", "sweep-judge", "sweep-plan", "summrise-cli", "summrise-url-policy", "summrise-shell-policy", "model-drift", "e2e-judge"]
 default-members = ["."]
 resolver = "2"
 

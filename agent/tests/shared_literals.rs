@@ -217,8 +217,10 @@ fn the_scheduled_task_names_are_registered_by_the_cli() {
     let cli = common::read("agent/summrise-cli/src/psgen.rs");
     let shell = common::read("agent/summrise-shell-policy/src/lifecycle.rs");
 
-    let first = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 0).expect("the CLI declares BOOT_TASKS");
-    let second = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 1).expect("BOOT_TASKS has two members");
+    let first = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 0)
+        .expect("the CLI declares BOOT_TASKS");
+    let second = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 1)
+        .expect("BOOT_TASKS has two members");
     assert!(
         !first.is_empty() && !second.is_empty(),
         "the CLI's BOOT_TASKS no longer parses — this gate cannot see what it is checking"

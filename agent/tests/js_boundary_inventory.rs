@@ -532,4 +532,14 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
 /// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
 /// to 0, is where it came from: `LOGIC files: 94`.
+///
+/// **AND THE E2E SUITE'S SPLIT DID NOT MOVE IT, WHICH IS WORTH SAYING OUT LOUD BECAUSE IT LOOKS LIKE IT
+/// SHOULD HAVE.** `agent/scripts/e2e/e2e.js` lost 74 `check(...)` call sites, the section ladder that chose
+/// what ran and thirty timing and retry literals — everything that decided anything — and this count stayed
+/// at **94**. The reason is that on THIS tree the file was already classified `BOUNDARY`, so it was never in
+/// the number; the split is what makes that classification TRUE rather than aspirational, and the manifest's
+/// rule for it now says so. Forced to 0 and read back on this tree, after the split:
+/// `LOGIC files: 94, and the frozen budget is 0` — the same refusal the constant was set from, which is the
+/// point: **a landing that removes decisions can leave a count where it was when the file was in the wrong
+/// class**, and a reviewer who expected the number to fall is owed the explanation rather than the silence.
 const MAX_LOGIC: usize = 94;
