@@ -60,8 +60,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const DESKTOP_AUMID: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::Const("export const DESKTOP_AUMID ="),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::Const("pub const DESKTOP_AUMID: &str ="),
             ),
         ],
     },
@@ -73,8 +73,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const AUTOSTART_TASK: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::ListElement("BOOT_TASKS = [", 1),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::ListElement("pub const BOOT_TASKS: [&str; 2] = [", 1),
             ),
         ],
     },
@@ -86,8 +86,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const AGENT_TASK: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::ListElement("BOOT_TASKS = [", 0),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::ListElement("pub const BOOT_TASKS: [&str; 2] = [", 0),
             ),
         ],
     },
@@ -124,7 +124,13 @@ fn declared_string(text: &str, declaration: &str) -> Option<String> {
 /// `BOOT_TASKS = ["SummriseAgent", "SummriseDesktop"]` answers `SummriseAgent` at 0.
 fn list_element(text: &str, declaration: &str, index: usize) -> Option<String> {
     let at = text.find(declaration)?;
-    let open = text[at..].find('[')? + at;
+    // **THE LAST BRACKET ON THE LINE, NOT THE FIRST ONE AFTER THE MARKER.** A Rust declaration carries its
+    // type before the value — `pub const BOOT_TASKS: [&str; 2] = ["SummriseAgent", "SummriseDesktop"];` — so
+    // the first `[` after the marker is the TYPE's, the slice between it and its `]` is `&str; 2`, and no
+    // quoted element can be read from it. The list is the last bracketed group before the newline, which is
+    // true of the TypeScript this used to read as well (`BOOT_TASKS = ["SummriseAgent", …]`).
+    let line_end = text[at..].find('\n').map_or(text.len(), |i| i + at);
+    let open = text[at..line_end].rfind('[')? + at;
     let close = text[open..].find(']')? + open;
     let items: Vec<String> = text[open + 1..close]
         .split(',')
@@ -208,11 +214,11 @@ fn the_literals_held_by_two_artifacts_agree() {
 /// membership rather than by position, so a task renamed on one side is caught with the string it lost.
 #[test]
 fn the_scheduled_task_names_are_registered_by_the_cli() {
-    let cli = common::read("agent/summrise-agent-npm/src/summrise.ts");
+    let cli = common::read("agent/summrise-cli/src/psgen.rs");
     let shell = common::read("agent/summrise-shell-policy/src/lifecycle.rs");
 
-    let first = list_element(&cli, "BOOT_TASKS = [", 0).expect("the CLI declares BOOT_TASKS");
-    let second = list_element(&cli, "BOOT_TASKS = [", 1).expect("BOOT_TASKS has two members");
+    let first = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 0).expect("the CLI declares BOOT_TASKS");
+    let second = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = [", 1).expect("BOOT_TASKS has two members");
     assert!(
         !first.is_empty() && !second.is_empty(),
         "the CLI's BOOT_TASKS no longer parses — this gate cannot see what it is checking"
