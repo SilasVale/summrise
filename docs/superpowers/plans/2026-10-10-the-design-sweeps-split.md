@@ -95,6 +95,14 @@ that owns the code, named here with the behaviour a person would expect:
 
 ### Task 3: the policy lists are decisions, so they are Rust data
 
+> **ALREADY DONE WHEN THE LANDING MEASURED IT, AND THE DEFECT WAS UNDERNEATH.** `DECORATIVE_WAIVERS` is already
+> Rust in `sweep-judge/src/tools/panel.rs`. What this task actually fixed: `design-sweep.mjs` carries a **second
+> copy** of the list, read by `panel-render-audit.mjs`, and **nothing in the repository compared the two** — move a
+> band in either and two instruments disagree silently. The gate now reads the JS array out of the file a browser is
+> served and requires the Rust list to be the same list. **Task 4's plan data is likewise already `summrise-sweep-plan`**
+> (slice 1; `panel-run.cjs:921` already reads `PLAN.plan.caps.ack_budget_ms`). **A plan written from a spec goes stale
+> against the tree it lands on, and the only way to find that is to measure before porting.**
+
 **Files:** Create `agent/sweep-judge/src/waivers.rs`; Modify `lib.rs`; Test `agent/sweep-judge/tests/waivers.rs`
 
 **Interfaces:**
@@ -117,6 +125,12 @@ that owns the code, named here with the behaviour a person would expect:
 
 ### Task 5: the driver — the passes, and the probes it keeps
 
+> **RULING R1, WHICH THE LANDING FOUND AND THIS PLAN GOT WRONG: THE PASSES KEEP THEIR `page.*` CALLS.** They are
+> Playwright driving; the repository has **no Rust browser driver** and **no CDP crate in its lockfile** (the ancestor
+> spec's §4.1 measured it), so moving them would be a **NEW dependency**, not a port. **What moves is every DECISION
+> the passes were interleaved with** — so this task produces the rows-document contract and the decision surface
+> beside it, not a browser driver in Rust. See the spec's R1 section.
+
 **Files:** Create `agent/design-sweep-driver/` (bin crate) with `src/main.rs`, `src/passes.rs`; Test `agent/design-sweep-driver/tests/passes.rs`
 
 **Interfaces:**
@@ -134,7 +148,7 @@ that owns the code, named here with the behaviour a person would expect:
 - [ ] **Step 1: Run both judges on ONE rows document** — the e2e landing's rule: the JavaScript judge and the Rust judge must agree before either the old file or the old path goes. Record the two verdicts in the commit.
 - [ ] **Step 2: Delete what moved**, leaving the probes and the device-side run programs, each with its manifest reason.
 - [ ] **Step 3: Reclassify `LOGIC | agent/scripts/ |` to `BOUNDARY`** with the probes as the reason.
-- [ ] **Step 4: Measure `MAX_LOGIC`** — force to 0, read the refusal, write that number **and the tree**. Expected 90; write what the gate prints.
+- [ ] **Step 4: Measure `MAX_LOGIC`** — force to 0, read the refusal, write that number **and the tree**. **AND EXPECT IT NOT TO MOVE: this plan said 90 and that was wrong.** Every tracked JS file under `agent/scripts/` already has a longer, more specific BOUNDARY rule, so the directory rule is **fully shadowed and matches zero files**; the count on `dfa593c9` is **91, in two rules — `gateway/src/` 37 and `gateway/test/` 54** — which belong to another landing. **So this slice removes decisions from JavaScript without changing the count, and the report says that plainly rather than presenting an unchanged number as a result.**
 - [ ] **Step 5: `bash scripts/test/all-gates.bash`** → the line to look for is `49 ok, 0 failed`; then commit.
 
 ## Self-Review

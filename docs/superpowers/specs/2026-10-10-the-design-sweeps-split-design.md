@@ -17,7 +17,24 @@ that reads those rows and decides what they mean is pure logic over JSON.
 |---|---|---|
 | the **collector** — runs in the page, walks the DOM, returns rows | **JS, and it stays** | `browser_run_script` takes a JS file; it decides nothing, it measures |
 | the **judge** — rows in, verdict out | **Rust** | pure logic over JSON: thresholds, comparisons, the section ladder |
-| the **driver** — launches the browser, feeds the judge, records | **Rust** | Playwright over CDP; it decides which section runs and what a failure means |
+| the **driver's DECISIONS** — which section runs, what a failure means, the budgets | **Rust** | it is configuration and judgement, and it is data (`serde`), not generated code |
+| **the driver's PLAYWRIGHT CALLS** — `page.goto`, `page.evaluate`, `page.mouse` | **JS, and it STAYS** | **RULING R1, MEASURED — AND THIS SPEC WAS WRONG ABOUT IT UNTIL 2026-10-10** |
+
+### R1 · Why the Playwright driving cannot become Rust, in the ancestor's own measurement
+
+**This spec first said "the DRIVER becomes Rust — the Playwright passes (`idlePass`, `ackPass`, …)", and the landing
+refused it and went to the document this one descends from.** `2026-10-08-every-decision-is-rust-design.md` §4.1 had
+already measured the question and settled it the other way:
+
+> *"the repository has **NO Rust browser driver** … a grep for `webSocketDebuggerUrl`, `json/version` and
+> `Input.dispatch` across every crate returns nothing, and **no CDP crate is in the lockfile**. So 'the Playwright
+> driving becomes Rust' cannot be a port — **it would be a NEW browser dependency** … the driver stays JavaScript and
+> becomes dumb … Rust builds the plan and judges the rows, and the plan is data (serde), not generated code."*
+
+**So the split is not "driver in Rust" but "decisions in Rust, driving in JavaScript"** — and the passes keep their
+`page.*` calls while every decision they were interleaved with moves. **A spec that contradicts its own ancestor is a
+spec somebody re-derives; this paragraph is what stops that**, and it is here because a landing checked an instruction
+against the document it was supposed to come from instead of following it.
 
 ## 3 · The inventory, MEASURED ON `main@556cd05a`
 
