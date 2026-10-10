@@ -11,10 +11,13 @@
  *
  *     cd gateway/wasm && SUMMRISE_REFRESH_MCP_TOOLS=1 cargo test mcp_tools
  *
- * WHY IT STILL EXISTS AT ALL: `plugins/mcp.ts` is registered and is the ROLLBACK for the cutover —
- * `index.ts` hands `/mcp` to the `WASM_GATE` binding when it is present and falls through to the
- * TypeScript plugin when it is not. Deleting this file before that deploy would leave the fallback
- * serving an MCP endpoint with ZERO tools. It is deleted with the plugin, after the deploy.
+ * WHY IT STILL EXISTS AT ALL: it is the console's own tool table, EMITTED from this file, and it is the one
+ * source the MCP surface and the device proxy both read. It used to have a SECOND reason — `plugins/mcp.ts`
+ * was the ROLLBACK for the `/mcp` cutover, and deleting this file before that deploy would have left the
+ * fallback serving an MCP endpoint with ZERO tools — and **that reason is gone**: the binding was proved
+ * live, the fallback retired, the plugin is deleted with it, and `index.ts` now hands `/mcp` to the worker
+ * unconditionally. **The freshness gate compares this file to the emitted output; it cannot see a sentence
+ * that BECAME FALSE, which is why this correction is here rather than in `mcp-tools.ts`.**
  *
  * THE DEFECT IT CLOSES: this file used to be a HAND-COPY of what each device plugin's Rust
  * `tools.rs` defines. Round-554's note here records what that cost — 21 of the agent's 49 tools

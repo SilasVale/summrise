@@ -56,8 +56,6 @@ export {
 import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
 import authPlugin from "./plugins/auth.ts";
 import { csrfCookieViolation } from "./auth.ts";
-import devicesPlugin from "./plugins/devices.ts";
-import mcpPlugin from "./plugins/mcp.ts";
 import adminPlugin from "./plugins/admin.ts";
 
 // Re-exported for tooling/tests that target the front door surface.
@@ -84,7 +82,7 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [authPlugin, devicesPlugin, mcpPlugin, adminPlugin]);
+  registerPlugins(__pluginCtx, [authPlugin, adminPlugin]);
   return __pluginCtx;
 }
 
@@ -343,18 +341,18 @@ export default {
         // was removed — this falls through to the TypeScript plugin below, UNCHANGED: that is the rollback, and
         // it is why `plugins/devices.ts` and `store/devices.ts` are still here. Deleting them is the last step of
         // this landing, after the deploy that proves the worker serves this family.
-        if (isDevicesFamily(request.method, path) && wasmGate(env)) {
+        if (isDevicesFamily(request.method, path)) {
           return await frontDoor(request, env, request);
         }
         // **THE IDENTITY SURFACE GOES TO THE SAME PLACE, BY THE SAME RULE.** Same placement, same reasons: after
         // `seedAdmin` (the front door's job, which the worker does not do) and after the CSRF gate above, and
         // with the TypeScript plugin as the rollback when the binding is absent.
-        if (isAuthFamily(path) && wasmGate(env)) {
+        if (isAuthFamily(path)) {
           return await frontDoor(request, env, request);
         }
         // **THE MCP ENDPOINT GOES TO THE SAME PLACE, BY THE SAME RULE.** After `seedAdmin` and the CSRF gate,
         // and with `plugins/mcp.ts` as the rollback when the binding is absent — see `isMcpFamily`.
-        if (isMcpFamily(path) && wasmGate(env)) {
+        if (isMcpFamily(path)) {
           return await frontDoor(request, env, request);
         }
         const pctx = ensurePluginCtx();
