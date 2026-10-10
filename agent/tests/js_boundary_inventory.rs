@@ -622,4 +622,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — will read 93. Both are facts
 /// about their own trees, which is the rule this session paid for three times: **a number without its tree is a
 /// number about somebody else's tree.**
-const MAX_LOGIC: usize = 93;
+const MAX_LOGIC: usize = 80;
