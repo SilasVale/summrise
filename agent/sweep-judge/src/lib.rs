@@ -26,6 +26,7 @@ pub mod loudness;
 pub mod marks;
 pub mod out;
 pub mod paths;
+pub mod plan;
 pub mod press;
 pub mod report;
 pub mod summary;
@@ -33,5 +34,6 @@ pub mod tools;
 pub mod waivers;
 
 pub use loudness::{loudness_of, Loudness};
+pub use plan::{canonical_plan, only, Section, SweepPlan};
 pub use press::{press_delta, KEYS as PRESS_KEYS};
 pub use waivers::{decorative, is_waived, waived_at, Decorative};
