@@ -1104,19 +1104,22 @@ jobs:
             exit 0
           fi
           exit "$st"
-      # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
-      # recompile src/summrise.ts with the tsc the electron step installed
-      # above and cmp against the committed bin/summrise.js — a src change
-      # without recompiling fails the PR, not the release.
-      - name: bin/summrise.js freshness (tsc recompile + cmp, same as release)
-        working-directory: agent
-        run: |
-          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/summrise-fresh-bin)
-          if ! cmp -s "/tmp/summrise-fresh-bin/summrise.js" "summrise-agent-npm/bin/summrise.js"; then
-            echo "::error::summrise-agent-npm/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile and commit bin/summrise.js"
-            exit 1
-          fi
-          echo "bin/summrise.js freshness check OK"
+      # **P1-2 `bin/summrise.js` FRESHNESS IS DELETED, BECAUSE ITS SUBJECT IS.** Landing 4b replaced the CLI
+      # with a Rust binary: `src/summrise.ts`, `tsconfig.json` and `bin/summrise.js` are gone, so this step's
+      # `tsc -p tsconfig.json` recompiled a source that does not exist and its `cmp` compared a file that does
+      # not exist either — it would have failed the pack-chain job naming a STALE artifact rather than a MISSING
+      # one. **AND THE SAME STEP WAS FIXED IN `release.yml` AND MISSED HERE**, which is why the deletion is
+      # stated rather than silent: two copies of one check, and only one of them was found.
+      #
+      # WHAT CHECKS THE CLI NOW, so nobody has to guess whether the coverage was dropped:
+      #   * `cargo test -p summrise-cli` (the `agent` job) — 144 + 6 cases, and `parity/expected.json` holds
+      #     the 162-case oracle FROZEN before the TypeScript was deleted;
+      #   * `scripts/publish-release.sh` — provenance instead of recompilation: the staged `bin/summrise.exe`
+      #     must equal the cargo-xwin build output and be NEWER than `package.json`, whose version the binary
+      #     embeds. That is this step's contract (a source change without a rebuild fails the release, not the
+      #     PR) expressed against the artifact that now exists.
+      # This job has no cargo-xwin — its name says so — so it cannot check the exe, and pretending otherwise
+      # would be the vacuity the other gates in this file are written to avoid.
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
       # staged in this xwin-less job, so the exes are EXCLUDED) and assert
       # the other release.yml files are inside — a files[]/rename slip
