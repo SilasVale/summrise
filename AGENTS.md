@@ -172,6 +172,25 @@ line for the bare name `node_modules`.
 collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
 branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
 
+**AND A MEASUREMENT BELONGS TO THE TREE IT WAS TAKEN ON — NAME THE BASE, OR IT WILL BE USED ON ANOTHER ONE.** On
+2026-10-09 that mistake was made **three times in one session**, by a coordinator briefing agents and by an agent
+reading a coordinator's brief:
+
+* a brief said "branch from `main`" and quoted a cap of **94** and a fixture of **399 keys** — both measured on
+  the integration branch, while `main` was at **107** and **330**. Following it would have deleted the console's
+  TypeScript rollback on a tree where the Rust worker refuses two of those routes **by construction**, so the
+  deletion would have succeeded and the routes would have died. **The agent stopped before the first `git rm` and
+  sent the table instead** — which is the behaviour this rule is asking for;
+* the same brief pointed at a commit (`main@64686ae8`) rather than the ref, so a report that "the CORS fix is not
+  on `main`" was right about the commit and wrong about the branch — the fix was on `main`, one merge later;
+* a rule deleted from the manifest because it was dead **on the integration branch** was deleted on `main`
+  instead, where two files still matched it. **The inventory gate caught that one immediately**, which is the
+  point of having both directions of it.
+
+So: **quote the ref or the commit you measured, not the word "main"** — and when a brief hands you a number,
+check it against the tree you were given before you act on it. A number without its tree is a number about
+somebody else's tree.
+
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
 install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
 running in. `.githooks/` is gitignored and machine-local, so it exists only in the main checkout: in a worktree the path
