@@ -348,7 +348,6 @@ name while editing, which is why a symlinked `node_modules` is EXCLUDED rather t
 criterion ① is about LOGIC, not about a file extension. Each port landed with the Node gate still beside it and the
 Node gate was deleted only after the two agreed on one tree; the differential is in the commit that landed each.
 
-`agent/tests/token_contract.rs` now.
 
 ## Where the long form lives
 
