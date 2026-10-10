@@ -45,7 +45,7 @@ passed a local `tsc --noEmit` carrying six type errors, because the `ui` job run
 | `gateway/` | `npm run typecheck` · `npm test` · `npm run lint` · `npm run format:check` |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` — **not** `tsc --noEmit`, which is the check that missed those six |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` |
-| `agent/summrise-agent-npm/` | `npm test` (= `node --test`) — **no install step**: zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` |
+| `agent/summrise-agent-npm/` | **no JavaScript suite any more, and no step of its own**: its packaging validations are `agent/tests/npm_package.rs`, reached by the `agent` job's `cargo test -p summrise-agent`. It has zero dependencies and no lockfile (`npm ci` there fails with `EUSAGE`), so `npm pack --dry-run --json` — which the Rust gate spawns — needs no install step |
 | `agent/summrise-desktop-electron/` | `npm test` |
 | `agent/` | `cargo fmt --all -- --check`, then the clippy and test commands the `agent` job names — **read them out of `ci.yml` rather than from here**: several crates are workspace members that are deliberately NOT default members, so a bare `cargo test` does not reach them, and a copy of the list in this file goes stale (this row named "59 cases" for a suite that had grown to 68) |
 
@@ -186,6 +186,24 @@ tool move it to a managed job when the timeout expires.** Three other shapes fai
 `&` (the child died silently), `| tail -40` (the job lived but its output was swallowed, and `ps` could not find
 it), and a second managed job whose process had already gone. The tool's own fallback is the mechanism: no `&`,
 no pipe, and the output streams while it runs.
+**AND A MEASUREMENT BELONGS TO THE TREE IT WAS TAKEN ON — NAME THE BASE, OR IT WILL BE USED ON ANOTHER ONE.** On
+2026-10-09 that mistake was made **three times in one session**, by a coordinator briefing agents and by an agent
+reading a coordinator's brief:
+
+* a brief said "branch from `main`" and quoted a cap of **94** and a fixture of **399 keys** — both measured on
+  the integration branch, while `main` was at **107** and **330**. Following it would have deleted the console's
+  TypeScript rollback on a tree where the Rust worker refuses two of those routes **by construction**, so the
+  deletion would have succeeded and the routes would have died. **The agent stopped before the first `git rm` and
+  sent the table instead** — which is the behaviour this rule is asking for;
+* the same brief pointed at a commit (`main@64686ae8`) rather than the ref, so a report that "the CORS fix is not
+  on `main`" was right about the commit and wrong about the branch — the fix was on `main`, one merge later;
+* a rule deleted from the manifest because it was dead **on the integration branch** was deleted on `main`
+  instead, where two files still matched it. **The inventory gate caught that one immediately**, which is the
+  point of having both directions of it.
+
+So: **quote the ref or the commit you measured, not the word "main"** — and when a brief hands you a number,
+check it against the tree you were given before you act on it. A number without its tree is a number about
+somebody else's tree.
 
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
 install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
