@@ -22,6 +22,7 @@
 pub mod contrast;
 pub mod hover;
 pub mod js;
+pub mod loudness;
 pub mod marks;
 pub mod out;
 pub mod paths;
@@ -30,4 +31,5 @@ pub mod report;
 pub mod summary;
 pub mod tools;
 
+pub use loudness::{loudness_of, Loudness};
 pub use press::{press_delta, KEYS as PRESS_KEYS};
