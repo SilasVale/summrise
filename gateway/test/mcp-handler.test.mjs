@@ -1223,22 +1223,33 @@ test("the console carries the device's description, or is a listed debt that is 
 });
 
 // THE CATALOGUE HAS ONE OWNER, AND THIS IS WHAT KEEPS IT THAT WAY (architecture round 20). Door A
-// withholds tools by name here in NOT_EXPOSED; door B (the device proxy) now refuses the ones no
-// panel component calls, from gateway/src/tool-policy.ts. Two lists of one fact drift — so every
+// withholds tools by name here in NOT_EXPOSED; door B (the device proxy) refuses the ones no
+// panel component calls, from the policy table. Two lists of one fact drift — so every
 // name the POLICY knows must exist in this catalogue: a tool cannot be withheld from one door and
 // unknown to the other. The reverse is deliberately not required: NOT_EXPOSED carries names withheld
 // for MCP-client reasons that the panel legitimately uses (the memory family, agent_update).
+//
+// **AND THE TABLE IT READS MOVED — THIS TEST MOVED WITH IT.** It used to read
+// `../src/tool-policy.ts` as TEXT and match the TypeScript object literal (`^  name: { reason:`);
+// that module is retired, and the table is `gateway/wasm/src/tool_policy.rs` now (landing 5 slice 4,
+// where the proxy's policy became Rust). The assertion is unchanged and its subject is unchanged —
+// the same names, from the single source they now live in. **A test whose subject moves is not a test
+// to delete**, which is why the regex changed rather than the test: deleting it would have removed
+// the only thing that keeps the two doors' catalogues from drifting, at exactly the moment the second
+// door's list changed languages.
 test("contract: every name the tool policy withholds is decided in NOT_EXPOSED too", () => {
-  const src = readFileSync(new URL("../src/tool-policy.ts", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../wasm/src/tool_policy.rs", import.meta.url), "utf8");
   const known = Object.keys(NOT_EXPOSED);
-  const unknown = [];
-  for (const name of src.matchAll(/^  ([a-z][a-z0-9_]*): \{ reason:/gm)) {
-    if (!known.includes(name[1])) unknown.push(name[1]);
-  }
-  assert.ok(src.includes("WITHHELD_TOOLS"), "the policy module was not read — this proves nothing");
+  const names = [...src.matchAll(/"([a-z][a-z0-9_]*)",\s*\n\s*WithheldTool \{/g)].map((m) => m[1]);
+  const unknown = names.filter((n) => !known.includes(n));
+  assert.ok(src.includes("WITHHELD_TOOLS"), "the policy table was not read — this proves nothing");
+  assert.ok(
+    names.length >= 20,
+    `only ${names.length} withheld names were read — the pattern no longer matches the table, so this proves nothing`,
+  );
   assert.deepEqual(
     unknown,
     [],
-    `these are withheld by tool-policy.ts but not decided in NOT_EXPOSED: ${unknown.join(", ")}`,
+    `these are withheld by the Rust policy table but not decided in NOT_EXPOSED: ${unknown.join(", ")}`,
   );
 });
