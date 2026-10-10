@@ -299,8 +299,14 @@ jobs:
       # a Rust gate that spawns a toolchain has to bring that toolchain's dependencies with it, and the
       # alternative (letting the gate skip when the directory is absent) would be a gate that passes where
       # it cannot look.
-      - name: console dependencies (the UI build and the render smokes' jsdom)
-        run: npm ci
+      # **AND THE BUILD, BECAUSE THIS JOB IS THE ONE WHERE THE RACE IS.** `cargo test -p summrise-agent` runs
+      # `console_assets` (which BUILDS the console) and `npm_test_floor` (which runs `gateway/ui`'s suite, and
+      # whose `deadCascade` reads that build) **in the same invocation, concurrently**. The build has to precede
+      # the run, not share it. **This job was GREEN on `f6ea434f` while `pack-chain` ran the same gate red — being
+      # green by luck is not being green by construction**, and the previous commit's message claimed this job was
+      # fixed when it was not. The comment is what caught that.
+      - name: console dependencies AND build (the render smokes' jsdom, and the bundle the floor measures)
+        run: npm ci && npm run build
         working-directory: gateway/ui
       # **AND THE PANEL'S, FOR THE THIRD PORTED GATE** — the same rule one package over. `panel_sheet_freshness`
       # REBUILDS `agent/resources/panel-react` and asserts the committed sheet under `agent/resources/panel/`
