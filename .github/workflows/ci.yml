@@ -308,6 +308,15 @@ jobs:
       - name: console dependencies AND build (the render smokes' jsdom, and the bundle the floor measures)
         run: npm ci && npm run build
         working-directory: gateway/ui
+      # **AND `gateway`'S OWN, WHICH THIS JOB NEVER INSTALLED — THE ONE DIFFERENCE BETWEEN IT AND THE JOB THAT PASSES.**
+      # `npm_test_floor` runs every package's `test` script from here, `gateway`'s among them, and `gateway` declares
+      # seven `devDependencies` its suite needs. **MEASURED: the floor fails here and passes in the `agent` job, which
+      # installs this directory (line ~322); and once the failure report was fixed it named the package** —
+      # *"gateway: `npm test` exited 1 … 64 !== 73"*, a computed count short by nine. **THE GATE'S OWN MESSAGE HAD
+      # SAID THE FIX ALL ALONG**: *"a suite whose dependencies are missing needs `npm ci` in its directory."*
+      - name: gateway dependencies (the floor runs its suite here too)
+        run: npm ci
+        working-directory: gateway
       # **AND THE PANEL'S, FOR THE THIRD PORTED GATE** — the same rule one package over. `panel_sheet_freshness`
       # REBUILDS `agent/resources/panel-react` and asserts the committed sheet under `agent/resources/panel/`
       # is what the source produces; without this install it declares `n/a` and proves nothing, which is
