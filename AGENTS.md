@@ -101,6 +101,25 @@ than no gate. Three JSON fixtures cannot hold a comment (JSON has none), so thei
 **AND READ IT WHEN A FINDING SAYS SOMETHING IS UNUSED AND YOU ARE ABOUT TO DELETE IT** — that rule outlived the table it
 was written for. **AND A GATE IS NAMED WHERE A PERSON CAN FIND IT, OR IT IS A GATE NOBODY CAN RUN BY HAND.**
 
+**AND AFTER A DELETION THERE ARE FOUR INSTRUMENTS, EACH BLIND TO A DIFFERENT THING — MEASURED 2026-10-10, WHEN ONE
+LANDING DELETED A PLUGIN FAMILY AND FIVE `read()` SITES WENT RED IN FOUR DIFFERENT TOOLS:**
+
+| instrument | sees | blind to |
+|---|---|---|
+| the **import graph** | a module importing what you deleted | a ROUTE it registered; a test importing nothing you deleted |
+| the **compiler** | what it typechecks | every `.mjs`, and every runtime-only path |
+| the **route table** | a route whose only implementation you deleted | a test; a string a GENERATED file carries |
+| **the suite** | **a test whose subject was deleted, because it RUNS it** | nothing static — but only what it is pointed at |
+
+**Three can be green while the fourth is red, and that is not a gap in any of them**: one landing passed the import
+graph, the compiler and the route table, and `npm test` failed 108 times — those tests imported nothing removed, they
+drove the ported surface through the rollback configuration. **So run the suite, and read the route table.**
+
+**AND WHEN YOU FIX SOMETHING, GREP FOR THE TEXT YOU JUST FIXED** — a fix applied at one of two call sites is invisible
+to the compiler, the suite and the person who applied it. Two of the four CI-red commits on 2026-10-10 were that shape,
+**both found by a grep rather than by a gate.**
+rather than by a gate.**
+
 ## Pushing: wait for the run in flight
 
 **A PUSH SUPERSEDES AN IN-FLIGHT CI RUN.** GitHub cancels it, and the cancellation is reported as `conclusion: cancelled`
@@ -157,11 +176,9 @@ reboot cannot reach.
 
 **AND THE CAUSE IS A REBOOT, NOT A SWEEPER — MEASURED RATHER THAN ASSUMED, BECAUSE THE FIRST VERSION OF THIS
 PARAGRAPH SAID "A `/tmp` SWEEP" AND THAT SENDS THE NEXT READER HUNTING FOR SOMETHING THAT IS NOT THERE.**
-`who -b` -> *system boot Oct 9 15:44*; `/tmp`'s own tmpfiles rule is `D /tmp 1777 root root 30d`, i.e. **30
-DAYS**, so `systemd-tmpfiles-clean` (active, and it did run at 15:59 that day) cannot delete a file from the
-same afternoon. One reboot explains both losses this session recorded — the worktrees, and the `/tmp/wasmopt`
-that `build.sh index` needed — and it is also why a device arm and a docker socket changed under the work
-mid-round. **Check `uptime` before theorising about what deleted a file.**
+`who -b` says *system boot Oct 9 15:44*, and `/tmp`'s tmpfiles rule is `D /tmp 1777 root root 30d` — **30 days**, so
+the sweeper cannot have deleted a file from the same afternoon. **Check `uptime` before theorising about what deleted
+a file.**
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
@@ -172,37 +189,30 @@ line for the bare name `node_modules`.
 collect it when it finishes.** Polling a job in the foreground turns three tracks back into one. `main` still merges one
 branch at a time (the ref is shared), but a merge is seconds, and the other tracks keep working through it.
 
-**AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home
-directories ran **1h34m**, and `grep -rn underAA --include=* .` ran **45 minutes**; both were left behind by
-tracks that had moved on, and between them they held load at ~23 while a linker collected **5 CPU ticks in 15
-seconds** and every cargo gate in every worktree crawled. Neither was killing anything (both are re-runnable),
-so the cost was pure time — and **the first one was visible in a process listing for two rounds before anyone
-acted on it.** Check `ps` for long-running read-only commands before blaming the machine, and prefer the `grep`
-TOOL over shell `grep -r`: this file already said shell grep "crawls or hangs", and the repo-wide form with
-`--include=*` is that hazard at box scale.
+**AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home directories ran
+**1h34m** and `grep -rn underAA --include=* .` ran **45 minutes**, holding load at ~23 while every cargo gate in every
+worktree crawled — and **the first was visible in a process listing for two rounds before anyone acted on it.**
+Neither was killing anything, so the cost was pure time. **Check `ps` for long-running read-only commands before
+blaming the machine, and prefer the `grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
+that hazard at box scale.
 
 **AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
-tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon —
-`&` (the child died silently), `| tail -40` (the job lived but its output was swallowed, and `ps` could not find
-it), and a second managed job whose process had already gone. The tool's own fallback is the mechanism: no `&`,
-no pipe, and the output streams while it runs.
+tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon — `&` (the
+child died silently), `| tail -40` (the job lived but its output was swallowed), and a second managed job whose
+process had already gone. **No `&`, no pipe, and redirect to a FILE if the result must survive the job.**
 **AND A MEASUREMENT BELONGS TO THE TREE IT WAS TAKEN ON — NAME THE BASE, OR IT WILL BE USED ON ANOTHER ONE.** On
 2026-10-09 that mistake was made **three times in one session**, by a coordinator briefing agents and by an agent
 reading a coordinator's brief:
 
 * a brief said "branch from `main`" and quoted a cap of **94** and a fixture of **399 keys** — both measured on
   the integration branch, while `main` was at **107** and **330**. Following it would have deleted the console's
-  TypeScript rollback on a tree where the Rust worker refuses two of those routes **by construction**, so the
-  deletion would have succeeded and the routes would have died. **The agent stopped before the first `git rm` and
-  sent the table instead** — which is the behaviour this rule is asking for;
-* the same brief pointed at a commit (`main@64686ae8`) rather than the ref, so a report that "the CORS fix is not
-  on `main`" was right about the commit and wrong about the branch — the fix was on `main`, one merge later;
-* a rule deleted from the manifest because it was dead **on the integration branch** was deleted on `main`
-  instead, where two files still matched it. **The inventory gate caught that one immediately**, which is the
-  point of having both directions of it.
-
-So: **quote the ref or the commit you measured, not the word "main"** — and when a brief hands you a number,
-check it against the tree you were given before you act on it. A number without its tree is a number about
+  TypeScript rollback on a tree where the Rust worker refuses two of those routes **by construction**, so the deletion
+  would have succeeded and the routes would have died. **The agent stopped before the first `git rm` and sent the
+  table instead** — which is the behaviour this rule asks for;
+* the same brief pointed at a COMMIT (`main@64686ae8`) where it meant the REF, so "the CORS fix is not on `main`"
+  was right about the commit and wrong about the branch;
+* a rule deleted from the manifest because it was dead on the integration branch was deleted on `main` instead,
+  where two files still matched it. **The inventory gate caught that one immediately.**
 somebody else's tree.
 
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
