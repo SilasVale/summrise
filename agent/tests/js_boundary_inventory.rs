@@ -608,4 +608,15 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         left matching nothing, and the paragraph where it stood names this.
 ///                                         MEASURED THE SAME WAY, on THIS tree, with the constant forced to 0:
 ///                                         `LOGIC files: 93`.
-const MAX_LOGIC: usize = 94;
+///     the catalogue document   107 -> 106   `gateway/config/models.ts` was RECLASSIFIED LOGIC -> BOUNDARY, not
+///                                         ported: it is three EMPTY arrays behind `satisfies CatalogueFile`, so
+///                                         it decides nothing, and its `.ts` form is what makes `tsc` refuse a
+///                                         misspelled facet before anything parses it at runtime. The decisions
+///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
+///                                         of the console's rollback.
+///
+/// **AND THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`.** The same reclassification on
+/// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — will read 93. Both are facts
+/// about their own trees, which is the rule this session paid for three times: **a number without its tree is a
+/// number about somebody else's tree.**
+const MAX_LOGIC: usize = 93;
