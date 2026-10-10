@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+#
+# **THE HOOK THAT RUNS MUST MATCH THE TREE BEING COMMITTED IN.** `core.hooksPath` is ABSOLUTE (the fix from the
+# worktree-hooks incident), so THIS file is reached from every worktree — and a tree that has moved past this
+# one's idea of the gates would otherwise be judged by a hook that calls scripts it does not have. Measured
+# 2026-10-10 in `~/wt/retire-int`: four refusals, each naming the contrast probe rather than the version
+# mismatch, because `scripts/test/contrast-probe-check.mjs` is deleted on the integration branch and this
+# hook still called it unconditionally.
+#
+# **AND THE OTHER HALF IS WORSE, WHICH IS WHY THIS IS HERE RATHER THAN IN A RECIPE.** A worktree that has no
+# `.githooks/` of its own makes `git -c core.hooksPath="$PWD/.githooks"` fall back to NO HOOKS AT ALL —
+# silently, because git treats a missing hooks directory as no hooks — so a commit lands unguarded with no
+# emitters and no main-only-by-merge. That is the incident the absolute path was meant to fix.
+#
+# git runs hooks with the CWD at the working tree root, so the tree's own hook is one path away. The inode
+# comparison is what stops this from exec-ing itself in the main checkout.
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+THEIRS=$(readlink -f "$PWD/scripts/hooks/pre-commit" 2>/dev/null || true)
+if [ -n "$THEIRS" ] && [ -x "$THEIRS" ] && [ "$THEIRS" != "$SELF" ]; then
+    exec "$THEIRS" "$@"
+fi
 # ── THE MUTATION THAT MUST FAIL THIS GATE (moved here from the ledger table, landing 4b) ──
 # Read this when you change this file: the mutation is how you find out whether the gate can still
 # fail at all. A gate that cannot be broken is worse than no gate.
