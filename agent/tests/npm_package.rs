@@ -71,7 +71,11 @@ const PKG: &str = "agent/summrise-agent-npm";
 
 /// THE THREE EXES ARE CARGO-XWIN OUTPUT: gitignored, absent from a fresh checkout, and skipped by
 /// ci.yml's own pack job for that reason. See the header.
-const EXES: [&str; 3] = ["summrise-agent.exe", "summrise-launch.exe", "bin/summrise.exe"];
+const EXES: [&str; 3] = [
+    "summrise-agent.exe",
+    "summrise-launch.exe",
+    "bin/summrise.exe",
+];
 
 fn manifest() -> Value {
     let raw = read(&format!("{PKG}/package.json"));
@@ -83,7 +87,11 @@ fn files_list(m: &Value) -> Vec<String> {
         .as_array()
         .expect("package.json must declare files[]")
         .iter()
-        .map(|f| f.as_str().expect("every files[] entry is a string").to_string())
+        .map(|f| {
+            f.as_str()
+                .expect("every files[] entry is a string")
+                .to_string()
+        })
         .collect()
 }
 
@@ -119,7 +127,12 @@ fn packed_paths() -> Vec<String> {
     let list = parsed
         .as_array()
         .and_then(|a| a.first())
-        .unwrap_or_else(|| panic!("npm pack --json must print one entry per package: {}", out.stdout));
+        .unwrap_or_else(|| {
+            panic!(
+                "npm pack --json must print one entry per package: {}",
+                out.stdout
+            )
+        });
     let paths: Vec<String> = list["files"]
         .as_array()
         .unwrap_or_else(|| panic!("npm pack --json must carry files[]: {}", out.stdout))
@@ -165,7 +178,9 @@ fn the_cli_is_the_rust_binary_and_the_compiled_pair_stays_deleted() {
 fn the_bin_target_is_one_npm_will_pack() {
     let m = manifest();
     let files = files_list(&m);
-    let bin = m["bin"]["summrise"].as_str().expect("bin.summrise must be a string");
+    let bin = m["bin"]["summrise"]
+        .as_str()
+        .expect("bin.summrise must be a string");
     // `files[]` is an ALLOWLIST: a bin target outside it is a command npm links to a file the tarball
     // does not contain. The install still succeeds and prints `added 1 package`; `summrise` is simply
     // not there.
@@ -324,7 +339,10 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
     }
     // Every shell file `files[]` packs must be required, whatever it is called: a name list is a pin,
     // and a pin that only knows yesterday's names is a pin that stops covering today's.
-    for f in files.iter().filter(|f| f.starts_with("summrise-desktop-electron/")) {
+    for f in files
+        .iter()
+        .filter(|f| f.starts_with("summrise-desktop-electron/"))
+    {
         assert!(
             required.iter().any(|x| x == f),
             "{f} is declared in files[] and NOT required by required-in-tgz.txt — a shell file the \
@@ -343,7 +361,11 @@ fn the_package_is_windows_x64_only() {
         Some(1),
         "the package ships Windows binaries and declares one platform"
     );
-    assert_eq!(m["os"][0].as_str(), Some("win32"), "the package ships Windows binaries");
+    assert_eq!(
+        m["os"][0].as_str(),
+        Some("win32"),
+        "the package ships Windows binaries"
+    );
     assert_eq!(m["cpu"][0].as_str(), Some("x64"), "and x64 ones");
 }
 
@@ -366,7 +388,10 @@ fn the_version_is_a_plain_semver() {
         && parts
             .iter()
             .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
-    assert!(ok, "package.json's version must be a plain dotted triple, got {v:?}");
+    assert!(
+        ok,
+        "package.json's version must be a plain dotted triple, got {v:?}"
+    );
 }
 
 #[test]

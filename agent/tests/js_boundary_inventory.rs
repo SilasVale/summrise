@@ -308,7 +308,10 @@ fn no_rule_matches_nothing() {
         .into_iter()
         .filter(|f| is_js_family(f))
         .collect();
-    assert!(!files.is_empty(), "the scan saw no JavaScript at all — this proves nothing");
+    assert!(
+        !files.is_empty(),
+        "the scan saw no JavaScript at all — this proves nothing"
+    );
     let dead: Vec<String> = rules
         .iter()
         .filter(|r| !files.iter().any(|f| r.matches(f)))
