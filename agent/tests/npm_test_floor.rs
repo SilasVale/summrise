@@ -273,6 +273,11 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
                 "
 ",
             );
+        // **AND THE HEAD, BECAUSE A SUITE THAT DIES ON A MODULE LOAD SAYS SO AT THE TOP.** MEASURED 2026-10-10:
+        // `gateway`'s suite failed in CI and printed NO `✖` line at all — its reporter prints `✔` for passes, so
+        // an empty failing-list means **no test ran**, which is a LOAD error, and a load error is the FIRST thing
+        // the runner prints. A tail of twelve lines showed only the summary. **The head is where the reason is.**
+        let head: String = out.both().lines().take(6).collect::<Vec<_>>().join("\n");
         let tail: String = out
             .both()
             .lines()
@@ -286,7 +291,7 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
         if !out.ok() {
             failures.push(format!(
                 "{dir}: `npm test` exited {} — the suite failed, which is the suite's own verdict and this \
-                 floor passes it through.\nFailing tests:\n{failing}\nOutput tail:\n{tail}",
+                 floor passes it through.\nFailing tests:\n{failing}\nOutput head:\n{head}\nOutput tail:\n{tail}",
                 out.code()
             ));
             continue;
