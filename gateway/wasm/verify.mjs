@@ -142,6 +142,27 @@ const HEALTH_ANSWERS = {
   }
 };
 
+/** The Durable Object namespace stub — `constructor.name` is what workers-rs' binding check reads. */
+class DurableObjectNamespace {
+  constructor(check) {
+    this.check = check;
+  }
+  idFromName() {
+    return {};
+  }
+  get() {
+    const { check } = this;
+    return { fetch: async () => new Response(check) };
+  }
+}
+const envFor = (check) => ({ BREAKER: new DurableObjectNamespace(check), DO_AUTH: "stub-do-auth" });
+
+// The two breaker states, which between them cover every response this route can produce.
+const CASES = [
+  { check: "0", label: "breaker closed — every card ok" },
+  { check: "1", label: "breaker open — the og cards carry reason" },
+];
+
 const pairs = (headers) =>
   [...headers.entries()].map(([k, v]) => `${k.toLowerCase()}: ${v}`).sort();
 
@@ -886,6 +907,16 @@ const frozenSession = async (secret, uid, role, exp = FROZEN_NOW + FROZEN_SESSIO
 // `hashPassword(pw, salt)` is PBKDF2 over a FIXED salt, so it is deterministic and was captured once
 // (verified `deterministic: true` across two calls) rather than re-derived here: the derivation is 100,000
 // iterations and belongs to the shipping implementation, which is the thing being retired.
+// ── THE SHIPPING MODULE-STATE RESETS, WHICH NO LONGER HAVE A SUBJECT ────────────────────────────
+//
+// `__clearDegradedCache()` cleared `reliability.ts`'s five-second breaker cache and `__clearCaches()` cleared
+// `store/cache.ts`'s registry cache. Both files are being retired, and both resets existed ONLY to stop the
+// shipping TypeScript's module state leaking between cases — state the WASM side never had, because every case
+// gets a fresh module instance. They are no-ops rather than deletions because the call sites sit inside
+// `if (shippingDoor)` arms (now permanently false) and in per-section setup, where removing them would be a
+// second, larger edit for no measurement.
+const __clearDegradedCache = () => {};
+
 const FROZEN_ADMIN_HASH = "0123456789abcdef:2f2e18e2edee7949453a16a119ab3c0a0757eea8d1d65e25c72c258323bc45ef";
 const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345c8c158eb566e276d70d1d31e87";
 
@@ -2446,7 +2477,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
   }
   const total = SWEEP.length + 1;
   console.log(
-    `  the divergence sweep, shipping front door against the built worker: ${sweepSame}/${total} identical, ${sweepKnown.length} known difference(s)`,
+    `  the divergence sweep, the FROZEN CORPUS against the built worker: ${sweepSame}/${total} identical, ${sweepKnown.length} known difference(s)`,
   );
   for (const d of sweepDifferent) {
     console.log(`      FAIL ${d.name}`);
@@ -3506,7 +3537,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
     rateNote = ` (the public gate's first 429 is recorded as request ${FIXTURE.__devicePublicRate.first429})`;
   }
   console.log(
-    `  the device family, shipping TypeScript against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing${rateNote}`,
+    `  the device family, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing${rateNote}`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;
@@ -4641,7 +4672,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
   }
 
   console.log(
-    `  the device proxy and the file relay, shipping TypeScript against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing (the last case is the never-ending stream)`,
+    `  the device proxy and the file relay, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing (the last case is the never-ending stream)`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;
@@ -5665,7 +5696,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
   }
 
   console.log(
-    `  the identity surface, shipping TypeScript against the built worker: ${same}/${CASES.length + Object.keys(SEQUENCES).length} identical, ${different} differing`,
+    `  the identity surface, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + Object.keys(SEQUENCES).length} identical, ${different} differing`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;
@@ -6480,7 +6511,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
   }
 
   console.log(
-    `  the MCP surface, shipping TypeScript against the built worker: ${same}/${CASES.length + 2} identical, ${different} differing`,
+    `  the MCP surface, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + 2} identical, ${different} differing`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;
