@@ -1215,11 +1215,7 @@ if (gotTheLock) {
             // #1 flagged, so `isDesktopSpaUrl` (the URL policy's) supplies that half and the policy crate
             // composes it with the two literal carve-outs — the data: wait page and about:blank.
             //
-            // **THE PORT DELETED A DEAD LINE HERE.** The original read
-            //     if (isDesktopSpaUrl(url) || url.startsWith("data:") || url === "about:blank") return;
-            //     if (url === "about:blank") return;
-            // and the second `about:blank` test is UNREACHABLE: the first already returns for it. It read as a
-            // second guard and had never run.
+            // The port deleted a dead `if (url === "about:blank") return;` here — the line above already returns for it.
             if ((0, summrise_shell_policy_1.tripwireAllows)(url, (0, summrise_url_policy_1.isDesktopSpaUrl)(url)))
                 return;
             console.log((0, summrise_shell_policy_1.tripwireLog)(url));
