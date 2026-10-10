@@ -666,8 +666,16 @@ jobs:
       # directory) rather than by reading the log, which showed only the summary. (`gate-mutations-check` was
       # the second invoker this comment used to name; it is gone, and `all-gates` is the second one now.
       # `console_assets`, which `all-gates` also reaches, needs the same install to build the console.)
-      - name: console dependencies (the render smokes' jsdom)
-        run: npm ci
+      # **AND THE BUILD, NOT ONLY THE INSTALL: `npm_test_floor` MEASURES WHAT `console_assets` IS BUILDING.**
+      # Both run inside the same `cargo test -p summrise-agent`, and `gateway/ui`'s `deadCascade` reads
+      # `gateway/public/index.html` and the hashed asset it names — **the console's build output**. With the
+      # install alone, the floor can read a bundle that is being rewritten underneath it; the `ui` job, which
+      # passes, has always said `npm ci && npm run build` in one step. **THIS IS A RACE, SO THIS COMMIT CANNOT
+      # PROVE IT GONE — the next CI run is the measurement**, and the floor's own message is what named the
+      # dependency (*"a suite whose dependencies are missing needs `npm ci` in its directory"*) before the
+      # build half of it was noticed.
+      - name: console dependencies AND build (the render smokes' jsdom, and the bundle the floor measures)
+        run: npm ci && npm run build
         working-directory: gateway/ui
       # (a) THE MARKER GATE THAT STOOD HERE IS DELETED with the committed artifact it guarded
       # (`bin/summrise.js`; landing 4b) — the step is gone, and the paragraph where it lived names
