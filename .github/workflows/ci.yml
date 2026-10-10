@@ -368,9 +368,9 @@ jobs:
           # **AND IT WAS INVISIBLE FROM BOTH SIDES AT ONCE, WHICH IS WHY IT SURVIVED**: `all-gates.bash`
           # parses THIS FILE, so naming a crate here is also what makes the local gate run it. The local
           # gate and the CI job were silent together, and neither could report the other's silence.
-          cargo test -p summrise-command-core --no-fail-fast
+          cargo test -p summrise-agent-core --no-fail-fast
           cargo test -p summrise-exec-argv --no-fail-fast
-          cargo test -p sweep-judge --no-fail-fast
+          cargo test -p summrise-sweep-judge --no-fail-fast
           cargo test -p summrise-url-policy --no-fail-fast
           # **THE MODEL-DRIFT TOOL (2026-10-09).** Same story, same reason: a workspace member that is not
           # a default member is a crate no job tests unless it is named here. `summrise-model-drift` is the
