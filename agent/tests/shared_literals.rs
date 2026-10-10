@@ -10,7 +10,7 @@
 //!
 //! | literal | where | why it must agree |
 //! |---|---|---|
-//! | `online.saisi.summrise.desktop` | `agent/summrise-shell-policy/src/boot.rs` · `agent/summrise-agent-npm/src/summrise.ts` | The `AppUserModelID` the shell sets on its window AND the one the CLI writes onto the Start Menu shortcut. Windows resolves the taskbar icon through BOTH, and the shell's own comment says "KEEP THE TWO IN STEP" while the literal is a copy — the shell is emitted to plain JS in two packages and cannot import the CLI's module |
+//! | `online.saisi.summrise.desktop` | `agent/summrise-shell-policy/src/boot.rs` · `agent/summrise-cli/src/psgen.rs` | The `AppUserModelID` the shell sets on its window AND the one the CLI writes onto the Start Menu shortcut. Windows resolves the taskbar icon through BOTH, and the shell's own comment says "KEEP THE TWO IN STEP" while the literal is a copy — the shell policy is a wasm crate the CLI does not depend on, and the CLI is a binary the shell cannot import, so neither can read the other's constant |
 //! | `SummriseDesktop` / `SummriseAgent` | the same two files | The shell's auto-launch toggle and its self-heal watchdog run `schtasks /run <name>`; the CLI REGISTERS those tasks. A renamed task makes the watchdog start nothing, which is a device that stays dark with a log line saying `ok` |
 //! | JavaScript's `\s` | `agent/summrise-url-policy/src/js.rs` · `agent/summrise-shell-policy/src/js.rs` | The two crates deliberately do NOT depend on each other — a crate dependency would put a SECOND copy of url-policy's `thread_local!` port state into the shell's wasm module (see that crate's `Cargo.toml`) — so the character class is duplicated. If the two drift, one `config.yaml` line is read two ways |
 //!
@@ -19,11 +19,34 @@
 //! RESULT:   exit 101 —
 //!             the literals below are held by two artifacts and do not agree:
 //!               DESKTOP_AUMID: agent/summrise-shell-policy/src/boot.rs holds [online.saisi.summrise.desktopX],
-//!               agent/summrise-agent-npm/src/summrise.ts holds [online.saisi.summrise.desktop]
+//!               agent/summrise-cli/src/psgen.rs holds [online.saisi.summrise.desktop]
 //!             ...and the FIX line.
 //!
 //! MUTATION: in `agent/summrise-shell-policy/src/js.rs`, drop `\x0B` from the `JS_WS` class.
 //! RESULT:   exit 101 — the same message, naming `JS_WS` and the two `src/js.rs` paths.
+//!
+//! **AND THE CLI'S SIDE OF ALL THREE ROWS IS RUST NOW (landing 4b's cutover).** The rows named
+//! `agent/summrise-agent-npm/src/summrise.ts`, which the cutover deleted — the constants it held are
+//! `agent/summrise-cli/src/psgen.rs`'s `DESKTOP_AUMID` and `BOOT_TASKS`, and reading the deleted file
+//! would have left this gate PANICKING rather than checking (measured: `cannot read …/src/summrise.ts`,
+//! 2 tests red). Repointing it is what the cutover did to `installer_integrity.rs`'s three readers, and
+//! the Rust declaration exposed a latent bug in `list_element` — see the comment in its body.
+//!
+//! MUTATION: in `agent/summrise-cli/src/psgen.rs`, `pub const BOOT_TASKS: [&str; 2] =
+//!           ["SummriseAgent", "SummriseDesktop"];` -> `[…, "SummriseDesktopX"];`
+//! RESULT:   exit 101 — `SummriseDesktop (the auto-launch task): agent/summrise-shell-policy/src/
+//!           lifecycle.rs holds [SummriseDesktop], agent/summrise-cli/src/psgen.rs holds
+//!           [SummriseDesktopX]`, and `the_scheduled_task_names_are_registered_by_the_cli` fails on the
+//!           same rename from the other side ("the shell policy no longer knows the task").
+//!
+//! MUTATION: in `agent/summrise-cli/src/psgen.rs`, `DESKTOP_AUMID` -> `"…desktopX"`.
+//! RESULT:   exit 101 — `DESKTOP_AUMID: agent/summrise-shell-policy/src/boot.rs holds
+//!           [online.saisi.summrise.desktop], agent/summrise-cli/src/psgen.rs holds
+//!           [online.saisi.summrise.desktopX]`.
+//!
+//! AND THE REPOINTING WAS PROVEN THE SAME WAY, because a row pointed at a declaration that no longer
+//! exists PANICS rather than passing — which is what this gate did for two tests while the cutover's
+//! deletion stood unrepaired (`cannot read …/src/summrise.ts`).
 //!
 //! AND EACH ROW'S OWN SUBJECT IS ASSERTED BEFORE THE COMPARISON: a row whose declaration has been renamed
 //! or deleted is a check that has stopped checking, which is the class `all-gates.bash` counts as a
@@ -60,8 +83,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const DESKTOP_AUMID: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::Const("export const DESKTOP_AUMID ="),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::Const("pub const DESKTOP_AUMID: &str ="),
             ),
         ],
     },
@@ -73,8 +96,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const AUTOSTART_TASK: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::ListElement("BOOT_TASKS = [", 1),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::ListElement("pub const BOOT_TASKS: [&str; 2] = ", 1),
             ),
         ],
     },
@@ -86,8 +109,8 @@ const ROWS: &[Agreement] = &[
                 Source::Const("pub const AGENT_TASK: &str ="),
             ),
             (
-                "agent/summrise-agent-npm/src/summrise.ts",
-                Source::ListElement("BOOT_TASKS = [", 0),
+                "agent/summrise-cli/src/psgen.rs",
+                Source::ListElement("pub const BOOT_TASKS: [&str; 2] = ", 0),
             ),
         ],
     },
@@ -124,7 +147,12 @@ fn declared_string(text: &str, declaration: &str) -> Option<String> {
 /// `BOOT_TASKS = ["SummriseAgent", "SummriseDesktop"]` answers `SummriseAgent` at 0.
 fn list_element(text: &str, declaration: &str, index: usize) -> Option<String> {
     let at = text.find(declaration)?;
-    let open = text[at..].find('[')? + at;
+    // AFTER THE DECLARATION, NOT AFTER ITS FIRST CHARACTER — and the Rust port is what exposed the
+    // difference: `pub const BOOT_TASKS: [&str; 2] = ["SummriseAgent", …]` carries a bracket in its TYPE,
+    // so searching from `at` answered the element list `&str; 2`, found no quoted piece in it, and
+    // reported "nothing readable follows". The doc line above always said "after `declaration`"; this is
+    // that sentence, and it is also what the TypeScript spelling (`BOOT_TASKS = [`) happened to satisfy.
+    let open = text[at + declaration.len()..].find('[')? + at + declaration.len();
     let close = text[open..].find(']')? + open;
     let items: Vec<String> = text[open + 1..close]
         .split(',')
@@ -208,11 +236,13 @@ fn the_literals_held_by_two_artifacts_agree() {
 /// membership rather than by position, so a task renamed on one side is caught with the string it lost.
 #[test]
 fn the_scheduled_task_names_are_registered_by_the_cli() {
-    let cli = common::read("agent/summrise-agent-npm/src/summrise.ts");
+    let cli = common::read("agent/summrise-cli/src/psgen.rs");
     let shell = common::read("agent/summrise-shell-policy/src/lifecycle.rs");
 
-    let first = list_element(&cli, "BOOT_TASKS = [", 0).expect("the CLI declares BOOT_TASKS");
-    let second = list_element(&cli, "BOOT_TASKS = [", 1).expect("BOOT_TASKS has two members");
+    let first = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = ", 0)
+        .expect("the CLI declares BOOT_TASKS");
+    let second = list_element(&cli, "pub const BOOT_TASKS: [&str; 2] = ", 1)
+        .expect("BOOT_TASKS has two members");
     assert!(
         !first.is_empty() && !second.is_empty(),
         "the CLI's BOOT_TASKS no longer parses — this gate cannot see what it is checking"

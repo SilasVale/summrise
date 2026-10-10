@@ -2,8 +2,12 @@
 //
 // WHY THIS EXISTS (round 192 of the standing goal, from the seventeenth exploration's first finding).
 // Measured on Node v24.20.0: `node --test` in a directory with no test files prints `ℹ tests 0` /
-// `ℹ pass 0` and **EXITS 0**. Six CI steps run `npm test` in packages whose suite is `node --test` — and
+// `ℹ pass 0` and **EXITS 0**. Five CI steps run `npm test` in packages whose suite is `node --test` — and
 // every one of them would go green if its test files were renamed, emptied, or never matched by the glob.
+// (SIX UNTIL 2026-10-10, when `summrise-agent-npm`'s step was deleted WITH its suite: that package's last
+// JavaScript file was `test/packaging.test.mjs` and it is `agent/tests/npm_package.rs` now, reached by the
+// `agent` job's `cargo test -p summrise-agent`. The step could not simply be left: this file refused it,
+// measured — `FAIL …: the suite ran 0 test(s) and exited 0`.)
 //
 // THE REPO ALREADY CARRIES THIS RULE, one level down: `all-gates.bash` FLOOR 40, `script-syntax.bash`
 // FLOOR 20 ("A SCAN THAT READ NOTHING IS NOT A CLEAN SCAN"), the render smokes' floor 4 (this file named

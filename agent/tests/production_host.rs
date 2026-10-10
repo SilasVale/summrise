@@ -55,12 +55,24 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 49] = [
+const ALLOWED: [(&str, &str); 51] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
     ("agent/deploy/", "installer templates and their docs: the URL a customer installs from"),
     ("agent/summrise-agent-npm/", "the npm package's README and CLI defaults name the update channel"),
+    (
+        "agent/model-drift/",
+        concat!(
+            "the drift tool's User-Agent carries a `+https://` CONTACT URL naming the public host, which is ",
+            "the convention for a crawler and not a route this deployment serves — the tool fetches four ",
+            "UPSTREAM catalogues and never calls this host"
+        ),
+    ),
+    (
+        "gateway/wasm/src/upload.rs",
+        "the upload route names the host its own default callback points at",
+    ),
     // ADDED 2026-10-08, WITH THE PORT, AND THE COUNT IS THE POINT: this is ONE file where a scattered
     // port would have been five. `summrise-cli` is the Rust home of the CLI's decisions (landing 4),
     // and the defaults it must carry ARE the product's behaviour — the update channel a device checks,
@@ -228,7 +240,7 @@ const ALLOWED: [(&str, &str); 49] = [
 // `agent/summrise-cli/src/endpoints.rs` — `tunnel.rs`'s carried `d1` default and `rollback.rs`'s
 // version.json URL. So the OCCURRENCES in the crate went DOWN while the declared FILES went up by one, which
 // is the direction this list is for. The raise is one, it is visible, and the reason is beside the entry.
-const MAX_ALLOWED: usize = 49;
+const MAX_ALLOWED: usize = 51;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
