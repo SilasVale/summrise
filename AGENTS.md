@@ -118,7 +118,6 @@ drove the ported surface through the rollback configuration. **So run the suite,
 **AND WHEN YOU FIX SOMETHING, GREP FOR THE TEXT YOU JUST FIXED** — a fix applied at one of two call sites is invisible
 to the compiler, the suite and the person who applied it. Two of the four CI-red commits on 2026-10-10 were that shape,
 **both found by a grep rather than by a gate.**
-rather than by a gate.**
 
 ## Pushing: wait for the run in flight
 
@@ -194,7 +193,6 @@ branch at a time (the ref is shared), but a merge is seconds, and the other trac
 worktree crawled — and **the first was visible in a process listing for two rounds before anyone acted on it.**
 Neither was killing anything, so the cost was pure time. **Check `ps` for long-running read-only commands before
 blaming the machine, and prefer the `grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
-that hazard at box scale.
 
 **AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
 tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon — `&` (the
@@ -213,7 +211,6 @@ reading a coordinator's brief:
   was right about the commit and wrong about the branch;
 * a rule deleted from the manifest because it was dead on the integration branch was deleted on `main` instead,
   where two files still matched it. **The inventory gate caught that one immediately.**
-somebody else's tree.
 
 **AND A WORKTREE SILENTLY LOSES EVERY HOOK, WHICH IS HOW A DIRECT COMMIT ON `main` REACHED CI ON 2026-10-09.** The
 install above sets `core.hooksPath .githooks` — a RELATIVE path, resolved against the root of whichever worktree git is
