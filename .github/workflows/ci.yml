@@ -1157,16 +1157,19 @@ jobs:
             n=$((n+1))
           done < "$REQUIRED_IN_TGZ"
           echo "pack content check OK ($n files, all three exes excluded — no xwin in this job)"
-      # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
-      # package has zero dependencies and no lockfile, so npm ci would
-      # fail with EUSAGE. `npm test` (node --test over node builtins) runs
-      # against the package's own files with nothing installed — it is the PACKAGING suite now
-      # (`test/packaging.test.mjs`): the CLI's decisions are Rust and their 162 answers are pinned in
-      # `summrise-cli/parity/expected.json`, so what is left to check here is the tarball.
-      - name: npm CLI tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
-        working-directory: agent/summrise-agent-npm
-
+      # (c) THE `npm test` STEP FOR `summrise-agent-npm` IS DELETED (2026-10-10), WITH THE SUITE IT RAN.
+      # That package has NO JAVASCRIPT LEFT: the CLI's decisions are `summrise-cli` (Rust), and its last
+      # JavaScript file — `test/packaging.test.mjs`, ten packaging validations — is
+      # `agent/tests/npm_package.rs` now, reached by the `agent` job's `cargo test -p summrise-agent`.
+      #
+      # DELETED RATHER THAN LEFT RUNNING, because leaving it is a green that proves nothing followed by a
+      # red that proves the same thing: with no test files, `npm test` there prints `ℹ tests 0` and EXITS
+      # 0, and `scripts/test/npm-test-floored.mjs` — whose whole purpose is that a step which ran zero
+      # tests is not a passing step — refuses it. MEASURED before deleting: `FAIL
+      # …/agent/summrise-agent-npm: the suite ran 0 test(s) and exited 0. A suite that tests nothing
+      # passes everything`, rc=1.
+      #
+      # `npm-test-floored.mjs` ITSELF STAYS: five other packages still run `node --test` through it.
       # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
       # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
       # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`
