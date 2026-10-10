@@ -45,7 +45,7 @@ passed a local `tsc --noEmit` carrying six type errors, because the `ui` job run
 | `gateway/` | `npm run typecheck` · `npm test` · `npm run lint` · `npm run format:check` |
 | `gateway/ui/` | `npm run build` (= `tsc -b && vite build && prune-stale-assets`) · `npm test` — **not** `tsc --noEmit`, which is the check that missed those six |
 | `agent/resources/panel-react/` | `npm run build` · `npm test` |
-| `agent/summrise-agent-npm/` | `npm test` (= `node --test`) — **no install step**: zero dependencies and no lockfile, so `npm ci` fails with `EUSAGE` |
+| `agent/summrise-agent-npm/` | **no JavaScript suite any more, and no step of its own**: its packaging validations are `agent/tests/npm_package.rs`, reached by the `agent` job's `cargo test -p summrise-agent`. It has zero dependencies and no lockfile (`npm ci` there fails with `EUSAGE`), so `npm pack --dry-run --json` — which the Rust gate spawns — needs no install step |
 | `agent/summrise-desktop-electron/` | `npm test` |
 | `agent/` | `cargo fmt --all -- --check`, then the clippy and test commands the `agent` job names — **read them out of `ci.yml` rather than from here**: several crates are workspace members that are deliberately NOT default members, so a bare `cargo test` does not reach them, and a copy of the list in this file goes stale (this row named "59 cases" for a suite that had grown to 68) |
 

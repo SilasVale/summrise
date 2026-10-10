@@ -528,8 +528,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         scripts, which this gate does not count), so the rule was deleted
 ///                                         rather than left matching nothing.
 ///
-/// **AND THIS NUMBER IS 94 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 95 - 1 = 94.** The branch that
+/// **AND THIS NUMBER IS 93 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 94 - 1 = 93.** The branch that
 /// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
 /// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
 /// to 0, is where it came from: `LOGIC files: 94`.
-const MAX_LOGIC: usize = 94;
+///
+///     the packaging suite        94 -> 93   `agent/summrise-agent-npm/test/packaging.test.mjs` LEFT, and it
+///                                         left for the reason the class exists: its ten cases were all
+///                                         VALIDATIONS, so they were LOGIC and had to become Rust. They are
+///                                         `agent/tests/npm_package.rs` (11 cases) — the SPAWN stayed a boundary
+///                                         (`npm pack --dry-run --json` decides the entry list; it is asked to
+///                                         pack, never to judge) and the checks are Rust. **THE PACKAGE NOW HAS
+///                                         NO JAVASCRIPT AT ALL**, so the manifest's
+///                                         `LOGIC | agent/summrise-agent-npm/test/` rule was deleted rather than
+///                                         left matching nothing, and the paragraph where it stood names this.
+///                                         MEASURED THE SAME WAY, on THIS tree, with the constant forced to 0:
+///                                         `LOGIC files: 93`.
+const MAX_LOGIC: usize = 93;
