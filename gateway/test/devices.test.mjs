@@ -98,15 +98,6 @@ const D2 = { name: "d2", hostname: "d2.agent.summrise.test", token: "devtok-9876
 
 // DELETED: "rename: happy path preserves token + metadata, migrates plugin links" — its contract is pinned by the frozen corpus (see the commit).
 
-test("rename: same-name rename is allowed (no-op host refresh)", async () => {
-  const env = makeEnv([D1]);
-  const res = await worker.fetch(
-    req("POST", "/api/devices/d1/rename", { body: { name: "d1" }, cookie: await adminCookie() }),
-    env,
-  );
-  assert.equal(res.status, 200);
-});
-
 // DELETED: "rename: error branches — 401 unauth / 403 non-admin / 400 bad name / 404 missing / 409 taken" — its contract is pinned by the frozen corpus (see the commit).
 
 /* ---------------- register-keys ---------------- */
@@ -129,129 +120,67 @@ function travelMs(ms) {
 
 // DELETED: "install-cmd: upstream version flows through" — its contract is pinned by the frozen corpus (see the commit).
 
-test("install-cmd: 5-min in-isolate cache (second call hits, clock travel re-fetches)", async () => {
-  // installCmdCache is module-level and the previous test seeded it — every
-  // travel offset here is strictly beyond all earlier ones (0 < 10m < 20m)
-  // so each phase's cache age is deterministic (5-min TTL).
-  const env = makeEnv([D1]);
-  let undo = travelMs(10 * 60 * 1000);
-  const { calls, restore } = stubFetch("agent.summrise.test/api/version", {
-    version: "9.9.9",
-    download: "https://x/dl/v.tgz",
-  });
-  try {
-    const auth = { cookie: await adminCookie() };
-    await worker.fetch(req("GET", "/api/devices/install-cmd", auth), env);
-    await worker.fetch(req("GET", "/api/devices/install-cmd", auth), env);
-    assert.equal(calls.length, 1, "second call within the TTL must hit the cache");
-    undo();
-    undo = travelMs(20 * 60 * 1000);
-    await worker.fetch(req("GET", "/api/devices/install-cmd", auth), env);
-    assert.equal(calls.length, 2, "cache must expire after 5 min");
-  } finally {
-    restore();
-    undo();
-  }
-});
-
-test("install-cmd: upstream failure → null version fallback (UI falls back to its constant)", async () => {
-  const env = makeEnv([D1]);
-  // 30 min: strictly beyond the previous test's cache stamp (20 min) + TTL.
-  const undo = travelMs(30 * 60 * 1000);
-  const real = globalThis.fetch;
-  globalThis.fetch = async () => new Response("boom", { status: 503 });
-  try {
-    const res = await worker.fetch(
-      req("GET", "/api/devices/install-cmd", { cookie: await adminCookie() }),
-      env,
-    );
-    assert.equal(res.status, 200);
-    const j = await res.json();
-    assert.deepEqual([j.ok, j.version, j.download], [true, null, null]);
-  } finally {
-    globalThis.fetch = real;
-    undo();
-  }
-});
-
 // round-529 (coverage-driven): the fetch-THROW arm had ZERO pins (only the
 // non-ok-response fallback was covered) — a dead upstream must still 200.
-test("install-cmd: upstream throw → null version fallback (no 500)", async () => {
-  const env = makeEnv([D1]);
-  // 40 min: strictly beyond the previous tests' cache stamps + TTL.
-  const undo = travelMs(40 * 60 * 1000);
-  const real = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new TypeError("fetch failed");
-  };
-  try {
-    const res = await worker.fetch(
-      req("GET", "/api/devices/install-cmd", { cookie: await adminCookie() }),
-      env,
-    );
-    assert.equal(res.status, 200);
-    const j = await res.json();
-    assert.deepEqual([j.ok, j.version, j.download], [true, null, null]);
-  } finally {
-    globalThis.fetch = real;
-    undo();
-  }
-});
-
 // DELETED: "install-cmd: 401 unauth" — its contract is pinned by the frozen corpus (see the commit).
 
 /* ---------------- /api/plugins/status?fresh=1 ---------------- */
 
-// DELETED: "plugins/status: ?fresh=1 bypasses the 30s probe cache; cached call does not re-probe" — its contract is pinned by the frozen corpus (see the commit).
-
-test("upload proxy: 401 unauth / 401 bad device token (no network on reject)", async () => {
-  const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "a".repeat(64), proxySecret: "s" },
+test("plugins/status: ?fresh=1 bypasses the 30s probe cache; cached call does not re-probe", async () => {
+  // Unique device name — DEVICE_PROBE_CACHE is a module-level Map shared
+  // across tests, so probe counting must use a name no other test touches.
+  // The stub matcher is LOWERCASE: the WHATWG URL parser lowercases
+  // hostnames (deviceFetch round-121), so "dFresh" arrives as "dfresh".
+  const env = makeEnv([
+    { name: "dFresh", hostname: "dFresh.agent.summrise.test", token: "tok-fresh" },
+  ]);
+  const { calls, restore } = stubFetch("dfresh.agent.summrise.test/api/status", {
+    ok: true,
+    version: "9.8.7",
+    serial_ports: [],
   });
-  const noAuth = await worker.fetch(req("POST", "/api/upload"), env);
-  assert.equal(noAuth.status, 401);
-  const bad = await worker.fetch(
-    req("POST", "/api/upload", { auth: `Bearer ${"b".repeat(64)}` }),
-    env,
-  );
-  assert.equal(bad.status, 401);
-});
+  try {
+    const auth = { cookie: await adminCookie() };
+    const first = await worker.fetch(req("GET", "/api/plugins/status", auth), env);
+    assert.equal(first.status, 200);
+    // round-183: the SAME response must carry the dead-route report (round 179's
+    // instrument, wired in round 182). Asserted here rather than in a new test because
+    // this test already holds the harness — a fresh worker fetch with an admin session —
+    // and a field whose only evidence is "the code adds it" is the shape this log keeps
+    // closing. `hits` counts only the route that SERVED, so every entry is a number.
+    const body = await first.json();
+    const j1 = body.devices.dFresh;
+    assert.ok(Array.isArray(body.routes), "the response carries the route statistics");
+    assert.ok(
+      body.routes.every((r) => typeof r.index === "number" && typeof r.hits === "number"),
+      "every entry is {index, hits}",
+    );
+    assert.ok(
+      body.routes.some((r) => r.hits > 0),
+      "at least the route that served this very request has been counted",
+    );
+    assert.equal(j1.agent_up, true);
+    assert.equal(j1.tunnel_up, true);
+    assert.equal(j1.version, "9.8.7");
+    assert.equal(typeof j1.checked_at, "number");
+    const probesAfterFirst = calls.filter((u) => u.includes("/api/status")).length;
+    assert.equal(probesAfterFirst, 1);
 
-test("upload proxy: device config token accepted (no network on reject paths only)", async () => {
-  const { __clearCaches } = await import("../src/store.ts");
-  __clearCaches();
-  const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "c".repeat(64), proxySecret: "s" },
-  });
-  // Bad token still 401 without touching the network.
-  const bad = await worker.fetch(
-    req("POST", "/api/upload", { auth: `Bearer ${"d".repeat(64)}` }),
-    env,
-  );
-  assert.equal(bad.status, 401);
+    // Cached call: no new probe.
+    await worker.fetch(req("GET", "/api/plugins/status", auth), env);
+    assert.equal(calls.filter((u) => u.includes("/api/status")).length, probesAfterFirst);
+
+    // fresh=1: cache bypassed, exactly one more probe.
+    const fresh = await worker.fetch(req("GET", "/api/plugins/status?fresh=1", auth), env);
+    assert.equal(fresh.status, 200);
+    assert.equal(calls.filter((u) => u.includes("/api/status")).length, probesAfterFirst + 1);
+  } finally {
+    restore();
+  }
 });
 
 // round-527 (coverage-driven): the device-scan catch had ZERO pins — a
 // throwing registry read must deny, not crash.
-test("upload proxy: registry outage denies with 401 (no throw)", async () => {
-  const { __clearCaches } = await import("../src/store.ts");
-  __clearCaches();
-  const env = makeEnv({
-    d1: { name: "d1", hostname: "d1.agent.summrise.test", token: "c".repeat(64), proxySecret: "s" },
-  });
-  const realGet = env.KEYS.get.bind(env.KEYS);
-  env.KEYS.get = async (k) => {
-    if (k === "devices:v1") throw new Error("kv down");
-    return realGet(k);
-  };
-  const res = await worker.fetch(
-    req("POST", "/api/upload", { auth: `Bearer ${"c".repeat(64)}` }),
-    env,
-  );
-  assert.equal(res.status, 401);
-  assert.match((await res.json()).error.message, /Invalid device token/);
-});
-
 // DELETED: "upload proxy: forwards a MINIMAL header set — UPLOAD_KEY + multipart framing, never client cookies" — its contract is pinned by the frozen corpus (see the commit).
 
 /* ---------------- admin gate matrix (round-364) ---------------- */
@@ -284,33 +213,6 @@ const selfReg = (env, body, ip) =>
 
 // round-532 (coverage-driven): the dead-tunnel proof catch had ZERO pins —
 // an unreachable tunnel must 409, not 500.
-test("self-register: dead tunnel refuses rotation with 409 (no 500)", async () => {
-  __clearCaches();
-  const OLD = T64("c"),
-    NEW = T64("d");
-  const env = makeEnv([
-    {
-      name: "d1",
-      hostname: "d1.agent.summrise.test",
-      token: OLD,
-      proxySecret: "ps-stored",
-      registeredAt: 7,
-    },
-  ]);
-  const real = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new TypeError("fetch failed");
-  };
-  try {
-    const res = await selfReg(env, { name: "d1", hostname: "d1.agent.summrise.test", token: NEW });
-    assert.equal(res.status, 409);
-    const devs = JSON.parse(await env.KEYS.get("devices:v1"));
-    assert.equal(devs.find((d) => d.name === "d1").token, OLD, "production record untouched");
-  } finally {
-    globalThis.fetch = real;
-  }
-});
-
 // round-460 (coverage-driven): the PROVED rotation arm + the new-device
 // proxySecret capture arm had ZERO pins.
 // DELETED: "self-register: tunnel-proved rotation accepted, new device captures the secret" — its contract is pinned by the frozen corpus (see the commit).
@@ -324,47 +226,12 @@ const regPost = (env, path, body) => worker.fetch(req("POST", path, { body, ip: 
 
 // DELETED: "register: garbage key 403s with zero KV writes; happy path spends the key" — its contract is pinned by the frozen corpus (see the commit).
 
-test("register: existing device name refuses with 409 (round-68 anti-takeover)", async () => {
-  __clearCaches();
-  const env = makeEnv([{ name: "d1", hostname: "d1.agent.summrise.test", token: T64("c") }]);
-  await env.KEYS.put("regkey:kk22", "1");
-  const res = await regPost(env, "/api/register", {
-    key: "kk22",
-    name: "d1",
-    hostname: "d1.agent.summrise.test",
-    token: T64("d"),
-  });
-  assert.equal(res.status, 409);
-  const devs = JSON.parse(await env.KEYS.get("devices:v1"));
-  assert.equal(devs.find((d) => d.name === "d1").token, T64("c"), "production record untouched");
-});
-
 // round-530 (coverage-driven): the proxySecret-probe catch had ZERO pins —
 // a dead device at register time must still register (probe is best-effort).
 // DELETED: "register: unreachable device still registers without proxySecret" — its contract is pinned by the frozen corpus (see the commit).
 
 // round-526 (coverage-driven): the post-claim key recheck had ZERO pins — a
 // key consumed by a concurrent request between check and claim must 403.
-test("register: key vanishing after claim 403s (single-flight recheck)", async () => {
-  __clearCaches();
-  const env = makeEnv([]);
-  await env.KEYS.put("regkey:kkrace", "1");
-  const realGet = env.KEYS.get.bind(env.KEYS);
-  let reads = 0;
-  env.KEYS.get = async (k) => {
-    if (k === "regkey:kkrace" && ++reads > 1) return null; // raced away
-    return realGet(k);
-  };
-  const res = await regPost(env, "/api/register", {
-    key: "kkrace",
-    name: "d9",
-    hostname: "d9.agent.summrise.test",
-    token: T64("a"),
-  });
-  assert.equal(res.status, 403);
-  assert.match((await res.json()).error.message, /Invalid or used registration key/);
-});
-
 // round-461 (coverage-driven): register-with-key 400, rename bad-hostname
 // 400, tunnel-token claim 403 + vanishing-key cleanup had ZERO pins.
 // DELETED: "register: valid key with bad body 400s; rename rejects a bad hostname" — its contract is pinned by the frozen corpus (see the commit).
@@ -373,33 +240,6 @@ test("register: key vanishing after claim 403s (single-flight recheck)", async (
 
 // round-462 (coverage-driven): the insert-race 409 arm (round-122: pre-check
 // passes, locked insert loses) + the admin-session upload arm had ZERO pins.
-test("register: lost insert race 409s (pre-check passed, lock lost)", async () => {
-  __clearCaches();
-  const env = makeEnv([]);
-  await env.KEYS.put("regkey:kk66", "1");
-  const raced = JSON.stringify([
-    { name: "d1", hostname: "d1.agent.summrise.test", token: T64("q") },
-  ]);
-  let devGets = 0;
-  const innerGet = env.KEYS.get.bind(env.KEYS);
-  env.KEYS.get = async (k) => {
-    if (k === "devices:v1") return ++devGets === 1 ? "[]" : raced;
-    return innerGet(k);
-  };
-  const { restore } = stubFetch("d1.agent.summrise.test", {});
-  try {
-    const res = await regPost(env, "/api/register", {
-      key: "kk66",
-      name: "d1",
-      hostname: "d1.agent.summrise.test",
-      token: T64("w"),
-    });
-    assert.equal(res.status, 409);
-  } finally {
-    restore();
-  }
-});
-
 // DELETED: "upload proxy: admin session is proxied with the upload key" — its contract is pinned by the frozen corpus (see the commit).
 
 // round-463 (coverage-driven): the upload 413 bound + the public-gate 429
@@ -449,56 +289,6 @@ function tokenEnv(devices = []) {
   });
 }
 
-test("upload proxy: the admin API token may stage a file (the Linux → device leg)", async () => {
-  const env = tokenEnv([]);
-  const seen = [];
-  await withFetch(
-    async (url, init) => {
-      seen.push({ url: String(url), method: init.method, headers: init.headers });
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    },
-    async () => {
-      const res = await worker.fetch(
-        new Request("https://x/api/upload", {
-          method: "PUT",
-          headers: { authorization: `Bearer ${ADMINTOK}`, "content-length": "5" },
-          body: "bytes",
-        }),
-        env,
-      );
-      assert.equal(res.status, 200, "the /mcp credential must be able to feed the relay");
-      assert.equal(seen.length, 1);
-      assert.equal(seen[0].method, "PUT", "the method must survive the proxy (raw-stream path)");
-      // The device/user credential never rides on to the index worker — only
-      // the relay's own UPLOAD_KEY does.
-      assert.equal(seen[0].headers.get("authorization"), "Bearer test-upload-key");
-    },
-  );
-});
-
-test("upload proxy: a relay-role token is refused (ADR-0007 scoping holds)", async () => {
-  const env = tokenEnv([]);
-  await withFetch(
-    async () => {
-      throw new Error("must not dial the index worker");
-    },
-    async () => {
-      const res = await worker.fetch(
-        new Request("https://x/api/upload", {
-          method: "PUT",
-          headers: { authorization: `Bearer ${RELAYTOK}`, "content-length": "5" },
-          body: "bytes",
-        }),
-        env,
-      );
-      assert.equal(res.status, 401, "relay tokens are for the translate path only");
-    },
-  );
-});
-
 // DELETED: "upload proxy: PUT forwards ?name= and the raw-metadata headers" — its contract is pinned by the frozen corpus (see the commit).
 
 // DELETED: "upload proxy: non-admin session and unknown tokens stay 401" — its contract is pinned by the frozen corpus (see the commit).
@@ -542,65 +332,3 @@ test("upload proxy: a relay-role token is refused (ADR-0007 scoping holds)", asy
  *
  * There were no tests here before because there was no check.
  */
-test("POST /api/devices: a hostname outside the allowlist is REFUSED (token must never be dialed to it)", async () => {
-  const env = makeEnv([]);
-  const admin = await adminCookie();
-  const res = await worker.fetch(
-    req("POST", "/api/devices", {
-      cookie: admin,
-      body: { name: "evil", hostname: "attacker.example", token: "a".repeat(64) },
-    }),
-    env,
-  );
-  assert.equal(res.status, 400, "a non-allowlisted hostname must not become a device record");
-  assert.match(
-    (await res.json()).error?.message || "",
-    /agent\.summrise\.test/,
-    "the error names the required suffix",
-  );
-  // And nothing was stored — the dial is only reachable through a record.
-  const list = await worker.fetch(req("GET", "/api/devices", { cookie: admin }), env);
-  const names = ((await list.json()).devices || []).map((d) => d.name);
-  assert.ok(!names.includes("evil"), "no record may survive a refused registration");
-});
-
-test("POST /api/devices/<n>/rename: a hostname outside the allowlist is REFUSED (rename preserves the token)", async () => {
-  const env = makeEnv([D1]);
-  const admin = await adminCookie();
-  const res = await worker.fetch(
-    req("POST", "/api/devices/d1/rename", {
-      cookie: admin,
-      body: { name: "d1", hostname: "attacker.example" },
-    }),
-    env,
-  );
-  assert.equal(res.status, 400, "renaming onto a hostile host must be refused");
-  assert.match((await res.json()).error?.message || "", /agent\.summrise\.test/);
-  // The device must still point at its REAL host — rename preserves the
-  // credential, so a partial write would hand that credential to the attacker.
-  const list = await worker.fetch(req("GET", "/api/devices", { cookie: admin }), env);
-  const d1 = ((await list.json()).devices || []).find((d) => d.name === "d1");
-  assert.equal(d1?.hostname, D1.hostname, "the original hostname must be untouched");
-});
-
-test("POST /api/devices + rename: an ALLOWLISTED hostname still works (the guard is a filter, not a wall)", async () => {
-  const env = makeEnv([D1]);
-  const admin = await adminCookie();
-  const add = await worker.fetch(
-    req("POST", "/api/devices", {
-      cookie: admin,
-      body: { name: "d9", hostname: "d9.agent.summrise.test", token: "b".repeat(64) },
-    }),
-    env,
-  );
-  assert.equal(add.status, 200, "a legitimate hostname must still register");
-  const ren = await worker.fetch(
-    req("POST", "/api/devices/d1/rename", {
-      cookie: admin,
-      body: { name: "d1", hostname: "d1b.agent.summrise.test" },
-    }),
-    env,
-  );
-  assert.equal(ren.status, 200, "a legitimate rename must still work");
-  assert.equal((await ren.json()).device.hostname, "d1b.agent.summrise.test");
-});

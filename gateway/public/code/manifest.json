@@ -96,6 +96,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/plugins/mcp.ts",
+      "path": "files/summrise-gate/src/plugins/mcp.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/plugins/models-probe.ts",
       "path": "files/summrise-gate/src/plugins/models-probe.ts",
       "group": "summrise-gate"

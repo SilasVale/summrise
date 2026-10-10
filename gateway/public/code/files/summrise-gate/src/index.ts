@@ -82,7 +82,11 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [authPlugin, adminPlugin]);
+  // **`mcpPlugin` IS REGISTERED BECAUSE `GET /api/plugins/status` IS ITS OTHER ROUTE AND WAS NEVER PORTED.**
+      // `isMcpFamily` deliberately excludes it (`gateway/wasm/src/mcp.rs:62`), so the handover above does not carry
+      // it and the request reaches this plugin. Measured 2026-10-10: without the registration the route answered
+      // **404**, and four tests were the only instruments that could see it.
+      registerPlugins(__pluginCtx, [authPlugin, adminPlugin, mcpPlugin]);
   return __pluginCtx;
 }
 
@@ -334,25 +338,33 @@ export default {
 
       // ---- Console API + MCP endpoint (page hosts) — all plugin-owned ----
       if (isPageHost && (path.startsWith("/api/") || path === "/mcp")) {
-        // **THE DEVICE FAMILY GOES TO THE RUST WORKER WHEN THE BINDING IS THERE.** `seedAdmin` has already run
+        // **THE THREE CONDITIONS BELOW ARE THE ROLLBACK, AND THEY WERE REMOVED BY THE CASCADE WHILE THE COMMENT
+      // ABOVE THEM KEPT PROMISING THEM** — *"goes to the Rust worker WHEN THE BINDING IS THERE"* and *"without the
+      // binding … falls through to the TypeScript plugin, UNCHANGED: that is the rollback"*. The code checked only
+      // the family, so a test env with no `WASM_GATE` sent every one of these routes to a worker that is not bound:
+      // **MEASURED 2026-10-10, 33 tests across `auth.ts`'s and `admin.ts`'s whole surface answered 404**, and the
+      // suite's failure count falling read as progress. `index.ts`'s own words are the spec: the rollback files go
+      // **after the deploy that proves the worker serves the family**, and this landing has not deployed.
+      //
+      // **THE DEVICE FAMILY GOES TO THE RUST WORKER WHEN THE BINDING IS THERE.** `seedAdmin` has already run
         // (it is the front door's job and the worker does not do it), the CSRF gate above has already run, and
         // the cookie test applies ONLY to the admin-gated routes — the Access-arm carve-out described on
         // `isDevicesFamily`. Without the binding — a local `wrangler dev`, a test env, a deployment whose binding
         // was removed — this falls through to the TypeScript plugin below, UNCHANGED: that is the rollback, and
         // it is why `plugins/devices.ts` and `store/devices.ts` are still here. Deleting them is the last step of
         // this landing, after the deploy that proves the worker serves this family.
-        if (isDevicesFamily(request.method, path)) {
+        if (isDevicesFamily(request.method, path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         // **THE IDENTITY SURFACE GOES TO THE SAME PLACE, BY THE SAME RULE.** Same placement, same reasons: after
         // `seedAdmin` (the front door's job, which the worker does not do) and after the CSRF gate above, and
         // with the TypeScript plugin as the rollback when the binding is absent.
-        if (isAuthFamily(path)) {
+        if (isAuthFamily(path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         // **THE MCP ENDPOINT GOES TO THE SAME PLACE, BY THE SAME RULE.** After `seedAdmin` and the CSRF gate,
         // and with `plugins/mcp.ts` as the rollback when the binding is absent — see `isMcpFamily`.
-        if (isMcpFamily(path)) {
+        if (isMcpFamily(path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         const pctx = ensurePluginCtx();
