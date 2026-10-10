@@ -586,4 +586,15 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
 /// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
 /// to 0, is where it came from: `LOGIC files: 94`.
-const MAX_LOGIC: usize = 94;
+///
+/// **AND THIS ONE WENT UP, ON PURPOSE, WHICH THE RULE ALLOWS ONLY WITH A NAME AND A REASON.** `MAX_LOGIC` may
+/// come down only in a commit naming the file that left — and it may go UP only when a file was in the wrong
+/// class, which is what happened here:
+///
+///     the e2e suite           94 -> 95   `agent/scripts/e2e/` was BOUNDARY and is LOGIC: its 75
+///                                        `check(name, cond, detail)` calls COMPUTE their conditions and DERIVE
+///                                        the details a reader acts on, which is this manifest's own definition
+///                                        of LOGIC. The old reason justified the page-side half and said nothing
+///                                        about the judge. **A count that only ever falls would have kept this
+///                                        file out of the migration forever.**
+const MAX_LOGIC: usize = 95;
