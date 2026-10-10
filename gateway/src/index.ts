@@ -82,11 +82,7 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  // **`mcpPlugin` IS REGISTERED BECAUSE `GET /api/plugins/status` IS ITS OTHER ROUTE AND WAS NEVER PORTED.**
-      // `isMcpFamily` deliberately excludes it (`gateway/wasm/src/mcp.rs:62`), so the handover above does not carry
-      // it and the request reaches this plugin. Measured 2026-10-10: without the registration the route answered
-      // **404**, and four tests were the only instruments that could see it.
-      registerPlugins(__pluginCtx, [authPlugin, adminPlugin, mcpPlugin]);
+  registerPlugins(__pluginCtx, [authPlugin, adminPlugin]);
   return __pluginCtx;
 }
 
