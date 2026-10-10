@@ -29,6 +29,27 @@
 //!
 //! ...and `the_emitted_program_carries_every_probe_byte_for_byte` still passes, which is the point of having
 //! both: the verbatim test says the bytes are right, and the parse test says the bytes are a PROGRAM.
+//!
+//! **AND PARSING IS NOT LOADING, WHICH A REVIEW FOUND AND THE PARSE GATE COULD NOT.** `assemble`'s first
+//! version wrote every probe as `const KEY = <source>;`, so the emitted program EVALUATED the three
+//! `*_SOURCE` constants at load — they are the TEXT of a page-side program and touch `document`, so requiring
+//! the module in node threw `document is not defined` while `node --check` stayed green, because `--check`
+//! never runs a top level. A function crosses as CODE and a source crosses as a JSON STRING, which is what
+//! `piecesModule` has always done and what `is_function` exists for.
+//!
+//! MUTATION: make `assemble` write `const KEY = <source>;` for every probe again (delete the `is_function`
+//! branch).
+//! RESULT:   `cargo test -p summrise-design-sweep-driver --test passes` → exit 101, MEASURED:
+//!
+//! ```text
+//! the_emitted_program_loads_and_exports_what_the_module_exports ... FAILED
+//!   the emitted program does not LOAD (it parses — `node --check` said so):
+//! the_emitted_program_carries_every_probe_byte_for_byte ... FAILED
+//! test result: FAILED. 4 passed; 2 failed
+//! ```
+//!
+//! TWO gates break and the first of them is the one that did not exist when the defect was written: the parse
+//! gate was green over a module that could not load.
 
 use std::collections::BTreeMap;
 use summrise_design_sweep_driver::{assemble, read_probes, steps, PROBES};
@@ -92,8 +113,17 @@ fn the_emitted_program_carries_every_probe_byte_for_byte() {
     .expect("the program assembles");
     for probe in PROBES {
         let src = &probes()[probe.key];
+        // A FUNCTION crosses as CODE (`const KEY = function …`), so its text is in the program verbatim. A
+        // `*_SOURCE` crosses as a JSON STRING, because it is the TEXT of a program and evaluating it at load
+        // is `document is not defined` — so what must be verbatim there is the string a payload READS BACK,
+        // which `the_emitted_program_loads_and_exports_what_the_module_exports` checks by loading it.
+        let expected = if probe.is_function() {
+            src.clone()
+        } else {
+            serde_json::to_string(src).unwrap()
+        };
         assert!(
-            code.contains(src.as_str()),
+            code.contains(expected.as_str()),
             "the assembled program does not carry `{}` unchanged — a page evaluating a different probe than \
              the one this checkout has is a measurement nobody can reproduce",
             probe.key
@@ -107,6 +137,67 @@ fn the_emitted_program_carries_every_probe_byte_for_byte() {
             probe.key
         );
     }
+}
+
+/// **THE PROGRAM MUST LOAD, NOT MERELY PARSE, AND THIS TEST IS THE ONE THE PARSE GATE COULD NOT BE.**
+/// (The name is snake_case because clippy requires it of a test function; the EMPHASIS is here.)
+/// `node --check` parses; it does not execute the module's top level. The first version of `assemble` wrote
+/// every probe as `const KEY = <source>;`, which EVALUATED the three `*_SOURCE` constants at load — they are
+/// the text of a page-side program, so they touch `document`, and requiring the module in node threw
+/// `document is not defined` while the parse gate stayed green. This test requires the module and compares
+/// what it exports against the module's own values, byte for byte, so "verbatim" means what a payload reads
+/// rather than what a diff of text says.
+#[test]
+fn the_emitted_program_loads_and_exports_what_the_module_exports() {
+    let plan = canonical_plan();
+    let step_list = steps(&plan, &["panel-light-Terminal".to_string()]).unwrap();
+    let code = assemble(
+        &serde_json::to_string(&plan).unwrap(),
+        &serde_json::to_string(&step_list).unwrap(),
+        &probes(),
+    )
+    .expect("the program assembles");
+    let path = std::env::temp_dir().join(format!(
+        "summrise-sweep-driver-load-{}-{}.cjs",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&path, &code).unwrap();
+    let program = format!(
+        "const m = require({});\nprocess.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v]))));\n",
+        serde_json::to_string(&path.display().to_string()).unwrap()
+    );
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(&program)
+        .output()
+        .expect("node runs");
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        out.status.success(),
+        "the emitted program does not LOAD (it parses — `node --check` said so):\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let kinds: std::collections::BTreeMap<String, String> =
+        serde_json::from_slice(&out.stdout).expect("node prints the export kinds");
+    for probe in PROBES {
+        let want = if probe.is_function() {
+            "function"
+        } else {
+            "string"
+        };
+        assert_eq!(
+            kinds.get(probe.key).map(String::as_str),
+            Some(want),
+            "`{}` should cross as a {want}",
+            probe.key
+        );
+    }
+    assert_eq!(kinds.get("PLAN").map(String::as_str), Some("object"));
+    assert_eq!(kinds.get("STEPS").map(String::as_str), Some("object"));
 }
 
 /// **REVIEW FOCUS 1.** A probe with a stray brace must be refused AT EMIT, and the refusal must name it.

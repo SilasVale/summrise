@@ -207,7 +207,22 @@ pub fn assemble(
             )
         })?;
         let start = code.lines().count() + 1;
-        code.push_str(&format!("const {} = {};\n", p.key, src));
+        // **A FUNCTION CROSSES AS CODE; A SOURCE CROSSES AS A STRING**, which is `piecesModule`'s rule and
+        // was NOT this function's first behaviour. The first version wrote `const KEY = <source>;` for all
+        // seven, so the emitted program EVALUATED the three `*_SOURCE` constants at load — they are the TEXT
+        // of a page-side program (`(() => { … document.querySelectorAll … })()`), so requiring the module in
+        // node threw `document is not defined`. **`node --check` only PARSES, so the parse gate was green
+        // over a module that could not LOAD**, and nothing caught it until a review read what `is_function`
+        // was for. The three strings are JSON-escaped, which is the only change the text undergoes; a payload
+        // reading `P.UNSTYLED` gets back byte-identical characters, and
+        // `the_emitted_program_loads_and_exports_what_the_module_exports` is the gate that says so.
+        if p.is_function() {
+            code.push_str(&format!("const {} = {};\n", p.key, src));
+        } else {
+            let literal = serde_json::to_string(src)
+                .map_err(|e| format!("the `{}` probe does not serialize: {e}", p.key))?;
+            code.push_str(&format!("const {} = {};\n", p.key, literal));
+        }
         spans.push((start, code.lines().count()));
     }
     code.push_str(&format!("const PLAN = {plan_json};\n"));
