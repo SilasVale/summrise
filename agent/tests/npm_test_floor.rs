@@ -269,8 +269,10 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
             })
             .take(6)
             .collect::<Vec<_>>()
-            .join("
-");
+            .join(
+                "
+",
+            );
         let tail: String = out
             .both()
             .lines()
