@@ -275,16 +275,15 @@ checkout builds. **THE DEVICE IS STILL HOW THE LIVE SURFACES ARE SEEN** — it r
 
 **THREE WALLS, AND NONE OF THEM IS THE SURFACE:**
 
-  * **`waitUntil: 'networkidle'` NEVER FIRES ON THE PANEL.** It holds an SSE connection open by design, so the network is
-    never idle and `page.goto` times out after 45s. Use `domcontentloaded` for anything that talks to the agent.
+  * **`waitUntil: 'networkidle'` NEVER FIRES ON THE PANEL.** It holds an SSE connection open by design, so
+    `page.goto` times out after 45s. Use `domcontentloaded` for anything that talks to the agent.
   * **DO NOT DRIVE WINDOWS PATHS THROUGH `terminal_execute`.** Attempts come back mangled — `Get-ChildItem \etc` with the
     variable eaten, `dir "C:\Program Files (x86)\…"` answering *"文件名、目录名或卷标语法不正确"* — because the shell that
-    receives the command is not the one the quoting was written for. **`browser_run_script` runs Node ON the device with
-    the bundled runtime: read files with `fs`.** That is how the panel's own config and token are reachable.
+    receives the command is not the one the quoting was written for. **`browser_run_script` runs Node ON the device:
+    read files with `fs`.** That is how the panel's own config and token are reachable.
   * **AND A DESIGN READING IS NOT A LAYOUT READING.** The console's login page was called "a 103px word in a lot of empty
-    space" from a partial dump; the full measurement shows a logo and wordmark, a tagline, a vertically centred block and
-    a form card centred with equal 162px margins. **It is well composed and needs no change** — the first conclusion was
-    drawn from one element.
+    space" from a partial dump; the full measurement shows a composed page with equal 162px margins. **The first
+    conclusion was drawn from one element.**
 
 ## Two languages, and which one goes where
 
@@ -321,7 +320,16 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 **AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
 
-**SIX OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NOW NEEDS NODE — AND THREE `node_modules`.** `console_assets` and `console_smoke` build and render the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react` (an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer `cargo test` holds (measured: 45s and still waiting; 32.9s with its own target dir). The SIXTH is `npm_test_floor`, which runs `npm test` in every package whose runner is `node --test` — `gateway`'s among them, which is why the `agent` job installs `gateway/node_modules` (measured: 92 packages, 24s; 602 tests, 34s). **AND `console_assets` REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by name while editing, which is also why the worktree recipe above says a symlinked `node_modules` is EXCLUDED rather than staged.
+**SIX OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NEEDS NODE — AND THREE `node_modules`.** `console_assets`
+and `console_smoke` build the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react`
+(an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather
+than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target
+directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer
+`cargo test` holds (32.9s with its own target dir, 45s and waiting without). The sixth is `npm_test_floor`, which runs
+`npm test` in every package whose runner is `node --test` — `gateway`'s among them, which is why the `agent` job installs
+`gateway/node_modules` (**measured: 92 packages, 24s; 602 tests, 34s; the job is 6.4 min**). **AND `console_assets`
+REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by
+name while editing, which is why a symlinked `node_modules` is EXCLUDED rather than staged.
 
 **Each carries its own mutation proof in its header.** Read it when you change the gate.
 
@@ -333,16 +341,13 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `smoke-helpers.bash`, `smoke-index.bash`
 `sweep-judges.bash`
 
-**AND FIVE MORE LEFT ON 2026-10-09 (landing 3), ALL BUT ONE OF `scripts/test/`'s JAVASCRIPT** —
-`console-assets-check`, `console-smoke-check`, `panel-sheet-freshness-check` and `press-anchor-check` are
-`agent/tests/console_assets.rs`, `console_smoke.rs`, `panel_sheet_freshness.rs` and `press_anchor.rs` now, and
-`contrast-probe-check` is `contrast_probe.rs` (the rules) plus `contrast_probe_emitted.rs` (the artifact),
-each ported with the Node gate still beside it and deleted only after the two agreed on one tree — the
-differential is in the commit that landed each port. **AND `npm-test-floored.mjs` FOLLOWED THEM ON
-2026-10-10**, spawn included, so `scripts/test/` holds no JavaScript at all: the floor is
-`agent/tests/npm_test_floor.rs`, which derives its subject — every tracked package declaring a `test`
-script, classified BY RUNNER, because `node --test` prints `ℹ pass 0` and exits 0 while `vitest` refuses
-an empty suite itself (measured: `No test files found, exiting with code 1`). `token-contract-check.mjs` moved 2026-09-30, and it is
+**AND `scripts/test/` HOLDS NO LOGIC AT ALL, WHICH IS WHAT LANDING 3 FINISHED.** The six gates it held are
+`agent/tests/`: `console_assets.rs` · `console_smoke.rs` · `panel_sheet_freshness.rs` · `press_anchor.rs` ·
+`contrast_probe.rs` (+ `contrast_probe_emitted.rs` for the artifact) · `npm_test_floor.rs` · `token_contract.rs`.
+**One BOUNDARY file remains there — `scripts/test/lib/emitted-pieces.mjs`, with its own rule and reason** — and
+criterion ① is about LOGIC, not about a file extension. Each port landed with the Node gate still beside it and the
+Node gate was deleted only after the two agreed on one tree; the differential is in the commit that landed each.
+
 `agent/tests/token_contract.rs` now.
 
 ## Where the long form lives
@@ -430,6 +435,13 @@ body cannot contain, and quote it:
     AGENTS_R141_EOF
 
 **The quoting is on the DELIMITER, not the content**, and the NAME matters as much as the quoting.
+
+**AND A COUNT HAS TWO EDGES: IT CATCHES A REGRESSION AND IT HIDES A DELETION.** Measured 2026-10-10, both ways in one
+afternoon: a suite went **81 -> 48 failures** while a name match deleted the one test whose subject had no other witness,
+and **nothing could see it — a deletion is not a failure, so the number gets BETTER.** Hours later the same instrument
+caught three of my own edits, each by moving it the wrong way. **Read the failures, not the count, and when a number
+improves ask what was removed.** And match a test's name in the SOURCE (`test("name", …)`), never as a reporter RENDERS
+it: `✖ name (12.3ms)` is a rendering, and `->`, `/` or a wrapped body will not match the literal.
 
 **AND WHEN YOU COUNT SOMETHING, COUNT IT WITH THE TOOL THAT PRODUCES IT — THREE CONVENIENT COMMANDS ARE WRONG HERE**,
 all in the same direction: the one that makes finished work look unfinished.
