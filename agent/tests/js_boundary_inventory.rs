@@ -689,4 +689,28 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// arithmetic suggests, and it was written only after the gate printed the number — the order matters,
 /// because the two parents agreeing on 92 is exactly the coincidence that would have hidden a wrong 92
 /// here. A number without its tree is a number about somebody else's tree.
+/// ── AND THE FOURTH TREE READS **91** TOO, WHICH IS THE PART WORTH WRITING DOWN (landing 2) ────────
+///
+/// **THE TREE: `feat/the-design-sweeps-are-rust`, from `dfa593c9` (the tip of `main`), 2026-10-10.**
+///
+/// The implementation plan for this landing said *"Expected 90; write what the gate prints"*, and the gate
+/// prints **91**. The plan's arithmetic was "the sweeps' directory leaves LOGIC, so the count falls by one",
+/// and the arithmetic is wrong for a reason the manifest itself now records: **EVERY tracked JS file under
+/// `agent/scripts/` ALREADY HAD A LONGER, MORE SPECIFIC BOUNDARY RULE**, so `LOGIC | agent/scripts/ |` was
+/// fully SHADOWED and matched no file at all. Reclassifying it to BOUNDARY — which this landing does, because
+/// a LOGIC rule over a directory of boundaries answers the manifest's own question ("may I write this in
+/// JS?") wrongly — changes the count by exactly zero. The 91 files are 37 in `gateway/src/` and 54 in
+/// `gateway/test/`, both another landing's, and neither is touched here.
+///
+/// **SO THE HONEST SENTENCE FOR THIS LANDING IS NOT "the cap fell to 90" BUT "this slice removed decisions
+/// from JavaScript WITHOUT CHANGING THE COUNT, because the count had already stopped seeing this
+/// directory."** A landing that reported the fall it expected would be reporting a number it never measured;
+/// measured the way the rule says — constant forced to 0, gate run, its own refusal read back:
+///
+///     LOGIC files: 91, and the frozen budget is 0 — the migration may only shrink this number.
+///
+/// **AND THE OTHER DIRECTION OF THE SAME GATE DID NOT FIRE EITHER**, which is what proves the rule is
+/// shadowed rather than merely unhelpful: `no_rule_matches_nothing` asks `Rule::matches`, not `classify`, so a
+/// rule whose files are all covered by something more specific is NOT dead — it is a rule whose files are
+/// also covered by something more specific, and calling that dead would be a gate that cannot be satisfied.
 const MAX_LOGIC: usize = 91;
