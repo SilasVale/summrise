@@ -26,7 +26,9 @@ function makeEnv(devices, links = {}) {
     // device family to the Rust worker when that binding is present (the production configuration), so a test of
     // the TypeScript handlers is a test of the ROLLBACK path — which is a real configuration (a `wrangler dev`
     // without the sibling worker, a deployment whose binding was removed) and the one these assertions were always
-    // about. The cutover's own routing is pinned in `devices-cutover.test.mjs`.
+    // about. The cutover's own routing is witnessed in `frontdoor.test.mjs` (the binding-less fallthrough) and
+    // in `plugins.test.mjs` (the one exclusion, with the binding present) — `devices-cutover.test.mjs` went with
+    // the code it tested (rule 1) and asserted the UNCONDITIONAL handover this tree no longer has.
     wasmGate: false,
     // The hosts above are device hosts AND the install base, and both rules live in the env (round 120):
     // `DEVICE_HOST_SUFFIX` decides what a device hostname may be, `INDEX_WORKER_URL` where the install

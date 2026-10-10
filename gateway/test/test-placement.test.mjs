@@ -112,14 +112,21 @@ const discovered = discoverable(own);
 const strays = discovered.filter(([f]) => !f.startsWith(`test${sep}`));
 
 // FLOOR — a scan that read nothing is not a clean scan, and this one has three things to read.
+//
+// **THE FLOOR IS NOT A RATCHET, AND IT WAS RE-BASED RATHER THAN LOWERED TO FIT A REGRESSION.** It read 40
+// against a tree that then held 61 files under `test/`; the rollback retirement deleted 15 of them WITH their
+// subjects (rule 1 and rule 2 — the corpus-pinned ones), so the tree holds 39 and the floor sat one ABOVE the
+// real count, which is a floor failing for the wrong reason. 30 is the same instrument with the same job:
+// catch a walk that read the wrong tree, not a count that moved with a landing.
 test("the scan read the package, its own tests, and the separate package it excludes", () => {
   assert.ok(files.length >= 100, `walked only ${files.length} file(s) under gateway/ — the scan is reading the wrong tree`);
   const ownTests = files.filter((f) => f.startsWith(`test${sep}`));
   assert.ok(
-    ownTests.length >= 40,
-    `found ${ownTests.length} file(s) under test/ — this package declares ~61, so the walk or the layout moved`,
+    ownTests.length >= 30,
+    `found ${ownTests.length} file(s) under test/ — this package's suite is scoped to test/, so a walk that ` +
+      `finds almost nothing here is reading the wrong tree (39 real files when this floor was re-based)`,
   );
-  assert.ok(discovered.length >= 40, `only ${discovered.length} discoverable file(s) found; the name patterns went stale`);
+  assert.ok(discovered.length >= 30, `only ${discovered.length} discoverable file(s) found; the name patterns went stale`);
   assert.ok(
     files.some((f) => f.split(sep)[0] === UI),
     "gateway/ui/ was not walked at all, so the exclusion below is not being tested",

@@ -618,8 +618,26 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
 ///                                         of the console's rollback.
 ///
-/// **AND THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`.** The same reclassification on
-/// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — will read 93. Both are facts
+/// **AND THAT NUMBER WAS 106 BECAUSE THAT TREE WAS BASED ON `main`.** The same reclassification on
+/// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — read 93. Both are facts
 /// about their own trees, which is the rule this session paid for three times: **a number without its tree is a
 /// number about somebody else's tree.**
-const MAX_LOGIC: usize = 80;
+///
+///     the status plugin       71 -> 72   `gateway/src/plugins/status.ts` is NEW, and it is LOGIC by the rule:
+///                                         `GET /api/plugins/status` is THE ONE ROUTE the cutover kept on the
+///                                         TypeScript path — its `routes` field is `routeStats(ctx)`, the plugin
+///                                         table's own per-isolate counters, which the Rust worker dispatches
+///                                         without and could only guess — and its implementation was deleted
+///                                         with `plugins/mcp.ts`. Restoring that file re-registers the PORTED
+///                                         MCP half (measured twice on this landing: 366/14 -> 330/50), so the
+///                                         route was MOVED into a plugin that registers nothing else.
+///                                         **THE CAP GOES UP BECAUSE A ROUTE THAT CANNOT BE PORTED WAS GIVEN BACK
+///                                         ITS ONE IMPLEMENTATION** — the direction this file allows only with a
+///                                         name and a reason, and this is both.
+///                                         MEASURED on `gateway/the-rollback-retires` (the tree carrying the
+///                                         status plugin), with the constant forced to 0: `LOGIC files: 72`.
+///                                         **AND THE CAP WAS ALREADY STALE BEFORE THIS EDIT:** the same
+///                                         measurement read **71** against `MAX_LOGIC = 80`, so this gate was RED
+///                                         on `0155edc0` — "the list SHRANK and the cap did not follow it down.
+///                                         A cap left high is finished work wearing a budget."
+const MAX_LOGIC: usize = 72;
