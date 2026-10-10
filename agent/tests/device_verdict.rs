@@ -44,7 +44,7 @@ use std::fs;
 
 const LINKS: [(&str, &str); 3] = [
     (
-        "gateway/src/plugins/mcp.ts",
+        "gateway/src/plugins/status.ts",
         "the worker FORWARDS the device's verdict into the console's payload",
     ),
     (
@@ -66,7 +66,11 @@ struct Streams {
 /// `state\.update\s*=\s*\{[\s\S]{0,300}update_available:` — the worker assembles the object field by
 /// field (spread-guarded, so an absent value is ABSENT rather than empty); the first version of this
 /// pattern looked for a shape the code never had and reported a link that is intact.
-fn mcp_forwards(t: &str) -> bool {
+///
+/// IT IS `worker_forwards` AND NOT `mcp_forwards` SINCE THE CUTOVER: the file it reads is
+/// `plugins/status.ts` (the route `plugins/mcp.ts` used to own), so the old name pointed at a file that
+/// no longer exists — the same stale-prose shape this landing keeps finding.
+fn worker_forwards(t: &str) -> bool {
     let c = chars(t);
     let mut from = 0;
     while let Some(i) = find_seq(&c, "state.update", from) {
@@ -185,7 +189,7 @@ fn view_guards_the_fallback(t: &str) -> bool {
 
 fn test_link(i: usize, t: &str) -> bool {
     match i {
-        0 => mcp_forwards(t),
+        0 => worker_forwards(t),
         1 => client_declares(t),
         2 => view_reads(t),
         _ => unreachable!(),
@@ -260,17 +264,19 @@ fn the_devices_verdict_still_crosses_the_wire() {
 
 #[test]
 fn the_worker_pattern_wants_the_assembly_not_the_word() {
-    assert!(mcp_forwards("state.update = {\n  update_available: u,\n};"));
+    assert!(worker_forwards(
+        "state.update = {\n  update_available: u,\n};"
+    ));
     // THE MEASURED FAILURE OF THE FIRST VERSION: `update_available` merely mentioned nearby.
-    assert!(!mcp_forwards(
+    assert!(!worker_forwards(
         "state.update = {\n  other: 1,\n};\nconst update_available = 1;"
     ));
     // ...and the 300-character window is what makes "nearby" mean something.
-    assert!(!mcp_forwards(&format!(
+    assert!(!worker_forwards(&format!(
         "state.update = {{{}update_available:",
         "x".repeat(301)
     )));
-    assert!(mcp_forwards(&format!(
+    assert!(worker_forwards(&format!(
         "state.update = {{{}update_available:",
         "x".repeat(300)
     )));
@@ -322,5 +328,5 @@ fn a_missing_link_is_a_failure_with_its_own_sentence() {
     assert!(!out.stderr.contains("is missing"), "{}", out.stderr);
     assert!(out
         .stdout
-        .contains("gateway/src/plugins/mcp.ts: the worker FORWARDS"));
+        .contains("gateway/src/plugins/status.ts: the worker FORWARDS"));
 }

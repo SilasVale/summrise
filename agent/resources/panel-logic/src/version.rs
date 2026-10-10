@@ -15,12 +15,17 @@
 //!
 //! # AND IT IS STILL TWO COPIES, ONE PER PACKAGE
 //!
-//! The gateway decides the same thing for the console in `gateway/src/plugins/mcp.ts` (`wireVersion`),
+//! The gateway decides the same thing for the console in `gateway/src/plugins/status.ts` (`wireVersion`),
 //! and it met the same defect from the other side — round-304 there, a strip reading v1.2.354 here. They
 //! cannot share a module, so each names the other and `agent/tests/device_version_rule.rs` holds both to
 //! one table: it requires that each side still implements the rule under a name, that BOTH prefer
 //! `release` and only then fall back to `version`, and that each side NAMES the other. `version` remains
 //! the fallback for a device old enough not to send `release` at all.
+//!
+//! **AND THE GATEWAY PATH MOVED ONCE MORE (2026-10-10)**: it was `gateway/src/plugins/mcp.ts` until the
+//! cutover deleted that file; `wireVersion` is in `gateway/src/plugins/status.ts` now — the plugin that
+//! serves the route `plugins/mcp.ts`'s status half owned — and this name followed it, which is exactly what
+//! the gate's cross-reference check is for.
 //!
 //! The panel's half moved here (block ②, 2026-09-30) and the gate followed it: its panel subject is this
 //! file now, and the gateway's comment names this file in turn.

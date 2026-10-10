@@ -19,7 +19,7 @@
  * callers use it.
  *
  * AND IT IS STILL TWO COPIES, one per package: the gateway decides the same thing for the console in
- * `gateway/src/plugins/mcp.ts` (`wireVersion`), and it met the same defect from the other side — round-304
+ * `gateway/src/plugins/status.ts` (`wireVersion`), and it met the same defect from the other side — round-304
  * there, a strip reading v1.2.354 here. They cannot share a module, so each names the other and
  * `agent/tests/device_version_rule.rs` holds both to one table. `version` remains the fallback for a device old enough not to send
  * `release` at all.
@@ -33,7 +33,12 @@
  * that had outlived the file — reads the CRATE for the panel's half now: it still requires the rule to be
  * implemented under a name, still requires BOTH halves to test `release` before `version`, and still
  * requires each side to NAME the other. That last one is why the crate's header names
- * `gateway/src/plugins/mcp.ts`, and why the gateway's comment names the crate.
+ * `gateway/src/plugins/status.ts`, and why the gateway's comment names the crate.
+ *
+ * **AND THE GATEWAY PATH MOVED ONCE MORE (2026-10-10)**: it was `gateway/src/plugins/mcp.ts` until the
+ * cutover deleted that file; `wireVersion` is in `gateway/src/plugins/status.ts` now, which is the plugin
+ * serving the route `plugins/mcp.ts`'s status half owned. The name in this comment followed it, which is
+ * exactly what the gate's cross-reference check is for.
  */
 import { logic } from "../wasm/panelLogic";
 

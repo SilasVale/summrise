@@ -23,8 +23,9 @@
 // HOW OLD IS THIS, AND HOW OLD CAN IT BE — ANSWERED, not left open. An earlier version of this note said a row could
 // be "checked 40 minutes ago" and that freshness was a second question. It is not: the worker probes each device's
 // own /api/status through its tunnel behind a 30-second in-isolate cache (DEVICE_PROBE_TTL_MS in
-// `summrise-gate/src/plugins/mcp.ts`, mirrored for the console's code viewer at
-// `gateway/public/code/files/summrise-gate/src/plugins/mcp.ts`), the console polls every 60s (`CONSOLE_POLL_MS` in this file), and `checked_at` is THAT
+// `summrise-gate/src/plugins/status.ts` — it was `plugins/mcp.ts` until the cutover deleted that file — mirrored
+// for the console's code viewer at
+// `gateway/public/code/files/summrise-gate/src/plugins/status.ts`), the console polls every 60s (`CONSOLE_POLL_MS` in this file), and `checked_at` is THAT
 // probe's timestamp — not the newer `agent_update` check's, which is a different field on the same row. So the
 // worst-case age of an `agent_up` reading is about a minute, a stale row cannot masquerade as a fresh one, and no
 // fourth "stale" state is needed. A test in `test/device-state.test.mjs` reads the mirror and fails if the TTL this

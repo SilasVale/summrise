@@ -106,8 +106,10 @@ impl DeviceError {
 ///
 /// This is a CROSS-BOUNDARY contract, and the boundary is not compiled
 /// together: the gateway matches these three strings in
-/// `gateway/src/mcp.ts` (the `!ok || data.ok === false` arm of
-/// `callTerminalToolOnce`) and maps them onto its own failure classes —
+/// `gateway/wasm/src/mcp.rs` (the `!dial.ok || data.get("ok") ==
+/// Some(&Value::Bool(false))` arm of `call_terminal_tool_once` — it was
+/// `gateway/src/mcp.ts` until the cutover ported the MCP surface) and maps them
+/// onto its own failure classes —
 /// `SESSION_NOT_FOUND` / `SESSION_BUSY` / `TIMEOUT`. **Every other typed code
 /// falls through to `TOOL_ERROR`**, which is a deliberate round-64 decision:
 /// after the mapping was widened, a device-UP tool failure (say a bad
@@ -237,7 +239,8 @@ mod error_tests {
         assert_eq!(
             GATEWAY_DISPATCHED_CODES,
             &["session_not_found", "session_busy", "ssh_timeout"],
-            "gateway/src/mcp.ts matches exactly these three; changing the set is a \
+            "gateway/wasm/src/mcp.rs matches exactly these three (it was `gateway/src/mcp.ts` \
+             until the cutover ported the MCP surface); changing the set is a \
              gateway behaviour change, not a refactor"
         );
         // No duplicates: a repeated entry would let a rename hide behind its twin.
@@ -294,7 +297,7 @@ mod error_tests {
 
         // `human_in_control` specifically must NOT be dispatched. If someone
         // adds it to GATEWAY_DISPATCHED_CODES, the gateway would need a matching
-        // arm in gateway/src/mcp.ts or the code would be matched-and-dropped;
+        // arm in gateway/wasm/src/mcp.rs or the code would be matched-and-dropped;
         // this pin forces that to be a conscious cross-repo change.
         assert!(
             !GATEWAY_DISPATCHED_CODES.contains(&"human_in_control"),
