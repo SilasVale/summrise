@@ -1124,19 +1124,22 @@ jobs:
             exit 0
           fi
           exit "$st"
-      # P1-2 bin/summrise.js freshness (same gate as release.yml:140-143):
-      # recompile src/summrise.ts with the tsc the electron step installed
-      # above and cmp against the committed bin/summrise.js — a src change
-      # without recompiling fails the PR, not the release.
-      - name: bin/summrise.js freshness (tsc recompile + cmp, same as release)
-        working-directory: agent
-        run: |
-          (cd summrise-agent-npm && ./node_modules/.bin/tsc -p tsconfig.json --outDir /tmp/summrise-fresh-bin)
-          if ! cmp -s "/tmp/summrise-fresh-bin/summrise.js" "summrise-agent-npm/bin/summrise.js"; then
-            echo "::error::summrise-agent-npm/bin/summrise.js is stale (src/summrise.ts changed without recompiling) — recompile and commit bin/summrise.js"
-            exit 1
-          fi
-          echo "bin/summrise.js freshness check OK"
+      # **P1-2 `bin/summrise.js` FRESHNESS IS DELETED, BECAUSE ITS SUBJECT IS.** Landing 4b replaced the CLI
+      # with a Rust binary: `src/summrise.ts`, `tsconfig.json` and `bin/summrise.js` are gone, so this step's
+      # `tsc -p tsconfig.json` recompiled a source that does not exist and its `cmp` compared a file that does
+      # not exist either — it would have failed the pack-chain job naming a STALE artifact rather than a MISSING
+      # one. **AND THE SAME STEP WAS FIXED IN `release.yml` AND MISSED HERE**, which is why the deletion is
+      # stated rather than silent: two copies of one check, and only one of them was found.
+      #
+      # WHAT CHECKS THE CLI NOW, so nobody has to guess whether the coverage was dropped:
+      #   * `cargo test -p summrise-cli` (the `agent` job) — 144 + 6 cases, and `parity/expected.json` holds
+      #     the 162-case oracle FROZEN before the TypeScript was deleted;
+      #   * `scripts/publish-release.sh` — provenance instead of recompilation: the staged `bin/summrise.exe`
+      #     must equal the cargo-xwin build output and be NEWER than `package.json`, whose version the binary
+      #     embeds. That is this step's contract (a source change without a rebuild fails the release, not the
+      #     PR) expressed against the artifact that now exists.
+      # This job has no cargo-xwin — its name says so — so it cannot check the exe, and pretending otherwise
+      # would be the vacuity the other gates in this file are written to avoid.
       # P1-5 pack + content subset gate: actually run npm pack (no exe is
       # staged in this xwin-less job, so the exes are EXCLUDED) and assert
       # the other release.yml files are inside — a files[]/rename slip
@@ -1177,19 +1180,23 @@ jobs:
             n=$((n+1))
           done < "$REQUIRED_IN_TGZ"
           echo "pack content check OK ($n files, all three exes excluded — no xwin in this job)"
-      # (c) summrise-agent-npm CLI tests — deliberately NO npm ci first: the
-      # package has zero dependencies and no lockfile, so npm ci would
-      # fail with EUSAGE. `npm test` (node --test over node builtins) runs
-      # against the package's own files with nothing installed — it is the PACKAGING suite now
-      # (`test/packaging.test.mjs`): the CLI's decisions are Rust and their 162 answers are pinned in
-      # `summrise-cli/parity/expected.json`, so what is left to check here is the tarball.
-      - name: npm CLI tests
-        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
-        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
-        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
-        run: npm test
-        working-directory: agent/summrise-agent-npm
-
+      # (c) THE `npm test` STEP FOR `summrise-agent-npm` IS DELETED (2026-10-10), WITH THE SUITE IT RAN.
+      # That package has NO JAVASCRIPT LEFT: the CLI's decisions are `summrise-cli` (Rust), and its last
+      # JavaScript file — `test/packaging.test.mjs`, ten packaging validations — is
+      # `agent/tests/npm_package.rs` now, reached by the `agent` job's `cargo test -p summrise-agent`.
+      #
+      # DELETED RATHER THAN LEFT RUNNING, because leaving it is a green that proves nothing followed by a
+      # red that proves the same thing: with no test files, `npm test` there prints `ℹ tests 0` and EXITS
+      # 0, and `scripts/test/npm-test-floored.mjs` — whose whole purpose is that a step which ran zero
+      # tests is not a passing step — refuses it. MEASURED before deleting: `FAIL
+      # …/agent/summrise-agent-npm: the suite ran 0 test(s) and exited 0. A suite that tests nothing
+      # passes everything`, rc=1.
+      #
+      # **AND THE WRAPPER ITSELF IS DELETED IN THIS MERGE — THE ONE THING THE TWO SIDES DISAGREED ABOUT.**
+      # main kept it, correctly, for the five packages that still ran `node --test` through it; this branch
+      # moved the floor into `agent/tests/npm_test_floor.rs` and turned those five steps into plain
+      # `npm test`. So the step goes (there is nothing left to run) AND the wrapper goes (the floor is a
+      # `cargo test` now): the union of the two intentions, with neither side's reason dropped.
       # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
       # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
       # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`

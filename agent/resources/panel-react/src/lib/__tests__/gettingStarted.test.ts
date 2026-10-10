@@ -50,11 +50,21 @@ describe("getting started: the content is checked, not trusted", () => {
     // failed with `ENOENT … bin/summrise.js`, 934 passed and 1 failed, which is a CI `panel` job red
     // for a file that no longer exists rather than for the guide being wrong.
     //
+    // **AND TWO TRACKS MADE THIS SAME FIX INDEPENDENTLY, IN THE SAME DAY, FROM THE SAME RED** — this
+    // version and the one already on `main` (same repoint, same `readdirSync`, a different const name),
+    // and neither saw the other's work. That is a measurement of how visible the failure was rather
+    // than a duplication to be embarrassed about: a test read a file the cutover had deleted, and it
+    // said so BY NAME — `ENOENT: … bin/summrise.js` is a sentence two agents could act on without a
+    // conversation, which is the shape this repository keeps asking a red to have.
+    //
     // ALL THE CRATE'S SOURCES, CONCATENATED, rather than one named file: a usage line sits where its
     // verb is implemented (`monitor.rs` for `monitor`, `dispatch.rs` for `autostart`), and naming one
     // file would make this pin fail the day a verb moves between them. The regex below is per-LINE
     // (`.` does not match a newline in JavaScript), so concatenation cannot let one usage line
     // swallow the next.
+    //
+    // **AND SORTED**, which the other version was not: `.match` takes the FIRST match, so a
+    // concatenation whose order is the filesystem's can answer differently on two machines.
     const CLI_SRC = path.join(ROOT, "summrise-cli", "src");
     const cli = readdirSync(CLI_SRC)
       .filter((f) => f.endsWith(".rs"))

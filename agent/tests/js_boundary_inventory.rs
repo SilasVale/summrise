@@ -585,7 +585,7 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         scripts, which this gate does not count), so the rule was deleted
 ///                                         rather than left matching nothing.
 ///
-/// **AND THIS NUMBER IS 94 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 95 - 1 = 94.** The branch that
+/// **AND THIS NUMBER IS 93 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 94 - 1 = 93.** The branch that
 /// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
 /// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
 /// to 0, is where it came from: `LOGIC files: 94`.
@@ -611,4 +611,40 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                          `agent/summrise-workspace-dsh`, whose suite NO CI step ran.
 ///                                          MEASURED THE SAME WAY, on THIS tree, constant forced to 0:
 ///                                          `LOGIC files: 94`.
-const MAX_LOGIC: usize = 94;
+///     the packaging suite        94 -> 93   `agent/summrise-agent-npm/test/packaging.test.mjs` LEFT, and it
+///                                         left for the reason the class exists: its ten cases were all
+///                                         VALIDATIONS, so they were LOGIC and had to become Rust. They are
+///                                         `agent/tests/npm_package.rs` (11 cases) — the SPAWN stayed a boundary
+///                                         (`npm pack --dry-run --json` decides the entry list; it is asked to
+///                                         pack, never to judge) and the checks are Rust. **THE PACKAGE NOW HAS
+///                                         NO JAVASCRIPT AT ALL**, so the manifest's
+///                                         `LOGIC | agent/summrise-agent-npm/test/` rule was deleted rather than
+///                                         left matching nothing, and the paragraph where it stood names this.
+///                                         MEASURED THE SAME WAY, on THIS tree, with the constant forced to 0:
+///                                         `LOGIC files: 93`.
+///     the catalogue document   107 -> 106   `gateway/config/models.ts` was RECLASSIFIED LOGIC -> BOUNDARY, not
+///                                         ported: it is three EMPTY arrays behind `satisfies CatalogueFile`, so
+///                                         it decides nothing, and its `.ts` form is what makes `tsc` refuse a
+///                                         misspelled facet before anything parses it at runtime. The decisions
+///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
+///                                         of the console's rollback.
+///
+/// ── THE NUMBER BELOW IS THIS TREE'S, AND NEITHER PARENT'S SURVIVED — WHICH IS THE RULE, NOT AN ACCIDENT ─
+///
+/// **THE TREE: the merge of `main@2e8db1eb` into `gates/the-floor-is-rust@699ea28c`, 2026-10-10.**
+///
+/// `main` was at **93** and this branch at **94**, and both were correct about their OWN trees: each had
+/// deleted one LOGIC rule from the manifest — `LOGIC | agent/summrise-agent-npm/test/ |` on `main` (its
+/// `packaging.test.mjs` became `agent/tests/npm_package.rs`) and `LOGIC | scripts/test/ |` on this branch
+/// (its `npm-test-floored.mjs` became the spawn inside `agent/tests/npm_test_floor.rs`). A merge that
+/// takes both deletions produces a THIRD tree, so it was re-measured the same way the two lines above
+/// were — constant forced to 0, gate run, refusal read:
+///
+///     LOGIC files: 92, and the frozen budget is 0 — the migration may only shrink this number.
+///
+/// **92, NOT 93 AND NOT 94**, and the difference is the whole reason this paragraph exists: the number
+/// this constant replaces said "THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`", which was true
+/// of the tree it was written on and became the mistake it warns about one merge later. The rule is the
+/// one the session paid for three times: **a number without its tree is a number about somebody else's
+/// tree.**
+const MAX_LOGIC: usize = 92;
