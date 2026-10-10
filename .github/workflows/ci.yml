@@ -60,7 +60,10 @@ jobs:
         run: npm run typecheck
         working-directory: gateway
       - name: Tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
+        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
+        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
+        run: npm test
         working-directory: gateway
       - name: Lint
         run: npm run lint
@@ -107,7 +110,10 @@ jobs:
         run: npm ci && npm run build
         working-directory: gateway/ui
       - name: Unit tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
+        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
+        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
+        run: npm test
         working-directory: gateway/ui
       # TWO STEPS STOOD HERE (before `panel:`) AND NEITHER IS REPLACED, DELIBERATELY. `console-smoke-check.mjs`
       # ran every `*-render-smoke.mjs` discovered in this directory — the set is DISCOVERED, not listed, and
@@ -144,7 +150,10 @@ jobs:
         run: npm run build
         working-directory: agent/resources/panel-react
       - name: Test
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
+        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
+        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
+        run: npm test
         working-directory: agent/resources/panel-react
       # THE PANEL SHEET'S FRESHNESS (round 177). Five gates read the COMMITTED
       # agent/resources/panel/panel.css and nothing compared it to its source. IT IS A RUST GATE NOW
@@ -301,6 +310,17 @@ jobs:
       - name: panel dependencies (the ported sheet-freshness gate rebuilds the panel)
         run: npm ci --include=optional
         working-directory: agent/resources/panel-react
+      # **AND THE GATEWAY'S, BECAUSE THE FLOOR RUNS EVERY PACKAGE'S SUITE FROM HERE NOW.** The six CI steps
+      # that used to invoke `scripts/test/npm-test-floored.mjs` run plain `npm test` in their own jobs, and
+      # the FLOOR — a suite that reports zero tests is not a passing suite — is
+      # `agent/tests/npm_test_floor.rs`, in THIS job. It derives every tracked package that declares a `test`
+      # script and runs each one, so this job needs what those suites need: gateway/ui and panel-react were
+      # installed for the two gates above, `index`, `agent/summrise-desktop-electron` and
+      # `agent/summrise-workspace-dsh` need nothing (zero dependencies), and `gateway` is this line.
+      # MEASURED: 92 packages in 24s, and `gateway`'s suite is 602 tests.
+      - name: gateway dependencies (the floor runs its suite here)
+        run: npm ci
+        working-directory: gateway
       - name: Tests
         # BOTH crates. `summrise-command-core` is a FOUNDATION module (per AGENTS.md) and its
         # 29 tests were never run here — which is how a stale assertion sat failing for
@@ -1206,7 +1226,11 @@ jobs:
       # …/agent/summrise-agent-npm: the suite ran 0 test(s) and exited 0. A suite that tests nothing
       # passes everything`, rc=1.
       #
-      # `npm-test-floored.mjs` ITSELF STAYS: five other packages still run `node --test` through it.
+      # **AND THE WRAPPER ITSELF IS DELETED IN THIS MERGE — THE ONE THING THE TWO SIDES DISAGREED ABOUT.**
+      # main kept it, correctly, for the five packages that still ran `node --test` through it; this branch
+      # moved the floor into `agent/tests/npm_test_floor.rs` and turned those five steps into plain
+      # `npm test`. So the step goes (there is nothing left to run) AND the wrapper goes (the floor is a
+      # `cargo test` now): the union of the two intentions, with neither side's reason dropped.
       # (c2) **THE CLI'S TWO IMPLEMENTATIONS, COMPARED CASE BY CASE (2026-10-08).** `summrise-cli` is the
       # Rust port of `bin/summrise.js`'s decisions, and this is the harness that proves they agree: the SAME
       # corpus through both, 162 cases, 0 differing is the bar. It belongs HERE rather than in the `agent`
@@ -1239,7 +1263,10 @@ jobs:
       # Same shape and same zero-dependency story as (c): node --test over node
       # builtins against the committed .js, so no install step.
       - name: desktop shell tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
+        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
+        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
+        run: npm test
         working-directory: agent/summrise-desktop-electron
 
   # index worker unit tests — pure node:test, zero deps, no lockfile, so
@@ -1262,7 +1289,10 @@ jobs:
         with:
           node-version: 22
       - name: Tests
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # The floor for this suite — a run that reports ZERO tests is not a passing run — is
+        # `agent/tests/npm_test_floor.rs`, which runs this same suite (and every other package's) in the
+        # `agent` job. The wrapper that used to stand here, `scripts/test/npm-test-floored.mjs`, is deleted.
+        run: npm test
         working-directory: index
       - name: Release manifest (Rust)
         run: cargo test --manifest-path index/worker/Cargo.toml

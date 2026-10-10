@@ -600,6 +600,17 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                        of LOGIC. The old reason justified the page-side half and said nothing
 ///                                        about the judge. **A count that only ever falls would have kept this
 ///                                        file out of the migration forever.**
+///
+///     the npm floor's spawn      95 -> 94   `scripts/test/npm-test-floored.mjs` LEFT — the LAST JavaScript file
+///                                          under `scripts/test/`, and the manifest's `LOGIC | scripts/test/ |`
+///                                          rule went with it, because that rule matched this file alone. Its
+///                                          spawn is in `agent/tests/npm_test_floor.rs` now, beside the decision
+///                                          it had already moved there (`count_of`, landing 3): the same floor,
+///                                          over EVERY tracked package that declares a `test` script rather than
+///                                          the six directories CI handed the wrapper — which found a seventh,
+///                                          `agent/summrise-workspace-dsh`, whose suite NO CI step ran.
+///                                          MEASURED THE SAME WAY, on THIS tree, constant forced to 0:
+///                                          `LOGIC files: 94`.
 ///     the packaging suite        94 -> 93   `agent/summrise-agent-npm/test/packaging.test.mjs` LEFT, and it
 ///                                         left for the reason the class exists: its ten cases were all
 ///                                         VALIDATIONS, so they were LOGIC and had to become Rust. They are
@@ -618,6 +629,24 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
 ///                                         of the console's rollback.
 ///
+/// ── THE NUMBER BELOW IS THIS TREE'S, AND NEITHER PARENT'S SURVIVED — WHICH IS THE RULE, NOT AN ACCIDENT ─
+///
+/// **THE TREE: the merge of `main@2e8db1eb` into `gates/the-floor-is-rust@699ea28c`, 2026-10-10.**
+///
+/// `main` was at **93** and this branch at **94**, and both were correct about their OWN trees: each had
+/// deleted one LOGIC rule from the manifest — `LOGIC | agent/summrise-agent-npm/test/ |` on `main` (its
+/// `packaging.test.mjs` became `agent/tests/npm_package.rs`) and `LOGIC | scripts/test/ |` on this branch
+/// (its `npm-test-floored.mjs` became the spawn inside `agent/tests/npm_test_floor.rs`). A merge that
+/// takes both deletions produces a THIRD tree, so it was re-measured the same way the two lines above
+/// were — constant forced to 0, gate run, refusal read:
+///
+///     LOGIC files: 92, and the frozen budget is 0 — the migration may only shrink this number.
+///
+/// **92, NOT 93 AND NOT 94**, and the difference is the whole reason this paragraph exists: the number
+/// this constant replaces said "THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`", which was true
+/// of the tree it was written on and became the mistake it warns about one merge later. The rule is the
+/// one the session paid for three times: **a number without its tree is a number about somebody else's
+/// tree.**
 /// **AND THE E2E SUITE'S SPLIT IS THE ENTRY THAT MOVES THIS CONSTANT ON THE MERGED TREE.** The
 /// reclassification above was RIGHT — the file's call sites computed their conditions and derived the details a
 /// reader acts on — and it is what made the port happen. The port then took the logic OUT of the file: the plan,
@@ -644,4 +673,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// refusal read back: `LOGIC files: 92, and the frozen budget is 0`. It was PREDICTED as 92 (93 minus the one
 /// file this landing moves out of LOGIC) and it was not written until the gate said it, which is the difference
 /// between a number and a fact.
-const MAX_LOGIC: usize = 92;
+/// ── AND THE THIRD TREE READ **91**, WHICH IS WHY BOTH PARENTS' 92s WERE NOT REUSED ─────────────────
+///
+/// **THE TREE: the merge of `main@181daf8b` into `gates/the-floor-is-rust@233a3fd6`, 2026-10-10.**
+///
+/// Both sides of this conflict said 92 and both were RIGHT about their own tree — this branch because it
+/// deleted two LOGIC rules, `main` because the e2e split moved one directory out of the class. The merge
+/// takes both facts, so the merged tree is a third tree and the arithmetic that looks obvious (92 minus
+/// one) is the arithmetic this constant must never be set by. It was measured the way the rule says —
+/// constant forced to 0, gate run, its own refusal read back:
+///
+///     LOGIC files: 91, and the frozen budget is 0 — the migration may only shrink this number.
+///
+/// **AND 91 IS THE PREDICTION CONFIRMED, NOT THE PREDICTION USED**: the sentence above says what the
+/// arithmetic suggests, and it was written only after the gate printed the number — the order matters,
+/// because the two parents agreeing on 92 is exactly the coincidence that would have hidden a wrong 92
+/// here. A number without its tree is a number about somebody else's tree.
+const MAX_LOGIC: usize = 91;

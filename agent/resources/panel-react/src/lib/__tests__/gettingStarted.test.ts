@@ -43,18 +43,33 @@ describe("getting started: the content is checked, not trusted", () => {
   it("a monospace ACTION is a command the CLI actually has", () => {
     // The one real command in the guide. If the CLI ever loses `monitor add`, the guide must not go
     // on telling people to type it — so this reads the shipped CLI and checks the usage line.
-    // **THE CLI IS RUST NOW (landing 4b), AND THIS TEST READ THE FILE THE CUTOVER DELETED.** It went red
-    // on `main` with `ENOENT: … summrise-agent-npm/bin/summrise.js` — a failure that named a missing file
-    // rather than a wrong answer, which is the shape this repository keeps finding. The CONTRACT is
-    // unchanged and still worth checking: the guide must not tell somebody to type a command the CLI does
-    // not have. The usage lines are Rust string literals now (`summrise-cli/src/monitor.rs` carries
-    // `usage: summrise monitor [list [--json] | add …]`), so this reads every source file of the crate and
-    // matches the same regex — `readdirSync` rather than one named file, because the guide's second
-    // command may live in any module and a test that reads one file cannot notice that.
-    const cliSrc = path.join(ROOT, "summrise-cli", "src");
-    const cli = readdirSync(cliSrc)
+    //
+    // **THE SHIPPED CLI IS RUST NOW (landing 4b's cutover), SO THIS READS ITS SOURCES.** It read
+    // `summrise-agent-npm/bin/summrise.js` — a tsc emit of `src/summrise.ts` — and both were deleted
+    // when the npm `bin` became `bin/summrise.exe`. MEASURED before this was repointed: the suite
+    // failed with `ENOENT … bin/summrise.js`, 934 passed and 1 failed, which is a CI `panel` job red
+    // for a file that no longer exists rather than for the guide being wrong.
+    //
+    // **AND TWO TRACKS MADE THIS SAME FIX INDEPENDENTLY, IN THE SAME DAY, FROM THE SAME RED** — this
+    // version and the one already on `main` (same repoint, same `readdirSync`, a different const name),
+    // and neither saw the other's work. That is a measurement of how visible the failure was rather
+    // than a duplication to be embarrassed about: a test read a file the cutover had deleted, and it
+    // said so BY NAME — `ENOENT: … bin/summrise.js` is a sentence two agents could act on without a
+    // conversation, which is the shape this repository keeps asking a red to have.
+    //
+    // ALL THE CRATE'S SOURCES, CONCATENATED, rather than one named file: a usage line sits where its
+    // verb is implemented (`monitor.rs` for `monitor`, `dispatch.rs` for `autostart`), and naming one
+    // file would make this pin fail the day a verb moves between them. The regex below is per-LINE
+    // (`.` does not match a newline in JavaScript), so concatenation cannot let one usage line
+    // swallow the next.
+    //
+    // **AND SORTED**, which the other version was not: `.match` takes the FIRST match, so a
+    // concatenation whose order is the filesystem's can answer differently on two machines.
+    const CLI_SRC = path.join(ROOT, "summrise-cli", "src");
+    const cli = readdirSync(CLI_SRC)
       .filter((f) => f.endsWith(".rs"))
-      .map((f) => readFileSync(path.join(cliSrc, f), "utf8"))
+      .sort()
+      .map((f) => readFileSync(path.join(CLI_SRC, f), "utf8"))
       .join("\n");
     const commands = STEPS.flatMap((s) => (s.action ? [s.action] : []));
     expect(commands.length, "the guide should show at least one real command").toBeGreaterThan(0);

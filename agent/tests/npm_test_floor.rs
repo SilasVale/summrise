@@ -28,9 +28,29 @@
 //! six leading spaces and two spaces after `Tests` included. The colourised variant is the one round 203
 //! recorded, because vitest DOES colourise in some environments and the strip has to survive it.
 //!
-//! THE SPAWN STAYS IN THE `.mjs` FOR NOW. This is the decision only — the reporter parsing and the two
-//! refusals — which is the same split `contrast-probe-check` used when thirteen of its assertions moved and
-//! five stayed. The retirement is its own step, with its own proof.
+//! ── THE SPAWN MOVED HERE TOO, AND THE `.mjs` IS DELETED ─────────────────────────────────────────
+//!
+//! `scripts/test/npm-test-floored.mjs` is gone: `count_of` above is its decision, and
+//! `every_package_that_declares_a_test_script_reports_a_count` below is its spawn. The two were run on one
+//! tree until they agreed, which is how every other `.mjs` in `scripts/test/` was retired.
+//!
+//! **THE SUBJECT IS DERIVED, NOT LISTED.** The `.mjs` was handed a working directory by the CI step that
+//! invoked it; a Rust test has no such caller, so it asks the repository which packages declare a `test`
+//! script (`git ls-files`, so a `node_modules` copy cannot answer) and floors EVERY one of them. That is
+//! strictly wider than the six steps the `.mjs` replaced — it found a SEVENTH, `agent/summrise-workspace-dsh`,
+//! whose suite nothing in CI runs — and it cannot go stale the way a list of directories would.
+//!
+//! **AND THE `n/a` BRANCH IS DELETED RATHER THAN PORTED, BECAUSE IT HAS NO CALLER.** The `.mjs` exited 2
+//! with "this host cannot run me" when its cwd held no `package.json`: `all-gates.bash` runs every
+//! `scripts/test/*` file from the REPOSITORY ROOT, where that is true. Nothing runs this file from a
+//! directory it did not choose — it resolves each package from the repository root — so a branch for "I do
+//! not know where I am" would be a branch nothing reaches. What replaced it is LOUDER: a package whose
+//! suite cannot run at all fails this test with the command that fixes it, rather than declaring itself
+//! inapplicable.
+
+mod common;
+
+use common::{git_ls_files_all, repo, Spawn};
 
 /// `\u001b\[[0-9;]*m` — vitest colourises its summary, and an anchored match then never fires.
 fn strip_ansi(text: &str) -> String {
@@ -109,6 +129,185 @@ pub fn count_of(raw: &str) -> Option<u64> {
         }
     }
     pass.or(vitest).or(tests)
+}
+
+/// **THE PACKAGES THIS FLOOR COVERS, AND THE RUNNERS IT DOES NOT NEED TO.** Every TRACKED `package.json`
+/// whose `scripts.test` is a non-empty string — `git ls-files` rather than a walk, so a `node_modules` copy
+/// of somebody else's manifest cannot answer, and the list cannot go stale.
+///
+/// **THE RUNNER DECIDES WHETHER THE FLOOR IS NEEDED, AND THAT IS MEASURED RATHER THAN ASSUMED.**
+/// `node --test` prints `ℹ pass 0` and **EXITS 0** — the vacuity this gate exists for. `vitest` does not:
+/// with no test files it prints `No test files found, exiting with code 1` and exits **1** (MEASURED in
+/// `agent/resources/panel-react`, 2026-10-10), so its own runner is already the floor, and running a
+/// 935-test vitest suite inside `cargo test` would buy nothing and cost a fork pool — MEASURED once
+/// already: under a loaded box the panel's suite failed with `[vitest-pool]: Failed to start forks
+/// worker`, which is a red this gate would have reported for a reason that is not the suite's.
+///
+/// AN UNKNOWN RUNNER IS A FAILURE, NOT A SKIP: this gate cannot claim a runner refuses an empty suite
+/// without having measured that it does, so a package whose `test` script is something else must be
+/// brought here and classified deliberately.
+fn classify(script: &str) -> Runner {
+    if script.starts_with("node --test") {
+        Runner::NodeTest
+    } else if script.starts_with("vitest") {
+        Runner::Vitest
+    } else {
+        Runner::Unknown
+    }
+}
+
+enum Runner {
+    /// Prints a count and exits 0 even when it ran nothing — THE SUBJECT OF THIS GATE.
+    NodeTest,
+    /// Refuses an empty suite itself (measured), so it needs no floor from here.
+    Vitest,
+    /// Never seen. Named in the failure so the next reader classifies it rather than guessing.
+    Unknown,
+}
+
+fn packages_with_a_test_script() -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for f in git_ls_files_all() {
+        if !f.ends_with("package.json") {
+            continue;
+        }
+        let raw = match std::fs::read_to_string(repo().join(&f)) {
+            Ok(t) => t,
+            // An unreadable manifest is skipped rather than fatal: this gate's subject is the suites, and a
+            // file that cannot be read is `js_boundary_inventory`'s business, not this one's.
+            Err(_) => continue,
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        if let Some(t) = v["scripts"]["test"]
+            .as_str()
+            .filter(|t| !t.trim().is_empty())
+        {
+            out.push((
+                f.trim_end_matches("/package.json").to_string(),
+                t.to_string(),
+            ));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// **THE FLOOR, OVER EVERY PACKAGE THAT DECLARES A SUITE.** Each one is run and its own count is read; the
+/// failures are COLLECTED rather than returned on the first, so one red does not hide the other six.
+///
+/// THREE WAYS TO FAIL, and they are the original's three: the suite exited non-zero (its own failure, passed
+/// through exactly as `execFileSync` passed it through); the suite exited 0 with NO COUNT in its output (the
+/// vacuity the `.mjs` was written for); or the count was below 1 (`node --test` prints `ℹ pass 0` and EXITS
+/// 0). The message names the package, the count, the rc and the command that fixes a suite that could not run.
+///
+/// MUTATION: a package's `test` script -> `node --test "test/**/*.nomatch"` — the glob stops matching, which
+///           is the rename/never-matched case this floor was written for. MEASURED on `index/package.json`:
+///           `npm test` prints `ℹ pass 0` and EXITS 0, and this test fails with
+///           `index: the suite reported 0 test(s) and exited 0. A suite that tests nothing passes
+///           everything — check that its test files still exist and that the runner still matches them.`
+///
+/// MUTATION: a package's `test` script -> `node --test test/does-not-exist.mjs` -> MEASURED: `npm test` exits
+///           1 and this test fails with `index: \`npm test\` exited 1 — the suite failed, which is the
+///           suite's own verdict and this floor passes it through.`
+///
+/// **AND THE OBVIOUS MUTATION IS NOT ONE — MEASURED, WHICH IS WHY IT IS WRITTEN DOWN HERE.** A first draft of
+/// this block proposed `node --test --test-name-pattern=zzz-no-such-test` as "a suite that matches nothing".
+/// It is not: Node still REPORTS every test it filtered out — `ℹ tests 8 / ℹ pass 8`, rc=0 — so the floor
+/// correctly passes it, and a mutation that cannot fail proves nothing. **A FILTER IS NOT AN EMPTY SUITE**;
+/// the count comes from the FILES the runner found, not from the tests it chose to run.
+#[test]
+fn every_package_that_declares_a_test_script_reports_a_count() {
+    let packages = packages_with_a_test_script();
+    // A FLOOR ON THE DERIVATION ITSELF: a scan that found no package would pass the loop below while
+    // checking nothing, which is the same vacuity one level up.
+    assert!(
+        packages.len() >= 5,
+        "only {} package(s) with a `test` script were found: {:?} — the derivation moved, so this proves \
+         nothing",
+        packages.len(),
+        packages.iter().map(|(d, _)| d).collect::<Vec<_>>()
+    );
+
+    let mut failures: Vec<String> = Vec::new();
+    let mut floored: Vec<String> = Vec::new();
+    let mut self_floored: Vec<String> = Vec::new();
+    for (dir, script) in &packages {
+        match classify(script) {
+            Runner::Vitest => {
+                // Its own runner refuses an empty suite (measured), so it needs nothing from here.
+                self_floored.push(format!("{dir} (vitest)"));
+                continue;
+            }
+            Runner::Unknown => {
+                failures.push(format!(
+                    "{dir}: its `test` script is {script:?}, a runner this gate has NOT measured. Either it \
+                     refuses an empty suite itself (say so here, with the measurement) or it needs the floor \
+                     and belongs in the arm above."
+                ));
+                continue;
+            }
+            Runner::NodeTest => {}
+        }
+        let out = Spawn::new("npm").args(["test"]).cwd(repo().join(dir)).run();
+        let tail: String = out
+            .both()
+            .lines()
+            .rev()
+            .take(12)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !out.ok() {
+            failures.push(format!(
+                "{dir}: `npm test` exited {} — the suite failed, which is the suite's own verdict and this \
+                 floor passes it through. Output tail:\n{tail}",
+                out.code()
+            ));
+            continue;
+        }
+        match count_of(&out.stdout) {
+            None => failures.push(format!(
+                "{dir}: the suite exited 0 but its output carried NO test count at all, so this proves \
+                 nothing. Expected `ℹ pass N` (node --test, Node 24), `# pass N` (Node 20) or `Tests  N \
+                 passed` (vitest). Output tail:\n{tail}"
+            )),
+            Some(0) => failures.push(format!(
+                "{dir}: the suite reported 0 test(s) and exited 0. A suite that tests nothing passes \
+                 everything — check that its test files still exist and that the runner still matches them. \
+                 Output tail:\n{tail}"
+            )),
+            Some(n) => floored.push(format!("{dir} ({n})")),
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "the floor refused {} of {} package(s) that declare a `test` script:\n  {}\n\
+         FIX: the runner's own command is in that package's `test` script; a suite whose dependencies are \
+         missing needs `npm ci` in its directory (CI's `agent` job installs them).",
+        failures.len(),
+        packages.len(),
+        failures.join("\n  ")
+    );
+    // AND THE SELF-FLOORED ARM IS EXERCISED: if the vitest package ever leaves, the skip above becomes
+    // dead code that a reader would take for coverage.
+    assert!(
+        !self_floored.is_empty(),
+        "no package was classified as self-floored (vitest) — the arm that skips them is now unreachable, \
+         so either a package changed runner or the derivation stopped finding it: {packages:?}"
+    );
+    println!(
+        "npm-test-floored: {} package(s) floored here — {}\n                  {} self-floored (their runner \
+         refuses an empty suite) — {}",
+        floored.len(),
+        floored.join(", "),
+        self_floored.len(),
+        self_floored.join(", ")
+    );
 }
 
 #[cfg(test)]
@@ -200,42 +399,6 @@ mod tests {
         assert_eq!(count_of("ℹ tests 0\nℹ pass 0\n"), Some(0));
         // And the refusal is `< 1`, not `== 0`, so a count that parsed to nothing is refused too.
         assert!(count_of("all good!\n").is_none());
-    }
-
-    /// **THE TWO COPIES CANNOT DRIFT SILENTLY.** The `.mjs` keeps the spawn and its own copy of these three
-    /// shapes until the retirement; this reads that file and fails if any of them moved. It is the same
-    /// cross-check `tests/two_relays_agree.rs` uses, for the same reason: **a claim nobody checks is a claim
-    /// that drifts**, and here the claim is that two implementations of one decision still agree.
-    #[test]
-    fn the_javascript_still_carries_the_same_shapes() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("the repository root")
-            .join("scripts/test/npm-test-floored.mjs");
-        let js =
-            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-
-        for (what, fragment) in [
-            // the ANSI strip, which round 203 is why exists
-            ("the ANSI strip", r#"replace(/\u001b\[[0-9;]*m/g, "")"#),
-            // the three reporters
-            ("node --test's `tests`", r"match(/^[ℹ#]\s*tests\s+(\d+)/m)"),
-            ("node --test's `pass`", r"match(/^[ℹ#]\s*pass\s+(\d+)/m)"),
-            ("vitest's summary", r"match(/^\s*Tests\s+(\d+)\s+passed/m)"),
-            // the precedence, which is load-bearing: node --test prints both `tests` and `pass`
-            ("the precedence", "pass ? Number(pass[1]) : vitest ? Number(vitest[1]) : tests ? Number(tests[1]) : null"),
-            // the two refusals
-            ("the no-count refusal", "counted === null"),
-            ("the zero refusal", "counted < 1"),
-            // and the thing this file does NOT take over yet
-            ("the spawn", r#"execFileSync("npm", ["test"]"#),
-        ] {
-            assert!(
-                js.contains(fragment),
-                "scripts/test/npm-test-floored.mjs no longer carries {what} — it is {fragment:?}, and the \
-                 Rust port's corpus is written against it"
-            );
-        }
     }
 
     #[test]

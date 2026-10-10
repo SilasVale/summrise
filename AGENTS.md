@@ -173,11 +173,8 @@ rule is not "avoid /tmp" but the sharper one: **a worktree is a working copy, an
 in it can be deleted by the operating system.** Commit before leaving a track idle, and keep the tree where a
 reboot cannot reach.
 
-**AND THE CAUSE IS A REBOOT, NOT A SWEEPER — MEASURED RATHER THAN ASSUMED, BECAUSE THE FIRST VERSION OF THIS
-PARAGRAPH SAID "A `/tmp` SWEEP" AND THAT SENDS THE NEXT READER HUNTING FOR SOMETHING THAT IS NOT THERE.**
-`who -b` says *system boot Oct 9 15:44*, and `/tmp`'s tmpfiles rule is `D /tmp 1777 root root 30d` — **30 days**, so
-the sweeper cannot have deleted a file from the same afternoon. **Check `uptime` before theorising about what deleted
-a file.**
+**AND CHECK `uptime` BEFORE THEORISING ABOUT WHAT DELETED A FILE.** A `/tmp` sweeper was blamed once; `who -b` said
+otherwise, and the measurement is in the commit that corrected it.
 
 Symlink the dependency trees a worktree needs (`agent/resources/panel-react/node_modules`, `gateway/node_modules`, …).
 **`.gitignore`'s `node_modules/` matches a DIRECTORY, not a symlink**, so `git add -A` there stages the LINK — and checks
@@ -190,9 +187,8 @@ branch at a time (the ref is shared), but a merge is seconds, and the other trac
 
 **AND A READ-ONLY COMMAND CAN STALL THE WHOLE BOX — TWO OF THEM DID, ON 2026-10-09.** `du -sh` over four home directories ran
 **1h34m** and `grep -rn underAA --include=* .` ran **45 minutes**, holding load at ~23 while every cargo gate in every
-worktree crawled — and **the first was visible in a process listing for two rounds before anyone acted on it.**
-Neither was killing anything, so the cost was pure time. **Check `ps` for long-running read-only commands before
-blaming the machine, and prefer the `grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
+worktree crawled. **Check `ps` for long-running read-only commands before blaming the machine, and prefer the
+`grep` TOOL over shell `grep -r`** — the repo-wide form with `--include=*` is
 
 **AND A LONG GATE RUN HAS ONE SHAPE THAT WORKS HERE: run it in the FOREGROUND with a long timeout and let the
 tool move it to a managed job when the timeout expires.** Three other shapes failed the same afternoon — `&` (the
@@ -325,7 +321,7 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 
 **AND THE RUST GATES RUN IN `cargo test`.** `agent/tests/*.rs` holds every gate that was migrated out of `scripts/test/`: no runner of its own — `cargo test -p summrise-agent`, already a CI job, is what runs them. One by hand: `cd agent && cargo test -p summrise-agent <name>`.
 
-**FIVE OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NOW NEEDS NODE — AND TWO `node_modules`.** `console_assets` and `console_smoke` build and render the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react` (an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer `cargo test` holds (measured: 45s and still waiting; 32.9s with its own target dir). **AND `console_assets` REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by name while editing, which is also why the worktree recipe above says a symlinked `node_modules` is EXCLUDED rather than staged.
+**SIX OF THEM SPAWN A TOOLCHAIN, SO `cargo test -p summrise-agent` NOW NEEDS NODE — AND THREE `node_modules`.** `console_assets` and `console_smoke` build and render the console out of `gateway/ui`; `panel_sheet_freshness` rebuilds `agent/resources/panel-react` (an absent `node_modules` there declares `n/a` — round 191's rule — and the `agent` job installs it so CI measures rather than skips); `press_anchor` runs `node <sweep> --emit` and builds its own `summrise-sweep-plan` into a DEDICATED target directory, because `--emit` reaches the plan through `cargo run` and a nested cargo blocks on the build lock the outer `cargo test` holds (measured: 45s and still waiting; 32.9s with its own target dir). The SIXTH is `npm_test_floor`, which runs `npm test` in every package whose runner is `node --test` — `gateway`'s among them, which is why the `agent` job installs `gateway/node_modules` (measured: 92 packages, 24s; 602 tests, 34s). **AND `console_assets` REFUSES A DIRTY TREE**, so `cargo test -p summrise-agent` is red on a tree with uncommitted edits — run the one gate by name while editing, which is also why the worktree recipe above says a symlinked `node_modules` is EXCLUDED rather than staged.
 
 **Each carries its own mutation proof in its header.** Read it when you change the gate.
 
@@ -333,7 +329,6 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `hook-finds-its-repo.bash`
 `main-only-by-merge.bash`, `main-shape-shallow.bash`, `rust-byte-checks.bash`
 `panel-design-sweep.bash`
-`npm-test-floored.mjs`
 `publish-release.bash`, `release-audit.bash`, `release-lib.bash`, `scan-dups-check.py`, `script-syntax.bash`
 `smoke-helpers.bash`, `smoke-index.bash`
 `sweep-judges.bash`
@@ -343,9 +338,11 @@ two names for one screen. It holds TERMS ONLY — an invariant belongs in the ga
 `agent/tests/console_assets.rs`, `console_smoke.rs`, `panel_sheet_freshness.rs` and `press_anchor.rs` now, and
 `contrast-probe-check` is `contrast_probe.rs` (the rules) plus `contrast_probe_emitted.rs` (the artifact),
 each ported with the Node gate still beside it and deleted only after the two agreed on one tree — the
-differential is in the commit that landed each port. **`npm-test-floored.mjs` STAYS**, and the reason is the
-rule rather than the count: only its DECISION moved (`agent/tests/npm_test_floor.rs`), and the `npm test`
-spawn it runs is still JavaScript. `token-contract-check.mjs` moved 2026-09-30, and it is
+differential is in the commit that landed each port. **AND `npm-test-floored.mjs` FOLLOWED THEM ON
+2026-10-10**, spawn included, so `scripts/test/` holds no JavaScript at all: the floor is
+`agent/tests/npm_test_floor.rs`, which derives its subject — every tracked package declaring a `test`
+script, classified BY RUNNER, because `node --test` prints `ℹ pass 0` and exits 0 while `vitest` refuses
+an empty suite itself (measured: `No test files found, exiting with code 1`). `token-contract-check.mjs` moved 2026-09-30, and it is
 `agent/tests/token_contract.rs` now.
 
 ## Where the long form lives

@@ -8,8 +8,8 @@
 // MUTATION: add a NEW instrument to `agent/scripts/` and never re-sync the mirror (e.g. `touch agent/scripts/newprobe.mjs`)
 // RESULT:   exit 1: "agent/scripts holds instruments that the Source Viewer does not publish, so a reader cannot reach code this repository tells them to run. Re-sync with `bash gateway/scripts/sync-code-viewer.sh` and commit the mirror." THE FIRST VERSION OF THIS TEST CHECKED ONLY mirrored -> source, so a new unmirrored instrument passed while the viewer was quietly incomplete; the gateway mirror's test had checked its own `missing` direction since it was written
 //
-// MUTATION: edit `agent/scripts/e2e/e2e.js` and forget to re-copy it to `index/public/summrise-agent/e2e.js`
-// RESULT:   exit 1: "index/public/summrise-agent/e2e.js is not the suite in agent/scripts/e2e/e2e.js - and that file is what the device FETCHES to run a section against a real panel, so a stale copy measures a product that is not there." THE PAIR WAS COPIED BY HAND IN ROUNDS 103, 113 AND 114 WITH NO ASSERTION; it is the same shape as the panel build output, which IS gated (panel-sheet-freshness-check)
+// MUTATION: edit `agent/scripts/e2e/e2e.js` and forget to RE-EMIT `index/public/summrise-agent/e2e.js`
+// RESULT:   exit 101 FROM `agent/e2e-judge/tests/bundle.rs`, not from this file: "the emitted bundle is stale: … differs at byte N". This file guarded the pair by byte-equality from round 138 until the judge's landing made the published copy a build product carrying the embedded plan — at which point byte-equality became an assertion that could only fail (measured on `main@181daf8b`: 48,571 against 51,779 bytes). The Rust gate runs the emitter and compares what it produces
 
 // instruments-mirror.test.mjs — THE SOURCE VIEWER'S SECOND MIRROR MUST MATCH ITS SOURCE.
 //
@@ -77,21 +77,23 @@ test("code viewer: the instruments mirror matches agent/scripts byte for byte", 
     `repository tells them to run. Re-sync with \`bash gateway/scripts/sync-code-viewer.sh\` and commit the mirror.`,
   );
 
-  // AND THE PUBLISHED COPY OF THE E2E SUITE, WHICH IS THE SAME SHAPE AND HAD NO GUARD EITHER (round 138).
-  // `index/public/summrise-agent/e2e.js` is the copy the DEVICE fetches — AGENTS.md's cadence hands a section to a real
-  // device through it — and it was copied BY HAND in rounds 103, 113 and 114. Three manual copies, no assertion. The
-  // panel's build output has exactly this shape and IS gated (`panel-sheet-freshness-check.mjs`); this pair was not.
-  const e2ePublished = join(GATEWAY, "..", "index/public/summrise-agent/e2e.js");
-  const e2eSource = join(SOURCE, "e2e/e2e.js");
-  assert.strictEqual(
-    readFileSync(e2ePublished, "utf8"),
-    readFileSync(e2eSource, "utf8"),
-    `index/public/summrise-agent/e2e.js is not the suite in agent/scripts/e2e/e2e.js — and that file is what the ` +
-    `device FETCHES to run a section against a real panel, so a stale copy measures a product that is not there. ` +
-    `Re-copy it (\`cp agent/scripts/e2e/e2e.js index/public/summrise-agent/e2e.js\`) and commit, the way rounds ` +
-    `103, 113 and 114 each did by hand.`,
-  );
-
+  // ── AND THE PUBLISHED COPY OF THE E2E SUITE, WHICH IS **NO LONGER A HAND COPY** — THE ASSERTION THAT STOOD
+  // HERE IS GONE, AND THE REASON IS A MEASUREMENT RATHER THAN A PREFERENCE.
+  //
+  // From round 138 it demanded `index/public/summrise-agent/e2e.js` be BYTE-EQUAL to
+  // `agent/scripts/e2e/e2e.js`, because it was a copy a person made by hand in rounds 103, 113 and 114. The e2e
+  // judge's landing (2026-10-10) made that copy a BUILD PRODUCT: the driver's source carries
+  // `const BUNDLED_PLAN = null;` ON PURPOSE — running the source with no plan must REFUSE rather than invent a
+  // section order — and `summrise-e2e-judge --bundle` replaces that marker with the plan a device cannot compute.
+  //
+  //     main@181daf8b:  source 48,571 bytes · published 51,779 bytes · byte-equal: NO
+  //     this tree:      the same two files and the same sizes — **so this assertion was RED ON `main`, before
+  //                     any merge, and this file was the only thing left that believed the two could be equal.**
+  //
+  // The replacement gate is `agent/e2e-judge/tests/bundle.rs` — "the copy a device fetches, checked against the one
+  // thing that produces it": it RUNS the emitter over the source and compares its OUTPUT to the committed bundle.
+  // That is the same protection one level stronger, because a copy that is merely EQUAL to the source now fails
+  // too: it would carry no plan. It runs in the `agent` job as `cargo test -p summrise-e2e-judge`.
   const differing = mirrored.filter(
     (rel) => readFileSync(join(MIRROR, rel), "utf8") !== readFileSync(join(SOURCE, rel), "utf8"),
   );
