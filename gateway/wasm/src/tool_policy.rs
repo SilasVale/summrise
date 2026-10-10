@@ -251,6 +251,37 @@ pub fn proxy_may_reach_tool(name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// **THE TWO DOORS' CATALOGUES CANNOT DRIFT — AND THIS IS THE CONTRACT THAT SURVIVED THE RETIREMENT.**
+    ///
+    /// Its `.mjs` predecessor lived in `gateway/test/mcp-handler.test.mjs` and compared this table against a
+    /// constant defined IN THAT TEST FILE; the door that read the constant was `plugins/mcp.ts`, deleted with
+    /// the rollback. **Moving that test here unchanged would have produced an assertion reading a JS test
+    /// file's own literal — "the Rust table cannot drift from a constant in a Rust test" is not a contract
+    /// between two doors, it is a restatement of itself** — so the invariant is re-expressed against the door
+    /// that actually exists: the Rust MCP surface's tool table, which `mcp_tools::find` answers.
+    ///
+    /// **THE DIRECTION IS THE CLAIM.** This asserts the proxy withholds nothing the MCP surface EXPOSES: every
+    /// name the proxy refuses and the panel does not call (`panel: false`) must be ABSENT from the MCP tool
+    /// table. The reverse is deliberately NOT asserted — the MCP surface withholds names for MCP-client reasons
+    /// that the panel legitimately uses (`memory_*`, `agent_update`), which is the `panel: true` half here.
+    #[test]
+    fn the_proxy_withholds_nothing_the_mcp_surface_exposes() {
+        let mut checked = 0;
+        for (name, tool) in WITHHELD_TOOLS {
+            if tool.panel {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                crate::mcp_tools::find(name).is_none(),
+                "{name} is withheld from the device proxy but is EXPOSED on the MCP surface — one of the two \
+                 doors is wrong, and they are not allowed to disagree"
+            );
+        }
+        // A floor, so a table that emptied would not make this pass vacuously.
+        assert!(checked >= 15, "only {checked} withheld names were checked — this proves nothing");
+    }
+
     #[test]
     fn the_table_is_the_source_table() {
         assert_eq!(WITHHELD_TOOLS.len(), 23);
