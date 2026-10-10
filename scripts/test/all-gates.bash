@@ -267,7 +267,7 @@ for cmd in "${gates[@]}"; do
          # `panicked at` matched and **`head -1` cut the line below it**, so a CI cycle was spent deriving by hand
          # what the gate had already printed. `grep -A 3` takes the panic line plus its message; `tail -n +2` drops
          # the line already printed above, and `head -3` bounds it.
-         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -3
+         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -25
          printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
     *) fail=$((fail + 1)); printf '  FAIL  %s\n' "$cmd"
        { printf '%s\n' "$out" | grep -E '^(failures:|    [a-z_][A-Za-z0-9_:]*$)|panicked at|FAILED' | head -12
@@ -277,7 +277,7 @@ for cmd in "${gates[@]}"; do
          # `panicked at` matched and **`head -1` cut the line below it**, so a CI cycle was spent deriving by hand
          # what the gate had already printed. `grep -A 3` takes the panic line plus its message; `tail -n +2` drops
          # the line already printed above, and `head -3` bounds it.
-         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -3
+         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -25
          printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
   esac
 done

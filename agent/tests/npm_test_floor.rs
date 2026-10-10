@@ -259,7 +259,14 @@ fn every_package_that_declares_a_test_script_reports_a_count() {
         let failing: String = out
             .both()
             .lines()
-            .filter(|l| l.trim_start().starts_with('✖'))
+            // **AND `not ok`, BECAUSE THE REPORTERS DISAGREE** — `gateway`'s suite prints `ℹ pass`/`not ok`, not
+            // `✖`, so the first version of this filter selected NOTHING and CI printed an empty section. **A filter
+            // that matches nothing looks exactly like a suite with no failures**, which is the whole class of bug
+            // this message exists to end.
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with('✖') || t.starts_with("not ok")
+            })
             .take(6)
             .collect::<Vec<_>>()
             .join("
