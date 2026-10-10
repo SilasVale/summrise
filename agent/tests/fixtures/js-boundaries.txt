@@ -116,7 +116,7 @@ LOGIC | agent/summrise-desktop-electron/src/ | the Electron shell's remaining de
 LOGIC | agent/summrise-desktop-electron/test/ | that shell's tests, ported with it (landing 6)
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
-LOGIC | gateway/config/ | the provider catalogue as TypeScript, becoming data (B)
+BOUNDARY | gateway/config/ | **A DOCUMENT, NOT A DECISION — AND ITS TYPE IS COMPILER-CHECKED.** `models.ts` exports `{ providers: [], models: [], overrides: [] } satisfies CatalogueFile` — three EMPTY arrays, so it decides nothing today. It is `.ts` rather than `.json` for a measured reason its own header gives: a JSON import needs `with { type: "json" }` in Node and different syntax in the bundler, so a document the TESTS import would not be the same document the WORKER imports — while `satisfies` makes `tsc` refuse a misspelled `contextWindows` or an effort the router cannot speak BEFORE anything parses it at runtime. The DECISIONS this document feeds (file-over-KV precedence, what may be declared, the routing fields refused by name) live in `gateway/src/store/file-config.ts`, which is LOGIC with the rest of the console's rollback.
 # ── THE INDEX'S JAVASCRIPT IS THE ORACLE, NOT WORK THAT IS LEFT (measured 2026-10-09) ─────────────────────────
 # The index worker was cut over to Rust before this migration began, and these files were still counted as
 # LOGIC on the assumption that their cutover was simply unharvested. Reading what depends on them says
