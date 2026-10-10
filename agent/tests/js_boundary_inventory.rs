@@ -434,6 +434,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// (`GET /api/plugins/status`, whose `routes` field is the TypeScript plugin registry's own dispatch counters).
 /// A ratchet that moves for a file that merely changed class is measuring the manifest rather than the work.
 ///
+/// **AND ONE MOVEMENT TOOK A RULE WITH IT, WHICH IS THE PART WORTH READING (2026-10-09).**
+/// `scripts/model-drift.mjs` (137 lines) is `agent/model-drift/` now: the three pure functions, the
+/// report's sentences, the argv and the exit codes are Rust, and `cargo test -p summrise-model-drift`
+/// — named in the `agent` job, because a workspace member that is not a default member is a crate no
+/// job tests — is what runs the ported cases. Its manifest rule was not only its own: the catch-all
+/// `LOGIC | scripts/ | the root build/release tooling (landing 3)` matched that file and NOTHING ELSE
+/// (the rest of `scripts/` is extensionless hook scripts, which this inventory does not count, and
+/// `scripts/test/` is covered by its own longer rule), so once the file left, the rule matched
+/// nothing — and a rule that matches nothing is dead weight in the file that answers "may I write
+/// this in JS". It is deleted with the file, which is also what makes a future `.mjs` in `scripts/`
+/// land as UNCLASSIFIED instead of being quietly swallowed by a directory rule. The number below was
+/// MEASURED, not computed: the cap was set to 0 and the gate's own failure line read back on THIS
+/// tree (`LOGIC files: 106, and the frozen budget is 0`), because only the merged tree's number is a
+/// fact about the merged tree.
+///
 /// AND THE SOUND OF A DOWNWARD STEP IS NAMED: the two files landing 6 removed did not go away because they were
 /// inconvenient. `agent/summrise-desktop-electron/src/url-policy.ts` and its suite became
 /// `agent/summrise-url-policy`'s own tests, case for case, in a Rust crate compiled to wasm — the shell's
@@ -504,4 +519,17 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 /// shell, so the same landing reads `97 -> 95`. The count came from forcing this constant to **0** and reading
 /// the gate's own refusal: `LOGIC files: 95, and the frozen budget is 0`. Three different branches produced
 /// three different numbers for one landing today; **only the merged tree's is a fact about the merged tree.**
-const MAX_LOGIC: usize = 95;
+///
+///     the model-drift tool     95 -> 94   `scripts/model-drift.mjs` LEFT: its three decisions (the name
+///                                         normalisation, the advertised/offered diff, and the report's own
+///                                         sentences) are `summrise-model-drift`, a crate with a binary. **THE
+///                                         MANIFEST'S `LOGIC | scripts/ |` RULE WENT WITH IT** — that file was
+///                                         its only `.js` match (the rest of `scripts/` is extensionless hook
+///                                         scripts, which this gate does not count), so the rule was deleted
+///                                         rather than left matching nothing.
+///
+/// **AND THIS NUMBER IS 94 BECAUSE IT WAS MEASURED ON THIS TREE, NOT BECAUSE 95 - 1 = 94.** The branch that
+/// wrote the port reported **106** — correctly, on ITS base, which was `main` (107). Both numbers were right
+/// about their own trees; only this one is about this one. The gate's own refusal, with the constant forced
+/// to 0, is where it came from: `LOGIC files: 94`.
+const MAX_LOGIC: usize = 94;

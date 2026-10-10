@@ -235,7 +235,7 @@ export const MODEL_REGISTRY: ModelSpec[] = [
   // ── nv/ — NVIDIA NIM (BYOK, dedicated capacity) ─────────────────────────
   { id: "nv/nvidia/nemotron-3-ultra-550b-a55b", ownedBy: "nvidia", probe: true },
   // RETIRED 2026-09-11: `nv/minimaxai/minimax-m3` was advertised here and NVIDIA
-  // does not offer it. `scripts/model-drift.mjs` flagged it on every run, and the
+  // does not offer it. `agent/model-drift/` flagged it on every run, and the
   // check held up under the obvious objection — that the wire name might differ
   // from the advertised one — because NVIDIA's catalogue has NO MiniMax entry at
   // all, bare or prefixed (82 models, of which 7 are Chinese-lab: yi, deepseek x3,
