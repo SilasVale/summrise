@@ -365,6 +365,15 @@ jobs:
           # which surfaces a design sweep visits and which passes measure there — the matrix that used to be
           # written out at 29 call sites in the payloads.
           cargo test -p summrise-sweep-plan --no-fail-fast
+          # **THE SWEEPS' DRIVER (2026-10-10, landing 2).** Same story: a workspace member that is not a
+          # default member is a crate no job tests unless it is named here. It owns the step ladder a sweep
+          # runs, the budgets each rung spends, the page-side probe registry a payload embeds, and the rows
+          # document a run writes. **IT SPAWNS NODE** — the probes are read out of
+          # `agent/scripts/lib/design-sweep.mjs` with `fn.toString()`, which is the same text the four JS
+          # emitters embed, and the assembled program is `node --check`ed before it is returned — so this
+          # line needs the node the job already installs, and it is why the crate is on THIS job's list
+          # rather than the design job's: the toolchain and the runtime are both here.
+          cargo test -p summrise-design-sweep-driver --no-fail-fast
           # **THE ELECTRON SHELL'S DECISIONS (2026-10-09, landing 6b).** Same story a third time, and this
           # one was MEASURED rather than noticed: the crate carries **57 `#[test]` functions** and no job
           # named it, so none of them ran in CI. `summrise-shell-policy` is the shell's boot/auth, native
@@ -458,6 +467,7 @@ jobs:
           cargo clippy -p summrise-agent-core --all-targets -- -D warnings
           cargo clippy -p summrise-cli --all-targets -- -D warnings
           cargo clippy -p summrise-sweep-plan --all-targets -- -D warnings
+          cargo clippy -p summrise-design-sweep-driver --all-targets -- -D warnings
           cargo clippy -p summrise-model-drift --all-targets -- -D warnings
           cargo clippy -p summrise-e2e-judge --all-targets -- -D warnings
         working-directory: agent
