@@ -308,7 +308,10 @@ fn no_rule_matches_nothing() {
         .into_iter()
         .filter(|f| is_js_family(f))
         .collect();
-    assert!(!files.is_empty(), "the scan saw no JavaScript at all — this proves nothing");
+    assert!(
+        !files.is_empty(),
+        "the scan saw no JavaScript at all — this proves nothing"
+    );
     let dead: Vec<String> = rules
         .iter()
         .filter(|r| !files.iter().any(|f| r.matches(f)))
@@ -597,4 +600,15 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                        of LOGIC. The old reason justified the page-side half and said nothing
 ///                                        about the judge. **A count that only ever falls would have kept this
 ///                                        file out of the migration forever.**
-const MAX_LOGIC: usize = 95;
+///
+///     the npm floor's spawn      95 -> 94   `scripts/test/npm-test-floored.mjs` LEFT — the LAST JavaScript file
+///                                          under `scripts/test/`, and the manifest's `LOGIC | scripts/test/ |`
+///                                          rule went with it, because that rule matched this file alone. Its
+///                                          spawn is in `agent/tests/npm_test_floor.rs` now, beside the decision
+///                                          it had already moved there (`count_of`, landing 3): the same floor,
+///                                          over EVERY tracked package that declares a `test` script rather than
+///                                          the six directories CI handed the wrapper — which found a seventh,
+///                                          `agent/summrise-workspace-dsh`, whose suite NO CI step ran.
+///                                          MEASURED THE SAME WAY, on THIS tree, constant forced to 0:
+///                                          `LOGIC files: 94`.
+const MAX_LOGIC: usize = 94;

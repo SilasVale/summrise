@@ -133,7 +133,15 @@ BOUNDARY | proxies/summrise-relay/ | the retired relay worker's harness, kept fo
 # ── LOGIC: the work that is left ─────────────────────────────────────────────────────────────────────────────
 LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)
 BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decision: it reads the PIECES module out of an emitter's artifact and hands it back as data. Two live bash gates import it — `panel-design-sweep.bash:92` and `sweep-judges.bash:134` — so it belongs to THEIR tooling the way the sweeps' in-page probes belong to theirs: it spawns no toolchain, computes no verdict, and a gate goes red if it stops reading. NOTE WHERE ITS SIBLING WENT: `scripts/test/lib/decomment.mjs` is DELETED in this commit, because the rule it defines now has exactly one definition and it is in Rust (`agent/tests/common/mod.rs`'s `decomment`/`decomment_line`/`decommented_corpus`, whose header says it took the rule FROM that file). Measured before deleting, as this repository requires: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line — a comment in its sibling naming it.
-LOGIC | scripts/test/ | the npm floor's SPAWN, and only that: the DECISION is `agent/tests/npm_test_floor.rs` (landing 3) and what stays is the `npm test` runner it has not absorbed — `scripts/test/npm-test-floored.mjs`. THIS RULE SAID "six gates that spawn a toolchain" UNTIL 2026-10-09, when the other five left for `agent/tests/`: `console_assets`, `console_smoke`, `panel_sheet_freshness`, `press_anchor` and `contrast_probe_emitted`
+# `scripts/test/` HAS NO JAVASCRIPT IN IT ANY MORE. The rule that stood here was `LOGIC | scripts/test/ |`
+# and it existed for ONE file, `npm-test-floored.mjs` — the last one — whose DECISION had already moved
+# (`agent/tests/npm_test_floor.rs`, landing 3) while its spawn had not. The spawn is in that same Rust file
+# now: it derives every tracked package that declares a `test` script (`git ls-files`, so a `node_modules`
+# copy cannot answer) and floors the ones whose RUNNER needs it — `node --test`, which prints `ℹ pass 0` and
+# exits 0, where `vitest` refuses an empty suite itself (measured: `No test files found, exiting with code
+# 1`). The rule is DELETED rather than left matching nothing — the same shape the `scripts/` rule got when
+# `model-drift.mjs` became a crate. NOTE WHAT THE DERIVATION FOUND THAT THE LIST DID NOT:
+# `agent/summrise-workspace-dsh` declares a suite and NO CI step ran it.
 LOGIC | agent/summrise-agent-npm/test/ | the package's suite, and since landing 4b's cutover it is the PACKAGING half: whether the tarball npm uploads can run at all (the `bin` is a file `files[]` packs, no entry is a directory, `required-in-tgz.txt` names nothing npm will not pack, no component artefact is boxed). The DECISIONS it used to re-test are Rust (agent/summrise-cli, 146 tests) and are pinned answer-by-answer by the corpus the TypeScript left behind (agent/summrise-cli/parity/expected.json, 162 cases) — re-asserting them here would be a second implementation of the same claims, which is the shape this file exists to stop
 
 # ── AND THE ELECTRON SHELL LEFT THE LIST IN LANDING 6b, WHICH IS WHY ITS REASON IS LONGER THAN THE OTHERS ──

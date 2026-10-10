@@ -2,7 +2,7 @@
 // repo has merged and deleted plenty) or a command that was pruned. These tests are the pin — the
 // guide may only talk about things that exist, and it must say enough for a reader to act.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PAGE_ICONS } from "../../components/IconRail";
@@ -43,7 +43,24 @@ describe("getting started: the content is checked, not trusted", () => {
   it("a monospace ACTION is a command the CLI actually has", () => {
     // The one real command in the guide. If the CLI ever loses `monitor add`, the guide must not go
     // on telling people to type it — so this reads the shipped CLI and checks the usage line.
-    const cli = readFileSync(path.join(ROOT, "summrise-agent-npm", "bin", "summrise.js"), "utf8");
+    //
+    // **THE SHIPPED CLI IS RUST NOW (landing 4b's cutover), SO THIS READS ITS SOURCES.** It read
+    // `summrise-agent-npm/bin/summrise.js` — a tsc emit of `src/summrise.ts` — and both were deleted
+    // when the npm `bin` became `bin/summrise.exe`. MEASURED before this was repointed: the suite
+    // failed with `ENOENT … bin/summrise.js`, 934 passed and 1 failed, which is a CI `panel` job red
+    // for a file that no longer exists rather than for the guide being wrong.
+    //
+    // ALL THE CRATE'S SOURCES, CONCATENATED, rather than one named file: a usage line sits where its
+    // verb is implemented (`monitor.rs` for `monitor`, `dispatch.rs` for `autostart`), and naming one
+    // file would make this pin fail the day a verb moves between them. The regex below is per-LINE
+    // (`.` does not match a newline in JavaScript), so concatenation cannot let one usage line
+    // swallow the next.
+    const CLI_SRC = path.join(ROOT, "summrise-cli", "src");
+    const cli = readdirSync(CLI_SRC)
+      .filter((f) => f.endsWith(".rs"))
+      .sort()
+      .map((f) => readFileSync(path.join(CLI_SRC, f), "utf8"))
+      .join("\n");
     const commands = STEPS.flatMap((s) => (s.action ? [s.action] : []));
     expect(commands.length, "the guide should show at least one real command").toBeGreaterThan(0);
     for (const cmd of commands) {
