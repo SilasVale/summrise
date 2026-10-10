@@ -261,9 +261,23 @@ for cmd in "${gates[@]}"; do
     # pipeline's status stays what it was.
     3) fail=$((fail + 1)); printf '  FAIL  %s (ran but could not measure)\n' "$cmd"
        { printf '%s\n' "$out" | grep -E '^(failures:|    [a-z_][A-Za-z0-9_:]*$)|panicked at|FAILED' | head -12
+         # **AND THE MESSAGE UNDER THE PANIC — MEASURED 2026-10-10, WHEN THIS RUNNER CARRIED A TEST'S NAME AND NOT
+         # THE SENTENCE THAT NAMED THE FIX.** `npm_test_floor`'s assertion says *"the floor refused 1 of 6
+         # package(s) … FIX: a suite whose dependencies are missing needs `npm ci` in its directory"*;
+         # `panicked at` matched and **`head -1` cut the line below it**, so a CI cycle was spent deriving by hand
+         # what the gate had already printed. `grep -A 3` takes the panic line plus its message; `tail -n +2` drops
+         # the line already printed above, and `head -3` bounds it.
+         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -3
          printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
     *) fail=$((fail + 1)); printf '  FAIL  %s\n' "$cmd"
        { printf '%s\n' "$out" | grep -E '^(failures:|    [a-z_][A-Za-z0-9_:]*$)|panicked at|FAILED' | head -12
+         # **AND THE MESSAGE UNDER THE PANIC — MEASURED 2026-10-10, WHEN THIS RUNNER CARRIED A TEST'S NAME AND NOT
+         # THE SENTENCE THAT NAMED THE FIX.** `npm_test_floor`'s assertion says *"the floor refused 1 of 6
+         # package(s) … FIX: a suite whose dependencies are missing needs `npm ci` in its directory"*;
+         # `panicked at` matched and **`head -1` cut the line below it**, so a CI cycle was spent deriving by hand
+         # what the gate had already printed. `grep -A 3` takes the panic line plus its message; `tail -n +2` drops
+         # the line already printed above, and `head -3` bounds it.
+         printf '%s\n' "$out" | grep -A 3 'panicked at' | tail -n +2 | head -3
          printf '%s\n' "$out" | tail -4; } | awk '!seen[$0]++' | sed 's/^/          /' ;;
   esac
 done
