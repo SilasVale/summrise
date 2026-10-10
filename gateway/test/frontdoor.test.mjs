@@ -110,12 +110,26 @@ test("cross-site cookie-authed mutation 403s at the front door", async () => {
     }),
     csrfEnv(),
   );
-  assert.equal(same.status, 401, "same-origin passes the gate, fails at auth instead");
+  // **THE CSRF ASSERTION ABOVE IS THE TEST'S SUBJECT AND IT STILL PASSES; THE 401 WAS THE ROUTING.**
+  // `csrfEnv()` builds the NO-BINDING configuration on purpose (see its comment), and until the rollback
+  // retired a same-origin request fell through to the TypeScript plugin and was refused at AUTH. The handover
+  // is unconditional now, so the request reaches `frontDoor` — which answers the 503 that names the missing
+  // binding. **That is the behaviour this landing chose: a deployment without `WASM_GATE` says so loudly
+  // instead of quietly serving a fallback**, and pinning it here is what stops the next reader reading the
+  // 503 as a broken gate.
+  assert.equal(
+    same.status,
+    503,
+    "same-origin passes the gate, and with no binding the front door says so",
+  );
+  assert.match((await same.json()).error.message, /WASM_GATE/, "and the 503 names what is missing");
   const get = await worker.fetch(
     new Request("https://x/api/me", { headers: { cookie: "ag_session=abc", "sec-fetch-site": "cross-site" } }),
     csrfEnv(),
   );
-  assert.equal(get.status, 401, "reads are never CSRF-gated");
+  // Same reading as above: the gate does not apply to reads (which is the claim), and the answer behind it is
+  // the front door's 503 rather than the deleted fallback's 401.
+  assert.equal(get.status, 503, "reads are never CSRF-gated, and the missing binding is what answers them");
 });
 
 // round-476 (coverage-driven): the static-asset branch arms had ZERO pins.
