@@ -1,0 +1,21 @@
+[package]
+name = "summrise-design-sweep-driver"
+version.workspace = true
+edition = "2021"
+description = "The design sweeps' DRIVER: the step ladder a sweep runs, the page-side probe registry it embeds, and the rows document it writes. The Playwright calls stay JavaScript; the decisions do not."
+license = "MIT"
+
+[[bin]]
+name = "summrise-design-sweep-driver"
+path = "src/main.rs"
+
+[lib]
+name = "summrise_design_sweep_driver"
+path = "src/lib.rs"
+
+[dependencies]
+# The plan the ladder comes from is the JUDGE crate's: `SweepPlan`, `Section`, `LADDER` and the budgets are
+# one decision (which rungs run, in what order, spending which numbers) and this crate is its interpreter.
+summrise-sweep-judge = { path = "../sweep-judge" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }

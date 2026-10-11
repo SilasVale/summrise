@@ -88,7 +88,7 @@ BOUNDARY | agent/sweep-plan/parity/ | the parity instrument — it runs the PRE-
 # URLs and page list, and assembles the emitted bundle through `lib/sweep-bundle.mjs`. The decisions they look
 # like they make are all somewhere else — which plan runs (Rust), which passes it wants (Rust), what the verdict
 # is (Rust). What they do is emit and dispatch, so they are the boundary the rest of this block is.
-BOUNDARY | agent/scripts/lib/design-sweep.mjs | the shared collector and driver: the four probes as SOURCE STRINGS a browser evaluates, the passes that drive and measure, and the URL/escape helpers. It no longer formats anything — the acknowledgement notes moved to the judge (2026-10-09), which prints them before every exit
+BOUNDARY | agent/scripts/lib/design-sweep.mjs | the shared collector and driver: the four probes as SOURCE STRINGS a browser evaluates, the passes that drive and measure, and the URL/escape helpers. It no longer formats anything — the acknowledgement notes moved to the judge (2026-10-09), which prints them before every exit — and as of landing 2 (2026-10-10) **EVERY DECISION THOSE PASSES CONSULT IS RUST**: `pressDelta`/`loudnessOf`/`DECORATIVE_WAIVERS` are `summrise-sweep-judge`'s `press`/`loudness`/`waivers` (compared against these very functions by a differential and by `sweep-judge/tests/waivers.rs`), the run ORDER and the CAPS the passes spend are the judge's `plan.rs` (`LADDER`, `budgets`) reaching the payload as data through `summrise-design-sweep-driver --emit`, and the Playwright calls that remain — `page.mouse.down`, `page.evaluate`, `page.emulateMedia` — are platform calls that decide nothing. **THE PROBES STAY FOR THE REASON THAT CANNOT BE ARGUED AWAY: `browser_run_script` TAKES A JS FILE.** They are read out of this file at emit time by `summrise-design-sweep-driver` and embedded unchanged (no transcription), and the assembled program is `node --check`ed before it ships, because a probe that stopped parsing returns zero rows — which reads as a clean sweep
 BOUNDARY | agent/scripts/panel-design-sweep.mjs | the panel tool: argv dispatch, the in-page MOTION/TIMING probe SNIPPETS (strings a browser evaluates), the harness content stamp, and the emit through lib/sweep-bundle.mjs. It interprets no flag and decides no verdict
 BOUNDARY | agent/scripts/console-design-sweep.mjs | the console tool, the same shape: dispatch, `--passes` forwarded verbatim to the Rust plan, the entry stamp, the emit
 BOUNDARY | agent/scripts/landing-design-sweep.mjs | the landing tool: it RENDERS the surface under test (the fixture's URLs and page list) and emits it. Fixture data, not product behaviour
@@ -143,7 +143,18 @@ BOUNDARY | proxies/api-relay/relay/ | the relay crate's own harness
 BOUNDARY | proxies/summrise-relay/ | the retired relay worker's harness, kept for the differential
 
 # ── LOGIC: the work that is left ─────────────────────────────────────────────────────────────────────────────
-LOGIC | agent/scripts/ | the design sweeps' driver and judge, plus the page-side payloads (landing 2)
+BOUNDARY | agent/scripts/ | **THE DESIGN SWEEPS' DRIVER AND JUDGE ARE RUST AND THIS DIRECTORY IS WHAT DECIDES NOTHING**
+# (landing 2, 2026-10-10). The rule stood as LOGIC for the whole migration and it was the last one under this
+# directory; every file it covered had already been given a longer, more specific BOUNDARY rule above — so it was
+# SHADOWED and matched no file, while a reader consulting the manifest was told that a directory of boundaries is
+# work that is left. What is left here is exactly the two things a JS file is for: the page-side PROBES, which a
+# browser evaluates because `browser_run_script` takes a JS file, and the DEVICE-SIDE RUN PROGRAMS (`lib/sweep/*.cjs`),
+# which perform the platform calls. Every decision they consult is Rust — `summrise-sweep-plan` for which surfaces and
+# which passes, `summrise-sweep-judge` for the rules and the ladder and the budgets, `summrise-design-sweep-driver`
+# for the step list and the probe assembly. **AND THE COUNT DID NOT MOVE, WHICH IS THE HONEST PART**: this
+# reclassification is worth doing because the manifest is the answer to "may I write this in JS" and a LOGIC rule
+# over a directory of boundaries answers it wrongly — not because a number fell. `MAX_LOGIC` is measured on the tree
+# that carries the change and it is unchanged at 91, in two rules, both under `gateway/`.
 BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decision: it reads the PIECES module out of an emitter's artifact and hands it back as data. Two live bash gates import it — `panel-design-sweep.bash:92` and `sweep-judges.bash:134` — so it belongs to THEIR tooling the way the sweeps' in-page probes belong to theirs: it spawns no toolchain, computes no verdict, and a gate goes red if it stops reading. NOTE WHERE ITS SIBLING WENT: `scripts/test/lib/decomment.mjs` is DELETED in this commit, because the rule it defines now has exactly one definition and it is in Rust (`agent/tests/common/mod.rs`'s `decomment`/`decomment_line`/`decommented_corpus`, whose header says it took the rule FROM that file). Measured before deleting, as this repository requires: `git grep -nE '(from|import|require).*decomment' -- '*.mjs' '*.cjs' '*.js'` returned ONE line — a comment in its sibling naming it.
 # **BOTH RULES THIS BLOCK HELD ARE DELETED, AND EACH SIDE OF THE MERGE DELETED ONE OF THEM.** They were
 # the last two LOGIC rules outside `agent/scripts/`, they matched ONE file each, and both files left on

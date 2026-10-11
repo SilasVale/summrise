@@ -21,3 +21,10 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # alternation, the mark-family scan). Hand-rolling them would be a second implementation of a regex engine
 # and a place for the messages to drift.
 regex = "1"
+# THE LADDER'S NAMES ARE THIS CRATE'S VOCABULARY, and `tests/plan.rs` reads `Tool::Panel::vocabulary()`
+# out of it rather than restating the eleven names. A path dependency with no cycle: `summrise-sweep-plan`
+# decides WHICH passes are wanted, this decides what they do and in what order.
+summrise-sweep-plan = { path = "../sweep-plan" }
+# The driver's plan is DATA that crosses JSON to the binary, so `SweepPlan`/`Section` derive serde the way
+# `summrise-sweep-plan`'s do. `serde_json` alone cannot write the derives.
+serde = { version = "1", features = ["derive"] }

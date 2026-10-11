@@ -3559,6 +3559,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-design-sweep-driver"
+version = "1.0.145"
+dependencies = [
+ "serde",
+ "serde_json",
+ "summrise-sweep-judge",
+]
+
+[[package]]
 name = "summrise-e2e-judge"
 version = "1.0.145"
 dependencies = [
@@ -3600,7 +3609,9 @@ name = "summrise-sweep-judge"
 version = "1.0.145"
 dependencies = [
  "regex",
+ "serde",
  "serde_json",
+ "summrise-sweep-plan",
 ]
 
 [[package]]

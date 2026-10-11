@@ -168,3 +168,57 @@ the signatures declared in Tasks 1–4.
 
 **Proportion:** the plan is ~180 lines for ~1,765 lines of source; bodies are omitted wherever the signature
 and the test determine them.
+
+---
+
+## What landed, and the FOUR PLACES THIS PLAN WAS WRONG ABOUT THE TREE IT LANDED ON
+
+Branch `feat/the-design-sweeps-are-rust`, from `dfa593c9` (the tip of `main`). The commits are
+`fc5eda7b` `press_delta` · `7ac54b1c` `loudness_of` · `cf771bfe` the policy list and the cross-language gate ·
+`95d0b5f7` the ladder and its budgets · `a1bf4d47` the driver crate · `e9bf3382` the manifest and `MAX_LOGIC`.
+
+**A plan written from a spec goes stale against the tree it lands on, and measuring before porting is what
+found all four.** Each was a claim about work that had already been done, or about a number that belonged to
+another tree — so each is recorded here rather than only in the commit that corrected it, because the next
+reader of THIS FILE would otherwise re-derive the same wrong expectations.
+
+1. **"the driver becomes Rust — the Playwright passes (`idlePass`, `ackPass`, `revealPass`, `pressPass`,
+   `focusPass`, `motionPass`, `discoverPressTargets`)"** — *Task 5*. The spec this plan argues from had
+   already MEASURED that question and settled it the other way
+   (`2026-10-08-every-decision-is-rust-design.md` §4.1): there is no Rust browser driver anywhere in the
+   repository, no CDP crate in the lockfile, and *"'the Playwright driving becomes Rust' cannot be a port — it
+   would be a NEW browser dependency."* So the passes keep their `page.mouse`, `page.evaluate` and
+   `page.emulateMedia`, and what moved is every DECISION they were interleaved with: the run order, the caps,
+   the probe registry and the rows contract.
+
+2. **"Task 4: the plan data"** — *already Rust.* `summrise-sweep-plan` (slice 1 of this landing, on `main`)
+   owns which surfaces are visited, which passes are wanted given `--passes`, and the caps that travel in
+   `plan.caps` — `panel-run.cjs:921` was already reading `PLAN.plan.caps.ack_budget_ms`. What was still
+   JavaScript is the ORDER the passes run in on one surface (and it really does differ from the vocabulary
+   order: `pages` is first in the vocabulary and fifth in the run) and the NUMBERS they spend. Those are what
+   `sweep-judge/src/plan.rs` now holds.
+
+3. **"Task 3: the policy lists"** — *already Rust, and the defect was underneath.* `tools/panel.rs` carried
+   `Decorative` with both patterns, both bands, both slacks and both reasons. What nobody had was a comparison:
+   `design-sweep.mjs` carries a SECOND copy read by `panel-render-audit.mjs`, so a band moved in either list
+   made two instruments disagree silently — the failure round 265 created the list to prevent. The list is now
+   `sweep-judge/src/waivers.rs` and `sweep-judge/tests/waivers.rs` reads the JavaScript array out of the file a
+   browser is served and requires the two to be the same list.
+
+4. **"Expected `MAX_LOGIC` 90"** — *the number is 91, and it is 91 because the rule never matched anything.*
+   Every tracked JS file under `agent/scripts/` already had a longer, more specific BOUNDARY rule, so
+   `LOGIC | agent/scripts/ |` was fully SHADOWED and matched zero files — which is also why
+   `no_rule_matches_nothing` never fired on it. Reclassifying it (Task 6 step 3) is still right, because a
+   LOGIC rule over a directory of boundaries answers the manifest's own question wrongly; it just changes the
+   count by zero. Measured the way the rule says — constant forced to `0`, gate run, refusal read back:
+   `LOGIC files: 91, and the frozen budget is 0`. The 91 are 37 in `gateway/src/` and 54 in `gateway/test/`,
+   both another landing's. **This slice removed decisions from JavaScript without changing the count, because
+   the count had already stopped seeing this directory.**
+
+**AND NOTHING WAS DELETED, WHICH THE PLAN EXPECTED.** Each of the three rules has a LIVE JavaScript caller —
+`pressPass` calls `pressDelta`, the page-side probe binds `loudnessOf`, `panel-render-audit.mjs` reads
+`DECORATIVE_WAIVERS`, and `agent/tests/press_anchor.rs` imports `pressDelta` as its ORACLE. So each Rust module
+landed BESIDE its JavaScript twin and the agreement between them is what the differential and the
+cross-language gate are for. What makes that a decision rather than a shortfall is the measurement: the
+differential found a real divergence on its FIRST run twice — `pressDelta(null, x)` is `[]` in JavaScript, and
+`Number(null)` is `0` rather than `NaN`.
