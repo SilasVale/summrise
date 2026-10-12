@@ -37,7 +37,7 @@ use worker::*;
 /// included, because the order is what the response bytes are. The duplicate ids are deliberate
 /// there and here: `build_health` asks the og circuit once per og card, and `recommended` takes the
 /// FIRST card of a priority id.
-const HEALTH_CHANNELS: [(&str, &str); 20] = [
+pub(crate) const HEALTH_CHANNELS: [(&str, &str); 20] = [
     ("qw", "qw/qwen3.8-max-preview"),
     ("qw", "qw/qwen3.8-flash"),
     ("qw", "qw/deepseek-v4.1-flash"),
@@ -167,7 +167,7 @@ pub(crate) async fn og_degraded(env: &Env) -> bool {
 }
 
 /// `breakerStub(env).fetch("https://breaker/check", { headers: breakerHeaders(env) })` → `"1"`.
-async fn read_breaker(env: &Env) -> Result<bool> {
+pub(crate) async fn read_breaker(env: &Env) -> Result<bool> {
     Ok(breaker_call(env, "/check").await?.unwrap_or_default() == "1")
 }
 
@@ -212,7 +212,7 @@ async fn breaker_call(env: &Env, path: &str) -> Result<Option<String>> {
 }
 
 /// A JSON response with the headers `jsonOk` sets (`http.ts`).
-fn json(body: String, status: u16) -> Result<Response> {
+pub(crate) fn json(body: String, status: u16) -> Result<Response> {
     let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
     response
         .headers_mut()
@@ -412,6 +412,18 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             Err(RouteFailure::Platform(error)) => Err(error),
         };
     }
+
+    // **THE PUBLIC PROBE — AND THE ONE ROUTE WHOSE GUARD MUST TRAVEL WITH IT.** `ip_rate_limit` was
+    // ported with the device family, and the probe kept its own copy in TypeScript until the route
+    // moved: a guard and what it guards belong in the same place.
+    if probe::in_family(&req.method(), url.path()) {
+        return match probe::handle(req, &env).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
     // **THE DEVICE FAMILY — the console's registry, the third route group.** `devices::in_family` is the SAME
     // predicate the TypeScript front door uses to decide what to hand over, so a path this worker is given is a
     // path it answers: the routes it serves, and the front door's own 404 for the shapes it does not.
@@ -476,6 +488,7 @@ pub mod mcp_errors;
 pub mod mcp_tools;
 pub mod rate_limit;
 pub mod redact;
+pub mod probe;
 pub mod registry;
 pub mod reliability;
 pub mod request_shape;
