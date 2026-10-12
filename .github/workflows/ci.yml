@@ -823,7 +823,17 @@ jobs:
           # is untested. The same rule the gate scripts already carry (script-syntax.bash s FLOOR 20).
           set -o pipefail
           shopt -s nullglob
-          gates=(scripts/test/*.bash)
+          # **AND THE RUNNER IS NOT ONE OF THE GATES — MEASURED 2026-10-10: 19.1 OF THIS JOB'S 19.5 MINUTES
+          # WERE `all-gates.bash` RUNNING INSIDE THIS LOOP.** It is a RUNNER, not a gate: every gate it invokes
+          # is either another `scripts/test/*.bash` (already in this glob, under the same umask) or a
+          # cargo/npm suite the `agent`/`gateway`/`ui`/`design` jobs already run. **Running it here ran all 51
+          # commands a SECOND time** — ~20 of them `cargo test` — and the mode drift it might have caught is
+          # caught by `publish-release.bash`, which stays in this loop where it belongs.
+          gates=()
+          for g in scripts/test/*.bash; do
+            [ "$g" = "scripts/test/all-gates.bash" ] && continue
+            gates+=("$g")
+          done
           if [ ${#gates[@]} -lt 5 ]; then
             echo "::error::the umask loop selected ${#gates[@]} gate(s) — a glob that matched nothing is not a clean run"
             exit 1
