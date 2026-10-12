@@ -1,76 +1,51 @@
 /**
- * store/settings.ts — global settings (console-controlled, e.g. the US_PROXY
- * exit switch), stored under `settings:<name>` in KV.
+ * store/settings.ts — global settings (console-controlled, e.g. the US_PROXY exit switch),
+ * stored under `settings:<name>` in KV.
+ *
+ * ── THE DECISIONS ARE RUST NOW, AND THIS FILE IS A BOUNDARY ───────────────────
+ *
+ * `normalizeSetting` (round-95/96: normalize AT THE READ, so every consumer is fixed at once),
+ * `globalSettingEnabled` (round-94: an explicit OFF is persisted as "0", which is TRUTHY as a string)
+ * and the canonicalization inside `setGlobalSetting` (round-439: a real boolean `true` must not invert
+ * the switch) are all emitted from `gateway/wasm/src/settings_logic.rs` into `settings-logic.ts`.
+ *
+ * **THE EMISSION IS THE SEAM, NOT THE DECISION ROUTE, AND THE REASON IS MEASURABLE**: `npm test` cannot
+ * reach `/__decision` — `helpers.mjs`'s `WASM_GATE` stub answers a fixed model list for the `/v1` alias
+ * tests — so a twin deleted in favour of a route call would delete the only implementation the tests can
+ * reach. The emitted module is JavaScript, so the tests keep working, and it is GENERATED, so it is not
+ * one of the files this migration is counting. **No third copy: the emission IS the Rust's output.**
+ *
+ * What is left here is KV, the Worker-var fallback, the cache and the reads.
  */
 
 import { cdel, cget, cset, type Env } from "./cache.ts";
+import { canonicalSetting, globalSettingEnabled, normalizeSetting } from "./settings-logic.ts";
 
-/** Normalize a raw setting value at the READ: null = off, EVERY OTHER VALUE = on.
- *  "0"/"false" (explicit OFF persisted by the console) → null; anything else
- *  passes through. (round-95/96)
- *
- *  NOT "canonical form: \"1\" = on" (round-173 wording fix): this function only
- *  canonicalizes the OFF side, so an ON value that came from a Worker var stays
- *  whatever the var says ("true", "yes", …). Both readers treat any non-OFF as
- *  ON, which is why that is safe — but a consumer comparing `=== "1"` would read
- *  an env-provided ON as OFF. Read the value through globalSettingEnabled(), or
- *  test it for truthiness; do not compare it to "1". */
-
-function normalizeSetting(v: string | null | undefined): string | null {
-  if (v !== null && v !== undefined && (v === "0" || v === "false")) return null;
-  return v as string | null;
-}
+export { globalSettingEnabled };
 
 export async function getGlobalSetting(env: Env, name: string): Promise<string | null> {
   const key = `settings:${name}`;
   const hit = cget(key);
   if (hit !== undefined) return normalizeSetting(hit);
-  let v = await env.KEYS.get(key);
+  let v: string | null = await env.KEYS.get(key);
   if (v === null || v === undefined) v = env[name] ? String(env[name]) : null;
-  // round-95: normalize AT THE READ — an explicit OFF is persisted as "0"
-  // (shadows the env var, round-94), but every consumer (the real /v1 path in
-  // index.ts, the console GET, the probes) used raw truthiness, which treats
-  // "0" as ON. Returning a canonical value here fixes ALL consumers at once:
-  // "1" = on, null = off.
-  // round-96: the CACHE HIT path (above) bypassed this normalization — the
-  // isolate that just wrote the "0" (setGlobalSetting write-through-caches
-  // the raw value) kept reading "0" as ON for the cache TTL, so the console
-  // PUT response bounced back enabled:true and /v1 routing used the proxy.
+  // round-96: the CACHE HIT path above once bypassed this normalization, so the isolate that just
+  // wrote the "0" kept reading it as ON for the cache TTL. Both paths normalize now.
   v = normalizeSetting(v);
   cset(key, v);
   return v;
 }
 
-/** Normalize a global-setting value to a boolean: "0"/"false"/""/null are
- *  off, anything else on. Consumers must use this instead of raw truthiness —
- *  an explicit OFF is persisted as "0" (see setGlobalSetting) which is
- *  truthy as a string. (round-94) */
-export function globalSettingEnabled(v: string | null | undefined): boolean {
-  return !(v === null || v === undefined || v === "" || v === "0" || v === "false");
-}
-
 export async function setGlobalSetting(env: Env, name: string, value: any): Promise<void> {
   const key = `settings:${name}`;
-  // round-94: an explicit OFF was stored as a KV delete — getGlobalSetting
-  // then fell back to the Worker var of the same name, so a setting with an
-  // env fallback (US_PROXY as a wrangler var) could be turned ON but never
-  // OFF (the toggle bounced straight back). Distinguish "no value set"
-  // (delete → env fallback) from "explicitly off" (persist "0", which
-  // shadows the var). getGlobalSetting's falsy handling treats "0" as off.
-  if (value === null || value === undefined || value === "") {
+  // round-94: `null` means DELETE (so the Worker var shows through) and `"0"` means an explicit OFF
+  // that SHADOWS it — `canonicalSetting` draws that line, and it is Rust's.
+  const canonical = canonicalSetting(value);
+  if (canonical === null) {
     await env.KEYS.delete(key);
     cdel(key);
     return;
   }
-  const s = String(value);
-  // round-96: persist the CANONICAL value ("1" or "0") — the raw string is
-  // cached write-through and a raw "0" in the cache bypassed the read-side
-  // normalization on this isolate (see getGlobalSetting).
-  // round-439: booleans canonicalize truthfully — the old `s === "1"` arm
-  // stored boolean true (String → "true") as "0", silently INVERTING the
-  // switch for any caller passing a real boolean. No current caller does
-  // (mePutUsproxy maps to "1"/"0"), so this changes no live bytes.
-  const canonical = s === "1" || s === "true" || value === true ? "1" : "0";
   await env.KEYS.put(key, canonical);
-  cset(key, canonical); // write-through: the switch takes effect immediately (zero delay within the same isolate)
+  cset(key, canonical); // write-through: the switch takes effect immediately within the same isolate
 }

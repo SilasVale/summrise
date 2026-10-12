@@ -520,6 +520,7 @@ pub mod responses;
 pub mod routing;
 pub mod session;
 pub mod session_gate;
+pub mod settings_logic;
 pub mod store;
 pub mod stream;
 pub mod tokens;

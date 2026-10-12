@@ -213,6 +213,13 @@ BOUNDARY | gateway/src/store.ts | **A PURE RE-EXPORT SHIM — MEASURED, NOT ASSU
 #   no table. It decides NOTHING; the implementation is `src/store/<domain>.ts`, which this rule keeps as LOGIC. A
 #   barrel is structure, and structure is not a decision — the same reading "a fixture is not a decision" already
 #   applies one file over.
+GENERATED | gateway/src/store/settings-logic.ts | the global setting's decisions, emitted from Rust | gateway/wasm/src/settings_logic.rs
+BOUNDARY | gateway/src/store/settings.ts | **A BOUNDARY IN FACT: ITS DECISIONS ARE EMITTED FROM RUST (2026-10-12).** What is left
+#   is `env.KEYS.get`/`put`/`delete`, the Worker-var fallback, the `cget`/`cset` cache and the `settings:<name>` key —
+#   no condition decides anything about the product. The three decisions it used to carry (`normalizeSetting`,
+#   `globalSettingEnabled`, `canonicalSetting`) are in `gateway/wasm/src/settings_logic.rs` and reach this file as
+#   `settings-logic.ts`, which is GENERATED and whose freshness test is a byte comparison. **The emission is the seam
+#   rather than the decision route because `npm test` cannot reach `/__decision`** — see the spec.
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 BOUNDARY | gateway/config/ | **A DOCUMENT, NOT A DECISION — AND ITS TYPE IS COMPILER-CHECKED.** `models.ts` exports `{ providers: [], models: [], overrides: [] } satisfies CatalogueFile` — three EMPTY arrays, so it decides nothing today. It is `.ts` rather than `.json` for a measured reason its own header gives: a JSON import needs `with { type: "json" }` in Node and different syntax in the bundler, so a document the TESTS import would not be the same document the WORKER imports — while `satisfies` makes `tsc` refuse a misspelled `contextWindows` or an effort the router cannot speak BEFORE anything parses it at runtime. The DECISIONS this document feeds (file-over-KV precedence, what may be declared, the routing fields refused by name) live in `gateway/src/store/file-config.ts`, which is LOGIC with the rest of the console's rollback.
