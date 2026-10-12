@@ -19,6 +19,7 @@
 //! In that mode the KV arms of the source are unreachable, so porting them would be porting dead code.
 
 /// `createIpRateLimiter({name, limit, windowMs})` — the three parameters, as a value.
+use worker::Env;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IpRateLimiter {
     pub name: &'static str,
@@ -48,7 +49,6 @@ pub fn probe_in_family(path: &str) -> bool {
 /// KV, and decide WHEN. The reading and the writing are `device_store::kv_get`/`kv_put`; the deciding is here, as values,
 /// so a test can pin it without a Cloudflare binding. **A decision that can be tested belongs where the decision
 /// already lives** — the same split `rate_limit.rs` makes for its clock and counters.
-
 /// "This key has never been seen by this isolate" — the condition the source guards with
 /// `if (kvSeed && env?.KEYS)` on BOTH the read and the write arms, and with `hit === undefined` between them.
 ///
@@ -98,6 +98,41 @@ pub fn counter_key(limiter: IpRateLimiter, ip: &str, now_ms: i64) -> String {
 /// answers `true` WITHOUT incrementing, while a fresh key inserts `cur + 1` and answers `cur >= limit` — which
 /// for the memory-only mode is always `false` on the first hit of a bucket. A port that "simplified" this into
 /// one arm would either let the 11th request through or refuse the 10th.
+/// **THE SEED, EXECUTED — AND THE READ AND THE WRITE ARE ONE EVENT, NOT TWO.**
+///
+/// The TypeScript is `ratelimit.ts`'s first-sight arm, in order: one KV read, the counter starts from it, then one KV
+/// write carrying the TTL. `kv_text` answers `None` for both a binding failure and an absent key, which is exactly
+/// the source's `catch { /* KV read failed — isolate-local count from zero */ }` — a KV that is down must not
+/// fail OPEN the limiter.
+///
+/// The counter is seeded with `cur` (not `cur + 1`) so `check` performs the increment; when the request is already
+/// over budget `check` refuses without incrementing, so the in-isolate count is `cur` where the source's is
+/// `cur + 1`. That is not observable: the next call from the same isolate is refused either way.
+pub async fn seeded_check(env: &Env, counters: &mut Counters, ip: &str, now_ms: i64) -> bool {
+    let key = counter_key(PROBE_RATE, ip, now_ms);
+    let seeded = if needs_seed(counters, &key) {
+        let cur = crate::device_store::kv_text(env, &key)
+            .await
+            .and_then(|raw| raw.parse::<u32>().ok())
+            .unwrap_or(0);
+        counters.push((key.clone(), cur));
+        Some(cur)
+    } else {
+        None
+    };
+    let refused = check(PROBE_RATE, counters, ip, now_ms);
+    if let Some(cur) = seeded {
+        crate::device_store::kv_put(
+            env,
+            &key,
+            &(cur + 1).to_string(),
+            Some(seed_ttl_secs(PROBE_RATE.window_ms)),
+        )
+        .await;
+    }
+    refused
+}
+
 pub fn check(limiter: IpRateLimiter, counters: &mut Counters, ip: &str, now_ms: i64) -> bool {
     let key = counter_key(limiter, ip, now_ms);
     if let Some(entry) = counters.iter_mut().find(|(k, _)| *k == key) {
