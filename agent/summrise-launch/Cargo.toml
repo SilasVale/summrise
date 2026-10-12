@@ -19,3 +19,11 @@ path = "src/main.rs"
 [lib]
 name = "summrise_launch"
 path = "src/lib.rs"
+
+[features]
+# The `#[cfg_attr(feature = "cargo-clippy", …)]` arms in this crate need the feature DECLARED. Without
+# it, `unexpected_cfgs` fires — and under CI's `-D warnings` that is an ERROR, not a warning.
+# MEASURED on `ddaf0517`: the clippy step went red on `summrise-launch` with
+# `unexpected cfg condition value: cargo-clippy`, on a tree that had passed the same step minutes
+# earlier, because `dtolnay/rust-toolchain@master` is a FLOATING toolchain and the lint arrived with it.
+cargo-clippy = []
