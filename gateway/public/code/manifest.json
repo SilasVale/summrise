@@ -161,6 +161,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/settings-logic.ts",
+      "path": "files/summrise-gate/src/store/settings-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/settings.ts",
       "path": "files/summrise-gate/src/store/settings.ts",
       "group": "summrise-gate"
