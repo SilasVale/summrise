@@ -73,16 +73,13 @@ fn rust_rows() -> BTreeMap<String, (String, Option<String>)> {
         let user = unquote(parts.next().unwrap_or_default());
         // `flatten`, because the third arm's ABSENCE (a two-tuple row) and its `None` are the same
         // answer: no deployment fallback.
-        let env = parts
-            .next()
-            .map(|p| {
-                if p == "None" {
-                    None
-                } else {
-                    Some(unquote(p.trim_start_matches("Some(").trim_end_matches(')')))
-                }
-            })
-            .flatten();
+        let env = parts.next().and_then(|p| {
+            if p == "None" {
+                None
+            } else {
+                Some(unquote(p.trim_start_matches("Some(").trim_end_matches(')')))
+            }
+        });
         if kind.is_empty() {
             continue;
         }
