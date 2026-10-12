@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
+import { decide } from "../src/plugins/models-probe.ts";
 import {
   getPluginByToken,
   removePluginLink,
@@ -1653,4 +1654,68 @@ test("me/keys/usage: amd/og throw is safe; amd test tolerates non-JSON", async (
   } finally {
     globalThis.fetch = real;
   }
+});
+
+// ── THE DECISION ROUTE'S CLIENT (gateway/wasm/src/decisions.rs is the server half) ──────────────
+//
+// **THIS TEST LIVES IN THIS FILE BECAUSE THE MANIFEST'S RATCHET REFUSES A NEW LOGIC FILE**, and that
+// refusal is right: `gateway/test/` follows its subjects, and a file added for one helper is a file the
+// cap has to move for. The subject here is `plugins/models-probe.ts`'s `decide`, which is the only
+// TypeScript that speaks the decision route.
+//
+// MUTATION: make `decide` answer `undefined` for a decision whose value is `null` (i.e. `return body.value`).
+// RESULT:   the `null` assertion fails, and in production a decision that answered null would silently take
+//           the TypeScript twin's path — so a divergence between Rust and the twin would never be seen.
+//
+// MUTATION: drop the `try`/`catch`.
+// RESULT:   an unreachable gate throws out of the caller instead of falling back — the last assertion fails,
+//           and the admin probe would 500 where it used to answer.
+
+test("decide: a decision that ran is returned, and null is a VALUE", async () => {
+  const env = { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: true, value: null })) } };
+  const answeredNull = await decide(env, "upstream_models_url", { upstream: "https://x/v1/messages" });
+  assert.equal(answeredNull, null);
+  assert.notEqual(answeredNull, undefined);
+});
+
+test("decide: no gate, a refusal and an unreachable gate are all undefined", async () => {
+  assert.equal(await decide({}, "upstream_models_url", {}), undefined);
+  assert.equal(
+    await decide(
+      { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: false }), { status: 400 }) } },
+      "x",
+      {},
+    ),
+    undefined,
+  );
+  assert.equal(
+    await decide(
+      {
+        WASM_GATE: {
+          fetch: async () => {
+            throw new Error("binding unreachable");
+          },
+        },
+      },
+      "upstream_models_url",
+      {},
+    ),
+    undefined,
+  );
+});
+
+test("decide: POST to the decision path, with the name and args as JSON", async () => {
+  let seen = null;
+  const env = {
+    WASM_GATE: {
+      fetch: async (request) => {
+        seen = { method: request.method, path: new URL(request.url).pathname, body: await request.json() };
+        return new Response(JSON.stringify({ ok: true, value: 1 }));
+      },
+    },
+  };
+  await decide(env, "offered_ids", { payload: ["a"] });
+  assert.equal(seen.method, "POST");
+  assert.equal(seen.path, "/__decision");
+  assert.deepEqual(seen.body, { name: "offered_ids", args: { payload: ["a"] } });
 });
