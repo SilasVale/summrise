@@ -54,6 +54,7 @@ export {
   psInstaller,
 } from "./tooling.ts";
 import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
+import { wasmGate } from "./gate.ts";
 import authPlugin from "./plugins/auth.ts";
 import { csrfCookieViolation } from "./auth.ts";
 import adminPlugin from "./plugins/admin.ts";
@@ -97,10 +98,8 @@ function ensurePluginCtx() {
  * two custom domains back to the worker still running the pre-cutover code (`vale-gate` — see `wrangler.jsonc`,
  * which kept it deployed for that reason and as the Durable Object owner).
  */
-function wasmGate(env: any): { fetch: (r: Request) => Promise<Response> } | null {
-  const binding = env?.WASM_GATE;
-  return binding && typeof binding.fetch === "function" ? binding : null;
-}
+// **THE PREDICATE LIVES IN `gate.ts` NOW** — the decision route needs the same answer to "is the gate
+// available", and a second copy is how two callers drift on what that means.
 
 /**
  * THE `/v1` FRONT DOOR — THE BINDING, OR A LOUD 503.

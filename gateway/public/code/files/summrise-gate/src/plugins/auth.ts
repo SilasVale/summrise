@@ -50,6 +50,7 @@ import { createIpRateLimiter } from "../lib/ratelimit.ts";
 import { OG_ZEN_CHAT, usProxyBase } from "../channels.ts";
 import { opencodeSessionHeader } from "../upstream.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
+import { decide } from "../gate.ts";
 import type { PluginContext } from "./registry.ts";
 import { resolveAutoModel } from "../model-route.ts";
 
@@ -459,9 +460,11 @@ async function meTestKeys(request: Request, env: any): Promise<Response> {
  */
 export async function usageQuery(
   url: string,
+  env: any,
   key: string,
   name: string,
   map: (payload: any) => Record<string, unknown>,
+  decision: string,
 ): Promise<Response> {
   try {
     const res = await fetchWithTimeout(url, {
@@ -470,7 +473,17 @@ export async function usageQuery(
     if (!res.ok)
       return jsonOk({ ok: false, name, status: res.status, detail: `Upstream ${res.status}` });
     const payload: any = await res.json();
-    return jsonOk({ ok: true, name, status: res.status, ...map(payload) });
+    // **THE MAPPING IS RUST'S NOW, AND `map` IS ONLY THE FALLBACK.** `decide` answers `undefined` when the gate is
+    // absent, refused or unreachable — and NOT when the decision's value is falsy — so a wrong answer from Rust
+    // cannot be silently corrected here. A REFUSAL falls back too, which is deliberate: the twin throws the same
+    // `{detail}` error the source threw, so the error path is unchanged.
+    const fromRust = await decide<Record<string, unknown>>(env, decision, { payload });
+    return jsonOk({
+      ok: true,
+      name,
+      status: res.status,
+      ...(fromRust === undefined ? map(payload) : fromRust),
+    });
   } catch (e: any) {
     // A mapper may throw a {detail} error to surface a SPECIFIC upstream
     // shape problem (e.g. openrouter's missing data object); anything else
@@ -575,17 +588,33 @@ export function mapOgUsage(payload: any): Record<string, unknown> {
  */
 const USAGE_QUERIES: Record<
   string,
-  { url: string; map: (payload: any) => Record<string, unknown> }
+  { url: string; decision: string; map: (payload: any) => Record<string, unknown> }
 > = {
-  OPENROUTER_API_KEY: { url: "https://openrouter.ai/api/v1/auth/key", map: mapOpenRouterUsage },
-  AMD_API_KEY: { url: "https://developer.amd.com.cn/radeon/api/v1/usage", map: mapAmdUsage },
-  OPENCODE_GO_API_KEY: { url: "https://opencode.ai/zen/go/v1/usage", map: mapOgUsage },
+  OPENROUTER_API_KEY: {
+    url: "https://openrouter.ai/api/v1/auth/key",
+    decision: "map_openrouter_usage",
+    map: mapOpenRouterUsage,
+  },
+  AMD_API_KEY: {
+    url: "https://developer.amd.com.cn/radeon/api/v1/usage",
+    decision: "map_amd_usage",
+    map: mapAmdUsage,
+  },
+  OPENCODE_GO_API_KEY: {
+    url: "https://opencode.ai/zen/go/v1/usage",
+    decision: "map_og_usage",
+    map: mapOgUsage,
+  },
 };
 
 /** OCP extension point: null for keys without a usage endpoint. */
 export function usageQueryFor(name: string) {
   return Object.prototype.hasOwnProperty.call(USAGE_QUERIES, name)
-    ? (USAGE_QUERIES[name] as { url: string; map: (payload: any) => Record<string, unknown> })
+    ? (USAGE_QUERIES[name] as {
+        url: string;
+        decision: string;
+        map: (payload: any) => Record<string, unknown>;
+      })
     : null;
 }
 
@@ -603,7 +632,7 @@ async function meKeyUsage(request: Request, env: any): Promise<Response> {
   // kept as a fail-loud backstop, never a throw.
   const q = usageQueryFor(name);
   if (!q) return jsonError(400, `Unknown key name: ${name}`, "invalid_request");
-  return usageQuery(q.url, key, name, q.map);
+  return usageQuery(q.url, env, key, name, q.map, q.decision);
 }
 
 /* ---- Connectivity tests ---- */

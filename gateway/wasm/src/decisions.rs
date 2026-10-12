@@ -42,9 +42,12 @@ pub fn in_family(method: &Method, path: &str) -> bool {
 type Decision = fn(&Value) -> std::result::Result<Value, String>;
 
 /// **THE TABLE.** A decision is added by adding a row, and the TypeScript side needs no change to reach it.
-const DECISIONS: [(&str, Decision); 2] = [
+const DECISIONS: [(&str, Decision); 5] = [
     ("upstream_models_url", upstream_models_url),
     ("offered_ids", offered_ids),
+    ("map_openrouter_usage", map_openrouter_usage),
+    ("map_amd_usage", map_amd_usage),
+    ("map_og_usage", map_og_usage),
 ];
 
 /// The dispatcher. `Ok(None)` is "not this family". **NO `Env` PARAMETER — see the module header.**
@@ -147,6 +150,173 @@ fn js_string(value: &Value) -> String {
         // `String({})` and `String([])` — the two exotic arms, carried so the coercion is the source's.
         Value::Object(_) => "[object Object]".to_string(),
         Value::Array(items) => items.iter().map(js_string).collect::<Vec<_>>().join(","),
+    }
+}
+
+/// `mapOpenRouterUsage(payload)` — `gateway/src/plugins/auth.ts`.
+///
+/// **THE KEY ORDER IS THE SOURCE'S AND IS PART OF THE BYTES.** `preserve_order` is on for this crate (its Cargo.toml
+/// says it is not optional for the translation), so the map is built in the same order the object literal is: the
+/// three passthrough fields in the loop's order, then `isFreeTier`, then `rateLimit`.
+///
+/// A field passes through only when it is `null`, a string or a number — **a bool or an object is DROPPED, not
+/// coerced**, and the numbers are cloned rather than converted to `f64` (which would answer `5.0` where the source
+/// answers `5`).
+fn map_openrouter_usage(args: &Value) -> std::result::Result<Value, String> {
+    let data = args
+        .get("payload")
+        .and_then(|p| p.get("data"))
+        .filter(|d| d.is_object())
+        .ok_or_else(|| "Invalid upstream response".to_string())?;
+    let mut out = serde_json::Map::new();
+    for field in ["label", "usage", "limit"] {
+        if let Some(v) = data.get(field) {
+            if v.is_null() || v.is_string() || v.is_number() {
+                out.insert(field.to_string(), v.clone());
+            }
+        }
+    }
+    if let Some(b) = data.get("is_free_tier").and_then(Value::as_bool) {
+        out.insert("isFreeTier".to_string(), json!(b));
+    }
+    if let Some(rl) = data.get("rate_limit").filter(|r| r.is_object()) {
+        let mut rate = serde_json::Map::new();
+        if let Some(v) = rl.get("limit").filter(|v| v.is_number()) {
+            rate.insert("limit".to_string(), v.clone());
+        }
+        if let Some(s) = rl.get("interval").and_then(Value::as_str) {
+            rate.insert("interval".to_string(), json!(s));
+        }
+        if let Some(s) = rl.get("reset").and_then(Value::as_str) {
+            rate.insert("reset".to_string(), json!(s));
+        }
+        if !rate.is_empty() {
+            out.insert("rateLimit".to_string(), Value::Object(rate));
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+/// `mapAmdUsage(payload)` — `gateway/src/plugins/auth.ts`.
+///
+/// **`limit` IS ALWAYS PRESENT AND IS `null` WHEN THE SOURCE HAS NO NUMBER** — it is assigned outside the guard, so
+/// an absent cap is a null cap rather than an absent key. And `label`'s org falls back on JAVASCRIPT FALSINESS, not
+/// on absence: `payload.organization_id || "radeon"` answers `"radeon"` for `0` and `""` too, which is why the check
+/// is on the value rather than on the string it becomes.
+fn map_amd_usage(args: &Value) -> std::result::Result<Value, String> {
+    let payload = args.get("payload").cloned().unwrap_or(Value::Null);
+    let mut out = serde_json::Map::new();
+    if let Some(v) = payload.get("daily_cost_used_usd").filter(|v| v.is_number()) {
+        out.insert("usage".to_string(), v.clone());
+    }
+    out.insert(
+        "limit".to_string(),
+        payload
+            .get("daily_cost_limit_usd")
+            .filter(|v| v.is_number())
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    if let Some(v) = payload.get("rpm_limit").filter(|v| v.is_number()) {
+        let mut rate = serde_json::Map::new();
+        rate.insert("limit".to_string(), v.clone());
+        rate.insert("interval".to_string(), json!("minute"));
+        if let Some(s) = payload.get("daily_reset_at").and_then(Value::as_str) {
+            rate.insert("reset".to_string(), json!(s));
+        }
+        out.insert("rateLimit".to_string(), Value::Object(rate));
+    }
+    if let Some(all) = payload.get("all_time").filter(|v| v.is_object()) {
+        let requests = all
+            .get("requests")
+            .filter(|v| v.is_number())
+            .cloned()
+            .unwrap_or_else(|| json!(0));
+        let tokens = all
+            .get("total_tokens")
+            .filter(|v| v.is_number())
+            .cloned()
+            .unwrap_or_else(|| json!(0));
+        let org = match payload.get("organization_id") {
+            Some(v) if !is_falsy(v) => js_string(v),
+            _ => "radeon".to_string(),
+        };
+        out.insert(
+            "label".to_string(),
+            json!(format!("{org} · {requests} req · {tokens} tok")),
+        );
+    }
+    Ok(Value::Object(out))
+}
+
+/// `mapOgUsage(payload)` — `gateway/src/plugins/auth.ts`.
+///
+/// **`"limit" in payload` IS A KEY CHECK, NOT A VALUE CHECK**, and it is the one place the source asks whether a key
+/// EXISTS: a `limit` of `null` is carried through as `null`, while an absent `limit` adds nothing. The multi-window
+/// shape keeps its own insertion order for the same reason the outer map does.
+fn map_og_usage(args: &Value) -> std::result::Result<Value, String> {
+    let payload = args.get("payload").cloned().unwrap_or(Value::Null);
+    let mut out = serde_json::Map::new();
+    if let Some(p) = Some(&payload).filter(|v| v.is_object()) {
+        if let Some(v) = p.get("used").filter(|v| v.is_number()) {
+            out.insert("usage".to_string(), v.clone());
+        }
+        if let Some(v) = p.get("limit") {
+            if v.is_number() || v.is_null() {
+                out.insert("limit".to_string(), v.clone());
+            }
+        }
+        if let Some(v) = p.get("balance").filter(|v| v.is_number()) {
+            out.insert("balance".to_string(), v.clone());
+        }
+        if let Some(s) = p.get("plan").and_then(Value::as_str) {
+            out.insert("label".to_string(), json!(s));
+        }
+        if let Some(w) = p.get("windows").filter(|v| v.is_object()) {
+            let mut windows = serde_json::Map::new();
+            // **AN EMPTY MAP AND AN ABSENT ONE ARE THE SAME ANSWER HERE, WHICH IS WHY THIS IS A `match` RATHER
+            // THAN AN ITERATOR DEFAULT**: `serde_json::Map`'s iterator implements no `Default`.
+            let Some(entries) = w.as_object() else {
+                unreachable!("filtered to an object above")
+            };
+            for (wk, wv) in entries {
+                if !wv.is_object() {
+                    continue;
+                }
+                let mut one = serde_json::Map::new();
+                if let Some(v) = wv.get("used").filter(|v| v.is_number()) {
+                    one.insert("used".to_string(), v.clone());
+                }
+                if let Some(v) = wv.get("limit") {
+                    if v.is_number() || v.is_null() {
+                        one.insert("limit".to_string(), v.clone());
+                    }
+                }
+                if let Some(v) = wv.get("remaining").filter(|v| v.is_number()) {
+                    one.insert("remaining".to_string(), v.clone());
+                }
+                if let Some(v) = wv.get("reset_at") {
+                    if v.is_string() || v.is_null() {
+                        one.insert("resetAt".to_string(), v.clone());
+                    }
+                }
+                windows.insert(wk.clone(), Value::Object(one));
+            }
+            out.insert("windows".to_string(), Value::Object(windows));
+        }
+    }
+    Ok(Value::Object(out))
+}
+
+/// JavaScript falsiness, for the arms a JSON value can be: `false`, `0`, `""` and `null` are falsy; an object and an
+/// array are TRUTHY (which is why `[] || "radeon"` answers the array).
+fn is_falsy(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Bool(b) => !*b,
+        Value::Number(n) => n.as_f64().is_none_or(|f| f == 0.0),
+        Value::String(s) => s.is_empty(),
+        Value::Array(_) | Value::Object(_) => false,
     }
 }
 
@@ -257,13 +427,147 @@ mod tests {
         );
     }
 
+    /// **THE KEY ORDER IS THE BYTES, SO THE ASSERTION IS THE SERIALIZED STRING.** `jsonOk(out)` writes
+    /// `JSON.stringify`'s own order, and a port that built the same map in a different order would answer the same
+    /// VALUES in different bytes — which every field-by-field assertion would pass.
+    ///
+    /// MUTATION: insert `rateLimit` before the passthrough loop.
+    /// RESULT:   the string assertion fails while every value assertion still passes.
+    #[test]
+    fn the_openrouter_map_keeps_the_sources_key_order() {
+        let got = call(
+            "map_openrouter_usage",
+            json!({"payload": {"data": {"label": "free", "usage": 1, "limit": null, "is_free_tier": true,
+                                        "rate_limit": {"limit": 5, "interval": "day"}}}}),
+        );
+        assert_eq!(
+            got.to_string(),
+            r#"{"label":"free","usage":1,"limit":null,"isFreeTier":true,"rateLimit":{"limit":5,"interval":"day"}}"#
+        );
+    }
+
+    /// **A FIELD PASSES THROUGH ONLY AS `null`, A STRING OR A NUMBER — a bool or an object is DROPPED, not coerced.**
+    ///
+    /// MUTATION: accept every field unconditionally.
+    /// RESULT:   `extra` (a bool) and `obj` (an object) appear in the answer, and the source's own shape is lost.
+    #[test]
+    fn the_openrouter_map_drops_the_field_types_the_source_drops() {
+        let got = call(
+            "map_openrouter_usage",
+            json!({"payload": {"data": {"label": true, "usage": {"a": 1}, "limit": "x"}}}),
+        );
+        assert_eq!(got.to_string(), r#"{"limit":"x"}"#);
+        // And a payload with no object `data` is the source's throw, which the route answers as a refusal.
+        let (_, decision) = DECISIONS
+            .iter()
+            .find(|(n, _)| *n == "map_openrouter_usage")
+            .unwrap();
+        assert_eq!(
+            decision(&json!({"payload": {"data": 7}})).unwrap_err(),
+            "Invalid upstream response"
+        );
+    }
+
+    /// **`limit` IS ALWAYS PRESENT IN THE AMD MAP AND IS `null` WHEN THERE IS NO NUMBER** — it is assigned outside
+    /// the guard. And `interval` is the literal `minute`.
+    ///
+    /// MUTATION: move the `limit` insert inside the number guard.
+    /// RESULT:   the first assertion fails: an absent cap would be an ABSENT KEY, and the console would render a
+    ///           missing row where it used to render a null one.
+    #[test]
+    fn the_amd_map_always_carries_a_limit() {
+        assert_eq!(
+            call("map_amd_usage", json!({"payload": {}})).to_string(),
+            r#"{"limit":null}"#
+        );
+        assert_eq!(
+            call(
+                "map_amd_usage",
+                json!({"payload": {"daily_cost_used_usd": 1.5, "rpm_limit": 60}})
+            )
+            .to_string(),
+            r#"{"usage":1.5,"limit":null,"rateLimit":{"limit":60,"interval":"minute"}}"#
+        );
+    }
+
+    /// **THE LABEL'S ORG FALLS BACK ON JAVASCRIPT FALSINESS, NOT ON ABSENCE.** `payload.organization_id || "radeon"`
+    /// answers `"radeon"` for `0` and `""` as well as for a missing key — and `5` is TRUTHY, so it becomes `"5"`.
+    ///
+    /// MUTATION: fall back only when the key is absent.
+    /// RESULT:   the `0` and `""` assertions fail — the console would print an empty org where it printed `radeon`.
+    #[test]
+    fn the_amd_label_falls_back_on_falsiness() {
+        let label = |org: Value| {
+            call(
+                "map_amd_usage",
+                json!({"payload": {"all_time": {"requests": 2, "total_tokens": 9},
+                                                     "organization_id": org}}),
+            )["label"]
+                .clone()
+        };
+        assert_eq!(label(json!(0)), json!("radeon · 2 req · 9 tok"));
+        assert_eq!(label(json!("")), json!("radeon · 2 req · 9 tok"));
+        assert_eq!(label(json!(null)), json!("radeon · 2 req · 9 tok"));
+        assert_eq!(label(json!("acme")), json!("acme · 2 req · 9 tok"));
+        assert_eq!(label(json!(5)), json!("5 · 2 req · 9 tok"));
+    }
+
+    /// **`"limit" in payload` IS A KEY CHECK, NOT A VALUE CHECK** — the one place the source asks whether a key
+    /// exists. A `null` limit is CARRIED; an absent one adds nothing.
+    ///
+    /// MUTATION: use `payload.limit != null` instead of the key check.
+    /// RESULT:   the `limit: null` assertion fails: the key would be dropped where the source carries it.
+    #[test]
+    fn the_og_map_carries_a_null_limit_but_not_an_absent_one() {
+        assert_eq!(
+            call("map_og_usage", json!({"payload": {"limit": null}})).to_string(),
+            r#"{"limit":null}"#
+        );
+        assert_eq!(
+            call("map_og_usage", json!({"payload": {}})).to_string(),
+            "{}"
+        );
+        assert_eq!(
+            call(
+                "map_og_usage",
+                json!({"payload": {"used": 3, "plan": "go", "balance": 1}})
+            )
+            .to_string(),
+            r#"{"usage":3,"balance":1,"label":"go"}"#
+        );
+    }
+
+    /// The multi-window shape, where each window keeps only the four fields the source names — and `reset_at`
+    /// becomes `resetAt`.
+    #[test]
+    fn the_og_windows_keep_the_four_named_fields() {
+        let got = call(
+            "map_og_usage",
+            json!({"payload": {"windows": {"5h": {"used": 1, "limit": null, "remaining": 2,
+                                                  "reset_at": "soon", "ignored": true}}}}),
+        );
+        assert_eq!(
+            got.to_string(),
+            r#"{"windows":{"5h":{"used":1,"limit":null,"remaining":2,"resetAt":"soon"}}}"#
+        );
+        // A non-object window is DROPPED, and an object with none of the four becomes `{}` — carried, not skipped.
+        assert_eq!(
+            call(
+                "map_og_usage",
+                json!({"payload": {"windows": {"a": 7, "b": {}}}})
+            )
+            .to_string(),
+            r#"{"windows":{"b":{}}}"#
+        );
+    }
+
     /// **THE TABLE IS THE ONLY WAY IN, AND AN UNKNOWN NAME IS A REFUSAL.** The mutation this guards is the one that
     /// would matter: a fallback that answered `null` for an unknown name would make a typo look like a decision.
     #[test]
     fn every_row_is_reachable_and_nothing_else_is() {
         assert_eq!(
             DECISIONS.len(),
-            2,
+            5,
             "the table changed — update this count deliberately"
         );
         for (name, _) in DECISIONS {

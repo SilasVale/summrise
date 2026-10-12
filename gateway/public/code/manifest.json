@@ -36,6 +36,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/gate.ts",
+      "path": "files/summrise-gate/src/gate.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/http.ts",
       "path": "files/summrise-gate/src/http.ts",
       "group": "summrise-gate"

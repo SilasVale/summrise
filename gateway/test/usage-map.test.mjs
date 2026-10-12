@@ -88,16 +88,16 @@ test("mapOgUsage: flat shape, multi-window shape, non-object safe", () => {
 
 test("usageQuery: envelope merges mapping; !ok and throws map to safe shapes", async () => {
   await withFetch(async () => okJson({ hello: "world" }), async () => {
-    const r = await usageQuery("https://u.example/", "sk", "N", (p) => ({ echo: p.hello }));
+    const r = await usageQuery("https://u.example/", {}, "sk", "N", (p) => ({ echo: p.hello }), "n");
     assert.deepEqual(await r.json(), { ok: true, name: "N", status: 200, echo: "world" });
   });
   await withFetch(async () => new Response("no", { status: 429 }), async () => {
-    const r = await usageQuery("https://u.example/", "sk", "N", () => ({}));
+    const r = await usageQuery("https://u.example/", {}, "sk", "N", () => ({}), "n");
     assert.deepEqual(await r.json(), { ok: false, name: "N", status: 429, detail: "Upstream 429" });
   });
   await withFetch(async () => okJson({ data: null }), async () => {
     // Mapper-thrown {detail} surfaces specifically (openrouter invalid shape).
-    const r = await usageQuery("https://u.example/", "sk", "OPENROUTER_API_KEY", mapOpenRouterUsage);
+    const r = await usageQuery("https://u.example/", {}, "sk", "OPENROUTER_API_KEY", mapOpenRouterUsage, "map_openrouter_usage");
     assert.deepEqual(await r.json(), { ok: false, name: "OPENROUTER_API_KEY", detail: "Invalid upstream response" });
   });
   const orig = console.error;
@@ -106,7 +106,7 @@ test("usageQuery: envelope merges mapping; !ok and throws map to safe shapes", a
     await withFetch(async () => {
       throw new Error("dns fail");
     }, async () => {
-      const r = await usageQuery("https://u.example/", "sk", "N", () => ({}));
+      const r = await usageQuery("https://u.example/", {}, "sk", "N", () => ({}), "n");
       assert.deepEqual(await r.json(), { ok: false, name: "N", detail: "Usage query failed" });
     });
   } finally {
@@ -119,13 +119,43 @@ test("usageQuery: envelope merges mapping; !ok and throws map to safe shapes", a
 // backstop). Adding a provider is one table row; the allowlist derives
 // from the same source.
 test("usageQueryFor: every row resolves, unknown is null", () => {
-  assert.deepEqual(Object.keys(usageQueryFor("OPENROUTER_API_KEY") || {}).sort(), ["map", "url"]);
+  // **`decision` IS PART OF THE ROW NOW, AND ITS NAME IS PINNED HERE**: a row whose `decision` does not match a row
+  // in `wasm/src/decisions.rs`'s table answers `undefined` from `decide` and silently takes the twin — the wiring
+  // would be dead and every other test in this file would still pass.
+  assert.deepEqual(Object.keys(usageQueryFor("OPENROUTER_API_KEY") || {}).sort(), [
+    "decision",
+    "map",
+    "url",
+  ]);
   assert.equal(usageQueryFor("OPENROUTER_API_KEY")?.url, "https://openrouter.ai/api/v1/auth/key");
   assert.equal(usageQueryFor("OPENROUTER_API_KEY")?.map, mapOpenRouterUsage);
+  assert.equal(usageQueryFor("OPENROUTER_API_KEY")?.decision, "map_openrouter_usage");
+  assert.equal(usageQueryFor("AMD_API_KEY")?.decision, "map_amd_usage");
+  assert.equal(usageQueryFor("OPENCODE_GO_API_KEY")?.decision, "map_og_usage");
   assert.equal(usageQueryFor("AMD_API_KEY")?.url, "https://developer.amd.com.cn/radeon/api/v1/usage");
   assert.equal(usageQueryFor("AMD_API_KEY")?.map, mapAmdUsage);
   assert.equal(usageQueryFor("OPENCODE_GO_API_KEY")?.url, "https://opencode.ai/zen/go/v1/usage");
   assert.equal(usageQueryFor("OPENCODE_GO_API_KEY")?.map, mapOgUsage);
   assert.equal(usageQueryFor("DEEPSEEK_API_KEY"), null, "no usage endpoint → null, not throw");
   assert.equal(usageQueryFor(""), null);
+});
+
+// ── THE GATE ANSWERS FIRST, AND THIS IS THE PROOF THE WIRING IS LIVE ─────────────────────────────
+//
+// **THE MUTATION THIS GUARDS IS THE ONE THAT MATTERS: `decide` wired but never consulted.** Every other test in
+// this file passes an `env` with no gate, so the TypeScript twin runs and the file is green whether or not the
+// decision route is reached at all. This one gives the gate an answer the twin CANNOT produce.
+//
+// MUTATION: drop the `decide` call and go straight to `map(payload)`.
+// RESULT:   the answer is the twin's (`{echo:"world"}`) instead of the gate's, and this test fails.
+test("usageQuery: the gate's mapping is used when the gate answers", async () => {
+  const env = {
+    WASM_GATE: {
+      fetch: async () => new Response(JSON.stringify({ ok: true, value: { fromRust: true } })),
+    },
+  };
+  await withFetch(async () => okJson({ hello: "world" }), async () => {
+    const r = await usageQuery("https://u.example/", env, "sk", "N", (p) => ({ echo: p.hello }), "n");
+    assert.deepEqual(await r.json(), { ok: true, name: "N", status: 200, fromRust: true });
+  });
 });

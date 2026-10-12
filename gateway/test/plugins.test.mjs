@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
-import { decide } from "../src/plugins/models-probe.ts";
+import { decide } from "../src/gate.ts";
 import {
   getPluginByToken,
   removePluginLink,
