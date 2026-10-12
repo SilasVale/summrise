@@ -26,6 +26,22 @@ pub struct IpRateLimiter {
     pub window_ms: i64,
 }
 
+/// **THE PROBE'S OWN INSTANCE, VERBATIM FROM `gateway/src/tooling.ts`:**
+/// `createIpRateLimiter({ name: "probe-rate", limit: 60, windowMs: 60_000, kvSeed: true })`.
+/// It is the KV-SEEDED one, and the seed is Task 2's; what matters here is that the numbers
+/// live in Rust with the algorithm rather than beside the call site.
+pub const PROBE_RATE: IpRateLimiter = IpRateLimiter {
+    name: "probe-rate",
+    limit: 60,
+    window_ms: 60_000,
+};
+
+/// The route family this limiter guards: `index.ts:298` calls `probeRateLimited` for
+/// `/api/summrise-probe` and nothing else.
+pub fn probe_in_family(path: &str) -> bool {
+    path == "/api/summrise-probe"
+}
+
 /// The devices plugin's own instance, verbatim: `name: "pub-rate", limit: 10, windowMs: 60_000`.
 pub const PUBLIC_RATE: IpRateLimiter = IpRateLimiter {
     name: "pub-rate",
@@ -150,3 +166,34 @@ mod tests {
         assert_eq!(counters[0].0, "pub-rate:10.0.0.1:0", "the oldest went");
     }
 }
+
+    /// **THE PROBE'S BUDGET IS SIXTY, AND THE SIXTY-FIRST IS THE ONE THAT MUST BE REFUSED** — the same
+    /// assertion as the devices instance, against the OTHER constant, because a port that carries the
+    /// algorithm but the wrong numbers is a limiter with the wrong budget and every case above still passes.
+    ///
+    /// MUTATION: change `PROBE_RATE.limit` to 10.
+    /// RESULT:   this test fails — the eleventh probe is refused while the corpus is green.
+    #[test]
+    fn the_sixty_first_probe_is_refused() {
+        // **SIXTY IS WRITTEN OUT, NOT READ FROM THE CONSTANT — AND THAT IS THE WHOLE POINT.**
+        // The first version looped `0..PROBE_RATE.limit`, so it asserted "the (limit+1)th call is
+        // refused" for ANY limit, and the mutation below passed: `limit: 10` made the loop ten long
+        // and the eleventh call refused, exactly as written. **A test that reads its own subject
+        // cannot fail when the subject changes.**
+        let mut counters = Counters::new();
+        for n in 1..=60 {
+            assert!(
+                !check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000),
+                "probe {n} of 60 was refused"
+            );
+        }
+        assert!(check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000));
+    }
+
+    /// And the family is the probe route, not a prefix that would swallow a neighbour.
+    #[test]
+    fn the_family_is_the_probe_route() {
+        assert!(probe_in_family("/api/summrise-probe"));
+        assert!(!probe_in_family("/api/summrise-probe/extra"));
+        assert!(!probe_in_family("/api/health"));
+    }
