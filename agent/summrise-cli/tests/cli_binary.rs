@@ -41,7 +41,13 @@ fn cli(args: &[&str]) -> std::process::Output {
 /// direct verification is destructive, find the part of it that is a measurement.
 #[test]
 fn every_cli_verb_the_root_guide_promises_is_one_the_cli_prints() {
-    let guide = read("AGENTS.md");
+    // **THE GUIDE MOVED, AND THIS TEST KEPT READING THE OLD ADDRESS. MEASURED 2026-10-12, WHEN SHRINKING
+    // `AGENTS.md` TOOK THE INSTALL COMMANDS WITH IT: the runbook became `scripts/RELEASE.md`, the extractor
+    // kept reading `AGENTS.md`, and the assertion answered *"found 0 verbs"* — a document that had stopped
+    // being the subject, read as if it still were.** That is the same shape as every other instrument this
+    // repository has had to repair, and the test's own message says which way to fix it: *"if the mention
+    // syntax changed, fix THIS extractor rather than deleting the test."*
+    let guide = read("scripts/RELEASE.md");
     let mut promised: Vec<String> = Vec::new();
     for line in guide.lines() {
         if let Some(rest) = line.strip_prefix("summrise ") {
