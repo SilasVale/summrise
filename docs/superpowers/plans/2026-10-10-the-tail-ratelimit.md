@@ -85,3 +85,36 @@ the other ported families are: a request-level gate, not a library call.
 - [ ] **Step 3: Make the change** — the file keeps only the `env.KEYS` presence check and the wasm call.
 - [ ] **Step 4: Run it** — set `MAX_LOGIC` to the number the gate printed; expected PASS.
 - [ ] **Step 5: Commit.**
+
+
+---
+
+## APPENDIX — what landing the first three tasks actually taught (2026-10-12)
+
+**TASKS 1 AND 2 ARE DONE ON `feat/the-probe-limit-is-rust` (3 commits, not merged), AND THEY ARE NOT WIRED — WHICH IS THE
+POINT OF THIS APPENDIX.** `PROBE_RATE`, `probe_in_family`, `needs_seed`, `seed_ttl_secs` and `seeded_check` exist, are
+clippy-clean, carry mutation proofs, and **no caller reads any of them.** That is the exact defect the sweeps' landing
+classified Critical — *"a decision that was made and then not wired"* — and merging this branch as-is would ship it
+again.
+
+**WHAT THE WIRING ACTUALLY COSTS, MEASURED.** `gateway/src/index.ts` reaches the wasm only through
+`wasmGate(env).fetch(request)` — `env.WASM_GATE` is a **request-level binding, not a library**. There is no
+`#[wasm_bindgen]` export anywhere in `gateway/wasm/src/`, so `probeRateLimited(env, request)` in TypeScript has no
+function to call. The probe route is handled inline at `index.ts:298`, and `summriseProbe` (the probe itself) is the
+bulk of what that branch does. **So Task 3 is not "make `ratelimit.ts` a boundary": it is "move the whole
+`/api/summrise-probe` route into the wasm gate", which is a route port of the size this plan was written to avoid.**
+
+**AND THREE INSTRUMENTS CAUGHT MY OWN EDITS, ALL THREE BY LOOKING AT SOMETHING ADJACENT:**
+1. the `PROBE_RATE` loop read `0..PROBE_RATE.limit`, so it asserted *"the (limit+1)th is refused"* for ANY limit and
+   `limit: 60 -> 10` left it **passing** — a test that reads its own subject cannot fail when the subject changes;
+2. the TTL mutation did not bite because the `sed` pattern carried a space the source did not have — **a mutation that
+   never happened looks exactly like a gate that cannot be broken**;
+3. shrinking `AGENTS.md` broke `every_cli_verb_the_root_guide_promises_is_one_the_cli_prints`, which extracts verbs
+   from `AGENTS.md` by `strip_prefix("summrise ")` — the runbook moved to `scripts/RELEASE.md` and the extractor kept
+   reading the old address, answering *"found 0"*. **The document had stopped being the subject and was still read as
+   if it were.**
+
+**REVISED SCOPE, SO THE NEXT READER DOES NOT RE-DERIVE IT:** finish this family by porting the probe route
+(`summriseProbe` + the 429 arm) into the wasm gate, then `ratelimit.ts` has no caller and becomes BOUNDARY, then the
+manifest rule moves and `MAX_LOGIC` reads 69. **Until that route lands, the three commits stay on the branch** — a
+foundation with no caller is not a landing.
