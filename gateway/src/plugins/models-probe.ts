@@ -27,6 +27,7 @@ import { deviceHostError } from "../device-fetch.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
 import { BYOK_CHANNELS } from "../store/byok.ts";
 import { fetchWithTimeout, upstreamTimeoutMs } from "../reliability.ts";
+import { decide } from "../decisions.ts";
 import { jsonError, jsonOk } from "../http.ts";
 import { requireAdmin } from "../session.ts";
 import {
@@ -107,7 +108,11 @@ export async function adminProbeModels(request: Request, env: any): Promise<Resp
   if (route.type === "error") {
     return jsonOk({ checked: false, reason: route.reason || `${bare} is not a routable prefix` });
   }
-  const endpoint = upstreamModelsUrl(route.upstream);
+  // **THE DECISION IS RUST'S NOW, AND THE TWIN BELOW IS ONLY THE FALLBACK.** `decide` answers `undefined` when
+  // the gate is absent or unreachable — NOT when the decision is null — so a wrong null from Rust cannot be
+  // silently corrected here.
+  const decided = await decide<string | null>(env, "upstream_models_url", { upstream: route.upstream });
+  const endpoint = decided === undefined ? upstreamModelsUrl(route.upstream) : decided;
   if (!endpoint) {
     return jsonOk({
       checked: false,
@@ -162,7 +167,9 @@ export async function adminProbeModels(request: Request, env: any): Promise<Resp
     if (!res.ok) {
       return jsonOk({ checked: false, endpoint, reason: `upstream answered ${res.status}` });
     }
-    offered = offeredIds(await res.json());
+    const payload = await res.json();
+    const fromRust = await decide<string[]>(env, "offered_ids", { payload });
+    offered = fromRust === undefined ? offeredIds(payload) : fromRust;
   } catch (e: any) {
     return jsonOk({
       checked: false,
