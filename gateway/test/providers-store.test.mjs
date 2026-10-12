@@ -163,7 +163,7 @@ test("the inline key NEVER leaves the store in the clear (maskKey, like the mode
   const spec = mustParse({ ...SUMMRISE_LIKE, apiKeyEnv: undefined, apiKey: "sk-inline-key-1234" });
   await putCustomProvider(env, spec);
 
-  const view = publicProvider((await customProviders(env))[0], env);
+  const view = await publicProvider((await customProviders(env))[0], env);
   const serialized = JSON.stringify(view);
   assert.ok(
     !serialized.includes("sk-inline-key-1234"),
@@ -174,13 +174,13 @@ test("the inline key NEVER leaves the store in the clear (maskKey, like the mode
 
   // An env-referenced key is reported by NAME, and its VALUE is masked too.
   const envSpec = mustParse(SUMMRISE_LIKE);
-  const view2 = publicProvider(envSpec, { MY_PROVIDER_KEY: "sk-env-secret-9876" });
+  const view2 = await publicProvider(envSpec, { MY_PROVIDER_KEY: "sk-env-secret-9876" });
   assert.equal(view2.keyEnv, "MY_PROVIDER_KEY");
   assert.ok(!JSON.stringify(view2).includes("sk-env-secret-9876"), "env key value leaked");
   assert.equal(view2.keyReady, true);
   // ...and is reported as absent when this deployment does not bind it, so an
   // operator sees the 502's cause in the console before making a request.
-  const view3 = publicProvider(envSpec, {});
+  const view3 = await publicProvider(envSpec, {});
   assert.equal(view3.keyReady, false);
   assert.equal(view3.keyMasked, "");
 });

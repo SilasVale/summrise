@@ -66,6 +66,7 @@
  * handlers do).
  */
 import { cget, cset, cdel, withKeyLock, type Env } from "./cache.ts";
+import { decide } from "../gate.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
 import { loadCatalogueFile, mergeLayers } from "./file-config.ts";
 import { deviceHostError } from "../device-fetch.ts";
@@ -299,8 +300,24 @@ export function providerModelVision(p: ProviderSpec | undefined | null, wire: st
 
 /** The admin/console view. An inline key leaves this function ONLY as
  *  maskKey(value) — the same rule adminListUsers and adminGetCfToken follow. */
-export function publicProvider(p: ProviderSpec, env: any): PublicProviderSpec {
+/**
+ * **THE SHAPE IS RUST'S NOW, AND THE RESOLUTION STAYS HERE.** `providerKey(env, p)` reads a Worker secret or an
+ * inline key, so IT cannot be a decision — but everything after it can. Splitting the two is what made the rest
+ * portable: this resolves, `POST /__decision` builds the public shape.
+ *
+ * **`decide` ANSWERS `undefined` WHEN THE GATE DID NOT ANSWER** (absent, refused, unreachable) and the local
+ * function below is the fallback for that case only. A wrong answer from Rust cannot be silently corrected here,
+ * which is the one failure this route must not hide.
+ */
+export async function publicProvider(p: ProviderSpec, env: any): Promise<PublicProviderSpec> {
   const resolved = providerKey(env, p);
+  const fromRust = await decide<PublicProviderSpec>(env, "public_provider", { p, resolved });
+  if (fromRust !== undefined) return fromRust;
+  return publicProviderLocal(p, resolved);
+}
+
+/** The fallback shape, kept byte-identical to the source. */
+function publicProviderLocal(p: ProviderSpec, resolved: string): PublicProviderSpec {
   const models = Array.isArray(p.models) ? p.models : [];
   return {
     prefix: p.prefix,
