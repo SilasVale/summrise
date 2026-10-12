@@ -11,29 +11,159 @@
 //! than a binding, which is what lets the oracle drive the shipping TypeScript and this port over the same
 //! corpus. The DECISIONS are pure; the KV read that produces `ukeys` stays at the edge, where it belongs.
 
-/// `store/byok.ts`'s `BYOK_CHANNELS`, as the two things this module needs from it: the kind -> user-key
-/// field map, and the kind -> ENV-KEY map where `nv` and `gmi` deliberately have NO deployment fallback.
-/// A shared source that cannot say "this channel has no env key" would be a loss of information, which is
-/// why the `null` is carried rather than inferred.
-pub(crate) const BYOK_CHANNELS: [(&str, &str, Option<&str>); 9] = [
+/// **THE SINGLE SOURCE NOW — AND THE TYPESCRIPT IS ITS EMISSION.** This was a projection of
+/// `store/byok.ts` (`kind`, `userKey`, `envKey`, "the two things this module needs from it"). It carries all five
+/// fields because the file it renders needs all five, and `store/byok.ts` is GENERATED from it — the shape
+/// `mcp_tools.rs` already has, where the freshness test is a byte comparison rather than a second table.
+///
+/// **`nv` AND `gmi` DELIBERATELY HAVE NO DEPLOYMENT FALLBACK** and the `None` is carried rather than inferred: a
+/// shared source that cannot say "this channel has no env key" would be a loss of information.
+pub(crate) const BYOK_CHANNELS: [(&str, &str, Option<&str>, &str, &str); 9] = [
     (
         "opencode",
         "OPENCODE_GO_API_KEY",
         Some("OPENCODE_GO_API_KEY"),
+        "og",
+        "openai",
     ),
-    ("deepseek", "DEEPSEEK_API_KEY", Some("DEEPSEEK_API_KEY")),
-    ("qwen", "QWEN_API_KEY", Some("QWEN_API_KEY")),
+    (
+        "deepseek",
+        "DEEPSEEK_API_KEY",
+        Some("DEEPSEEK_API_KEY"),
+        "ds",
+        "anthropic",
+    ),
+    (
+        "qwen",
+        "QWEN_API_KEY",
+        Some("QWEN_API_KEY"),
+        "qw",
+        "anthropic",
+    ),
     (
         "openrouter",
         "OPENROUTER_API_KEY",
         Some("OPENROUTER_API_KEY"),
+        "or",
+        "anthropic",
     ),
-    ("nvidia", "NVAPI_KEY", None),
-    ("gmi", "GMI_API_KEY", None),
-    ("commandgoat", "CMD_API_KEY", Some("CMD_API_KEY")),
-    ("amd", "AMD_API_KEY", Some("AMD_API_KEY")),
-    ("r4", "R4_API_KEY", Some("R4_API_KEY")),
+    ("nvidia", "NVAPI_KEY", None, "nv", "openai"),
+    ("gmi", "GMI_API_KEY", None, "gmi", "openai"),
+    (
+        "commandgoat",
+        "CMD_API_KEY",
+        Some("CMD_API_KEY"),
+        "cm",
+        "openai",
+    ),
+    (
+        "amd",
+        "AMD_API_KEY",
+        Some("AMD_API_KEY"),
+        "amd",
+        "anthropic",
+    ),
+    ("r4", "R4_API_KEY", Some("R4_API_KEY"), "r4", "anthropic"),
 ];
+
+/// The emitted module's header — **THE ORIGINAL FILE'S OWN COMMENT, CARRIED VERBATIM, PLUS THE GENERATED NOTICE.**
+///
+/// **AN EMISSION THAT LOSES THE FILE'S DOCUMENTED REASON IS A LOSS, NOT A SIMPLIFICATION.** That comment is the
+/// record of why the table exists at all — the four independently-typed tables, the author who wrote the risk down
+/// and then named the wrong file, and the three facets each earned — and none of it is recoverable from the rows.
+const TS_HEADER: &str = "\
+/**
+ * byok.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/byok.rs` (`render_typescript`), which is now the single source. The freshness test
+ * in that module is a byte comparison against this file, so a hand edit fails there with the text and one command
+ * to fix it:
+ *
+ *     SUMMRISE_REFRESH_BYOK=1 cargo test --manifest-path gateway/wasm/Cargo.toml byok
+ *
+ * The comment below is the file's own, carried verbatim: it is the record of why this table exists, and it is not
+ * recoverable from the rows.
+ *
+ * byok — THE single source for the BYOK channel vocabulary (round 190).
+ *
+ * WHY THIS EXISTS. Until this file, the same eight channels and their env-var names lived
+ * in FOUR independently-typed tables: `model-route.ts`'s CHANNEL_KEY_RULES (keyed by routing
+ * PREFIX), `models-probe.ts`'s BYOK_KEY_FOR_KIND (keyed by route KIND), `translate-vision.ts`'s
+ * per-key `{key, shape}` table, and `store/users.ts`'s bare USER_KEY_NAMES list. Nothing
+ * compared them; the values agreed only because whoever typed them was careful. The author of
+ * the second one wrote the risk down — \"a second naming of channels is how two tables drift
+ * apart\" — and then named the wrong file in the pointer, so a reader who followed it found a
+ * CONSUMER (translate.ts) and no table at all.
+ *
+ * WHAT IT IS NOT. It is not a merge of those four tables. `model-route.ts` keys by prefix and
+ * the other two key by kind, and NOTHING in the repository mapped one vocabulary to the other —
+ * so the shared thing is the table all four can DERIVE from, and the prefix<->kind pairing is
+ * the part that did not exist anywhere until this file.
+ *
+ * THREE FACETS, EACH ONE EARNED: `userKey`/`envKey` (round 187's measurement) and `shape`
+ * (found by reading the FOURTH table rather than assuming it from the three that agreed — a
+ * shared source with only the first two would have forced `translate-vision.ts` to keep its own
+ * table and the drift class would have survived the fix). `envKey: null` is load-bearing: it
+ * means \"this channel has no environment fallback\", which was expressible in exactly one of the
+ * four tables, so a merge that flattened to `kind -> keyName` would have DELETED a distinction.
+ *
+ * PURE DATA, ZERO IMPORTS, deliberately: every one of the four consumers can import it without
+ * creating a cycle, which is the property that makes the derivation possible at all.
+ */
+
+export interface ByokChannel {
+  prefix: string;
+  kind: string;
+  userKey: string;
+  envKey: string | null;
+  shape: \"anthropic\" | \"openai\";
+}
+
+export const BYOK_CHANNELS: ByokChannel[] = [
+";
+/// **THE PRODUCER.** `store/byok.ts` is exactly this function's output.
+pub fn render_typescript() -> String {
+    let mut out = String::from(TS_HEADER);
+    for &(kind, user_key, env_key, prefix, shape) in BYOK_CHANNELS.iter() {
+        // The source's own formatting: every row breaks, EXCEPT the two whose line fits — and those two are
+        // the ones with `envKey: null`, which is why they are short. **The emitted bytes are the file's bytes**,
+        // so the layout is part of the emission and not a prettier decision made later.
+        let env = match env_key {
+            Some(v) => format!("\"{v}\""),
+            None => "null".to_string(),
+        };
+        let short = format!(
+            "  {{ prefix: \"{prefix}\", kind: \"{kind}\", userKey: \"{user_key}\", envKey: {env}, shape: \"{shape}\" }},\n"
+        );
+        // **THE THRESHOLD IS PRETTIER S PRETTIER S RULE, MEASURED**: at 100 the `amd` row broke and the
+        // emitted bytes stopped matching the source. The rule is the repo s configured printWidth.
+        if short.chars().count() <= 101 {
+            out.push_str(&short);
+        } else {
+            out.push_str(&format!(
+                "  {{\n    prefix: \"{prefix}\",\n    kind: \"{kind}\",\n    userKey: \"{user_key}\",\n    envKey: {env},\n    shape: \"{shape}\",\n  }},\n"
+            ));
+        }
+    }
+    out.push_str(
+        "];
+
+export function byPrefix(prefix: string): ByokChannel | undefined {
+  return BYOK_CHANNELS.find((c) => c.prefix === prefix);
+}
+
+export function byKind(kind: string): ByokChannel | undefined {
+  return BYOK_CHANNELS.find((c) => c.kind === kind);
+}
+",
+    );
+    out
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/store/byok.ts")
+}
 
 /// `REQUIRED_KEY_BY_KIND` — route kind -> the field `extractByokKeys` spells it as. The three irregular
 /// ones are `nvidia -> nv`, `opencode -> opencodeGo`, `commandgoat -> cmd`.
@@ -115,7 +245,7 @@ pub fn bearer_key_for(
     if !user.is_null() {
         return user;
     }
-    let Some((_, _, env_key)) = BYOK_CHANNELS.iter().find(|(k, _, _)| *k == kind) else {
+    let Some((_, _, env_key, _, _)) = BYOK_CHANNELS.iter().find(|(k, ..)| *k == kind) else {
         return serde_json::Value::Null;
     };
     match env_key {
@@ -192,5 +322,63 @@ mod oracle_corpus {
             checked += 1;
         }
         assert!(checked >= 20, "the byok corpus shrank to {checked} cases");
+    }
+}
+
+#[cfg(test)]
+mod emission_tests {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK — THE SAME SHAPE `mcp_tools.rs` AND `settings_logic.rs` USE.** A hand edit to
+    /// `gateway/src/store/byok.ts` (or a table change that was not re-emitted) fails here with the text and the one
+    /// command that fixes it.
+    #[test]
+    fn the_typescript_table_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_BYOK").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write byok.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_BYOK=1 cargo test byok",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/store/byok.ts is not what byok.rs emits — run SUMMRISE_REFRESH_BYOK=1 cargo test byok"
+        );
+    }
+
+    /// **THE TABLE IS THE SOURCE NOW, SO ITS SHAPE IS WORTH PINNING** — and so is the ORDER, because the emitted
+    /// rows are the file's bytes.
+    ///
+    /// MUTATION: swap `nv` and `gmi`'s rows.
+    /// RESULT:   the order assertion fails, and the emitted file would reorder two rows the console reads in order.
+    #[test]
+    fn the_table_is_nine_rows_in_the_sources_order() {
+        assert_eq!(BYOK_CHANNELS.len(), 9);
+        let kinds: Vec<&str> = BYOK_CHANNELS.iter().map(|(k, ..)| *k).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "opencode",
+                "deepseek",
+                "qwen",
+                "openrouter",
+                "nvidia",
+                "gmi",
+                "commandgoat",
+                "amd",
+                "r4"
+            ]
+        );
+        // **`nv` AND `gmi` HAVE NO DEPLOYMENT FALLBACK** and the `None` is carried, not inferred.
+        for (kind, _, env_key, _, _) in BYOK_CHANNELS {
+            let expected_none = kind == "nvidia" || kind == "gmi";
+            assert_eq!(env_key.is_none(), expected_none, "{kind}'s envKey");
+        }
     }
 }

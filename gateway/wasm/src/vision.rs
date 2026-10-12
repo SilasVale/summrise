@@ -135,8 +135,8 @@ pub fn vision_backend(kind: &str) -> Option<(&'static str, &'static str)> {
     // Rust test that pins this table said so on the first attempt ("left: opencodeGo").
     let key = crate::byok::BYOK_CHANNELS
         .iter()
-        .find(|(k, _, _)| *k == kind)
-        .map(|(_, env_key, _)| *env_key)?;
+        .find(|(k, ..)| *k == kind)
+        .map(|(_, env_key, ..)| *env_key)?;
     SHAPES
         .iter()
         .find(|(k, _)| *k == kind)

@@ -53,7 +53,7 @@ pub const SESSION_TTL_MS: i64 = 24 * 3600 * 1000;
 pub fn user_key_names() -> Vec<&'static str> {
     BYOK_CHANNELS
         .iter()
-        .map(|(_, user_key, _)| *user_key)
+        .map(|(_, user_key, ..)| *user_key)
         .collect()
 }
 
@@ -63,8 +63,8 @@ pub fn user_key_names() -> Vec<&'static str> {
 pub fn env_key_for(user_key: &str) -> Option<&'static str> {
     BYOK_CHANNELS
         .iter()
-        .find(|(_, name, _)| *name == user_key)
-        .and_then(|(_, _, env_key)| *env_key)
+        .find(|(_, name, ..)| *name == user_key)
+        .and_then(|(_, _, env_key, ..)| *env_key)
 }
 
 /// The per-key locks of this module's read-modify-write sections.
