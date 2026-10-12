@@ -427,3 +427,30 @@ in CI and green on the desk.**
 `__clearCaches()` that also drops the limiter's counters — and **which one is right depends on whether the two tests
 are meant to share a bucket**, which is a decision about the TEST rather than about the product. **A flake whose
 mechanism is written down is a five-minute fix for the next reader; one that is re-run until green is a tax.**
+
+---
+
+## THE TWO LIMITS OF "DELETE THE TWINS", FOUND BY TRYING IT (2026-10-12)
+
+**THE OPERATOR CHOSE THIS PATH AND THE FIRST LANDING TOOK ① FROM 70 TO 69** — `store/grants.ts`, deleted, because the
+Rust port is live (`devices.rs` calls all three functions) and the TypeScript had **zero consumers anywhere**. That is
+the clean case, and running it surfaced the two limits that decide how much further the path goes.
+
+**LIMIT 1: `grants.ts` WAS THE ONLY FILE OF ITS KIND.** The audit was run again, this time asking the question that
+finds dead code — **"is any exported NAME used elsewhere", not "is the file imported"** (the second question is what
+missed it: `store.ts` is a barrel that re-exports `grants.ts` wholesale, so the file looked imported while not one of
+its names was used). Across the remaining 69 LOGIC files, **ZERO have all their exports unused.** So every other file
+has at least one live consumer, and deleting its twins means **re-pointing that consumer at Rust** — which for a store
+means the decision route, and for a handler means moving the route.
+
+**LIMIT 2: A MODULE-LEVEL TABLE CANNOT MOVE THROUGH AN ASYNCHRONOUS ROUTE.** `store/byok.ts` is the sharpest case: its
+`BYOK_CHANNELS` IS the shared source (the Rust is a projection of it, and `agent/tests/byok_channel_keys.rs` now gates
+the two to agree), so it looks like the ideal thing to single-source in Rust. **It cannot be, as the table stands**: the
+TypeScript reads it at MODULE LOAD and synchronously — `byPrefix`/`byKind` are plain lookups — and `decide` is
+`async`. **A synchronous module-level table cannot be fetched over an asynchronous route at the moment it is needed.**
+Moving it needs either a build-time emission (as `mcp-tools.ts` already is) or a synchronous seam that does not exist.
+
+**SO THE PATH IS REAL BUT INCREMENTAL, AND ITS UNIT IS THE RESIDUAL DECISION.** After `grants.ts`, the next files are
+not "delete a twin" but "port a small decision and then delete the line": `store/settings.ts` keeps the key prefix and
+the env-var fallback after `normalizeSetting` moves; `store/byok.ts` keeps the table; `upstream.ts` keeps the route
+builders. **Each is a decision, each is reachable through the route, and none is a file.**
