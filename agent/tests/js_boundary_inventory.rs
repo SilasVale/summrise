@@ -640,4 +640,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         measurement read **71** against `MAX_LOGIC = 80`, so this gate was RED
 ///                                         on `0155edc0` — "the list SHRANK and the cap did not follow it down.
 ///                                         A cap left high is finished work wearing a budget."
-const MAX_LOGIC: usize = 69;
+// **70, RAISED DELIBERATELY ONCE (2026-10-12), AND THIS IS THE ENTRY.** `gateway/src/gate.ts` holds the WASM_GATE
+// predicate (moved out of `index.ts`, which had it private) and the decision route's client. `decide` was written
+// inside `plugins/models-probe.ts` — its only consumer — with a note saying that when a SECOND plugin needed it, it
+// would move here and **the cap would get a deliberate entry with the reason**. `plugins/auth.ts` needs it now (the
+// three usage mappers). **The alternative was to protect the number**: a plugin importing from another plugin is a
+// layering inversion, and hiding a gate client in `http.ts` to avoid a file would be a number kept at the cost of
+// the reader. A ratchet that can only be raised in the open is doing its job; one that is worked around is not.
+const MAX_LOGIC: usize = 70;
