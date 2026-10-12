@@ -384,3 +384,21 @@ normalisation line up rather than merely happen to.
 
 **AND THE OTHER 146 PAIRS ARE NOT THEREBY CLEARED.** This one was chosen because its primitives are the ones most
 likely to differ. **The method is what generalises; the result does not.**
+
+**THE SECOND CASE: `safeEq(a, b)`, `auth.ts` vs `wasm/src/auth.rs`.** The console's constant-time compare for
+credential-shaped values — *"plain `!==` on the admin token leaked timing, and the compare itself must not
+early-exit"* — so the property under test is TIMING, not the boolean.
+
+| case family | TypeScript (`charCodeAt`) | Rust (`encode_utf16`) | agree |
+|---|---|---|---|
+| equal strings | `true` | `true` | ✓ |
+| equal length, one unit differs | `false`, no early exit | `false`, no early exit | ✓ |
+| DIFFERENT lengths | `false`, **early exit on the length** | `false`, **the same early exit** | ✓ |
+| a non-ASCII pair | UTF-16 CODE UNITS | `encode_utf16`, the same units | ✓ |
+| a non-string (the `typeof` guard) | `false` | not expressible in Rust — the type is `&str` | n/a |
+
+**AND THE INTERESTING PART IS WHAT A LAZY PORT WOULD HAVE DONE**: comparing `&str` with `==`, or with `as_bytes()`,
+answers the SAME BOOLEAN for every input — **so every functional test would pass** — and leaks a different length
+(a UTF-8 length is not a UTF-16 length for any non-ASCII string) and short-circuits at the first differing byte.
+**The port chose `encode_utf16` and kept the length early-exit, which is the source's timing behaviour**, and no test
+in either suite can tell the difference. **This is the case that justifies the whole method.**
