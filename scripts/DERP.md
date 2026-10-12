@@ -147,6 +147,20 @@ sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
 * The IPv6 lookup for `derp.saisi.online` fails harmlessly on the VPS (`no such host`): there is no AAAA
   record, and `debug derp` still succeeds over IPv4.
 
+* **NEVER point the tailnet's own DNS at a resolver that lives on the far side of the tunnel the clients
+  need that DNS to build.** `nameservers: [100.79.21.110]` + `overrideLocalDNS: true` was tried, reasoning
+  that the VPS already carries the traffic so resolving there would match the exit node and stop lookups
+  leaking to a China-side ISP. It **stranded `desktop-cph4kb2` off the tailnet within minutes**: tailscaled
+  resolves the control plane and the DERP hosts through the *system* resolver, that resolver was now the
+  VPS, and the tunnel to the VPS could not be established without resolving them first. The tailnet settings
+  were reverted at once (`nameservers: []`, `overrideLocalDNS: false`, `magicDNS: true`), but a client keeps
+  its last netmap until it fetches a new one — so the stranded box needed a **local** action (`Restart-Service
+  Tailscale` in an elevated PowerShell, or `tailscale set --accept-dns=false`) to break the deadlock. If
+  US-side resolution is wanted, the resolver has to sit where the client can always reach it.
+* **`POST /dns/preferences` takes the WHOLE object, not a patch.** Posting `{"overrideLocalDNS": true}`
+  alone silently set `magicDNS: false` and turned MagicDNS off tailnet-wide (caught in the read-back, fixed
+  with `{"magicDNS": true, "overrideLocalDNS": false}`). Send every field you care about, then read it back.
+
 ## OPERATE / ROLLBACK
 
 ```bash
