@@ -102,8 +102,8 @@ fn js_number_of(s: &str) -> Option<f64> {
 use std::time::Duration;
 
 use worker::wasm_bindgen::{JsCast, JsValue};
-use worker::{js_sys, wasm_bindgen_futures, web_sys};
 use worker::*;
+use worker::{js_sys, wasm_bindgen_futures, web_sys};
 
 /// `deviceFetch`'s answer: the source's `{ status, ok, resp, error }`.
 ///
@@ -412,13 +412,7 @@ fn streaming_request(
     headers: &Headers,
     body: &web_sys::ReadableStream,
 ) -> std::result::Result<Request, String> {
-    js_request(
-        url,
-        method,
-        headers,
-        Some(body.as_ref()),
-        Some("manual"),
-    )
+    js_request(url, method, headers, Some(body.as_ref()), Some("manual"))
 }
 
 /// **`Fetcher::fetch(request)` FOR A REQUEST THIS MODULE BUILT.** `workers-rs` 0.8.7's typed

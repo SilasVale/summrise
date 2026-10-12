@@ -19,7 +19,7 @@
 use serde_json::Value;
 use worker::*;
 
-use crate::device::{js_request, service_fetch, fetch_request_with_timeout};
+use crate::device::{fetch_request_with_timeout, js_request, service_fetch};
 use crate::device_store as store;
 use crate::session_gate;
 use crate::user_store;
@@ -165,7 +165,10 @@ async fn proxy_upload_to_worker(
     if declared.is_finite() && declared > UPLOAD_MAX_BYTES + UPLOAD_CL_MARGIN {
         return Ok(crate::json_error(
             413,
-            &format!("Upload too large (max {}MB)", (UPLOAD_MAX_BYTES / (1024.0 * 1024.0)).floor()),
+            &format!(
+                "Upload too large (max {}MB)",
+                (UPLOAD_MAX_BYTES / (1024.0 * 1024.0)).floor()
+            ),
             "invalid_request",
         )?);
     }
@@ -180,7 +183,10 @@ async fn proxy_upload_to_worker(
         "Authorization",
         &format!(
             "Bearer {}",
-            env.var("UPLOAD_KEY").ok().map(|v| v.to_string()).unwrap_or_default()
+            env.var("UPLOAD_KEY")
+                .ok()
+                .map(|v| v.to_string())
+                .unwrap_or_default()
         ),
     );
     if let Ok(Some(content_type)) = request.headers().get("content-type") {
@@ -332,9 +338,15 @@ mod tests {
             js_number("104923136") <= bound,
             "104923136 is the bound itself, and the comparison is strict"
         );
-        assert!(js_number("104923137") > bound, "one byte over the bound is refused");
+        assert!(
+            js_number("104923137") > bound,
+            "one byte over the bound is refused"
+        );
         assert!(js_number("104857601").is_finite());
-        assert!(js_number("abc").is_nan(), "a header that is not a number is not a bound");
+        assert!(
+            js_number("abc").is_nan(),
+            "a header that is not a number is not a bound"
+        );
         assert_eq!(js_number(" 12 "), 12.0);
         assert_eq!(js_number("0x10"), 16.0);
         assert_eq!(js_number("1e3"), 1000.0);

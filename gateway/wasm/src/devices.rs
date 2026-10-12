@@ -291,11 +291,7 @@ async fn admin_check(request: &Request, env: &Env) -> Result<Option<Response>> {
     match session_gate::require_admin(request, env).await {
         Ok(Ok(_)) => Ok(None),
         Ok(Err(response)) => Ok(Some(response)),
-        Err(_) => Ok(Some(crate::json_error(
-            500,
-            "Internal error",
-            "api_error",
-        )?)),
+        Err(_) => Ok(Some(crate::json_error(500, "Internal error", "api_error")?)),
     }
 }
 
@@ -460,15 +456,14 @@ async fn handle_self_register(request: &mut Request, env: &Env) -> Result<Respon
             // proxy_secret already on record.
             let proved = match &stored_secret {
                 Some(secret) => {
-                    let dial =
-                        crate::device::device_fetch(
-                            env,
-                            &stored_hostname,
-                            &stored_token,
-                            "/api/status",
-                            DialInit::get(),
-                        )
-                        .await;
+                    let dial = crate::device::device_fetch(
+                        env,
+                        &stored_hostname,
+                        &stored_token,
+                        "/api/status",
+                        DialInit::get(),
+                    )
+                    .await;
                     match dial.resp {
                         Some(mut resp) => resp
                             .text()

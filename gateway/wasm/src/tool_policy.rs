@@ -279,7 +279,10 @@ mod tests {
             );
         }
         // A floor, so a table that emptied would not make this pass vacuously.
-        assert!(checked >= 15, "only {checked} withheld names were checked — this proves nothing");
+        assert!(
+            checked >= 15,
+            "only {checked} withheld names were checked — this proves nothing"
+        );
     }
 
     #[test]

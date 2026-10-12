@@ -88,13 +88,7 @@ async fn import_key(
 
 /// `importKey("raw", …)` — the HMAC/PBKDF2 arm.
 async fn import_raw_key(algorithm: JsValue, bytes: &[u8], usages: &[&str]) -> Option<JsValue> {
-    import_key(
-        "raw",
-        Uint8Array::from(bytes).into(),
-        algorithm,
-        usages,
-    )
-    .await
+    import_key("raw", Uint8Array::from(bytes).into(), algorithm, usages).await
 }
 
 /// `crypto.subtle.sign("HMAC", key, data)` for the HMAC-SHA256 key `secret` — the primitive
@@ -184,14 +178,17 @@ pub async fn verify_rs256(key: &JsValue, signature: &[u8], data: &[u8]) -> Optio
             Uint8Array::from(data).into(),
         ],
     )?;
-    let result = JsFuture::from(promise.dyn_into::<Promise>().ok()?).await.ok()?;
+    let result = JsFuture::from(promise.dyn_into::<Promise>().ok()?)
+        .await
+        .ok()?;
     result.as_bool()
 }
 
 /// `randomHex(bytes)` — the ONE randomness the device routes need, and it goes through the platform for the
 /// reason the source does: `crypto.getRandomValues` is the CSPRNG. (A panel grant that a caller could predict is
 /// a panel token; a registration key that a caller could predict is an install.)
-pub fn random_hex(bytes: usize) -> String {    let filled = (|| -> Option<String> {
+pub fn random_hex(bytes: usize) -> String {
+    let filled = (|| -> Option<String> {
         let crypto = global("crypto")?;
         let array = Uint8Array::new_with_length(bytes as u32);
         apply(

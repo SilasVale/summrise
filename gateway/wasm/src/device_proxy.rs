@@ -87,7 +87,11 @@ async fn handle_device_proxy(
     // round-106/107: a malformed percent-escape in the device name (e.g. `%zz`) made `decodeURIComponent`
     // throw URIError — an unhandled 500. 400 instead.
     let Some(device_name) = decode_device_name(raw_name) else {
-        return Ok(crate::json_error(400, "Invalid device name", "invalid_request")?);
+        return Ok(crate::json_error(
+            400,
+            "Invalid device name",
+            "invalid_request",
+        )?);
     };
     let device = store::get_device(env, &device_name).await;
     let user = session_gate::require_session(&request, env).await?;
@@ -99,7 +103,11 @@ async fn handle_device_proxy(
     let Some(device) = device else {
         // Unveil existence only to admin sessions — see the module header.
         if is_admin {
-            return Ok(crate::json_error(404, "Device not found", "not_found_error")?);
+            return Ok(crate::json_error(
+                404,
+                "Device not found",
+                "not_found_error",
+            )?);
         }
         return Ok(crate::json_error(
             401,
@@ -108,7 +116,13 @@ async fn handle_device_proxy(
         )?);
     };
     if is_admin {
-        return proxy_device(&request, env, &device, if rest.is_empty() { "/" } else { rest }).await;
+        return proxy_device(
+            &request,
+            env,
+            &device,
+            if rest.is_empty() { "/" } else { rest },
+        )
+        .await;
     }
 
     let auth = header_of(&request, "authorization");
@@ -119,7 +133,11 @@ async fn handle_device_proxy(
         .unwrap_or_default();
     let is_nav = header_of(&request, "sec-fetch-mode") == "navigate";
     if !q_token.is_empty() && auth.is_empty() && !is_nav {
-        return Ok(crate::json_error(401, "Invalid plugin token", "authentication_error")?);
+        return Ok(crate::json_error(
+            401,
+            "Invalid plugin token",
+            "authentication_error",
+        )?);
     }
     // The cookie was written with `encodeURIComponent` — decode on read so a future non-hex token charset
     // (base64 `+/=`) still matches the plugin-link map. A malformed value is treated as ABSENT, which is what
@@ -194,7 +212,8 @@ async fn handle_device_proxy(
     // A top-level navigation with a bad/expired token gets a readable page (with a re-pair hint) instead of a
     // raw JSON 401 — the panel's own recovery UI can never load if the bootstrap navigation itself 401s.
     if auth.is_empty() && is_nav {
-        let mut response = Response::from_body(ResponseBody::Body(SESSION_EXPIRED_HTML.as_bytes().to_vec()))?;
+        let mut response =
+            Response::from_body(ResponseBody::Body(SESSION_EXPIRED_HTML.as_bytes().to_vec()))?;
         let headers = response.headers_mut();
         let _ = headers.set("content-type", "text/html; charset=utf-8");
         return Ok(response.with_status(401));
@@ -269,7 +288,11 @@ async fn proxy_device(
     // Round-55/56: the bound applies to EVERY non-POST method; POST is bounded at 60 s. `redirect: "manual"` is
     // inside the dial (it is the same guard for every caller).
     let method = request.method();
-    let timeout_ms = if method == Method::Post { 60_000 } else { 15_000 };
+    let timeout_ms = if method == Method::Post {
+        60_000
+    } else {
+        15_000
+    };
     let body = if method == Method::Get || method == Method::Head {
         DialBody::None
     } else {
@@ -312,7 +335,10 @@ async fn proxy_device(
         &mut out,
         &header_of(request, "origin"),
         url.host_str(),
-        env.var("CONSOLE_ORIGINS").ok().map(|v| v.to_string()).as_deref(),
+        env.var("CONSOLE_ORIGINS")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref(),
     );
     let content_type = out
         .iter()
@@ -383,11 +409,9 @@ async fn proxy_device(
                 );
             }
         }
-        return Ok(
-            Response::from_body(ResponseBody::Body(text.into_bytes()))?
-                .with_status(status)
-                .with_headers(headers_from(&out)),
-        );
+        return Ok(Response::from_body(ResponseBody::Body(text.into_bytes()))?
+            .with_status(status)
+            .with_headers(headers_from(&out)));
     }
     if has_body {
         let stream = upstream.stream().map_err(RouteFailure::Platform)?;
@@ -403,9 +427,7 @@ async fn proxy_device(
 /// `/^\/api\/tools\/([^/?#]+)/` — the tool name a proxied path addresses, if any.
 fn tool_segment(rest_path: &str) -> Option<String> {
     let rest = rest_path.strip_prefix("/api/tools/")?;
-    let end = rest
-        .find(['/', '?', '#'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     if end == 0 {
         return None;
     }
@@ -513,7 +535,10 @@ pub fn rewrite_device_body(text: &str, name: &str) -> String {
         let width = ch.len_utf8();
         if matches!(ch, '"' | '\'' | '`' | '}') {
             let rest = &text[i + width..];
-            if let Some(path) = PANEL_ROOT_PATHS.iter().find(|path| rest.starts_with(**path)) {
+            if let Some(path) = PANEL_ROOT_PATHS
+                .iter()
+                .find(|path| rest.starts_with(**path))
+            {
                 // The lookahead: a path that is ALREADY under some device's proxy mount is left alone, which is
                 // what stops a second pass from doubling the prefix.
                 if !is_already_proxied(rest) {
@@ -604,13 +629,14 @@ fn is_js_space(ch: char) -> bool {
             | '\u{0020}'
             | '\u{00a0}'
             | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
-            | '\u{feff}'
+            | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
     )
 }
 
@@ -737,10 +763,7 @@ mod tests {
         // URLSearchParams("?a=%zz"); p.delete("token"); console.log(p.toString())'` → `a=%25zz`)
         assert_eq!(search_params_delete("?a=%zz&token=x", "token"), "a=%25zz");
         // EVERY occurrence of the name goes, which `delete` does and a `find`/`skip` would not
-        assert_eq!(
-            search_params_delete("?token=a&b=1&token=c", "token"),
-            "b=1"
-        );
+        assert_eq!(search_params_delete("?token=a&b=1&token=c", "token"), "b=1");
     }
 
     /// `rewriteDeviceBody` — the four shapes the source's own comments name, plus the lookahead.
@@ -756,7 +779,10 @@ mod tests {
             rewrite_device_body("`https://${h}/api/events/term`", "d1"),
             "`https://${h}/api/devices/d1/proxy/api/events/term`"
         );
-        assert_eq!(rewrite_device_body("'/mcp'", "d1"), "'/api/devices/d1/proxy/mcp'");
+        assert_eq!(
+            rewrite_device_body("'/mcp'", "d1"),
+            "'/api/devices/d1/proxy/mcp'"
+        );
         // ALREADY PROXIED — the negative lookahead, which is what stops a double prefix
         assert_eq!(
             rewrite_device_body(r#""/api/devices/d1/proxy/api/status""#, "d1"),

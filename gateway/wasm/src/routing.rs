@@ -53,7 +53,8 @@ pub fn is_built_in_prefix(prefix: &str) -> bool {
 /// **THE JOIN IS DSH'S, DELIBERATELY** (`upstream.ts`'s own note): `baseURL` is a PREFIX and the dialect's path
 /// is appended — what the OpenAI SDK does with `baseURL` — which is why DSH's settings can name the gateway
 /// itself as a provider. One dialect today; a second is a row here plus its translator.
-pub const SUPPORTED_PROVIDER_APIS: [(&str, &str); 1] = [("openai-completions", "/chat/completions")];
+pub const SUPPORTED_PROVIDER_APIS: [(&str, &str); 1] =
+    [("openai-completions", "/chat/completions")];
 
 /// `JSON.stringify(provider?.api)` as a template literal renders it — `undefined` for an absent field, the
 /// quoted string for a string, `null` for an explicit null. It rides inside the unroutable sentence, so it is
@@ -622,10 +623,7 @@ mod tests {
     /// it (the built-in must win), and one gives a prefix nobody owns (the DEFAULT channel, not a 404).
     #[test]
     fn the_custom_providers_match_the_shipping_chain() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/fixtures/provider-corpus.json"
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/provider-corpus.json");
         let text = std::fs::read_to_string(path).expect("the provider corpus is committed");
         let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
         let cases = doc["cases"].as_array().expect("cases");
@@ -645,7 +643,11 @@ mod tests {
                 want_type == "translate",
                 "{name}: is_translate"
             );
-            assert_eq!(got.route.kind, want["kind"].as_str().unwrap_or(""), "{name}: kind");
+            assert_eq!(
+                got.route.kind,
+                want["kind"].as_str().unwrap_or(""),
+                "{name}: kind"
+            );
             assert_eq!(
                 got.route.strip_prefix,
                 want["stripPrefix"].as_bool().unwrap_or(false),

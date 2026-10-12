@@ -51,7 +51,10 @@ pub const SESSION_TTL_MS: i64 = 24 * 3600 * 1000;
 /// and the comment that survives records the near-miss ("the prefix<->kind pairing is the part that did not
 /// exist anywhere until this file").
 pub fn user_key_names() -> Vec<&'static str> {
-    BYOK_CHANNELS.iter().map(|(_, user_key, _)| *user_key).collect()
+    BYOK_CHANNELS
+        .iter()
+        .map(|(_, user_key, _)| *user_key)
+        .collect()
 }
 
 /// The channel's DEPLOYMENT key for a user key name — `byok.ts`'s `envKey`, where `nv` and `gmi` are `null` BY
@@ -389,15 +392,12 @@ pub async fn get_user_keys(env: &Env, id: &str) -> Value {
                 None => false,
             };
             if !set {
-                let value = kv_text(env, n)
-                    .await
-                    .filter(|v| !v.is_empty())
-                    .or_else(|| {
-                        env.var(n)
-                            .ok()
-                            .map(|v| v.to_string())
-                            .filter(|v| !v.is_empty())
-                    });
+                let value = kv_text(env, n).await.filter(|v| !v.is_empty()).or_else(|| {
+                    env.var(n)
+                        .ok()
+                        .map(|v| v.to_string())
+                        .filter(|v| !v.is_empty())
+                });
                 ukeys.insert(
                     n.to_string(),
                     value.map(Value::String).unwrap_or(Value::Null),

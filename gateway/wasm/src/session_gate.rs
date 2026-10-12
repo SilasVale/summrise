@@ -428,10 +428,9 @@ mod tests {
         );
         // ...and it verifies as a session for a clock inside its 24-hour window, with the claims it was built
         // from. (The HMAC itself is the platform's; this pins the TTL arithmetic, which is `Date.now() + TTL`.)
-        let data: Value = serde_json::from_str(
-            &String::from_utf8(b64url_decode(&payload).unwrap()).unwrap(),
-        )
-        .unwrap();
+        let data: Value =
+            serde_json::from_str(&String::from_utf8(b64url_decode(&payload).unwrap()).unwrap())
+                .unwrap();
         assert_eq!(
             session_claims(&data, 1_760_000_000_000),
             Some(TokenClaims {
@@ -443,7 +442,10 @@ mod tests {
             session_claims(&data, 1_760_086_400_001).is_none(),
             "a millisecond past the 24-hour TTL"
         );
-        assert!(session_claims(&data, 1_760_086_400_000).is_some(), "…to the ms");
+        assert!(
+            session_claims(&data, 1_760_086_400_000).is_some(),
+            "…to the ms"
+        );
     }
 
     /// The claim strings a real session cookie's payload decodes to — the two shapes `issueSessionToken`

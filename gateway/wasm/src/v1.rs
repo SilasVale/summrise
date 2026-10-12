@@ -129,7 +129,7 @@ async fn kv_text_cached(env: &Env, key: &str) -> Option<String> {
 ///
 /// `US_PROXY` IS NOT IN THIS LIST because it is not read straight off the worker: the KV setting
 /// `settings:US_PROXY` takes precedence over the var, and that precedence is its own proved decision.
-const ENV_KEYS: [&str; 13] = [
+pub(crate) const ENV_KEYS: [&str; 13] = [
     // the channel keys, in `BYOK_CHANNELS`' own order
     "OPENCODE_GO_API_KEY",
     "DEEPSEEK_API_KEY",
@@ -225,7 +225,10 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
         let providers: Vec<serde_json::Value> = providers_cached(&env).await;
         let override_records: Vec<serde_json::Value> = kv_json(&env, "models:overrides").await;
 
-        let registry_ids: Vec<&str> = crate::registry::MODEL_REGISTRY.iter().map(|m| m.id).collect();
+        let registry_ids: Vec<&str> = crate::registry::MODEL_REGISTRY
+            .iter()
+            .map(|m| m.id)
+            .collect();
         let custom_ids: Vec<String> = custom
             .iter()
             .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
@@ -236,7 +239,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
             .collect();
 
-        let live = crate::store::advertised_ids(&registry_ids, &disabled, &custom_ids, &provider_ids);
+        let live =
+            crate::store::advertised_ids(&registry_ids, &disabled, &custom_ids, &provider_ids);
         let extra = crate::store::extra_model_entries(&custom, &provided);
         let overrides: serde_json::Map<String, serde_json::Value> = override_records
             .iter()
@@ -405,13 +409,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // THE CHAIN: the model -> the route, then the two-phase dispatch.
     // `mut`: the og/ SEARCH SWAP below rewrites the route and the wire model, which is what the source does
     // to its own `route` object before the arm reads it.
-    let mut resolved = crate::routing::resolve_model(
-        &model,
-        us_proxy_setting,
-        &path,
-        Some(&env_json),
-        &providers,
-    );
+    let mut resolved =
+        crate::routing::resolve_model(&model, us_proxy_setting, &path, Some(&env_json), &providers);
     // **`route.type === "error"` — ANSWERED, NEVER DIALED.** The source puts this check in the same place: after
     // auth, the route match and the retired check, and before every key decision, because an unroutable record
     // must not reach a channel's key gate and be reported as that channel's problem.
@@ -435,8 +434,7 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
     // The US exit is PRESERVED rather than bypassed (round-116): a swap that set the raw constant "silently
     // bypassed the US exit that pickRoute's via() had chosen — direct zen is exactly what US_PROXY exists to
     // avoid".
-    let us_proxy_for_search =
-        crate::routing::og_force_us_proxy(&model) || us_proxy_setting;
+    let us_proxy_for_search = crate::routing::og_force_us_proxy(&model) || us_proxy_setting;
     let mut model = model;
     if resolved.route.kind == "opencode" {
         if let Some(body) = parsed.as_mut() {
@@ -632,7 +630,8 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             }
             Ok(res) => {
                 let status = res.status_code();
-                match crate::reliability::retry_decision(status, attempt, attempts, false, retry502) {
+                match crate::reliability::retry_decision(status, attempt, attempts, false, retry502)
+                {
                     crate::reliability::RetryDecision::Stop { detail: d } => {
                         detail = d;
                         upstream = Some(res);

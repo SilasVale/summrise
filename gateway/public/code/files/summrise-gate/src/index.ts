@@ -14,7 +14,8 @@
  *   frontDoor()        /v1/* -> the Rust worker's service binding (the TypeScript impl is deleted)
  *
  * The public CLI-facing tooling surface (GET /api/health, POST
- * /api/summrise-probe + its rate limiter, the /api/summrise-* installer payloads)
+ * /api/summrise-probe + its rate limiter — RUST since the route moved with its guard,
+ * the /api/summrise-* installer payloads)
  * lives in tooling.ts — index.ts routes to it and re-exports it for the
  * historical import path.
  *
@@ -293,6 +294,14 @@ export default {
       // ---- Public tooling endpoints (any host) ----
       if (path === "/api/health") {
         return withCors(request, jsonOk(await buildHealth(env)), env);
+      }
+      // **THE PROBE GOES TO THE SAME PLACE, BY THE SAME RULE.** The route, its limiter and the guard's
+      // counters are one Rust module now (`wasm/src/probe.rs`), because the limiter and what it guards
+      // belong together: a guard in one language and a route in another lets the route change without
+      // the guard knowing. The TypeScript fallback stays for a deployment with no WASM_GATE binding —
+      // the shape the devices family uses one branch down.
+      if (request.method === "POST" && path === "/api/summrise-probe" && wasmGate(env)) {
+        return await frontDoor(request, env, request);
       }
       if (request.method === "POST" && path === "/api/summrise-probe") {
         if (await probeRateLimited(env, request)) {

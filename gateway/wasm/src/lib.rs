@@ -37,7 +37,7 @@ use worker::*;
 /// included, because the order is what the response bytes are. The duplicate ids are deliberate
 /// there and here: `build_health` asks the og circuit once per og card, and `recommended` takes the
 /// FIRST card of a priority id.
-const HEALTH_CHANNELS: [(&str, &str); 20] = [
+pub(crate) const HEALTH_CHANNELS: [(&str, &str); 20] = [
     ("qw", "qw/qwen3.8-max-preview"),
     ("qw", "qw/qwen3.8-flash"),
     ("qw", "qw/deepseek-v4.1-flash"),
@@ -167,7 +167,7 @@ pub(crate) async fn og_degraded(env: &Env) -> bool {
 }
 
 /// `breakerStub(env).fetch("https://breaker/check", { headers: breakerHeaders(env) })` → `"1"`.
-async fn read_breaker(env: &Env) -> Result<bool> {
+pub(crate) async fn read_breaker(env: &Env) -> Result<bool> {
     Ok(breaker_call(env, "/check").await?.unwrap_or_default() == "1")
 }
 
@@ -212,7 +212,7 @@ async fn breaker_call(env: &Env, path: &str) -> Result<Option<String>> {
 }
 
 /// A JSON response with the headers `jsonOk` sets (`http.ts`).
-fn json(body: String, status: u16) -> Result<Response> {
+pub(crate) fn json(body: String, status: u16) -> Result<Response> {
     let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
     response
         .headers_mut()
@@ -329,7 +329,12 @@ fn with_cors(
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
     // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
-    let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+    let origin = req
+        .headers()
+        .get("origin")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let host = req
         .url()
         .ok()
@@ -356,7 +361,12 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // **THE BODY IS NOT READ HERE, WHICH IS THE POINT**: the answer is empty and the headers are the whole
     // of it, exactly as the source's `new Response(null, …)`.
     if req.method() == Method::Options {
-        let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+        let origin = req
+            .headers()
+            .get("origin")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let host = url.host_str().unwrap_or_default().to_string();
         // **`CONSOLE_ORIGINS`, WHICH IS THE NAME THE SOURCE READS** (`allowedOrigins(env)` is
         // `env.CONSOLE_ORIGINS`). This passed `CONSOLE_HOST` until 2026-10-06 — a list of hostnames where the
@@ -406,6 +416,18 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // two verbs, and a body this worker forwards as a stream (`upload.rs`).
     if upload::in_family(&req.method(), url.path()) {
         return match upload::handle(req, &env).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
+
+    // **THE PUBLIC PROBE — AND THE ONE ROUTE WHOSE GUARD MUST TRAVEL WITH IT.** `ip_rate_limit` was
+    // ported with the device family, and the probe kept its own copy in TypeScript until the route
+    // moved: a guard and what it guards belong in the same place.
+    if probe::in_family(&req.method(), url.path()) {
+        return match probe::handle(req, &env).await {
             Ok(Some(response)) => Ok(response),
             Ok(None) => not_found(),
             Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
@@ -474,6 +496,7 @@ pub mod mcp;
 pub mod mcp_browser;
 pub mod mcp_errors;
 pub mod mcp_tools;
+pub mod probe;
 pub mod rate_limit;
 pub mod redact;
 pub mod registry;
@@ -484,13 +507,13 @@ pub mod routing;
 pub mod session;
 pub mod session_gate;
 pub mod store;
-pub mod user_store;
 pub mod stream;
 pub mod tokens;
 pub mod tool_policy;
 pub mod tooling;
 pub mod translate;
 pub mod upload;
+pub mod user_store;
 pub mod v1;
 pub mod vision;
 pub mod webcrypto;

@@ -35,7 +35,8 @@ use crate::device::{device_fetch, DialInit};
 use crate::device_registry::{js_falsy, js_to_string, js_to_string_of, js_truthy};
 use crate::device_store::{get_device, list_devices};
 use crate::mcp_errors::{
-    ToolError, ToolFailure, DEVICE_UNREACHABLE, SESSION_BUSY, SESSION_NOT_FOUND, TIMEOUT, TOOL_ERROR,
+    ToolError, ToolFailure, DEVICE_UNREACHABLE, SESSION_BUSY, SESSION_NOT_FOUND, TIMEOUT,
+    TOOL_ERROR,
 };
 use crate::mcp_tools;
 use crate::user_store;
@@ -95,7 +96,9 @@ pub fn is_device_direct_tool(name: &str) -> bool {
 /// dispatch layer's `withCors` (and by this worker's own front door), never by the route.
 fn json_response(body: String, status: u16) -> Result<Response> {
     let mut response = Response::from_body(ResponseBody::Body(body.into_bytes()))?;
-    response.headers_mut().set("content-type", "application/json")?;
+    response
+        .headers_mut()
+        .set("content-type", "application/json")?;
     if status != 200 {
         response = response.with_status(status);
     }
@@ -118,12 +121,7 @@ fn mcp_json(result: Value, id: Option<&Value>) -> Result<Response> {
 ///
 /// `data` is the STABLE CODE (`e.code`), wrapped as `{code: …}` — which is the whole point of the family: a
 /// flat `-32603 Tool failed: …` hides whether the device is offline, the session is gone or a call timed out.
-fn mcp_error(
-    code: i64,
-    message: &str,
-    id: Option<&Value>,
-    data: Option<&str>,
-) -> Result<Response> {
+fn mcp_error(code: i64, message: &str, id: Option<&Value>, data: Option<&str>) -> Result<Response> {
     let mut error = Map::new();
     error.insert("code".to_string(), json!(code));
     error.insert("message".to_string(), json!(message));
@@ -399,7 +397,10 @@ async fn call_terminal_tool(
     if error.code != SESSION_NOT_FOUND {
         return Err(failure);
     }
-    let Some(session) = args.and_then(|a| a.get("session_id")).filter(|v| js_truthy(v)) else {
+    let Some(session) = args
+        .and_then(|a| a.get("session_id"))
+        .filter(|v| js_truthy(v))
+    else {
         return Err(failure);
     };
     if name == "terminal_close" {
@@ -437,7 +438,8 @@ async fn call_terminal_tool(
             spread_of(args),
             vec![("session_id".to_string(), Value::String(live[0].clone()))],
         );
-        let data = call_terminal_tool_once(name, env, device, Some(&Value::Object(retargeted))).await?;
+        let data =
+            call_terminal_tool_once(name, env, device, Some(&Value::Object(retargeted))).await?;
         let mut out = spread_of(Some(&data));
         out.insert(
             "note".to_string(),
@@ -505,7 +507,14 @@ async fn call_terminal_tool_once(
 
     let hostname = js_to_string_of(device.get("hostname"));
     let token = js_to_string_of(device.get("token"));
-    let dial = device_fetch(env, &hostname, &token, &tool_path, DialInit::post_json(&payload)).await;
+    let dial = device_fetch(
+        env,
+        &hostname,
+        &token,
+        &tool_path,
+        DialInit::post_json(&payload),
+    )
+    .await;
     // The source's `new URL` throw, which is not a refusal and carries no code.
     if let Some(message) = dial.threw {
         return Err(ToolFailure::Plain(message));
@@ -608,7 +617,9 @@ fn format_result(result: &Value) -> Value {
             .and_then(Value::as_str);
         if let Some(text) = data_url.filter(|t| t.starts_with("data:image/")) {
             if let Some((mime, data)) = data_url_parts(text) {
-                return Value::Array(vec![json!({ "type": "image", "mimeType": mime, "data": data })]);
+                return Value::Array(vec![
+                    json!({ "type": "image", "mimeType": mime, "data": data }),
+                ]);
             }
         }
     }
@@ -674,7 +685,12 @@ mod tests {
         ] {
             assert!(is_device_direct_tool(name), "{name} is device-direct");
         }
-        for name in ["browser_open", "browser_snapshot", "browser_close", "nonsense"] {
+        for name in [
+            "browser_open",
+            "browser_snapshot",
+            "browser_close",
+            "nonsense",
+        ] {
             assert!(!is_device_direct_tool(name), "{name} is not device-direct");
         }
     }
@@ -762,12 +778,16 @@ mod tests {
     #[test]
     fn the_content_blocks_are_the_sources() {
         assert_eq!(
-            crate::responses::stringify_like_json(&format_result(&json!({"image": {"data": "AAA", "mimeType": "image/jpeg"}}))),
+            crate::responses::stringify_like_json(&format_result(
+                &json!({"image": {"data": "AAA", "mimeType": "image/jpeg"}})
+            )),
             r#"[{"type":"image","data":"AAA","mimeType":"image/jpeg"}]"#
         );
         // …the default mime, and the ABSENT data key that `JSON.stringify` drops.
         assert_eq!(
-            crate::responses::stringify_like_json(&format_result(&json!({"image": {"mimeType": ""}}))),
+            crate::responses::stringify_like_json(&format_result(
+                &json!({"image": {"mimeType": ""}})
+            )),
             r#"[{"type":"image","mimeType":"image/png"}]"#
         );
         assert_eq!(
@@ -777,7 +797,9 @@ mod tests {
             r#"[{"type":"image","mimeType":"image/png","data":"QUJD"}]"#
         );
         assert_eq!(
-            crate::responses::stringify_like_json(&format_result(&json!({"ok": true, "result": "plain"}))),
+            crate::responses::stringify_like_json(&format_result(
+                &json!({"ok": true, "result": "plain"})
+            )),
             r#"[{"type":"text","text":"{\"ok\":true,\"result\":\"plain\"}"}]"#
         );
         assert_eq!(
@@ -810,7 +832,10 @@ mod tests {
     #[test]
     fn the_spread_shapes_are_javascripts() {
         assert_eq!(spread_of(Some(&json!({"a": 1}))).len(), 1);
-        assert_eq!(spread_of(Some(&json!(["x", "y"]))).get("1"), Some(&json!("y")));
+        assert_eq!(
+            spread_of(Some(&json!(["x", "y"]))).get("1"),
+            Some(&json!("y"))
+        );
         assert_eq!(spread_of(Some(&json!("ab"))).get("0"), Some(&json!("a")));
         assert!(spread_of(Some(&json!(5))).is_empty());
         assert!(spread_of(Some(&Value::Null)).is_empty());

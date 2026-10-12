@@ -263,7 +263,10 @@ mod tests {
         // ...and the SAME key waits, which is the property the section needs.
         let again = locks.lock_for("user:x");
         let mut same = Box::pin(again.lock());
-        assert!(same.as_mut().poll(&mut cx).is_pending(), "the same key waits");
+        assert!(
+            same.as_mut().poll(&mut cx).is_pending(),
+            "the same key waits"
+        );
         drop(guard);
         assert!(same.as_mut().poll(&mut cx).is_ready());
         drop(other_guard);
