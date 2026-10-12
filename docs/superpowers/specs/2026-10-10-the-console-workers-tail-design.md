@@ -125,3 +125,36 @@ reclassification, and it needs the fallback decision.**
 **WHAT IS *NOT* LEFT TO DO**, so the next reader does not re-derive it: an audit of all 71 tracked JS/TS files under
 `gateway/src` + `gateway/test` found **exactly one pure re-export barrel** (`store.ts`, now BOUNDARY) and **zero dead
 files** (every file is imported). The rest are genuine LOGIC, and the honest number is 69.
+
+---
+
+## MEASURED 2026-10-12 — THE TAIL IS 17,151 LINES, NOT ~2,000
+
+**THE NUMBER THAT MATTERS, AND THE ONE I GOT WRONG EARLIER.** `MAX_LOGIC` reads 69, and the count alone hides the
+size. Measured file by file on `11bbc500`:
+
+| | files | lines |
+|---|---|---|
+| `gateway/test/` | 39 | **8,834** |
+| `gateway/src/` | 30 | **8,317** |
+| **total** | **69** | **17,151** |
+
+**"~2,000 LINES, FOUR OR FIVE LANDINGS" WAS ABOUT ONE FAMILY, AND I SAID IT AS IF IT WERE THE WHOLE TAIL.** The 2,032
+lines I measured were `admin` 614 + `auth` 813 + `status` 314 + `models-probe` 201 + `ratelimit` 90 — the five PLUGIN
+families under `gateway/src/plugins/`. The remaining 15,000 lines are the stores, the registries, the channels table,
+the session/route helpers, and **8,834 lines of `gateway/test/` that follow their subjects** (the manifest's own rule:
+"a test belongs to the code it tests"). **A count hid a size, which is the same defect as a count hiding a deletion.**
+
+**SO CRITERION ① IS NOT A FEW LANDINGS.** At the sizes this session actually moved (the probe route: one file, ~250
+lines of Rust, five commits, a full CI cycle), 17,151 lines is on the order of **dozens of landings**, and the test
+files can only move as their subjects do.
+
+**AND THE TWO ROUTES OUT ARE NOW THE ONLY ONES THAT CHANGE THAT SHAPE**, both measured above:
+1. **the fallback decision** (make the gate mandatory as `/v1` did) — it retires files instead of porting them, and it
+   is a DEPLOYMENT decision: a device with no `WASM_GATE` binding starts answering 503;
+2. **a function entry on the wasm** (`__invoke`) — it lets a pure decision move WITHOUT moving its route, which is what
+   the 30-odd `gateway/src` files need.
+
+**WHAT IS NOT WORTH DOING AGAIN**: an audit of all 71 tracked JS/TS files under `gateway/src` + `gateway/test` found
+exactly ONE pure re-export barrel (`store.ts`, now BOUNDARY) and ZERO dead files. **The 69 are genuine LOGIC, and the
+honest reading of criterion ① is that it is a programme, not a landing.**
