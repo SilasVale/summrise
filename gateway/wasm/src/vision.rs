@@ -151,8 +151,8 @@ pub fn vision_backend(kind: &str) -> Option<(&'static str, &'static str)> {
 /// WebCrypto's one-shot `digest` needs no writer, and it exists in the worker runtime AND in the Node harness the
 /// differentials run in — which is why the cache key can be byte-identical rather than merely self-consistent.
 pub async fn sha256_hex16(input: &str) -> Option<String> {
-    use worker::wasm_bindgen::JsCast;
     use worker::js_sys;
+    use worker::wasm_bindgen::JsCast;
     use worker::wasm_bindgen::JsValue;
     let crypto = js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("crypto")).ok()?;
     let subtle = js_sys::Reflect::get(&crypto, &JsValue::from_str("subtle")).ok()?;
@@ -546,11 +546,23 @@ mod tests {
     fn the_vision_allowlist_is_the_sources() {
         let env = json!({ "VISION_CAPABLE_MODELS": " og/mimo-v2.5 , r4/deepseek-v4.1-flash ,, " });
         assert!(is_vision_capable("og/mimo-v2.5", "mimo-v2.5", Some(&env)));
-        assert!(is_vision_capable("x/y", "r4/deepseek-v4.1-flash", Some(&env)));
-        assert!(!is_vision_capable("og/deepseek-v4.1-flash", "deepseek-flash", Some(&env)));
+        assert!(is_vision_capable(
+            "x/y",
+            "r4/deepseek-v4.1-flash",
+            Some(&env)
+        ));
+        assert!(!is_vision_capable(
+            "og/deepseek-v4.1-flash",
+            "deepseek-flash",
+            Some(&env)
+        ));
         // An absent or empty var is an empty list, not a wildcard.
         assert!(!is_vision_capable("a", "b", None));
-        assert!(!is_vision_capable("a", "b", Some(&json!({ "VISION_CAPABLE_MODELS": "" }))));
+        assert!(!is_vision_capable(
+            "a",
+            "b",
+            Some(&json!({ "VISION_CAPABLE_MODELS": "" }))
+        ));
     }
 
     /// The cache key: `data.length > 16` decides whether there is one at all, and an empty uid is `anon`.
@@ -565,8 +577,14 @@ mod tests {
     /// The backend table: nine channels plus `custom`, and the two shapes.
     #[test]
     fn the_vision_backends_are_the_sources() {
-        assert_eq!(vision_backend("opencode"), Some(("OPENCODE_GO_API_KEY", "openai")));
-        assert_eq!(vision_backend("deepseek"), Some(("DEEPSEEK_API_KEY", "anthropic")));
+        assert_eq!(
+            vision_backend("opencode"),
+            Some(("OPENCODE_GO_API_KEY", "openai"))
+        );
+        assert_eq!(
+            vision_backend("deepseek"),
+            Some(("DEEPSEEK_API_KEY", "anthropic"))
+        );
         assert_eq!(vision_backend("nvidia"), Some(("NVAPI_KEY", "openai")));
         assert_eq!(vision_backend("amd"), Some(("AMD_API_KEY", "anthropic")));
         // **`custom` IS NOT ONE OF THE NINE AND MUST NOT BE DROPPED.**

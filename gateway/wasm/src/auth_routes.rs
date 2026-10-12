@@ -40,7 +40,9 @@
 use serde_json::{json, Map, Value};
 use worker::*;
 
-use crate::auth::{clear_session_cookie_header, parse_cookie, safe_eq, session_cookie_header, SESSION_COOKIE};
+use crate::auth::{
+    clear_session_cookie_header, parse_cookie, safe_eq, session_cookie_header, SESSION_COOKIE,
+};
 use crate::device_registry::{js_falsy, js_falsy_string, js_to_string};
 use crate::device_store::{kv_put, kv_text, now_ms};
 use crate::ip_rate_limit::{check, Counters, IpRateLimiter};
@@ -117,7 +119,10 @@ pub fn in_family(_method: &Method, path: &str) -> bool {
 /// and `None` for a family path it does not own (the caller answers the front door's 404).
 pub async fn handle(mut request: Request, env: &Env) -> Handled {
     let method = request.method();
-    let path = request.url().map(|u| u.path().to_string()).unwrap_or_default();
+    let path = request
+        .url()
+        .map(|u| u.path().to_string())
+        .unwrap_or_default();
     let secure = request
         .url()
         .map(|u| u.scheme() == "https")
@@ -159,7 +164,12 @@ fn json_ok(value: Value) -> Result<Response> {
 }
 
 /// `jsonError(status, message, type, extraHeaders)`.
-fn json_error_with(status: u16, message: &str, kind: &str, extra: &[(&str, String)]) -> Result<Response> {
+fn json_error_with(
+    status: u16,
+    message: &str,
+    kind: &str,
+    extra: &[(&str, String)],
+) -> Result<Response> {
     let mut response = crate::json_error(status, message, kind)?;
     for (name, value) in extra {
         response.headers_mut().set(name, value)?;
@@ -200,9 +210,7 @@ fn caller_ip(request: &Request) -> String {
 fn auth_rate_limited(request: &Request) -> bool {
     let ip = caller_ip(request);
     let now = now_ms();
-    let mut counters = AUTH_RATE_COUNTERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut counters = AUTH_RATE_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
     check(AUTH_RATE, &mut counters, &ip, now)
 }
 
@@ -252,7 +260,10 @@ fn session_secret_var(env: &Env) -> Option<String> {
 }
 
 /// `requireSession(request, env)` with the 401 arm every `/api/me` route spells identically.
-async fn session_or_401(request: &Request, env: &Env) -> Result<Result<Value, Response>, crate::RouteFailure> {
+async fn session_or_401(
+    request: &Request,
+    env: &Env,
+) -> Result<Result<Value, Response>, crate::RouteFailure> {
     match session_gate::require_session(request, env).await {
         Ok(Some(user)) => Ok(Ok(user)),
         Ok(None) => Ok(Err(crate::json_error(
@@ -345,15 +356,14 @@ async fn auth_register(request: &mut Request, env: &Env, secure: bool) -> Handle
             let invite = body_field(&body, "inviteCode").ok().flatten();
             match user_store::create_user(env, username, password, invite, "user").await {
                 Ok(created) => created,
-                Err(message) => {
-                    return Ok(crate::json_error(400, &message, "invalid_request")?)
-                }
+                Err(message) => return Ok(crate::json_error(400, &message, "invalid_request")?),
             }
         }
     };
     // Fail-closed issuance: without SESSION_SECRET there is no safe HMAC key (the admin-password fallback would
     // be offline-brute-forceable from any invited user's own cookie).
-    let Some(secret) = crate::store::issue_session_secret(session_secret_var(env).as_deref()) else {
+    let Some(secret) = crate::store::issue_session_secret(session_secret_var(env).as_deref())
+    else {
         return Ok(crate::json_error(
             500,
             "Session signing not configured",
@@ -459,7 +469,8 @@ async fn auth_login(request: &mut Request, env: &Env, secure: bool) -> Handled {
         )?);
     }
     clear_login_fails(&format!("login-fails:{ip}:{}", user_id(&user)));
-    let Some(secret) = crate::store::issue_session_secret(session_secret_var(env).as_deref()) else {
+    let Some(secret) = crate::store::issue_session_secret(session_secret_var(env).as_deref())
+    else {
         return Ok(crate::json_error(
             500,
             "Session signing not configured",
@@ -526,7 +537,10 @@ async fn auth_reset_password(request: &mut Request, env: &Env) -> Handled {
             "authentication_error",
         )?);
     }
-    if user_store::set_admin_password(env, &new_password).await.is_err() {
+    if user_store::set_admin_password(env, &new_password)
+        .await
+        .is_err()
+    {
         return Err(crate::RouteFailure::Threw);
     }
     Ok(json_ok(json!({"ok": true}))?)
@@ -719,9 +733,11 @@ async fn me_put_usproxy(request: &mut Request, env: &Env) -> Handled {
     // An explicit OFF is persisted as "0" so it shadows an env/US_PROXY Worker var — deleting let the env
     // fallback bounce the toggle straight back ON.
     let enabled = body.get("enabled").is_some_and(|v| !js_falsy(v));
-    user_store::set_global_setting(env, "US_PROXY", Some(&Value::String(
-        if enabled { "1" } else { "0" }.to_string(),
-    )))
+    user_store::set_global_setting(
+        env,
+        "US_PROXY",
+        Some(&Value::String(if enabled { "1" } else { "0" }.to_string())),
+    )
     .await;
     let value = user_store::global_setting(env, "US_PROXY").await;
     Ok(json_ok(json!({
@@ -801,7 +817,13 @@ async fn me_reveal_key(request: &mut Request, env: &Env) -> Handled {
     let ukeys = user_store::get_user_keys(env, &user_id(&user)).await;
     let key = match ukeys.get(&name) {
         Some(value) if !js_falsy(value) => value.clone(),
-        _ => return Ok(crate::json_error(404, "Key not configured", "not_found_error")?),
+        _ => {
+            return Ok(crate::json_error(
+                404,
+                "Key not configured",
+                "not_found_error",
+            )?)
+        }
     };
     Ok(json_ok(json!({"ok": true, "name": name, "value": key}))?)
 }

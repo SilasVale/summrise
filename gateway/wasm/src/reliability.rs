@@ -214,7 +214,11 @@ pub fn retry_wait_ms(
         Some(raw) => crate::reliability::js_number(&serde_json::Value::String(raw.to_string())),
         None => f64::NAN,
     };
-    let ra_ms = if ra.is_finite() && ra > 0.0 { ra * 1000.0 } else { 0.0 };
+    let ra_ms = if ra.is_finite() && ra > 0.0 {
+        ra * 1000.0
+    } else {
+        0.0
+    };
     (ra_ms.max(backoff_ms * attempt as f64) + jitter).min(max_wait_ms)
 }
 
@@ -406,11 +410,20 @@ mod oracle_corpus {
     fn the_retry_wait_is_the_sources_arithmetic() {
         // The legacy ladder: `backoffMs * attempt`, plus jitter, clamped.
         assert_eq!(retry_wait_ms(false, None, 750.0, 1, 0.0, 10_000.0), 750.0);
-        assert_eq!(retry_wait_ms(false, None, 750.0, 2, 199.0, 10_000.0), 1699.0);
+        assert_eq!(
+            retry_wait_ms(false, None, 750.0, 2, 199.0, 10_000.0),
+            1699.0
+        );
         // A `Retry-After` LARGER than the ladder wins...
-        assert_eq!(retry_wait_ms(false, Some("5"), 750.0, 1, 0.0, 10_000.0), 5000.0);
+        assert_eq!(
+            retry_wait_ms(false, Some("5"), 750.0, 1, 0.0, 10_000.0),
+            5000.0
+        );
         // ...and a smaller one loses to it.
-        assert_eq!(retry_wait_ms(false, Some("1"), 750.0, 3, 0.0, 10_000.0), 2250.0);
+        assert_eq!(
+            retry_wait_ms(false, Some("1"), 750.0, 3, 0.0, 10_000.0),
+            2250.0
+        );
         // **`Number.isFinite(ra) && ra > 0` REFUSES THESE**, so each falls back to the ladder.
         for bad in ["0", "-5", "later", ""] {
             assert_eq!(
@@ -420,9 +433,15 @@ mod oracle_corpus {
             );
         }
         // A huge header cannot stall the request: `Math.min(..., maxWaitMs)`.
-        assert_eq!(retry_wait_ms(false, Some("600"), 750.0, 1, 0.0, 10_000.0), 10_000.0);
+        assert_eq!(
+            retry_wait_ms(false, Some("600"), 750.0, 1, 0.0, 10_000.0),
+            10_000.0
+        );
         // `ignoreRetryAfter` — the OpenRouter lottery's pacing — ignores the header entirely.
-        assert_eq!(retry_wait_ms(true, Some("5"), 300.0, 1, 10.0, 10_000.0), 310.0);
+        assert_eq!(
+            retry_wait_ms(true, Some("5"), 300.0, 1, 10.0, 10_000.0),
+            310.0
+        );
     }
 
     #[test]

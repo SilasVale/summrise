@@ -33,8 +33,8 @@ use std::sync::Mutex;
 use serde_json::{json, Map, Value};
 use worker::*;
 
-use crate::device::fetch_with_timeout;
 use crate::device::device_host_error;
+use crate::device::fetch_with_timeout;
 use crate::device_registry::{js_falsy, js_to_string, js_to_string_of, js_truthy};
 use crate::mcp_errors::{ToolError, ToolFailure, DEVICE_UNREACHABLE, SESSION_BUSY};
 
@@ -190,7 +190,9 @@ pub async fn call_bridge(
     let budget_left = move || std::cmp::max(1000, deadline - now_ms());
 
     if (name == "browser_click" || name == "browser_type")
-        && args.and_then(|a| a.get("element_ref")).is_some_and(|v| !v.is_null())
+        && args
+            .and_then(|a| a.get("element_ref"))
+            .is_some_and(|v| !v.is_null())
     {
         let raw = args.and_then(|a| a.get("element_ref")).unwrap();
         let text = js_to_string(raw);
@@ -232,7 +234,13 @@ pub async fn call_bridge(
         // 0.0.79 also reclaims sessions server-side after ~15 s idle. start → connect → retry ONCE.
         if matches_selfheal(&error_text(&out)) {
             let heal = std::cmp::min(BROWSER_SELFHEAL_TIMEOUT_MS, budget_left());
-            probe(&format!("{base}/api/plugins/playwright/start"), &token, None, heal).await?;
+            probe(
+                &format!("{base}/api/plugins/playwright/start"),
+                &token,
+                None,
+                heal,
+            )
+            .await?;
             probe(
                 &format!("{base}/api/tools/mcp_client_connect"),
                 &token,
@@ -295,7 +303,9 @@ async fn invoke_once(
             // `catch` → `mcp_client_call failed: <status>`.
             match serde_json::from_str::<Value>(&text) {
                 Ok(value) => Ok(value),
-                Err(_) => Err(ToolFailure::plain(format!("mcp_client_call failed: {status}"))),
+                Err(_) => Err(ToolFailure::plain(format!(
+                    "mcp_client_call failed: {status}"
+                ))),
             }
         }
         // **THE ABORT'S OWN MESSAGE, WHICH IS NOT `fetchWithTimeout`'s.** This dial is bounded by
@@ -304,10 +314,12 @@ async fn invoke_once(
         // `fetch_with_timeout` answers `timeout after <ms>ms` for the DEVICE dial (where the source really does
         // rename the error); reproducing the wrong one here would put a sentence on the wire that no client of
         // this path has ever seen.
-        Err(message) => Err(ToolFailure::plain(match message.strip_prefix("timeout after ") {
-            Some(_) => "The operation was aborted due to timeout".to_string(),
-            None => message,
-        })),
+        Err(message) => Err(ToolFailure::plain(
+            match message.strip_prefix("timeout after ") {
+                Some(_) => "The operation was aborted due to timeout".to_string(),
+                None => message,
+            },
+        )),
     }
 }
 
@@ -335,7 +347,12 @@ fn bridge_headers(token: &str) -> Result<Headers> {
 
 /// The self-heal probes: `start` carries no body, `connect` carries `{}`, and neither answer is read (the
 /// source does not read them either — they are liveness, and the RETRY is what proves the heal).
-async fn probe(url: &str, token: &str, body: Option<&str>, timeout_ms: i64) -> Result<(), ToolFailure> {
+async fn probe(
+    url: &str,
+    token: &str,
+    body: Option<&str>,
+    timeout_ms: i64,
+) -> Result<(), ToolFailure> {
     let mut init = RequestInit::new();
     init.with_method(Method::Post);
     init.with_headers(bridge_headers(token).map_err(|e| ToolFailure::plain(e.to_string()))?);
@@ -351,9 +368,15 @@ async fn probe(url: &str, token: &str, body: Option<&str>, timeout_ms: i64) -> R
 /// `/not connected|server running|refused|timed out|session not found/i`.
 fn matches_selfheal(message: &str) -> bool {
     let lower = message.to_lowercase();
-    ["not connected", "server running", "refused", "timed out", "session not found"]
-        .iter()
-        .any(|needle| lower.contains(needle))
+    [
+        "not connected",
+        "server running",
+        "refused",
+        "timed out",
+        "session not found",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 #[cfg(test)]
@@ -365,10 +388,16 @@ mod tests {
     #[test]
     fn the_tool_map_is_the_servers() {
         assert_eq!(playwright_tool("browser_open"), "browser_navigate");
-        assert_eq!(playwright_tool("browser_screenshot"), "browser_take_screenshot");
+        assert_eq!(
+            playwright_tool("browser_screenshot"),
+            "browser_take_screenshot"
+        );
         assert_eq!(playwright_tool("browser_wait"), "browser_wait_for");
         assert_eq!(playwright_tool("browser_click"), "browser_click");
-        assert_eq!(playwright_tool("browser_something_new"), "browser_something_new");
+        assert_eq!(
+            playwright_tool("browser_something_new"),
+            "browser_something_new"
+        );
     }
 
     /// `/not connected|server running|refused|timed out|session not found/i` — the five phrases, and a message
@@ -388,8 +417,14 @@ mod tests {
     /// The slot is `name || hostname || "default"`, and a falsy name falls THROUGH to the hostname.
     #[test]
     fn the_slot_is_name_then_hostname_then_default() {
-        assert_eq!(slot_of(&json!({"name": "d1", "hostname": "d1.agent.test"})), "d1");
-        assert_eq!(slot_of(&json!({"name": "", "hostname": "d1.agent.test"})), "d1.agent.test");
+        assert_eq!(
+            slot_of(&json!({"name": "d1", "hostname": "d1.agent.test"})),
+            "d1"
+        );
+        assert_eq!(
+            slot_of(&json!({"name": "", "hostname": "d1.agent.test"})),
+            "d1.agent.test"
+        );
         assert_eq!(slot_of(&json!({})), "default");
     }
 
@@ -477,7 +512,10 @@ mod tests {
         assert_eq!(six.get("element"), Some(&json!("target element")));
         assert!(six.get("element_ref").is_none());
         assert_eq!(translate(json!("e7")).get("target"), Some(&json!("e7")));
-        assert_eq!(translate(json!("#submit")).get("target"), Some(&json!("#submit")));
+        assert_eq!(
+            translate(json!("#submit")).get("target"),
+            Some(&json!("#submit"))
+        );
         // `"e"` alone is not a ref: `^e?\d+$` requires at least one digit.
         assert_eq!(translate(json!("e")).get("target"), Some(&json!("e")));
     }

@@ -1216,7 +1216,12 @@ mod count_tokens_tests {
         let cases = [
             // kind, is_translate, detail, the expected message
             ("opencode", true, "network error: x", "og: network error: x"),
-            ("commandgoat", true, "network error: x", "cm: network error: x"),
+            (
+                "commandgoat",
+                true,
+                "network error: x",
+                "cm: network error: x",
+            ),
             (
                 "custom",
                 true,
@@ -1347,7 +1352,10 @@ mod count_tokens_tests {
     /// This one carries both, which is the whole of its subject.
     #[test]
     fn the_front_door_orders_auth_above_the_route_match() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/front-door-corpus.json");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/front-door-corpus.json"
+        );
         let text = std::fs::read_to_string(path).expect("the front-door corpus is committed");
         let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
         let cases = doc["cases"].as_array().expect("cases");
@@ -1375,16 +1383,32 @@ mod count_tokens_tests {
                 want["status"].as_u64().unwrap_or(0) as u16,
                 "{name}: status"
             );
-            assert_eq!(got.body, want["body"].as_str().unwrap_or(""), "{name}: body");
+            assert_eq!(
+                got.body,
+                want["body"].as_str().unwrap_or(""),
+                "{name}: body"
+            );
             seen.push(got.status);
         }
         assert_eq!(cases.len(), 8, "the front-door corpus changed size");
         // **THE THREE ANSWERS THE ORDER PRODUCES, EACH ASSERTED.** A corpus of 401s alone would pass for a
         // port that refused everything; 404s alone would pass for one that never authenticated; and the 400
         // is the retired check, which is the gate this file moved as well.
-        assert_eq!(seen.iter().filter(|s| **s == 401).count(), 4, "the no-token half");
-        assert_eq!(seen.iter().filter(|s| **s == 404).count(), 3, "the route match");
-        assert_eq!(seen.iter().filter(|s| **s == 400).count(), 1, "the retired check");
+        assert_eq!(
+            seen.iter().filter(|s| **s == 401).count(),
+            4,
+            "the no-token half"
+        );
+        assert_eq!(
+            seen.iter().filter(|s| **s == 404).count(),
+            3,
+            "the route match"
+        );
+        assert_eq!(
+            seen.iter().filter(|s| **s == 400).count(),
+            1,
+            "the retired check"
+        );
     }
 
     /// **THE TOKEN'S TWO DOORS, REPLAYED — NINE HEADER SHAPES FROM THE SHIPPING HANDLER.**
@@ -1404,10 +1428,15 @@ mod count_tokens_tests {
     /// itself.
     #[test]
     fn the_token_has_two_doors_and_the_first_wins() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/auth-header-corpus.json");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/fixtures/auth-header-corpus.json"
+        );
         let text = std::fs::read_to_string(path).expect("the auth-header corpus is committed");
         let doc: serde_json::Value = serde_json::from_str(&text).expect("it parses");
-        let valid = doc["validToken"].as_str().expect("the fixture names its token");
+        let valid = doc["validToken"]
+            .as_str()
+            .expect("the fixture names its token");
         let cases = doc["cases"].as_array().expect("cases");
         let mut through_the_bearer = 0;
         for case in cases {

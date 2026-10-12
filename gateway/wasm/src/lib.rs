@@ -329,7 +329,12 @@ fn with_cors(
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
     // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
-    let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+    let origin = req
+        .headers()
+        .get("origin")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let host = req
         .url()
         .ok()
@@ -356,7 +361,12 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // **THE BODY IS NOT READ HERE, WHICH IS THE POINT**: the answer is empty and the headers are the whole
     // of it, exactly as the source's `new Response(null, …)`.
     if req.method() == Method::Options {
-        let origin = req.headers().get("origin").ok().flatten().unwrap_or_default();
+        let origin = req
+            .headers()
+            .get("origin")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let host = url.host_str().unwrap_or_default().to_string();
         // **`CONSOLE_ORIGINS`, WHICH IS THE NAME THE SOURCE READS** (`allowedOrigins(env)` is
         // `env.CONSOLE_ORIGINS`). This passed `CONSOLE_HOST` until 2026-10-06 — a list of hostnames where the
@@ -486,9 +496,9 @@ pub mod mcp;
 pub mod mcp_browser;
 pub mod mcp_errors;
 pub mod mcp_tools;
+pub mod probe;
 pub mod rate_limit;
 pub mod redact;
-pub mod probe;
 pub mod registry;
 pub mod reliability;
 pub mod request_shape;
@@ -497,13 +507,13 @@ pub mod routing;
 pub mod session;
 pub mod session_gate;
 pub mod store;
-pub mod user_store;
 pub mod stream;
 pub mod tokens;
 pub mod tool_policy;
 pub mod tooling;
 pub mod translate;
 pub mod upload;
+pub mod user_store;
 pub mod v1;
 pub mod vision;
 pub mod webcrypto;

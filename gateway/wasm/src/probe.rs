@@ -16,12 +16,12 @@ use worker::{wasm_bindgen::JsValue, Env, Headers, Method, Request, RequestInit};
 
 use crate::device::fetch_with_timeout;
 use crate::registry;
+use crate::reliability;
 use crate::responses::{self, Built};
 use crate::routing;
-use crate::RouteFailure;
 use crate::session;
-use crate::reliability;
 use crate::tooling;
+use crate::RouteFailure;
 
 /// `headers_from(pairs)` — `device_proxy.rs`'s own helper shape: a slice of pairs becomes `Headers`.
 fn headers_from(pairs: &[(String, String)]) -> Headers {
@@ -35,6 +35,28 @@ fn headers_from(pairs: &[(String, String)]) -> Headers {
 /// The source's `OG_ZEN_CHAT` — the endpoint the probe's og branch always uses (see the module header
 /// for why the other one is not here).
 const OG_ZEN_CHAT: &str = "https://opencode.ai/zen/go/v1/chat/completions";
+
+/// The per-isolate counter table — the source's module-level `counters` Map, one per limiter. The
+/// devices gate has its own (`device_store::PUBLIC_RATE_COUNTERS`); sharing would put the probe's keys in
+/// its table and make the 4096-key eviction cover both, which the source does not do.
+static COUNTERS: std::sync::Mutex<crate::ip_rate_limit::Counters> =
+    std::sync::Mutex::new(Vec::new());
+
+/// `cf-connecting-ip`, or the literal `"unknown"` — `request?.headers?.get?.(…) || "unknown"`.
+fn caller_ip(request: &Request) -> String {
+    request
+        .headers()
+        .get("cf-connecting-ip")
+        .ok()
+        .flatten()
+        .filter(|ip| !ip.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// The 429 — `jsonError(429, "probe rate limit exceeded", "rate_limit_error")`.
+fn rate_limited() -> Built {
+    responses::json_error(429, "probe rate limit exceeded", "rate_limit_error")
+}
 
 /// `index.ts`'s `POST /api/summrise-probe`. POST only: a GET probe would cost an upstream call with no
 /// body to name a channel.
@@ -53,6 +75,48 @@ pub async fn handle(request: Request, env: &Env) -> Result<Option<worker::Respon
 
 /// `summriseProbe(env, model)`, in the source's order.
 async fn probe(mut request: Request, env: &Env) -> Result<worker::Response, RouteFailure> {
+    // **THE LIMITER FIRST, AND IT DOES NOT READ THE BODY — THAT IS THE ORDER IN THE SOURCE.** A caller
+    // over budget is refused without their body being parsed, so a rate-limited probe costs one KV read
+    // and no upstream call.
+    // **THE LOCK IS NEVER HELD ACROSS AN AWAIT — CLIPPY REFUSED IT AND WAS RIGHT.** `v1.rs`'s own limiter does
+    // it this way: lock inside a block, drop it at the block's end. So each of the seed's three steps takes
+    // the lock separately and releases it before the KV call.
+    let ip = caller_ip(&request);
+    let now = crate::device_store::now_ms();
+    let key = crate::ip_rate_limit::counter_key(crate::ip_rate_limit::PROBE_RATE, &ip, now);
+    let seed = {
+        let counters = COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ip_rate_limit::needs_seed(&counters, &key)
+    };
+    let cur = if seed {
+        crate::device_store::kv_text(env, &key)
+            .await
+            .and_then(|raw| raw.parse::<u32>().ok())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let refused = {
+        let mut counters = COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+        if seed {
+            counters.push((key.clone(), cur));
+        }
+        crate::ip_rate_limit::check(crate::ip_rate_limit::PROBE_RATE, &mut counters, &ip, now)
+    };
+    if seed {
+        crate::device_store::kv_put(
+            env,
+            &key,
+            &(cur + 1).to_string(),
+            Some(crate::ip_rate_limit::seed_ttl_secs(
+                crate::ip_rate_limit::PROBE_RATE.window_ms,
+            )),
+        )
+        .await;
+    }
+    if refused {
+        return reply(rate_limited());
+    }
     let model = body_model(&mut request).await;
     let prefix = model.split('/').next().unwrap_or("").to_string();
 
@@ -88,12 +152,10 @@ async fn probe(mut request: Request, env: &Env) -> Result<worker::Response, Rout
             .map(|v| v.to_string())
             .unwrap_or_default();
         if key.is_empty() {
-            return reply(probe_threw(
-                &prefix,
-                "OPENCODE_GO_API_KEY not configured",
-            ));
+            return reply(probe_threw(&prefix, "OPENCODE_GO_API_KEY not configured"));
         }
-        let upstream_model = registry::wire_model_name(&prefix, &routing::strip_bracket(&model[prefix.len() + 1..]));
+        let upstream_model =
+            registry::wire_model_name(&prefix, &routing::strip_bracket(&model[prefix.len() + 1..]));
         // The source passes `undefined` for the incoming headers. The Rust takes a map, and the probe has
         // none, so it gets an EMPTY one — `client_session_id` reads the `x-opencode-session` header off it
         // and falls back to the anonymous digest, which is what the source's `undefined` produces too.
@@ -101,17 +163,11 @@ async fn probe(mut request: Request, env: &Env) -> Result<worker::Response, Rout
         let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
         headers.push(("Authorization".to_string(), format!("Bearer {key}")));
         headers.extend(session);
-        let result = upstream(
-            OG_ZEN_CHAT,
-            &upstream_model,
-            &headers,
-            env,
-        )
-        .await;
+        let result = upstream(OG_ZEN_CHAT, &upstream_model, &headers, env).await;
         return reply(probe_result(&prefix, result));
     }
 
-    let route = routing::pick_route(&prefix, env_value(env).as_ref(), None, "");
+    let route = routing::pick_route(&prefix, Some(&env_value(env)), None, "");
     let key = env
         .var(tooling::probe_env_key_name(&prefix))
         .map(|v| v.to_string())
@@ -192,11 +248,10 @@ async fn upstream(
     init.with_method(worker::Method::Post);
     init.with_headers(headers_from(headers));
     init.with_body(Some(JsValue::from_str(&body)));
-    let timeout = reliability::upstream_timeout_ms(env_value(env).as_ref()) as u64;
+    let timeout = reliability::upstream_timeout_ms(Some(&env_value(env))) as u64;
     fetch_with_timeout(url, &init, timeout)
         .await
         .map(|response| response.status_code())
-        .map_err(|e| e)
 }
 
 /// A `Built` becomes the `Response` the runtime sends — `lib.rs`'s `json`, which is the general
@@ -214,9 +269,31 @@ async fn body_model(request: &mut Request) -> String {
         .unwrap_or_default()
 }
 
-/// `env` as a `serde_json::Value` — what `pick_route` and `upstream_timeout_ms` take.
-fn env_value(env: &Env) -> Option<serde_json::Value> {
-    None
+/// **THE ENV AS A `serde_json::Value`, BUILT FROM THE VARS — MY FIRST VERSION RETURNED `None`, AND THAT
+/// WAS A DIVERGENCE: `pick_route` and `upstream_timeout_ms` would have read NO config at all, so every probe
+/// would have taken the default route and the default timeout.** Caught by clippy's "unused variable" on the
+/// parameter, not by a test — the same instrument that has caught most of today's defects.
+///
+/// **`US_PROXY` IS READ AS A VAR HERE, NOT AS THE KV SETTING.** The probe's `pickRoute` reads the worker's own
+/// egress switch (`upstream.ts`); the KV-setting precedence is the /v1 front door's own proved decision and
+/// importing it here would be a behaviour change.
+fn env_value(env: &Env) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for name in crate::v1::ENV_KEYS {
+        if let Ok(value) = env.var(name) {
+            let text = value.to_string();
+            if !text.is_empty() {
+                map.insert(name.to_string(), serde_json::json!(text));
+            }
+        }
+    }
+    if let Ok(value) = env.var("US_PROXY") {
+        let text = value.to_string();
+        if !text.is_empty() {
+            map.insert("US_PROXY".to_string(), serde_json::json!(text));
+        }
+    }
+    serde_json::Value::Object(map)
 }
 
 #[cfg(test)]
@@ -244,13 +321,15 @@ mod tests {
     ///           `ok: true` with an empty detail, which is the worst answer this route can give.
     #[test]
     fn the_answered_arm_derives_every_field_from_the_status() {
-        let ok = serde_json::from_str::<serde_json::Value>(&probe_answered("ds", 200).body).unwrap();
+        let ok =
+            serde_json::from_str::<serde_json::Value>(&probe_answered("ds", 200).body).unwrap();
         assert_eq!(ok["ok"], serde_json::json!(true));
         assert_eq!(ok["channel"], serde_json::json!("ds"));
         assert_eq!(ok["status"], serde_json::json!(200));
         assert_eq!(ok["detail"], serde_json::json!(""));
 
-        let refused = serde_json::from_str::<serde_json::Value>(&probe_answered("ds", 429).body).unwrap();
+        let refused =
+            serde_json::from_str::<serde_json::Value>(&probe_answered("ds", 429).body).unwrap();
         assert_eq!(refused["ok"], serde_json::json!(false));
         assert_eq!(refused["status"], serde_json::json!(429));
         assert_eq!(refused["detail"], serde_json::json!("upstream 429"));

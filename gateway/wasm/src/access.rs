@@ -102,9 +102,16 @@ pub fn aud_list(payload: &Value) -> Vec<String> {
 /// RESULT:   `the_issuer_is_pinned` fails — a token minted by ANOTHER Cloudflare team under the same `aud`
 ///           verifies, which is the audit finding ("aud + team JWKS sig mostly covers it, but a token signed by
 ///           ANOTHER CF team's app under the same aud was possible") this check was added for.
-pub fn claims_ok(header: &Value, payload: &Value, aud: &str, team_domain: &str, now_ms: i64) -> bool {
+pub fn claims_ok(
+    header: &Value,
+    payload: &Value,
+    aud: &str,
+    team_domain: &str,
+    now_ms: i64,
+) -> bool {
     // `if (!header.kid) return null` — the JWKS lookup is by kid, so a token without one can never be verified.
-    if !matches!(header.get("kid"), Some(v) if v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+    if !matches!(header.get("kid"), Some(v) if v.is_string() && !v.as_str().unwrap_or("").is_empty())
+    {
         return false;
     }
     if !aud_list(payload).iter().any(|a| a == aud) {
@@ -197,7 +204,10 @@ async fn fetch_jwks(env: &Env) -> Option<Vec<Value>> {
 
 /// `verifyAccessJwt(request, env)` — the verified email, `Ok(None)` for the source's `null`, and `Err` for the
 /// one arm that throws (the key import).
-pub async fn verify_access_jwt(request: &Request, env: &Env) -> Result<Option<String>, RouteFailure> {
+pub async fn verify_access_jwt(
+    request: &Request,
+    env: &Env,
+) -> Result<Option<String>, RouteFailure> {
     let token = request
         .headers()
         .get("cf-access-jwt-assertion")
@@ -216,13 +226,23 @@ pub async fn verify_access_jwt(request: &Request, env: &Env) -> Result<Option<St
     let Some((raw_header, raw_payload, raw_signature)) = split_jwt(&token) else {
         return Ok(None);
     };
-    let (Some(header), Some(payload)) = (b64url_to_json(raw_header), b64url_to_json(raw_payload)) else {
+    let (Some(header), Some(payload)) = (b64url_to_json(raw_header), b64url_to_json(raw_payload))
+    else {
         return Ok(None);
     };
-    if !claims_ok(&header, &payload, &aud, &team_domain, device_store::now_ms()) {
+    if !claims_ok(
+        &header,
+        &payload,
+        &aud,
+        &team_domain,
+        device_store::now_ms(),
+    ) {
         return Ok(None);
     }
-    let kid = header.get("kid").and_then(Value::as_str).unwrap_or_default();
+    let kid = header
+        .get("kid")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let Some(keys) = fetch_jwks(env).await else {
         return Ok(None);
     };
@@ -287,65 +307,73 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
         }
     }
 
-    with_key_lock(&PROVISION_LOCKS, &format!("access-provision:{email}"), async {
-        if let Some(again) = device_store::kv_text(env, &format!("access-email:{email}")).await {
-            if let Some(raw) = device_store::kv_text(env, &format!("user:{again}")).await {
-                if let Ok(user) = serde_json::from_str::<Value>(&raw) {
-                    if user.get("enabled") == Some(&Value::Bool(false)) {
-                        return Ok(None);
+    with_key_lock(
+        &PROVISION_LOCKS,
+        &format!("access-provision:{email}"),
+        async {
+            if let Some(again) = device_store::kv_text(env, &format!("access-email:{email}")).await
+            {
+                if let Some(raw) = device_store::kv_text(env, &format!("user:{again}")).await {
+                    if let Ok(user) = serde_json::from_str::<Value>(&raw) {
+                        if user.get("enabled") == Some(&Value::Bool(false)) {
+                            return Ok(None);
+                        }
+                        return Ok(Some(user));
                     }
-                    return Ok(Some(user));
                 }
             }
-        }
 
-        let base = username_from_email(&email);
-        let mut name = base.clone();
-        // The uniqueness loop: a SINGLE suffix attempt could still collide and overwrite the colliding account's
-        // record (the old code suffixed once, then put unconditionally). Ten attempts, then give up loudly.
-        if device_store::kv_text(env, &format!("user:{name}"))
-            .await
-            .is_some()
-        {
-            let mut unique = false;
-            for _ in 0..10 {
-                let candidate = format!("{base}-{}", crate::webcrypto::random_hex(2));
-                if device_store::kv_text(env, &format!("user:{candidate}"))
-                    .await
-                    .is_none()
-                {
-                    name = candidate;
-                    unique = true;
-                    break;
+            let base = username_from_email(&email);
+            let mut name = base.clone();
+            // The uniqueness loop: a SINGLE suffix attempt could still collide and overwrite the colliding account's
+            // record (the old code suffixed once, then put unconditionally). Ten attempts, then give up loudly.
+            if device_store::kv_text(env, &format!("user:{name}"))
+                .await
+                .is_some()
+            {
+                let mut unique = false;
+                for _ in 0..10 {
+                    let candidate = format!("{base}-{}", crate::webcrypto::random_hex(2));
+                    if device_store::kv_text(env, &format!("user:{candidate}"))
+                        .await
+                        .is_none()
+                    {
+                        name = candidate;
+                        unique = true;
+                        break;
+                    }
+                }
+                if !unique {
+                    return Err(RouteFailure::Threw);
                 }
             }
-            if !unique {
-                return Err(RouteFailure::Threw);
-            }
-        }
 
-        let token = crate::webcrypto::random_hex(24);
-        // FIELD ORDER IS THE STORED BYTES: `id, username, role, enabled, createdAt, token, accessEmail`, which
-        // is the order the source's object literal writes and therefore the order this record's JSON has.
-        let user = serde_json::json!({
-            "id": name,
-            "username": name,
-            "role": "user",
-            "enabled": true,
-            "createdAt": device_store::now_ms(),
-            "token": token,
-            "accessEmail": email,
-        });
-        device_store::kv_put(env, &format!("user:{name}"), &user.to_string(), None).await;
-        device_store::kv_put(env, &format!("token:{token}"), &name, None).await;
-        device_store::kv_put(env, &format!("access-email:{email}"), &name, None).await;
-        Ok(Some(user))
-    })
+            let token = crate::webcrypto::random_hex(24);
+            // FIELD ORDER IS THE STORED BYTES: `id, username, role, enabled, createdAt, token, accessEmail`, which
+            // is the order the source's object literal writes and therefore the order this record's JSON has.
+            let user = serde_json::json!({
+                "id": name,
+                "username": name,
+                "role": "user",
+                "enabled": true,
+                "createdAt": device_store::now_ms(),
+                "token": token,
+                "accessEmail": email,
+            });
+            device_store::kv_put(env, &format!("user:{name}"), &user.to_string(), None).await;
+            device_store::kv_put(env, &format!("token:{token}"), &name, None).await;
+            device_store::kv_put(env, &format!("access-email:{email}"), &name, None).await;
+            Ok(Some(user))
+        },
+    )
     .await
 }
 
 /// `requireAccessSession(request, env)` — the fallback `requireSession` reaches for when the cookie arm declines.
-pub async fn require_access_session(request: &Request, env: &Env) -> Result<Option<Value>, RouteFailure> {
+pub async fn require_access_session(
+    request: &Request,
+    env: &Env,
+) -> Result<Option<Value>, RouteFailure> {
     if env_str(env, "ACCESS_AUD").is_none() || env_str(env, "ACCESS_TEAM_DOMAIN").is_none() {
         return Ok(None);
     }
@@ -414,7 +442,10 @@ mod tests {
     /// `emailOf`: `String(payload.email || "")`, lowercased and trimmed, and the `@` test.
     #[test]
     fn the_email_is_lowercased_and_must_look_like_one() {
-        assert_eq!(email_of(&json!({"email": "  A@B.test "})).unwrap(), "a@b.test");
+        assert_eq!(
+            email_of(&json!({"email": "  A@B.test "})).unwrap(),
+            "a@b.test"
+        );
         assert_eq!(email_of(&json!({"email": "x@y"})).unwrap(), "x@y");
         assert_eq!(email_of(&json!({"email": "no-at-sign"})), None);
         assert_eq!(email_of(&json!({"email": ""})), None);

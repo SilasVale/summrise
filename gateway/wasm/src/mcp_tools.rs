@@ -1189,7 +1189,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(TOOLS.len(), 39, "the table changed size — see the module header");
+        assert_eq!(
+            TOOLS.len(),
+            39,
+            "the table changed size — see the module header"
+        );
     }
 
     /// **A NAME IN THIS TABLE WITH NO ROUTE IS REGISTERED-BUT-UNCALLABLE** — `callTool`'s own programming-error
@@ -1243,7 +1247,12 @@ mod tests {
     fn the_tools_result_keeps_the_wire_order() {
         let result = tools_result();
         let first = &result["tools"][0];
-        let keys: Vec<&str> = first.as_object().unwrap().keys().map(String::as_str).collect();
+        let keys: Vec<&str> = first
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert_eq!(keys, ["name", "description", "inputSchema"]);
         let schema_keys: Vec<&str> = first["inputSchema"]
             .as_object()
@@ -1258,7 +1267,10 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        assert_eq!(properties[0], "device", "the device selector leads every schema");
+        assert_eq!(
+            properties[0], "device",
+            "the device selector leads every schema"
+        );
         // `browser_wait` declares no `required` at all (the shipped server accepts any one of the three), while
         // `terminal_history` declares an EMPTY one. Absent and empty are different bytes and both must survive.
         let by_name = |n: &str| {
@@ -1270,7 +1282,12 @@ mod tests {
                 .unwrap()
                 .clone()
         };
-        assert!(by_name("browser_wait")["inputSchema"].get("required").is_none());
-        assert_eq!(by_name("terminal_history")["inputSchema"]["required"], serde_json::json!([]));
+        assert!(by_name("browser_wait")["inputSchema"]
+            .get("required")
+            .is_none());
+        assert_eq!(
+            by_name("terminal_history")["inputSchema"]["required"],
+            serde_json::json!([])
+        );
     }
 }

@@ -226,58 +226,63 @@ mod tests {
     }
 }
 
-    /// **THE PROBE'S BUDGET IS SIXTY, AND THE SIXTY-FIRST IS THE ONE THAT MUST BE REFUSED** — the same
-    /// assertion as the devices instance, against the OTHER constant, because a port that carries the
-    /// algorithm but the wrong numbers is a limiter with the wrong budget and every case above still passes.
-    ///
-    /// MUTATION: change `PROBE_RATE.limit` to 10.
-    /// RESULT:   this test fails — the eleventh probe is refused while the corpus is green.
-    #[test]
-    fn the_sixty_first_probe_is_refused() {
-        // **SIXTY IS WRITTEN OUT, NOT READ FROM THE CONSTANT — AND THAT IS THE WHOLE POINT.**
-        // The first version looped `0..PROBE_RATE.limit`, so it asserted "the (limit+1)th call is
-        // refused" for ANY limit, and the mutation below passed: `limit: 10` made the loop ten long
-        // and the eleventh call refused, exactly as written. **A test that reads its own subject
-        // cannot fail when the subject changes.**
-        let mut counters = Counters::new();
-        for n in 1..=60 {
-            assert!(
-                !check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000),
-                "probe {n} of 60 was refused"
-            );
-        }
-        assert!(check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000));
+/// **THE PROBE'S BUDGET IS SIXTY, AND THE SIXTY-FIRST IS THE ONE THAT MUST BE REFUSED** — the same
+/// assertion as the devices instance, against the OTHER constant, because a port that carries the
+/// algorithm but the wrong numbers is a limiter with the wrong budget and every case above still passes.
+///
+/// MUTATION: change `PROBE_RATE.limit` to 10.
+/// RESULT:   this test fails — the eleventh probe is refused while the corpus is green.
+#[test]
+fn the_sixty_first_probe_is_refused() {
+    // **SIXTY IS WRITTEN OUT, NOT READ FROM THE CONSTANT — AND THAT IS THE WHOLE POINT.**
+    // The first version looped `0..PROBE_RATE.limit`, so it asserted "the (limit+1)th call is
+    // refused" for ANY limit, and the mutation below passed: `limit: 10` made the loop ten long
+    // and the eleventh call refused, exactly as written. **A test that reads its own subject
+    // cannot fail when the subject changes.**
+    let mut counters = Counters::new();
+    for n in 1..=60 {
+        assert!(
+            !check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000),
+            "probe {n} of 60 was refused"
+        );
     }
+    assert!(check(
+        PROBE_RATE,
+        &mut counters,
+        "203.0.113.7",
+        1_700_000_000_000
+    ));
+}
 
-    /// And the family is the probe route, not a prefix that would swallow a neighbour.
-    #[test]
-    fn the_family_is_the_probe_route() {
-        assert!(probe_in_family("/api/summrise-probe"));
-        assert!(!probe_in_family("/api/summrise-probe/extra"));
-        assert!(!probe_in_family("/api/health"));
-    }
+/// And the family is the probe route, not a prefix that would swallow a neighbour.
+#[test]
+fn the_family_is_the_probe_route() {
+    assert!(probe_in_family("/api/summrise-probe"));
+    assert!(!probe_in_family("/api/summrise-probe/extra"));
+    assert!(!probe_in_family("/api/health"));
+}
 
-    /// **THE SEED HAPPENS ONCE PER KEY, NOT ONCE PER REQUEST.**
-    ///
-    /// MUTATION: make `needs_seed` return `true` unconditionally.
-    /// RESULT:   this test fails — the third request of an established key is reported as needing a seed, which is
-    ///           a KV READ PER REQUEST, and the suite stays green because nothing else reads the predicate.
-    #[test]
-    fn the_seed_happens_once_per_key() {
-        let mut counters = Counters::new();
-        let key = counter_key(PROBE_RATE, "203.0.113.7", 1_700_000_000_000);
-        assert!(needs_seed(&counters, &key), "an unseen key needs a seed");
-        check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000);
-        assert!(!needs_seed(&counters, &key), "a seen key does not");
-    }
+/// **THE SEED HAPPENS ONCE PER KEY, NOT ONCE PER REQUEST.**
+///
+/// MUTATION: make `needs_seed` return `true` unconditionally.
+/// RESULT:   this test fails — the third request of an established key is reported as needing a seed, which is
+///           a KV READ PER REQUEST, and the suite stays green because nothing else reads the predicate.
+#[test]
+fn the_seed_happens_once_per_key() {
+    let mut counters = Counters::new();
+    let key = counter_key(PROBE_RATE, "203.0.113.7", 1_700_000_000_000);
+    assert!(needs_seed(&counters, &key), "an unseen key needs a seed");
+    check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000);
+    assert!(!needs_seed(&counters, &key), "a seen key does not");
+}
 
-    /// **THE TTL IS THE BUCKET PLUS ITS SUCCESSOR PLUS TEN — 130 FOR THE PROBE.**
-    ///
-    /// MUTATION: change the `+ 10` to `+ 60`.
-    /// RESULT:   this test fails on the probe's window while every behavioural case stays green.
-    #[test]
-    fn the_seed_ttl_is_the_window_doubled_plus_ten() {
-        assert_eq!(seed_ttl_secs(60_000), 130);
-        assert_eq!(seed_ttl_secs(30_000), 70);
-        assert_eq!(seed_ttl_secs(1), 11);
-    }
+/// **THE TTL IS THE BUCKET PLUS ITS SUCCESSOR PLUS TEN — 130 FOR THE PROBE.**
+///
+/// MUTATION: change the `+ 10` to `+ 60`.
+/// RESULT:   this test fails on the probe's window while every behavioural case stays green.
+#[test]
+fn the_seed_ttl_is_the_window_doubled_plus_ten() {
+    assert_eq!(seed_ttl_secs(60_000), 130);
+    assert_eq!(seed_ttl_secs(30_000), 70);
+    assert_eq!(seed_ttl_secs(1), 11);
+}

@@ -385,9 +385,7 @@ pub fn provider_for_prefix(
     }
     providers
         .iter()
-        .find(|p| {
-            bare_prefix(p.get("prefix").unwrap_or(&serde_json::Value::Null)) == bare
-        })
+        .find(|p| bare_prefix(p.get("prefix").unwrap_or(&serde_json::Value::Null)) == bare)
         .cloned()
 }
 
