@@ -238,3 +238,32 @@ bite is a mutation that never happened, and here it was a mutation that was neve
 
 **WHAT THIS SAVES THE NEXT READER**: three plausible, tested, mutation-proved ports were thrown away rather than
 landed uncalled, and the reason is now written down instead of being rediscovered by a red test.
+
+---
+
+## MEASURED 2026-10-12 — THE QUEUE: the decision route reaches 158 functions, and the rest is three other jobs
+
+**THE COUNT THAT TURNS 17,151 LINES FROM A WALL INTO A QUEUE.** Every `export`ed function under `gateway/src` was
+classified by its PARAMETERS on `d1c5e540`, which is what decides whether the decision route can carry it at all:
+
+| | functions | what moves them |
+|---|---|---|
+| **A. takes a `Request`/`Response`** | **10** | only a ROUTE port — JSON cannot carry a live request |
+| **B. pure JSON in, pure JSON out** | **158** | **the decision route** ✓ |
+| **C. on the status or session-verify path** | **17** | **nothing** — the route must never be asked there |
+
+**SO THE ROUTE'S REACH IS 158 FUNCTIONS, AND THE BIGGEST GROUPS ARE THE THREE STORES** — `store/users.ts` (18),
+`store/models.ts` (14), `store/providers.ts` (12) — all reached from `/api/admin/*` handlers that already depend on the
+worker, so the status exclusion does not touch them. **That is the queue, and it is one decision per row.**
+
+**AND THE OTHER THREE JOBS ARE NOW NAMED RATHER THAN MIXED IN:**
+* **10 functions move by a route port** — `http.ts` (4), `access.ts` (2), `plugins/auth.ts`, `plugins/models-probe.ts`,
+  `route-do.ts`, `tooling.ts`. This is the original wall, and it is TEN functions, not the whole tail.
+* **17 functions can never move** — `auth.ts` (11), `session.ts` (4), `plugins/status.ts` (2) — **and that is a
+  property of the product, not a gap**: the status page and the session check must work when the worker is down.
+  **Their TypeScript is permanent** unless the fallback decision changes what the status page may depend on.
+* **the 8,834 lines of `gateway/test/` follow their subjects** and move as the subjects do.
+
+**WHAT IS *NOT* IN THIS QUEUE AND MUST NOT BE FORCED INTO IT**: a function that needs `env` for anything but reading a
+var, a function that takes a live `Request`, and anything on the status path. **A decision that needs the environment is
+not a decision — it is a route.**
