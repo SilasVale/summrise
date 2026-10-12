@@ -640,4 +640,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         measurement read **71** against `MAX_LOGIC = 80`, so this gate was RED
 ///                                         on `0155edc0` — "the list SHRANK and the cap did not follow it down.
 ///                                         A cap left high is finished work wearing a budget."
-const MAX_LOGIC: usize = 70;
+const MAX_LOGIC: usize = 69;
