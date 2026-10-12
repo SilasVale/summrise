@@ -23,4 +23,5 @@ hooks (the emitters; no push while CI runs), `publish-release.bash` (the whole-t
 
 **WHERE THE LONG FORM LIVES**: the commit message (the measurement and the `VERIFIED:` line — this is the record) ·
 `CONTEXT.md` (a word and what it means) · the gate itself (its mutation proof) · `docs/superpowers/` (designs and
-decisions, including the wrong ones) · `scripts/RELEASE.md` (the release runbook).
+decisions, including the wrong ones) · `scripts/RELEASE.md` (the release runbook) · `scripts/DERP.md` (the tailnet's
+self-hosted relay on the exit node, and the traps it cost to learn).
