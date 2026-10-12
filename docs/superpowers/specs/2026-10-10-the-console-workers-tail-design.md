@@ -158,3 +158,48 @@ files can only move as their subjects do.
 **WHAT IS NOT WORTH DOING AGAIN**: an audit of all 71 tracked JS/TS files under `gateway/src` + `gateway/test` found
 exactly ONE pure re-export barrel (`store.ts`, now BOUNDARY) and ZERO dead files. **The 69 are genuine LOGIC, and the
 honest reading of criterion ① is that it is a programme, not a landing.**
+
+---
+
+## PROPOSED 2026-10-12 — the DECISION ROUTE: how a pure decision moves without moving its route
+
+**THE MEASUREMENT THAT MAKES THIS CHEAP: `WASM_GATE` IS NOT A WASM MODULE BINDING.** `gateway/wrangler.jsonc` declares
+`services: [{"binding":"WASM_GATE","service":"vale-gate-wasm"}, …]` — **a SERVICE BINDING to another Worker**, so
+`env.WASM_GATE.fetch(request)` is an HTTP call to a deployed Worker, not a call into a wasm instance. The Rust worker is
+`gateway/wasm/wrangler.jsonc`'s `"name": "vale-gate-wasm"`.
+
+**THAT REMOVES THE OBSTACLE THE PREVIOUS SECTION NAMED.** There is no wasm instance to add `#[wasm_bindgen]` exports to
+and no new binding technology to introduce: the gate already answers `fetch`, so **one more route on the same worker is
+reachable through the binding that already exists** — today, with no deployment change and no second binding.
+
+### THE SHAPE
+
+```
+POST /__decision     {"name":"upstream_models_url","args":{"upstream":"…"}}
+                 ->  {"ok":true,"value":"…"}   |   {"ok":false,"error":"unknown decision: …"}
+```
+
+* **the handler takes the JSON args and NEVER `env`** — that is the whole security argument. The gate worker also serves
+  `/v1` on its public host, so this route is publicly reachable; **a decision that cannot read `env` cannot become an
+  oracle for a key**, and every decision in the table is a pure function of its arguments by construction.
+* **one table, in Rust**: `decisions.rs` holds `(name, fn(&Value) -> Result<Value, String>)`. A decision is added by
+  adding a row, and the TS side needs no change to reach it.
+* **one helper, in TS**: `decide(env, name, args)` in a single module, so there is one place that knows the protocol.
+
+### WHAT IT COSTS, MEASURED RATHER THAN ASSUMED
+
+* **one subrequest per call.** Service bindings count toward the per-request subrequest limit, so a decision called on a
+  hot path is a real cost — **this route is for the decisions that are NOT hot** (the admin probe's URL building and id
+  extraction are called once per admin request), and a hot decision should still move by moving its route.
+* **a failure mode that must be designed for**: if the gate is unreachable, `decide` must fall back to the TypeScript
+  twin rather than fail the request — which is the same fallback question as below, one layer down.
+
+### WHY IT IS NOT IMPLEMENTED HERE
+
+**The process gate says the spec is reviewed by the operator before a plan is written**, and this is a design decision
+with a deployment consequence (a new route on a public host). The two routes out are now:
+
+1. **the fallback decision** — make the gate mandatory for a family as `/v1` did; retires TypeScript instead of porting
+   it; a device with no binding starts answering 503. **This is the operator's call.**
+2. **the decision route** — this section. It does not retire a file by itself; it makes the 30-odd `gateway/src` files
+   *portable one decision at a time*, which is what turns 17,151 lines from a programme into a queue.
