@@ -37,9 +37,6 @@ cd gateway && npm test                           # gateway (own prettier gate)
 
 Green tests are the bar for a release.
 
-**AND RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check — `gateway/ui`
-passed a local `tsc --noEmit` carrying six type errors, because the `ui` job runs `npm run build` instead.
-
 **AND THE PER-DIRECTORY TABLE THAT STOOD HERE IS GONE ON PURPOSE**: it said in its own last row to *"read them out of
 `ci.yml` rather than from here"*, because a copy of that list goes stale (it named "59 cases" for a suite that had grown
 to 68). **`ci.yml` is the list.** What does not go stale is the rule it was there to carry:
