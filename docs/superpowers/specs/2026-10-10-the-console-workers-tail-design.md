@@ -203,3 +203,38 @@ with a deployment consequence (a new route on a public host). The two routes out
    it; a device with no binding starts answering 503. **This is the operator's call.**
 2. **the decision route** — this section. It does not retire a file by itself; it makes the 30-odd `gateway/src` files
    *portable one decision at a time*, which is what turns 17,151 lines from a programme into a queue.
+
+---
+
+## MEASURED 2026-10-12 — the decision route's REACH, and the two paths it must never touch
+
+**A LANDING WAS REVERTED BECAUSE A TEST REFUSED IT, AND THE REFUSAL IS THE DELIVERABLE.** Three more decisions were
+ported into `decisions.rs` (`wire_version`, `b64url_decode_str`, `is_responses_only_model`), all tested, all
+mutation-proved — and **none of them could be wired**, for three different reasons that together draw the route's
+boundary:
+
+1. **THE STATUS PATH MUST NOT ASK THE WORKER.** `plugins.test.mjs`'s own sentence: *"plugins/status: the exclusion
+   holds WITH the binding present (**the worker must never be asked**)"* — it stubs `WASM_GATE` and records what
+   reaches it. Wiring `wire_version` through `decide` failed it immediately. **And the reason is the product's, not
+   the test's**: the status page reports ON the worker, so **it must not depend on the worker** — the moment you most
+   need the status page is the moment the worker is down.
+2. **AND THE SESSION-VERIFY PATH IS ON IT.** The second attempt wired `b64url_decode_str` into
+   `verifySessionToken`, threading `env` through it and its two callers. The same test failed **again**, because the
+   status request carries a session cookie: a gate-dependent session check makes the status page depend on the worker
+   one layer down. **The exclusion is transitive over everything the status request touches.**
+3. **AND ONE HAD NO CALLER AT ALL.** `isResponsesOnlyModel` is used only by `model-registry.test.mjs`; there is no
+   `src/` caller. **A decision with no caller is a foundation, not a landing** — this repository's own rule — so it
+   does not go in the table on the strength of being portable.
+
+**SO THE ROUTE'S REACH IS PRECISE, AND IT IS NOT "EVERYTHING PURE":** it serves a pure decision that is **NOT on the
+status path and not on the session-verify path** — which is exactly what its two landed batches are (`models-probe`'s
+URL building and id extraction, and the three usage mappers, all reached from `/api/admin/*` handlers that already
+depend on the worker).
+
+**AND THE MUTATION THAT DID NOT BITE FOUND DEAD CODE IN THE PORT ITSELF**: deleting the `=`-padding fix from
+`b64url_decode_str` left every test passing, because `session_gate::b64url_decode` **already pads**. The source's fix
+exists because `atob` does not — so on this side it is the decoder's job, not each caller's. **A mutation that does not
+bite is a mutation that never happened, and here it was a mutation that was never needed.**
+
+**WHAT THIS SAVES THE NEXT READER**: three plausible, tested, mutation-proved ports were thrown away rather than
+landed uncalled, and the reason is now written down instead of being rediscovered by a red test.
