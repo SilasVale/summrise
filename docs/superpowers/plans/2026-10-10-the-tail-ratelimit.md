@@ -118,3 +118,27 @@ bulk of what that branch does. **So Task 3 is not "make `ratelimit.ts` a boundar
 (`summriseProbe` + the 429 arm) into the wasm gate, then `ratelimit.ts` has no caller and becomes BOUNDARY, then the
 manifest rule moves and `MAX_LOGIC` reads 69. **Until that route lands, the three commits stay on the branch** — a
 foundation with no caller is not a landing.
+
+
+---
+
+## APPENDIX 2 — the route landed, and it did NOT drop the count (2026-10-12)
+
+**`POST /api/summrise-probe` AND ITS LIMITER ARE RUST NOW, AND `MAX_LOGIC` IS STILL 69.** Five commits on
+`feat/the-probe-limit-is-rust`, merged as `db1ae41b`, CI green: `gateway/wasm/src/probe.rs` owns the route, the
+limiter runs BEFORE the body is parsed (the source's order), and `index.ts` delegates in the shape the devices family
+already uses — `if (POST && /api/summrise-probe && wasmGate(env)) return await frontDoor(request, env, request)`.
+
+**WHY THE COUNT DID NOT MOVE, MEASURED: `ratelimit.ts` still has two live callers.**
+* `plugins/auth.ts` registers `createIpRateLimiter({name: "auth-rate", …})` and calls it from three routes — and
+  `registerPlugins(__pluginCtx, [authPlugin, adminPlugin, statusPlugin])` is still in `index.ts`, so the plugin is
+  still DISPATCHED. **The Rust equivalent already exists** (`auth_routes::auth_rate_limited` + `AUTH_RATE_COUNTERS`),
+  but the TypeScript arm is the one that runs when the gate does not.
+* `tooling.ts`'s probe limiter, which this plan set out to move, is now the TS **fallback** rather than the path.
+
+**SO THE NEXT SLICE IS NOT ANOTHER PORT — IT IS THE FALLBACK DECISION.** `/v1` already made it: *"THE TYPESCRIPT
+IMPLEMENTATION IS DELETED, so there is no fallback to fall back to — a deployment without the WASM_GATE binding is a
+deployment that cannot serve the API, and saying so is better than a 500 that reads like a routing mistake."* Doing the
+same for auth + probe makes the gate mandatory for those families, retires `lib/ratelimit.ts` entirely (a DELETION,
+not a reclassification), and takes 69 -> 68. **That is a deployment decision as much as a code one — a device in the
+field with no binding starts answering 503 — so it wants the operator's call, not a plan's.**
