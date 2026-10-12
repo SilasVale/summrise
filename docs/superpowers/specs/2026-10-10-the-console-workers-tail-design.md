@@ -517,3 +517,36 @@ tests are satisfied by a stub that answers a FIXED body, because what those test
 path that reached the binding), not the front door's decisions. **The decision route is different: its whole purpose is
 that a DECISION moved, so a test that cannot reach it cannot test anything.** **A stub that answers a constant is
 enough to prove a ROUTE was taken and not enough to prove a DECISION was made.**
+
+---
+
+## THE UNBLOCKER: THE RUST EMITS THE TYPESCRIPT, AND THE EMISSION IS GENERATED (2026-10-12)
+
+**THE BLOCKER ABOVE HAS A SOLUTION ALREADY PROVEN IN THIS REPOSITORY, AND IT IS NOT A THIRD COPY.** The problem was:
+`decide` answers `undefined` when the gate does not, so deleting a twin removes the only implementation `npm test` can
+reach. **But a decision does not have to be REACHED at test time — it can be EMITTED at build time.**
+
+**`mcp_tools.rs` ALREADY DOES EXACTLY THIS**, and its own words are the pattern: *"**THE PRODUCER.**
+`gateway/src/mcp-tools.ts` is exactly this function's output, and the freshness test is a byte comparison against
+it."* `render_typescript()` writes the file, `typescript_path()` names it, and the manifest classifies it
+**GENERATED** — which is why it is not one of the 69.
+
+**SO THE SHAPE OF EVERY REMAINING LANDING IS:**
+1. the decision lives in Rust (where it already does, for 147 of the 195 exported names);
+2. **the Rust RENDERS the TypeScript module that carries it**, beside `render_typescript`;
+3. the rendered module is committed and classified **GENERATED** with its producer named (the manifest's fourth field,
+   which the gate already refuses a GENERATED rule without);
+4. the hand-written file **imports the emitted module and deletes its twins** — so its remaining body is I/O, caching
+   and calls, which is a **BOUNDARY**;
+5. and **`npm test` keeps working, because the emitted module is JavaScript** — no stub, no wasm in the test path, and
+   **no third copy: the emission IS the Rust's output, and the freshness test is a byte comparison.**
+
+**COUNTED FOR THE FIRST CANDIDATE, `store/settings.ts`**: its three decisions (`normalizeSetting`,
+`globalSettingEnabled`, and the round-94/round-439 canonicalization) move into one emitted module; `settings.ts` keeps
+`env.KEYS.get`, `env.KEYS.put`/`delete`, the cache and the reads. **That is 69 -> 68, and the same shape applies to
+every file whose residual decisions are PURE** — which is exactly the set the decision route already reaches.
+
+**AND IT EXPLAINS WHAT THE DECISION ROUTE IS *NOT* FOR.** The route is for a decision needed at REQUEST time by
+TypeScript that must not depend on the worker (the admin probes, the usage mappers). **The emission is for a decision
+needed at MODULE-LOAD time and in tests** — including the synchronous tables `byok.ts` and `globalSettingEnabled` that
+the route can never carry. **Two seams, two jobs, and neither is a second implementation of the other.**
