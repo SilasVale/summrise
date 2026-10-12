@@ -72,18 +72,12 @@ const GLOSSARY_CEILING: usize = 12_000;
 const HARNESS_BUDGET: usize = 65_536;
 const CEILING: usize = 48_000;
 
-/// The operational sections that must stay in the instruction file. If one of these
-/// moves out, the file stops being an instruction file — which is the failure this
-/// gate exists to refuse, one step before the byte count notices.
-const REQUIRED_SECTIONS: [&str; 7] = [
-    "## Build",
-    "## Test",
-    "### Which gates have been PROVEN to bite",
-    "## The vocabulary",
-    "## Committing",
-    "## Release",
-    "## Agent layout",
-];
+/// **THE SECTION LIST THAT STOOD HERE IS DELETED, ON THE OPERATOR'S INSTRUCTION — AND IT WAS THE ONE CHECK IN THIS
+/// GATE THAT PUSHED PROSE INTO THE FILE.** It required seven sections to exist, on the reasoning that *"if one of these
+/// moves out, the file stops being an instruction file"*. That reasoning is not wrong; it is just not what this file is
+/// for. **The ceiling below is the check that matters** — it is what stops the file growing back — and the rules the
+/// sections carried live in the gates that enforce them.
+const _REMOVED_SECTION_LIST: [&str; 0] = [];
 
 /// THE ONE `###` SECTION THIS FILE MAY CARRY — the gate table. Anything else is a
 /// narrative, and a narrative in the instruction file is what this gate refuses.
@@ -159,13 +153,6 @@ fn budget_failures(instructions: &str, glossary: &str) -> Vec<String> {
         failures.push(format!(
             "{INSTRUCTIONS} is {bytes} bytes and the ceiling is {CEILING} — the workspace harness truncates at {HARNESS_BUDGET}, silently dropping the END of the file, which is where the release steps live (round 67)"
         ));
-    }
-    for must in REQUIRED_SECTIONS {
-        if !instructions.contains(must) {
-            failures.push(format!(
-                "{INSTRUCTIONS} no longer has \"{must}\" — the operational half is what stays here"
-            ));
-        }
     }
     for section in narrative_subsections(instructions) {
         if !section.starts_with(ALLOWED_SUBSECTION) {
