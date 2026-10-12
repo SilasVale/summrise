@@ -343,3 +343,44 @@ back to."*
 catalogue parser, and whatever the 75%-matched remainder still OWNS rather than merely mirrors — **which is the
 measurement this number does not make, because a matching name is not a matching behaviour.** That is the next
 honest piece of work: for a file whose functions all match, diff the BEHAVIOUR, not the names.
+
+---
+
+## THE BEHAVIOUR DIFF — the method, and its first worked case (2026-10-12)
+
+**"A MATCHING NAME IS NOT A MATCHING BEHAVIOUR" IS THE MEASUREMENT ABOVE'S OWN WARNING, AND THIS IS THE WORK IT
+CALLS FOR.** 147 of 195 exported functions have a Rust counterpart by name; **not one of those pairs has been shown
+to AGREE.** So the next honest piece of work is not another port — it is a diff, one function at a time, and this
+section is the method and its first case.
+
+**THE METHOD, IN FOUR STEPS:**
+1. read the TypeScript as the ORACLE (it is what ships today, and its tests are the corpus);
+2. read the Rust counterpart;
+3. **enumerate the CASE FAMILIES where the two languages' primitives differ** — that is where a port goes wrong, not
+   in the ordinary path. For a URL predicate: the parser's strictness, host case folding, the port, IPv6 brackets,
+   and the several spellings of an IPv4 literal;
+4. write down the answer for each, and only then say "they agree". **A diff that lists no differing primitives has
+   not been done — it has been asserted.**
+
+**THE FIRST CASE: `isLoopbackOrigin(origin)`, `http.ts` vs `wasm/src/cors.rs`.** It is the console's local-origin
+check, so it is a security predicate and a false positive is a real defect.
+
+| case family | TypeScript (`new URL`) | Rust (`url::Url::parse`) | agree |
+|---|---|---|---|
+| a scheme that is not http/https | `false` | `false` | ✓ |
+| not a URL at all (the throw / the `Err`) | `false` | `false` | ✓ |
+| `localhost`, any case | lowercased by WHATWG → `true` | lowercased by the crate → `true` | ✓ |
+| a PORT (`http://localhost:8080`) | `hostname` excludes it → `true` | `host_str()` excludes it → `true` | ✓ |
+| IPv6 (`http://[::1]/`) | `hostname` keeps the brackets → `false` | `host_str()` keeps them → `false` | ✓ |
+| a decimal IPv4 (`http://2130706433/`) | normalized to `127.0.0.1` → `true` | normalized → `true` | ✓ |
+| hex/octal IPv4 (`http://0x7f.0.0.1/`) | normalized → `true` | normalized → `true` | ✓ |
+| a trailing dot (`http://localhost./`) | kept → `false` | kept → `false` | ✓ |
+| a relative reference (`"/x"`) | throws → `false` | `Err` → `false` | ✓ |
+| userinfo (`http://a@localhost/`) | `hostname` is `localhost` → `true` | `host_str()` is `localhost` → `true` | ✓ |
+
+**TEN FAMILIES, TEN AGREEMENTS — and the reason to believe it is that the two parsers are the SAME SPEC**: `new URL`
+and the `url` crate both implement WHATWG URL, which is what makes the case folding, the port exclusion and the IPv4
+normalisation line up rather than merely happen to.
+
+**AND THE OTHER 146 PAIRS ARE NOT THEREBY CLEARED.** This one was chosen because its primitives are the ones most
+likely to differ. **The method is what generalises; the result does not.**
