@@ -381,6 +381,19 @@ async fn route(req: Request, env: Env) -> Result<Response> {
         return empty_with_headers(headers);
     }
 
+    // **THE DECISION ROUTE, AND IT IS HANDED NO `Env`.** It is publicly reachable — this worker also serves `/v1`
+    // — so a decision that cannot read the environment cannot become an oracle for a key. **The signature is the
+    // defence**: `decisions::handle` has no environment parameter to thread, so the mutation that would leak a key
+    // is a change to that signature rather than a line someone can slip in.
+    if decisions::in_family(&req.method(), url.path()) {
+        return match decisions::handle(req).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
+
     // `path === "/api/health"` — an EXACT match, which is what `index.ts` compares. A prefix match
     // here would answer for paths the deployed front door does not route to this handler.
     if req.method() == Method::Get && url.path() == "/api/health" {
@@ -485,6 +498,7 @@ pub mod auth_routes;
 pub mod body_scan;
 pub mod byok;
 pub mod cors;
+pub mod decisions;
 pub mod device;
 pub mod device_proxy;
 pub mod device_registry;
