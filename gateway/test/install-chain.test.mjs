@@ -62,7 +62,11 @@ test("posix installer executes and installs a working, byte-identical CLI", asyn
   });
   const installed = path.join(dest, "summrise");
   const stat = fs.statSync(installed);
-  assert.equal(stat.mode & 0o111, 0o111, "installed binary must be executable");
+  // **THE OWNER'S BIT, NOT ALL THREE — MEASURED 2026-10-10 UNDER `umask 077`.** `chmod +x` is itself
+  // umask-sensitive: with 077 it sets only the owner's execute bit, so the installed CLI is **700** — which IS
+  // executable, and is what a user who chose 077 asked for. Asserting `0o111` was asserting the AMBIENT UMASK,
+  // not the installer, and it is why `pack-chain`'s umask loop was red while the `agent` job was green.
+  assert.equal(stat.mode & 0o100, 0o100, "installed binary must be executable by its owner");
   assert.equal(fs.readFileSync(installed, "utf8"), cli, "decoded payload is byte-identical");
   // The decoded copy RUNS: a check against a refused gateway exits non-zero
   // with the health error (proves execution, not just presence on disk).
