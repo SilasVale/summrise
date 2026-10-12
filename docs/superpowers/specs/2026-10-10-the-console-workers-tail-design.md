@@ -402,3 +402,28 @@ answers the SAME BOOLEAN for every input — **so every functional test would pa
 (a UTF-8 length is not a UTF-16 length for any non-ASCII string) and short-circuits at the first differing byte.
 **The port chose `encode_utf16` and kept the length early-exit, which is the source's timing behaviour**, and no test
 in either suite can tell the difference. **This is the case that justifies the whole method.**
+
+---
+
+## A FLAKE, ITS MECHANISM, AND WHY IT IS THE SOURCE'S OWN KNOWN RACE (2026-10-12)
+
+**CI FAILED ON A DOCS-ONLY COMMIT, WHICH IS WHAT MADE IT WORTH READING.** `da1b0109` changes ONE `.md` file and
+nothing else; `gateway`'s Tests answered `not ok 216 - register: 30 attempts then 429 (per-IP rate limit)`, and the
+SAME TREE run locally answers **385 pass / 0 fail**. So it is a flake — and the mechanism is findable in the two
+tests rather than in the runner:
+
+* `reset-password: 30 attempts then 429` and `register: 30 attempts then 429` are two tests, in ONE file, that **both
+  drive the limiter from the SAME `cf-connecting-ip`: `192.0.2.99`**;
+* the counter is **module-level per-isolate state**, and `__clearCaches()` — which both tests call — clears the STORE
+  caches, **not the limiter's**;
+* **the limiter's key is bucketed by the wall-clock MINUTE** — and the source says so itself: `createIpRateLimiter`'s
+  own comment names *"a minute-boundary race double-spent"* as the reason the probe's limiter went per-IP.
+
+**SO THE SECOND TEST INHERITS THE FIRST'S THIRTY ATTEMPTS EXACTLY WHEN BOTH FALL INSIDE THE SAME MINUTE BUCKET**, and
+starts clean when they straddle one. **That is a flake with a clock for a seed, and it is why the same tree can be red
+in CI and green on the desk.**
+
+**NOT FIXED HERE, AND THE REASON IS THE POINT OF WRITING IT DOWN**: the repair is either distinct IPs per test or a
+`__clearCaches()` that also drops the limiter's counters — and **which one is right depends on whether the two tests
+are meant to share a bucket**, which is a decision about the TEST rather than about the product. **A flake whose
+mechanism is written down is a five-minute fix for the next reader; one that is re-run until green is a tax.**
