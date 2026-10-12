@@ -372,7 +372,7 @@ async function adminListProviders(request: Request, env: Env): Promise<Response>
     loadCatalogueFile({ knownPrefixes: RESERVED_PREFIXES, parseProvider: parseProviderSpec }),
   );
   return jsonOk({
-    providers: providers.map((p) => publicProvider(p, env)),
+    providers: await Promise.all(providers.map((p) => publicProvider(p, env))),
     apis: Object.keys(SUPPORTED_PROVIDER_APIS),
     // Prefixes the FILE declares: the panel disables their Edit/Delete rather than
     // offering a control whose effect the next deploy would undo.
@@ -400,7 +400,7 @@ async function adminAddProvider(request: Request, env: Env): Promise<Response> {
   const next = await putCustomProvider(env, spec);
   return jsonOk({
     ok: true,
-    provider: publicProvider(spec, env),
+    provider: await publicProvider(spec, env),
     providers: next.map((p) => p.prefix),
   });
 }

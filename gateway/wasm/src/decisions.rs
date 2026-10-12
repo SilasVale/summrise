@@ -42,12 +42,13 @@ pub fn in_family(method: &Method, path: &str) -> bool {
 type Decision = fn(&Value) -> std::result::Result<Value, String>;
 
 /// **THE TABLE.** A decision is added by adding a row, and the TypeScript side needs no change to reach it.
-const DECISIONS: [(&str, Decision); 5] = [
+const DECISIONS: [(&str, Decision); 6] = [
     ("upstream_models_url", upstream_models_url),
     ("offered_ids", offered_ids),
     ("map_openrouter_usage", map_openrouter_usage),
     ("map_amd_usage", map_amd_usage),
     ("map_og_usage", map_og_usage),
+    ("public_provider", public_provider),
 ];
 
 /// The dispatcher. `Ok(None)` is "not this family". **NO `Env` PARAMETER — see the module header.**
@@ -320,6 +321,77 @@ fn is_falsy(value: &Value) -> bool {
     }
 }
 
+/// `publicProvider(p, env)` — `gateway/src/store/providers.ts`.
+///
+/// **THE SOURCE TAKES `env` AND THIS TAKES THE RESOLVED KEY, WHICH IS THE WHOLE PORT.** `providerKey(env, p)` reads
+/// a Worker secret or an inline key, so IT cannot be a decision — but everything after it can: given `resolved`,
+/// the public shape is a pure function of `p`. **Splitting the two is what makes the decision portable**, and the
+/// TypeScript keeps the resolution and calls this with its answer.
+///
+/// **`keyReady` IS `!!resolved`, NOT `resolved !== ""`** — JavaScript truthiness, so a key of `"0"` is READY and an
+/// empty one is not. And `advertisedModelId(prefix, String(m?.id ?? ""))` coerces with JavaScript's `String`, which
+/// `advertised_model_id` already reproduces (`js_text`), so a numeric id is `"5"` on both sides.
+///
+/// **THE KEY ORDER IS THE SOURCE'S**: the five record fields, then `models`, then `advertised`, then `keyEnv`,
+/// `keyMasked`, `keyReady`. `jsonOk(out)` writes `JSON.stringify`'s order, so this is the response's bytes.
+fn public_provider(args: &Value) -> std::result::Result<Value, String> {
+    let p = args
+        .get("p")
+        .filter(|v| v.is_object())
+        .ok_or_else(|| "p must be a provider spec object".to_string())?;
+    let resolved = args.get("resolved").and_then(Value::as_str).unwrap_or("");
+    let models: Vec<Value> = p
+        .get("models")
+        .filter(|m| m.is_array())
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let prefix = p.get("prefix").and_then(Value::as_str).unwrap_or("");
+    let mut out = serde_json::Map::new();
+    for field in ["prefix", "label", "baseURL", "api"] {
+        out.insert(
+            field.to_string(),
+            p.get(field).cloned().unwrap_or(Value::Null),
+        );
+    }
+    // `models.map((m) => ({ ...m }))` — a SHALLOW COPY each, so a field this function does not know still travels.
+    out.insert("models".to_string(), Value::Array(models.clone()));
+    out.insert(
+        "advertised".to_string(),
+        Value::Array(
+            models
+                .iter()
+                .map(|m| {
+                    // **`m?.id ?? ""` IS NOT `m.id`.** A model with no id, or an explicit `null`, reaches
+                    // `advertisedModelId` as the EMPTY STRING — and passing `Value::Null` instead made the first
+                    // version answer `acme/null`, which the test below caught. `?? ` covers absent and null alike.
+                    Value::String(crate::store::advertised_model_id(
+                        prefix,
+                        &m.get("id")
+                            .filter(|v| !v.is_null())
+                            .cloned()
+                            .unwrap_or_else(|| Value::String(String::new())),
+                    ))
+                })
+                .collect(),
+        ),
+    );
+    out.insert(
+        "keyEnv".to_string(),
+        json!(p.get("apiKeyEnv").and_then(Value::as_str).unwrap_or("")),
+    );
+    out.insert(
+        "keyMasked".to_string(),
+        json!(if resolved.is_empty() {
+            String::new()
+        } else {
+            crate::device_registry::mask_key(resolved)
+        }),
+    );
+    out.insert("keyReady".to_string(), json!(!resolved.is_empty()));
+    Ok(Value::Object(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,13 +633,72 @@ mod tests {
         );
     }
 
+    /// **`keyReady` IS JAVASCRIPT TRUTHINESS, AND THE KEY ORDER IS THE RESPONSE'S BYTES.**
+    ///
+    /// MUTATION: replace `!resolved.is_empty()` with `resolved == "1"`.
+    /// RESULT:   the `"0"` assertion fails — a key whose value is the single character `0` is READY in the source
+    ///           (a non-empty string is truthy) and would be reported unready.
+    ///
+    /// MUTATION: emit `keyReady` before `advertised`.
+    /// RESULT:   the serialized-string assertion fails while every value assertion still passes.
+    #[test]
+    fn public_provider_masks_the_key_and_keeps_the_sources_key_order() {
+        let got = call(
+            "public_provider",
+            json!({"p": {"prefix": "acme/", "label": "Acme", "baseURL": "https://acme.example/v1",
+                          "api": "openai", "apiKeyEnv": "ACME_KEY",
+                          "models": [{"id": "foo", "name": "Foo"}]},
+                    "resolved": "sk-abcdef123"}),
+        );
+        assert_eq!(got["keyReady"], json!(true));
+        assert_eq!(got["keyMasked"], json!("sk-\u{2026}f123"));
+        assert_eq!(got["keyEnv"], json!("ACME_KEY"));
+        assert_eq!(got["advertised"], json!(["acme/foo"]));
+        // **THE SHALLOW COPY CARRIES A FIELD THIS FUNCTION DOES NOT KNOW.**
+        assert_eq!(got["models"][0], json!({"id": "foo", "name": "Foo"}));
+        assert_eq!(
+            got.to_string(),
+            r#"{"prefix":"acme/","label":"Acme","baseURL":"https://acme.example/v1","api":"openai","models":[{"id":"foo","name":"Foo"}],"advertised":["acme/foo"],"keyEnv":"ACME_KEY","keyMasked":"sk-…f123","keyReady":true}"#
+        );
+    }
+
+    /// **AN UNRESOLVED KEY IS AN EMPTY MASK AND `keyReady: false`** — and `"0"` is a READY key, because a non-empty
+    /// JavaScript string is truthy.
+    #[test]
+    fn public_provider_reports_an_unresolved_key() {
+        let spec = json!({"p": {"prefix": "acme/", "label": "Acme", "baseURL": "https://x",
+                                 "api": "openai", "models": []}, "resolved": ""});
+        let got = call("public_provider", spec);
+        assert_eq!(got["keyMasked"], json!(""));
+        assert_eq!(got["keyReady"], json!(false));
+        // `"0"` IS READY — a non-empty string is truthy, and the source says `!!resolved`.
+        let zero = call(
+            "public_provider",
+            json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x", "api": "openai",
+                          "models": []}, "resolved": "0"}),
+        );
+        assert_eq!(zero["keyReady"], json!(true));
+    }
+
+    /// `advertisedModelId` is called with `String(m?.id ?? "")`, so a NUMERIC id is coerced rather than dropped —
+    /// and a model with no id at all becomes the prefix alone.
+    #[test]
+    fn public_provider_coerces_a_numeric_model_id() {
+        let got = call(
+            "public_provider",
+            json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x", "api": "openai",
+                          "models": [{"id": 5}, {}]}, "resolved": ""}),
+        );
+        assert_eq!(got["advertised"], json!(["acme/5", "acme/"]));
+    }
+
     /// **THE TABLE IS THE ONLY WAY IN, AND AN UNKNOWN NAME IS A REFUSAL.** The mutation this guards is the one that
     /// would matter: a fallback that answered `null` for an unknown name would make a typo look like a decision.
     #[test]
     fn every_row_is_reachable_and_nothing_else_is() {
         assert_eq!(
             DECISIONS.len(),
-            5,
+            6,
             "the table changed — update this count deliberately"
         );
         for (name, _) in DECISIONS {
