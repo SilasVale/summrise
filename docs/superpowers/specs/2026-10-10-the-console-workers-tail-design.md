@@ -485,3 +485,35 @@ not of the function**, and asserting it from the function's signature is how a s
 biting) and then **thrown away**, because at that moment I believed the third decision could not move — and a
 foundation with no caller is not a landing. **They are two `decide` rows and a commit message away from being restored;
 what they are not is mergeable on their own.**
+
+---
+
+## WHY THE TWINS CANNOT BE DELETED YET — MEASURED IN THE TEST ENVIRONMENT (2026-10-12)
+
+**THE OPERATOR CHOSE "DELETE THE TWINS" AND THE PATH IS NOW BLOCKED BY SOMETHING NOBODY HAD LOOKED AT: THE TEST
+ENVIRONMENT CANNOT RUN THE RUST.** Every decision the route carries is reached by `decide(env, …)`, and `decide`
+answers `undefined` when the gate does not answer — so **deleting a twin removes the only implementation the tests can
+reach.**
+
+**WHAT THE SUITE ACTUALLY HAS, MEASURED:**
+* `gateway/test/helpers.mjs` DOES stub `WASM_GATE` — behind a flag, and **its `fetch` answers a fixed model list**
+  (`{object:"list", data:[{id:"og/…"}]}`) and records the path in `env._frontDoor`. It exists for the `/v1` ALIAS
+  tests, and its own comment says why: *"the TypeScript implementation is deleted, so a test env without this binding
+  gets the front door's loud 503 — which is correct and useless as a test of the alias."*
+* it does NOT know `/__decision` ✗ — so with the stub ON, `decide` reads a 200 whose body has no `ok: true` and answers
+  `undefined`; with the stub OFF it answers `undefined` too. **Either way the decision route is unreachable from
+  `npm test`.**
+
+**SO THE THREE WAYS FORWARD ARE ALL DECISIONS, AND NONE OF THEM IS A PORT:**
+1. **the stub answers `/__decision` with a JavaScript re-implementation of the decisions** — which is a THIRD copy of
+   every decision (the Rust, the twin, and the stub) and is exactly the drift the route exists to prevent;
+2. **the suite builds and loads the wasm** — `gateway/wasm/verify.mjs` already runs a differential corpus, so the
+   machinery exists, but it is NOT in `npm test`'s path and wiring it in is a test-infrastructure landing;
+3. **the twins stay as the fallback** — which is where the count stands, and which is why ① has moved by exactly ONE
+   file (a dead one) since the path was chosen.
+
+**AND THE `/v1` PRECEDENT DOES NOT TRANSFER, WHICH IS THE PART WORTH KNOWING.** `/v1` deleted its TypeScript and its
+tests are satisfied by a stub that answers a FIXED body, because what those tests assert is the ALIAS REWRITE (the
+path that reached the binding), not the front door's decisions. **The decision route is different: its whole purpose is
+that a DECISION moved, so a test that cannot reach it cannot test anything.** **A stub that answers a constant is
+enough to prove a ROUTE was taken and not enough to prove a DECISION was made.**
