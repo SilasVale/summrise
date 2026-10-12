@@ -454,3 +454,34 @@ Moving it needs either a build-time emission (as `mcp-tools.ts` already is) or a
 not "delete a twin" but "port a small decision and then delete the line": `store/settings.ts` keeps the key prefix and
 the env-var fallback after `normalizeSetting` moves; `store/byok.ts` keeps the table; `upstream.ts` keeps the route
 builders. **Each is a decision, each is reachable through the route, and none is a file.**
+
+---
+
+## THE NEXT LANDING, MEASURED TWICE AND CORRECTED ONCE: `store/settings.ts` (2026-10-12)
+
+**MY FIRST ANALYSIS OF THIS FILE WAS WRONG IN TWO WAYS, AND BOTH ARE INSTRUCTIVE.**
+
+**1. IT HAS THREE DECISIONS, NOT TWO, AND MY SCAN COULD NOT SEE ONE OF THEM.** `settings.ts` carries `normalizeSetting`
+(**private**), `globalSettingEnabled` (**exported**) and the canonicalization inside `setGlobalSetting`. The
+name-matching scan counts EXPORTED names — so a private function that is nonetheless a decision is invisible to it.
+**And the two are not the same function**: `normalizeSetting("")` answers `""` (the empty string is not `"0"` or
+`"false"`) while `globalSettingEnabled("")` answers `false`. Both are already in Rust (`store::normalize_setting`,
+`store::global_setting_enabled`), which is why the pair did not show up as a gap either.
+
+**2. I CRIED "THE SYNC LIMIT" BEFORE CHECKING THE CALLER, AND IT DOES NOT APPLY.** `globalSettingEnabled` has exactly
+ONE consumer — `plugins/auth.ts:373`, inside an `async` handler that already returns a `Response` — so it can be
+awaited. **The sync limit is real (`byok.ts`'s module-level table is the case) but it is a property of the CALL SITE,
+not of the function**, and asserting it from the function's signature is how a solvable file gets written off.
+
+**SO THE LANDING IS THREE ROWS AND A REWRITE, AND EVERY PIECE IS MEASURED:**
+* `get_global_setting` ← `store::get_global_setting(kv, env_var)` — **already landed once and reverted** (see below);
+* `set_global_setting` ← the round-94 empty arm (delete) and the round-439 canonicalization (`"1"`/`"true"`/boolean
+  `true` → `"1"`), which are the two arms a careless port collapses;
+* `global_setting_enabled` ← `store::global_setting_enabled`;
+* and in the TypeScript, `normalizeSetting` and the canonicalization are DELETED — the twins — leaving a KV read, a var
+  read, a cache and three `decide` calls. **That is a BOUNDARY**, and it is 69 -> 68.
+
+**AND THE REVERT IS PART OF THE RECORD**: the first two rows were written, tested (16 passed, both mutations proven
+biting) and then **thrown away**, because at that moment I believed the third decision could not move — and a
+foundation with no caller is not a landing. **They are two `decide` rows and a commit message away from being restored;
+what they are not is mergeable on their own.**
