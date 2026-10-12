@@ -27,8 +27,46 @@ import { deviceHostError } from "../device-fetch.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
 import { BYOK_CHANNELS } from "../store/byok.ts";
 import { fetchWithTimeout, upstreamTimeoutMs } from "../reliability.ts";
-import { decide } from "../decisions.ts";
 import { jsonError, jsonOk } from "../http.ts";
+
+/**
+ * THE DECISION ROUTE'S CLIENT — `gateway/wasm/src/decisions.rs` is the server half.
+ *
+ * The Rust worker exposes `POST /__decision` through the service binding that already exists, so a PURE decision
+ * can be ported one row at a time while its route stays where it is.
+ *
+ * **`undefined` IS NOT `null`.** `null` is a decision that ran and answered null; `undefined` is a gate that is
+ * absent, refused, or unreachable — and the caller falls back to its TypeScript twin for THAT case only.
+ * **Collapsing the two would let a wrong `null` from Rust be silently corrected by the twin**, which is the one
+ * failure this route must not hide: the twin keeps the product working when the gate is gone, it does not make a
+ * wrong answer look right.
+ *
+ * **IT LIVES IN THIS FILE BECAUSE THIS IS ITS ONLY CONSUMER.** The manifest's ratchet refuses a new LOGIC file, and
+ * that refusal is right: a general helper extracted before its second caller is a guess. When a second plugin needs
+ * it, it moves to `gate.ts` and the cap gets a deliberate entry with the reason.
+ *
+ * **THERE IS NO PRESENCE CHECK, AND THE `try` IS WHY**: a gate that is absent and a gate that fails are the same
+ * answer here, so `env?.WASM_GATE?.fetch(…)` throwing into the catch covers both — and a second copy of
+ * `index.ts`'s `wasmGate` predicate is exactly the drift that predicate exists to avoid.
+ */
+const DECISION_URL = "https://gate.invalid/__decision";
+
+export async function decide<T>(env: any, name: string, args: unknown): Promise<T | undefined> {
+  try {
+    const res = await env?.WASM_GATE?.fetch(
+      new Request(DECISION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, args }),
+      }),
+    );
+    if (!res?.ok) return undefined;
+    const body: any = await res.json();
+    return body?.ok === true ? (body.value as T) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 import { requireAdmin } from "../session.ts";
 import {
   barePrefix,
@@ -111,7 +149,9 @@ export async function adminProbeModels(request: Request, env: any): Promise<Resp
   // **THE DECISION IS RUST'S NOW, AND THE TWIN BELOW IS ONLY THE FALLBACK.** `decide` answers `undefined` when
   // the gate is absent or unreachable — NOT when the decision is null — so a wrong null from Rust cannot be
   // silently corrected here.
-  const decided = await decide<string | null>(env, "upstream_models_url", { upstream: route.upstream });
+  const decided = await decide<string | null>(env, "upstream_models_url", {
+    upstream: route.upstream,
+  });
   const endpoint = decided === undefined ? upstreamModelsUrl(route.upstream) : decided;
   if (!endpoint) {
     return jsonOk({

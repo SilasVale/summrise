@@ -31,18 +31,8 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/decisions.ts",
-      "path": "files/summrise-gate/src/decisions.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/device-fetch.ts",
       "path": "files/summrise-gate/src/device-fetch.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/gate.ts",
-      "path": "files/summrise-gate/src/gate.ts",
       "group": "summrise-gate"
     },
     {
