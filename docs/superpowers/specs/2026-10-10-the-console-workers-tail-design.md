@@ -267,3 +267,47 @@ worker, so the status exclusion does not touch them. **That is the queue, and it
 **WHAT IS *NOT* IN THIS QUEUE AND MUST NOT BE FORCED INTO IT**: a function that needs `env` for anything but reading a
 var, a function that takes a live `Request`, and anything on the status path. **A decision that needs the environment is
 not a decision — it is a route.**
+
+---
+
+## THE SESSION'S MAP — where the tail stands, and what the next batch is (2026-10-12)
+
+**THE THREE CRITERIA AT THE END OF THIS SESSION, ON `6e93ac86`:**
+* **② `all-gates` green** — ✓ inside CI's `pack-chain`;
+* **③ CI green on main** — ✓ `6e93ac86` completed success, 10 green / 0 failed;
+* **① zero LOGIC files** — ✗ **70**, down from **107** when the session started.
+
+**WHAT MOVED THE NUMBER, AND WHAT DID NOT.** 107 -> 70 is 37 files, and it came from three kinds of work: **retiring
+already-ported families** (the sweeps' landing and the console rollback), **ONE honest reclassification** (`store.ts`,
+a pure re-export barrel, found by a mechanical audit of all 71 tracked JS/TS files that found exactly one and ZERO dead
+files), and **one DELIBERATE increase** (69 -> 70 for `gate/src/gate.ts`, recorded in the manifest with its reason:
+a ratchet that can only be raised in the open is doing its job). **Porting `models-probe` and the usage mappers moved
+DECISIONS into Rust without moving the count at all** — the TypeScript twins stay as the fallback, which is the
+fallback decision the operator has not made.
+
+**THE INFRASTRUCTURE THIS SESSION BUILT, WHICH IS WHAT MAKES THE REST A QUEUE RATHER THAN A WALL:**
+`POST /__decision` on the Rust worker, reached through the `WASM_GATE` service binding that already exists. Six rows
+today (`upstream_models_url`, `offered_ids`, `map_openrouter_usage`, `map_amd_usage`, `map_og_usage`,
+`public_provider`), each with its own tests and mutation proofs. **A decision is added by adding a row**, and the
+TypeScript side needs one helper (`decide`) and no protocol knowledge.
+
+**THE NEXT BATCH, AND THE PATTERN IT NEEDS.** `publicProvider` is the model: **it took `env` because the key
+RESOLUTION does, and splitting resolution from shape is what made the rest a decision.** The next candidates are the
+same shape — a function that reads `env` only to fetch what it then projects:
+* `store/users.ts`'s `userKeysStatus` (17 lines) and `getUserKeys` (13) — the per-key status shape;
+* `store/models.ts`'s `advertisedIds` (9) and `catalogue` (3) — but note `catalogue` needs the KV list, so its shape
+  is separable and its READ is not;
+* `store/devices.ts` (10 pure functions) and `upstream.ts` (12) — unsampled this session.
+**MEASURED ABSENT FROM RUST AND READY**: `parseProviderSpec` (132 lines, `store/providers.ts`) with its private
+`parseProviderModel` (59) — a real validator on the admin path, pure JSON, and the largest single reachable decision
+left. It needs `MODEL_FIELDS`, `KNOWN_MODALITIES`, `SUPPORTED_PROVIDER_APIS`, `KNOWN_UNSUPPORTED_APIS` and
+`RESERVED_PREFIXES`, and its error strings are response BYTES.
+
+**WHAT THIS SESSION LEARNED AND WOULD COST THE NEXT READER TO REDISCOVER:**
+1. **the decision route's reach is 158 functions** (pure JSON, off the status/session path); **10** can only move by a
+   route port; **17** can never move, and that is the product's design rather than a gap;
+2. **the status page must never ask the worker** — the exclusion is transitive over everything a status request
+   touches, including the session check;
+3. **a mutation that does not bite finds dead code**: the `=`-padding fix, faithfully copied from the source, was
+   already the Rust decoder's job;
+4. **the reach of a count**: 69 hid 17,151 lines, and my first estimate of "four or five landings" was ONE family.
