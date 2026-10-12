@@ -141,11 +141,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/store/grants.ts",
-      "path": "files/summrise-gate/src/store/grants.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/store/models.ts",
       "path": "files/summrise-gate/src/store/models.ts",
       "group": "summrise-gate"
