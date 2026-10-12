@@ -24,7 +24,7 @@
 //!            → the gateway's own sources (`gateway/src/**`), and NOT the render smokes or the sweep
 //!              table, which are fixtures: a field only they carry renders in a test and answers
 //!              `undefined` against the deployed worker
-//!   gateway  `plugins/mcp.ts`, `device-fetch.ts`, `plugins/devices.ts`
+//!   gateway  `plugins/status.ts`, `device-fetch.ts`, `wasm/src/devices.rs`
 //!            → the agent's Rust or the shared fixtures
 //!
 //! WHAT IT DOES NOT CHECK: types, values, which endpoint a field arrives on (that is the harness's own
@@ -73,6 +73,16 @@
 //! same tree read 4 against a floor of 5, and CI's `agent` job failed with "FAIL read only 4 wire
 //! field(s) from the console — the tree moved, so this proves nothing". A gate that cannot notice its
 //! own coverage leaving is the gate this repository keeps re-learning not to trust.
+//!
+//! MUTATION: the GATEWAY layer's NEW HALF, run when the third consumer became Rust (2026-10-10) — rename
+//!           the key the ported family reads: `.get("proxy_secret")` → `.get("proxy_secret_typo")` in
+//!           `gateway/wasm/src/devices.rs`.
+//! RESULT:   measured — fails, naming the RUST file rather than a TypeScript module:
+//!             gateway/wasm/src/devices.rs: reads "proxy_secret_typo" from a device answer, which the
+//!             agent's sources and fixtures never spell
+//!           and the same tree passes again with the key restored (`gateway-device-field: 7 device
+//!           field(s) read across 3 gateway module(s)`). Without `rust_key_reads` that consumer would
+//!           have contributed ZERO reads — covered-looking and covering nothing.
 
 mod common;
 
@@ -200,6 +210,38 @@ fn snake_reads(text: &str, max: usize) -> Vec<String> {
                 i = end;
             }
             None => i += 1,
+        }
+    }
+    out
+}
+
+/// THE SAME READ, IN THE SHAPE THE PORTED GATEWAY SPELLS IT: `.get("snake_case")`, and the
+/// `contains_key("snake_case")` beside it.
+///
+/// WHY A SECOND SCANNER RATHER THAN REUSING `snake_reads`: a Rust file reads a JSON answer through a KEY —
+/// `data.get("proxy_secret")` — not through a field access, so the dot-access scanner finds NOTHING in it.
+/// The filter is the same one the dot scanner applies (lowercase, at least one `_`, so a KV record's
+/// `name`/`token`/`role` is not a wire field), which keeps the two languages reading the same way.
+fn rust_key_reads(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for opener in [".get(\"", "contains_key(\""] {
+        let mut cursor = 0;
+        while let Some(hit) = text[cursor..].find(opener) {
+            let at = cursor + hit + opener.len();
+            let Some(close) = text[at..].find('"') else {
+                break;
+            };
+            let key = &text[at..at + close];
+            let shaped = key.starts_with(|c: char| c.is_ascii_lowercase())
+                && key.contains('_')
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            if shaped && seen.insert(key.to_string()) {
+                out.push(key.to_string());
+            }
+            cursor = at + close + 1;
         }
     }
     out
@@ -571,10 +613,17 @@ fn console_check() -> Result<String, String> {
 /// of the agent. Three vocabularies share one field syntax, which is the same lesson
 /// `one-derivation-check`'s first run taught about four vocabularies sharing a word: a broad pattern
 /// does not become a rule by matching more.
+///
+/// **AND THE THIRD CONSUMER IS RUST NOW (2026-10-10).** `plugins/mcp.ts` was deleted at the cutover and
+/// its status half is `plugins/status.ts`; `plugins/devices.ts` was deleted and the family's forwarding
+/// is `wasm/src/devices.rs`. The rule is unchanged — every name the gateway reads off a device answer
+/// must be a name the agent spells — so the list followed the code, and the scanner gained the shape the
+/// ported half spells that read in (`rust_key_reads`, below). Listing the Rust file WITHOUT that shape
+/// would have been a consumer contributing zero reads: covered-looking and covering nothing.
 const GATEWAY_CONSUMERS: [&str; 3] = [
-    "gateway/src/plugins/mcp.ts",
+    "gateway/src/plugins/status.ts",
     "gateway/src/device-fetch.ts",
-    "gateway/src/plugins/devices.ts",
+    "gateway/wasm/src/devices.rs",
 ];
 
 fn gateway_check() -> Result<String, String> {
@@ -588,7 +637,13 @@ fn gateway_check() -> Result<String, String> {
     let mut missing = Vec::new();
     for rel in GATEWAY_CONSUMERS {
         let text = decomment(&read(rel));
-        for field in snake_reads(&text, 8) {
+        // ONE READ, TWO LANGUAGES: a `.ts` consumer spells it as a field access, a `.rs` one as a key.
+        let fields = if rel.ends_with(".rs") {
+            rust_key_reads(&text)
+        } else {
+            snake_reads(&text, 8)
+        };
+        for field in fields {
             reads += 1;
             if !spoken(&device_side, &field) {
                 missing.push(format!(

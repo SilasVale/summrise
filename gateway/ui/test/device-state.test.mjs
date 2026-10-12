@@ -89,8 +89,11 @@ test("the freshness claim in deviceState.ts still matches the worker's probe TTL
   // and a reason that is FALSE is worse than no reason, in the one file four different checks point a reader at.
   // This pins the number to the mirror so the note cannot rot: change the TTL and this fails, and the note gets
   // corrected with it.
+  // THE SUBJECT MOVED, NOT DIED: the probe's TTL is in `plugins/status.ts` now — the plugin that serves the route
+  // `plugins/mcp.ts`'s status half owned, deleted by the cutover. The mirror followed it (the sync script re-copies
+  // `src/` wholesale), so this reads the same fact at its new path rather than the file that no longer exists.
   const mirror = readFileSync(
-    path.join(HERE, "..", "..", "public", "code", "files", "summrise-gate", "src", "plugins", "mcp.ts"),
+    path.join(HERE, "..", "..", "public", "code", "files", "summrise-gate", "src", "plugins", "status.ts"),
     "utf8",
   );
   const ttl = /DEVICE_PROBE_TTL_MS\s*=\s*([0-9_]+)/.exec(mirror);

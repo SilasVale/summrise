@@ -106,5 +106,11 @@ redact() { # $1=file $2=live-text ERE $3=sed-expr $4=expected-count
 }
 redact "src/auth.ts" '\*\.agent\.saisi\.online' 's/\*\.agent\.saisi\.online/*.<dist-host>/g' 1
 redact "src/store/devices.ts" 'd1\.agent\.saisi\.online' 's/d1\.agent\.saisi\.online/d1.<dist-host>/g' 1
-redact "src/plugins/devices.ts" '/api/version on agent\.saisi\.online' 's|/api/version on agent\.saisi\.online|/api/version on https://<dist-host>|g' 1
-echo "redacted production host in 3 mirror comments"
+# **THE THIRD RULE WENT WITH ITS SUBJECT (the rollback retirement).** It redacted the
+# `/api/version on <host>` string in `src/plugins/devices.ts`'s install manifest; that file is deleted, and a
+# grep for the string across `gateway/src/`, `gateway/test/` and `gateway/wasm/src/` finds NOTHING — it did not
+# move to a survivor, it went with the file. The rule is removed rather than left inert, and the count below
+# follows it: **a redaction rule whose pattern stops matching is the mirror image of a scan whose pattern stops
+# matching** — the scan reports zero and passes, the redaction reports a warning nobody reads. The script's own
+# `want 1, got ` check is what made the removal a measurement rather than a guess.
+echo "redacted production host in 2 mirror comments"

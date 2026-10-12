@@ -27,10 +27,14 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** `${ADMIN_BASE}/users` and `${ADMIN_BASE}` with the constants resolved. */
+/** `${ADMIN_BASE}/users` and `${ADMIN_BASE}` with the constants resolved — and the Rust families'
+ *  `const DEVICE_BASE: &str = "/api/devices"`, which is the same declaration in the other language. */
 function resolveBases(src, dir) {
   const bases = {};
   for (const m of src.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*=\s*"(\/api\/[^"]*)"/g)) {
+    bases[m[1]] = m[2];
+  }
+  for (const m of src.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*"(\/api\/[^"]*)"/g)) {
     bases[m[1]] = m[2];
   }
   void dir;
@@ -44,7 +48,19 @@ function expand(template, bases) {
   });
 }
 
-/** The worker's own source, plugins and the main dispatcher together. */
+/** The worker's own source, plugins and the main dispatcher together.
+ *
+ *  **AND THE RUST FAMILIES, BECAUSE THEY ARE WORKER ROUTES TOO.** The cutover handed the device family,
+ *  the identity surface, `/mcp`, the reverse proxy and the file relay to `gateway/wasm/src/*.rs`, whose
+ *  route tables are `if method == Method::Post && path == "…"` and `path.starts_with(…)` rather than the
+ *  TypeScript's `add(...)`/`match:` shapes. Reading only the TypeScript would report six paths the
+ *  console requests — `/api/devices`, `register-key`, `register-keys`, `install-cmd` and their dynamic
+ *  spellings — as 404s that the Rust worker answers, which is the false finding this whole file exists
+ *  to prevent, one language over. The file list is the DISPATCH files and not the directory: a whole-tree
+ *  scan would pick up `path == "…"` comparisons from modules that answer nothing and inflate the route set.
+ */
+const RUST_DISPATCH = ["devices.rs", "auth_routes.rs", "mcp.rs", "device_proxy.rs", "upload.rs"];
+
 function workerSource() {
   const dirs = [path.join(ROOT, "src", "plugins"), path.join(ROOT, "src")];
   let src = "";
@@ -52,6 +68,9 @@ function workerSource() {
     for (const f of readdirSync(dir)) {
       if (f.endsWith(".ts")) src += readFileSync(path.join(dir, f), "utf8") + "\n";
     }
+  }
+  for (const f of RUST_DISPATCH) {
+    src += readFileSync(path.join(ROOT, "wasm", "src", f), "utf8") + "\n";
   }
   return src;
 }
@@ -96,10 +115,21 @@ function workerRoutes() {
   for (const m of SRC.matchAll(/(?<!m )path\s*===\s*"([^"]+)"/g)) {
     for (const verb of ["GET", "POST", "PUT", "DELETE"]) out.add(`${verb} ${m[1]}`);
   }
+  // 6. the Rust families: `if method == Method::Post && path == "/api/devices/register-key"`
+  //    and the constant form `… && path == DEVICE_BASE`.
+  for (const m of SRC.matchAll(
+    /method\s*==\s*Method::([A-Za-z]+)\s*&&\s*path\s*==\s*("[^"]*"|[A-Z][A-Z0-9_]*)/g,
+  )) {
+    const raw = m[2];
+    const p = raw.startsWith('"') ? raw.slice(1, -1) : BASES[raw];
+    if (p) out.add(`${m[1].toUpperCase()} ${p}`);
+  }
   return out;
 }
 
-/** Prefixes from the worker's REGEX matchers, up to the first metacharacter. */
+/** Prefixes from the worker's REGEX matchers, up to the first metacharacter — plus the Rust
+ *  families' `path.starts_with(DEVICE_BASE)` / `path.strip_prefix("/api/devices/register-keys/")`,
+ *  which is how a ported family matches the dynamic spellings of its own routes. */
 function workerPrefixes() {
   const out = new Set();
   for (const m of SRC.matchAll(/startsWith\(\s*`([^`]*\$\{[A-Z][A-Z0-9_]*\}[^`]*)`/g)) {
@@ -109,6 +139,11 @@ function workerPrefixes() {
     const t = expand(m[1], BASES);
     const cut = t.search(/[\[\^$*+?()|\\]/);
     out.add(cut > 0 ? t.slice(0, cut) : t);
+  }
+  for (const m of SRC.matchAll(/(?:starts_with|strip_prefix)\(\s*("[^"]*"|[A-Z][A-Z0-9_]*)\s*\)/g)) {
+    const raw = m[1];
+    const p = raw.startsWith('"') ? raw.slice(1, -1) : BASES[raw];
+    if (p) out.add(p);
   }
   return out;
 }

@@ -1,24 +1,28 @@
 /**
- * mcp plugin (round-73 extraction) — MCP endpoint + plugin-link status.
+ * status plugin — `GET /api/plugins/status`, THE ONE ROUTE THE CUTOVER KEPT ON THE TYPESCRIPT PATH.
  *
- * Routes:
- *   /mcp                      (any method, page host) → handleMcp(request, env)
- *                             GET = SSE stream, POST = JSON-RPC (Claude Code)
- *   GET /api/plugins/status   → agent/tunnel health per device (probe)
+ * WHY IT IS A PLUGIN OF ITS OWN RATHER THAN A LINE IN `plugins/mcp.ts`. This route was `plugins/mcp.ts`'s SECOND
+ * route, and that file was deleted at the cutover together with the MCP half it also registered (`/mcp`, now
+ * `gateway/wasm/src/mcp.rs`). Restoring the file to get this route back re-registers the ported MCP surface —
+ * measured twice on this landing, both times the wrong way: the whole file and the file with only this route
+ * both went 366/14 → 330/50. So the repair is an implementation of THIS route that registers nothing else, and
+ * the file is one plugin because that is the unit the registry dispatches on.
  *
- * NOTE: the original index.js guarded /mcp with isPageHost and
- * /api/plugins/status with the admin session (inside handleConsole). Those
- * are fetch/dispatch-layer guards — this plugin registers method+path only;
- * the wiring phase decides where the guards live.
+ * WHY THE ROUTE CANNOT BE PORTED, in `index.ts`'s own words: its response carries `routes` — `routeStats(ctx)`,
+ * the console plugin registry's own dispatch instrumentation: a registration index and a per-isolate hit
+ * counter for EVERY route of every plugin. Those counters are a property of the TypeScript plugin table and of
+ * the traffic one isolate has happened to see; the Rust worker dispatches by family and does not have that
+ * table, so it could only guess them.
  *
- * Logic copied VERBATIM from index.js (mcp route handler + /api/plugins/status
- * handler + cachedDeviceProbe helper); handleMcp is imported from mcp.ts.
+ * EVERYTHING BELOW IS `plugins/mcp.ts`'s status half, MOVED rather than rewritten — `wireVersion`,
+ * `cachedDeviceProbe`, `pluginStatus` and the two payload interfaces verbatim (the deleted file is recoverable:
+ * `git show 55ec3907^:gateway/src/plugins/mcp.ts`). The two probe helpers stay exported so a direct pin can
+ * reach them, exactly as they were there.
  */
 
-import { handleMcp } from "../mcp.ts";
 import { listDevices, touchDeviceSeen, type Device } from "../store.ts";
 import { deviceFetch } from "../device-fetch.ts";
-import { jsonOk, jsonError, withCors } from "../http.ts";
+import { jsonOk, jsonError } from "../http.ts";
 import { requireSession } from "../session.ts";
 import { routeStats, type Plugin, type PluginContext } from "./registry.ts";
 
@@ -278,19 +282,9 @@ async function pluginStatus(request: Request, env: any, ctx?: PluginContext): Pr
 }
 
 export default {
-  name: "mcp",
+  name: "status",
   deps: [],
   setup(ctx: PluginContext) {
-    // ---- MCP endpoint (Claude Code) — admin token, page host only ----
-    // index.js had no method filter here (GET = SSE stream, POST = JSON-RPC).
-    ctx.routes.push({
-      match: (_m, p) => p === "/mcp",
-      // withCors at the plugin exit: handleMcp's own 401/405/parse-error
-      // responses are built bare (no CORS stamp); the front-door dispatch
-      // re-stamps idempotently, but direct plugin consumers get CORS here.
-      handler: async (request: Request, env: any) =>
-        withCors(request, await handleMcp(request, env), env),
-    });
     // ---- GET /api/plugins/status (was inside handleConsole, admin-gated) ----
     // round-83: the migration dropped the admin gate — the plugin route runs
     // BEFORE the legacy session checks, so it returned the device inventory

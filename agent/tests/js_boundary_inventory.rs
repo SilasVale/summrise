@@ -600,17 +600,6 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                        of LOGIC. The old reason justified the page-side half and said nothing
 ///                                        about the judge. **A count that only ever falls would have kept this
 ///                                        file out of the migration forever.**
-///
-///     the npm floor's spawn      95 -> 94   `scripts/test/npm-test-floored.mjs` LEFT — the LAST JavaScript file
-///                                          under `scripts/test/`, and the manifest's `LOGIC | scripts/test/ |`
-///                                          rule went with it, because that rule matched this file alone. Its
-///                                          spawn is in `agent/tests/npm_test_floor.rs` now, beside the decision
-///                                          it had already moved there (`count_of`, landing 3): the same floor,
-///                                          over EVERY tracked package that declares a `test` script rather than
-///                                          the six directories CI handed the wrapper — which found a seventh,
-///                                          `agent/summrise-workspace-dsh`, whose suite NO CI step ran.
-///                                          MEASURED THE SAME WAY, on THIS tree, constant forced to 0:
-///                                          `LOGIC files: 94`.
 ///     the packaging suite        94 -> 93   `agent/summrise-agent-npm/test/packaging.test.mjs` LEFT, and it
 ///                                         left for the reason the class exists: its ten cases were all
 ///                                         VALIDATIONS, so they were LOGIC and had to become Rust. They are
@@ -629,88 +618,26 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 ///                                         it feeds live in `store/file-config.ts`, which is LOGIC with the rest
 ///                                         of the console's rollback.
 ///
-/// ── THE NUMBER BELOW IS THIS TREE'S, AND NEITHER PARENT'S SURVIVED — WHICH IS THE RULE, NOT AN ACCIDENT ─
+/// **AND THAT NUMBER WAS 106 BECAUSE THAT TREE WAS BASED ON `main`.** The same reclassification on
+/// `integration/the-seven-slices` — where the seven slices have taken LOGIC to 94 — read 93. Both are facts
+/// about their own trees, which is the rule this session paid for three times: **a number without its tree is a
+/// number about somebody else's tree.**
 ///
-/// **THE TREE: the merge of `main@2e8db1eb` into `gates/the-floor-is-rust@699ea28c`, 2026-10-10.**
-///
-/// `main` was at **93** and this branch at **94**, and both were correct about their OWN trees: each had
-/// deleted one LOGIC rule from the manifest — `LOGIC | agent/summrise-agent-npm/test/ |` on `main` (its
-/// `packaging.test.mjs` became `agent/tests/npm_package.rs`) and `LOGIC | scripts/test/ |` on this branch
-/// (its `npm-test-floored.mjs` became the spawn inside `agent/tests/npm_test_floor.rs`). A merge that
-/// takes both deletions produces a THIRD tree, so it was re-measured the same way the two lines above
-/// were — constant forced to 0, gate run, refusal read:
-///
-///     LOGIC files: 92, and the frozen budget is 0 — the migration may only shrink this number.
-///
-/// **92, NOT 93 AND NOT 94**, and the difference is the whole reason this paragraph exists: the number
-/// this constant replaces said "THIS NUMBER IS 106 BECAUSE THIS TREE IS BASED ON `main`", which was true
-/// of the tree it was written on and became the mistake it warns about one merge later. The rule is the
-/// one the session paid for three times: **a number without its tree is a number about somebody else's
-/// tree.**
-/// **AND THE E2E SUITE'S SPLIT IS THE ENTRY THAT MOVES THIS CONSTANT ON THE MERGED TREE.** The
-/// reclassification above was RIGHT — the file's call sites computed their conditions and derived the details a
-/// reader acts on — and it is what made the port happen. The port then took the logic OUT of the file: the plan,
-/// the section order, the checks and thirty timing literals are `agent/e2e-judge/` now, the driver performs
-/// platform calls and decides nothing, and `agent/scripts/e2e/` is BOUNDARY again — this time by its control flow
-/// rather than by its name. So the constant falls by one, and it falls by MEASUREMENT rather than by arithmetic:
-///
-///     the e2e suite's judge   93 -> 92   `agent/scripts/e2e/` left LOGIC because the logic left IT — the
-///                                        75th-to-last entry in this table, and the one that CLOSES it.
-///                                                 The counts in this table are about FOUR different trees —
-///                                                 `main` at 107, the slices at 94, the branch that read 93,
-///                                                 and the merge of them — which is the rule this session paid
-///                                                 for three times: **a number without its tree is a number
-///                                                 about somebody else's tree.**
-///
-/// **AND THE COUNT IN THE FILE'S OWN COMMENT WAS WRONG, WHICH IS A THING THE PORT FOUND AND READING DID NOT.**
-/// It says "the 75 `check(...)` calls below are DECISIONS"; the file carries **74 call sites** — the 75th
-/// `check(` in it is the function's own definition and the 76th is that comment. A clean run registers **76**
-/// checks, because the six `mcp` ones run once per transport and four sites are alternative arms. A count
-/// corrected by the thing that had to reproduce it is worth more than one corrected by reading.
-///
-/// **AND THIS NUMBER IS 92 BECAUSE IT WAS MEASURED ON THE MERGED TREE** — this branch after merging
-/// `integration/the-seven-slices` — the way the rule says: `const MAX_LOGIC` forced to **0** and the gate's own
-/// refusal read back: `LOGIC files: 92, and the frozen budget is 0`. It was PREDICTED as 92 (93 minus the one
-/// file this landing moves out of LOGIC) and it was not written until the gate said it, which is the difference
-/// between a number and a fact.
-/// ── AND THE THIRD TREE READ **91**, WHICH IS WHY BOTH PARENTS' 92s WERE NOT REUSED ─────────────────
-///
-/// **THE TREE: the merge of `main@181daf8b` into `gates/the-floor-is-rust@233a3fd6`, 2026-10-10.**
-///
-/// Both sides of this conflict said 92 and both were RIGHT about their own tree — this branch because it
-/// deleted two LOGIC rules, `main` because the e2e split moved one directory out of the class. The merge
-/// takes both facts, so the merged tree is a third tree and the arithmetic that looks obvious (92 minus
-/// one) is the arithmetic this constant must never be set by. It was measured the way the rule says —
-/// constant forced to 0, gate run, its own refusal read back:
-///
-///     LOGIC files: 91, and the frozen budget is 0 — the migration may only shrink this number.
-///
-/// **AND 91 IS THE PREDICTION CONFIRMED, NOT THE PREDICTION USED**: the sentence above says what the
-/// arithmetic suggests, and it was written only after the gate printed the number — the order matters,
-/// because the two parents agreeing on 92 is exactly the coincidence that would have hidden a wrong 92
-/// here. A number without its tree is a number about somebody else's tree.
-/// ── AND THE FOURTH TREE READS **91** TOO, WHICH IS THE PART WORTH WRITING DOWN (landing 2) ────────
-///
-/// **THE TREE: `feat/the-design-sweeps-are-rust`, from `dfa593c9` (the tip of `main`), 2026-10-10.**
-///
-/// The implementation plan for this landing said *"Expected 90; write what the gate prints"*, and the gate
-/// prints **91**. The plan's arithmetic was "the sweeps' directory leaves LOGIC, so the count falls by one",
-/// and the arithmetic is wrong for a reason the manifest itself now records: **EVERY tracked JS file under
-/// `agent/scripts/` ALREADY HAD A LONGER, MORE SPECIFIC BOUNDARY RULE**, so `LOGIC | agent/scripts/ |` was
-/// fully SHADOWED and matched no file at all. Reclassifying it to BOUNDARY — which this landing does, because
-/// a LOGIC rule over a directory of boundaries answers the manifest's own question ("may I write this in
-/// JS?") wrongly — changes the count by exactly zero. The 91 files are 37 in `gateway/src/` and 54 in
-/// `gateway/test/`, both another landing's, and neither is touched here.
-///
-/// **SO THE HONEST SENTENCE FOR THIS LANDING IS NOT "the cap fell to 90" BUT "this slice removed decisions
-/// from JavaScript WITHOUT CHANGING THE COUNT, because the count had already stopped seeing this
-/// directory."** A landing that reported the fall it expected would be reporting a number it never measured;
-/// measured the way the rule says — constant forced to 0, gate run, its own refusal read back:
-///
-///     LOGIC files: 91, and the frozen budget is 0 — the migration may only shrink this number.
-///
-/// **AND THE OTHER DIRECTION OF THE SAME GATE DID NOT FIRE EITHER**, which is what proves the rule is
-/// shadowed rather than merely unhelpful: `no_rule_matches_nothing` asks `Rule::matches`, not `classify`, so a
-/// rule whose files are all covered by something more specific is NOT dead — it is a rule whose files are
-/// also covered by something more specific, and calling that dead would be a gate that cannot be satisfied.
-const MAX_LOGIC: usize = 91;
+///     the status plugin       71 -> 72   `gateway/src/plugins/status.ts` is NEW, and it is LOGIC by the rule:
+///                                         `GET /api/plugins/status` is THE ONE ROUTE the cutover kept on the
+///                                         TypeScript path — its `routes` field is `routeStats(ctx)`, the plugin
+///                                         table's own per-isolate counters, which the Rust worker dispatches
+///                                         without and could only guess — and its implementation was deleted
+///                                         with `plugins/mcp.ts`. Restoring that file re-registers the PORTED
+///                                         MCP half (measured twice on this landing: 366/14 -> 330/50), so the
+///                                         route was MOVED into a plugin that registers nothing else.
+///                                         **THE CAP GOES UP BECAUSE A ROUTE THAT CANNOT BE PORTED WAS GIVEN BACK
+///                                         ITS ONE IMPLEMENTATION** — the direction this file allows only with a
+///                                         name and a reason, and this is both.
+///                                         MEASURED on `gateway/the-rollback-retires` (the tree carrying the
+///                                         status plugin), with the constant forced to 0: `LOGIC files: 72`.
+///                                         **AND THE CAP WAS ALREADY STALE BEFORE THIS EDIT:** the same
+///                                         measurement read **71** against `MAX_LOGIC = 80`, so this gate was RED
+///                                         on `0155edc0` — "the list SHRANK and the cap did not follow it down.
+///                                         A cap left high is finished work wearing a budget."
+const MAX_LOGIC: usize = 72;

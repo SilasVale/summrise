@@ -52,7 +52,8 @@ import type { Signal } from "./deviceState.ts";
 import { logic } from "../wasm/consoleLogic.ts";
 
 /** The device's own answer at `/api/update`, as far as the gateway forwards it (`DeviceUpdate` in
- *  `gateway/src/plugins/mcp.ts` owns the field-by-field justification). Everything optional here is optional
+ *  `gateway/src/plugins/status.ts` — `plugins/mcp.ts` until the cutover — owns the field-by-field justification).
+ *  Everything optional here is optional
  *  because an older agent does not send it — absent means "not reported", never "zero". */
 interface DeviceUpdateWire {
   current?: string;

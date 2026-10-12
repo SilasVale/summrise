@@ -16,11 +16,14 @@
 //!     cd gateway/wasm && SUMMRISE_REFRESH_MCP_TOOLS=1 cargo test mcp_tools
 //! ```
 //!
-//! The TypeScript survives at all for ONE reason, and it is a reason with a date on it: `plugins/mcp.ts` is
-//! still registered, and it is the ROLLBACK for the cutover — `index.ts` hands `/mcp` to the `WASM_GATE` service
-//! binding when it is present and falls through to the TypeScript plugin when it is not. Deleting
-//! `mcp-tools.ts` today would leave that fallback serving an MCP endpoint with ZERO tools. The deletion is the
-//! last step of this landing, after the deploy that proves the worker serves the surface.
+//! **THE REASON THIS PARAGRAPH USED TO GIVE IS GONE, AND THE FILE CONTRADICTED ITSELF FOR A DAY.** It read:
+//! "The TypeScript survives at all for ONE reason … `plugins/mcp.ts` is still registered, and it is the
+//! ROLLBACK for the cutover … Deleting `mcp-tools.ts` today would leave that fallback serving an MCP endpoint
+//! with ZERO tools." **That was true when written and false the moment the cascade landed** (`55ec3907`
+//! deleted `plugins/mcp.ts`, `mcp.ts`, `mcp-browser.ts` and `mcp-errors.ts`), while the emitted header further
+//! down this same file already said the opposite — "the binding was proved live, the fallback retired, the
+//! plugin is deleted with it". **What survives, and the only reason left:** this table is the console's own
+//! tool table, EMITTED from this file, and it is the one source the MCP surface and the device proxy both read.
 //!
 //! **WHY THE SCHEMA IS A JSON STRING RATHER THAN A `serde_json::Value`.** Two reasons, both byte-level. A
 //! `Value` in a `const` cannot be built without a macro call per field (and `serde_json::json!` does not
@@ -1040,10 +1043,13 @@ const TS_HEADER: &str = r#"/**
  *
  *     cd gateway/wasm && SUMMRISE_REFRESH_MCP_TOOLS=1 cargo test mcp_tools
  *
- * WHY IT STILL EXISTS AT ALL: `plugins/mcp.ts` is registered and is the ROLLBACK for the cutover —
- * `index.ts` hands `/mcp` to the `WASM_GATE` binding when it is present and falls through to the
- * TypeScript plugin when it is not. Deleting this file before that deploy would leave the fallback
- * serving an MCP endpoint with ZERO tools. It is deleted with the plugin, after the deploy.
+ * WHY IT STILL EXISTS AT ALL: it is the console's own tool table, EMITTED from this file, and it is the one
+ * source the MCP surface and the device proxy both read. It used to have a SECOND reason — `plugins/mcp.ts`
+ * was the ROLLBACK for the `/mcp` cutover, and deleting this file before that deploy would have left the
+ * fallback serving an MCP endpoint with ZERO tools — and **that reason is gone**: the binding was proved
+ * live, the fallback retired, the plugin is deleted with it, and `index.ts` now hands `/mcp` to the worker
+ * unconditionally. **The freshness gate compares this file to the emitted output; it cannot see a sentence
+ * that BECAME FALSE, which is why this correction is here rather than in `mcp-tools.ts`.**
  *
  * THE DEFECT IT CLOSES: this file used to be a HAND-COPY of what each device plugin's Rust
  * `tools.rs` defines. Round-554's note here records what that cost — 21 of the agent's 49 tools

@@ -12,6 +12,12 @@
  *     a per-request KV write HERE would let an attacker exhaust the
  *     Free-plan daily KV write quota. The per-isolate ceiling is the
  *     accepted trade (documented, not a bug).
+ *     THE DEVICES GATE IS NOT THIS FILE'S CALLER ANY MORE: the cutover moved the
+ *     family to `gateway/wasm/src/ip_rate_limit.rs`, where memory-only is not a
+ *     flag but the ABSENCE of a KV field on `IpRateLimiter` — the KV arms are
+ *     unreachable in that mode, so the port left them out. The probe and auth
+ *     register call sites are still here, and `test/ratelimit-kvseed.test.mjs`
+ *     reads all three (two as option literals, one as the Rust struct's fields).
  *
  * Semantics preserved verbatim from the three originals:
  *   - per-IP (cf-connecting-ip) per fixed window bucket, in-memory

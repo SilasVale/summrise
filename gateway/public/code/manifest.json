@@ -46,23 +46,8 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/mcp-browser.ts",
-      "path": "files/summrise-gate/src/mcp-browser.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/mcp-errors.ts",
-      "path": "files/summrise-gate/src/mcp-errors.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/mcp-tools.ts",
       "path": "files/summrise-gate/src/mcp-tools.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/mcp.ts",
-      "path": "files/summrise-gate/src/mcp.ts",
       "group": "summrise-gate"
     },
     {
@@ -91,11 +76,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/tool-policy.ts",
-      "path": "files/summrise-gate/src/tool-policy.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/tooling.ts",
       "path": "files/summrise-gate/src/tooling.ts",
       "group": "summrise-gate"
@@ -116,21 +96,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/plugins/device-proxy.ts",
-      "path": "files/summrise-gate/src/plugins/device-proxy.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/devices.ts",
-      "path": "files/summrise-gate/src/plugins/devices.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/mcp.ts",
-      "path": "files/summrise-gate/src/plugins/mcp.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/plugins/models-probe.ts",
       "path": "files/summrise-gate/src/plugins/models-probe.ts",
       "group": "summrise-gate"
@@ -138,6 +103,11 @@
     {
       "name": "src/plugins/registry.ts",
       "path": "files/summrise-gate/src/plugins/registry.ts",
+      "group": "summrise-gate"
+    },
+    {
+      "name": "src/plugins/status.ts",
+      "path": "files/summrise-gate/src/plugins/status.ts",
       "group": "summrise-gate"
     },
     {

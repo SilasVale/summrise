@@ -3,7 +3,7 @@
 //! "Which of the device's two version fields wins" is implemented on BOTH sides:
 //!
 //!   panel    agent/resources/panel-logic/src/version.rs            release_version()
-//!   gateway  gateway/src/plugins/mcp.ts                            wireVersion()
+//!   gateway  gateway/src/plugins/status.ts                         wireVersion()
 //!
 //! They cannot share code — different packages, different deploy targets — and BOTH have been broken:
 //! round-304 on the gateway side (the console read the frozen Cargo `version`, showed v1.0.145 forever,
@@ -37,7 +37,10 @@ use std::fs;
 /// subject of this gate follows the rule, which is the same move `wire_fields.rs` made when a console
 /// family left the TypeScript.
 const PANEL: &str = "agent/resources/panel-logic/src/version.rs";
-const GATEWAY: &str = "gateway/src/plugins/mcp.ts";
+/// THE GATEWAY'S HALF MOVED WITH ITS ROUTE (2026-10-10): `plugins/mcp.ts` was deleted at the cutover and
+/// `wireVersion` is in `plugins/status.ts` now — the plugin that serves the route `plugins/mcp.ts`'s status
+/// half owned, registering nothing else. The rule did not change; the file that carries it did.
+const GATEWAY: &str = "gateway/src/plugins/status.ts";
 
 struct Streams {
     stdout: String,
@@ -185,9 +188,9 @@ fn check() -> Streams {
 
     // 3. Each side must NAME the other. This is the part that was missing, and the only part that makes
     //    a change on one side visible from the other without a shared module.
-    if !panel_raw.contains("gateway/src/plugins/mcp.ts") {
+    if !panel_raw.contains("gateway/src/plugins/status.ts") {
         problems.push(format!(
-            "{PANEL}: no longer names `gateway/src/plugins/mcp.ts`. The console applies the same rule to the same \
+            "{PANEL}: no longer names `gateway/src/plugins/status.ts`. The console applies the same rule to the same \
              device; if this file does not say so, the next change here is invisible from there."
         ));
     }

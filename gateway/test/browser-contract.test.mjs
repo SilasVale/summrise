@@ -1,11 +1,17 @@
 // ── the console's browser_* tools must speak the SHIPPED server's language ───
 //
 // `browser_*` is the one tool family the gateway TRANSLATES rather than relays to
-// the device: `mcp-browser.ts` maps the console's name to playwright-mcp's and
+// the device: the bridge maps the console's name to playwright-mcp's and
 // forwards the arguments VERBATIM (only `element_ref` is rewritten, and `run_id`
 // is lifted out). So a parameter name that does not exist in the shipped
 // playwright-mcp is not a cosmetic drift — the argument is dropped or rejected,
 // and the console is advertising a call it cannot make.
+//
+// **AND THE BRIDGE IS RUST NOW.** The cutover deleted `src/mcp-browser.ts` and the table lives in
+// `gateway/wasm/src/mcp_browser.rs` (`fn playwright_tool`, the same seven arms). The test below read the
+// TypeScript file and failed with ENOENT — and its own assertion message had said what to do in exactly this
+// case: "the mapping table moved — re-point this test rather than deleting it". It moved, so it was re-pointed;
+// the subject (every console name maps to a tool the SHIPPED server defines) is unchanged.
 //
 // TWO WERE WRONG, verified against the bundle the agent itself installs
 // (`agent/deploy/summrise-playwright.zip`, `@playwright/mcp` 0.0.79):
@@ -157,7 +163,7 @@ test("every argument the console sends a browser tool exists in the shipped serv
     const pm = toPm[tool.name];
     if (!pm) continue;
     const block = blocks[pm];
-    assert.ok(block, `the shipped bundle has no ${pm} — the mapping table in mcp-browser.ts is stale`);
+    assert.ok(block, `the shipped bundle has no ${pm} — the mapping table in mcp_browser.rs is stale`);
     for (const p of Object.keys(tool.inputSchema.properties || {})) {
       if (NOT_FORWARDED.has(p) || TRANSLATED.has(p)) continue;
       if (!declares(block, p)) problems.push(`${tool.name}.${p} (${source} does not declare it)`);
@@ -172,11 +178,15 @@ test("every argument the console sends a browser tool exists in the shipped serv
 });
 
 test("every mapping in the bridge points at a tool the shipped server defines", () => {
-  const src = readFileSync(new URL("../src/mcp-browser.ts", import.meta.url), "utf8");
+  // THE SUBJECT MOVED, NOT DIED: the table is `fn playwright_tool` in the Rust bridge, and this parses its
+  // `"console" => "shipped"` arms. The `other => other` fallback is not a mapping and is skipped by the regex.
+  const src = readFileSync(new URL("../wasm/src/mcp_browser.rs", import.meta.url), "utf8");
   const { tools: blocks } = shippedSchemaText();
-  const table = /const toolMap[^{]*\{([\s\S]*?)\n  \};/.exec(src);
+  const table = /fn playwright_tool\(name: &str\) -> &str \{[\s\S]*?match name \{([\s\S]*?)\n    \}/.exec(
+    src,
+  );
   assert.ok(table, "the mapping table moved — re-point this test rather than deleting it");
-  const mappings = [...table[1].matchAll(/(\w+):\s*"(\w+)"/g)].map((m) => [m[1], m[2]]);
+  const mappings = [...table[1].matchAll(/"(\w+)"\s*=>\s*"(\w+)"/g)].map((m) => [m[1], m[2]]);
   assert.ok(mappings.length >= 7, `only ${mappings.length} mappings parsed`);
   const ghosts = mappings.filter(([, pm]) => !blocks[pm]).map(([g, pm]) => `${g} -> ${pm}`);
   assert.deepEqual(ghosts, [], `the bridge maps to tools the server does not define: ${ghosts.join(", ")}`);

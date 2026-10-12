@@ -223,7 +223,8 @@ export interface DeviceStatus {
    *  Absent for an agent older than the route; then the page falls back to the comparison.
    *
    *  THE LAST FOUR ARE WHY THE VERDICT CAN BE ACTED ON, and this console shipped without them (the gateway's
-   *  projection dropped them — `DeviceUpdate` in `gateway/src/plugins/mcp.ts` is where each one is justified):
+   *  projection dropped them — `DeviceUpdate` in `gateway/src/plugins/status.ts` (`plugins/mcp.ts` until the
+   *  cutover deleted it) is where each one is justified):
    *    * `busy`         — an update is ALREADY running on the device;
    *    * `error`        — the release server did NOT answer, so "no newer build" is UNKNOWN, not "you are current";
    *    * `checked_at`   — when the DEVICE asked the channel (the row's own `checked_at` is this console's probe time,

@@ -14,6 +14,11 @@
 // It reads the three sources as data rather than restating them, and asserts the
 // POSITIVE too (probe still seeds), so moving the flag away from probe is equally
 // refused — the doc says that one WANTS the KV seed.
+//
+// **THE DEVICES CALL SITE IS RUST NOW** (the cutover moved the family to `wasm/src/ip_rate_limit.rs`), and the
+// assertion follows it rather than the deleted file: the Rust limiter has no KV arm to set, so "memory-only" is
+// checked as the STRUCT's field list, not as an absent flag. The other two call sites are still TypeScript and
+// are still read as option literals.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -45,15 +50,35 @@ function limiterOptions(rel) {
   return { body, name, kvSeed: /kvSeed:\s*true/.test(body) };
 }
 
+/** The Rust limiter's own instance, read as data: `PUBLIC_RATE`'s fields and the STRUCT's field list.
+ *
+ *  `wasm/src/ip_rate_limit.rs` is the devices public gate's limiter since the cutover, and its header records the
+ *  decision: "kvSeed IS NOT PORTED, AND THAT IS A DECISION RATHER THAN AN OMISSION … the devices plugin
+ *  instantiates the memory-only one". So memory-only is not a flag left unset here — the struct has no KV field
+ *  at all, and `kvSeed` below is that field's ABSENCE, which is what the assertion refuses to let appear. */
+function rustLimiter(rel) {
+  const src = readFileSync(join(ROOT, rel), "utf8");
+  const konst = /pub const PUBLIC_RATE:\s*IpRateLimiter\s*=\s*IpRateLimiter\s*\{([\s\S]*?)\};/.exec(
+    src,
+  );
+  if (!konst) return null;
+  const struct = /pub struct IpRateLimiter\s*\{([\s\S]*?)\}/.exec(src);
+  return {
+    body: konst[1],
+    name: konst[1].match(/name:\s*"([^"]+)"/)?.[1],
+    kvSeed: /kv_seed/.test(struct ? struct[1] : ""),
+  };
+}
+
 test("ratelimit: only the probe limiter seeds its counter from KV", () => {
   const probe = limiterOptions("src/tooling.ts");
   const auth = limiterOptions("src/plugins/auth.ts");
-  const devices = limiterOptions("src/plugins/devices.ts");
+  const devices = rustLimiter("wasm/src/ip_rate_limit.rs");
 
   for (const [label, o] of [
     ["src/tooling.ts", probe],
     ["src/plugins/auth.ts", auth],
-    ["src/plugins/devices.ts", devices],
+    ["wasm/src/ip_rate_limit.rs", devices],
   ]) {
     assert.ok(o, `${label} no longer creates an IP rate limiter — if a call site moved, ` +
       `move it in the ledger and in src/lib/ratelimit.ts's enumeration too`);
@@ -66,27 +91,32 @@ test("ratelimit: only the probe limiter seeds its counter from KV", () => {
       "first sight per IP reads and persists KV so a new isolate inherits the budget",
   );
 
-  for (const [label, o] of [
-    ["src/plugins/auth.ts", auth],
-    ["src/plugins/devices.ts", devices],
-  ]) {
-    assert.equal(
-      o.kvSeed,
-      false,
-      `${label}'s limiter gained \`kvSeed: true\`. Those two endpoints already cost 2-3 KV ` +
-        `writes per attempt themselves, so a per-request KV write here lets an attacker ` +
-        `exhaust the Free-plan daily KV write quota — that is round-104's finding, and ` +
-        `src/lib/ratelimit.ts records the per-isolate ceiling as the ACCEPTED trade. ` +
-        `If this is deliberate, change the doc's enumeration in the same commit.`,
-    );
-  }
+  assert.equal(
+    auth.kvSeed,
+    false,
+    `src/plugins/auth.ts's limiter gained \`kvSeed: true\`. Those two endpoints already cost 2-3 KV ` +
+      `writes per attempt themselves, so a per-request KV write here lets an attacker ` +
+      `exhaust the Free-plan daily KV write quota — that is round-104's finding, and ` +
+      `src/lib/ratelimit.ts records the per-isolate ceiling as the ACCEPTED trade. ` +
+      `If this is deliberate, change the doc's enumeration in the same commit.`,
+  );
+
+  assert.equal(
+    devices.kvSeed,
+    false,
+    `wasm/src/ip_rate_limit.rs's IpRateLimiter gained a KV-seed field. The port deliberately left the ` +
+      `KV arms out — in the memory-only mode the source's KV arms are UNREACHABLE, so porting them ` +
+      `would be porting dead code, and the devices gate is the one that costs 2-3 KV writes per attempt ` +
+      `already (round-104). A field here is a policy change: give it a line in src/lib/ratelimit.ts's ` +
+      `enumeration and re-do that quota analysis, or drop it.`,
+  );
 });
 
 test("ratelimit: the three named buckets are the ones the doc enumerates", () => {
   const names = [
     limiterOptions("src/tooling.ts").name,
     limiterOptions("src/plugins/auth.ts").name,
-    limiterOptions("src/plugins/devices.ts").name,
+    rustLimiter("wasm/src/ip_rate_limit.rs").name,
   ].sort();
   assert.deepEqual(
     names,

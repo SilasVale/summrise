@@ -24,8 +24,10 @@ function makeEnv() {
     // **NO `WASM_GATE` BINDING, ON PURPOSE: THIS FILE TESTS THE TYPESCRIPT IMPLEMENTATION.** `index.ts` hands the
     // identity surface (`/api/auth/*` and the ported `/api/me*` routes) to the Rust worker when that binding is
     // present — the production configuration — so a test of these handlers is a test of the ROLLBACK path, which
-    // is a real configuration and the one these assertions were always about. The cutover's own routing is pinned
-    // in `auth-cutover.test.mjs`.
+    // is a real configuration and the one these assertions were always about. The cutover's own routing is
+    // witnessed in `frontdoor.test.mjs` (the binding-less fallthrough) and just below (the one exclusion, with
+    // the binding present); `auth-cutover.test.mjs` went with the code it tested (rule 1) and asserted the
+    // UNCONDITIONAL handover this tree no longer has.
     wasmGate: false,
     users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
     kv: { _admin_seeded: "1", "auth:admin_password": "pw" },
@@ -121,6 +123,39 @@ test("plugins/status: valid admin session → 200 (R83 gate)", async () => {
   });
   const res = await worker.fetch(req, env);
   assert.equal(res.status, 200);
+});
+
+// **THE EXCLUSION, IN THE CONFIGURATION WHERE HANDING THE ROUTE OVER WOULD SHOW.** `index.ts` says
+// `GET /api/plugins/status` "therefore stays on the TypeScript path, and the harness's cutover section asserts
+// that it does" — and the file that asserted it (`mcp-cutover.test.mjs`) went with the code it tested while the
+// ROUTE survived. `makeEnv` above is the ROLLBACK, where a binding-less env reaches the plugin whatever the
+// routing says, so it cannot witness the exclusion at all. This test builds the DEPLOYED shape instead
+// (`helpers.mjs` stubs `WASM_GATE` and records what reaches it): the answer must come from the plugin AND the
+// worker must never be asked. The `routes` field is the second half of the proof — it is `routeStats(ctx)`, a
+// property of the TypeScript plugin table that the Rust worker could not produce — while the stub answers a
+// model list, so the two answers cannot be confused.
+test("plugins/status: the exclusion holds WITH the binding present (the worker is never asked)", async () => {
+  const env = makeBaseEnv({
+    users: { admin: { id: "admin", username: "admin", role: "admin", enabled: true, token: "" } },
+    kv: { _admin_seeded: "1", "auth:admin_password": "pw" },
+  });
+  const cookie = await issueSessionToken("pw", "admin", "admin");
+  const res = await worker.fetch(
+    new Request("https://x/api/plugins/status", {
+      method: "GET",
+      headers: { "content-type": "application/json", cookie: `ag_session=${cookie}` },
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    env._frontDoor,
+    [],
+    "the one exclusion must NOT be handed to the Rust worker — the route is not in isMcpFamily",
+  );
+  const body = await res.json();
+  assert.ok(Array.isArray(body.routes), "the answer carries routeStats, which only the plugin table can give");
+  assert.ok(body.devices && typeof body.devices === "object", "and the device map, not the stub's model list");
 });
 
 /* ---- Reset admin password (round-113, by admin gateway token) ---- */

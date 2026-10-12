@@ -9,8 +9,8 @@
  *   fetch()            host split (console vs API), HTTPS redirect, static
  *                      assets, /v1/* dispatch, public tooling endpoints
  *   ensurePluginCtx()  builds the plugin context once per isolate:
- *                      auth / devices / mcp / translate / admin plugins own
- *                      every /api/* route + /mcp + /v1/* (see src/plugins/)
+ *                      the auth / admin / status plugins own the /api/* routes
+ *                      the Rust worker does not (see src/plugins/)
  *   frontDoor()        /v1/* -> the Rust worker's service binding (the TypeScript impl is deleted)
  *
  * The public CLI-facing tooling surface (GET /api/health, POST
@@ -28,8 +28,7 @@
  *   http.ts              jsonOk/jsonError/readJson/CORS
  *   store.ts             KV persistence (users/tokens/devices/plugin links)
  *   tooling.ts           public CLI surface (health/probe/installers)
- *   mcp.ts               MCP endpoint handler (Claude Code)
- *   plugins/*            DSH-style route plugins (auth/devices/mcp/translate/admin)
+ *   plugins/*            DSH-style route plugins (auth/admin/status)
  */
 
 import { seedAdmin } from "./store.ts";
@@ -56,9 +55,8 @@ export {
 import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
 import authPlugin from "./plugins/auth.ts";
 import { csrfCookieViolation } from "./auth.ts";
-import devicesPlugin from "./plugins/devices.ts";
-import mcpPlugin from "./plugins/mcp.ts";
 import adminPlugin from "./plugins/admin.ts";
+import statusPlugin from "./plugins/status.ts";
 
 // Re-exported for tooling/tests that target the front door surface.
 // BreakerDO/RouteDO must be exported from the entrypoint —
@@ -84,7 +82,7 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [authPlugin, devicesPlugin, mcpPlugin, adminPlugin]);
+  registerPlugins(__pluginCtx, [authPlugin, adminPlugin, statusPlugin]);
   return __pluginCtx;
 }
 
@@ -233,14 +231,21 @@ function isAuthFamily(path: string): boolean {
  * instrumentation: a registration index and a per-isolate hit counter for EVERY route of every plugin. Those
  * counters are a property of the TypeScript plugin table and of the traffic one isolate has happened to see;
  * the Rust worker dispatches by family and does not have that table, so it could only guess them. The route
- * therefore stays on the TypeScript path, and the harness's cutover section asserts that it does — a cutover
- * that only ever grows a list is a cutover whose exclusions are untested.
+ * therefore stays on the TypeScript path, and `plugins.test.mjs` asserts that it does — WITH THE BINDING PRESENT,
+ * the configuration where handing it over would show — because a cutover that only ever grows a list is a cutover
+ * whose exclusions are untested. **AND THE SECTION THAT USED TO ASSERT THIS (`mcp-cutover.test.mjs`) WENT WITH
+ * THE CODE IT TESTED WHILE THE ROUTE SURVIVED**, so the assertion is back, in the file that owns the route.
  *
- * **AND THE ROLLBACK IS THE PLUGIN, NOT A DELETION.** `plugins/mcp.ts`, `mcp.ts`, `mcp-browser.ts`,
- * `mcp-errors.ts` and the now-GENERATED `mcp-tools.ts` are all still here, and deleting them is the last step
- * of this landing, after the deploy that proves the worker serves the surface. Without the binding — a local
- * `wrangler dev`, a test env, a deployment whose binding was removed — `/mcp` falls through to the plugin
- * below, UNCHANGED.
+ * **AND THE MCP ROLLBACK IS DELETED, WHICH THIS PARAGRAPH USED TO DENY.** `plugins/mcp.ts`, `mcp.ts`,
+ * `mcp-browser.ts` and `mcp-errors.ts` were deleted by the cutover cascade (55ec3907) while this text still read
+ * "they are all still here, and deleting them is the last step of this landing"; the now-GENERATED `mcp-tools.ts`
+ * stays. So without the binding `/mcp` falls through to a dispatch table that has no `/mcp` route and answers the
+ * front door's 404 — the rollback for the MCP half is gone, and the sentence that said otherwise was the lie.
+ *
+ * **AND THE ONE ROUTE THAT MUST STAY ON THE TYPESCRIPT PATH HAS A PLUGIN THAT REGISTERS NOTHING ELSE.**
+ * `plugins/status.ts` serves `GET /api/plugins/status` — the exclusion above. Restoring `plugins/mcp.ts` to get
+ * that route back re-registers the ported MCP half and was measured twice the wrong way (366/14 → 330/50); the
+ * route was moved instead, and that plugin registers no second route.
  */
 function isMcpFamily(path: string): boolean {
   return path === "/mcp";
@@ -336,6 +341,14 @@ export default {
 
       // ---- Console API + MCP endpoint (page hosts) — all plugin-owned ----
       if (isPageHost && (path.startsWith("/api/") || path === "/mcp")) {
+        // **THE THREE CONDITIONS BELOW ARE THE ROLLBACK, AND THEY WERE REMOVED BY THE CASCADE WHILE THE COMMENT
+        // ABOVE THEM KEPT PROMISING THEM** — *"goes to the Rust worker WHEN THE BINDING IS THERE"* and *"without the
+        // binding … falls through to the TypeScript plugin, UNCHANGED: that is the rollback"*. The code checked only
+        // the family, so a test env with no `WASM_GATE` sent every one of these routes to a worker that is not bound:
+        // **MEASURED 2026-10-10, 33 tests across `auth.ts`'s and `admin.ts`'s whole surface answered 404**, and the
+        // suite's failure count falling read as progress. `index.ts`'s own words are the spec: the rollback files go
+        // **after the deploy that proves the worker serves the family**, and this landing has not deployed.
+        //
         // **THE DEVICE FAMILY GOES TO THE RUST WORKER WHEN THE BINDING IS THERE.** `seedAdmin` has already run
         // (it is the front door's job and the worker does not do it), the CSRF gate above has already run, and
         // the cookie test applies ONLY to the admin-gated routes — the Access-arm carve-out described on

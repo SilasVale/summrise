@@ -17,7 +17,6 @@
  *
  * DIRECTORY CONTRACT (layering review 2026-09-06): plugins/ holds (1) the
  * route plugins themselves, (2) this framework, and (3) each plugin's
- * EXCLUSIVE collaborator modules — device-proxy.ts (devices only),
  * models-probe.ts (admin only). A module with two live consumers is NOT a
  * private collaborator: it belongs in src/ as foundation.
  *

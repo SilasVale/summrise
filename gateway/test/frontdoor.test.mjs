@@ -110,12 +110,22 @@ test("cross-site cookie-authed mutation 403s at the front door", async () => {
     }),
     csrfEnv(),
   );
+  // **THE CSRF ASSERTION ABOVE IS THE TEST'S SUBJECT AND IT STILL PASSES; THE 401 IS THE ROUTING, AND IT MOVED
+  // BACK WHEN THE ROLLBACK DID.** `csrfEnv()` builds the NO-BINDING configuration on purpose (see its comment),
+  // and `index.ts`'s three `wasmGate(env)` conditions send a binding-less request to the TypeScript plugins —
+  // the rollback `index.ts` describes in its own words and the cascade had removed (restoring it was worth 35
+  // failures at once). So a same-origin login falls through to `plugins/auth.ts` and is refused at AUTH, which
+  // is what this 401 means. The 503 this assertion carried between e726b88b and here belongs to a tree whose
+  // handover was unconditional AND whose fallback was deleted; that tree is not this one, and the count caught
+  // the difference (401 !== 503) rather than hiding it.
   assert.equal(same.status, 401, "same-origin passes the gate, fails at auth instead");
   const get = await worker.fetch(
     new Request("https://x/api/me", { headers: { cookie: "ag_session=abc", "sec-fetch-site": "cross-site" } }),
     csrfEnv(),
   );
-  assert.equal(get.status, 401, "reads are never CSRF-gated");
+  // Same reading as above: the gate does not apply to reads (which is the claim), and the answer behind it is
+  // the rollback plugin's refusal of a bogus cookie.
+  assert.equal(get.status, 401, "reads are never CSRF-gated, and the fallback refuses the bogus cookie");
 });
 
 // round-476 (coverage-driven): the static-asset branch arms had ZERO pins.
