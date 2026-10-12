@@ -175,7 +175,14 @@ jobs:
         run: npm ci --include=optional && npm run build
         working-directory: agent/resources/panel-react
       - name: Test panel SPA
-        run: node ${{ github.workspace }}/scripts/test/npm-test-floored.mjs
+        # `scripts/test/npm-test-floored.mjs` WAS HERE AND NO LONGER EXISTS — ci.yml records the deletion
+        # ("The wrapper that used to stand here ... is deleted") and runs plain `npm test` in this same
+        # working directory. This workflow kept calling the deleted file, so the step died with
+        # `Cannot find module` and skipped the cross-compile, the pack and the release upload: it cost
+        # v1.2.511 its GitHub asset (run 38251564498, 2026-10-12). The zero-test FLOOR the wrapper used to
+        # carry now lives in `agent/tests/npm_test_floor.rs`, which runs in CI — and this workflow already
+        # gates on the tag commit's CI status, so that floor is enforced for a release either way.
+        run: npm test
         working-directory: agent/resources/panel-react
       - name: Cross-compile the agent exe
         working-directory: agent
