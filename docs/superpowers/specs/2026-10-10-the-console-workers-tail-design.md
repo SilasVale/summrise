@@ -311,3 +311,35 @@ left. It needs `MODEL_FIELDS`, `KNOWN_MODALITIES`, `SUPPORTED_PROVIDER_APIS`, `K
 3. **a mutation that does not bite finds dead code**: the `=`-padding fix, faithfully copied from the source, was
    already the Rust decoder's job;
 4. **the reach of a count**: 69 hid 17,151 lines, and my first estimate of "four or five landings" was ONE family.
+
+---
+
+## MEASURED 2026-10-12 — THREE QUARTERS OF THE REMAINING TYPESCRIPT IS ALREADY RUST
+
+**THE NUMBER THAT DECIDES WHAT CRITERION ① ACTUALLY NEEDS.** Every `export`ed function in the 70 LOGIC files was
+matched against the Rust tree by NORMALIZED name (case and separators removed, so `mapOpenRouterUsage` matches
+`map_openrouter_usage`):
+
+| | |
+|---|---|
+| exported functions across the 70 files | **195** |
+| already present in Rust | **147 — 75%** |
+| files with NO function present in Rust | **3** |
+
+**THE THREE FILES WITH NOTHING IN RUST ARE THE WHOLE OF THE GENUINE GAP, AND TWO OF THEM ARE NOT GAPS AT ALL:**
+* `plugins/status.ts` — **on the status path, so it can never move** (the exclusion above);
+* `gateway/src/route-do.ts` — the Durable Object's request authorisation, which takes a live `Request` (group A);
+* `gateway/src/store/file-config.ts` — the catalogue-file parser, **and this one is a real, unported decision**.
+
+**SO CRITERION ① IS NOT 17,151 LINES OF PORTING. IT IS MOSTLY ONE DECISION THAT ONLY THE OPERATOR CAN MAKE**: the
+TypeScript that remains is, for three quarters of its functions, **a reference and a fallback for a decision that is
+already Rust** — the state the sweeps' own landing established when each Rust rule landed BESIDE its JavaScript twin
+because each twin had a live caller. **Deleting the twins is what turns 70 into a small number**, and that is the
+fallback decision `/v1` already made once: *"THE TYPESCRIPT IMPLEMENTATION IS DELETED, so there is no fallback to fall
+back to."*
+
+**WHAT REMAINS GENUINELY TO PORT, IN ORDER OF SIZE**: `store/providers.ts`'s `parseProviderSpec` + its private
+`parseProviderModel` (~190 lines, byte-exact error strings, the largest reachable decision), `store/file-config.ts`'s
+catalogue parser, and whatever the 75%-matched remainder still OWNS rather than merely mirrors — **which is the
+measurement this number does not make, because a matching name is not a matching behaviour.** That is the next
+honest piece of work: for a file whose functions all match, diff the BEHAVIOUR, not the names.
