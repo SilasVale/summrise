@@ -42,6 +42,30 @@ pub fn probe_in_family(path: &str) -> bool {
     path == "/api/summrise-probe"
 }
 
+/// **THE SEED'S TWO DECISIONS, PURE — BECAUSE THE EXECUTION IS A PLATFORM CALL.**
+///
+/// The TypeScript's source is `gateway/src/lib/ratelimit.ts` and it is one function doing three things: read KV, write
+/// KV, and decide WHEN. The reading and the writing are `device_store::kv_get`/`kv_put`; the deciding is here, as values,
+/// so a test can pin it without a Cloudflare binding. **A decision that can be tested belongs where the decision
+/// already lives** — the same split `rate_limit.rs` makes for its clock and counters.
+
+/// "This key has never been seen by this isolate" — the condition the source guards with
+/// `if (kvSeed && env?.KEYS)` on BOTH the read and the write arms, and with `hit === undefined` between them.
+///
+/// The read and the write are ONE event, not two: the read happens on this arm only, and so does the write.
+/// An implementation that seeds per-request reads KV on every probe, which is the quota exhaustion the
+/// memory-only arms exist to avoid.
+pub fn needs_seed(counters: &Counters, key: &str) -> bool {
+    !counters.iter().any(|(k, _)| k == key)
+}
+
+/// `Math.ceil((windowMs / 1000) * 2) + 10` — the TTL on the persist write. For the probe's 60_000 ms window that
+/// is **130 seconds**: the bucket plus its successor, plus ten, so a key that outlives its window cannot be
+/// inherited by the next one.
+pub fn seed_ttl_secs(window_ms: i64) -> u64 {
+    ((window_ms as f64 / 1000.0) * 2.0).ceil() as u64 + 10
+}
+
 /// The devices plugin's own instance, verbatim: `name: "pub-rate", limit: 10, windowMs: 60_000`.
 pub const PUBLIC_RATE: IpRateLimiter = IpRateLimiter {
     name: "pub-rate",
@@ -196,4 +220,29 @@ mod tests {
         assert!(probe_in_family("/api/summrise-probe"));
         assert!(!probe_in_family("/api/summrise-probe/extra"));
         assert!(!probe_in_family("/api/health"));
+    }
+
+    /// **THE SEED HAPPENS ONCE PER KEY, NOT ONCE PER REQUEST.**
+    ///
+    /// MUTATION: make `needs_seed` return `true` unconditionally.
+    /// RESULT:   this test fails — the third request of an established key is reported as needing a seed, which is
+    ///           a KV READ PER REQUEST, and the suite stays green because nothing else reads the predicate.
+    #[test]
+    fn the_seed_happens_once_per_key() {
+        let mut counters = Counters::new();
+        let key = counter_key(PROBE_RATE, "203.0.113.7", 1_700_000_000_000);
+        assert!(needs_seed(&counters, &key), "an unseen key needs a seed");
+        check(PROBE_RATE, &mut counters, "203.0.113.7", 1_700_000_000_000);
+        assert!(!needs_seed(&counters, &key), "a seen key does not");
+    }
+
+    /// **THE TTL IS THE BUCKET PLUS ITS SUCCESSOR PLUS TEN — 130 FOR THE PROBE.**
+    ///
+    /// MUTATION: change the `+ 10` to `+ 60`.
+    /// RESULT:   this test fails on the probe's window while every behavioural case stays green.
+    #[test]
+    fn the_seed_ttl_is_the_window_doubled_plus_ten() {
+        assert_eq!(seed_ttl_secs(60_000), 130);
+        assert_eq!(seed_ttl_secs(30_000), 70);
+        assert_eq!(seed_ttl_secs(1), 11);
     }
