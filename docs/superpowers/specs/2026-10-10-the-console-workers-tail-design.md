@@ -79,3 +79,49 @@ which pins **what the Rust answers**. So:
 `/api/plugins/status` precedent shows both halves: the absence is *correct* (the counters are a TS property) and the
 absence is *invisible* (the corpus has zero cases, so a deletion there is not a failure). **So every staying family
 needs a test that runs, and the manifest rule that keeps it needs a reason a reader can check against the Rust.**
+
+---
+
+## MEASURED 2026-10-12 — the remaining 69 are blocked by the BINDING, not by the decisions
+
+**THE DECISIONS ARE MOSTLY PORTED; THE TYPESCRIPT THAT HOLDS THEM IS MOSTLY A REFERENCE OR A FALLBACK.** Measured file
+by file, on the tree that landed the probe route:
+
+| the decision | where it is now |
+|---|---|
+| the per-IP limiter's algorithm | `wasm/src/ip_rate_limit.rs` (152 lines, three tests, mutation-proofed) |
+| the auth register limiter | `wasm/src/auth_routes.rs` — `auth_rate_limited` + `AUTH_RATE_COUNTERS` |
+| the probe's limiter (KV-seeded) | `wasm/src/ip_rate_limit.rs` — `PROBE_RATE`, `needs_seed`, `seed_ttl_secs`, `seeded_check` |
+| the KV seed's two decisions | `wasm/src/ip_rate_limit.rs` (pure), with the execution beside them |
+| the setting normalization | `wasm/src/store.rs` — `normalize_setting`, `global_setting_enabled` |
+| the model catalogue | `wasm/src/registry.rs` — `MODEL_REGISTRY: [ModelSpec; 24]` + `model_spec` |
+| the health cards | `wasm/src/lib.rs` — `HEALTH_CHANNELS: [(&str, &str); 20]` |
+| the og circuit | `wasm/src/lib.rs` — `read_breaker`, `breaker_call` |
+
+**AND THE WALL IS ARCHITECTURAL: THE WASM IS A REQUEST-LEVEL BINDING WITH NO FUNCTION EXPORT.** `index.ts` reaches it
+only through `wasmGate(env).fetch(request)` — `env.WASM_GATE` — and there is **no `#[wasm_bindgen]` export anywhere in
+`gateway/wasm/src/`** (grep measured: the only uses are `use worker::wasm_bindgen::…` inside `device.rs` and
+`vision.rs`). So a TypeScript caller **cannot invoke one Rust function**; a decision can only move by moving the whole
+route that carries it.
+
+**THAT IS WHY THE COUNT DID NOT MOVE WHEN THE PROBE ROUTE DID.** `db1ae41b` moved the route and its guard into Rust
+and CI is green, and `MAX_LOGIC` is still 69: `lib/ratelimit.ts` has two live callers left (`plugins/auth.ts`, which
+`registerPlugins` still dispatches, and `tooling.ts`'s probe arm, now the fallback). **A deletion is worth more than a
+reclassification, and it needs the fallback decision.**
+
+**TWO ROUTES OUT, BOTH MEASURED:**
+
+1. **Make the gate mandatory for the ported families, as `/v1` already did** — its comment reads *"THE TYPESCRIPT
+   IMPLEMENTATION IS DELETED, so there is no fallback to fall back to: a deployment without the WASM_GATE binding is a
+   deployment that cannot serve the API, and saying so is better than a 500 that reads like a routing mistake."* That
+   retires `lib/ratelimit.ts` entirely (69 → 68) and the TS callers with it. **It is a deployment decision**: a device
+   with no binding starts answering 503.
+2. **A second wasm entry that exposes the pure functions** — `__invoke(name, json)` — so a decision can be ported
+   WITHOUT moving its route. That is what the remaining 30-odd files need: `models-probe.ts`'s `upstreamModelsUrl` and
+   `offeredIds` are pure and already measured as absent from Rust, and its own comment records FOUR independently-typed
+   copies of the BYOK key vocabulary with nothing comparing them (rounds 186-190) — **the exact shape the sweeps'
+   landing found in `DECORATIVE_WAIVERS` and fixed with a permanent cross-language gate.**
+
+**WHAT IS *NOT* LEFT TO DO**, so the next reader does not re-derive it: an audit of all 71 tracked JS/TS files under
+`gateway/src` + `gateway/test` found **exactly one pure re-export barrel** (`store.ts`, now BOUNDARY) and **zero dead
+files** (every file is imported). The rest are genuine LOGIC, and the honest number is 69.
