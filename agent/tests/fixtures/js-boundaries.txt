@@ -271,6 +271,25 @@ BOUNDARY | gateway/src/http.ts | **THE REQUEST/RESPONSE HALF, AND ITS DECISIONS 
 #   WAS DEAD**: grepped across every tracked source (`.ts`/`.tsx`/`.js`/`.mjs`/`.cjs`/`.rs`) its only occurrence was
 #   its own definition, while its subject is live in `responses.rs` (`error_type_for_status`, three callers in that
 #   module) — the same "is it USED" measurement that found `grants.ts` and `store/regkeys.ts`.
+GENERATED | gateway/src/model-route-logic.ts | the auto-model decisions — the channel key rule, `og`'s breaker leg, the default, the ladder and the fallback policy — emitted from Rust | gateway/wasm/src/auto_route.rs
+#   **THE FOURTH EMISSION, AND THE FIRST WHOSE SOURCE MODULE DID NOT EXIST BEFORE IT (2026-10-13).** The other three
+#   emitted decisions the Rust worker already made for ITSELF; **this one had to be PORTED FIRST**, because
+#   `GET|PUT /api/me/route` stays on the TypeScript path (`auth_routes.rs` says why: the handler resolves through the
+#   model CATALOGUE and the `RouteDO` — *"a different surface with its own corpus, the catalogue, not identity"*), so
+#   the Rust never needed the rules. It needs them now: `auto_route.rs` holds the three decisions (the key rule,
+#   `og`'s breaker leg, and the fallback POLICY), carries its own tests and mutation proofs, and renders the module
+#   `model-route.ts` runs.
+#   **AND THE PORT TURNED A COMMENT INTO A TEST.** The ladder's own words say it *"must be a SUBSET of the
+#   catalogue"* — a typo there is a fallback that can never satisfy `isModelUsable`, and the ladder would skip it in
+#   silence — and nothing checked it. `the_ladder_is_a_subset_of_the_catalogue` reads `registry::model_spec` for all
+#   five rungs, in Rust, on every `cargo test`.
+#   **AND THE EMITTED RULE TAKES THE CHANNEL RULE AS AN ARGUMENT, WHICH IS WHAT KEEPS THE EXTENSION POINT ALIVE**:
+#   `registerChannelKey` writes into the TypeScript table, so a rule that looked the rule up in Rust could not be
+#   extended from there — **deriving must not quietly remove an extension point**, the same rule `byok.rs` carries.
+BOUNDARY | gateway/src/model-route.ts | **THE IO HALF, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the reads the decisions are made FROM — `isAdvertised` (the catalogue), `getUserKeys` (the user's blob), `getUserRoute` (the stored choice), `isChannelDegraded` (the breaker) — plus `CHANNEL_KEY_RULES` (DERIVED from the emitted `store/byok.ts`, and deliberately MUTABLE for `registerChannelKey`) and the re-exports that keep every existing import working. The key rule, `og`'s breaker leg, the default, the ladder and the fallback policy are `model-route-logic.ts`, GENERATED from `gateway/wasm/src/auto_route.rs`.
+#   **THE ONE CONDITION LEFT IS AN I/O-AVOIDANCE TEST, NOT A VERDICT**: the adapter reads the breaker only for an
+#   `og/` model, because reading it for every model would add a Durable Object call the source never made — the
+#   VERDICT is the emission's, and `channelUsable` applies the same prefix test.
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 BOUNDARY | gateway/config/ | **A DOCUMENT, NOT A DECISION — AND ITS TYPE IS COMPILER-CHECKED.** `models.ts` exports `{ providers: [], models: [], overrides: [] } satisfies CatalogueFile` — three EMPTY arrays, so it decides nothing today. It is `.ts` rather than `.json` for a measured reason its own header gives: a JSON import needs `with { type: "json" }` in Node and different syntax in the bundler, so a document the TESTS import would not be the same document the WORKER imports — while `satisfies` makes `tsc` refuse a misspelled `contextWindows` or an effort the router cannot speak BEFORE anything parses it at runtime. The DECISIONS this document feeds (file-over-KV precedence, what may be declared, the routing fields refused by name) live in `gateway/src/store/file-config.ts`, which is LOGIC with the rest of the console's rollback.

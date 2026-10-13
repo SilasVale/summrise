@@ -495,6 +495,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
 pub mod access;
 pub mod auth;
 pub mod auth_routes;
+pub mod auto_route;
 pub mod body_scan;
 pub mod byok;
 pub mod cors;
