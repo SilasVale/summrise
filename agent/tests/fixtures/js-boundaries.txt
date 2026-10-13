@@ -287,6 +287,19 @@ GENERATED | gateway/src/model-route-logic.ts | the auto-model decisions — the 
 #   `registerChannelKey` writes into the TypeScript table, so a rule that looked the rule up in Rust could not be
 #   extended from there — **deriving must not quietly remove an extension point**, the same rule `byok.rs` carries.
 BOUNDARY | gateway/src/model-route.ts | **THE IO HALF, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the reads the decisions are made FROM — `isAdvertised` (the catalogue), `getUserKeys` (the user's blob), `getUserRoute` (the stored choice), `isChannelDegraded` (the breaker) — plus `CHANNEL_KEY_RULES` (DERIVED from the emitted `store/byok.ts`, and deliberately MUTABLE for `registerChannelKey`) and the re-exports that keep every existing import working. The key rule, `og`'s breaker leg, the default, the ladder and the fallback policy are `model-route-logic.ts`, GENERATED from `gateway/wasm/src/auto_route.rs`.
+GENERATED | gateway/src/route-do-logic.ts | the Durable Object's auth gate, its route dispatch and the bodies' strings — emitted from Rust | gateway/wasm/src/route_do.rs
+#   **THE FIFTH EMISSION, AND THE FIRST WHOSE "HOST" IS A DURABLE OBJECT (2026-10-13).** A DO class IS its runtime —
+#   `state.storage` and `fetch` come from the platform, and there is no Durable Object in the Rust worker's world — so
+#   this is the shape landing 6 gave the Electron shell: **a host is kept and its decisions move.** What moved: the
+#   FAIL-CLOSED `DO_AUTH` gate (`safeEq("","")` is TRUE while an unconfigured deployment must DENY — gate policy, not
+#   comparison semantics, which is why the guard is not the comparison), the route/method dispatch (`PATCH /route` is
+#   a 404, an EMPTY uid is a 400, and `model: 0`/`model: false` STORE while `null` deletes), and the three body
+#   strings.
+#   **AND THE PORT SINGLE-SOURCED A NAME THAT WAS A LITERAL ON ONE SIDE**: `lib.rs`'s `breaker_call` sent
+#   `"x-do-auth"` while the gate that verifies it lived only in TypeScript — `DO_AUTH_HEADER` is one name now, and a
+#   test beside the emitter asserts that `lib.rs` NAMES it rather than spelling it, so the two sides cannot drift
+#   back apart in silence.
+BOUNDARY | gateway/src/route-do.ts | **THE DURABLE OBJECT HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the class skeleton, `state.storage`, the `Response` construction and the header read on a `Request` — platform calls, which is exactly why the emitted gate takes two STRINGS instead of a request. The gate, the dispatch and the bodies' strings are `route-do-logic.ts`, GENERATED from `gateway/wasm/src/route_do.rs`.
 #   **THE ONE CONDITION LEFT IS AN I/O-AVOIDANCE TEST, NOT A VERDICT**: the adapter reads the breaker only for an
 #   `og/` model, because reading it for every model would add a Durable Object call the source never made — the
 #   VERDICT is the emission's, and `channelUsable` applies the same prefix test.

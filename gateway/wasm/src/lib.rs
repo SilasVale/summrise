@@ -201,7 +201,7 @@ async fn breaker_call(env: &Env, path: &str) -> Result<Option<String>> {
 
     let headers = Headers::new();
     if let Ok(auth) = env.var("DO_AUTH") {
-        headers.set("x-do-auth", auth.to_string().as_str())?;
+        headers.set(crate::route_do::DO_AUTH_HEADER, auth.to_string().as_str())?;
     }
     let mut init = RequestInit::new();
     init.with_headers(headers);
@@ -518,6 +518,7 @@ pub mod registry;
 pub mod reliability;
 pub mod request_shape;
 pub mod responses;
+pub mod route_do;
 pub mod routing;
 pub mod session;
 pub mod session_gate;

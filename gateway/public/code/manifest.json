@@ -76,6 +76,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/route-do-logic.ts",
+      "path": "files/summrise-gate/src/route-do-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/route-do.ts",
       "path": "files/summrise-gate/src/route-do.ts",
       "group": "summrise-gate"
