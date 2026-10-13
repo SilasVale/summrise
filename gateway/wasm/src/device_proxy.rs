@@ -288,11 +288,7 @@ async fn proxy_device(
     // Round-55/56: the bound applies to EVERY non-POST method; POST is bounded at 60 s. `redirect: "manual"` is
     // inside the dial (it is the same guard for every caller).
     let method = request.method();
-    let timeout_ms = if method == Method::Post {
-        60_000
-    } else {
-        15_000
-    };
+    let timeout_ms = crate::device::dial_timeout_ms(method == Method::Post);
     let body = if method == Method::Get || method == Method::Head {
         DialBody::None
     } else {
@@ -357,11 +353,18 @@ async fn proxy_device(
         // the property — which is why the response is taken apart rather than asked through the typed wrapper
         // (`Response::websocket` CONSUMES the wrapper and would leave nothing to pass through).
         let raw: web_sys::Response = upstream.into();
-        if let Some(websocket) = raw.websocket() {
-            return match Response::from_websocket(websocket.into()) {
-                Ok(rebuilt) => Ok(rebuilt),
-                Err(_) => Ok(Response::from(raw)),
-            };
+        let socket = raw.websocket();
+        // **THE SHAPE IS `device::upgrade_shape`'s** — the same rule `build101Response` applies in TypeScript, so
+        // the two sides cannot disagree about which statuses are rebuilt at all.
+        if crate::device::upgrade_shape(status, socket.is_some())
+            == crate::device::UpgradeShape::Socket
+        {
+            if let Some(websocket) = socket {
+                return match Response::from_websocket(websocket.into()) {
+                    Ok(rebuilt) => Ok(rebuilt),
+                    Err(_) => Ok(Response::from(raw)),
+                };
+            }
         }
         return Err(RouteFailure::Threw);
     }

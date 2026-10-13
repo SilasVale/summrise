@@ -717,3 +717,32 @@ twin**, which is the one failure this route must not hide. `decision_value` answ
 are two VALUES, and a body with no `value` key is the first rather than the second — the source read `body.value`, and
 a missing key is `undefined` in JavaScript. **A distinction that lives in a comment is a distinction a port loses; one
 that lives in a type is a distinction it cannot.**
+
+---
+
+## THE EIGHTH LANDING: AN EMISSION THAT REMOVES A DUPLICATION (2026-10-13)
+
+**`device-fetch.ts` IS A BOUNDARY NOW — 61 → 60 — AND THIS IS THE FIRST EMISSION WHOSE REASON IS NOT "WHERE THE
+DECISION LIVES" BUT "THERE ARE TWO OF THEM".** `deviceHostError` (the stage-n SSRF blocklist) and `hostAllowError`
+(the suffix allowlist) existed in BOTH languages, kept in step by a frozen corpus and by hand. **The Rust file's own
+header already said what that is**: *"a second copy of an SSRF stack is the one duplication in this repository that is
+a HOLE rather than a bug."* The TypeScript is the Rust's output now, so the hole is closed by construction.
+
+**AND THE STACK'S ORDER LEFT WITH THE RULES, WHICH IS THE DESIGN DECISION WORTH COPYING.** The order IS the security
+argument — the authority-prefix sanitization BEFORE the URL is built, then the parsed-hostname equality, the
+blocklist, the allowlist — so the emission is `dialPlan`: ONE function, the four gates and the URL that survives
+them, rather than four calls a host makes in a remembered order. **A sequence of guards left in the caller is a
+decision with no owner**; the parser is a callback because the source's `new URL` sits outside its `try`, so an
+unparseable authority THROWS instead of becoming a refusal — and the emission does not catch it.
+
+**AND A TEST CAUGHT WHAT NO COMMENT DID: THE DIAL GOES TO THE PARSED URL, NOT THE STRING THAT WAS PARSED.** The first
+version handed the raw `https://dFresh.agent.summrise.test/api/status` to `fetchWithTimeout`, while the source dialled
+`upstream.toString()` — the host lowercased by the WHATWG parser — and `devices.test.mjs` pins exactly that (`dFresh`
+arrives as `dfresh`, its stub matcher in lowercase). Both sides dial the parsed form now. **A port that reproduces the
+checks but not the VALUE THEY PRODUCED has reproduced the wrong half.**
+
+**AND THE HOSTNAME GATE GAINED AN ENTRY RATHER THAN MOVING ONE, WHICH IS THE HONEST SHAPE OF A RAISE.** The RULE left
+`device-fetch.ts`; the PROSE that records it stayed, and it still names the suffix — so the same host now appears in
+the deciding file as well, and `production_host.rs`'s `MAX_ALLOWED` went 51 → 52 with the reason its own failure
+message asks for. **A gate that counts locations is right to count this one twice: one file DECIDES the host, the
+other REMEMBERS why.**

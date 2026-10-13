@@ -206,16 +206,10 @@ pub async fn device_fetch(
     // round-120/121: a `restPath` carrying userinfo or a scheme can re-root the URL, and the token goes with it.
     // The check is narrowed to the AUTHORITY-relevant prefix (up to the first `/`, `?` or `#`) because an
     // at-sign in a query string is legitimate.
-    let authority = rest_path.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') || starts_like_a_scheme(authority) {
-        return DeviceDial::refusal(400, "invalid proxy path");
+    if !authority_prefix_ok(rest_path) {
+        return DeviceDial::refusal(400, PROXY_PATH_REFUSAL);
     }
-    let path = if rest_path.starts_with('/') {
-        rest_path.to_string()
-    } else {
-        format!("/{rest_path}")
-    };
-    let url = format!("https://{hostname}{path}");
+    let url = format!("https://{hostname}{}", dial_path(rest_path));
     let parsed = match Url::parse(&url) {
         Ok(url) => url,
         // THE SOURCE THROWS HERE (`new URL` is outside its `try`), so this is not a refusal.
@@ -230,8 +224,8 @@ pub async fn device_fetch(
         }
     };
     // Belt-and-suspenders: whatever the parser produced, the host MUST be the device's own hostname.
-    if parsed.host_str().unwrap_or_default().to_lowercase() != hostname.to_lowercase() {
-        return DeviceDial::refusal(400, "invalid proxy path");
+    if hostname_mismatch(parsed.host_str().unwrap_or_default(), hostname) {
+        return DeviceDial::refusal(400, PROXY_PATH_REFUSAL);
     }
     if let Some(reason) = device_host_error(parsed.host_str().unwrap_or_default()) {
         return DeviceDial::refusal(400, &reason);
@@ -244,6 +238,10 @@ pub async fn device_fetch(
     if let Some(reason) = host_allow_error(hostname, suffix.as_deref()) {
         return DeviceDial::refusal(400, &reason);
     }
+    // **THE DIAL GOES TO THE PARSED URL, NOT THE STRING THAT WAS PARSED** — the WHATWG parser lowercases the host
+    // (and `Url::parse` does too), and the TypeScript source dials `upstream.toString()` for exactly that reason:
+    // `device-fetch.test.mjs` pins `dFresh` arriving as `dfresh`.
+    let url = parsed.to_string();
 
     // `const headers = new Headers(init.headers || {}); headers.delete("host"); headers.delete("cookie");
     //  headers.set("Authorization", `Bearer ${device.token}`)` — in that order, and the ORDER is the source's
@@ -253,9 +251,16 @@ pub async fn device_fetch(
     for (name, value) in &init.headers {
         let _ = headers.set(name, value);
     }
-    let _ = headers.delete("host");
-    let _ = headers.delete("cookie");
-    let _ = headers.set("Authorization", &format!("Bearer {token}"));
+    for op in dial_header_ops(token) {
+        match op {
+            DialHeaderOp::Delete(name) => {
+                let _ = headers.delete(name);
+            }
+            DialHeaderOp::Set(name, value) => {
+                let _ = headers.set(name, &value);
+            }
+        }
+    }
 
     // **TWO CONSTRUCTION PATHS, AND THE SECOND ONE EXISTS FOR ONE REASON.** `Request::new_with_init` is the
     // proven one (it is what every other route in this worker dials with); it cannot carry a `ReadableStream`
@@ -272,9 +277,7 @@ pub async fn device_fetch(
     let request = match body {
         DialBody::Stream(ref stream) => match streaming_request(&url, &method, &headers, stream) {
             Ok(request) => request,
-            Err(message) => {
-                return DeviceDial::refusal(502, &format!("Device unreachable: {message}"))
-            }
+            Err(message) => return DeviceDial::refusal(502, &device_unreachable(&message)),
         },
         other => {
             let mut request_init = RequestInit::new();
@@ -287,10 +290,7 @@ pub async fn device_fetch(
             match Request::new_with_init(&url, &request_init) {
                 Ok(request) => request,
                 Err(error) => {
-                    return DeviceDial::refusal(
-                        502,
-                        &format!("Device unreachable: {}", thrown_message(&error)),
-                    )
+                    return DeviceDial::refusal(502, &device_unreachable(&thrown_message(&error)))
                 }
             }
         }
@@ -485,6 +485,372 @@ pub fn starts_like_a_scheme(authority: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+}
+
+/// The refusal both authority-shaped bad paths answer with — a `restPath` carrying userinfo (`@`) or a scheme can
+/// RE-ROOT the URL the device token travels to (round-120/121).
+pub const PROXY_PATH_REFUSAL: &str = "invalid proxy path";
+
+/// `deviceFetch`'s first guard: the AUTHORITY-RELEVANT prefix of `restPath` — up to the first `/`, `?` or `#` — may
+/// carry neither userinfo nor a scheme.
+///
+/// **NARROWED ON PURPOSE** (round-121): an at-sign in a QUERY string is legitimate (`?user=a@b.com`), and the
+/// hostname-equality gate below already blocks userinfo smuggling. A leading scheme in the authority is still
+/// refused.
+pub fn authority_prefix_ok(rest_path: &str) -> bool {
+    let authority = rest_path.split(['/', '?', '#']).next().unwrap_or_default();
+    !authority.contains('@') && !starts_like_a_scheme(authority)
+}
+
+/// The path half of the dial URL: the source prepends `/` unless it is already there.
+pub fn dial_path(rest_path: &str) -> String {
+    if rest_path.starts_with('/') {
+        rest_path.to_string()
+    } else {
+        format!("/{rest_path}")
+    }
+}
+
+/// **BELT-AND-SUSPENDERS**: whatever the parser produced, the host MUST be the device's own. Case-insensitive,
+/// because WHATWG lowercases special-scheme hosts while registration stores hostnames verbatim.
+pub fn hostname_mismatch(parsed_host: &str, hostname: &str) -> bool {
+    parsed_host.to_lowercase() != hostname.to_lowercase()
+}
+
+/// One header operation the dial applies, IN ORDER, after copying the caller's own headers.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DialHeaderOp {
+    Delete(&'static str),
+    Set(&'static str, String),
+}
+
+/// The header hygiene: `host` and `cookie` are DELETED and `Authorization` is SET — in that order, so a caller
+/// sending any of the three has it removed or replaced, and no path can smuggle a device's credential past this
+/// dial.
+pub fn dial_header_ops(token: &str) -> Vec<DialHeaderOp> {
+    vec![
+        DialHeaderOp::Delete("host"),
+        DialHeaderOp::Delete("cookie"),
+        DialHeaderOp::Set("Authorization", format!("Bearer {token}")),
+    ]
+}
+
+/// The bound, by method (round-55/56): a blackholed tunnel used to hang until the platform's subrequest ceiling, and
+/// POST — a slow-loris vector there — is bounded at 60 s.
+pub fn dial_timeout_ms(is_post: bool) -> u64 {
+    if is_post {
+        60_000
+    } else {
+        15_000
+    }
+}
+
+/// The transport refusal's message.
+pub fn device_unreachable(message: &str) -> String {
+    format!("Device unreachable: {message}")
+}
+
+/// Which of the three forms a proxied response is rebuilt into.
+#[derive(Debug, PartialEq, Eq)]
+pub enum UpgradeShape {
+    None,
+    Socket,
+    Body,
+}
+
+/// `build101Response`'s shape: only a 101 is rebuilt at all, with its socket when it has one and as the
+/// body-plus-headers form when it does not (a 101 the runtime refuses, which the caller reproduces as a throw).
+pub fn upgrade_shape(status: u16, has_socket: bool) -> UpgradeShape {
+    if status != 101 {
+        UpgradeShape::None
+    } else if has_socket {
+        UpgradeShape::Socket
+    } else {
+        UpgradeShape::Body
+    }
+}
+
+/// The emitted module's header — **THE SOURCE FILE'S OWN COMMENTS, CARRIED VERBATIM, PLUS THE GENERATED NOTICE.**
+/// The SSRF rationale and the round-120/121 history are the record of why these rules are what they are.
+const TS_HEADER: &str = r#"/**
+ * device-dial-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/device.rs` (`render_typescript`), which is now the single source. The freshness test
+ * in that module is a byte comparison against this file, so a hand edit fails there with the text and one command to
+ * fix it:
+ *
+ *     SUMMRISE_REFRESH_DEVICE_DIAL=1 cargo test --manifest-path gateway/wasm/Cargo.toml device::emission
+ *
+ * `gateway/src/device-fetch.ts` re-exports this module and keeps the HOST: the env reads, the URL parse, the
+ * `fetchWithTimeout` call and the `Response` rebuilds. **The RULES left the file, and the two that were already
+ * shared with the Rust worker — the SSRF blocklist and the suffix allowlist — had a copy on each side until now.**
+ *
+ * The comments below are the source file's own, carried verbatim.
+ */
+
+/// The default device-host suffix. **IT IS A PRODUCTION HOSTNAME**, which is why `agent/tests/production_host.rs`
+/// declares it beside `device-fetch.ts`.
+export const DEFAULT_DEVICE_HOST_SUFFIX = ".agent.saisi.online";
+
+/**
+ * `hostAllowError(hostname, env)`'s RULE, with the suffix already resolved — the Rust takes the VALUE, so reading
+ * `DEVICE_HOST_SUFFIX` off the environment stays in the caller.
+ *
+ * Two tests, and the second is the one that is easy to miss: the host must END WITH the suffix **and be strictly
+ * longer than it**, so the bare suffix is not a device hostname. The suffix is lowercased and so is the host, because
+ * a hostname comparison is case-insensitive; an empty override falls back to the default through `||`, which is a
+ * truthiness test rather than a presence test.
+ *
+ * (The length test counts UTF-16 units here and BYTES in the Rust. Reachable only for a non-ASCII hostname, which the
+ * URL parser's own rules punish long before this — recorded rather than quietly aligned, because a port improves
+ * nothing.)
+ */
+export function hostAllowErrorFor(
+  hostname: string,
+  suffix: string | null | undefined,
+): string | null {
+  const s = (suffix || DEFAULT_DEVICE_HOST_SUFFIX).toLowerCase();
+  const h = String(hostname).toLowerCase();
+  if (!h.endsWith(s) || h.length <= s.length) {
+    return `hostname must be under ${s}`;
+  }
+  return null;
+}
+
+/**
+ * `deviceHostError(hostname)`: an error string when the hostname must NOT be dialled with device credentials.
+ *
+ * stage-n SSRF audit (HIGH): reject private/link-local/internal IPs — an attacker who registers a device with
+ * hostname "169.254.169.254" (cloud metadata) or "127.0.0.1" makes the gateway dial it with the device token.
+ *
+ * Decimal/hex/octal IPv4 need no extra rules — the WHATWG parser already normalizes them (2130706433/0x7f.0.0.1/
+ * 0177.0.0.1 all parse to 127.0.0.1 and hit the 127. block). What it does NOT normalize away: 0.0.0.0, the cloud
+ * metadata IP, and IPv4-mapped IPv6 (::ffff:/96 can smuggle 127.0.0.1 past every v4 rule — bracketed or bare).
+ * 172.16/12 is ONLY second-octet 16-31 (numeric) — a blanket startsWith("172.") also blocked public 172.15.x.x /
+ * 172.32+.x.x. The fc/fd/fe80 unique-local/link-local prefixes must be actual address forms (contain ':': hostnames
+ * never do) — otherwise a hostname STRING like 'fc.example.com' false-positives.
+ */
+export function deviceHostError(hostname: string): string | null {
+  const hostLower = String(hostname).toLowerCase();
+  let is172Private = false;
+  if (hostLower.startsWith("172.")) {
+    const second = Number(hostLower.split(".")[1]);
+    is172Private = Number.isInteger(second) && second >= 16 && second <= 31;
+  }
+  const isV6Private =
+    hostLower.includes(":") &&
+    (hostLower.startsWith("fc") || hostLower.startsWith("fd") || hostLower.startsWith("fe80"));
+  if (
+    hostLower === "localhost" ||
+    hostLower.startsWith("127.") ||
+    hostLower.startsWith("10.") ||
+    hostLower.startsWith("192.168.") ||
+    is172Private ||
+    hostLower === "::1" ||
+    hostLower === "[::1]" ||
+    isV6Private ||
+    hostLower === "0.0.0.0" ||
+    hostLower === "[::]" ||
+    hostLower === "169.254.169.254" ||
+    hostLower.startsWith("::ffff:") ||
+    hostLower.startsWith("[::ffff:")
+  ) {
+    return "device hostname resolves to a private/internal address";
+  }
+  return null;
+}
+
+/** The refusal both authority-shaped bad paths answer with (round-120/121). */
+export const PROXY_PATH_REFUSAL = "invalid proxy path";
+
+/** The AUTHORITY-RELEVANT prefix of `restPath` — up to the first `/`, `?` or `#` — may carry neither userinfo nor a
+ *  scheme. **NARROWED ON PURPOSE** (round-121): an at-sign in a QUERY string is legitimate (`?user=a@b.com`), and the
+ *  hostname-equality gate already blocks userinfo smuggling. */
+export function authorityPrefixOk(restPath: string): boolean {
+  const authority = restPath.split(/[/?#]/, 1)[0]!;
+  return !authority.includes("@") && !/^[a-z][a-z0-9+.-]*:/i.test(authority);
+}
+
+/** The path half of the dial URL: `/` is prepended unless it is already there. */
+export function dialPath(restPath: string): string {
+  return restPath.startsWith("/") ? restPath : `/${restPath}`;
+}
+
+/** **BELT-AND-SUSPENDERS**: whatever the parser produced, the host MUST be the device's own — case-insensitively,
+ *  because WHATWG lowercases special-scheme hosts while registration stores hostnames verbatim. */
+export function hostnameMismatch(parsedHost: string, hostname: string): boolean {
+  return parsedHost.toLowerCase() !== String(hostname).toLowerCase();
+}
+
+/** A guard refusal: the shape every path in the stack answers with. */
+export type DialRefusal = { status: 400; ok: false; resp: undefined; error: string };
+
+/** What the guards decided: either a refusal to return as-is, or the URL to dial. */
+export type DialPlan = { refusal: DialRefusal } | { url: string };
+
+/** THE GUARD STACK, IN ORDER — and the order IS the security argument, which is why it is here rather than in the
+ *  caller: the authority-prefix sanitization (round-120/121) comes BEFORE the URL is built, then the parsed-hostname
+ *  equality, then the private-IP blocklist, then the suffix allowlist.
+ *
+ *  `parse` is the platform's parser and **MAY THROW — the source's `new URL` sits outside its `try`, so an
+ *  unparseable authority escapes `deviceFetch` instead of becoming a refusal**, and this function does not catch
+ *  it. */
+export function dialPlan(
+  hostname: string,
+  restPath: string,
+  suffix: string | null | undefined,
+  parse: (url: string) => URL,
+): DialPlan {
+  if (!authorityPrefixOk(restPath)) {
+    return { refusal: { status: 400, ok: false, resp: undefined, error: PROXY_PATH_REFUSAL } };
+  }
+  const parsed = parse(`https://${hostname}${dialPath(restPath)}`);
+  if (hostnameMismatch(parsed.hostname, hostname)) {
+    return { refusal: { status: 400, ok: false, resp: undefined, error: PROXY_PATH_REFUSAL } };
+  }
+  const hostErr = deviceHostError(parsed.hostname);
+  if (hostErr) return { refusal: { status: 400, ok: false, resp: undefined, error: hostErr } };
+  const suffixErr = hostAllowErrorFor(hostname, suffix);
+  if (suffixErr) return { refusal: { status: 400, ok: false, resp: undefined, error: suffixErr } };
+  // **THE DIAL GOES TO THE PARSED URL, NOT THE STRING THAT WAS PARSED** — the WHATWG parser lowercases the host, and
+  // `device-fetch.test.mjs` pins exactly that (`dFresh` arrives as `dfresh`). The Rust dials `Url::to_string()` for
+  // the same reason.
+  return { url: parsed.toString() };
+}
+
+/** One header operation the dial applies, IN ORDER, after copying the caller's own headers. */
+export type DialHeaderOp =
+  { op: "delete"; name: string } | { op: "set"; name: string; value: string };
+
+/** The header hygiene: `host` and `cookie` are DELETED and `Authorization` is SET — in that order, so a caller
+ *  sending any of the three has it removed or replaced. */
+export function dialHeaderOps(token: string): DialHeaderOp[] {
+  return [
+    { op: "delete", name: "host" },
+    { op: "delete", name: "cookie" },
+    { op: "set", name: "Authorization", value: `Bearer ${token}` },
+  ];
+}
+
+/** The bound, by method (round-55/56): reads are bounded, and POST — a slow-loris vector on a blackholed tunnel — is
+ *  bounded at 60 s where everything else gets 15 s. */
+export function dialTimeoutMs(isPost: boolean): number {
+  return isPost ? 60000 : 15000;
+}
+
+/** The transport refusal's message. */
+export function deviceUnreachable(message: string): string {
+  return `Device unreachable: ${message}`;
+}
+
+/** Which of the three forms a proxied response is rebuilt into. */
+export type UpgradeShape = "none" | "socket" | "body";
+
+/** `build101Response`'s shape: only a 101 is rebuilt at all, with its socket when it has one and as the
+ *  body-plus-headers form when it does not. */
+export function upgradeShape(status: number, hasSocket: boolean): UpgradeShape {
+  if (status !== 101) return "none";
+  return hasSocket ? "socket" : "body";
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_HEADER.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/device-dial-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK — AND IT IS THE REASON THE EMISSION CANNOT DRIFT.** The same shape the six sibling
+    /// emitters use.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_DEVICE_DIAL").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write device-dial-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_DEVICE_DIAL=1 cargo test device::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/device-dial-logic.ts is not what device.rs emits — \
+             run SUMMRISE_REFRESH_DEVICE_DIAL=1 cargo test device::emission"
+        );
+    }
+}
+
+#[cfg(test)]
+mod dial_rules {
+    use super::*;
+
+    /// **THE GUARD STACK'S RULES, EACH PINNED WHERE IT NOW LIVES.** The order they are applied in is
+    /// `device_fetch`'s, and every one of these has a row in `device-fetch.test.mjs` too.
+    ///
+    /// MUTATION: drop the `dial_path` call and interpolate `restPath` directly.
+    /// RESULT:   `the_authority_and_the_path` fails on the bare-path row — and the dial would ask for
+    ///           `https://hostpath` instead of `https://host/path`.
+    #[test]
+    fn the_authority_and_the_path() {
+        assert!(authority_prefix_ok("/api/x"));
+        assert!(
+            authority_prefix_ok("/x?user=a@b.com"),
+            "an at-sign in a QUERY is legitimate"
+        );
+        assert!(
+            !authority_prefix_ok("@evil.example/x"),
+            "userinfo re-roots the URL"
+        );
+        assert!(!authority_prefix_ok("https://evil.example/x"));
+        assert!(
+            !authority_prefix_ok("HTTPS://evil.example"),
+            "the scheme test is case-insensitive"
+        );
+        assert_eq!(dial_path("/x"), "/x");
+        assert_eq!(dial_path("x"), "/x");
+        assert!(
+            !hostname_mismatch("Host.Example", "host.example"),
+            "case-insensitive"
+        );
+        assert!(hostname_mismatch("evil.example", "host.example"));
+    }
+
+    /// **THE HEADER HYGIENE, IN ORDER** — a caller's own `host`/`cookie`/`Authorization` cannot survive it.
+    #[test]
+    fn the_header_ops_are_in_order() {
+        assert_eq!(
+            dial_header_ops("sekret"),
+            vec![
+                DialHeaderOp::Delete("host"),
+                DialHeaderOp::Delete("cookie"),
+                DialHeaderOp::Set("Authorization", "Bearer sekret".to_string()),
+            ]
+        );
+        assert_eq!(dial_timeout_ms(true), 60_000);
+        assert_eq!(dial_timeout_ms(false), 15_000);
+        assert_eq!(device_unreachable("boom"), "Device unreachable: boom");
+    }
+
+    /// **THE 101 SHAPES.** The middle arm is the one the runtime refuses, which is why the caller reproduces it as a
+    /// throw rather than a quiet passthrough.
+    #[test]
+    fn the_upgrade_shapes() {
+        assert_eq!(upgrade_shape(200, false), UpgradeShape::None);
+        assert_eq!(upgrade_shape(101, true), UpgradeShape::Socket);
+        assert_eq!(upgrade_shape(101, false), UpgradeShape::Body);
+    }
 }
 
 #[cfg(test)]

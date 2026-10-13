@@ -36,6 +36,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/device-dial-logic.ts",
+      "path": "files/summrise-gate/src/device-dial-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/device-fetch.ts",
       "path": "files/summrise-gate/src/device-fetch.ts",
       "group": "summrise-gate"

@@ -23,17 +23,50 @@
  * PUBLIC host". That is no longer what happens — `redirect: "manual"` — and the old
  * reasoning was wrong anyway: Cloudflare forwards Authorization to a cross-host
  * Location, so the risk was the device's TOKEN, not merely the destination.
+ *
+ * ── AND THE STACK ITSELF IS RUST'S NOW (2026-10-13) ────────────────────────
+ *
+ * **EVERY RULE THE FIRST PARAGRAPH NAMES IS `gateway/wasm/src/device.rs`**, reaching this file as
+ * `device-dial-logic.ts` (GENERATED, and the freshness test is a byte comparison): the private-IP blocklist, the
+ * suffix allowlist, the authority-prefix refusal, the hostname-equality gate, the header hygiene IN ORDER, the
+ * timeout bound and the 101 shape. **TWO OF THEM HAD A COPY ON EACH SIDE UNTIL THIS LANDING** — `deviceHostError`,
+ * the stage-n SSRF list, and `hostAllowError`, whose Rust twin already existed beside a TypeScript one — and a guard
+ * stack duplicated across two languages is the one duplication in this repository that is a HOLE rather than a bug,
+ * which is the sentence `device.rs`'s own header carries.
+ *
+ * **AND THE ORDER LEFT WITH THE RULES.** The stack's sequence is its security argument, so it is `dialPlan` — one
+ * function, the four gates, and the URL that survives them — rather than four calls this file makes in a remembered
+ * order. What is left here is the HOST: the env reads, the parser, the fetch and the `Response` rebuilds.
  */
+
+import { fetchWithTimeout } from "./reliability.ts";
+import {
+  dialHeaderOps,
+  dialPlan,
+  dialTimeoutMs,
+  deviceUnreachable,
+  hostAllowErrorFor,
+  upgradeShape,
+} from "./device-dial-logic.ts";
+
+// The emitted rules, re-exported so `from "./device-fetch.ts"` keeps working — `deviceHostError` and
+// `hostAllowError` are pinned directly from the test suite, and the registration paths import them here.
+export * from "./device-dial-logic.ts";
 
 /**
  * Rebuild a 101 Switching Protocols response carrying the upgraded WebSocket.
  * The old code built `new Response(resp.body, {status:101, headers})` which
  * throws RangeError (101 is only legal with a `webSocket` property), so every
  * WS upgrade through the proxy 500'd. Minimal branch: no header rewriting.
+ *
+ * **WHICH OF THE THREE SHAPES THIS TAKES IS `upgradeShape`'S** — only a 101 is rebuilt, its socket form when it has
+ * a socket, and the body-plus-headers form when it has none. A repack failure is the platform's (#3047), which is
+ * why the `catch` is here.
  */
 export function build101Response(resp: any) {
-  if (resp.status !== 101) return null;
-  if (resp.webSocket) {
+  const shape = upgradeShape(resp.status, !!resp.webSocket);
+  if (shape === "none") return null;
+  if (shape === "socket") {
     try {
       return new Response(null, { status: 101, webSocket: resp.webSocket });
     } catch {
@@ -43,81 +76,47 @@ export function build101Response(resp: any) {
   return new Response(resp.body || null, { status: 101, headers: new Headers(resp.headers) });
 }
 
-/**
- * Fetch a device panel/MCP path with the Bearer token injected server-side.
- * Shared by proxyDevice (HTTP proxy) and the gateway MCP terminal tools.
- * Behavior is identical to the old inline fetch in proxyDevice (Bearer
- * injection, host/cookie stripped). Returns { status, ok, resp } — resp is
- * undefined when the device is unreachable, with `error` carrying the reason.
- */
-import { fetchWithTimeout } from "./reliability.ts";
-
 /// The device-hostname allowlist, overridable per-deployment via DEVICE_HOST_SUFFIX.
 ///
 /// IT LIVES HERE, in the leaf module, because BOTH the registration paths (devices.ts) and
 /// the DIAL path (deviceFetch below) must apply it, and devices.ts already imports this
 /// file. Defining it in devices.ts and importing it back would be a cycle.
 // Exported for direct pins (SOLID Round-28; additive — handlers untouched).
+//
+// **THE RULE IS THE EMISSION'S; READING `env` IS THIS FILE'S** — the emitted twin takes the suffix VALUE, which is
+// the shape the Rust has (`host_allow_error(hostname, Option<&str>)`).
 export function hostAllowError(hostname: string, env: any): string | null {
-  const suffix = (env?.DEVICE_HOST_SUFFIX || ".agent.saisi.online").toLowerCase();
-  const h = hostname.toLowerCase();
-  if (!h.endsWith(suffix) || h.length <= suffix.length) {
-    return `hostname must be under ${suffix}`;
-  }
-  return null;
+  return hostAllowErrorFor(hostname, env?.DEVICE_HOST_SUFFIX);
 }
 
+/**
+ * Fetch a device panel/MCP path with the Bearer token injected server-side.
+ * Shared by proxyDevice (HTTP proxy) and the gateway MCP terminal tools.
+ * Behavior is identical to the old inline fetch in proxyDevice (Bearer
+ * injection, host/cookie stripped). Returns { status, ok, resp } — resp is
+ * undefined when the device is unreachable, with `error` carrying the reason.
+ *
+ * **THE GUARD STACK IS ONE CALL** (`dialPlan`), and `parse` is the platform's parser rather than an emitted rule: an
+ * unparseable authority THROWS out of here, exactly as the source's `new URL` does from outside its `try`.
+ */
 export async function deviceFetch(env: any, device: any, restPath: string, init: any = {}) {
-  // round-120: SSRF via '@' userinfo — `new URL("https://${hostname}${restPath}")`
-  // with restPath = "@evil.example/x" parsed device.hostname as USERINFO and
-  // set host = evil.example, then fetched it with the device token + proxy
-  // secret attached (the attacker captures both → permanent token = device
-  // RCE surviving revoke/TTL). Build the upstream from the hostname field
-  // ONLY and reject any restPath that could smuggle a host (userinfo '@',
-  // scheme, or a path that re-roots the URL).
-  // round-121: narrow the at-sign check to the AUTHORITY-RELEVANT prefix
-  // (up to the first / ? or #) — an at-sign in a query string is legitimate
-  // (?user=a@b.com) and the hostname-equality check below already blocks
-  // userinfo smuggling. A leading scheme in the authority is still rejected.
-  const authorityPrefix = restPath.split(/[/?#]/, 1)[0]!;
-  if (authorityPrefix.includes("@") || /^[a-z][a-z0-9+.-]*:/i.test(authorityPrefix)) {
-    return { status: 400, ok: false, resp: undefined, error: "invalid proxy path" };
-  }
-  const upstream = new URL(
-    `https://${device.hostname}${restPath.startsWith("/") ? restPath : "/" + restPath}`,
+  const plan = dialPlan(
+    String(device.hostname),
+    restPath,
+    env?.DEVICE_HOST_SUFFIX,
+    (url) => new URL(url),
   );
-  // Belt-and-suspenders: whatever the parser produced, the host MUST be the
-  // device's own hostname (never attacker-controlled).
-  // round-121: case-insensitive — WHATWG lowercases special-scheme hosts but
-  // device registration allows (and stores verbatim) uppercase hostnames.
-  if (upstream.hostname.toLowerCase() !== String(device.hostname).toLowerCase()) {
-    return { status: 400, ok: false, resp: undefined, error: "invalid proxy path" };
-  }
-  const hostErr = deviceHostError(upstream.hostname);
-  if (hostErr) {
-    return { status: 400, ok: false, resp: undefined, error: hostErr };
-  }
-  // THE SUFFIX ALLOWLIST, AT DIAL TIME. It used to run only at registration, so the
-  // "full SSRF guard stack" this module documents was really a stack with one plank
-  // missing — and the two write paths that skipped it (handleDevicesAdd, handleDeviceRename)
-  // meant a record could exist that the dialler would happily send a device token to. A
-  // dial-time check cannot be bypassed by a path someone forgot to guard, which is exactly
-  // how the registration-only version failed.
-  const suffixErr = hostAllowError(String(device.hostname), env);
-  if (suffixErr) {
-    return { status: 400, ok: false, resp: undefined, error: suffixErr };
-  }
+  if ("refusal" in plan) return plan.refusal;
   const headers = new Headers(init.headers || {});
-  headers.delete("host");
-  headers.delete("cookie");
-  headers.set("Authorization", `Bearer ${device.token}`);
+  for (const op of dialHeaderOps(device.token)) {
+    if (op.op === "delete") headers.delete(op.name);
+    else headers.set(op.name, op.value);
+  }
   let resp;
   try {
     // Read methods are bounded (round-55): a blackholed tunnel hung until
     // the platform's subrequest ceiling. round-56: the bound applies to
-    // EVERY non-POST method. POST is bounded at 60 s (stage-n MEDIUM: the
-    // old unbounded POST was a slow-loris vector on blackholed tunnels;
-    // idempotency is the caller's concern — they can always retry).
+    // EVERY non-POST method; POST is bounded at 60 s — the shape is `dialTimeoutMs`'s.
     // redirect: "manual" — DO NOT FOLLOW. The guard above ran on the INITIAL url only, so
     // following a redirect would dial an address it never checked (127.0.0.1, a
     // link-local metadata endpoint), AND Cloudflare forwards Authorization/x-summrise-auth to
@@ -125,64 +124,12 @@ export async function deviceFetch(env: any, device: any, restPath: string, init:
     // secret to a host the operator never registered. A device that redirects is not a
     // device to follow; the 3xx is returned to the caller as-is.
     resp = await fetchWithTimeout(
-      upstream.toString(),
+      plan.url,
       { ...init, headers, redirect: "manual" },
-      init.method === "POST" ? 60000 : 15000,
+      dialTimeoutMs(init.method === "POST"),
     );
   } catch (e) {
-    return { status: 502, ok: false, error: `Device unreachable: ${(e as Error).message}` };
+    return { status: 502, ok: false, error: deviceUnreachable((e as Error).message) };
   }
   return { status: resp.status, ok: resp.ok, resp };
-}
-
-/**
- * SSRF hostname guard shared by deviceFetch and the MCP browser bridge
- * (mcp.ts keeps its own long-timeout raw fetch, so it calls this directly
- * instead of routing through deviceFetch). Returns an error string when the
- * hostname must not be dialed with device credentials, else null.
- */
-export function deviceHostError(hostname: string): string | null {
-  // stage-n SSRF audit (HIGH): reject private/link-local/internal IPs — an
-  // attacker who registers a device with hostname "169.254.169.254" (cloud
-  // metadata) or "127.0.0.1" makes the gateway dial it with the device token.
-  const hostLower = String(hostname).toLowerCase();
-  // Decimal/hex/octal IPv4 need no extra rules — the WHATWG parser in
-  // deviceFetch already normalizes them (2130706433/0x7f.0.0.1/0177.0.0.1 all
-  // parse to 127.0.0.1 and hit the 127. block). What it does NOT normalize
-  // away: 0.0.0.0, the cloud metadata IP, and IPv4-mapped IPv6 (::ffff:/96
-  // can smuggle 127.0.0.1 past every v4 rule — bracketed or bare).
-  // 172.16/12 is ONLY second-octet 16-31 (numeric) — a blanket
-  // startsWith("172.") also blocked public 172.15.x.x / 172.32+.x.x.
-  // The fc/fd/fe80 unique-local/link-local prefixes must be actual address
-  // forms (contain ':': hostnames never do) — otherwise a hostname STRING
-  // like 'fc.example.com' false-positives. Bracketed/bare loopback +
-  // mapped forms below are unreachable with brackets anyway (WHATWG
-  // hostname strips them and the equality gate above rejects the mismatch),
-  // but stay as belt-and-suspenders.
-  let is172Private = false;
-  if (hostLower.startsWith("172.")) {
-    const second = Number(hostLower.split(".")[1]);
-    is172Private = Number.isInteger(second) && second >= 16 && second <= 31;
-  }
-  const isV6Private =
-    hostLower.includes(":") &&
-    (hostLower.startsWith("fc") || hostLower.startsWith("fd") || hostLower.startsWith("fe80"));
-  if (
-    hostLower === "localhost" ||
-    hostLower.startsWith("127.") ||
-    hostLower.startsWith("10.") ||
-    hostLower.startsWith("192.168.") ||
-    is172Private ||
-    hostLower === "::1" ||
-    hostLower === "[::1]" ||
-    isV6Private ||
-    hostLower === "0.0.0.0" ||
-    hostLower === "[::]" ||
-    hostLower === "169.254.169.254" ||
-    hostLower.startsWith("::ffff:") ||
-    hostLower.startsWith("[::ffff:")
-  ) {
-    return "device hostname resolves to a private/internal address";
-  }
-  return null;
 }
