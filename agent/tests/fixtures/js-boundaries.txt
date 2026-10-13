@@ -257,6 +257,27 @@ GENERATED | gateway/src/store/byok.ts | the BYOK channel table and its two looku
 #   from the rows. **`agent/tests/byok_channel_keys.rs` WAS DELETED WITH IT**: its TypeScript side was this file, so
 #   once the file became the emission the gate compared Rust against its own output — **a gate reading its own subject
 #   cannot fail when the subject changes**, and the freshness test is what carries the emission's honesty now.
+GENERATED | gateway/src/cors-logic.ts | the CORS decisions — the allowlist, the loopback pair, the base headers and the reflect/stamp rules — emitted from Rust | gateway/wasm/src/cors.rs
+#   **THE THIRD EMISSION, AND THE FIRST WHOSE SUBJECT IS REACHED BY THE STATUS PAGE (2026-10-13).** `http.ts`'s CORS
+#   half is called by `plugins/status.ts`, and the status page reports ON the worker, so it must not ask it
+#   (`plugins.test.mjs`: *"the worker must never be asked"*) — while `npm test` cannot reach `/__decision` at all
+#   (`helpers.mjs`'s `WASM_GATE` stub answers a fixed model list). So the twin could be neither deleted nor routed:
+#   it is EMITTED, exactly as `settings_logic.rs` and `byok.rs` emit theirs, and the freshness test beside it is a
+#   byte comparison. **AND THE LITERAL SPELLING IS PART OF THE CONTRACT, MEASURED RATHER THAN ASSUMED**:
+#   `gateway/test/cors-allowlist.test.mjs` and `agent/tests/proxy_cors_parity.rs` read this file as TEXT, and a test
+#   beside the emitter holds the anchors they slice between — because an emitter that reformatted the literal would
+#   leave BOTH gates reading zero origins and passing. **AND THIS LANDING HAD TO FIX THE PARITY GATE'S READER**: it
+#   anchored on the bare name, so it read THIS FILE'S OWN COMMENT — which necessarily names the tokens — took the
+#   comment's empty `new Set([ … ])` for the list, and failed a file that declares exactly what it was asked for.
+#   It requires the ASSIGNMENT now (`const ALLOWED_ORIGINS`, then `=`, then `new Set([`), and its fixture is the
+#   emitted comment's own prose: **prose can name a constant; only a declaration assigns one.**
+BOUNDARY | gateway/src/http.ts | **THE REQUEST/RESPONSE HALF, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is extraction and assembly: an `Origin` and a host out of a `Request`, a `Response` rebuilt with the headers the emitted rules chose, and `jsonOk`/`jsonError`/`readJson`. The CORS decisions — the allowlist, the loopback PAIR (audit P2's "the request's own host must also be loopback"), the reflect/stamp rules and the base header table — are `cors-logic.ts`, GENERATED from `gateway/wasm/src/cors.rs`.
+#   **THE ONE CONDITION LEFT IS THE RUNTIME'S, NOT THE PRODUCT'S**: `withCors` returns a 101/`webSocket` response
+#   untouched because a `Response` cannot be rebuilt around a live socket — the Rust needs no such branch, because
+#   its upgrade path returns before `with_cors`. **AND `errorTypeForStatus` WAS DELETED IN THIS LANDING, BECAUSE IT
+#   WAS DEAD**: grepped across every tracked source (`.ts`/`.tsx`/`.js`/`.mjs`/`.cjs`/`.rs`) its only occurrence was
+#   its own definition, while its subject is live in `responses.rs` (`error_type_for_status`, three callers in that
+#   module) — the same "is it USED" measurement that found `grants.ts` and `store/regkeys.ts`.
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 BOUNDARY | gateway/config/ | **A DOCUMENT, NOT A DECISION — AND ITS TYPE IS COMPILER-CHECKED.** `models.ts` exports `{ providers: [], models: [], overrides: [] } satisfies CatalogueFile` — three EMPTY arrays, so it decides nothing today. It is `.ts` rather than `.json` for a measured reason its own header gives: a JSON import needs `with { type: "json" }` in Node and different syntax in the bundler, so a document the TESTS import would not be the same document the WORKER imports — while `satisfies` makes `tsc` refuse a misspelled `contextWindows` or an effort the router cannot speak BEFORE anything parses it at runtime. The DECISIONS this document feeds (file-over-KV precedence, what may be declared, the routing fields refused by name) live in `gateway/src/store/file-config.ts`, which is LOGIC with the rest of the console's rollback.

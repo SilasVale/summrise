@@ -663,4 +663,28 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // case, "a fresh instance is also what a new isolate is". Its own manifest rule names the three arms and the landing
 // that will retire it (a same-isolate SEQUENCE in the corpus), so the next reader finds the plan where the file is.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 66`.
-const MAX_LOGIC: usize = 66;
+// **65, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/http.ts` is BOUNDARY now: its CORS decisions —
+// the allowlist, the loopback PAIR (audit P2), the base header table and the reflect/stamp rules — are emitted from
+// `gateway/wasm/src/cors.rs` into `gateway/src/cors-logic.ts`, which is GENERATED and whose freshness test is a byte
+// comparison. **THE EMISSION WAS FORCED BY TWO CONSTRAINTS THAT LEFT NO OTHER SEAM**: the status page reads these
+// predicates and must not ask the worker (`plugins.test.mjs`: "the worker must never be asked"), and `npm test`
+// cannot reach `/__decision` — so the twin could be neither deleted (it is the only implementation the tests can
+// reach) nor routed (a predicate the response path calls synchronously). What is left in `http.ts` is extraction and
+// assembly: an Origin and a host out of a `Request`, a `Response` rebuilt with the headers the emitted rules chose,
+// and `jsonOk`/`jsonError`/`readJson`.
+// **AND A DEAD TWIN WENT WITH IT**: `errorTypeForStatus`'s only occurrence in the whole tree was its own definition,
+// while its subject is live in `responses.rs` (`error_type_for_status`, three callers there) — the same "is it USED"
+// measurement that found `grants.ts` and `store/regkeys.ts`.
+// **AND THREE GATES WERE RE-POINTED RATHER THAN LEFT READING A FILE THAT NO LONGER DECLARES THE SUBJECT**:
+// `proxy_cors_parity.rs` (its `OWNER`), `cors-allowlist.test.mjs` (its reader) and `production_host.rs`, where the
+// entry MOVED — `http.ts` spells no host now — so the declared count stays 51.
+// **AND RE-POINTING THE PARITY GATE FOUND A DEFECT IN ITS READER, WHICH IS THE PART WORTH KEEPING.** It anchored on
+// the bare `ALLOWED_ORIGINS`, so pointing it at the emission made it read the emission's OWN COMMENT — a comment
+// that necessarily names the tokens, since documenting them is its job — take the prose's empty `new Set([ … ])` for
+// the list, and fail a file that declares exactly what the gate asks for ("could not read an allowlist — this proves
+// nothing"). Narrowing the anchor to `const ALLOWED_ORIGINS` was NOT enough: the comment names that spelling too.
+// **The rule the reader means is the ASSIGNMENT** — prose can name a constant, only a declaration writes
+// `= new Set([` — and that is what it anchors on now, with the emitted comment's own text as its fixture. A
+// text-reading gate is defeated by a comment that names its subject; this one now fails LOUDLY instead of passing.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 65`.
+const MAX_LOGIC: usize = 65;

@@ -1,74 +1,59 @@
 /**
- * HTTP helpers shared across the gateway: CORS headers, JSON responses,
- * and the readJson() body-parsing helper (replaces the repeated
- * `let body = {}; try { body = await request.json(); } catch {}` pattern).
- * Extracted from index.js (2026-08-12).
+ * http.ts — the REQUEST/RESPONSE half of the console worker's HTTP helpers.
+ *
+ * **THE CORS DECISIONS ARE RUST NOW, AND THIS FILE DOES NOT CARRY THEM (2026-10-13).** `cors-logic.ts` is GENERATED
+ * from `gateway/wasm/src/cors.rs` (`render_typescript`), the freshness test there is a byte comparison, and this
+ * module re-exports it so every existing `from "./http.ts"` import keeps working. What is left here is extraction
+ * and assembly — an `Origin` and a host out of a `Request`, and a `Response` rebuilt with the headers the emitted
+ * rules chose — which is a platform call that decides nothing.
+ *
+ * WHY AN EMISSION RATHER THAN A DELETION OR A ROUTE: the status page reads these predicates and MUST NOT ASK THE
+ * WORKER (`plugins.test.mjs`: *"the worker must never be asked"*), and `npm test` cannot reach `/__decision` at all
+ * (`helpers.mjs`'s `WASM_GATE` stub answers a fixed model list) — so a twin deleted outright would delete the only
+ * implementation the tests can reach, and an `async` route cannot serve a predicate the response path calls
+ * synchronously. The emitted module is JavaScript, so the suite keeps running it, and there is no third copy: **the
+ * emission IS the Rust's output.**
+ *
+ * **AND `errorTypeForStatus` WAS DELETED IN THE SAME LANDING, BECAUSE IT WAS DEAD.** Grepped across every tracked
+ * source (`.ts`/`.tsx`/`.js`/`.mjs`/`.cjs`/`.rs`), its only occurrence was its own definition — nothing under
+ * `gateway/src`, `gateway/test` or anywhere else called it. Its subject is live in the Rust
+ * (`responses.rs`'s `error_type_for_status`, called from three places in that module), so the TypeScript was a twin
+ * nothing reached: the same measurement that found `grants.ts` and `store/regkeys.ts`.
  */
 
-// CORS allowlist: the console origins used in this repo —
-//   https://ai.saisi.online + https://api.saisi.online (CONSOLE_HOST in wrangler.jsonc),
-// plus http(s) loopback for local `wrangler dev`. Any other Origin gets NO
-//
-// https://dsh.saisi.online WAS HERE UNTIL ROUND 243, and it was here for exactly one reason: the Summrise Code Links
-// browser extension ran a content script on that host and called this API from it. The extension was removed
-// (it shipped nowhere, its feature was off by default, and the half it existed for had already been deleted), so
-// the grant went with it — an allowed origin with no consumer is a permission nobody is using.
-// Access-Control-Allow-Origin header (default-closed). Non-browser clients
-// (Claude Code, curl, gateway server-side) are unaffected by CORS.
-// (Mirrors the satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs, which zen-go
-// re-exports. The two JavaScript copies this line used to name were deleted on 2026-10-08.)
-export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
-  "https://ai.saisi.online",
-  "https://api.saisi.online",
-]);
+import {
+  ALLOWED_ORIGINS,
+  CORS_HEADERS,
+  allowedOrigins as allowedOriginsOf,
+  corsHeadersFor as corsHeadersForOrigin,
+  isAllowedOrigin as isAllowedOriginOf,
+  isLoopbackHost,
+  isLoopbackOrigin,
+  stampCors as stampCorsOn,
+} from "./cors-logic.ts";
 
-/** THE ORIGINS THIS DEPLOYMENT ALLOWS, from configuration when it is given (round 88). The set above is the DEFAULT and
- *  is unchanged; `env.CONSOLE_ORIGINS` (comma-separated) overrides it. The parameter is optional on purpose, and that is
- *  the staging: every existing caller keeps the exact behaviour it had, and the callers that HAVE an `env` adopt it as
- *  they are touched — because this list is a security surface (it is what a browser is allowed to read answers from), and
- *  threading it through every response-stamping path in one commit is how a CORS grant gets widened by accident.
- *
- *  WHY IT EXISTS AT ALL: the gateway's tests must be able to run against a test domain instead of a production one, and
- *  today they cannot — 76 of 916 fail the moment the fixtures stop spelling the real host (round 48's measurement). */
-export function allowedOrigins(env?: { CONSOLE_ORIGINS?: string } | null): ReadonlySet<string> {
-  const configured = env?.CONSOLE_ORIGINS;
-  if (!configured) return ALLOWED_ORIGINS;
-  const list = configured
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
-  return list.length ? new Set(list) : ALLOWED_ORIGINS;
+// The emitted names every existing importer reaches for, re-exported so `from "./http.ts"` keeps working.
+export { ALLOWED_ORIGINS, CORS_HEADERS, isLoopbackHost, isLoopbackOrigin };
+
+/** The one variable the origin rules read off an `env`. */
+interface CorsEnv {
+  CONSOLE_ORIGINS?: string;
 }
 
-export function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const u = new URL(origin);
-    return (
-      (u.protocol === "http:" || u.protocol === "https:") &&
-      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
-    );
-  } catch {
-    return false;
-  }
+/** THE ORIGINS THIS DEPLOYMENT ALLOWS — the `env`-shaped spelling of the emitted predicate. The decision (the
+ *  default set, the split/trim/filter, and the empty-configuration fallback) is `cors-logic.ts`'s. */
+export function allowedOrigins(env?: CorsEnv | null): ReadonlySet<string> {
+  return allowedOriginsOf(env?.CONSOLE_ORIGINS);
 }
 
-export function isLoopbackHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1";
-}
-
+/** Allowlist first, then the loopback PAIR (an Origin is not enough — the request's own host must be loopback too,
+ *  audit P2). Same decision as above; this is only the shape the console's callers already pass. */
 export function isAllowedOrigin(
   origin: string,
   requestHost?: string,
-  env?: { CONSOLE_ORIGINS?: string } | null,
+  env?: CorsEnv | null,
 ): boolean {
-  if (!origin) return false;
-  if (allowedOrigins(env).has(origin)) return true;
-  // Loopback origins are a `wrangler dev` affordance, not a production grant:
-  // a request to http://localhost:<port> whose Origin is also loopback is
-  // local dev; the SAME Origin arriving at the deployed console host is just
-  // a foreign local page and gets NO ACAO. (Pre-fix, production reflected
-  // any localhost origin — audit P2.)
-  return isLoopbackOrigin(origin) && !!requestHost && isLoopbackHost(requestHost);
+  return isAllowedOriginOf(origin, requestHost, env?.CONSOLE_ORIGINS);
 }
 
 function requestOrigin(request?: Request | null): string {
@@ -87,53 +72,39 @@ function requestHost(request?: Request | null): string {
   }
 }
 
-// Base CORS headers shared by every response. Deliberately NO
-// Access-Control-Allow-Origin here — the origin is reflected per request
-// (corsHeadersFor / stampCors / withCors below), otherwise a static `*`
-// would ride along on every merge of this constant.
-export const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
-  "Access-Control-Allow-Headers": "*",
-};
-
 /** Per-request CORS headers: reflect-if-allowlisted + Vary, else no ACAO. */
 export function corsHeadersFor(
   request?: Request | null,
-  env?: { CONSOLE_ORIGINS?: string } | null,
+  env?: CorsEnv | null,
 ): Record<string, string> {
-  const headers: Record<string, string> = { ...CORS_HEADERS };
-  const origin = requestOrigin(request);
-  if (isAllowedOrigin(origin, requestHost(request), env)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  return headers;
+  return corsHeadersForOrigin(requestOrigin(request), requestHost(request), env?.CONSOLE_ORIGINS);
 }
 
 /** Stamp (or strip) ACAO on a mutable Headers object, per request origin. */
 export function stampCors(
   request: Request | null | undefined,
   headers: Headers,
-  env?: { CONSOLE_ORIGINS?: string } | null,
+  env?: CorsEnv | null,
 ): void {
-  const origin = request ? requestOrigin(request) : "";
-  if (isAllowedOrigin(origin, requestHost(request), env)) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-  } else {
-    headers.delete("Access-Control-Allow-Origin");
-  }
+  stampCorsOn(
+    headers,
+    request ? requestOrigin(request) : "",
+    requestHost(request),
+    env?.CONSOLE_ORIGINS,
+  );
 }
 
 /**
- * Rebuild an already-built response with per-request CORS (reflect-if-
- * allowlisted, Vary: Origin, no ACAO otherwise). WebSocket upgrades (101 /
- * webSocket) carry no mutable headers — returned untouched.
+ * Rebuild an already-built response with per-request CORS (reflect-if-allowlisted, Vary: Origin, no ACAO
+ * otherwise). **THE ONE CONDITION LEFT IN THIS FILE, AND IT IS THE RUNTIME'S RATHER THAN THE PRODUCT'S**:
+ * WebSocket upgrades (101 / webSocket) carry no mutable headers and a `Response` cannot be rebuilt around them —
+ * the Rust needs no such branch because its upgrade path returns before `with_cors` (`lib.rs`, which has no 101
+ * case either).
  */
 export function withCors(
   request: Request | null | undefined,
   response: Response,
-  env?: { CONSOLE_ORIGINS?: string } | null,
+  env?: CorsEnv | null,
 ): Response {
   const r = response as Response & { webSocket?: unknown };
   if (r.status === 101 || r.webSocket) return response;
@@ -144,25 +115,6 @@ export function withCors(
     statusText: response.statusText,
     headers,
   });
-}
-
-/** The Anthropic error `type` for an upstream HTTP status.
- *
- * ONE definition of a decision that was written out FOUR times across
- * translate.ts (`failStatus === 429 ? "rate_limit_error" : "api_error"`).
- *
- * It is not a cosmetic mapping. Anthropic-protocol clients key their retry and
- * re-auth flows off `error.type`: a 429 answered as a bare `api_error` tells
- * Claude Code to GIVE UP instead of backing off, which is the incident the
- * OpenRouter comment in translate.ts records ("a bare api_error on a 429 told
- * clients to give up instead of backing off").
- *
- * Only 429 is special-cased. Every other status — including 5xx, which the
- * retry layer has already exhausted by the time this runs — is `api_error`,
- * and richer upstream types are preserved separately by the body sniffing in
- * `upstreamBodyErrorResponse`. */
-export function errorTypeForStatus(status: number): string {
-  return status === 429 ? "rate_limit_error" : "api_error";
 }
 
 export function jsonOk(data: any, extraHeaders: Record<string, string> = {}): Response {

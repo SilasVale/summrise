@@ -87,6 +87,14 @@ pub fn is_allowed_origin(
     }
 }
 
+/// The base headers every CORS answer carries (`CORS_HEADERS` in the source), **AND THE ONE SPELLING THE EMITTED
+/// TYPESCRIPT READS.** `render_typescript` writes this table into `gateway/src/cors-logic.ts`, so a header added
+/// here reaches the shipping file only through the emitter, and a header added to the emitter alone cannot exist.
+pub const CORS_HEADERS: [(&str, &str); 2] = [
+    ("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT"),
+    ("Access-Control-Allow-Headers", "*"),
+];
+
 /// `corsHeadersFor(origin, requestHost, env)`: reflect-if-allowlisted plus `Vary`, else the base set with
 /// NO `Access-Control-Allow-Origin`.
 ///
@@ -97,13 +105,10 @@ pub fn cors_headers_for(
     request_host: Option<&str>,
     configured: Option<&str>,
 ) -> Vec<(String, String)> {
-    let mut headers = vec![
-        (
-            "Access-Control-Allow-Methods".to_string(),
-            "GET,POST,OPTIONS,DELETE,PUT".to_string(),
-        ),
-        ("Access-Control-Allow-Headers".to_string(), "*".to_string()),
-    ];
+    let mut headers: Vec<(String, String)> = CORS_HEADERS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     if is_allowed_origin(origin, request_host, configured) {
         headers.push((
             "Access-Control-Allow-Origin".to_string(),
@@ -167,6 +172,252 @@ pub fn forwarded_upstream_response(
         status,
         headers,
         body: body.to_string(),
+    }
+}
+
+/* ─────────────────────────────── THE EMISSION ─────────────────────────────── */
+
+/// The emitted module — **AND THE WHOLE OF IT, BECAUSE EVERY LINE ABOVE IS A DECISION THIS MODULE ALREADY MAKES.**
+///
+/// WHY AN EMISSION AND NOT A DELETION OR A ROUTE. `gateway/src/http.ts`'s CORS half is reached by the STATUS page
+/// and therefore may not ask the worker (`plugins.test.mjs`: *"the worker must never be asked"*), and `npm test`
+/// cannot reach `/__decision` at all — so a twin deleted outright would delete the only implementation the tests
+/// can reach, and an async route cannot serve a predicate that the response path calls synchronously. An emission
+/// can: the Rust is the source, the emitted module is JavaScript, and the freshness test below is a byte comparison.
+const TS_HEADER: &str = r#"/**
+ * cors-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/cors.rs` (`render_typescript`), which is now the single source. The freshness test
+ * in that module is a byte comparison against this file, so a hand edit fails there with the text and one command
+ * to fix it:
+ *
+ *     SUMMRISE_REFRESH_CORS=1 cargo test --manifest-path gateway/wasm/Cargo.toml cors::emission
+ *
+ * `gateway/src/http.ts` re-exports this module and keeps only the Request/Response plumbing — pulling an Origin
+ * and a host out of a request, and rebuilding a response — because those are platform calls that decide nothing.
+ *
+ * The comment below is the file's own, carried verbatim: it is the record of why this list is what it is, and none
+ * of it is recoverable from the two rows.
+ *
+ * CORS allowlist: the console origins used in this repo —
+ *   https://ai.saisi.online + https://api.saisi.online (CONSOLE_HOST in wrangler.jsonc),
+ * plus http(s) loopback for local `wrangler dev`. Any other Origin gets NO
+ *
+ * https://dsh.saisi.online WAS HERE UNTIL ROUND 243, and it was here for exactly one reason: the Summrise Code
+ * Links browser extension ran a content script on that host and called this API from it. The extension was removed
+ * (it shipped nowhere, its feature was off by default, and the half it existed for had already been deleted), so
+ * the grant went with it — an allowed origin with no consumer is a permission nobody is using.
+ * Access-Control-Allow-Origin header (default-closed). Non-browser clients
+ * (Claude Code, curl, gateway server-side) are unaffected by CORS.
+ * (Mirrors the satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs, which zen-go
+ * re-exports. The two JavaScript copies this line used to name were deleted on 2026-10-08.)
+ */
+
+/** The DEFAULT allowlist, verbatim and in order (`DEFAULT_ALLOWED_ORIGINS` in `cors.rs`).
+ *
+ *  **THE LITERAL SPELLING IS LOAD-BEARING, AND THAT IS MEASURED RATHER THAN ASSUMED**: two gates read this file as
+ *  TEXT — `gateway/test/cors-allowlist.test.mjs` and `agent/tests/proxy_cors_parity.rs` both anchor on the
+ *  DECLARATION (`const ALLOWED_ORIGINS`), then `new Set([`, then `])` — so the list is written as a `new Set([ … ])`
+ *  OF QUOTED ORIGINS rather than built from a constant, and `cors.rs` carries a test that pins those anchors.
+ *  **AND THAT SENTENCE IS WHY THE ANCHOR IS THE DECLARATION RATHER THAN THE NAME**: the first version of this comment
+ *  spelled the bare `ALLOWED_ORIGINS` in prose ABOVE the declaration, and `proxy_cors_parity.rs` — whose reader
+ *  anchored on the first MENTION of the name — read the COMMENT: its `new Set([ … ])` slice holds no quoted string,
+ *  the list read as EMPTY, and the gate failed this file with *"could not read an allowlist — this proves nothing"*.
+ *  The reader anchors on the declaration now, and its own test pins that a mention in prose cannot stand in. */
+export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
+  "https://ai.saisi.online",
+  "https://api.saisi.online",
+]);
+
+/** THE ORIGINS THIS DEPLOYMENT ALLOWS, from configuration when it is given (round 88). The set above is the DEFAULT
+ *  and is unchanged; `CONSOLE_ORIGINS` (comma-separated) overrides it. The parameter is optional on purpose, and
+ *  that is the staging: every existing caller keeps the exact behaviour it had, and the callers that HAVE an `env`
+ *  adopt it as they are touched — because this list is a security surface (it is what a browser is allowed to read
+ *  answers from), and threading it through every response-stamping path in one commit is how a CORS grant gets
+ *  widened by accident.
+ *
+ *  WHY IT EXISTS AT ALL: the gateway's tests must be able to run against a test domain instead of a production one,
+ *  and today they cannot — 76 of 916 fail the moment the fixtures stop spelling the real host (round 48's
+ *  measurement). */
+export function allowedOrigins(configured?: string | null): ReadonlySet<string> {
+  if (!configured) return ALLOWED_ORIGINS;
+  const list = configured
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  return list.length ? new Set(list) : ALLOWED_ORIGINS;
+}
+
+export function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    return (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+export function isAllowedOrigin(
+  origin: string,
+  requestHost?: string | null,
+  configured?: string | null,
+): boolean {
+  if (!origin) return false;
+  if (allowedOrigins(configured).has(origin)) return true;
+  // Loopback origins are a `wrangler dev` affordance, not a production grant:
+  // a request to http://localhost:<port> whose Origin is also loopback is
+  // local dev; the SAME Origin arriving at the deployed console host is just
+  // a foreign local page and gets NO ACAO. (Pre-fix, production reflected
+  // any localhost origin — audit P2.)
+  return isLoopbackOrigin(origin) && !!requestHost && isLoopbackHost(requestHost);
+}
+
+// Base CORS headers shared by every response. Deliberately NO
+// Access-Control-Allow-Origin here — the origin is reflected per request
+// (corsHeadersFor / stampCors / withCors), otherwise a static `*`
+// would ride along on every merge of this constant.
+export const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS,DELETE,PUT",
+  "Access-Control-Allow-Headers": "*",
+};
+
+/** Per-request CORS headers: reflect-if-allowlisted + Vary, else no ACAO.
+ *
+ *  **IT TAKES THE ORIGIN AND THE HOST, NOT A `Request`** — this is the Rust signature. Extracting them from a
+ *  request is a platform call and stays in `http.ts`; deciding with them is this module's. */
+export function corsHeadersFor(
+  origin: string,
+  requestHost?: string | null,
+  configured?: string | null,
+): Record<string, string> {
+  const headers: Record<string, string> = { ...CORS_HEADERS };
+  if (isAllowedOrigin(origin, requestHost, configured)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Vary"] = "Origin";
+  }
+  return headers;
+}
+
+/** Stamp (or strip) ACAO on a mutable Headers object, per request origin.
+ *
+ *  **THE `else` DELETES, AND THAT IS NOT SYMMETRIC WITH `corsHeadersFor`.** That one starts from a fresh set which
+ *  never had an ACAO, so "not allowed" means "do not add one"; this one is handed headers that may already carry
+ *  the upstream's, so refusing has to take it away. `Vary` is touched only in the ALLOWED branch, where the
+ *  source's `set` REPLACES whatever the upstream sent. */
+export function stampCors(
+  headers: Headers,
+  origin: string,
+  requestHost?: string | null,
+  configured?: string | null,
+): void {
+  if (isAllowedOrigin(origin, requestHost, configured)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+  } else {
+    headers.delete("Access-Control-Allow-Origin");
+  }
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_HEADER.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/cors-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK — AND IT IS THE REASON THE EMISSION CANNOT DRIFT.** The same shape `mcp_tools.rs`,
+    /// `settings_logic.rs` and `byok.rs` use.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_CORS").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write cors-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_CORS=1 cargo test cors::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/cors-logic.ts is not what cors.rs emits — \
+             run SUMMRISE_REFRESH_CORS=1 cargo test cors::emission"
+        );
+    }
+
+    /// **AND THE SPELLING TWO OTHER GATES PARSE IS PART OF THE CONTRACT, NOT AN ACCIDENT OF STYLE.** The freshness
+    /// test alone would happily pin a list edited on BOTH sides; this one pins the SUBJECT (the two origins, in the
+    /// source's order) and the ANCHORS `cors-allowlist.test.mjs` and `proxy_cors_parity.rs` slice between.
+    ///
+    /// MUTATION: drop an origin from `DEFAULT_ALLOWED_ORIGINS` and re-emit.
+    /// RESULT:   this test fails on the origin; the two external gates then fail on the drift it caused.
+    #[test]
+    fn the_emitted_module_carries_the_origins_and_the_anchors_two_gates_read() {
+        assert_eq!(
+            DEFAULT_ALLOWED_ORIGINS,
+            ["https://ai.saisi.online", "https://api.saisi.online"]
+        );
+        let ts = render_typescript();
+        let at = ts
+            .find("export const ALLOWED_ORIGINS")
+            .expect("cors-allowlist.test.mjs anchors on this name");
+        let open = ts[at..]
+            .find("new Set([")
+            .expect("...then on `new Set([`")
+            + at;
+        let close = ts[open..]
+            .find("])")
+            .expect("...and slices to `])`")
+            + open;
+        let slice = &ts[open..close];
+        assert!(
+            slice.contains("\"https://ai.saisi.online\"")
+                && slice.contains("\"https://api.saisi.online\""),
+            "the allowlist must be a `new Set([ … ])` OF QUOTED ORIGINS, or both gates read zero: {slice}"
+        );
+    }
+
+    /// **AND THE BASE HEADERS ARE THE EMITTED TABLE, NOT A SECOND COPY BESIDE IT.**
+    ///
+    /// MUTATION: change `CORS_HEADERS`' methods string here.
+    /// RESULT:   the emitted bytes change, the freshness test fails, and `http.test.mjs`/the corpus cases that
+    ///           carry the preflight answer fail with them.
+    #[test]
+    fn the_base_headers_are_one_table() {
+        let ts = render_typescript();
+        for (name, value) in CORS_HEADERS {
+            assert!(
+                ts.contains(&format!("\"{name}\": \"{value}\"")),
+                "the emitter lost {name}"
+            );
+        }
+        // ...and `cors_headers_for` builds from the same table rather than repeating it.
+        let pairs = cors_headers_for("https://nothing.example", None, None);
+        assert_eq!(
+            pairs,
+            CORS_HEADERS
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<Vec<_>>()
+        );
     }
 }
 

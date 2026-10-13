@@ -1,9 +1,9 @@
-// ── the CORS allowlist is hand-maintained in THREE files, and its own comment
+// ── the CORS allowlist is declared in THREE places, and its own comment
 //    asserts they agree ────────────────────────────────────────────────────────
 //
-// `src/http.ts`'s `ALLOWED_ORIGINS` carries a comment naming where each entry
-// comes from — `CONSOLE_HOST` in wrangler.jsonc — and ends with "(Mirrors the
-// satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs …)".
+// The gateway's copy is a GENERATED module now: `gateway/wasm/src/cors.rs` holds the list (`DEFAULT_ALLOWED_ORIGINS`)
+// and EMITS `src/cors-logic.ts`, whose comment names where each entry comes from — `CONSOLE_HOST` in wrangler.jsonc
+// — and ends with "(Mirrors the satellites' ALLOWED_ORIGINS — proxies/zen-us-proxy/worker/src/lib.rs …)".
 // Those are claims about OTHER files, and nothing read any of them. **The
 // satellite it used to name was `proxies/zen-go-proxy/src/index.js`, deleted
 // 2026-10-08** — the port is one Rust copy now, which `zen-go` re-exports, so
@@ -12,8 +12,8 @@
 // A SECOND SOURCE WAS `extension/manifest.json` until round 243 removed that extension: the console host plus
 // the manifest's host_permissions WAS the expected set, which is how `https://dsh.summrise.test` got in — it was
 // there for the extension's content script and for nothing else. Checked before cutting, in this order: the
-// comment in http.ts names the manifest; the harness's own browser client posts to `http://dsh.internal` rather
-// than to this API; and the DSH plugin in this repo fetches no API at all. So the origin went, and this test now
+// comment carried into the emission names the manifest; the harness's own browser client posts to `http://dsh.internal`
+// rather than to this API; and the DSH plugin in this repo fetches no API at all. So the origin went, and this test now
 // compares against CONSOLE_HOST alone — which is a STRICTER check than before, because a stray origin can no
 // longer be legitimised by a manifest nobody reads.
 //
@@ -35,11 +35,24 @@ import { join } from "node:path";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** The origins in `export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([ … ])`. */
+/**
+ * The origins in `export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([ … ])`.
+ *
+ * **IT READS THE EMITTED MODULE NOW, NOT `http.ts` (2026-10-13).** The CORS decisions moved into
+ * `gateway/wasm/src/cors.rs`, which EMITS `src/cors-logic.ts`; `http.ts` re-exports the emitted names and keeps
+ * only the Request/Response plumbing. The three anchors this function slices between are held in place by a test
+ * BESIDE THE EMITTER (`cors.rs`'s `the_emitted_module_carries_the_origins_and_the_anchors_two_gates_read`), because
+ * this gate and `agent/tests/proxy_cors_parity.rs` both depend on them — an emitter that reformatted the literal
+ * would leave both gates reading zero origins and passing.
+ *
+ * Reading the emission keeps this gate's meaning exactly: *what the gateway ships* reflects what its comment says
+ * it mirrors. The step from the Rust source to these bytes is `cors.rs`'s own freshness test (a byte comparison), so
+ * the chain `cors.rs -> cors-logic.ts -> {CONSOLE_HOST, the satellites}` is closed end to end.
+ */
 function gatewayOrigins() {
-  const src = readFileSync(join(ROOT, "src", "http.ts"), "utf8");
+  const src = readFileSync(join(ROOT, "src", "cors-logic.ts"), "utf8");
   const start = src.indexOf("export const ALLOWED_ORIGINS");
-  assert.notEqual(start, -1, "src/http.ts declares ALLOWED_ORIGINS");
+  assert.notEqual(start, -1, "src/cors-logic.ts declares ALLOWED_ORIGINS");
   const open = src.indexOf("new Set([", start);
   const close = src.indexOf("])", open);
   assert.ok(open !== -1 && close !== -1, "the allowlist is a `new Set([ … ])` literal");
@@ -87,7 +100,7 @@ test("CORS: the gateway's allowlist is exactly what its comment says it mirrors"
   assert.deepEqual(
     gateway,
     expected,
-    "src/http.ts's ALLOWED_ORIGINS no longer matches the files its own comment names. " +
+    "src/cors-logic.ts's ALLOWED_ORIGINS (emitted from gateway/wasm/src/cors.rs) no longer matches the files its own comment names. " +
       "A missing origin means that console silently loses CORS in the browser while every " +
       "server-side test stays green; a surplus one stays allowlisted after its host moved. " +
       `allowlist=${gateway.join(",")} expected=${expected.join(",")}`,
@@ -98,7 +111,7 @@ test("CORS: the gateway and the satellites allow the same origins", () => {
   assert.deepEqual(
     gatewayOrigins(),
     satelliteOrigins(),
-    "src/http.ts says its allowlist `(Mirrors the satellites' ALLOWED_ORIGINS — " +
+    "src/cors-logic.ts says its allowlist `(Mirrors the satellites' ALLOWED_ORIGINS — " +
       "proxies/zen-us-proxy/worker/src/lib.rs …)` and the two are separate copies, so a change to " +
       "one silently diverges: the proxy starts refusing a browser origin the gateway still allows, " +
       "or the reverse. Edit both.",

@@ -100,13 +100,18 @@ const ALLOWED: [(&str, &str); 51] = [
     ("relay/", "the file relay's OWN worker config: its /files/* route and PUBLIC_BASE must name the host to mint one-time download URLs (D6 cut the relay out of the CDN worker)"),
     // ── the worker's own configuration ──
     ("gateway/wrangler", "the deployment's own routes and vars"),
-    ("gateway/src/http.ts", "the CONSOLE_HOST allowed-origins list, which is the deployment's identity"),
+    // MOVED RATHER THAN ADDED (2026-10-13), AND THE DECLARED COUNT IS UNCHANGED AT 51 — one entry left and one
+    // arrived, which is what a MOVE looks like in this list. The CORS decisions are `gateway/wasm/src/cors.rs`'s
+    // now (the entry further down is its source), and the hostnames live in the module it EMITS; `http.ts`
+    // re-exports the emitted names and keeps only the Request/Response plumbing, so it spells no host at all and
+    // its entry would have been a declaration nothing needed.
+    ("gateway/src/cors-logic.ts", "the EMITTED copy of the CONSOLE_HOST allowed-origins list: `cors.rs` produces these bytes and a freshness test compares them, so a reader looking for where the hostnames live finds both ends"),
     // ADDED 2026-10-02, and the reason is the entry above it: `cors.rs` is the RUST PORT of that exact
     // list — `DEFAULT_ALLOWED_ORIGINS` is `ALLOWED_ORIGINS` verbatim, because the CORS gate moved into the
     // worker (block ④ of the migration). The hostnames are the list's SUBJECT, so there is nothing to take
     // out of the file; the alternative would be to leave the Rust port's default empty and pass the two
     // origins in from TypeScript, which is a different design and not this one.
-    ("gateway/wasm/src/cors.rs", "the same allowed-origins list as gateway/src/http.ts, ported to Rust"),
+    ("gateway/wasm/src/cors.rs", "the SOURCE of the allowed-origins list the entry above emits: DEFAULT_ALLOWED_ORIGINS, which is what the wasm worker itself enforces"),
     ("gateway/wasm/fixtures/translate-corpus.json", "the generated corpus those cases produced: the same origins, recorded"),
     // ADDED 2026-10-02, same branch: `device.rs` is the Rust port of `device-fetch.ts`'s host rules, and
     // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
