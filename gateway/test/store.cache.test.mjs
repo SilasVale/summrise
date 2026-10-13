@@ -150,26 +150,28 @@ test("cached entries are re-read after the 24h TTL", async () => {
   }
 });
 
-test("hasRegKey always reads KV (one-time keys not cached)", async () => {
-  const kv = makeKV({ "regkey:abc123": "1" });
-  assert.equal(await store.hasRegKey(kv, "abc123"), true);
-  assert.equal(await store.hasRegKey(kv, "abc123"), true);
-  assert.equal(kv.counters.get, 2);
-});
-
-test("consumeRegKey spends the key once and grants register handoff", async () => {
-  const kv = makeKV({ "regkey:xyz789": "1" });
-  assert.equal(await store.hasRegKey(kv, "xyz789"), true);
-  await store.consumeRegKey(kv, "xyz789");
-  // spent: neither the key itself nor repeated grants can re-harvest
-  assert.equal(await store.hasRegKey(kv, "xyz789"), false);
-  assert.equal(await store.hasRegKey(kv, "xyz789"), false); // no regeneration
-  assert.equal(kv.counters.get, 3);
-  // the one-time grant lets the same install finish registration
-  assert.equal(await store.hasRegGrant(kv, "xyz789"), true); // 4th get
-  await store.deleteRegGrant(kv, "xyz789");
-  assert.equal(await store.hasRegGrant(kv, "xyz789"), false);
-});
+// ── THE FIVE REGISTRATION-KEY CASES LEFT WITH `store/regkeys.ts` (2026-10-13), AND EACH ONE'S WITNESS IS NAMED ──
+//
+// The module was DELETED, not re-pointed: not one of its exports had a consumer outside `store.ts`'s blanket barrel,
+// and the registry is the Rust worker's (`gateway/wasm/src/device_store.rs` over `device_registry.rs`). **A case does
+// not leave without a witness**, so each one names where its behaviour is pinned now — the corpus case lives in
+// `gateway/wasm/shipping-answers.json`, is driven by `gateway/wasm/verify.mjs` in CI, and records the KV WRITES as
+// well as the answer:
+//
+//   createRegKey: 16-hex, 1 h TTL   -> corpus `POST /api/devices/register-key`, whose recorded write is
+//                                      `put regkey:0001020304050607=1 ttl=3600`
+//   hasRegKey always reads KV       -> `has_reg_key` is `kv_text` and nothing else (no cache call on the path,
+//                                      device_store.rs:230); the KEY-RULE half — lowercased before the claim — is
+//                                      the corpus case `POST /api/register, an UPPERCASE key (the key is lowercased
+//                                      before the claim)`, whose write names `regclaim2:livekey01`
+//   consumeRegKey: spend → grant    -> corpus `POST /api/register, the grant a spent key leaves behind`;
+//                                      `consume_reg_key` is that delete plus the 15-minute `reggrant:` put
+//   deleteRegKey, empty = no-op     -> corpus `DELETE /api/devices/register-keys/expired01` (records
+//                                      `del regkey:expired01`) and `…/nosuchkey`; `delete_reg_key` returns early
+//                                      on an empty code
+//   listRegKeys: live only, ms      -> `device_registry::reg_key_rows`'s own unit
+//                                      `reg_keys_drop_the_expired_and_keep_the_live`, plus the corpus case
+//                                      `GET /api/devices/register-keys`
 
 test("listUsers reads raw (not cached)", async () => {
   const kv = makeKV({ "user:alice": user("alice"), "user:bob": user("bob") });
@@ -363,43 +365,9 @@ test("createUser rejects bad names, short passwords, duplicates, keyless non-adm
   );
 });
 
-// ── Regkeys + settings edges (round-391) ──
-
-test("createRegKey mints 16-hex with a 1h TTL", async () => {
-  const kv = makeKV();
-  let captured = null;
-  const origPut = kv.KEYS.put;
-  kv.KEYS.put = async (k, v, opts) => {
-    captured = { k, v, opts };
-    return origPut(k, v, opts);
-  };
-  const code = await store.createRegKey(kv);
-  assert.match(code, /^[0-9a-f]{16}$/);
-  assert.equal(captured.k, `regkey:${code}`);
-  assert.equal(captured.opts?.expirationTtl, 3600);
-});
-
-test("deleteRegKey removes; empty code and keyless env are no-ops", async () => {
-  const kv = makeKV({ "regkey:abc": "1" });
-  await store.deleteRegKey(kv, "ABC");
-  assert.equal(await store.hasRegKey(kv, "abc"), false);
-  await store.deleteRegKey(kv, "");
-  await store.deleteRegKey({}, "abc");
-  await store.hasRegGrant({}, "x");
-});
-
-test("listRegKeys returns only live keys with ms expiry", async () => {
-  const { makeEnv } = await import("./helpers.mjs");
-  const env = makeEnv({});
-  await env.KEYS.put("regkey:live", "1", { expirationTtl: 3600 });
-  await env.KEYS.put("regkey:dead", "1", { expirationTtl: 3600 });
-  env._expiry.set("regkey:dead", Math.floor(Date.now() / 1000) - 10);
-  const keys = await store.listRegKeys(env);
-  assert.equal(keys.length, 1);
-  assert.equal(keys[0].code, "live");
-  assert.ok(keys[0].expiresAt > Date.now(), "ms epoch in the future");
-  assert.deepEqual(await store.listRegKeys({}), []);
-});
+// ── Settings edges (round-391) ──
+// (The three regkeys cases that used to sit here are gone with `store/regkeys.ts` — their witnesses are named in
+// the block above `listUsers reads raw`.)
 
 test("globalSettingEnabled: only real on-values are on", () => {
   for (const off of [null, undefined, "", "0", "false"]) {

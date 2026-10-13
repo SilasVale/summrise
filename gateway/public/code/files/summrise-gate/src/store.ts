@@ -26,13 +26,23 @@
  *                      admin password
  *   store/settings.ts  global settings (console toggles, e.g. US_PROXY)
  *   store/devices.ts   device registry (devices:v1) + CF tunnel API token
- *   store/regkeys.ts   one-time device registration keys / grants
- *   store/plugins.ts   plugin-link registry (plugins:v1)
+ *
+ * **`store/regkeys.ts` LEFT ON 2026-10-13, AND IT WAS DELETED RATHER THAN RE-POINTED.** The registration keys
+ * (`regkey:` / `reggrant:`) are the Rust worker's now (`gateway/wasm/src/device_store.rs`, over
+ * `device_registry::reg_key_rows`), the corpus drives every route that writes them — `POST /api/devices/register-key`,
+ * `GET /api/devices/register-keys`, both `DELETE`s, and the four `POST /api/register` cases including *"an UPPERCASE
+ * key (the key is lowercased before the claim)"* — and **not one of its exported names had a consumer outside this
+ * barrel**: `store.ts`'s blanket `export *` made the file look imported while nothing called it. That is the same
+ * measurement that found `grants.ts`, and the same rule — *a barrel is structure, and a file nothing reaches is not
+ * work that is left.*
+ *
+ * **AND `store/plugins.ts` IS THE SAME KIND OF DEAD AND DID NOT GO WITH IT** — three of its arms pin SAME-ISOLATE
+ * behaviour that the corpus cannot witness, because it runs a fresh module instance per case. The reason it still
+ * counts as LOGIC, and the landing that will retire it, are in the manifest's own rule for the file.
  */
 export * from "./store/cache.ts";
 export * from "./store/users.ts";
 export * from "./store/admin.ts";
 export * from "./store/settings.ts";
 export * from "./store/devices.ts";
-export * from "./store/regkeys.ts";
 export * from "./store/plugins.ts";

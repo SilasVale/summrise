@@ -647,4 +647,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // three usage mappers). **The alternative was to protect the number**: a plugin importing from another plugin is a
 // layering inversion, and hiding a gate client in `http.ts` to avoid a file would be a number kept at the cost of
 // the reader. A ratchet that can only be raised in the open is doing its job; one that is worked around is not.
-const MAX_LOGIC: usize = 67;
+// **66, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/store/regkeys.ts` was DELETED — not re-pointed
+// and not emitted: its seven exports (`createRegKey` … `listRegKeys`) had **no consumer outside `store.ts`'s barrel**,
+// which is the same shape that hid `grants.ts` one landing earlier, and the registry they implement is the Rust
+// worker's (`gateway/wasm/src/device_store.rs` over `device_registry::reg_key_rows`) — driven by the corpus on EVERY
+// route that writes one: `POST /api/devices/register-key` records the write `put regkey:0001020304050607=1 ttl=3600`,
+// `GET /api/devices/register-keys`, both `DELETE`s, and the four `POST /api/register` cases including the UPPERCASE
+// one (whose recorded write names the lowercased `regclaim2:livekey01`).
+// **AND ITS FIVE CASES LEFT WITH IT, EACH WITH A NAMED WITNESS** — the table is in `store.cache.test.mjs`, and it is
+// four corpus cases plus the Rust unit `reg_keys_drop_the_expired_and_keep_the_live`. A test whose subject is gone
+// does not leave silently in this repository.
+// **AND ITS SIBLING DID NOT GO WITH IT, WHICH IS THE PART WORTH READING.** `gateway/src/store/plugins.ts` is the same
+// kind of dead — same barrel, no consumer but its own test — and it still counts as LOGIC, because three of its cases
+// pin SAME-ISOLATE behaviour that the corpus CANNOT reach: `run-cases.mjs:173` imports a fresh module instance per
+// case, "a fresh instance is also what a new isolate is". Its own manifest rule names the three arms and the landing
+// that will retire it (a same-isolate SEQUENCE in the corpus), so the next reader finds the plan where the file is.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 66`.
+const MAX_LOGIC: usize = 66;
