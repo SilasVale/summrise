@@ -4652,6 +4652,196 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
     }
   }
 
+  // ── THE SAME-ISOLATE SEQUENCES, WHICH NO SINGLE-REQUEST CASE CAN SEE ────────────────────────────
+  //
+  // **THE REASON `store/plugins.ts` COULD NOT BE RETIRED WITH `grants.ts` AND `store/regkeys.ts`.** Every case
+  // above runs in a FRESH module instance — *"a fresh instance is also what a new isolate is"* (`run-cases.mjs`) —
+  // so this corpus is blind to ISOLATE STATE by construction, and the three cases that pinned that state lived in
+  // the TypeScript file's own suite: its write-through on save, the stale-cache guard on revoke, and the round-448
+  // arm inside its sweep lock. **These three blocks are the witness that replaces them**: ONE instance, N requests,
+  // one KV — the same shape the device family's per-IP gate already uses.
+  //
+  // MUTATION: in `device_store.rs`, write the revoked map WITHOUT the write-through cache (a direct KV put), so the
+  //           map the first request cached survives the revoke.
+  // RESULT:   `the revoke reaches the SAME isolate` fails — the third request is ACCEPTED from a link the second
+  //           request revoked (measured: `200 -> delete 200 -> 200`), which is the resurrection the source's own
+  //           comment records ("the unlocked sweep could resurrect links another isolate revoked").
+  //
+  // MUTATION: in `device_store.rs`, make the sweep's fresh re-read PANIC on a corrupt blob
+  //           (`read_plugin_links_fresh(env).await.expect("corrupt")`) instead of aborting through the `Option`.
+  // RESULT:   `the corrupt re-read inside the sweep lock` fails — measured: the panic is not a rejection the harness
+  //           can catch, so the WHOLE RUN DIES with a WASM trap whose backtrace names
+  //           `device_store::get_plugin_by_token` and `option::expect_failed`. A refusal that cannot be replaced by
+  //           an `unwrap` is the property; the 401 above is what it looks like when it holds.
+  //
+  // MUTATION: in `device_store.rs`, make `remove_plugin_links_for_device` treat a corrupt blob as EMPTY **and** save
+  //           unconditionally — TWO EDITS, because this path carries TWO protections
+  //           (`read_plugin_links_fresh`'s `Option`, and `if removed > 0`). **EACH ALONE IS SUFFICIENT, AND THAT IS
+  //           ITSELF THE MEASUREMENT**: with only the first, nothing is "removed" from an empty map and no write
+  //           happens; with only the second, the `Option` aborts first.
+  // RESULT:   `the delete's revoke ABORTS on a corrupt blob` fails — measured `status 200, 1 write(s), untouched
+  //           false`, i.e. `{}` written over every link in the deployment. The frozen corpus catches that same
+  //           mutation independently (`DELETE /api/devices/nope, a device that does not exist` goes red), which is
+  //           why this block pins the WRITE rather than the status.
+  // RESULT:   `the delete's revoke ABORTS on a corrupt blob` fails — it writes `{}` over every link in the
+  //           deployment instead of leaving the record alone.
+  {
+    // **THE READ-BACK GOES THROUGH `/api/upload`, NOT THE PROXY, AND THAT IS THE MEASUREMENT RATHER THAN A STYLE
+    // CHOICE**: the revocation this sequence performs is `DELETE /api/devices/<name>`, so a proxy request afterwards
+    // would be refused for the MISSING DEVICE whatever the link map said — an assertion that cannot tell the two
+    // refusals apart, which the first version of this block was. The file relay resolves the SAME plugin link
+    // (`upload.rs` calls `store::get_plugin_by_token`) and does not care whether the device still exists, so its
+    // 401 is the link map's answer and nothing else's.
+    const uploadCase = () => ({
+      name: "same-isolate: the upload",
+      req: ["POST", "/api/upload", "raw-bytes"],
+      cookie: null,
+      headers: { authorization: `Bearer ${LIVE_LINK}` },
+      ...BASE,
+    });
+    const kv = makeKv(SEED);
+    const worker = await import(`${pathToFileURL(BUILT).href}?proxy=sameisolate`);
+    const instance = new worker.default();
+    instance.env = deviceEnv(kv);
+    instance.ctx = {};
+    stubUpstream(uploadCase(), []);
+    let first = 0;
+    let deleted = 0;
+    let third = 0;
+    let note = "";
+    try {
+      const accepted = await instance.fetch(buildRequest(uploadCase(), ""));
+      first = accepted.status;
+      await accepted.text();
+      const gone = await instance.fetch(
+        buildRequest({ req: ["DELETE", "/api/devices/d1"], cookie: "admin" }, COOKIES.admin),
+      );
+      deleted = gone.status;
+      await gone.text();
+      const after = await instance.fetch(buildRequest(uploadCase(), ""));
+      third = after.status;
+      note = (await after.text()).slice(0, 120);
+    } catch (error) {
+      note = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    const blob = JSON.parse((await kv.get("plugins:v1")) ?? "{}");
+    const swept = !Object.prototype.hasOwnProperty.call(blob, LIVE_LINK);
+    if (first === 200 && deleted === 200 && third === 401 && swept) {
+      same += 1;
+      console.log(
+        `      ok   the revoke reaches the SAME isolate: 200 -> delete 200 -> ${third}, and the record is gone from KV`,
+      );
+    } else {
+      different += 1;
+      failures.push("the same-isolate revoke");
+      console.log(
+        `      FAIL the revoke on the SAME isolate: ${first} -> delete ${deleted} -> ${third}, record still present: ${!swept} :: ${JSON.stringify(note)}`,
+      );
+    }
+  }
+  {
+    // **AND THE ROUND-448 ARM: THE FIRST READ HANDS BACK AN EXPIRED LINK, THEN THE LOCKED RE-READ FINDS A BLOB
+    // THAT CANNOT BE PARSED.** `read_plugin_links_fresh(env).await?` propagates `None`, so the answer is the
+    // ordinary refusal — never a throw, which reaches the caller as a 500 on a route whose whole job is a 401.
+    // The TypeScript case that pinned this crafted a KV stub whose SECOND read of the key is garbage; so does this.
+    const expiredOnly = JSON.stringify({
+      [EXPIRED_LINK]: { device: "d1", createdAt: 1, expiresAt: FIXED_NOW - 1 },
+    });
+    const base = makeKv({ ...SEED, "plugins:v1": expiredOnly });
+    const realGet = base.get.bind(base);
+    let reads = 0;
+    const kv = {
+      ...base,
+      get: async (key, type) =>
+        key === "plugins:v1" && ++reads > 1 ? "corrupt{{{Leeroy" : realGet(key, type),
+    };
+    const c = {
+      name: "same-isolate: the corrupt re-read",
+      req: ["GET", "/api/devices/d1/proxy/api/status", undefined],
+      cookie: null,
+      headers: { authorization: `Bearer ${EXPIRED_LINK}` },
+      ...BASE,
+    };
+    const worker = await import(`${pathToFileURL(BUILT).href}?proxy=corruptreread`);
+    const instance = new worker.default();
+    instance.env = deviceEnv(kv);
+    instance.ctx = {};
+    stubUpstream(c, []);
+    let status = 0;
+    let body = "";
+    try {
+      const response = await instance.fetch(buildRequest(c, ""));
+      status = response.status;
+      body = await response.text();
+    } catch (error) {
+      body = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    // **AND THE ABORT ARM IS THE POINT, NOT THE 401**: a corrupt blob must leave the record ALONE, because the
+    // caller that treats it as `{}` writes that emptiness over every link in the deployment (the `Option` in
+    // `plugin_links_from_raw` exists for exactly this, and the TypeScript case asserted the same thing).
+    // **THE READ-BACK USES THE UNWRAPPED GETTER ON PURPOSE**: this block's wrapper corrupts every read after the
+    // first, so verifying through it would parse the CORRUPTION and crash the harness — which is what the first
+    // version of this block did.
+    const after = JSON.parse((await realGet("plugins:v1")) ?? "{}");
+    const untouched =
+      Object.prototype.hasOwnProperty.call(after, EXPIRED_LINK) &&
+      !kv.writes.some((w) => w.startsWith("put plugins:v1="));
+    if (status === 401 && !body.startsWith("THREW") && untouched) {
+      same += 1;
+      console.log(
+        `      ok   the corrupt re-read inside the sweep lock answers ${status} — ${reads} read(s), no throw, and the record is untouched`,
+      );
+    } else {
+      different += 1;
+      failures.push("the corrupt re-read inside the sweep lock");
+      console.log(
+        `      FAIL the corrupt re-read inside the sweep lock: status ${status} after ${reads} read(s), untouched ${untouched} :: ${JSON.stringify(body).slice(0, 160)}`,
+      );
+    }
+  }
+
+  {
+    // **AND THE ARM WHERE CORRUPTION IS DESTRUCTIVE: THE DELETE'S REVOKE.** `remove_plugin_links_for_device` reads
+    // the blob fresh, and one it cannot parse must make it ABORT — a caller that treats corruption as `{}` writes
+    // that emptiness over EVERY link in the deployment, other devices' included. (The block above is the round-448
+    // sweep-lock arm, where the same `Option` answers a refusal; this is the path where the wrong answer is a
+    // deletion rather than a status.)
+    const corrupt = "not json{{{";
+    const kv = makeKv({ ...SEED, "plugins:v1": corrupt });
+    const worker = await import(`${pathToFileURL(BUILT).href}?proxy=corruptrevoke`);
+    const instance = new worker.default();
+    instance.env = deviceEnv(kv);
+    instance.ctx = {};
+    const c = { req: ["DELETE", "/api/devices/d1"], cookie: "admin", ...BASE };
+    stubUpstream(c, []);
+    let status = 0;
+    let note = "";
+    try {
+      const response = await instance.fetch(buildRequest(c, COOKIES.admin));
+      status = response.status;
+      note = (await response.text()).slice(0, 120);
+    } catch (error) {
+      note = `THREW ${error}`;
+    }
+    globalThis.fetch = realFetchGlobal;
+    const wrote = kv.writes.filter((w) => w.startsWith("put plugins:v1="));
+    const untouched = (await kv.get("plugins:v1")) === corrupt;
+    if (status === 200 && wrote.length === 0 && untouched) {
+      same += 1;
+      console.log(
+        `      ok   the delete's revoke ABORTS on a corrupt blob: 200, no write, the record untouched`,
+      );
+    } else {
+      different += 1;
+      failures.push("the delete's corrupt-blob abort");
+      console.log(
+        `      FAIL the delete's revoke on a corrupt blob: status ${status}, ${wrote.length} write(s), untouched ${untouched} :: ${JSON.stringify(note)}`,
+      );
+    }
+  }
+
   Object.defineProperty(globalThis, "Request", {
     value: RealRequestGlobal,
     configurable: true,
@@ -4672,7 +4862,7 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
   }
 
   console.log(
-    `  the device proxy and the file relay, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + 1} identical, ${different} differing (the last case is the never-ending stream)`,
+    `  the device proxy and the file relay, the FROZEN CORPUS against the built worker: ${same}/${CASES.length + 4} identical, ${different} differing (the extra four: the never-ending stream, and the three SAME-ISOLATE sequences above)`,
   );
   for (const name of failures) console.log(`      FAIL ${name}`);
   bad += different;

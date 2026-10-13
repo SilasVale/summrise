@@ -151,11 +151,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/store/plugins.ts",
-      "path": "files/summrise-gate/src/store/plugins.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/store/providers.ts",
       "path": "files/summrise-gate/src/store/providers.ts",
       "group": "summrise-gate"
