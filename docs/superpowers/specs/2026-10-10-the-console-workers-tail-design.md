@@ -550,3 +550,52 @@ every file whose residual decisions are PURE** — which is exactly the set the 
 TypeScript that must not depend on the worker (the admin probes, the usage mappers). **The emission is for a decision
 needed at MODULE-LOAD time and in tests** — including the synchronous tables `byok.ts` and `globalSettingEnabled` that
 the route can never carry. **Two seams, two jobs, and neither is a second implementation of the other.**
+
+---
+
+## THE THIRD EMISSION, AND THE GATE THAT READ ITS OWN COMMENT (2026-10-13)
+
+**`gateway/src/http.ts` IS A BOUNDARY NOW — 66 → 65 — AND THE EMISSION WAS FORCED BY THE STATUS PAGE, A CONSTRAINT
+THE FIRST TWO EMISSIONS DID NOT HAVE.** `plugins/status.ts` calls these predicates, and the status page reports ON the
+worker, so it must not ask it (`plugins.test.mjs`: *"the worker must never be asked"*). **Deletion was closed for the
+same reason `/v1`'s was not available**: `npm test` cannot reach `/__decision`, so the TypeScript twin is the only
+implementation the suite can run. Two seams unavailable, one left — which is the cleanest evidence yet that the
+emission is a SEAM rather than a convenience.
+
+**WHAT MOVED**, into the GENERATED `gateway/src/cors-logic.ts` (producer `gateway/wasm/src/cors.rs`): the allowlist
+(`DEFAULT_ALLOWED_ORIGINS`), `allowedOrigins`, `isLoopbackOrigin`, `isLoopbackHost`, `isAllowedOrigin` (audit P2's
+pair rule), the base header table — now a Rust `CORS_HEADERS` const that `cors_headers_for` builds from rather than
+repeating — and the reflect/stamp pair. What is left in `http.ts` is extraction and assembly, plus ONE runtime
+condition: `withCors` returns a 101/`webSocket` response untouched, because a `Response` cannot be rebuilt around a
+live socket. The Rust needs no such branch — its upgrade path returns before `with_cors` — so that condition is the
+platform's, not the product's, and the manifest's reason says so.
+
+**AND THE EMITTED PRIMITIVES TAKE THE RUST'S SIGNATURE, NOT THE TYPESCRIPT'S** — `(origin, requestHost, configured)`
+rather than `(request, env)`. That is what makes the file a boundary instead of a smaller twin: extracting the Origin
+and the host is the adapter, the decision happens once, and the emitted text can be read beside `cors.rs` line by
+line. **AND A DEAD TWIN WENT WITH IT**: `errorTypeForStatus`'s only occurrence in the whole tree was its own
+definition, while its subject is live in `responses.rs` (`error_type_for_status`, three callers there) — the same "is
+it USED" measurement that found `grants.ts` and `store/regkeys.ts`.
+
+**AND A TEXT-READING GATE BROKE ON ITS OWN SUBJECT'S COMMENT — THE FINDING WORTH KEEPING.**
+`agent/tests/proxy_cors_parity.rs` reads the gateway's allowlist out of the source as TEXT, anchored on the bare
+`ALLOWED_ORIGINS`. Pointing it at the emission made it read **the emission's own doc comment** — which names the
+anchors, because documenting them is its job — take the comment's empty `new Set([ … ])` for the list, and fail a file
+that declares exactly what the gate asks for: *"could not read an allowlist — this proves nothing"*. Narrowing the
+anchor to `const ALLOWED_ORIGINS` was **not** enough: the comment names that spelling too. **The rule the reader
+actually means is the ASSIGNMENT** (`const ALLOWED_ORIGINS`, then `=`, then `new Set([`), and its fixture is now the
+emitted comment's own prose — *prose can name a constant; only a declaration assigns one*. **A text-reading gate
+cannot be made unbreakable; it can be made to FAIL LOUDLY instead of passing on prose**, and a test beside the emitter
+holds the literal spelling for the same reason: an emitter that reformatted the list would leave BOTH text-reading
+gates reading zero origins and passing.
+
+**AND `production_host.rs` ABSORBED A MOVE WITHOUT MOVING.** The entry for the gateway's hostnames followed the list
+into the emission (`gateway/src/http.ts` → `gateway/src/cors-logic.ts`), so the declared count stayed at **51** — one
+entry left, one arrived, which is what a MOVE looks like in a ratchet that would otherwise have to be raised.
+
+**AND THE LANDING WAS SWEPT INTO ANOTHER SESSION'S MERGE COMMIT, WHICH IS WHY THIS SECTION EXISTS.** Two sessions
+were working in ONE checkout; this one staged its index, the other ran `git merge` on `main`, and the merge commit
+(`1af19fdf`) carries these bytes under a message about DERP. **The changes are right and their own CI jobs are green;
+the record was not that commit's to make**, so it is written here and in the commit that adds this section. The
+operational rule this costs is one line: **one checkout, one writer — `git add` is not a private act when the index is
+shared.**
