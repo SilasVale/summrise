@@ -42,7 +42,14 @@ mod common;
 use common::{chars, find_seq};
 use std::fs;
 
-const OWNER: &str = "gateway/src/http.ts";
+/// **THE GATEWAY'S COPY IS THE EMITTED MODULE NOW (2026-10-13).** `gateway/wasm/src/cors.rs` holds the list
+/// (`DEFAULT_ALLOWED_ORIGINS`) and emits `gateway/src/cors-logic.ts`; `http.ts` re-exports the emitted names and
+/// keeps only the Request/Response plumbing, so it no longer declares `ALLOWED_ORIGINS` at all and this gate would
+/// read zero origins from it (its anchors are `ALLOWED_ORIGINS` / `new Set([` / `])`, and `origins_of` returns
+/// `Some(vec![])` for a file that has the first and not the second). Reading the EMISSION keeps this gate's meaning
+/// — what the gateway SHIPS against what the satellites ship — and the step from the Rust source to those bytes is
+/// a freshness test beside the emitter, so the chain has no unread link.
+const OWNER: &str = "gateway/src/cors-logic.ts";
 
 /// **(file, how to find its list).** The list SHRANK from four copies to three on 2026-10-08, when the
 /// satellites' JavaScript halves were deleted — and it shrank by TWO while gaining one, which is the
@@ -80,11 +87,22 @@ fn quoted(body: &[char]) -> Vec<String> {
     out
 }
 
-/// The string literals inside the first `new Set([...])` that follows `ALLOWED_ORIGINS`, sorted.
+/// The string literals inside the first `new Set([...])` that follows the DECLARATION, sorted.
+///
+/// **IT LOOKS FOR THE ASSIGNMENT, NOT THE NAME, AND THAT IS A DEFECT THIS GATE CARRIED (2026-10-13).** The first
+/// version anchored on the bare `ALLOWED_ORIGINS`, so it read the first MENTION — and the emitted
+/// `gateway/src/cors-logic.ts` documents these anchors in a comment ABOVE its declaration, whose own
+/// `new Set([ … ])` slice holds no quoted string: the owner read as EMPTY and the gate failed a file that declares
+/// exactly what it was asked for (*"could not read an allowlist — this proves nothing"*). Narrowing the anchor to
+/// `const ALLOWED_ORIGINS` was NOT enough — the comment names that spelling too. **The rule is the one a reader
+/// actually means: the constant is ASSIGNED.** Prose can name a constant; only a declaration writes `= new Set([`.
+/// All four files assign; if a future comment spells an `=` between the name and the set, the slice comes back
+/// empty and this gate FAILS LOUDLY rather than passing on prose — which is the property being bought here.
 fn origins_of(src: &str) -> Option<Vec<String>> {
     let c = chars(src);
-    let at = find_seq(&c, "ALLOWED_ORIGINS", 0)?;
-    let set = find_seq(&c, "new Set([", at)?;
+    let at = find_seq(&c, "const ALLOWED_ORIGINS", 0)?;
+    let eq = find_seq(&c, "=", at)?;
+    let set = find_seq(&c, "new Set([", eq)?;
     let end = find_seq(&c, "])", set)?;
     let mut out = quoted(&c[set..end]);
     out.sort();
@@ -94,10 +112,11 @@ fn origins_of(src: &str) -> Option<Vec<String>> {
 /// **THE RUST COPY, AND ITS SHAPE IS NOT THE JS's** — `pub const ALLOWED_ORIGINS: [&str; 2] = ["…"];`.
 /// The anchor is `= [`, not the first `[`: the TYPE's bracket comes first in a Rust const, and anchoring
 /// on it would slice `&str; 2` and read zero origins from a file that has two. `]` ends the slice (there
-/// is no `])` in Rust), and no comment can be inside it.
+/// is no `])` in Rust), and no comment can be inside it. **AND `=` IS PART OF THE ANCHOR HERE TOO**, for the
+/// reason above: a mention of the name in prose is not an assignment.
 fn origins_of_rust(src: &str) -> Option<Vec<String>> {
     let c = chars(src);
-    let at = find_seq(&c, "ALLOWED_ORIGINS", 0)?;
+    let at = find_seq(&c, "const ALLOWED_ORIGINS", 0)?;
     let eq = find_seq(&c, "= [", at)?;
     let end = find_seq(&c, "]", eq)?;
     let mut out = quoted(&c[eq..end]);
@@ -226,10 +245,30 @@ fn the_slice_is_the_set_and_the_urls_survive_it() {
     // The anchors are still there, so this is a FOUND-and-empty allowlist, not a renamed copy — which is
     // the distinction the JS draws with `null` against a truthy `[]`.
     assert_eq!(
-        origins_of(&format!("ALLOWED_ORIGINS new Set([{naive}])")),
+        origins_of(&format!("const ALLOWED_ORIGINS = new Set([{naive}])")),
         Some(vec![])
     );
     assert!(origins_of("const x = 1;").is_none());
+    // **AND THE PROSE FIXTURE IS THE EMITTED FILE'S OWN COMMENT — THE TEXT THAT BROKE THIS READER TWICE.** First
+    // on the bare name, then on `const ALLOWED_ORIGINS` (the comment names that spelling too, because documenting
+    // the anchors is the point of it). What separates prose from the subject is the ASSIGNMENT, and that is what
+    // this asserts: the reader must walk past every mention and read the declaration.
+    let prose = concat!(
+        " *  **THE LITERAL SPELLING IS LOAD-BEARING**: two gates both anchor on the DECLARATION\n",
+        " *  (`const ALLOWED_ORIGINS`), then `new Set([`, then `])` — so the list is written as a\n",
+        " *  `new Set([ … ])` OF QUOTED ORIGINS rather than built from a constant. */\n",
+        "export const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([\n",
+        "  \"https://a.example\",\n",
+        "  \"https://b.example\",\n",
+        "]);\n",
+    );
+    assert_eq!(
+        origins_of(prose)
+            .expect("the declaration, not the prose")
+            .len(),
+        2,
+        "a mention in prose must not stand in for the assignment"
+    );
     // The slice ENDS at `])`, so a comment after the set cannot contribute an origin.
     let after = "const ALLOWED_ORIGINS = new Set([\"https://a.example\", \"https://b.example\"]);\n// https://comment.example\n";
     assert_eq!(origins_of(after).expect("an allowlist").len(), 2);

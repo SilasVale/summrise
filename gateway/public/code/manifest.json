@@ -31,6 +31,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/cors-logic.ts",
+      "path": "files/summrise-gate/src/cors-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/device-fetch.ts",
       "path": "files/summrise-gate/src/device-fetch.ts",
       "group": "summrise-gate"

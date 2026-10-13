@@ -182,6 +182,39 @@ sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
   Seen 2026-10-13 right after the DNS recovery above: the tailnet reported `active; direct`, while the trace
   read `ip=101.68.143.52 loc=CN`. Both checks matter and neither replaces the other.
 
+## WHY IT STILL STALLS, EVEN WITH THIS RELAY (measured 2026-10-13)
+
+A relay on the exit node removes the public-relay hop. It does NOT remove the middlebox. Measured over one
+evening, from the VPS's own logs and sockets:
+
+* `06:01:03` — the DIRECT UDP path died for good (`via=derp` appears for the first time) after hours of a
+  healthy 197-224ms direct path.
+* `07:13`-`07:27` — derper's own log shows the DERP connections of **every** tailnet node behind that Chinese
+  NAT being killed on a timer, including this repository's box (`zss`), so it is not one device misbehaving:
+
+      client [6OlNm]: readFrameHeader: read tcp 10.0.0.76:8443->101.68.143.52:55435: read: connection timed out
+      client [CXUG9]: ... the same
+      client [lc2jO]: ... the same
+
+* **125** x `magicsock: derp-900 does not know about peer [6OlNm], removing route` in 30 minutes for that one
+  peer, and **zero** for every other peer: the route-teardown count reads out how often that peer was cut off.
+* The relay's TCP is HEALTHY, so this is not congestion: `ss -ti` on the device's DERP connection read
+  `retrans:0/14` over ~74 MB sent (0.00002%), RTT 200-250ms, `cwnd:10` with `app_limited` (nothing queued).
+
+THE MECHANISM OF ONE LAG SPIKE: the middlebox kills the long-lived flow -> the peer disappears from the DERP ->
+the route to it is removed -> traffic stops for a few seconds -> the client reconnects -> it works again ->
+it is killed again. That is the "卡一下又好了" the operator reports, and it is why the throughput measured
+between the spikes can be a perfectly good 2.04 MB/s.
+
+WHAT THIS RULES OUT: bandwidth, packet loss, this VPS (its own egress measured 8.8.8.8 at 2.5ms and 12.7 MB/s)
+and derper (it reports the same read timeout for every client, not only the affected peer).
+
+WHAT IT MEANS FOR THE CHOICES: a second relay closer to the client would shorten the leg being attacked, but
+**the operator's Oracle tenancy does not allow another free instance** — that option is closed, and it should
+not be proposed again. The remaining lever is a transport that does not look like a long-lived flow to the
+middlebox (WireGuard inside WebSocket/TLS through the existing nginx or Cloudflare) — a project, not a config
+change, and not undertaken here.
+
 ## OPERATE / ROLLBACK
 
 ```bash
