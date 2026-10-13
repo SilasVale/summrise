@@ -209,10 +209,39 @@ BOUNDARY | agent/summrise-desktop-electron/src/ | the Electron shell's HOST: win
 # keeps is the count: the refusal is built once, from the policy, and the literal is not restated here.
 BOUNDARY | agent/summrise-desktop-electron/test/ | the two tests of the HOST's own wiring — call-site counts in main.ts and the preload's bridge names. The decision tests that used to live here are `agent/summrise-shell-policy`'s
 BOUNDARY | gateway/src/store.ts | **A PURE RE-EXPORT SHIM — MEASURED, NOT ASSUMED (2026-10-12).** Its entire
-#   non-comment body is nine `export * from "./store/<domain>.ts"` lines and nothing else: no condition, no default,
+#   non-comment body is `export * from "./store/<domain>.ts"` lines and nothing else: no condition, no default,
 #   no table. It decides NOTHING; the implementation is `src/store/<domain>.ts`, which this rule keeps as LOGIC. A
 #   barrel is structure, and structure is not a decision — the same reading "a fixture is not a decision" already
 #   applies one file over.
+#   **AND THE COUNT IS GONE FROM THIS REASON ON PURPOSE (2026-10-13).** It read "nine", and **no commit in this
+#   file's history ever had nine export lines** — measured over every commit that touched `store.ts`, the maximum
+#   was EIGHT, which is what `23f1e339` (the commit that wrote the reason) actually had. It read seven after
+#   `grants.ts` was deleted, and reads SIX now that `regkeys.ts` has gone. **A number in a prose
+#   reason is enforced by nobody, so it goes stale instead of failing** — the same defect as a cap left high. The
+#   property above is what the classification rests on, and a reader checks it by reading the file.
+LOGIC | gateway/src/store/plugins.ts | **DEAD SINCE THE DEVICE-PROXY SLICE — KEPT ONLY UNTIL ITS SAME-ISOLATE ARMS HAVE A WITNESS (2026-10-13).**
+#   **THE MEASUREMENT, FIRST:** nothing under `gateway/src` or `gateway/test` calls `listPluginLinks`,
+#   `savePluginLinks`, `getPluginByToken`, `removePluginLink`, `migratePluginLinks`, `removePluginLinksForDevice` or
+#   `PLUGIN_LINK_TTL_MS` except this file's OWN TEST. `store.ts`'s blanket `export *` made the file look imported
+#   while nothing called it — the same shape that hid `grants.ts` (deleted, 70 -> 69) and `regkeys.ts` (deleted,
+#   67 -> 66 on 2026-10-13). The implementation is LIVE, and it is the Rust's: `device_store.rs` (the KV adapter,
+#   including the write-through `kv_put`) over `device_registry.rs` (`plugin_links_from_raw`, `plugin_link_expired`,
+#   `migrate_links`, `remove_links_for_device`, `map_without`), and the corpus drives the whole plugin-token door —
+#   `GET proxy with the paired plugin token`, `… paired to ANOTHER device`, `… with an EXPIRED plugin link
+#   (revoked/rotated) — 401 and the record is swept`, `… with a ROTATED token`, `… with a MALFORMED per-device
+#   cookie`, `… with ANOTHER device's per-device cookie`, both `?token=` navigation cases, and
+#   `DELETE /api/devices/d1 (it revokes the device's plugin links)`.
+#   **SO WHY IS IT STILL LOGIC? BECAUSE THREE OF ITS CASES PIN SAME-ISOLATE BEHAVIOUR THE CORPUS CANNOT REACH**, and
+#   that is measured rather than assumed: `run-cases.mjs:173` imports a FRESH module instance per case — *"a fresh
+#   instance is also what a new isolate is."* The three are `savePluginLinks is write-through (same-isolate reads stay
+#   fresh)`, the stale-cache guard (`revoke never resurrects or wipes fresh-KV links`), and the round-448 arm
+#   (`corrupt fresh read inside the sweep lock returns null, never throws`). **The Rust implements all three** —
+#   `kv_put` refreshes the cache, and the sweep's re-read is `read_plugin_links_fresh(env).await?`, an `Option` that
+#   propagates `None` and cannot throw — **and no case runs any of them in either language.** Deleting this file's
+#   tests today would delete the only record of those arms.
+#   **THE NEXT LANDING IS THE WITNESS, NOT THE DELETION**: teach the corpus a same-isolate SEQUENCE (one instance,
+#   N requests) and pin the three arms there; then this rule, the file and its cases leave together and the count
+#   reads 65.
 GENERATED | gateway/src/store/settings-logic.ts | the global setting's decisions, emitted from Rust | gateway/wasm/src/settings_logic.rs
 BOUNDARY | gateway/src/store/settings.ts | **A BOUNDARY IN FACT: ITS DECISIONS ARE EMITTED FROM RUST (2026-10-12).** What is left
 #   is `env.KEYS.get`/`put`/`delete`, the Worker-var fallback, the `cget`/`cset` cache and the `settings:<name>` key —
