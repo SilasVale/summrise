@@ -24,7 +24,31 @@
  *     `name:${ip}:${bucket}` → count, per-isolate (never shared),
  *   - 4096-key capacity cap with insertion-order eviction,
  *   - fail-open on any internal error (same posture as the breaker).
+ *
+ * ── AND ITS RULES ARE EMITTED FROM RUST (2026-10-13) ───────────────────────
+ *
+ * The bucket, the counter key, the budget test, the eviction bound, the persist TTL, the seeding predicate and the
+ * fail-open VERDICT are `gateway/wasm/src/ip_rate_limit.rs`, reaching this file as `ratelimit-logic.ts` (GENERATED,
+ * and the freshness test is a byte comparison). **AND THE `"unknown"` FALLBACK IS ONE NAME NOW** where the literal
+ * was spelled three times — twice in Rust (`auth_routes.rs`, `devices.rs`) and once here — which is the third wire
+ * this migration has found written twice in two languages. What is left here is the HOST: the per-isolate `Map`,
+ * the KV read and write, and the `try` that makes a KV failure best-effort rather than fatal.
  */
+
+import {
+  FAIL_OPEN_VERDICT,
+  UNKNOWN_IP,
+  bucketOf,
+  counterKey,
+  needsEviction,
+  overBudget,
+  seedTtlSecs,
+  seededCount,
+  shouldSeed,
+} from "./ratelimit-logic.ts";
+
+// The emitted rules, re-exported so `from "./lib/ratelimit.ts"` keeps working for callers and tests.
+export * from "./ratelimit-logic.ts";
 
 export interface IpRateLimiterOptions {
   /** Human-readable bucket prefix (e.g. "probe-rate", "auth-rate"). */
@@ -50,40 +74,39 @@ export function createIpRateLimiter(opts: IpRateLimiterOptions): IpRateLimiter {
 
   const limiter = async (request: Request, env?: any): Promise<boolean> => {
     try {
-      const ip = request?.headers?.get?.("cf-connecting-ip") || "unknown";
-      const bucket = Math.floor(Date.now() / windowMs);
-      const key = `${name}:${ip}:${bucket}`;
+      const ip = request?.headers?.get?.("cf-connecting-ip") || UNKNOWN_IP;
+      const key = counterKey(name, ip, bucketOf(Date.now(), windowMs));
       const hit = counters.get(key);
       if (hit !== undefined) {
-        if (hit >= limit) return true;
+        if (overBudget(hit, limit)) return true;
         counters.set(key, hit + 1);
         return false;
       }
       let cur = 0;
-      if (kvSeed && env?.KEYS) {
+      if (shouldSeed(kvSeed, !!env?.KEYS)) {
         try {
-          cur = Number(await env.KEYS.get(key)) || 0;
+          cur = seededCount(await env.KEYS.get(key));
         } catch {
           /* KV read failed — isolate-local count from zero */
         }
       }
       counters.set(key, cur + 1);
-      if (counters.size > 4096) {
+      if (needsEviction(counters.size)) {
         const oldest = counters.keys().next().value;
         if (oldest !== undefined) counters.delete(oldest);
       }
-      if (kvSeed && env?.KEYS) {
+      if (shouldSeed(kvSeed, !!env?.KEYS)) {
         try {
           await env.KEYS.put(key, String(cur + 1), {
-            expirationTtl: Math.ceil((windowMs / 1000) * 2) + 10,
+            expirationTtl: seedTtlSecs(windowMs),
           });
         } catch {
           /* KV write error: isolate-local count still better than nothing */
         }
       }
-      return cur >= limit;
+      return overBudget(cur, limit);
     } catch {
-      return false;
+      return FAIL_OPEN_VERDICT;
     } // fail-open on internal errors, like the breaker
   };
   return Object.assign(limiter, { keyPrefix: name });

@@ -191,6 +191,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/lib/ratelimit-logic.ts",
+      "path": "files/summrise-gate/src/lib/ratelimit-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/lib/ratelimit.ts",
       "path": "files/summrise-gate/src/lib/ratelimit.ts",
       "group": "summrise-gate"

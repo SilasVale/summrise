@@ -766,5 +766,18 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `HTTPS://evil.example` is refused — the assertion that claimed otherwise failed, and now pins the
 // case-insensitivity instead. A test written wrong once and fixed by running it is worth more than one written to
 // agree.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 60`.
-const MAX_LOGIC: usize = 60;
+// **59, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/lib/ratelimit.ts` is BOUNDARY now: the bucket,
+// the counter key, the budget test, the eviction bound, the persist TTL, the seeding predicate and the fail-open
+// verdict are emitted from `gateway/wasm/src/ip_rate_limit.rs` into the GENERATED
+// `gateway/src/lib/ratelimit-logic.ts`, and what is left is the per-isolate `Map`, the KV read, the persist write and
+// the `try` that makes a KV failure best-effort.
+// **AND IT IS THE THIRD WIRE FOUND SPELLED TWICE IN TWO LANGUAGES**: the `"unknown"` fallback for a missing
+// `cf-connecting-ip` was written THREE times — `auth_routes.rs`, `devices.rs` and the TypeScript — and `UNKNOWN_IP`
+// is one name now, with a test that reads both Rust files and fails if either spells it again.
+// **AND THAT TEST HAD TO LEARN THE ROUND-2 LESSON**: its first form was `!contains("\"unknown\"")`, which fails on
+// the DOC COMMENT that quotes the source's expression on purpose — **prose may name a literal; only code can spell
+// one** — so it reads DECLARATIONS, exactly as `proxy_cors_parity.rs` had to.
+// **AND THE POSTURE BECAME A VALUE**: the outer `catch` returns `FAIL_OPEN_VERDICT` instead of a bare `false`, so
+// "fail open on any internal error" is a named decision rather than a literal at an error site.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
+const MAX_LOGIC: usize = 59;
