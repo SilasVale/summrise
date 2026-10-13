@@ -303,6 +303,16 @@ BOUNDARY | gateway/src/route-do.ts | **THE DURABLE OBJECT HOST, AND ITS DECISION
 #   **THE ONE CONDITION LEFT IS AN I/O-AVOIDANCE TEST, NOT A VERDICT**: the adapter reads the breaker only for an
 #   `og/` model, because reading it for every model would add a Durable Object call the source never made — the
 #   VERDICT is the emission's, and `channelUsable` applies the same prefix test.
+GENERATED | gateway/src/lib/ratelimit-logic.ts | the rate limiter's rules — the bucket, the counter key, the budget test, the eviction bound, the persist TTL, the seeding predicate and the fail-open verdict — emitted from Rust | gateway/wasm/src/ip_rate_limit.rs
+#   **THE EIGHTH EMISSION, AND THE THIRD WIRE FOUND SPELLED TWICE IN TWO LANGUAGES (2026-10-13).** The `"unknown"`
+#   fallback for a missing `cf-connecting-ip` was written THREE times — `auth_routes.rs`, `devices.rs` and this file —
+#   and `UNKNOWN_IP` is one name now, with a test that reads both Rust files and fails if either goes back to
+#   spelling it. **AND THAT TEST HAD TO LEARN THE ROUND-2 LESSON FIRST**: a `!contains("\"unknown\"")` fails on the
+#   DOC COMMENT that quotes the source's expression on purpose — prose may name a literal, only code can spell one —
+#   so it reads DECLARATIONS, the way `proxy_cors_parity.rs` learned to anchor on an assignment instead of a mention.
+#   **AND THE POSTURE IS A VALUE.** The outer `catch` returns `FAIL_OPEN_VERDICT` rather than a bare `false`: "fail
+#   open on any internal error" is a decision, and a decision with a name cannot be a typo nobody notices.
+BOUNDARY | gateway/src/lib/ratelimit.ts | **THE LIMITER'S HOST, AND ITS RULES ARE EMITTED FROM RUST (2026-10-13).** What is left is the per-isolate `Map`, the KV read, the persist write and the `try` that makes a KV failure best-effort rather than fatal — the platform's half, in the order the source had it. The bucket, the counter key, the budget test, the eviction bound, the persist TTL, the seeding predicate and the fail-open verdict are `ratelimit-logic.ts`, GENERATED from `gateway/wasm/src/ip_rate_limit.rs`.
 GENERATED | gateway/src/device-dial-logic.ts | the device dial's guard stack — the SSRF blocklist, the suffix allowlist, the authority-prefix refusal, the hostname-equality gate, the header hygiene in order, the timeout bound and the 101 shape — emitted from Rust | gateway/wasm/src/device.rs
 #   **THE SEVENTH EMISSION, AND THE FIRST THAT REMOVES A RULE THAT WAS ALREADY DUPLICATED ACROSS TWO LANGUAGES
 #   (2026-10-13).** `deviceHostError` (the stage-n SSRF list) and `hostAllowError` (the suffix allowlist) existed

@@ -73,6 +73,31 @@ pub const PUBLIC_RATE: IpRateLimiter = IpRateLimiter {
     window_ms: 60_000,
 };
 
+/// `cf-connecting-ip`, or this literal when the header is absent — **ONE NAME, THREE SPELLINGS UNTIL THIS
+/// LANDING** (two Rust call sites and the TypeScript's own default).
+pub const UNKNOWN_IP: &str = "unknown";
+
+/// The per-isolate table's bound: `counters.size > 4096` evicts the OLDEST key, and the eviction happens only on
+/// the fresh-key arm because only that arm can grow the table.
+pub const MAX_COUNTERS: usize = 4096;
+
+/// The posture on an INTERNAL error: NOT over budget — **FAIL OPEN**, the same posture the breaker takes. The
+/// emission is this constant's caller: the TypeScript's outer `catch` returns it, so the value has one home.
+pub const FAIL_OPEN_VERDICT: bool = false;
+
+/// The budget test, and **THE ASYMMETRY BETWEEN THE ARMS IS THE SOURCE'S**: an existing counter that is already AT
+/// the limit is refused WITHOUT incrementing, while a fresh key inserts `cur + 1` and answers `cur >= limit` —
+/// always false on a bucket's first hit in memory-only mode. A port that "simplified" this into one arm would
+/// either let the 11th request through or refuse the 10th.
+pub fn over_budget(count: u32, limit: u32) -> bool {
+    count >= limit
+}
+
+/// The eviction test, on the same arm that can grow the table.
+pub fn needs_eviction(size: usize) -> bool {
+    size > MAX_COUNTERS
+}
+
 /// The source's `counters` — insertion-ordered, because the 4096-key bound evicts the OLDEST.
 pub type Counters = Vec<(String, u32)>;
 
@@ -136,7 +161,7 @@ pub async fn seeded_check(env: &Env, counters: &mut Counters, ip: &str, now_ms: 
 pub fn check(limiter: IpRateLimiter, counters: &mut Counters, ip: &str, now_ms: i64) -> bool {
     let key = counter_key(limiter, ip, now_ms);
     if let Some(entry) = counters.iter_mut().find(|(k, _)| *k == key) {
-        if entry.1 >= limiter.limit {
+        if over_budget(entry.1, limiter.limit) {
             return true;
         }
         entry.1 += 1;
@@ -146,10 +171,10 @@ pub fn check(limiter: IpRateLimiter, counters: &mut Counters, ip: &str, now_ms: 
     counters.push((key, cur + 1));
     // `if (counters.size > 4096) { delete the first key }` — the insertion-order eviction, and it happens only
     // on this arm because only this arm can grow the table.
-    if counters.len() > 4096 {
+    if needs_eviction(counters.len()) {
         counters.remove(0);
     }
-    cur >= limiter.limit
+    over_budget(cur, limiter.limit)
 }
 
 #[cfg(test)]
@@ -285,4 +310,175 @@ fn the_seed_ttl_is_the_window_doubled_plus_ten() {
     assert_eq!(seed_ttl_secs(60_000), 130);
     assert_eq!(seed_ttl_secs(30_000), 70);
     assert_eq!(seed_ttl_secs(1), 11);
+}
+
+/// The emitted module's header — **THE SOURCE FILE'S OWN COMMENTS, CARRIED VERBATIM, PLUS THE GENERATED NOTICE.**
+const TS_HEADER: &str = r#"/**
+ * ratelimit-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/ip_rate_limit.rs` (`render_typescript`), which is now the single source. The
+ * freshness test in that module is a byte comparison against this file, so a hand edit fails there with the text and
+ * one command to fix it:
+ *
+ *     SUMMRISE_REFRESH_RATELIMIT=1 cargo test --manifest-path gateway/wasm/Cargo.toml ip_rate_limit::emission
+ *
+ * `gateway/src/lib/ratelimit.ts` re-exports this module and keeps the HOST: the per-isolate `Map`, the KV read and
+ * write, and the `try` that makes a KV failure best-effort. **The RULES are here** — the bucket, the key, the budget
+ * test, the eviction bound, the persist TTL, and the fail-open verdict — and `UNKNOWN_IP` is one name now where the
+ * literal was written three times (twice in Rust, once in TypeScript).
+ */
+
+/** `cf-connecting-ip`, or this literal when the header is absent. */
+export const UNKNOWN_IP = "unknown";
+
+/** The per-isolate table's bound: exceeding it evicts the OLDEST key (insertion order), on the fresh-key arm only. */
+export const MAX_COUNTERS = 4096;
+
+/** The posture on an INTERNAL error: NOT over budget — **FAIL OPEN**, the posture the breaker takes too. */
+export const FAIL_OPEN_VERDICT = false;
+
+/** `Math.floor(Date.now() / windowMs)` — the fixed window a request counts against. */
+export function bucketOf(nowMs: number, windowMs: number): number {
+  return Math.floor(nowMs / windowMs);
+}
+
+/** `${name}:${ip}:${bucket}`. */
+export function counterKey(name: string, ip: string, bucket: number): string {
+  return `${name}:${ip}:${bucket}`;
+}
+
+/** The budget test. **THE ASYMMETRY BETWEEN THE ARMS IS THE SOURCE'S**: an existing counter already AT the limit is
+ *  refused WITHOUT incrementing, while a fresh key inserts `cur + 1` and answers `cur >= limit` — always false on a
+ *  bucket's first hit in memory-only mode. */
+export function overBudget(count: number, limit: number): boolean {
+  return count >= limit;
+}
+
+/** The eviction test, on the same arm that can grow the table. */
+export function needsEviction(size: number): boolean {
+  return size > MAX_COUNTERS;
+}
+
+/** `Math.ceil((windowMs / 1000) * 2) + 10` — the TTL on the persist write. For the probe's 60 000 ms window that is
+ *  **130 seconds**: the bucket plus its successor, plus ten, so a key that outlives its window cannot be inherited
+ *  by the next one. */
+export function seedTtlSecs(windowMs: number): number {
+  return Math.ceil((windowMs / 1000) * 2) + 10;
+}
+
+/** Seeding needs BOTH the option and a store bound. */
+export function shouldSeed(kvSeed: boolean, hasKeys: boolean): boolean {
+  return kvSeed && hasKeys;
+}
+
+/** A persisted count read back: a missing or non-numeric value is ZERO, which is the source's `Number(v) || 0`. */
+export function seededCount(raw: unknown): number {
+  return Number(raw) || 0;
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_HEADER.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/ratelimit-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK — AND IT IS THE REASON THE EMISSION CANNOT DRIFT.**
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_RATELIMIT").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write ratelimit-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_RATELIMIT=1 cargo test ip_rate_limit::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/lib/ratelimit-logic.ts is not what ip_rate_limit.rs emits — \
+             run SUMMRISE_REFRESH_RATELIMIT=1 cargo test ip_rate_limit::emission"
+        );
+    }
+
+    /// **AND THE LITERAL IS ONE NAME NOW, WHICH IS CHECKED RATHER THAN INTENDED**: the two routes that read
+    /// `cf-connecting-ip` must NAME the fallback, not spell it — three spellings is how a wire drifts.
+    #[test]
+    fn the_unknown_ip_is_one_name() {
+        for file in ["src/auth_routes.rs", "src/devices.rs"] {
+            let text = std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file),
+            )
+            .expect("a committed source file");
+            assert!(
+                text.contains("UNKNOWN_IP"),
+                "{file} must NAME the unknown-ip fallback"
+            );
+            // **PROSE MAY NAME THE LITERAL; ONLY CODE CAN SPELL IT** — the doc comment at `auth_routes.rs`'s ip
+            // read quotes the source's expression on purpose, and a `!contains` here would fail on the RECORD of
+            // the thing this test is checking. (`proxy_cors_parity.rs` learned the same way: anchor on the
+            // DECLARATION, never on a mention.)
+            let spelled_in_code = text
+                .lines()
+                .any(|line| !line.trim_start().starts_with("//") && line.contains("\"unknown\""));
+            assert!(!spelled_in_code, "{file} still spells the literal in code");
+        }
+        assert!(render_typescript().contains(UNKNOWN_IP));
+    }
+}
+
+#[cfg(test)]
+mod emitted_rules {
+    use super::*;
+
+    /// **THE RULES THE TYPESCRIPT NOW READS**, pinned where they live.
+    ///
+    /// MUTATION: `over_budget`'s `>=` becomes `>`.
+    /// RESULT:   `the_budget_and_the_bound` fails, and so does this file's own
+    ///           `the_eleventh_request_is_refused` — the eleventh request is allowed again.
+    #[test]
+    fn the_budget_and_the_bound() {
+        assert!(over_budget(10, 10), "AT the limit is over");
+        assert!(!over_budget(9, 10));
+        assert!(!over_budget(0, 10));
+        assert!(over_budget(0, 0), "a zero budget refuses the first request");
+        assert!(needs_eviction(MAX_COUNTERS + 1));
+        assert!(!needs_eviction(MAX_COUNTERS), "AT the bound is not over it");
+        assert_eq!(UNKNOWN_IP, "unknown");
+        // The posture is a VALUE rather than a bare literal in a catch — and asserting on the CONSTANT would be an
+        // assertion on a constant (clippy), so this pins what the EMISSION carries instead.
+        assert!(render_typescript().contains("export const FAIL_OPEN_VERDICT = false;"));
+    }
+
+    /// **THE BUCKET, THE KEY AND THE PERSIST TTL** — `Math.floor` by `div_euclid` (it is not truncation for a
+    /// negative number), and the TTL the source's own comment works out to 130 s for the probe's window.
+    #[test]
+    fn the_bucket_the_key_and_the_ttl() {
+        assert_eq!(bucket_of(0, 60_000), 0);
+        assert_eq!(bucket_of(59_999, 60_000), 0);
+        assert_eq!(bucket_of(60_000, 60_000), 1);
+        assert_eq!(bucket_of(-1, 60_000), -1, "floor, not truncation");
+        assert_eq!(
+            counter_key(PROBE_RATE, "1.2.3.4", 60_000),
+            "probe-rate:1.2.3.4:1"
+        );
+        assert_eq!(
+            counter_key(PROBE_RATE, UNKNOWN_IP, 0),
+            "probe-rate:unknown:0"
+        );
+        assert_eq!(seed_ttl_secs(60_000), 130);
+        assert_eq!(seed_ttl_secs(1_000), 12);
+    }
 }

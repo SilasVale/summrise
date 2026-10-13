@@ -203,7 +203,7 @@ fn caller_ip(request: &Request) -> String {
         .ok()
         .flatten()
         .filter(|ip| !ip.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+        .unwrap_or_else(|| crate::ip_rate_limit::UNKNOWN_IP.to_string())
 }
 
 /// `authRateLimited(request)`.

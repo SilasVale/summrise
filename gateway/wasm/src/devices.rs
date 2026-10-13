@@ -303,7 +303,7 @@ fn public_rate_limited(request: &Request) -> bool {
         .ok()
         .flatten()
         .filter(|ip| !ip.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or_else(|| crate::ip_rate_limit::UNKNOWN_IP.to_string());
     let now = store::now_ms();
     let mut counters = store::PUBLIC_RATE_COUNTERS
         .lock()

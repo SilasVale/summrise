@@ -746,3 +746,27 @@ checks but not the VALUE THEY PRODUCED has reproduced the wrong half.**
 the deciding file as well, and `production_host.rs`'s `MAX_ALLOWED` went 51 → 52 with the reason its own failure
 message asks for. **A gate that counts locations is right to count this one twice: one file DECIDES the host, the
 other REMEMBERS why.**
+
+---
+
+## THE NINTH LANDING: THE THIRD WIRE, AND A TEST THAT HAD TO LEARN ITS OWN LESSON (2026-10-13)
+
+**`lib/ratelimit.ts` IS A BOUNDARY NOW — 60 → 59 — AND THE WIRE IT FOUND IS THE THIRD OF ITS KIND.** The `"unknown"`
+fallback for a missing `cf-connecting-ip` was written THREE times: `auth_routes.rs`, `devices.rs` and the
+TypeScript. `x-do-auth` (a header), `/__decision` (a path) and now an ip fallback (a value). **The pattern is no
+longer a coincidence worth noting; it is the migration's normal case**: while two ends of a wire live in two
+languages, each end spells the wire, each spelling is correct on its own, and nothing looks wrong until something
+reads both. **The rule this earns is already the one the last two landings applied — when a landing moves one end,
+name the wire and make the other end READ it — and it now has three instances rather than two.**
+
+**AND THE TEST THAT GUARDS THE NAME HAD TO LEARN THE LESSON THIS REPOSITORY ALREADY PAID FOR.** Its first form
+asserted the literal appeared nowhere in the two Rust files, and it FAILED — on the doc comment that quotes the
+source's expression on purpose (`request.headers?.get?.(…) || "unknown"`). **Prose may name a literal; only code can
+spell one.** The fix is the one `proxy_cors_parity.rs` needed two landings ago (anchor on an ASSIGNMENT, not a
+mention), which means the lesson is not "a text-reading gate can break" but something sharper: **a text-reading gate
+written in a hurry re-learns the same lesson the last one did** — the guard has to be on DECLARATIONS from the start.
+
+**AND THE POSTURE BECAME A VALUE.** The outer `catch` returns `FAIL_OPEN_VERDICT` rather than a bare `false`:
+*"fail open on any internal error (same posture as the breaker)"* is a decision, and a decision with a NAME cannot be
+a typo nobody notices — which is the same argument the ratchet itself makes about a cap: **a number that means
+something should look like it means something.**
