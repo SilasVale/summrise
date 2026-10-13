@@ -215,6 +215,35 @@ not be proposed again. The remaining lever is a transport that does not look lik
 middlebox (WireGuard inside WebSocket/TLS through the existing nginx or Cloudflare) — a project, not a config
 change, and not undertaken here.
 
+### CORRECTED BY MEASUREMENT, the same evening: the path does NOT reap long-lived flows
+
+The section above blamed the middlebox for killing long-lived flows. That specific claim was then TESTED, and it
+is WRONG. Three flows were held open from `zss` to the VPS's **public** address and sampled every 20s for 47
+minutes:
+
+* an idle SSH session on `tcp/22`, with `ServerAliveInterval=0` and `TCPKeepAlive=no` (sshd does not reap idle
+  sessions, so the only thing that could end it is the path),
+* a TLS session on `tcp/443` kept alive by one HTTP request every 30s (so nginx's own `keepalive_timeout`
+  cannot end it),
+
+and BOTH stayed ESTABLISHED for the whole window -- 43 and 41 minutes respectively, zero drops once the probes
+were correctly established. A **fully idle** flow surviving 43 minutes refutes "the middlebox reaps idle
+long-lived flows", and with it the premise of the WebSocket/TLS transport idea (that keeping the flow busy, or
+moving it to 443, would help). **That idea is therefore not worth building**, and this file must not be read as
+recommending it.
+
+What the derper timeouts DO line up with is the CLIENT's own network changing. The `removing route` bursts sit
+inside the window that contains the operator's own `portmap: monitor: gateway and self IP changed` event, and
+the last derper `connection timed out` is `07:18` -- after which the network settled and none followed for over
+an hour. The next diagnostic belongs on the client side (sleep/wake, adapter flapping, that box's three TAP/VPN
+adapters), not on the transport.
+
+MEASUREMENT HYGIENE, learned the hard way here: the first attempt connected over the TAILNET address instead of
+the public one, and its keep-alive writer died with the shell that started it -- so nginx's own
+`keepalive_timeout` produced a DOWN reading that had nothing to do with the path. Both artifacts were found and
+fixed before the numbers above were accepted; a probe whose lifetime is shorter than the thing it measures
+proves nothing.
+
 ## OPERATE / ROLLBACK
 
 ```bash
