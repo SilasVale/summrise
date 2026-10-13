@@ -1,18 +1,14 @@
-// Plugin-link STORE helpers (round-345: pair codes + WS tickets removed
-// with the extension; links still guard the device reverse proxy and are
-// revoked on device delete/rename). The plugin registry lives in a single KV
-// JSON map (plugins:v1). A Map-backed KV stub stands in for the binding.
+// Plugin REGISTRY tests — the route table, the stats counters, the plugin
+// context and the admin/auth plugins. (The plugin-LINK store cases left with
+// `store/plugins.ts` on 2026-10-13; their witnesses are named in the table
+// below, and the links themselves still guard the device reverse proxy and are
+// revoked on device delete/rename, which the corpus and the same-isolate
+// sequences in `gateway/wasm/verify.mjs` now prove.)
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.ts";
 import { decide } from "../src/gate.ts";
-import {
-  getPluginByToken,
-  removePluginLink,
-  __clearCaches,
-  setAdminPassword,
-  maskKey,
-} from "../src/store.ts";
+import { __clearCaches, setAdminPassword, maskKey } from "../src/store.ts";
 import { makeEnv as makeBaseEnv, freezeClock } from "./helpers.mjs";
 
 // Full worker fetch: pair/claim + ws-ticket are public (no admin session) —
@@ -49,45 +45,47 @@ function env() {
   return makeBaseEnv({ wasmGate: false });
 }
 
-test("plugin link: get/remove (KV-seeded)", async () => {
-  const e = env();
-  __clearCaches();
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      tok: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-    }),
-  );
-  const link = await getPluginByToken(e, "tok");
-  assert.equal(link.device, "d1");
-  assert.ok(link.createdAt);
-  await removePluginLink(e, "tok");
-  assert.equal(await getPluginByToken(e, "tok"), null);
-});
+// ── THE EIGHT PLUGIN-LINK CASES LEFT WITH `store/plugins.ts` (2026-10-13), AND EACH ONE'S WITNESS IS NAMED ──────
+//
+// The module was DELETED, one landing after `store/regkeys.ts` and for the same measured reason: nothing under
+// `gateway/src` or `gateway/test` called its exports but this file's own cases, and `store.ts`'s blanket `export *`
+// made the file look imported while nothing used it. The subject is the Rust worker's now (`device_store.rs` over
+// `device_registry.rs`). **IT WAITED ONE LANDING FOR A WITNESS, WHICH IS THE RULE THIS TABLE IS FOR** — three of the
+// cases below pinned SAME-ISOLATE behaviour, and the frozen corpus cannot reach that (every case runs in a fresh
+// module instance). Those witnesses were built, and PROVED ABLE TO FAIL by planted mutations, before the file left:
+// `gateway/wasm/verify.mjs` carries three SAME-ISOLATE sequences beside the plugin-token cases.
+//
+//   get/remove (KV-seeded)                -> corpus `GET proxy with the paired plugin token — proxied, device Bearer
+//                                            minted server-side`; for the removal half, corpus `GET proxy with a
+//                                            ROTATED token — the old token is simply not in the map: 401`.
+//                                            **`removePluginLink` (a SINGLE token) has no Rust counterpart and never
+//                                            had a product caller**: this case was its only consumer in the whole
+//                                            tree, so nothing was ported for it
+//   expires after 30 days                 -> `device_registry::plugin_link_expired` + corpus `GET proxy with an
+//                                            EXPIRED plugin link (revoked/rotated) — 401 and the record is swept`.
+//                                            The 30-day VALUE rides the `Set-Cookie` `Max-Age` that the corpus
+//                                            records byte-for-byte (`GET proxy navigation with ?token= …`)
+//   revoke never resurrects (stale cache) -> SAME-ISOLATE sequence `the revoke reaches the SAME isolate` (proved:
+//                                            dropping the write-through makes it read `200 -> delete 200 -> 200`)
+//   expired get sweeps the KV record      -> the corpus case named above — its own name says the sweep
+//   legacy record without expiresAt       -> `plugin_link_expired`'s unit (`plugin_links_migrate_and_revoke`: a
+//                                            missing `expiresAt` IS expired)
+//   corrupt blob reads as empty           -> `plugin_links_from_raw`'s unit
+//                                            (`the_raw_reads_treat_corruption_the_way_the_source_does`) plus
+//                                            `list_plugin_links`'s `unwrap_or_default`; the WRITE side of the same
+//                                            question is the SAME-ISOLATE sequence `the delete's revoke ABORTS on a
+//                                            corrupt blob`
+//   savePluginLinks is write-through      -> the same `the revoke reaches the SAME isolate` sequence: the third
+//                                            request reads THROUGH the worker, so a cached map surviving the write
+//                                            would accept a revoked link
+//   corrupt fresh read in the sweep lock  -> SAME-ISOLATE sequence `the corrupt re-read inside the sweep lock
+//                                            answers 401 … and the record is untouched` (proved: an `expect` in
+//                                            its place kills the harness on the panic)
 
 // round-340: the public pair/claim + ws-ticket endpoint tests were
 // removed with the extension pairing endpoints (browser extension deleted
 // round-262). Store-helper tests below stay — handlePair (admin) still uses
 // createPairCode / plugin links.
-test("plugin link: expires after 30 days, getPluginByToken drops it", async () => {
-  const e = env();
-  __clearCaches();
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      "tok-exp": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-    }),
-  );
-  const realNow = Date.now;
-  try {
-    assert.equal((await getPluginByToken(e, "tok-exp")).device, "d1");
-    Date.now = () => realNow() + 31 * 24 * 60 * 60 * 1000; // 31 days
-    assert.equal(await getPluginByToken(e, "tok-exp"), null);
-  } finally {
-    Date.now = realNow;
-  }
-});
-
 // round-88: /api/plugins/status is admin-session-gated — no cookie → 401,
 // a copied pre-logout cookie (sess-revoked blacklist) → 401, a valid admin
 // session → 200. The R83 hand-rolled gate must match requireSession.
@@ -365,41 +363,6 @@ test("OpenRouter usage: missing key and upstream failure are safe", async () => 
   }
 });
 
-test("plugin link: revoke never resurrects or wipes fresh-KV links (stale-cache guard)", async () => {
-  const { migratePluginLinks, removePluginLinksForDevice, listPluginLinks } =
-    await import("../src/store.ts");
-  const e = env();
-  __clearCaches();
-  // Prime the isolate cache with only tokA ...
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      tokA: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-    }),
-  );
-  assert.equal((await getPluginByToken(e, "tokA")).device, "d1");
-  // ... then another isolate pairs tokB straight to KV (cache now stale).
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      tokA: { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 * 30 },
-      tokB: { device: "d2", createdAt: 2, expiresAt: Date.now() + 86400000 * 30 },
-    }),
-  );
-  // Revoking tokA must NOT wipe tokB (old code rewrote the cached blob).
-  await removePluginLink(e, "tokA");
-  assert.equal(await getPluginByToken(e, "tokA"), null);
-  assert.equal((await getPluginByToken(e, "tokB")).device, "d2");
-  // Rename migrates from fresh KV too.
-  assert.equal(await migratePluginLinks(e, "d2", "d3"), true);
-  assert.equal((await getPluginByToken(e, "tokB")).device, "d3");
-  assert.equal(await migratePluginLinks(e, "ghost", "d4"), false);
-  // Device delete revokes exactly that device's links.
-  assert.equal(await removePluginLinksForDevice(e, "d3"), 1);
-  assert.equal(await getPluginByToken(e, "tokB"), null);
-  assert.deepEqual(await listPluginLinks(e), {});
-});
-
 // ── POST /api/me/keys/reveal (session-gated full-key read for the Keys page
 // copy button — the /api/me list only carries maskKey() output, so the old
 // copy button copied the MASK, not the credential).
@@ -598,66 +561,6 @@ test("admin/users/{id}/enabled: malformed id 400, admin untouchable, bob flips",
 
 // ── Link-map hardening (round-392: sweep persistence, legacy links,
 // corrupt blobs, write-through — only return values were pinned) ──
-
-test("plugin link: expired get sweeps the KV record (not just null)", async () => {
-  const { PLUGIN_LINK_TTL_MS } = await import("../src/store.ts");
-  assert.equal(PLUGIN_LINK_TTL_MS, 30 * 24 * 60 * 60 * 1000);
-  const e = env();
-  __clearCaches();
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      "tok-old": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 },
-      "tok-live": { device: "d1", createdAt: 1, expiresAt: Date.now() + 86400000 },
-    }),
-  );
-  assert.equal(await getPluginByToken(e, "tok-old"), null);
-  const raw = JSON.parse(await e.KEYS.get("plugins:v1"));
-  assert.equal(raw["tok-old"], undefined, "expired link must be deleted from KV");
-  assert.ok(raw["tok-live"], "live link must survive the sweep");
-});
-
-test("plugin link: legacy record without expiresAt sweeps as expired (round-122)", async () => {
-  const e = env();
-  __clearCaches();
-  await e.KEYS.put(
-    "plugins:v1",
-    JSON.stringify({
-      "tok-legacy": { device: "d1", createdAt: 1 },
-    }),
-  );
-  assert.equal(await getPluginByToken(e, "tok-legacy"), null);
-  const raw = JSON.parse(await e.KEYS.get("plugins:v1"));
-  assert.equal(raw["tok-legacy"], undefined, "legacy link must not grant permanent control");
-});
-
-test("plugin link: corrupt blob reads as empty, never throws", async () => {
-  const { listPluginLinks, savePluginLinks, migratePluginLinks, removePluginLinksForDevice } =
-    await import("../src/store.ts");
-  const e = env();
-  __clearCaches();
-  await e.KEYS.put("plugins:v1", "not json{{{");
-  assert.deepEqual(await listPluginLinks(e), {});
-  assert.equal(await getPluginByToken(e, "anything"), null);
-  await removePluginLink(e, "anything");
-  assert.equal(await migratePluginLinks(e, "a", "b"), false);
-  assert.equal(await removePluginLinksForDevice(e, "a"), 0);
-  // savePluginLinks tested below; keep the import used.
-  void savePluginLinks;
-});
-
-test("plugin link: savePluginLinks is write-through (same-isolate reads stay fresh)", async () => {
-  const { listPluginLinks, savePluginLinks } = await import("../src/store.ts");
-  const e = env();
-  __clearCaches();
-  const map = { tokW: { device: "d9", createdAt: 7, expiresAt: Date.now() + 99999 } };
-  await savePluginLinks(e, map);
-  assert.deepEqual(JSON.parse(await e.KEYS.get("plugins:v1")), map);
-  // Yank the KV record out from under the isolate: the write-through
-  // cache still serves the saved map (documented same-isolate behavior).
-  env_scrub(e);
-  assert.deepEqual(await listPluginLinks(e), map);
-});
 
 function env_scrub(e) {
   e._kv.delete("plugins:v1");
@@ -1345,32 +1248,6 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
 // round-448 (coverage-driven): the sweep-lock's corrupt-fresh-read arm
 // (store/plugins.ts) had ZERO pins — first read yields an expired link,
 // the locked re-read races corrupt.
-test("plugin link: corrupt fresh read inside the sweep lock returns null, never throws", async () => {
-  __clearCaches();
-  const expired = JSON.stringify({
-    "tok-r": { device: "d1", createdAt: 1, expiresAt: Date.now() - 1000 },
-  });
-  let gets = 0;
-  const kv = new Map([["plugins:v1", expired]]);
-  const env = {
-    KEYS: {
-      async get(k) {
-        gets++;
-        return gets === 1 ? (kv.get(k) ?? null) : "corrupt{{{Leeroy";
-      },
-      async put(k, v) {
-        kv.set(k, v);
-      },
-      async delete(k) {
-        kv.delete(k);
-      },
-    },
-  };
-  assert.equal(await getPluginByToken(env, "tok-r"), null);
-  assert.equal(gets, 2, "initial read + locked fresh re-read");
-  assert.equal(kv.get("plugins:v1"), expired, "corrupt fresh blob must not be written back");
-});
-
 // round-450 (coverage-driven): the remaining testKey provider arms
 // (CMD/GMI/NV/QWEN) had ZERO pins.
 test("me/keys/test: cmd/gmi/nv/qwen probes shape ok and upstream failures", async () => {

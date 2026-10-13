@@ -36,13 +36,17 @@
  * measurement that found `grants.ts`, and the same rule — *a barrel is structure, and a file nothing reaches is not
  * work that is left.*
  *
- * **AND `store/plugins.ts` IS THE SAME KIND OF DEAD AND DID NOT GO WITH IT** — three of its arms pin SAME-ISOLATE
- * behaviour that the corpus cannot witness, because it runs a fresh module instance per case. The reason it still
- * counts as LOGIC, and the landing that will retire it, are in the manifest's own rule for the file.
+ * **`store/plugins.ts` LEFT ON THE SAME DAY, ONE LANDING LATER, AND IT HAD TO WAIT FOR A WITNESS.** Three of its
+ * cases pinned SAME-ISOLATE behaviour — write-through freshness, the revoke's stale-cache guard, and the abort
+ * inside its sweep lock — and the frozen corpus is blind to that by construction: every case runs in a FRESH module
+ * instance (*"a fresh instance is also what a new isolate is"*). **So the witness came first, and the file second**:
+ * three SAME-ISOLATE sequences now sit in `gateway/wasm/verify.mjs`, each proved able to fail by a planted mutation
+ * in `device_store.rs`, and only then were the file and its eight cases removed. That is the rule this landing
+ * exists to demonstrate — *a dead file is not deleted until the behaviour only its tests pinned is witnessed where
+ * the code now lives.*
  */
 export * from "./store/cache.ts";
 export * from "./store/users.ts";
 export * from "./store/admin.ts";
 export * from "./store/settings.ts";
 export * from "./store/devices.ts";
-export * from "./store/plugins.ts";

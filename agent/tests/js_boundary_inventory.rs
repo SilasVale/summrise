@@ -686,5 +686,23 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // **The rule the reader means is the ASSIGNMENT** — prose can name a constant, only a declaration writes
 // `= new Set([` — and that is what it anchors on now, with the emitted comment's own text as its fixture. A
 // text-reading gate is defeated by a comment that names its subject; this one now fails LOUDLY instead of passing.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 65`.
-const MAX_LOGIC: usize = 65;
+// **64, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/store/plugins.ts` is DELETED, one landing after
+// `store/regkeys.ts` and for the same measured reason: nothing under `gateway/src` or `gateway/test` called its
+// exports but its own cases, while `store.ts`'s blanket `export *` made the file look imported.
+// **AND THIS ONE WAITED A LANDING FOR ITS WITNESS, WHICH IS THE POINT.** Three of its eight cases pinned SAME-ISOLATE
+// behaviour, and the frozen corpus is blind to that by construction — `run-cases.mjs` imports a FRESH module instance
+// per case, *"a fresh instance is also what a new isolate is."* So the witness came FIRST: `gateway/wasm/verify.mjs`
+// now carries three SAME-ISOLATE sequences beside the plugin-token cases, and **each was proved able to fail by a
+// planted mutation in `device_store.rs`** — no write-through on the revoke (`200 -> delete 200 -> 200`), an `expect`
+// where the sweep's `Option` aborts (the harness dies on the wasm trap, its backtrace naming
+// `device_store::get_plugin_by_token`), and corruption-as-empty WITH an unconditional save (one write, the record
+// gone; the corpus catches that one independently, so the sequence pins the WRITE rather than the status).
+// **AND THE FIRST VERSION OF THE REVOKE SEQUENCE MEASURED THE WRONG REFUSAL**: it read back through the PROXY, which
+// after `DELETE /api/devices/<name>` is refused for the missing DEVICE whatever the link map says — an assertion that
+// cannot tell the two apart, and it PASSED against a mutated worker. It reads back through `/api/upload`, which
+// resolves the same plugin link (`upload.rs` → `get_plugin_by_token`) and does not care whether the device exists.
+// **AND THE EIGHT CASES LEFT WITH A NAMED WITNESS EACH** (the table is where they were, in `plugins.test.mjs`):
+// corpus cases, the `device_registry` units, and the three new sequences. `removePluginLink` — the SINGLE-token
+// removal — has NO Rust counterpart and never had a product caller: one of those cases was its only consumer.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 64`.
+const MAX_LOGIC: usize = 64;

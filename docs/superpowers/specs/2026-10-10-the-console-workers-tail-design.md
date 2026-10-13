@@ -599,3 +599,41 @@ were working in ONE checkout; this one staged its index, the other ran `git merg
 the record was not that commit's to make**, so it is written here and in the commit that adds this section. The
 operational rule this costs is one line: **one checkout, one writer — `git add` is not a private act when the index is
 shared.**
+
+---
+
+## THE FOURTH LANDING: A DEAD FILE WAITS FOR ITS WITNESS (2026-10-13)
+
+**`store/plugins.ts` IS DELETED — 65 → 64 — AND IT WENT ONE LANDING AFTER `store/regkeys.ts`, WHICH IS THE FINDING.**
+Both were dead in the same way (nothing outside `store.ts`'s barrel called their exports), and the second one's
+deletion was blocked **not by a decision but by a witness**: three of its eight cases pinned SAME-ISOLATE behaviour —
+write-through freshness, the stale-cache guard on revoke, the abort inside its sweep lock — and the frozen corpus is
+blind to isolate state by construction (`run-cases.mjs` imports a FRESH module instance per case: *"a fresh instance
+is also what a new isolate is"*). Deleting the file first would have deleted the only record of those arms.
+
+**SO THE WITNESS WAS BUILT FIRST: three SAME-ISOLATE SEQUENCES in the corpus harness** — one instance, N requests, one
+KV, the shape the device family's per-IP gate already had — and **each was then PROVED ABLE TO FAIL by a planted
+mutation in `device_store.rs`** (the mutations and their measured results are in that section's own `MUTATION:` /
+`RESULT:` header). Only then did the file, its eight cases and the manifest rule leave together. **The order is the
+rule this landing exists to establish: a dead file is not deleted until the behaviour only its tests pinned is
+witnessed where the code now lives, and a witness is not a witness until it has been broken on purpose.**
+
+**AND THE FIRST VERSION OF THE REVOKE SEQUENCE MEASURED THE WRONG REFUSAL.** It read back through the PROXY, and after
+`DELETE /api/devices/<name>` a proxy request is refused for the MISSING DEVICE whatever the link map says — an
+assertion that cannot tell the two refusals apart, and one that PASSED against a worker mutated to keep the stale
+cache. It reads back through `/api/upload`, which resolves the SAME plugin link (`upload.rs` →
+`get_plugin_by_token`) and does not care whether the device still exists. **A sequence is only as good as its
+read-back path** — and this is the second landing in a row where pointing an instrument at a new subject found the
+instrument's own defect (the first was `proxy_cors_parity.rs`'s reader anchoring on a mention instead of an
+assignment).
+
+**AND ONE MUTATION NEEDED TWO EDITS, WHICH IS A MEASUREMENT RATHER THAN AN AWKWARDNESS.** The delete path carries TWO
+protections — `read_plugin_links_fresh`'s `Option`, and `if removed > 0` — and **each alone is sufficient**:
+corruption-as-empty removes nothing from an empty map, and an unconditional save is never reached when the `Option`
+aborts. That is why this sequence pins the WRITE (no `{}` written over the record) rather than a status, and why
+proving it took both edits. **A redundant guard is not a witness; the outcome is.**
+
+**AND THE EIGHT CASES LEFT WITH A NAMED WITNESS EACH** — four corpus cases, three `device_registry` units and the three
+new sequences, in a table where the cases were. `removePluginLink`, the SINGLE-token removal, has **no Rust
+counterpart and never had a product caller**: one of those cases was its only consumer in the tree, so nothing was
+ported for it — the honest end of a function that existed to be tested.
