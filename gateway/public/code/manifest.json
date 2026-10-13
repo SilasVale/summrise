@@ -61,6 +61,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/model-route-logic.ts",
+      "path": "files/summrise-gate/src/model-route-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/model-route.ts",
       "path": "files/summrise-gate/src/model-route.ts",
       "group": "summrise-gate"

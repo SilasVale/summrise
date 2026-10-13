@@ -637,3 +637,31 @@ proving it took both edits. **A redundant guard is not a witness; the outcome is
 new sequences, in a table where the cases were. `removePluginLink`, the SINGLE-token removal, has **no Rust
 counterpart and never had a product caller**: one of those cases was its only consumer in the tree, so nothing was
 ported for it — the honest end of a function that existed to be tested.
+
+---
+
+## THE FIFTH LANDING: AN EMISSION WHOSE SOURCE MODULE DID NOT EXIST (2026-10-13)
+
+**`model-route.ts` IS A BOUNDARY NOW — 64 → 63 — AND IT IS THE FIRST EMISSION WHOSE RUST MODULE DID NOT EXIST BEFORE
+THE LANDING.** The pattern above assumes step 1 (*"the decision lives in Rust"* — where it already did, for 147 of the
+195 exported names); **these three decisions did not.** `GET|PUT /api/me/route` stays on the TypeScript path, and
+`auth_routes.rs` says why in its own words: the handler resolves through the model CATALOGUE and the `RouteDO` —
+*"a different surface with its own corpus, the catalogue, not identity"* — so the Rust worker never needed the key
+rule, `og`'s breaker leg or the fallback policy, and **they had to be PORTED before they could be emitted.**
+
+**SO THE ORDER FOR THIS SHAPE IS: PORT → TEST → EMIT → REPLACE.** `gateway/wasm/src/auto_route.rs` holds the three
+decisions with their own tests and three written mutations (the environment leg of the key rule, the truthiness of an
+empty `envKey`, the ladder walk), renders `model-route-logic.ts`, and `model-route.ts` keeps the reads. **And a ported
+module whose only caller is the emission is NOT the "foundation, not a landing" the decision route refuses** — the
+emission IS the caller: the module the console runs is the Rust's output, and the Rust's own tests are what hold it.
+
+**AND THE PORT TURNED A COMMENT INTO A WITNESS.** The ladder's comment says it *"must be a SUBSET of the catalogue"* —
+a typo there is a fallback that can never satisfy `isModelUsable`, and the ladder would skip it in silence — and
+nothing checked it. It does now, in Rust, against the worker's own `registry::model_spec`, for all five rungs. **A
+sentence in a comment is a sentence nobody runs**, which is this repository's oldest lesson.
+
+**AND THE EMISSION'S INTERFACE WAS SHAPED BY AN EXTENSION POINT, NOT BY CONVENIENCE.** `channelKeyOk` takes the
+channel's RULE as an argument instead of looking one up, because `CHANNEL_KEY_RULES` is mutable in TypeScript and
+`registerChannelKey` is an OCP extension point a channel registers through; a rule that did its own lookup in Rust
+could not be extended from there. **Deriving must not quietly remove an extension point** — the same rule `byok.rs`
+carries one file over.

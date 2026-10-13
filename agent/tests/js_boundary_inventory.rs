@@ -704,5 +704,23 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // **AND THE EIGHT CASES LEFT WITH A NAMED WITNESS EACH** (the table is where they were, in `plugins.test.mjs`):
 // corpus cases, the `device_registry` units, and the three new sequences. `removePluginLink` — the SINGLE-token
 // removal — has NO Rust counterpart and never had a product caller: one of those cases was its only consumer.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 64`.
-const MAX_LOGIC: usize = 64;
+// **63, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/model-route.ts` is BOUNDARY now: the channel key
+// rule, `og`'s breaker leg, the default, the ladder and the fallback POLICY are emitted from
+// `gateway/wasm/src/auto_route.rs` into the GENERATED `gateway/src/model-route-logic.ts` (a byte comparison is the
+// freshness test), and what is left in the file is the reads those decisions are made FROM — the catalogue, the
+// user's key blob, the stored route, the breaker — plus the `byok`-derived, deliberately MUTABLE
+// `CHANNEL_KEY_RULES` that `registerChannelKey` extends.
+// **AND THIS IS THE FIRST EMISSION WHOSE SOURCE MODULE DID NOT EXIST BEFORE IT, WHICH IS THE PART WORTH A LINE.** The
+// other three emitted decisions the Rust worker already made for ITSELF; `GET|PUT /api/me/route` stays on the
+// TypeScript path (`auth_routes.rs`: the handler resolves through the CATALOGUE and the `RouteDO` — *"a different
+// surface with its own corpus, the catalogue, not identity"*), so these rules HAD TO BE PORTED before they could be
+// emitted, and the ported Rust has no Rust caller. **The difference from the "foundation, not a landing" rule is that
+// the EMISSION is the caller**: the module the console runs IS the Rust's output, and the Rust's own tests and
+// mutation proofs are what hold it.
+// **AND THE PORT TURNED A COMMENT INTO A TEST**: the ladder's own comment says it *"must be a SUBSET of the
+// catalogue"* and nothing checked it — `the_ladder_is_a_subset_of_the_catalogue` reads `registry::model_spec` for all
+// five rungs, on every `cargo test`. **AND THE EMITTED RULE TAKES THE CHANNEL RULE AS AN ARGUMENT**, because
+// `registerChannelKey` is an OCP extension point that writes into the TypeScript table: deriving must not quietly
+// remove one, which is the rule `byok.rs` already carries.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 63`.
+const MAX_LOGIC: usize = 63;
