@@ -303,6 +303,18 @@ BOUNDARY | gateway/src/route-do.ts | **THE DURABLE OBJECT HOST, AND ITS DECISION
 #   **THE ONE CONDITION LEFT IS AN I/O-AVOIDANCE TEST, NOT A VERDICT**: the adapter reads the breaker only for an
 #   `og/` model, because reading it for every model would add a Durable Object call the source never made — the
 #   VERDICT is the emission's, and `channelUsable` applies the same prefix test.
+GENERATED | gateway/src/gate-logic.ts | the decision route's client half — the path, the address, the content type, the `{name, args}` envelope and the answer's parse rule — emitted from Rust | gateway/wasm/src/decision_client.rs
+#   **THE SIXTH EMISSION, AND THE SECOND IN A ROW TO FIND A WIRE SPELLED ON BOTH SIDES (2026-10-13).** `gate.ts`'s
+#   `DECISION_URL` spelled the path while `decisions.rs`'s `in_family` spelled it again; `DECISION_PATH` is one name
+#   now, the server READS it, and `the_path_is_the_one_the_server_refuses_on` fails if the literal comes back. **Two
+#   landings in a row, one wire each (`x-do-auth`, `/__decision`) — both a name written twice because the two ends
+#   live in two languages, and neither spelling wrong on its own.**
+#   **AND THE ONE THING THE CLIENT DECIDES IS THE DISTINCTION ITS ANSWER CARRIES**: `undefined` is a gate that is
+#   absent, refused or unreachable — the only case a caller may fall back to its TypeScript twin on — while `null` is
+#   a decision that RAN and answered null. `decision_value` answers `Option<Value>`, so `Some(Null)` and `None` are
+#   exactly those two cases, **and a body with no `value` key is the FIRST, not the second**, because the source read
+#   `body.value` and a missing key is `undefined` in JavaScript.
+BOUNDARY | gateway/src/gate.ts | **THE BINDING, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is `wasmGate`'s binding-shape check (a platform question) and the `fetch` that may throw — **a gate that is absent and a gate that fails are the same answer here, which is why the `try` is that rule's implementation rather than a condition.** The path, the address, the content type, the `{name, args}` envelope and the parse rule are `gate-logic.ts`, GENERATED from `gateway/wasm/src/decision_client.rs`.
 LOGIC | gateway/src/ | the console worker's entry and plugins — A6 (landing 5)
 LOGIC | gateway/test/ | the console worker's suite (landing 5)
 BOUNDARY | gateway/config/ | **A DOCUMENT, NOT A DECISION — AND ITS TYPE IS COMPILER-CHECKED.** `models.ts` exports `{ providers: [], models: [], overrides: [] } satisfies CatalogueFile` — three EMPTY arrays, so it decides nothing today. It is `.ts` rather than `.json` for a measured reason its own header gives: a JSON import needs `with { type: "json" }` in Node and different syntax in the bundler, so a document the TESTS import would not be the same document the WORKER imports — while `satisfies` makes `tsc` refuse a misspelled `contextWindows` or an effort the router cannot speak BEFORE anything parses it at runtime. The DECISIONS this document feeds (file-over-KV precedence, what may be declared, the routing fields refused by name) live in `gateway/src/store/file-config.ts`, which is LOGIC with the rest of the console's rollback.

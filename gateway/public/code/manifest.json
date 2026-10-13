@@ -41,6 +41,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/gate-logic.ts",
+      "path": "files/summrise-gate/src/gate-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/gate.ts",
       "path": "files/summrise-gate/src/gate.ts",
       "group": "summrise-gate"

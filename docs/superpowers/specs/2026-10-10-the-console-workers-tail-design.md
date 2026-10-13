@@ -692,3 +692,28 @@ comment and the truth table beside the guard.
 (truthiness, not presence — `?uid=` is a 400), and `model: 0`/`model: false` STORE while `null` deletes. A port that
 sniffed `String(model)` first would have turned `null` into `"null"` and stored it. **The decision is made on the
 VALUE, so the port takes the value** — `Option<&Value>`, not `Option<&str>`.
+
+---
+
+## THE SEVENTH LANDING: TWO LANDINGS, TWO WIRES, ONE NAME EACH (2026-10-13)
+
+**`gate.ts` IS A BOUNDARY NOW — 62 → 61 — AND IT IS THE SECOND LANDING IN A ROW TO FIND ONE WIRE SPELLED TWICE.**
+`route-do.ts` spelled `"x-do-auth"` beside a Rust client that spelled it too; `gate.ts`'s `DECISION_URL` spelled
+`/__decision` while `decisions.rs`'s `in_family` spelled it again. **Neither spelling was wrong on its own — that is
+what makes this class invisible**: each end works, each end's tests pass, and only a reader holding BOTH ends sees the
+second copy.
+
+**AND THE PATTERN IS STRUCTURAL RATHER THAN ACCIDENTAL: A WIRE WHOSE TWO ENDS LIVE IN TWO LANGUAGES GETS ITS NAME
+WRITTEN TWICE.** The migration makes that the normal case — the Rust worker and the TypeScript console speak to each
+other constantly — so the rule this pair of landings earns is: **when a landing moves one end of a wire, name the wire
+and make the OTHER end read the name.** Twice now that other end has been the side nobody was touching: the Rust
+client in the first landing, the Rust server in the second. Both are guarded by a test that reads the other side's
+source and fails on the literal's return, because **a constant nobody is forced to read is a comment.**
+
+**AND THE DECISION THIS FILE OWNS IS ONE DISTINCTION, WHICH IS WHY IT WAS WORTH OWNING.** `undefined` is a gate that
+is absent, refused or unreachable — the ONLY case a caller may fall back to its TypeScript twin on — and `null` is a
+decision that RAN and answered null. **Collapsing them would let a wrong `null` from Rust be silently corrected by the
+twin**, which is the one failure this route must not hide. `decision_value` answers `Option<Value>`, so the two cases
+are two VALUES, and a body with no `value` key is the first rather than the second — the source read `body.value`, and
+a missing key is `undefined` in JavaScript. **A distinction that lives in a comment is a distinction a port loses; one
+that lives in a type is a distinction it cannot.**
