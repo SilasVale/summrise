@@ -722,5 +722,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // five rungs, on every `cargo test`. **AND THE EMITTED RULE TAKES THE CHANNEL RULE AS AN ARGUMENT**, because
 // `registerChannelKey` is an OCP extension point that writes into the TypeScript table: deriving must not quietly
 // remove one, which is the rule `byok.rs` already carries.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 63`.
-const MAX_LOGIC: usize = 63;
+// **62, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/route-do.ts` is BOUNDARY now: the FAIL-CLOSED
+// `DO_AUTH` gate, the route/method dispatch and the bodies' strings are emitted from `gateway/wasm/src/route_do.rs`
+// into the GENERATED `gateway/src/route-do-logic.ts`, and what is left is the Durable Object HOST — the class
+// skeleton, `state.storage` and the `Response` construction. **A host is kept and its decisions move** — the shape
+// landing 6 gave the Electron shell — and a DO class cannot move at all, because `state.storage` and `fetch` are the
+// platform's.
+// **AND THIS IS THE FIRST EMISSION WHOSE RUST SIDE ALSO GAINED A CLIENT-SIDE NAME**: `lib.rs`'s `breaker_call` sent
+// the literal `"x-do-auth"` while the gate that VERIFIES it lived only in TypeScript — `DO_AUTH_HEADER` is one name
+// now, and `the_header_name_is_the_one_the_client_sends` fails if `lib.rs` goes back to spelling it, so the two sides
+// cannot drift apart in silence.
+// **AND THE GATE'S ONE ASYMMETRY IS WHY IT IS NOT A COMPARISON**: `safeEq("","")` is TRUE, so an unconfigured
+// `DO_AUTH` written as a bare compare would wave every headerless caller through — the empty-secret guard is gate
+// policy, `auth.ts`'s primitive is the comparison, and `an_unconfigured_gate_denies` is where the difference is
+// pinned. The dispatch carries its own two look-alike arms: an EMPTY uid is missing (truthiness, not presence), and
+// `model: 0`/`model: false` STORE while `null` deletes, because the source tests the PARSED value.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 62`.
+const MAX_LOGIC: usize = 62;

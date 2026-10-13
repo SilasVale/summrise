@@ -665,3 +665,30 @@ channel's RULE as an argument instead of looking one up, because `CHANNEL_KEY_RU
 `registerChannelKey` is an OCP extension point a channel registers through; a rule that did its own lookup in Rust
 could not be extended from there. **Deriving must not quietly remove an extension point** — the same rule `byok.rs`
 carries one file over.
+
+---
+
+## THE SIXTH LANDING: A HOST IS KEPT, ITS DECISIONS MOVE (2026-10-13)
+
+**`route-do.ts` IS A BOUNDARY NOW — 63 → 62 — AND ITS HOST COULD NOT BE PORTED AT ALL.** A Durable Object class IS
+its runtime: `state.storage` and `fetch` are the platform's, and there is no Durable Object in the Rust worker's world.
+That is the Electron shell's shape one landing over — **a host is kept and its decisions move** — and it decides where
+the boundary falls: the emitted gate takes two STRINGS rather than a `Request`, because reading a header off a request
+is the host's job, and an `async` decision route could not have served a predicate that `authorized()` calls
+synchronously.
+
+**AND THE PORT SINGLE-SOURCED A NAME THAT WAS A LITERAL ON ONE SIDE.** `lib.rs`'s `breaker_call` — the Rust worker IS
+the DO's client — sent `"x-do-auth"` while the gate that VERIFIES that header lived only in TypeScript.
+`DO_AUTH_HEADER` is one name now, and `the_header_name_is_the_one_the_client_sends` reads `lib.rs` and fails if it goes
+back to spelling it. **A wire with a name on only one side is a wire that can drift in silence**, and this one had
+been.
+
+**AND THE GATE'S ONE ASYMMETRY IS WHY IT IS NOT A COMPARISON**: `safeEq("","")` is TRUE, so a gate written as a bare
+compare waves every headerless caller through on a deployment that never set `DO_AUTH`. *The empty-secret guard is gate
+policy; the comparison is `auth.ts`'s primitive* — the source said so in a comment, and the emission carries both the
+comment and the truth table beside the guard.
+
+**AND THE DISPATCH'S TWO LOOK-ALIKE ARMS SURVIVED BECAUSE THE PORT KEPT THE PARSED VALUE**: an EMPTY uid is missing
+(truthiness, not presence — `?uid=` is a 400), and `model: 0`/`model: false` STORE while `null` deletes. A port that
+sniffed `String(model)` first would have turned `null` into `"null"` and stored it. **The decision is made on the
+VALUE, so the port takes the value** — `Option<&Value>`, not `Option<&str>`.
