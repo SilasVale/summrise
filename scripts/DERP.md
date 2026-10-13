@@ -161,6 +161,18 @@ sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
   alone silently set `magicDNS: false` and turned MagicDNS off tailnet-wide (caught in the read-back, fixed
   with `{"magicDNS": true, "overrideLocalDNS": false}`). Send every field you care about, then read it back.
 
+* **After any `tailscale up` (or a re-login) on a client, RE-ASSERT THE EXIT NODE.** `tailscale up` without
+  the flags clears `--exit-node`, and the symptom is silent enough to be mistaken for this relay's fault: the
+  machine stays on the tailnet, `tailscale ping` answers, the path is direct — and its EGRESS IP is suddenly
+  the local one (`loc=CN` in a Cloudflare trace instead of `loc=US`), so every foreign site is slow. Measure
+  the egress, not the tailnet state:
+
+      curl -sS https://www.cloudflare.com/cdn-cgi/trace | findstr /I /C:"ip=" /C:"loc="
+      tailscale set --exit-node=oracle-phx --exit-node-allow-lan-access=true
+
+  Seen 2026-10-13 right after the DNS recovery above: the tailnet reported `active; direct`, while the trace
+  read `ip=101.68.143.52 loc=CN`. Both checks matter and neither replaces the other.
+
 ## OPERATE / ROLLBACK
 
 ```bash
