@@ -141,9 +141,18 @@ sudo sh -c 'iptables-save > /etc/iptables/rules.v4'
 * **UDP 3478 needs the OCI console.** No command on the instance can open it — the VCN security list sits
   above the instance. UDP 41641 works because Tailscale's own rule is there; every other UDP port tested
   (443, 80, 53, 3478) was filtered from outside.
-* `OmitDefaultRegions` is left **false** on purpose: the public regions stay as a last-resort fallback. With
-  `true` and only `phx` declared, every relayed packet in the tailnet would be forced through Phoenix — a
-  single point of failure, and a long way round for two China-side machines talking to each other.
+* `OmitDefaultRegions` is **true** as of 2026-10-13, flipped on purpose after it was first left false. The
+  reasoning for false was that the public regions are a last-resort fallback. What changed the decision was a
+  measurement, not a preference: the operator's Windows box kept homing on **hkg** — the VPS's log showed it
+  opening a `derp-20 (hkg)` connection for that peer — even though the box's own `netcheck` ranked `phx`
+  fastest (203.2ms against hkg's 375.4ms). So a relayed episode still crossed a public Hong Kong relay, while
+  only the far leg landed on the VPS. With `true` and region 900 the sole declaration, measured after the flip:
+  the VPS's `netcheck` lists `phx` alone (700µs), the device's `Relay` reads `phx`, the VPS dropped `derp-20`
+  entirely, the direct path held at 225ms and the egress stayed `ip=132.226.90.175 loc=US`. One relay hop, and
+  it lands on the exit node. THE COST IS REAL AND WAS ACCEPTED: no public DERP fallback, and two China-side
+  machines that cannot go direct will relay via Phoenix. Revert by setting the flag back to `false` and
+  re-posting the policy — the pre-flip policy is `~/tailscale-acl-backup-20261013-0132-before-omitregions.hujson`
+  on `zss`.
 * The IPv6 lookup for `derp.saisi.online` fails harmlessly on the VPS (`no such host`): there is no AAAA
   record, and `debug derp` still succeeds over IPv4.
 
