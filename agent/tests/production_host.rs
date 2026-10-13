@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 51] = [
+const ALLOWED: [(&str, &str); 52] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -117,6 +117,13 @@ const ALLOWED: [(&str, &str); 51] = [
     // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
     // for exactly that reason ("the rule that decides what a device hostname is").
     ("gateway/wasm/src/device.rs", "the DEVICE_HOST_SUFFIX fallback, ported: the rule that decides what a device hostname is"),
+    // ADDED 2026-10-13, WITH THE DEVICE DIAL'S EMISSION — AN ADDITION RATHER THAN A MOVE, AND THE FIRST RAISE SINCE
+    // 2026-10-08: the RULE left `gateway/src/device-fetch.ts` for the emission, while the host file still names the
+    // suffix in the PROSE that records it ("the suffix allowlist (DEVICE_HOST_SUFFIX, default …)") — the paragraph
+    // this gate exists to let a reader follow. MAX_ALLOWED 51 -> 52: the sentence below says a raise is a HOST being
+    // added, and this is one — the same host, in the file that now DECIDES it rather than the one that used to.
+    ("gateway/src/device-dial-logic.ts", "the DEVICE_HOST_SUFFIX fallback, EMITTED from gateway/wasm/src/device.rs: the rule that decides what a device hostname is"),
+
     // ADDED 2026-10-02, same branch: `routing.rs` is the Rust port of `upstream.ts`'s `pickRoute`, and the US
     // egress base's DEFAULT is a production hostname — the entry above declares the TypeScript for that.
     ("gateway/wasm/src/routing.rs", "the US_PROXY_BASE fallback, ported: the same default upstream.ts carries"),
@@ -245,7 +252,7 @@ const ALLOWED: [(&str, &str); 51] = [
 // `agent/summrise-cli/src/endpoints.rs` — `tunnel.rs`'s carried `d1` default and `rollback.rs`'s
 // version.json URL. So the OCCURRENCES in the crate went DOWN while the declared FILES went up by one, which
 // is the direction this list is for. The raise is one, it is visible, and the reason is beside the entry.
-const MAX_ALLOWED: usize = 51;
+const MAX_ALLOWED: usize = 52;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.

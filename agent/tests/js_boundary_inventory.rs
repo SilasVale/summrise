@@ -750,5 +750,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // that RAN and answered null). `decision_value` answers `Option<Value>`, so `Some(Null)` and `None` ARE those two
 // cases — and a body with no `value` key is the FIRST, because the source read `body.value` and a missing key is
 // `undefined` in JavaScript.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 61`.
-const MAX_LOGIC: usize = 61;
+// **60, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/device-fetch.ts` is BOUNDARY now: the whole
+// device-dial guard stack — the SSRF blocklist, the suffix allowlist, the authority-prefix refusal, the
+// hostname-equality gate, the header hygiene IN ORDER, the timeout bound and the 101 shape — is emitted from
+// `gateway/wasm/src/device.rs` into the GENERATED `gateway/src/device-dial-logic.ts`.
+// **AND IT IS THE FIRST EMISSION THAT REMOVES A RULE ALREADY DUPLICATED ACROSS TWO LANGUAGES**: `deviceHostError`
+// (the stage-n SSRF list) and `hostAllowError` existed TWICE, kept in step by a frozen corpus and by hand — and
+// `device.rs`'s own header already called that what it is: *"the one duplication in this repository that is a HOLE
+// rather than a bug."* The TypeScript is the Rust's output now.
+// **AND THE ORDER LEFT WITH THE RULES**, because the sequence IS the security argument (the authority-prefix
+// sanitization BEFORE the URL is built, then the parsed-hostname equality, the blocklist, the allowlist): `dialPlan`
+// is one function — the four gates and the URL that survives them — and its parser is a CALLBACK, because the
+// source's `new URL` sits outside its `try`, so an unparseable authority must THROW rather than become a refusal.
+// **AND THE PORT CORRECTED ITS OWN TEST**: the scheme test is case-insensitive (`/^[a-z][a-z0-9+.-]*:/i`), so
+// `HTTPS://evil.example` is refused — the assertion that claimed otherwise failed, and now pins the
+// case-insensitivity instead. A test written wrong once and fixed by running it is worth more than one written to
+// agree.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 60`.
+const MAX_LOGIC: usize = 60;

@@ -303,6 +303,21 @@ BOUNDARY | gateway/src/route-do.ts | **THE DURABLE OBJECT HOST, AND ITS DECISION
 #   **THE ONE CONDITION LEFT IS AN I/O-AVOIDANCE TEST, NOT A VERDICT**: the adapter reads the breaker only for an
 #   `og/` model, because reading it for every model would add a Durable Object call the source never made — the
 #   VERDICT is the emission's, and `channelUsable` applies the same prefix test.
+GENERATED | gateway/src/device-dial-logic.ts | the device dial's guard stack — the SSRF blocklist, the suffix allowlist, the authority-prefix refusal, the hostname-equality gate, the header hygiene in order, the timeout bound and the 101 shape — emitted from Rust | gateway/wasm/src/device.rs
+#   **THE SEVENTH EMISSION, AND THE FIRST THAT REMOVES A RULE THAT WAS ALREADY DUPLICATED ACROSS TWO LANGUAGES
+#   (2026-10-13).** `deviceHostError` (the stage-n SSRF list) and `hostAllowError` (the suffix allowlist) existed
+#   TWICE — a TypeScript copy and a Rust copy, kept in step by a frozen corpus and by hand — and `device.rs`'s own
+#   header already said what that means: *"a second copy of an SSRF stack is the one duplication in this repository
+#   that is a HOLE rather than a bug."* The TypeScript is now the Rust's output.
+#   **AND THE STACK'S ORDER LEFT WITH THE RULES.** The order is the security argument (the authority-prefix
+#   sanitization BEFORE the URL is built, then the parsed-hostname equality, the blocklist, the allowlist), so it is
+#   `dialPlan` — one function, the four gates and the URL that survives them — rather than four calls the host makes
+#   in a remembered order. `parseHost` is a CALLBACK because the source's `new URL` sits outside its `try`: an
+#   unparseable authority THROWS out of `deviceFetch`, and the emission lets it.
+#   **AND THE PORT FOUND ONE WRONG EXPECTATION IN ITS OWN TEST, WHICH IS THE POINT OF WRITING THEM**: the scheme test
+#   is case-insensitive (`/^[a-z][a-z0-9+.-]*:/i`), so `HTTPS://evil.example` is refused — the assertion that said
+#   otherwise failed, and now pins the case-insensitivity instead.
+BOUNDARY | gateway/src/device-fetch.ts | **THE DIAL HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the env reads (`DEVICE_HOST_SUFFIX`), the parser the plan is handed, `fetchWithTimeout`, and the `Response` rebuilds — the platform's half. The guard stack, its ORDER, the header hygiene, the timeout bound and the 101 shape are `device-dial-logic.ts`, GENERATED from `gateway/wasm/src/device.rs`. **`hostAllowError` KEEPS ITS `(hostname, env)` SIGNATURE** because the registration paths and the direct pins call it that way; the emitted twin takes the suffix VALUE, which is the shape the Rust has.
 GENERATED | gateway/src/gate-logic.ts | the decision route's client half — the path, the address, the content type, the `{name, args}` envelope and the answer's parse rule — emitted from Rust | gateway/wasm/src/decision_client.rs
 #   **THE SIXTH EMISSION, AND THE SECOND IN A ROW TO FIND A WIRE SPELLED ON BOTH SIDES (2026-10-13).** `gate.ts`'s
 #   `DECISION_URL` spelled the path while `decisions.rs`'s `in_family` spelled it again; `DECISION_PATH` is one name
