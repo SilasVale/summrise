@@ -203,5 +203,11 @@ Rollback, cheapest first:
 
 * `/etc/letsencrypt/cloudflare.ini` holds a Cloudflare API token (`600 root`) used only for renewals.
 * The tailnet ACL was edited through the Tailscale API with a key that appeared in a chat transcript on
-  2026-10-12 — **rotate it**. The key is cached at `~/.tailscale-api-token` (`600`) on `zss`.
+  2026-10-12. **IT WAS REVOKED THE SAME NIGHT** (verified: a read against `/acl` with it now answers `401`,
+  and the key is gone from the tailnet's key list). Nothing is cached on `zss` any more — do not go looking
+  for a token there. The tailnet's other key (`devices.create`, their device-registration key) was not touched.
+* A NEW full-access token CANNOT BE MINTED THROUGH THE API: `POST /tailnet/-/keys` answers
+  `exactly one capability scope must be populated`, so it creates auth/capability keys only. The next reader
+  who needs to change tailnet settings has to generate an access token in the admin console
+  (Settings -> Keys) and keep it out of any transcript.
 * `~/.ssh/oracle-vps.key` on `zss` reaches the VPS as `ubuntu@100.79.21.110` (sudo is passwordless).
