@@ -737,5 +737,18 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // policy, `auth.ts`'s primitive is the comparison, and `an_unconfigured_gate_denies` is where the difference is
 // pinned. The dispatch carries its own two look-alike arms: an EMPTY uid is missing (truthiness, not presence), and
 // `model: 0`/`model: false` STORE while `null` deletes, because the source tests the PARSED value.
-// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 62`.
-const MAX_LOGIC: usize = 62;
+// **61, LOWERED ON 2026-10-13, AND THE FILE IS NAMED.** `gateway/src/gate.ts` is BOUNDARY now: the decision route's
+// client half — the path, the address, the content type, the `{name, args}` envelope and the answer's parse rule — is
+// emitted from `gateway/wasm/src/decision_client.rs` into the GENERATED `gateway/src/gate-logic.ts`, and what is left
+// in the file is the BINDING and the `fetch` that may throw.
+// **AND IT IS THE SECOND LANDING IN A ROW TO FIND ONE WIRE SPELLED ON BOTH SIDES**: `gate.ts`'s `DECISION_URL`
+// spelled `/__decision` while `decisions.rs`'s `in_family` spelled it again — the `x-do-auth` defect one landing over
+// — and the same repair: one constant, with the OTHER side made to read it (the SERVER, this time), and a test that
+// fails if the literal comes back. **Two wires, two languages, one name each.**
+// **AND THE ONE THING THE CLIENT DECIDES IS THE DISTINCTION ITS ANSWER CARRIES**: `undefined` (a gate absent,
+// refused or unreachable — the only case a caller may fall back to its TypeScript twin on) versus `null` (a decision
+// that RAN and answered null). `decision_value` answers `Option<Value>`, so `Some(Null)` and `None` ARE those two
+// cases — and a body with no `value` key is the FIRST, because the source read `body.value` and a missing key is
+// `undefined` in JavaScript.
+// MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 61`.
+const MAX_LOGIC: usize = 61;

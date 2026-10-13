@@ -499,6 +499,7 @@ pub mod auto_route;
 pub mod body_scan;
 pub mod byok;
 pub mod cors;
+pub mod decision_client;
 pub mod decisions;
 pub mod device;
 pub mod device_proxy;

@@ -35,7 +35,7 @@ use crate::RouteFailure;
 
 /// `POST /__decision` — POST only, and the EXACT path: a prefix would swallow a neighbour.
 pub fn in_family(method: &Method, path: &str) -> bool {
-    *method == Method::Post && path == "/__decision"
+    *method == Method::Post && path == crate::decision_client::DECISION_PATH
 }
 
 /// A pure decision: JSON in, JSON out, and **no environment**.
@@ -410,9 +410,12 @@ mod tests {
     /// RESULT:   the third assertion fails, and nothing else notices.
     #[test]
     fn the_family_is_post_and_the_exact_path() {
-        assert!(in_family(&Method::Post, "/__decision"));
-        assert!(!in_family(&Method::Get, "/__decision"));
-        assert!(!in_family(&Method::Post, "/__decision_x"));
+        // **THE PATH IS READ FROM THE MODULE THAT OWNS THE WIRE** (`decision_client`), because the CLIENT spells it
+        // too: a second literal here is how the two sides drift, and `decision_client`'s own test pins the value.
+        let path = crate::decision_client::DECISION_PATH;
+        assert!(in_family(&Method::Post, path));
+        assert!(!in_family(&Method::Get, path));
+        assert!(!in_family(&Method::Post, &format!("{path}_x")));
     }
 
     /// `upstreamModelsUrl` — the suffix is the decision, and a URL without it is `null` rather than a guess.
