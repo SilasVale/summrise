@@ -417,3 +417,31 @@ decisions, so the file only becomes BOUNDARY when every one of them has an owner
 ITS SEQUENCE IN RUST** (`seedAdmin`'s v1 migration, the empty-token backfill and the round-394 mint rule) before
 it can be a host — which is also the first thing the admin family's routes will need. **So the next landing is
 `models.ts` in full, and then the admin family's first slice, in that order.**
+
+---
+
+## LANDED 2026-10-14 — the model store, and a comment the code does not obey (55 -> 54)
+
+**`store/models.ts` — the largest store host left — IS A HOST.** `models-logic.ts`, GENERATED from the new
+`model_store.rs`, carries the three KV key names, the advertised-id merge, the `/v1/models` extras, the disabled
+set's sort, the two custom-model upserts, the facet-override rule, the reasoning-effort chain and the CATALOGUE
+PROJECTION. The host keeps the reads and writes, the cache, the file-layer merge, and the two things only a host
+can do (flattening the advertised provider models, and parsing each record's `baseURL` for a card's `host`).
+
+**AND IT IS THE FIRST LANDING WHOSE SUBJECT WAS AN EMISSION RATHER THAN A PORT**: `advertised_ids` and
+`extra_model_entries` already existed in `store.rs`, so the work was rendering them, writing the six rules that
+had no Rust home, and re-pointing the host. The new module re-exports the two that live next door and says so.
+
+**THE FINDING, AND IT IS THE INVERSE OF THE LAST FOUR.** The projection's comment says a custom record REPLACING
+a built-in's id is *"gone from this channel's list too"*. The filter does drop it — and then the custom loop
+below finds the same card by prefix and pushes the wire name BACK. So the filter's exclusion is what a DISABLED
+id gets, and a replacement returns through its own arm. **The first version of the Rust test asserted the
+comment, saw `["mimo"]`, and was wrong.** The four earlier divergences were the RUST disagreeing with the source;
+this one is a SENTENCE disagreeing with the code it describes, and the port follows the code. **A port may record
+that difference; it may not "fix" it.** (The other find this session of the same class — `aud_list`'s comment
+claiming non-strings became the empty string — was the reverse: there the code was wrong too.)
+
+**WHAT IS LEFT IN THE STORE LAYER**: `store/admin.ts`, whose `seedAdmin` sequence (the v1 migration, the
+empty-token backfill, the round-394 mint rule) has to be Rust before the file can be a host — and that sequence is
+also what the admin family's routes need. Then the routes themselves (§6 row 3), which is where the console's tail
+stops being a store problem and becomes a route problem.
