@@ -304,6 +304,245 @@ pub async fn require_admin(
     Ok(Ok(user))
 }
 
+/// **THE SESSION'S SEQUENCE, EMITTED — AND THE ORDER IS THE SECURITY PROPERTY.**
+///
+/// `session.ts` is 151 lines and every one of its checks is this module's, but the file is a HOST for the same
+/// reason `store/admin.ts` is: what it holds is a SEQUENCE of platform calls, and the sequence's ORDER is the
+/// decision ("an unconfigured deployment answers `null` before it parses a cookie"; "a revoked cookie dies before
+/// the signature is verified"; "a rotation is accepted ONCE and only when the two keys really differ").
+///
+/// So the emission is a function that takes the platform as ARGUMENTS — the `seedAdminSequence` treatment — and
+/// what stays in TypeScript is the cookie parse, the Cloudflare Access fallback, the two refusal responses and the
+/// store seam.
+const TS_MODULE: &str = r#"/**
+ * session-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/session_gate.rs` (`render_typescript`). The freshness test in that module is a
+ * byte comparison against this file:
+ *
+ *     SUMMRISE_REFRESH_SESSION=1 cargo test --manifest-path gateway/wasm/Cargo.toml session_gate::emission
+ *
+ * `gateway/src/session.ts` re-exports this module and keeps the HOST: the cookie parse, the Cloudflare Access
+ * fallback, the store seam (`SessionUserStore`), the isolate cache the revocation reads go through, and the two
+ * refusal responses.
+ */
+
+/** The session's lifetime — 24 hours, written into the signed payload as `exp` at ISSUANCE. */
+export const SESSION_TTL_MS = 24 * 3600 * 1000;
+
+/** The cookie the whole console keys on. */
+export const SESSION_COOKIE = "ag_session";
+
+/** The revocation negative cache: 60 s, bounded at 512 entries like the source's `Map`. */
+export const NOT_REVOKED_TTL_MS = 60000;
+export const NOT_REVOKED_MAX = 512;
+
+/** The two refusals, spelled exactly — they are response bodies. */
+export const NOT_LOGGED_IN_MESSAGE = "Not logged in or session expired";
+export const ADMIN_REQUIRED_MESSAGE = "Admin permission required";
+
+/** The line the console logs when it refuses to ISSUE a session. **FAIL CLOSED**: without a dedicated
+ *  high-entropy `SESSION_SECRET` the HMAC key would fall back to the admin password, letting any invited user
+ *  offline-brute-force it from their own signed cookie — HMAC-SHA256 is not memory-hard. */
+export const ISSUE_SECRET_REFUSED_LOG =
+  "[session] SESSION_SECRET not configured — refusing to issue new session (fail-closed)";
+
+/** The VERIFY path's key choice (rotation compat): the dedicated `SESSION_SECRET`, or the admin password so a
+ *  first-time `SESSION_SECRET` rollout does not log everyone out. **ISSUANCE MUST NOT USE THIS** — it uses
+ *  `issueSessionSecret`, which fails closed. */
+export function sessionSecret(env: any, adminPassword: string): string {
+  return env?.SESSION_SECRET || adminPassword;
+}
+
+/** The ISSUANCE key, or `null` when unconfigured — the caller must refuse to issue a session (HTTP 500
+ *  `config_error`) rather than silently signing with the admin password. */
+export function issueSessionSecret(env: any): string | null {
+  return env?.SESSION_SECRET ? env.SESSION_SECRET : null;
+}
+
+/** The admin gate's role test, spelled once. */
+export function isAdmin(user: unknown): boolean {
+  return (user as { role?: unknown } | null | undefined)?.role === "admin";
+}
+
+/** What the revocation cache holds for one cookie. */
+export interface RevokedEntry {
+  revoked: boolean;
+  exp: number;
+}
+
+/** The isolate cache's surface — the HOST owns the `Map`, because it is platform state. */
+export interface RevokedCache {
+  get(key: string): RevokedEntry | undefined;
+  set(key: string, entry: RevokedEntry): void;
+  size(): number;
+  clear(): void;
+}
+
+/** A verified session's claims. */
+export interface SessionClaims {
+  uid: string;
+  role: string;
+}
+
+/** Everything `cookieSession` needs from the platform, named once.
+ *
+ *  **GENERIC IN THE USER RECORD, BECAUSE THE SEQUENCE RETURNS THE USER, NOT THE CLAIMS.** The source returns
+ *  `user` — the record its caller then reads fields off — and an earlier revision of this emission returned the
+ *  verified CLAIMS instead: `role` survived (so the admin gate still worked) while every other field was
+ *  missing, which the console's own suite caught as 28 failures across session-gated routes. The claims are the
+ *  uid lookup's input and nothing else. */
+export interface CookieSessionDeps<T> {
+  /** The deployment's admin password — an EMPTY one means no session can exist. */
+  adminPassword: string;
+  /** The env-like object the session flow reads — its ONE field is `SESSION_SECRET`, and it is an object
+   *  rather than a string because the SOURCE's `sessionSecret(env, adminPassword)` takes one. */
+  env: { SESSION_SECRET?: string | null };
+  /** The request's session cookie, already parsed out (the host owns header parsing). */
+  cookie: string | undefined;
+  /** Whether the KV binding exists at all: the revocation read is skipped without one. */
+  hasKeys: boolean;
+  /** `Date.now()`, injected so the cache's expiry is testable. */
+  nowMs(): number;
+  /** The revocation read: `(await KEYS.get(`sess-revoked:${cookie}`)) === "1"`. */
+  readRevoked(cookie: string): Promise<boolean>;
+  /** The negative cache, bounded and cleared by the host's `Map`. */
+  cache: RevokedCache;
+  /** `verifySessionToken(secret, token)`. */
+  verify(secret: string, token: string): Promise<SessionClaims | null>;
+  /** The user record, or null when it is gone. */
+  loadUser(uid: string): Promise<T | null>;
+}
+
+/**
+ * **THE SESSION SEQUENCE, IN ORDER — AND THE ORDER IS THE BEHAVIOUR:**
+ *
+ *   1. an EMPTY admin password answers `null` before anything else is read;
+ *   2. a missing cookie answers `null`;
+ *   3. a REVOKED cookie dies BEFORE the signature is verified (a copied cookie is dead even when it verifies),
+ *      through a 60 s negative cache that is CLEARED rather than pruned at its bound;
+ *   4. the signature is tried with `sessionSecret(...)`, then — ONCE, and only when the two keys really differ —
+ *      with the admin password, for the rotation window;
+ *   5. the user must exist AND be enabled.
+ *
+ * Every arm returns `null` rather than distinguishing its reason: the caller answers 401 either way, and the
+ * distinction is not one a client may learn.
+ */
+export async function cookieSession<T extends { enabled?: boolean }>(
+  deps: CookieSessionDeps<T>,
+): Promise<T | null> {
+  const adminPassword = deps.adminPassword;
+  if (!adminPassword) return null;
+  const cookie = deps.cookie;
+  if (!cookie) return null;
+  if (deps.hasKeys) {
+    const hit = deps.cache.get(cookie);
+    if (hit && hit.exp > deps.nowMs()) {
+      if (hit.revoked) return null;
+    } else {
+      const revoked = await deps.readRevoked(cookie);
+      if (deps.cache.size() >= NOT_REVOKED_MAX) deps.cache.clear();
+      deps.cache.set(cookie, { revoked, exp: deps.nowMs() + NOT_REVOKED_TTL_MS });
+      if (revoked) return null;
+    }
+  }
+  // **ROTATION COMPAT, ONCE**: `SESSION_SECRET` is set now, but this cookie may have been signed with the old
+  // admin-password key — and the two keys must really differ for the second attempt to be a rotation rather
+  // than the same verify twice.
+  const primary = sessionSecret(deps.env, adminPassword);
+  let session = await deps.verify(primary, cookie);
+  if (
+    !session &&
+    deps.env.SESSION_SECRET &&
+    adminPassword &&
+    deps.env.SESSION_SECRET !== adminPassword
+  ) {
+    session = await deps.verify(adminPassword, cookie);
+  }
+  if (!session) return null;
+  // **THE USER, NOT THE CLAIMS** — `role` is the only claim the caller reads, and its presence is what made a
+  // claims-returning version look correct while breaking twenty-eight routes.
+  const user = await deps.loadUser(session.uid);
+  if (!user || !user.enabled) return null;
+  return user;
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_MODULE.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/session-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_SESSION").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write session-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_SESSION=1 cargo test session_gate::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/session-logic.ts is not what session_gate.rs emits — \
+             run SUMMRISE_REFRESH_SESSION=1 cargo test session_gate::emission"
+        );
+    }
+
+    /// **THE SEQUENCE'S FIVE STEPS ARE PINNED BY NAME, IN ORDER** — a comment reordered is a comment, and this
+    /// function's arms ARE the security property. The mutation that matters is moving the revocation check BELOW
+    /// the verify: a copied cookie would then be checked against the signature first, which is the one thing the
+    /// blacklist exists to prevent.
+    #[test]
+    fn the_emission_carries_the_sequence() {
+        let ts = render_typescript();
+        let order = [
+            "if (!adminPassword) return null;",
+            "if (!cookie) return null;",
+            "const revoked = await deps.readRevoked(cookie);",
+            "const primary = sessionSecret(",
+            "session = await deps.verify(adminPassword, cookie);",
+            "if (!session) return null;",
+            "if (!user || !user.enabled) return null;",
+            "return user;",
+        ];
+        let mut at = 0usize;
+        for step in order {
+            let found = ts[at..]
+                .find(step)
+                .unwrap_or_else(|| panic!("the emission lost the step: {step}"));
+            at += found + step.len();
+        }
+        for item in [
+            "export const SESSION_TTL_MS = 24 * 3600 * 1000;",
+            "export const SESSION_COOKIE = \"ag_session\";",
+            "export const NOT_REVOKED_TTL_MS = 60000;",
+            "export const NOT_REVOKED_MAX = 512;",
+            "export const NOT_LOGGED_IN_MESSAGE = \"Not logged in or session expired\";",
+            "export const ADMIN_REQUIRED_MESSAGE = \"Admin permission required\";",
+            "export function issueSessionSecret(",
+            "export function isAdmin(",
+        ] {
+            assert!(ts.contains(item), "the emission lost: {item}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

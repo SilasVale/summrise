@@ -781,6 +781,12 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 52 -> 51 ON 2026-10-14, FOR `session.ts`: 151 lines whose ORDER is the security property, so the emission is
+// the SEQUENCE (the `seedAdminSequence` treatment — the platform arrives as arguments) rather than a set of
+// functions. The suite caught the one thing that made it wrong on the first try: the sequence must return the
+// USER, not the verified claims — `role` survived, every other field did not, and twenty-eight session-gated
+// routes failed.
+//
 // 53 -> 52 ON 2026-10-14, FOR `reliability.ts`: 456 lines whose decisions ALREADY existed in `reliability.rs` —
 // the largest console file left, and the first one that was an EMISSION rather than a port (nothing new had to
 // be decided; the rules had to be rendered and the host re-pointed at them). The retry LOOP stays the host's,
@@ -817,4 +823,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 52;
+const MAX_LOGIC: usize = 51;
