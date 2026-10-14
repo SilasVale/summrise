@@ -277,7 +277,7 @@ async fn body_model(request: &mut Request) -> String {
 /// **`US_PROXY` IS READ AS A VAR HERE, NOT AS THE KV SETTING.** The probe's `pickRoute` reads the worker's own
 /// egress switch (`upstream.ts`); the KV-setting precedence is the /v1 front door's own proved decision and
 /// importing it here would be a behaviour change.
-fn env_value(env: &Env) -> serde_json::Value {
+pub(crate) fn env_value(env: &Env) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for name in crate::v1::ENV_KEYS {
         if let Ok(value) = env.var(name) {

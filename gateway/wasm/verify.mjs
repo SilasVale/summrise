@@ -6807,6 +6807,28 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
     // and a fresh instance is what a new isolate looks like.
     const worker = await import(`${pathToFileURL(BUILT).href}?admin=${i}`);
     const instance = new worker.default();
+    // **THE UPSTREAM STUB, THE SAME ONE THE ORACLE USED, AND ITS DIALS ARE COMPARED.** The probe's whole job is
+    // an outbound request, so "what came back" is half of it: the method, the URL, the credential that travelled
+    // and the `redirect` mode are the other half.
+    const calls = [];
+    const realFetch = globalThis.fetch;
+    if (c.upstream || (c.calls ?? []).length) {
+      globalThis.fetch = async (url, init = {}) => {
+        // The redirect mode comes off the REQUEST: the worker calls `fetch(request)`, so `init` is empty there.
+        const request = new Request(url, init);
+        const auth = request.headers.get("authorization") ?? "-";
+        calls.push(
+          `${request.method} ${request.url} auth=${auth} redirect=${request.redirect}`,
+        );
+        const body = (c.upstream ?? {})[new URL(request.url).pathname];
+        if (!body) throw new Error(`this case has no upstream answer for ${request.url}`);
+        if (body.status === 0) throw new Error(body.body ?? "boom");
+        return new Response(body.body ?? "", {
+          status: body.status ?? 200,
+          headers: { "content-type": body.type ?? "application/json" },
+        });
+      };
+    }
     const stub = kvOf(c.env.KEYS);
     const { KEYS: _keys, SESSION_SECRET: secret, ...vars } = c.env;
     instance.env = {
@@ -6828,10 +6850,16 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
         ...(c.body === undefined ? {} : { body: c.body }),
       }),
     );
+    globalThis.fetch = realFetch;
     const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
     const writes = stub.writes;
     const sameWrites = JSON.stringify(writes) === JSON.stringify(c.writes ?? []);
-    const ok = res.status === c.expected.status && body === c.expected.body && sameWrites;
+    const sameCalls = JSON.stringify(calls) === JSON.stringify(c.calls ?? []);
+    const ok =
+      res.status === c.expected.status &&
+      body === c.expected.body &&
+      sameWrites &&
+      sameCalls;
     if (!ok) adminBad++;
     console.log(`      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${res.status} (shipping ${c.expected.status})`);
     if (!ok) {
@@ -6842,6 +6870,10 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
       if (!sameWrites) {
         console.log(`        writes shipping: ${JSON.stringify(c.writes ?? [])}`);
         console.log(`        writes wasm    : ${JSON.stringify(writes)}`);
+      }
+      if (!sameCalls) {
+        console.log(`        dials shipping: ${JSON.stringify(c.calls ?? [])}`);
+        console.log(`        dials wasm    : ${JSON.stringify(calls)}`);
       }
     }
   }
