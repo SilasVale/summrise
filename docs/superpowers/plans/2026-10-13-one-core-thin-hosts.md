@@ -306,3 +306,45 @@ does not enable it.
 **SO §6 ROW 2 IS NOW UNBLOCKED, WITH TWO PREREQUISITES STILL OPEN AND BOTH NAMED**: `RESERVED_PREFIXES` needs a
 Rust owner (item 3 above), and `parseProviderSpec`'s byte-exact messages need the `Number.isInteger`/`Array.isArray`
 arms that now exist. Nothing else stands between this plan and the largest single gap in the console's tail.
+
+---
+
+## LANDED 2026-10-13 — §6 row 2, and it is the first emission the CORE produces (59 -> 58)
+
+**`parseProviderSpec` IS RUST AND THE CONSOLE RUNS ITS OUTPUT.** `core/summrise-core/src/provider_spec.rs` owns
+the parser (~200 lines whose every refusal is a response body), the vocabulary, the two prefix helpers and the
+record shapes; `gateway/src/store/providers-logic.ts` is its emission; `store/providers.ts` keeps the KV pair, the
+cache, the file-layer merge, the record views, the key resolution and the `new URL` call. **The console's 372-case
+suite runs the Rust's own output**, which is what makes this a seam rather than a deletion.
+
+**THE URL PARSE IS THE ONE THING THAT COULD NOT MOVE, AND SAYING SO IS THE DESIGN.** `new URL` is a WHATWG parser
+the pure core must not carry, so the emitted decision takes the PARSED PARTS (`protocol`, `username`, `password`,
+`search`, `hash`, `hostname`, `origin`, `pathname`) and the host hands them over — the `dial_plan` shape one core
+module over. **The refusal order survives because the decision reads `base` only after its prefix, reserved-prefix
+and label refusals**, so a body that is wrong twice is refused for the reason the shipping console refuses it.
+
+**THREE DUPLICATIONS WENT WITH IT, EACH ONE HELD TOGETHER BY A TEST INSTEAD OF BY ONE OWNER:**
+
+| rule | where it was written twice | what happens now |
+| --- | --- | --- |
+| `RESERVED_PREFIXES` | DERIVED in `channels.ts` from its console route table, and a `matches!` list in `routing.rs` | `catalogue.rs` owns it, `channels.ts` re-exports it, and the drift test pins the RUST list against the TYPESCRIPT table |
+| `SUPPORTED_PROVIDER_APIS` | `providers.ts` (validation) and `routing.rs` (the upstream join) | one const in the core, two readers |
+| `barePrefix` / `advertisedModelId` | `providers.ts` and `store.rs` | one implementation in the core |
+
+**AND THE THIRD ROW FOUND A LIVE BUG.** `advertisedModelId` renders the wire through `String(wire ?? "")`, and the
+worker's copy used `js_string` — so a NULL wire was advertised as `acme/null` where the source answers `acme/`.
+Unreachable from the listing (an empty wire is skipped first) and wrong at the boundary, which is where the
+decision route calls it.
+
+**THE TWO THINGS THIS LANDING TAUGHT, FOR THE NEXT EMISSION'S SAKE:**
+
+1. **AN EMITTED FILE IS STILL A FORMATTED FILE.** `npm run format:check` runs prettier over `src/`, so the
+   producer must emit text prettier would not rewrite — the ONE line it wanted wrapped (`parseProviderModel`'s
+   signature) is wrapped IN THE RUST TEMPLATE. The refresh command re-emits, the freshness test compares bytes,
+   and both halves of that loop are now proven.
+2. **IT IMPORTS THE SSRF GUARD RATHER THAN RESTATING IT**: `deviceHostError` is an emission of `device.rs`, and a
+   second private-address list would be the one duplication in this repository that is a HOLE rather than a bug.
+
+**WHAT IS NEXT, AND IT IS §6 ROW 3**: the admin family. The parser was the prerequisite and it is done; `/api/admin/*`
+is now a route port rather than a parser port, and `store/users.ts`, `store/models.ts` and `store/devices.ts` are
+the stores it reads.
