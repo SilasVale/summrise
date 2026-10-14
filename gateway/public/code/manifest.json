@@ -171,6 +171,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/providers-logic.ts",
+      "path": "files/summrise-gate/src/store/providers-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/providers.ts",
       "path": "files/summrise-gate/src/store/providers.ts",
       "group": "summrise-gate"

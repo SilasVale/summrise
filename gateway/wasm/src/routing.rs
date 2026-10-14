@@ -37,24 +37,16 @@ pub struct RouteInfo {
 
 /// `ROUTE_TABLE`'s keys — **"does the BUILT-IN route table own this prefix?"** (`isBuiltInPrefix`).
 ///
-/// It is a list rather than a lookup over `pick_route`'s arms because the ORDER is the contract: a built-in
-/// prefix is decided by `pick_route` even when a custom provider claims the same prefix, and only a prefix the
-/// table does not own may reach `provider_for_prefix`.
-pub fn is_built_in_prefix(prefix: &str) -> bool {
-    matches!(
-        prefix,
-        "or" | "ds" | "qw" | "og" | "nv" | "gmi" | "cm" | "amd" | "r4"
-    )
-}
+/// **THE RULE IS `summrise-core::catalogue`'s NOW (2026-10-13) AND THIS NAME IS THE RE-EXPORT.** It was a
+/// `matches!` list here while `gateway/src/channels.ts` DERIVED the same nine prefixes from its console route
+/// table, with a test on one side holding the two together. The core owns the list, the console re-exports it,
+/// and the test that pins it against the route table now pins the RULE against the TABLE.
+pub use summrise_core::catalogue::is_built_in_prefix;
 
 /// `SUPPORTED_PROVIDER_APIS` — the dialects a custom provider may declare, and the path each one APPENDS to
-/// its `baseURL`.
-///
-/// **THE JOIN IS DSH'S, DELIBERATELY** (`upstream.ts`'s own note): `baseURL` is a PREFIX and the dialect's path
-/// is appended — what the OpenAI SDK does with `baseURL` — which is why DSH's settings can name the gateway
-/// itself as a provider. One dialect today; a second is a row here plus its translator.
-pub const SUPPORTED_PROVIDER_APIS: [(&str, &str); 1] =
-    [("openai-completions", "/chat/completions")];
+/// its `baseURL`. **A RE-EXPORT OF THE CORE'S TABLE (2026-10-13)**: the same const is what the console's admin
+/// API validates against, so a dialect cannot validate in one language and route in the other.
+pub use summrise_core::provider_spec::SUPPORTED_PROVIDER_APIS;
 
 /// `JSON.stringify(provider?.api)` as a template literal renders it — `undefined` for an absent field, the
 /// quoted string for a string, `null` for an explicit null. It rides inside the unroutable sentence, so it is

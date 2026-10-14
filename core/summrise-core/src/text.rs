@@ -92,6 +92,17 @@ pub fn js_falsy_string(v: Option<&Value>) -> String {
     js_truthy_string(v, "")
 }
 
+/// `String(v ?? "")` — **AND IT IS NOT `js_falsy_string`**, which is the whole reason it exists: `??` replaces
+/// only `null` and an ABSENT key, while `||` also replaces every falsy value. So `String(id ?? "")` on a `0` is
+/// `"0"` and `String(id || "")` is `""`, and the two land on different refusals — measured in the provider
+/// parser, where an id of `0` is a valid model id under `??` and "id is required" under `||`.
+pub fn js_or_empty(v: Option<&Value>) -> String {
+    match v {
+        None | Some(Value::Null) => String::new(),
+        Some(other) => js_string(other),
+    }
+}
+
 /// `Number(x)` — the engine's COERCION, not a parse.
 ///
 /// `NaN` is the answer for anything that is not a number, and the callers' `Number.isFinite` test is what turns

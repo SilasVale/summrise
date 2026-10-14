@@ -69,115 +69,57 @@ import { cget, cset, cdel, withKeyLock, type Env } from "./cache.ts";
 import { decide } from "../gate.ts";
 import { RESERVED_PREFIXES } from "../channels.ts";
 import { loadCatalogueFile, mergeLayers } from "./file-config.ts";
-import { deviceHostError } from "../device-fetch.ts";
 import { maskKey } from "./users.ts";
+// THE EMISSION (2026-10-13): the vocabulary, the prefix helpers, the record shapes and the parser. The host
+// reads `parseProviderSpec` under a DECISION name so this file's own exported wrapper — the one with the URL
+// parse in it — is the only `parseProviderSpec` a caller sees.
+import {
+  advertisedModelId,
+  barePrefix,
+  parseProviderSpec as parseProviderSpecDecision,
+  providerBaseText,
+  type ParsedBase,
+  type ProviderModel,
+  type ProviderParseError,
+  type ProviderSpec,
+} from "./providers-logic.ts";
+
+// …AND RE-EXPORTED, so every existing import (`admin.ts`, `models-probe.ts`, `models.ts`) keeps its path. The
+// names are listed rather than `export *`, because a star export of `parseProviderSpec` would collide with the
+// wrapper below and TS resolves that silently in the local export's favour — which is correct and invisible.
+export {
+  advertisedModelId,
+  barePrefix,
+  providerBaseText,
+  parseProviderModel,
+  KNOWN_MODALITIES,
+  KNOWN_UNSUPPORTED_APIS,
+  MODEL_FIELDS,
+  REASONING_EFFORTS,
+  RESERVED_PREFIXES,
+  SUPPORTED_PROVIDER_APIS,
+  type ParsedBase,
+  type ProviderModel,
+  type ProviderParseError,
+  type ProviderSpec,
+} from "./providers-logic.ts";
 
 const CUSTOM_KEY = "providers:custom";
 
 /**
- * The wire dialects this registry can SERVE — dialect → the path appended to
- * `baseURL`. ONE table, because it backs both the creation-time validation and
- * the routing join (upstream.ts's providerRoute): a dialect that validates but
- * has no path here cannot exist, and vice versa.
+ * **EVERY DECISION IN THIS FILE THAT IS PURE IS AN EMISSION NOW (2026-10-13).**
+ * `gateway/src/store/providers-logic.ts` is GENERATED from `core/summrise-core/src/provider_spec.rs`, and it
+ * carries the vocabulary (`SUPPORTED_PROVIDER_APIS`, `KNOWN_UNSUPPORTED_APIS`, `RESERVED_PREFIXES`,
+ * `MODEL_FIELDS`, `KNOWN_MODALITIES`, `REASONING_EFFORTS`), the two prefix helpers (`barePrefix`,
+ * `advertisedModelId`), the record shapes (`ProviderModel`, `ProviderSpec`, `ProviderParseError`) and the
+ * parser (`parseProviderModel`, `parseProviderSpec`). What is left HERE is the HOST: the KV reads and writes,
+ * the per-isolate cache, the key resolution, the record views, and the `new URL` call the parser is handed.
  *
- * `openai-completions` is DSH's name for OpenAI chat/completions. It is served
- * by the code that already exists — the raw passthrough for OpenAI-format
- * clients, and `toOpenAIRequest` + `openAIUpstreamToAnthropicResponse` for
- * Anthropic-format ones — exactly the og/ and cm/ path. No new translator.
- *
- * `anthropic-messages` is DELIBERATELY absent: the gateway has no OpenAI →
- * Anthropic REQUEST translator, so such a provider would serve /v1/messages and
- * fail every OpenAI-format client upstream — precisely the "accepted at
- * creation, fails at request time" outcome a creation-time refusal exists to
- * prevent. See KNOWN_UNSUPPORTED_APIS for the message an operator gets.
+ * WHY AN EMISSION AND NOT A DELETION, for the fourth time: `npm test` cannot reach the decision route
+ * (`helpers.mjs`'s `WASM_GATE` stub answers a fixed model list and knows nothing about `/__decision`), so a
+ * deleted twin would remove the only implementation the suite can run. The emitted module is JavaScript, so the
+ * suite runs the Rust's own output.
  */
-export const SUPPORTED_PROVIDER_APIS: Record<string, string> = {
-  "openai-completions": "/chat/completions",
-};
-
-/** Named rejections: the dialects an operator is most likely to reach for, and
- *  WHY this build does not serve them. A generic "unsupported" would leave the
- *  reason to be rediscovered. */
-const KNOWN_UNSUPPORTED_APIS: Record<string, string> = {
-  "anthropic-messages":
-    "this gateway has no OpenAI→Anthropic request translator, so the provider would serve /v1/messages and fail every OpenAI-format client",
-};
-
-/** One model of a custom provider. Mirrors what DSH's settings.yaml declares. */
-export interface ProviderModel {
-  /** The WIRE name — what the upstream is asked for. */
-  id: string;
-  /** Display name, advertised on /v1/models. */
-  name?: string;
-  /** DSH `input: [text, image]`: the model sees images itself, so gateway-side
-   *  vision preprocessing must stay OUT of the way (preprocessImages). */
-  vision?: boolean;
-  /** Declared limits, advertised on /v1/models as context_window/max_tokens. */
-  contextWindow?: number;
-  maxTokens?: number;
-  /** Default reasoning effort when the client sends none. */
-  reasoningEffort?: "low" | "medium" | "high" | "max";
-}
-
-/** A custom provider record (one `providers:custom` entry). */
-export interface ProviderSpec {
-  /** Routing prefix WITH its trailing slash — the ROUTE_INFO spelling ("my/"). */
-  prefix: string;
-  /** Console/route-card name. Defaults to the prefix without its slash. */
-  label: string;
-  /** Upstream root; the dialect's path is APPENDED to it (see providerRoute in
-   *  upstream.ts for why it is a prefix and not a URL to resolve against). */
-  baseURL: string;
-  /** Wire dialect — a key of SUPPORTED_PROVIDER_APIS. */
-  api: string;
-  /** NAME of a Worker env binding/secret holding the key (DSH's apiKeyEnv). */
-  apiKeyEnv?: string;
-  /** Inline key. NEVER returned by the admin API. */
-  apiKey?: string;
-  models: ProviderModel[];
-}
-
-/** The admin/console view of a record — an inline key is replaced by maskKey(). */
-export interface PublicProviderSpec {
-  prefix: string;
-  label: string;
-  baseURL: string;
-  api: string;
-  /** As STORED (wire names), so a POST body round-trips. */
-  models: ProviderModel[];
-  /** What clients are advertised — `prefix + wire`, the ids /v1/models serves. */
-  advertised: string[];
-  /** The env NAME (never a value). "" when the key is inline. */
-  keyEnv: string;
-  /** maskKey() of the key this deployment would send — never the key. */
-  keyMasked: string;
-  /** Whether a key resolves in THIS deployment right now. */
-  keyReady: boolean;
-}
-
-/** One advertised model, with the record it belongs to. The single shape every
- *  consumer reads (advertisedIds, catalogue, /v1/models, vision lookup), so the
- *  prefix+wire join exists once. */
-export interface AdvertisedProviderModel {
-  /** prefix + wire — the id clients send and /v1/models serves. */
-  id: string;
-  /** The wire name the upstream is asked for. */
-  wire: string;
-  provider: ProviderSpec;
-  model: ProviderModel;
-}
-
-/** The bare routing form of a record prefix ("my/" → "my"). */
-export function barePrefix(prefix: unknown): string {
-  return String(prefix ?? "").replace(/\/+$/, "");
-}
-
-/** The advertised id of a wire model under a prefix — prefix ONCE, never twice. */
-export function advertisedModelId(prefix: string, wire: string): string {
-  const bare = barePrefix(prefix);
-  const w = String(wire ?? "").replace(/^\/+/, "");
-  return w.startsWith(bare + "/") ? w : `${bare}/${w}`;
-}
 
 /** Read a JSON array from KV, tolerating anything malformed — a registry that
  *  cannot be parsed must degrade to "no custom providers", never to a 500 that
@@ -341,216 +283,67 @@ function publicProviderLocal(p: ProviderSpec, resolved: string): PublicProviderS
  * rules that would drift from it.
  */
 
-/** Why a provider record was refused, and with which HTTP status. */
-export interface ProviderParseError {
-  error: string;
-  /** 400 = the record is wrong; 409 = it collides with a reserved prefix. */
-  status: number;
+/** The admin/console view of a record — an inline key is replaced by maskKey(). */
+export interface PublicProviderSpec {
+  prefix: string;
+  label: string;
+  baseURL: string;
+  api: string;
+  /** As STORED (wire names), so a POST body round-trips. */
+  models: ProviderModel[];
+  /** What clients are advertised — `prefix + wire`, the ids /v1/models serves. */
+  advertised: string[];
+  /** The env NAME (never a value). "" when the key is inline. */
+  keyEnv: string;
+  /** maskKey() of the key this deployment would send — never the key. */
+  keyMasked: string;
+  /** Whether a key resolves in THIS deployment right now. */
+  keyReady: boolean;
 }
 
-const MODEL_FIELDS = ["id", "name", "input", "contextWindow", "maxTokens", "reasoningEffort"];
+/** One advertised model, with the record it belongs to. The single shape every consumer reads
+ *  (advertisedIds, catalogue, /v1/models, vision lookup), so the prefix+wire join exists once. */
+export interface AdvertisedProviderModel {
+  /** prefix + wire — the id clients send and /v1/models serves. */
+  id: string;
+  /** The wire name the upstream is asked for. */
+  wire: string;
+  provider: ProviderSpec;
+  model: ProviderModel;
+}
 
-/** `input` values this gateway understands; anything else is refused rather
- *  than stored-and-ignored. */
-const KNOWN_MODALITIES = ["text", "image"];
-
-function parseProviderModel(raw: any, at: number): { model?: ProviderModel; error?: string } {
-  const where = `models[${at}]`;
-  if (typeof raw === "string") {
-    const id = raw.trim();
-    return id ? { model: { id } } : { error: `${where}: empty model id` };
-  }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { error: `${where} must be a model id string or an object` };
-  }
-  const unknown = Object.keys(raw).filter((k) => !MODEL_FIELDS.includes(k));
-  if (unknown.length) {
+/**
+ * `parseProviderSpec(body, opts)` — **THE HOST HALF**: read the base text the decision asks for, PARSE it, and
+ * hand the parts over. The decisions — every refusal, in the source's order — are the emission's.
+ *
+ * **THE PARSE IS BEFORE THE CALL AND THAT IS NOT AN ORDERING BUG**: the source parses `baseURL` after its
+ * prefix/label refusals, and so does the decision — it reads `base` only at that point in its own sequence, so a
+ * body that is wrong twice is refused for the same reason the shipping console refuses it. The `catch` is the
+ * source's own: an unparseable `baseURL` is not a throw here, it is a refusal the decision words.
+ */
+function parseBase(rawBase: string): ParsedBase | null {
+  try {
+    const url = new URL(rawBase);
     return {
-      error: `${where}: unsupported field(s) ${unknown.join(", ")} — this gateway stores ${MODEL_FIELDS.join(", ")}`,
+      protocol: url.protocol,
+      username: url.username,
+      password: url.password,
+      search: url.search,
+      hash: url.hash,
+      hostname: url.hostname,
+      origin: url.origin,
+      pathname: url.pathname,
     };
+  } catch {
+    return null;
   }
-  const id = String(raw.id ?? "").trim();
-  if (!id) return { error: `${where}: id is required` };
-  if (/\s/.test(id)) return { error: `${where}.id must not contain whitespace` };
-  const model: ProviderModel = { id };
-  if (raw.name !== undefined) {
-    const name = String(raw.name).trim();
-    if (name) model.name = name;
-  }
-  if (raw.input !== undefined) {
-    if (!Array.isArray(raw.input)) {
-      return { error: `${where}.input must be an array of ${KNOWN_MODALITIES.join("/")}` };
-    }
-    const bad = raw.input.filter((m: any) => !KNOWN_MODALITIES.includes(String(m)));
-    if (bad.length) {
-      return {
-        error: `${where}.input: unsupported modalit${bad.length > 1 ? "ies" : "y"} ${bad
-          .map((b: any) => JSON.stringify(String(b)))
-          .join(", ")} — only ${KNOWN_MODALITIES.join(" and ")} are understood`,
-      };
-    }
-    // A model that declares image input must NOT have its images described by
-    // the gateway's vision model (preprocessImages) — it can see them itself.
-    if (raw.input.map(String).includes("image")) model.vision = true;
-  }
-  // The reasoning DEFAULT, on the same terms as a console-added record: a level the
-  // router cannot speak is refused BY NAME here rather than dropped, because a typo
-  // that silently means "no default" is a behaviour change nobody can see.
-  if (raw.reasoningEffort !== undefined) {
-    const lv = String(raw.reasoningEffort).trim();
-    if (!["low", "medium", "high", "max"].includes(lv))
-      return { error: `${where}.reasoningEffort must be one of low, medium, high, max` };
-    model.reasoningEffort = lv as "low" | "medium" | "high" | "max";
-  }
-  for (const cap of ["contextWindow", "maxTokens"] as const) {
-    const v = raw[cap];
-    if (v === undefined) continue;
-    const n = Number(v);
-    if (!Number.isInteger(n) || n <= 0) {
-      return { error: `${where}.${cap} must be a positive integer` };
-    }
-    model[cap] = n;
-  }
-  return { model };
 }
 
-/** Parse + validate a POST /api/admin/providers body. Pure — the admin handler
- *  only has to map the error onto a status. */
 export function parseProviderSpec(
   body: any,
   opts: { keepKeyFrom?: { apiKey?: string; apiKeyEnv?: string } } = {},
 ): { spec?: ProviderSpec } & Partial<ProviderParseError> {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { error: "body must be a JSON object", status: 400 };
-  }
-  // Lowercase only: routing derives the prefix by splitting the CLIENT's model
-  // id on "/", so a mixed-case prefix could never match a lowercase one.
-  const prefix = String(body.prefix ?? "").trim();
-  if (!/^[a-z0-9][a-z0-9-]{0,30}\/$/.test(prefix)) {
-    return {
-      error: `prefix must be a lowercase channel prefix ending in "/" (e.g. "my/") — got ${JSON.stringify(prefix)}`,
-      status: 400,
-    };
-  }
-  const bare = barePrefix(prefix);
-  if (RESERVED_PREFIXES.includes(bare)) {
-    return {
-      error: `prefix ${JSON.stringify(prefix)} is reserved by a built-in channel (reserved: ${RESERVED_PREFIXES.join(", ")})`,
-      status: 409,
-    };
-  }
-  const label = String(body.label ?? "").trim() || bare;
-  // eslint-disable-next-line no-control-regex
-  if (label.length > 80 || /[\u0000-\u001f\u007f]/.test(label)) {
-    return {
-      error: "label must be at most 80 characters, with no control characters",
-      status: 400,
-    };
-  }
-  const rawBase = String(body.baseURL ?? "").trim();
-  let url: URL;
-  try {
-    url = new URL(rawBase);
-  } catch {
-    return { error: `baseURL is not a URL — got ${JSON.stringify(rawBase)}`, status: 400 };
-  }
-  if (url.protocol !== "https:") {
-    return {
-      error: `baseURL must be https (got ${url.protocol}//) — a provider key must never travel in clear`,
-      status: 400,
-    };
-  }
-  if (url.username || url.password) {
-    return { error: "baseURL must not embed credentials", status: 400 };
-  }
-  if (url.search || url.hash) {
-    return { error: "baseURL must not carry a query or a fragment", status: 400 };
-  }
-  // The SSRF check, REUSED (device-fetch.ts) — loopback/private/link-local/
-  // metadata hosts are refused here for the same reason a device hostname is:
-  // the gateway would dial them with a credential attached.
-  const hostErr = deviceHostError(url.hostname);
-  if (hostErr) return { error: `baseURL host rejected: ${hostErr}`, status: 400 };
-  // Treated as a PREFIX, not resolved against (see providerRoute): a deployment
-  // path such as https://host/openai/v1 must survive.
-  const baseURL = (url.origin + url.pathname).replace(/\/+$/, "");
-  const api = String(body.api ?? "").trim();
-  if (!Object.prototype.hasOwnProperty.call(SUPPORTED_PROVIDER_APIS, api)) {
-    const why = KNOWN_UNSUPPORTED_APIS[api];
-    return {
-      error:
-        `unsupported protocol ${JSON.stringify(api)} — this gateway serves ` +
-        `${Object.keys(SUPPORTED_PROVIDER_APIS).join(", ")}${why ? ` (${api}: ${why})` : ""}`,
-      status: 400,
-    };
-  }
-  const apiKeyEnv = String(body.apiKeyEnv ?? "").trim();
-  const apiKey = String(body.apiKey ?? "").trim();
-  if (apiKeyEnv && apiKey) {
-    return {
-      error:
-        "set apiKeyEnv (a deployed Worker secret) or apiKey (inline), not both — two key sources cannot both be the one this provider sends",
-      status: 400,
-    };
-  }
-  // AN UPDATE MAY OMIT THE KEY; A CREATE MAY NOT.
-  //
-  // `POST /api/admin/providers` is the edit path for a record the console owns —
-  // `adminAddProvider`'s own comment says "re-posting a prefix is how an operator edits the
-  // provider they own" — but the admin view never returns the key, only `keyMasked`. So
-  // demanding a key on EVERY re-post made the documented edit path impossible for a record
-  // whose key is inline: adding or editing a model in it answered 400 "a key is required".
-  // The caller passes what the STORED record already has, and only for an existing prefix;
-  // a create has nothing to keep and is refused exactly as before.
-  const keep = !apiKeyEnv && !apiKey ? opts.keepKeyFrom : undefined;
-  if (!apiKeyEnv && !apiKey && !keep) {
-    return {
-      error:
-        "a key is required: apiKeyEnv (the NAME of a Worker secret, DSH's settings.yaml spelling) or apiKey (an inline value stored in KV)",
-      status: 400,
-    };
-  }
-  if (apiKeyEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
-    return {
-      error: `apiKeyEnv must be a Worker env/secret NAME (letters, digits, "_" — e.g. SUMMRISE_API_KEY), not a value — got ${JSON.stringify(apiKeyEnv)}`,
-      status: 400,
-    };
-  }
-  if (apiKey && (apiKey.length < 8 || /\s/.test(apiKey))) {
-    // <8 also keeps the credential out of redactSecrets' "too generic to
-    // replace safely" bucket, so an upstream echo of it is still redacted.
-    return { error: "apiKey must be at least 8 characters with no whitespace", status: 400 };
-  }
-  if (!Array.isArray(body.models) || body.models.length === 0) {
-    return { error: "models must be a non-empty array", status: 400 };
-  }
-  if (body.models.length > 200) {
-    return { error: `models: at most 200 entries (got ${body.models.length})`, status: 400 };
-  }
-  const models: ProviderModel[] = [];
-  for (let i = 0; i < body.models.length; i++) {
-    const { model, error } = parseProviderModel(body.models[i], i);
-    if (error || !model) return { error: error || `models[${i}] is invalid`, status: 400 };
-    // Normalize to the WIRE form: the full-id spelling (prefix included) is
-    // accepted, stored once, and never advertised twice.
-    const wire = model.id.startsWith(bare + "/") ? model.id.slice(bare.length + 1) : model.id;
-    if (!wire) return { error: `models[${i}]: empty model id after the prefix`, status: 400 };
-    if (models.some((m) => m.id === wire)) {
-      return {
-        error: `models[${i}]: duplicate model id ${advertisedModelId(bare, wire)}`,
-        status: 400,
-      };
-    }
-    models.push({ ...model, id: wire });
-  }
-  const spec: ProviderSpec = { prefix, label, baseURL, api, models };
-  if (apiKeyEnv) spec.apiKeyEnv = apiKeyEnv;
-  else if (apiKey) spec.apiKey = apiKey;
-  // The stored key, carried forward because the body omitted it — never a synthesis: an
-  // update that DOES send one replaces it, which is how key rotation must keep working.
-  else if (keep?.apiKeyEnv) spec.apiKeyEnv = keep.apiKeyEnv;
-  else if (keep?.apiKey) spec.apiKey = keep.apiKey;
-  return { spec };
+  return parseProviderSpecDecision(body, parseBase(providerBaseText(body)), opts);
 }
 
 /** Forget the per-isolate cache (tests, and any explicit resync). */

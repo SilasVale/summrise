@@ -16,5 +16,7 @@
 //! **WHAT IS NOT HERE**: anything that needs a platform handle, and anything true of only one host (the worker's
 //! route table, the agent's plugin registry).
 
+pub mod catalogue;
 pub mod guard;
+pub mod provider_spec;
 pub mod text;
