@@ -520,6 +520,7 @@ pub mod auth_routes;
 pub mod auto_route;
 pub mod body_scan;
 pub mod byok;
+pub mod catalogue_file;
 pub mod cors;
 pub mod decision_client;
 pub mod decisions;

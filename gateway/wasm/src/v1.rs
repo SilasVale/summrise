@@ -201,7 +201,18 @@ pub fn is_v1_route(method: &Method, path: &str) -> bool {
     // forms this replaces also matched `/foo/v1/messages`, which the shipping front door answers 404 — a
     // second divergence the same comparison would have found on a path nobody sends. The arms below still
     // match by suffix, which is correct for them: they are choosing among paths that already passed here.
-    if method == &Method::Get && path.ends_with("/models") {
+    // **AND THE MODELS ARM NEVER CLAIMS A CONSOLE PATH, WHICH IS A BUG THIS PREDICATE SHIPPED WITH.** The arm
+    // is here to answer `GET …/models` PUBLICLY and before the auth gate (the shipping route's own words:
+    // "public, no auth required (DSH/OpenAI clients list models first)"). With `ends_with` alone it also claimed
+    // **`/api/admin/models`** — the console's admin state — and answered the PUBLIC listing for it, which is what
+    // the differential measured the moment the worker started serving that route: the admin's answer was a model
+    // list, with no session at all.
+    //
+    // The source cannot reach that state: `index.ts` dispatches the PLUGIN REGISTRY first and only then falls back
+    // to `/v1/*`, so a `/api/...` path is claimed by its plugin (or answered 404 by the front door) and never by
+    // the v1 handler. `/api/` is the console's whole surface, so excluding it here is that dispatch order written
+    // as a predicate — and `the_models_arm_never_claims_a_console_path` pins it.
+    if method == &Method::Get && path.ends_with("/models") && !path.starts_with("/api/") {
         return true;
     }
     path.starts_with("/v1/")
@@ -833,4 +844,26 @@ fn stream_response(
         response.headers_mut().set(&k, &v)?;
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **THE V1 FALLBACK NEVER CLAIMS A CONSOLE PATH.** `GET /api/admin/models` is the admin family's; the models
+    /// arm exists for `/v1/models`, which is public by design (and for a bare `/models`, which the same suffix
+    /// answers).
+    ///
+    /// MUTATION: drop `&& !path.starts_with("/api/")`.
+    /// RESULT:   this test fails — and `/api/admin/models` is answered by the PUBLIC model listing again, without
+    ///           a session, which is exactly what the admin differential caught on its first run with that route.
+    #[test]
+    fn the_models_arm_never_claims_a_console_path() {
+        assert!(is_v1_route(&Method::Get, "/v1/models"));
+        assert!(is_v1_route(&Method::Get, "/models"));
+        assert!(is_v1_route(&Method::Get, "/v1/messages"));
+        assert!(!is_v1_route(&Method::Get, "/api/admin/models"));
+        assert!(!is_v1_route(&Method::Get, "/api/admin/providers"));
+        assert!(!is_v1_route(&Method::Get, "/api/anything/models"));
+    }
 }

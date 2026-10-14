@@ -6,7 +6,9 @@
 // directly. `mergeLayers` and `parseCatalogueFile` take both sides as arguments precisely
 // because a build-time document cannot be varied per test.
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { parseCatalogueFile, mergeLayers, loadCatalogueFile } from "../src/store/file-config.ts";
 import { parseProviderSpec } from "../src/store/providers.ts";
 import { RESERVED_PREFIXES } from "../src/channels.ts";
@@ -91,4 +93,26 @@ test("FILE: a document that is not an object is refused", () => {
 
 test("FILE: an override with no id is refused rather than stored against nothing", () => {
   assert.throws(() => good({ overrides: [{ name: "Nameless" }] }), /id is required/);
+});
+
+// ── THE JSON TWIN, WHICH IS THE HALF THE WORKER READS ────────────────────────────────────────────
+//
+// `gateway/config/models.json` is generated from `config/models.ts` by `scripts/sync-catalogue-json.mjs`, because
+// Rust cannot `include_str!` a `.ts` module. **TWO FILES WITH ONE MEANING**, so the drift has to fail a suite —
+// and it does, here, by running the script's OWN `--check` rather than a second implementation of the comparison.
+const syncScript = fileURLToPath(new URL("../scripts/sync-catalogue-json.mjs", import.meta.url));
+
+test("FILE: the JSON twin is what config/models.ts declares", () => {
+  let failed = null;
+  try {
+    execFileSync(process.execPath, [syncScript, "--check"], { stdio: "pipe" });
+  } catch (error) {
+    failed = String(error.stderr ?? error.message);
+  }
+  assert.equal(
+    failed,
+    null,
+    `${failed}\nconfig/models.json is the document the WORKER reads — regenerate it with\n` +
+      "  cd gateway && node scripts/sync-catalogue-json.mjs",
+  );
 });
