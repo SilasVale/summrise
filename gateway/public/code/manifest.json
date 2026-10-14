@@ -26,6 +26,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/auth-logic.ts",
+      "path": "files/summrise-gate/src/auth-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/auth.ts",
       "path": "files/summrise-gate/src/auth.ts",
       "group": "summrise-gate"

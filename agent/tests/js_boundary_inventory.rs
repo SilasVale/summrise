@@ -781,6 +781,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 51 -> 50 ON 2026-10-14, FOR `auth.ts`: the credential primitives leaf, where every DECISION (the compare's
+// length rule, the cookie parser's four details, the CSRF gate's order, the two cookie headers, the base64url
+// alphabet, the claims check) was already in `auth.rs`. The host keeps `crypto.subtle`, `btoa`/`atob` and
+// `randomHex` — and stays a LEAF, which is the property its own header claims.
+//
 // 52 -> 51 ON 2026-10-14, FOR `session.ts`: 151 lines whose ORDER is the security property, so the emission is
 // the SEQUENCE (the `seedAdminSequence` treatment — the platform arrives as arguments) rather than a set of
 // functions. The suite caught the one thing that made it wrong on the first try: the sequence must return the
@@ -823,4 +828,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 51;
+const MAX_LOGIC: usize = 50;
