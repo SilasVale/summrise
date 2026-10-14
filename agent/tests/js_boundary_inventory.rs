@@ -781,6 +781,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 55 -> 54 ON 2026-10-14, FOR `store/models.ts` — the largest store host left, and the first landing whose
+// subject was an EMISSION rather than a port: the advertised-id merge, the /v1/models extras, the sort, the two
+// upserts, the facet-override rule, the reasoning chain and the CATALOGUE PROJECTION all already existed in Rust
+// (`store.rs` + the new `model_store.rs`), so the work was rendering them and re-pointing the host.
+//
 // 56 -> 55 ON 2026-10-14, FOR `gateway/src/access.ts`: the Access identity layer's decisions — the JWT's four
 // claim checks, the email/username derivations and the key families — are an emission from `access.rs` now. **AND
 // READING THE TWO SIDES FOUND A FOURTH DIVERGENCE**: `aud_list` stringified every `aud` element, so a numeric
@@ -803,4 +808,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 55;
+const MAX_LOGIC: usize = 54;

@@ -303,6 +303,22 @@ BOUNDARY | gateway/src/access.ts | **THE ACCESS HOST, AND ITS DECISIONS ARE EMIT
 #   a numeric `exp`), the email and username derivations, the `access-email:`/`user:`/`token:` key families and
 #   the record a provisioned account is written as are `access-logic.ts`, GENERATED from
 #   `gateway/wasm/src/access.rs`.
+GENERATED | gateway/src/store/models-logic.ts | the model store's rules — the three KV key names, the advertised-id merge, the /v1/models extras, the sort, the two upserts, the facet-override rule, the reasoning chain and the catalogue projection — emitted from Rust | gateway/wasm/src/model_store.rs
+#   **THE PROJECTION IS THE PART THAT HAD COST THIS REPOSITORY TWICE (round 58 and round 65):** `ROUTE_INFO` holds
+#   BARE names while the advertised set holds FULL ids, so comparing them directly matches NOTHING — the Models
+#   page set the wrong channel and its default card stayed permanently empty. The join is written down once now,
+#   in the function every card goes through, and it is pinned by a Rust test whose mutation is that comparison.
+#   **AND THE FILE IS AN EMISSION RATHER THAN A PORT FOR A REASON WORTH RECORDING**: the projection's own comment
+#   says a custom record REPLACING a built-in's id leaves that channel's list — and it does, in the filter — and
+#   then the custom loop below finds the same card and puts the wire name BACK. The first version of the Rust test
+#   asserted the comment; the port follows the CODE, and the difference between the two is exactly what a port
+#   must not "fix".
+BOUNDARY | gateway/src/store/models.ts | **THE MODEL-STORE HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-14).** What is left is the
+#   three KV reads and writes, the per-isolate cache, the file-layer merge, the write-through `cset`, and the two
+#   things only a host can do: flattening the advertised provider models, and parsing each record's `baseURL` for a
+#   card's `host` (`new URL`, whose throw is the source's own — a hand-edited record shows its raw string rather
+#   than dropping out of the console). Every rule is `models-logic.ts`, GENERATED from
+#   `gateway/wasm/src/model_store.rs`.
 GENERATED | gateway/src/cors-logic.ts | the CORS decisions — the allowlist, the loopback pair, the base headers and the reflect/stamp rules — emitted from Rust | gateway/wasm/src/cors.rs
 #   **THE THIRD EMISSION, AND THE FIRST WHOSE SUBJECT IS REACHED BY THE STATUS PAGE (2026-10-13).** `http.ts`'s CORS
 #   half is called by `plugins/status.ts`, and the status page reports ON the worker, so it must not ask it

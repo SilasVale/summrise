@@ -31,18 +31,52 @@ import { cget, cset, cdel, type Env } from "./cache.ts";
 import { MODEL_REGISTRY, RESERVED_PREFIXES, ROUTE_INFO, type ModelSpec } from "../channels.ts";
 import { loadCatalogueFile, mergeLayers } from "./file-config.ts";
 import {
-  SUPPORTED_PROVIDER_APIS,
   advertisedProviderModels,
   barePrefix,
   customProviders,
   parseProviderSpec,
   providerForPrefix,
 } from "./providers.ts";
+// THE EMISSION (2026-10-14): the three key names, the advertised-id merge, the /v1/models extras, the sort, the
+// two upserts, the override rule, the reasoning chain and the catalogue projection. The host reads the pure ones
+// under a suffix so its own async wrappers keep the names every caller already imports.
+import {
+  CUSTOM_MODELS_KEY,
+  DISABLED_MODELS_KEY,
+  MODEL_OVERRIDES_KEY,
+  advertisedIds as advertisedIdsOf,
+  catalogueRoutes,
+  declaredFromCustom,
+  declaredFromOverride,
+  declaredFromProvider,
+  extraModelEntries as extraModelEntriesOf,
+  isBuiltIn as isBuiltInOf,
+  jsSorted,
+  putOverride,
+  removeById,
+  upsertById,
+} from "./models-logic.ts";
 
-const CUSTOM_KEY = "models:custom";
-/** Built-in display overrides — see FacetOverride. */
-const OVERRIDE_KEY = "models:overrides";
-const DISABLED_KEY = "models:disabled";
+// …AND RE-EXPORTED, so a caller that wants the RULES (a test, the admin route) can read them without going
+// through a KV read. The names are listed rather than `export *`: two of them collide with this file's own
+// async wrappers, and a star export would resolve that silently.
+export {
+  CUSTOM_MODELS_KEY,
+  DISABLED_MODELS_KEY,
+  MODEL_OVERRIDES_KEY,
+  catalogueRoutes,
+  declaredFromCustom,
+  declaredFromOverride,
+  declaredFromProvider,
+  jsSorted,
+  putOverride,
+  removeById,
+  upsertById,
+} from "./models-logic.ts";
+
+/** The registry's ids, hoisted: the emitted `isBuiltIn` takes the TABLE as an argument, because the table's
+ *  home is `channels.ts` and the RULE (membership) is the emission's. */
+const REGISTRY_IDS = MODEL_REGISTRY.map((m) => m.id);
 
 /** Read a JSON array from KV, tolerating anything malformed — a catalogue that
  *  cannot be parsed must degrade to "nothing extra", never to a 500 that takes
@@ -72,12 +106,12 @@ async function writeList(env: Env, key: string, value: unknown[]): Promise<void>
 
 /** Built-in ids switched off from the console. */
 export async function disabledModels(env: Env): Promise<Set<string>> {
-  return new Set(await readList<string>(env, DISABLED_KEY));
+  return new Set(await readList<string>(env, DISABLED_MODELS_KEY));
 }
 
 /** Models added from the console. */
 export async function customModels(env: Env): Promise<ModelSpec[]> {
-  const kv = await readList<ModelSpec>(env, CUSTOM_KEY);
+  const kv = await readList<ModelSpec>(env, CUSTOM_MODELS_KEY);
   const file = loadCatalogueFile({
     knownPrefixes: RESERVED_PREFIXES,
     parseProvider: parseProviderSpec,
@@ -93,11 +127,13 @@ export async function advertisedIds(env: Env): Promise<string[]> {
   const off = await disabledModels(env);
   const custom = await customModels(env);
   const provided = await advertisedProviderModels(env);
-  return [
-    ...MODEL_REGISTRY.filter((m) => !off.has(m.id)).map((m) => m.id),
-    ...custom.map((m) => m.id),
-    ...provided.map((m) => m.id),
-  ];
+  // The ORDER — built-ins minus disabled, then console-added, then the providers' — is the emission's.
+  return advertisedIdsOf(
+    REGISTRY_IDS,
+    [...off],
+    custom.map((m) => m.id),
+    provided.map((m) => m.id),
+  );
 }
 
 /**
@@ -120,24 +156,7 @@ export async function extraModelEntries(env: Env): Promise<
     max_tokens?: number;
   }[]
 > {
-  // Console-added models carry the same display facets a provider model may declare,
-  // so `/v1/models` describes both the same way. A client reading `context_window`
-  // off the listing cannot tell (and should not care) which store owns the record.
-  const custom = (await customModels(env)).map((m) => ({
-    id: m.id,
-    owned_by: m.ownedBy,
-    ...(m.name ? { name: m.name } : {}),
-    ...(m.contextWindow ? { context_window: m.contextWindow } : {}),
-    ...(m.maxTokens ? { max_tokens: m.maxTokens } : {}),
-  }));
-  const provided = (await advertisedProviderModels(env)).map(({ id, provider, model }) => ({
-    id,
-    owned_by: provider.label || barePrefix(provider.prefix),
-    ...(model.name ? { name: model.name } : {}),
-    ...(model.contextWindow ? { context_window: model.contextWindow } : {}),
-    ...(model.maxTokens ? { max_tokens: model.maxTokens } : {}),
-  }));
-  return [...custom, ...provided];
+  return extraModelEntriesOf(await customModels(env), await advertisedProviderModels(env));
 }
 
 /**
@@ -162,7 +181,7 @@ export interface FacetOverride {
 }
 
 export async function facetOverrides(env: Env): Promise<FacetOverride[]> {
-  const kv = await readList<FacetOverride>(env, OVERRIDE_KEY);
+  const kv = await readList<FacetOverride>(env, MODEL_OVERRIDES_KEY);
   const file = loadCatalogueFile({
     knownPrefixes: RESERVED_PREFIXES,
     parseProvider: parseProviderSpec,
@@ -173,20 +192,26 @@ export async function facetOverrides(env: Env): Promise<FacetOverride[]> {
 /** Add or replace one built-in's override, dropping fields the caller emptied. */
 export async function putFacetOverride(env: Env, o: FacetOverride): Promise<FacetOverride[]> {
   const cur = await facetOverrides(env);
-  // EMPTYING EVERY FIELD REMOVES IT. An override is a decoration, so clearing all of it
-  // must leave the model exactly as the registry describes — otherwise a stale empty
-  // record would sit in the store looking like a decision somebody made.
-  const emptied = !o.name && !o.contextWindow && !o.maxTokens && !o.reasoningEffort;
-  const next = emptied
-    ? cur.filter((x) => x.id !== o.id)
-    : [...cur.filter((x) => x.id !== o.id), o];
-  await writeList(env, OVERRIDE_KEY, next);
+  // EMPTYING EVERY FIELD REMOVES IT — the rule, and the reason, are the emission's.
+  const next = putOverride(cur, o);
+  await writeList(env, MODEL_OVERRIDES_KEY, next);
   return next;
 }
 
 /** Is this id advertised right now? The gate for BOTH setting a route and using one. */
 export async function isAdvertised(env: Env, id: string): Promise<boolean> {
   return (await advertisedIds(env)).includes(id);
+}
+
+/** The card's `host`: `new URL(baseURL).host`, or the RAW string when that throws — a hand-edited record must
+ *  still show a card rather than dropping out of the console. */
+function cardHost(baseURL: unknown): string {
+  const raw = String(baseURL || "");
+  try {
+    return new URL(raw).host;
+  } catch {
+    return raw;
+  }
 }
 
 /**
@@ -204,80 +229,30 @@ export async function catalogue(env: Env): Promise<{
   const provided = await advertisedProviderModels(env);
 
   /**
-   * THE BARE-vs-PREFIXED TRAP, again — and this time it is handled once, here.
+   * **THE PROJECTION IS THE EMISSION'S** — the bare-vs-prefixed join, the synthetic cards for custom models, and
+   * the provider cards. The HOST does the two things only it can: flattening the advertised provider models to
+   * `{wire, provider}`, and parsing each record's `baseURL` for the card's `host`.
    *
-   * `ROUTE_INFO[].models` holds BARE names ("mimo-v2.5") while the disabled set
-   * holds FULL advertised ids ("og/mimo-v2.5"). Comparing them directly matches
-   * nothing, which is the same mismatch that made the console's Models page set the
-   * wrong channel (round 58) and left its default card permanently empty (round 65).
-   * The full id of a bare entry is its prefix + the entry; `"none"` is the server's
-   * sentinel for unprefixed names and keeps them bare.
+   * **THE BARE-vs-PREFIXED TRAP IS WHY THIS IS ONE FUNCTION** (`catalogueRoutes`): `ROUTE_INFO[].models` holds
+   * BARE names while the disabled set holds FULL advertised ids, and comparing them directly matches nothing —
+   * the mismatch that made this page set the wrong channel (round 58) and left its default card permanently
+   * empty (round 65).
    */
-  const fullId = (prefix: string, bare: string) => (prefix === "none" ? bare : prefix + bare);
-
-  const routes = ROUTE_INFO.map((r) => ({
-    ...r,
-    models: r.models.filter((bare) => {
-      const id = fullId(r.prefix, bare);
-      // Gone from the advertised set for ANY reason — disabled, or replaced by a
-      // custom record of the same id — means gone from this channel's list too.
-      return ids.includes(id) && !custom.some((c) => c.id === id);
-    }),
-  }));
-
-  // A custom model on a prefix with no static route still needs somewhere to appear,
-  // or the gateway would advertise an id under no channel at all.
-  for (const c of custom) {
-    const cut = c.id.indexOf("/");
-    const prefix = cut > 0 ? c.id.slice(0, cut + 1) : "none";
-    const bare = cut > 0 ? c.id.slice(cut + 1) : c.id;
-    const existing = routes.find((r) => r.prefix === prefix);
-    if (existing) {
-      if (!existing.models.includes(bare)) existing.models.push(bare);
-    } else {
-      routes.push({
-        prefix,
-        backend: prefix === "none" ? "Command Code (default)" : prefix,
-        desc: "Added from the console.",
-        models: [bare],
-      });
-    }
-  }
-
-  // CUSTOM PROVIDERS get a route card too: the console's "model routing"
-  // section is built from this list, and a provider whose models are advertised
-  // by /v1/models but appear under no channel is the exact drift ROUTE_INFO's
-  // header records (an advertised id the console cannot explain). ROUTE_INFO
-  // itself stays the BUILT-IN registry — providers are runtime data, so they are
-  // merged here rather than appended to a compile-time constant.
-  for (const p of providers) {
-    if (!p || typeof p !== "object" || !barePrefix(p.prefix)) continue;
-    const prefix = barePrefix(p.prefix) + "/";
-    const models = provided
-      .filter((m) => barePrefix(m.provider?.prefix) === barePrefix(prefix))
-      .map((m) => m.wire);
-    let host = String(p.baseURL || "");
-    try {
-      host = new URL(host).host;
-    } catch {
-      /* a hand-edited record: show the raw string rather than dropping the card */
-    }
-    const join = Object.prototype.hasOwnProperty.call(SUPPORTED_PROVIDER_APIS, String(p.api))
-      ? (SUPPORTED_PROVIDER_APIS[String(p.api)] as string)
-      : "";
-    const card = {
-      prefix,
-      backend: String(p.label || barePrefix(prefix)),
-      desc: `Custom provider — ${host} via ${String(p.api || "?")}; requests go to ${String(
-        p.baseURL || "",
-      )}${join}`,
-      models,
-    };
-    const existing = routes.find((r) => r.prefix === card.prefix);
-    if (!existing) routes.push(card);
-    else for (const m of models) if (!existing.models.includes(m)) existing.models.push(m);
-  }
-
+  const routes = catalogueRoutes(
+    ROUTE_INFO,
+    ids,
+    custom,
+    provided.map((m) => ({ wire: m.wire, provider: barePrefix(m.provider?.prefix) })),
+    providers
+      .filter((p) => !!p && typeof p === "object" && !!barePrefix(p.prefix))
+      .map((p) => ({
+        prefix: barePrefix(p.prefix),
+        label: String(p.label ?? ""),
+        baseURL: String(p.baseURL ?? ""),
+        api: String(p.api ?? ""),
+        host: cardHost(p.baseURL),
+      })),
+  );
   return { models: ids, routes };
 }
 
@@ -286,36 +261,36 @@ export async function setModelDisabled(env: Env, id: string, disabled: boolean):
   const cur = await disabledModels(env);
   if (disabled) cur.add(id);
   else cur.delete(id);
-  const next = [...cur].sort();
-  await writeList(env, DISABLED_KEY, next);
+  const next = jsSorted([...cur]);
+  await writeList(env, DISABLED_MODELS_KEY, next);
   return next;
 }
 
 /** Add (or replace) a model the console owns. */
 export async function putCustomModel(env: Env, spec: ModelSpec): Promise<ModelSpec[]> {
   const cur = await customModels(env);
-  const next = [...cur.filter((m) => m.id !== spec.id), spec];
-  await writeList(env, CUSTOM_KEY, next);
+  const next = upsertById(cur, spec);
+  await writeList(env, CUSTOM_MODELS_KEY, next);
   return next;
 }
 
 /** Remove a model this store owns. Returns false when the id is not custom. */
 export async function deleteCustomModel(env: Env, id: string): Promise<boolean> {
   const cur = await customModels(env);
-  const next = cur.filter((m) => m.id !== id);
-  if (next.length === cur.length) return false;
-  await writeList(env, CUSTOM_KEY, next);
+  const { next, removed } = removeById(cur, id);
+  if (!removed) return false;
+  await writeList(env, CUSTOM_MODELS_KEY, next);
   return true;
 }
 
 /** Where a model comes from — the console needs this to offer the right action. */
 export function isBuiltIn(id: string): boolean {
-  return MODEL_REGISTRY.some((m) => m.id === id);
+  return isBuiltInOf(REGISTRY_IDS, id);
 }
 
 /** Forget the per-isolate cache (tests, and any explicit resync). */
 export function dropModelCache(): void {
-  cdel(CUSTOM_KEY, DISABLED_KEY);
+  cdel(CUSTOM_MODELS_KEY, DISABLED_MODELS_KEY);
 }
 
 /**
@@ -330,16 +305,16 @@ export function dropModelCache(): void {
  * built-in behaviour, which is what keeps every existing model unchanged.
  */
 export async function declaredReasoningEffort(env: Env, id: string): Promise<string | null> {
-  const custom = (await customModels(env)).find((m) => m.id === id);
-  if (custom?.reasoningEffort) return custom.reasoningEffort;
+  // **THE ORDER IS THIS CALL SITE'S AND THE THREE TESTS ARE THE EMISSION'S** — the source short-circuits, so
+  // passing all three results in would read KV three times where it reads once.
+  const fromCustom = declaredFromCustom(await customModels(env), id);
+  if (fromCustom) return fromCustom;
   const slash = id.indexOf("/");
   if (slash < 0) return null;
   const provider = await providerForPrefix(env, id.slice(0, slash + 1));
-  const bare = id.slice(slash + 1);
-  const model = (provider?.models ?? []).find((m) => String(m?.id ?? "") === bare);
-  const fromProvider = (model as { reasoningEffort?: string } | undefined)?.reasoningEffort;
+  const fromProvider = declaredFromProvider(provider, id);
   if (fromProvider) return fromProvider;
   // LAST, because an override DECORATES a built-in: it may set the reasoning default the
   // registry never had, and it cannot contradict the registry about anything else.
-  return (await facetOverrides(env)).find((o) => o.id === id)?.reasoningEffort ?? null;
+  return declaredFromOverride(await facetOverrides(env), id);
 }
