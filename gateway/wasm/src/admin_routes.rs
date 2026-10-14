@@ -21,6 +21,7 @@ use worker::*;
 
 use crate::device_registry::{js_falsy_string, mask_key};
 use crate::device_store::{cf_token, kv_json_cached, kv_list_prefix};
+use crate::model_store::{delete_custom_model, set_model_disabled};
 use crate::user_store::{
     create_invite, get_user, get_user_keys, has_admin_password, set_admin_password,
     set_user_enabled, user_keys_status, verify_admin_password, ADMIN_ID,
@@ -46,11 +47,17 @@ pub fn in_family(method: &Method, path: &str) -> bool {
             path,
             "/api/admin/users" | "/api/admin/cloudflare-token" | "/api/admin/password"
         ),
+        // PUT is three routes with one method, and two of them are the plugin's DYNAMIC matchers: a prefix plus
+        // a suffix, which is why they are written out rather than matched exactly.
         Method::Put => {
             path == "/api/admin/password"
                 || (path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled"))
+                || (path.starts_with(&format!("{ADMIN_BASE}/models/"))
+                    && path.ends_with("/enabled"))
         }
         Method::Post => path == "/api/admin/invite",
+        // DELETE on the model family is the id read off the path, encoded or bare.
+        Method::Delete => path.starts_with(&format!("{ADMIN_BASE}/models/")),
         _ => false,
     }
 }
@@ -64,6 +71,20 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Get, "/api/admin/password") => admin_get_password(&request, env).await,
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
+        (Method::Delete, path) if path.starts_with(&format!("{ADMIN_BASE}/models/")) => {
+            admin_delete_model(
+                &request,
+                env,
+                &path[format!("{ADMIN_BASE}/models/").len()..],
+            )
+            .await
+        }
+        (Method::Put, path)
+            if path.starts_with(&format!("{ADMIN_BASE}/models/")) && path.ends_with("/enabled") =>
+        {
+            let id = &path[format!("{ADMIN_BASE}/models/").len()..path.len() - "/enabled".len()];
+            admin_enable_model(&request, env, id).await
+        }
         (Method::Put, path)
             if path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled") =>
         {
@@ -123,6 +144,67 @@ async fn admin_get_cf_token(request: &Request, env: &Env) -> Result<Response, Ro
     }))
     .map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(body, 200)?)
+}
+
+/// `isBuiltIn(id)` — over THIS worker's registry, which is the same table the console's `channels.ts` mirrors.
+fn is_built_in(id: &str) -> bool {
+    crate::registry::model_spec(id).is_some()
+}
+
+/// `decodeModelId(id)` — `decodeURIComponent(id)`, the same helper the device family uses. **THE SOURCE CALLS
+/// IT WITHOUT A `try`**, so a malformed escape there is an unhandled `URIError` and the front door's 500; this
+/// is the same answer, reached deliberately.
+fn decode_model_id(raw: &str) -> Result<String, RouteFailure> {
+    crate::devices::decode_device_name(raw).ok_or(RouteFailure::Threw)
+}
+
+/// `adminDeleteModel(request, env, id)` — **DELETE MEANS TWO DIFFERENT THINGS AND THE REGISTRY DECIDES WHICH.**
+/// A console-owned model is REMOVED; a BUILT-IN is DISABLED, because its routing facets are pinned in the
+/// registry and deleting it would be deleting a compile-time fact. The 404 is the source's: an id this
+/// deployment does not own and the registry does not know.
+async fn admin_delete_model(
+    request: &Request,
+    env: &Env,
+    raw_id: &str,
+) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let id = decode_model_id(raw_id)?;
+    let body = if is_built_in(&id) {
+        let next = set_model_disabled(env, &id, true).await;
+        serde_json::json!({ "ok": true, "disabled": id, "disabledModels": next })
+    } else {
+        if !delete_custom_model(env, &id).await {
+            return Ok(crate::json_error(
+                404,
+                &format!("No custom model {id}"),
+                "not_found_error",
+            )?);
+        }
+        serde_json::json!({ "ok": true, "removed": id })
+    };
+    let text = serde_json::to_string(&body).map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminEnableModel(request, env, id)` — the inverse, and it only ever means one thing: the id leaves the
+/// disabled list (a built-in that was never disabled is simply not in it).
+async fn admin_enable_model(
+    request: &Request,
+    env: &Env,
+    raw_id: &str,
+) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let id = decode_model_id(raw_id)?;
+    let next = set_model_disabled(env, &id, false).await;
+    let text = serde_json::to_string(
+        &serde_json::json!({ "ok": true, "enabled": id, "disabledModels": next }),
+    )
+    .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
 }
 
 /// `adminGetPassword(request, env)` — **THE PASSWORD ITSELF IS NEVER RETURNED, ONLY WHETHER ONE IS SET.** The
