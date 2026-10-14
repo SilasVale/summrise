@@ -781,6 +781,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 53 -> 52 ON 2026-10-14, FOR `reliability.ts`: 456 lines whose decisions ALREADY existed in `reliability.rs` —
+// the largest console file left, and the first one that was an EMISSION rather than a port (nothing new had to
+// be decided; the rules had to be rendered and the host re-pointed at them). The retry LOOP stays the host's,
+// and every decision it makes between platform calls is one of the emitted functions.
+//
 // 54 -> 53 ON 2026-10-14, FOR `store/admin.ts`: the admin's identity — the v1 schema's addresses, the password
 // record's format, the SEED SEQUENCE (three migrations, whose ORDER is the product) and the KV-authoritative
 // resolution — is an emission from `user_store.rs` now, and the Rust twin runs the same order for the worker.
@@ -812,4 +817,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 53;
+const MAX_LOGIC: usize = 52;
