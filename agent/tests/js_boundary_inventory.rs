@@ -781,6 +781,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 57 -> 56 ON 2026-10-14, FOR `store/cache.ts`: the two TTLs, the prefix list, the two bounds and the eviction
+// comparison are an emission from `store.rs` now — and THIS ONE WAS A BUG FIX, not a re-point: the worker's copy
+// of the prefix list was missing `"providers:"`, so a deleted provider stayed dialled for up to 24 h on a warm
+// isolate where the console propagates it within a minute.
+//
 // 58 -> 57 THE SAME DAY, FOR `store/users.ts`: the mask, the three-state key status, the seeded admin's two
 // names and the token/salt/invite sizes are an emission from `user_store.rs` now. **AND THIS LANDING IS WHY THE
 // MASK WAS WRONG**: the Rust twin counted `chars()` where the source counts UTF-16 code units, so `"abcd😀"`
@@ -793,4 +798,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 57;
+const MAX_LOGIC: usize = 56;

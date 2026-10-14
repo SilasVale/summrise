@@ -17,13 +17,15 @@ pub const CACHE_MAX_ENTRIES: usize = 512;
 
 /// `AUTH_PREFIXES` — the key prefixes that get the SHORT TTL.
 ///
-/// **`"providers:"` IS NOT IN THIS LIST, AND THAT IS A DECISION WITH A DATE.** The source keeps it as a
-/// commented entry with its reasoning (a custom provider record carries a credential and an egress
-/// DESTINATION, so a deleted or re-pointed one must stop being dialled within a minute) and the read cost is
-/// bounded because `resolveRoute` consults that key only for prefixes the built-in route table does not
-/// cover. A port that "restored" the commented line would be changing a decision rather than transcribing
-/// one, so the list is exactly what the code holds.
-pub const AUTH_PREFIXES: [&str; 9] = [
+/// **`"providers:"` IS IN THIS LIST, AND THE FIRST VERSION OF THIS PORT SAID THE OPPOSITE — THAT WAS THE BUG.**
+/// Its comment read *"the source keeps it as a COMMENTED entry"* and the test pinned `providers:x` at the 24 h
+/// TTL, so the two agreed with each other and neither agreed with `gateway/src/store/cache.ts`, which has the
+/// entry **ACTIVE** with its own dated reasoning (2026-09-13): *"a custom provider record carries a credential
+/// and an egress DESTINATION. A deleted or re-pointed provider must stop being dialled within a minute on every
+/// isolate, not within a day."* The port was written from a reading of the file that had gone stale, and the
+/// emission is what forced the two sides to be written down beside each other — **the third live divergence
+/// this migration has found that way** (the mask's UTF-16 arm, `advertisedModelId`'s null wire, and this).
+pub const AUTH_PREFIXES: [&str; 10] = [
     "settings:",
     "token:",
     "user:",
@@ -33,6 +35,7 @@ pub const AUTH_PREFIXES: [&str; 9] = [
     "devices:",
     "plugins:",
     "cf:",
+    "providers:",
 ];
 
 /// `cset`'s TTL decision: the short TTL for an auth-shaped key, the 24 h one otherwise.
@@ -44,6 +47,10 @@ pub fn ttl_for(key: &str) -> i64 {
     }
 }
 
+/// `withKeyLock`'s table bound — the source's own hard bound for pathological distinct-key bursts. Named here
+/// because the EMISSION publishes it, and a number in two languages is a number that drifts.
+pub const LOCK_MAX_ENTRIES: usize = 512;
+
 /// `cset`'s eviction: when the cache is at its bound, the OLDEST entry goes.
 ///
 /// **"OLDEST" IS THE INSERTION ORDER OF A `Map`, WHICH IS WHY THIS ANSWERS A POSITION.** The same lesson the
@@ -51,11 +58,18 @@ pub fn ttl_for(key: &str) -> i64 {
 /// "the oldest", and `Map` promises it. What this returns is the index to drop — 0 when the bound is
 /// reached, and nothing otherwise.
 pub fn cache_eviction_index(size: usize) -> Option<usize> {
-    if size >= CACHE_MAX_ENTRIES {
+    if cache_at_bound(size) {
         Some(0)
     } else {
         None
     }
+}
+
+/// The comparison itself, split out because it is what the EMISSION can express: the console's cache asks
+/// "must I evict?" and answers it with a boolean, while this crate's `Vec`-backed cache asks "which index?".
+/// One rule, two shapes, and the shape belongs to the host.
+pub fn cache_at_bound(size: usize) -> bool {
+    size >= CACHE_MAX_ENTRIES
 }
 
 /// **THE PER-ISOLATE KV CACHE — `store/cache.ts`'s `__c`, AND ITS ABSENCE WAS A MEASURED COST.**
@@ -144,6 +158,75 @@ pub fn cache_del(key: &str) {
     if let Ok(mut cache) = KV_CACHE.lock() {
         cache.retain(|(k, _, _)| k != key);
     }
+}
+
+/// The emitted module's header, and then the module.
+const TS_MODULE: &str = r#"/**
+ * cache-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/store.rs` (`render_typescript`), which is now the single source for the rules
+ * below. The freshness test in that module is a byte comparison against this file, so a hand edit fails there
+ * with the text and one command to fix it:
+ *
+ *     SUMMRISE_REFRESH_CACHE=1 cargo test --manifest-path gateway/wasm/Cargo.toml store::emission
+ *
+ * `gateway/src/store/cache.ts` re-exports this module and keeps the HOST: the two `Map`s and the pruning of the
+ * per-key lock chain. **THE RULES ARE HERE** — the two TTLs, the prefix list that chooses between them, the two
+ * bounds, and the comparison the cache asks before it evicts.
+ *
+ * **AND THE PREFIX LIST IS WHY THIS EMISSION EXISTS**: the worker's port of it was missing `"providers:"` —
+ * with a comment claiming the source kept that entry commented out, and a test pinning the same wrong answer —
+ * so a deleted or re-pointed provider stayed dialled for up to 24 h on a warm isolate where the console
+ * propagates it within a minute.
+ */
+
+/** The backstop TTL: after 24 h a cached value is re-read from KV even if no write touched this isolate. */
+export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Security-critical keys get the short TTL, so an admin change propagates across isolates within a minute. */
+export const AUTH_CACHE_TTL_MS = 60 * 1000;
+
+/** The per-isolate cache's bound: at it, the OLDEST entry goes (a `Map`'s insertion order). */
+export const CACHE_MAX_ENTRIES = 512;
+
+/** The per-key lock table's hard bound, for pathological distinct-key bursts. */
+export const LOCK_MAX_ENTRIES = 512;
+
+/** The key prefixes that get the SHORT TTL. `"providers:"` is on it: a custom provider record carries a
+ *  credential and an egress DESTINATION, so a deleted or re-pointed one must stop being dialled within a
+ *  minute, not within a day. */
+export const AUTH_PREFIXES: string[] = [
+  "settings:",
+  "token:",
+  "user:",
+  "ukeys:",
+  "auth:",
+  "route:",
+  "devices:",
+  "plugins:",
+  "cf:",
+  "providers:",
+];
+
+/** `cset`'s TTL decision: the short TTL for an auth-shaped key, the 24 h one otherwise. */
+export function ttlFor(key: string): number {
+  return AUTH_PREFIXES.some((p) => key.startsWith(p)) ? AUTH_CACHE_TTL_MS : CACHE_TTL_MS;
+}
+
+/** `cset`'s eviction test — the comparison, with the eviction itself left to the host that owns the `Map`. */
+export function cacheAtBound(size: number): boolean {
+  return size >= CACHE_MAX_ENTRIES;
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_MODULE.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/store/cache-logic.ts")
 }
 
 #[cfg(test)]
@@ -305,7 +388,26 @@ mod oracle_corpus {
 
     #[test]
     fn the_ttl_rule_is_the_sources_own_list_and_constants() {
-        // The nine prefixes take the SHORT ttl; everything else takes the 24 h one.
+        // **THE LIST IS PINNED, NOT LOOPED OVER.** The first version of this test iterated `AUTH_PREFIXES` and
+        // asserted each entry takes the short TTL — a test that reads its own subject, which passes for any list
+        // including the one that was missing `providers:`. The contents are written out here so a missing entry
+        // fails, and the emission's own floor test reads this same list.
+        assert_eq!(
+            AUTH_PREFIXES,
+            [
+                "settings:",
+                "token:",
+                "user:",
+                "ukeys:",
+                "auth:",
+                "route:",
+                "devices:",
+                "plugins:",
+                "cf:",
+                "providers:",
+            ]
+        );
+        // The ten prefixes take the SHORT ttl; everything else takes the 24 h one.
         for prefix in AUTH_PREFIXES {
             assert_eq!(
                 ttl_for(&format!("{prefix}x")),
@@ -317,9 +419,11 @@ mod oracle_corpus {
         assert_eq!(ttl_for(""), CACHE_TTL_MS);
         // `startsWith`, not `contains`: a prefix in the MIDDLE is not a prefix.
         assert_eq!(ttl_for("xsettings:y"), CACHE_TTL_MS);
-        // **`providers:` IS NOT ON THE LIST** — the source keeps it as a COMMENTED entry with its dated
-        // reasoning, and "restoring" it would be changing a decision rather than transcribing one.
-        assert_eq!(ttl_for("providers:x"), CACHE_TTL_MS);
+        // **`providers:` IS ON THE LIST, AND THIS ROW USED TO ASSERT THE OPPOSITE.** A deleted or re-pointed
+        // provider carries a credential and an egress destination, so its record must stop being dialled within
+        // a minute on every isolate — the source's own dated reason, and the behaviour the console ships.
+        assert_eq!(ttl_for("providers:x"), AUTH_CACHE_TTL_MS);
+        assert_eq!(ttl_for("providers:custom"), AUTH_CACHE_TTL_MS);
         assert_eq!(AUTH_CACHE_TTL_MS, 60 * 1000);
         assert_eq!(CACHE_TTL_MS, 24 * 60 * 60 * 1000);
     }
@@ -334,6 +438,9 @@ mod oracle_corpus {
         );
         assert_eq!(cache_eviction_index(513), Some(0));
         assert_eq!(CACHE_MAX_ENTRIES, 512);
+        assert!(!cache_at_bound(511));
+        assert!(cache_at_bound(512));
+        assert_eq!(LOCK_MAX_ENTRIES, 512);
     }
 }
 
@@ -715,5 +822,59 @@ mod settings_tests {
         // **AND AN EXPLICIT OFF IN KV SHADOWS AN ON IN THE VAR** — the source's own round-94/95 notes: OFF is
         // persisted as "0" precisely so it can shadow the var, and normalization is what makes that work.
         assert_eq!(get_global_setting(Some("0"), Some("1")), None);
+    }
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_CACHE").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write cache-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_CACHE=1 cargo test store::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/store/cache-logic.ts is not what store.rs emits — \
+             run SUMMRISE_REFRESH_CACHE=1 cargo test store::emission"
+        );
+    }
+
+    /// **THE EMISSION'S PREFIX LIST IS THE RUST'S, ELEMENT FOR ELEMENT** — the check that would have caught the
+    /// missing `"providers:"` on the day it was written, rather than three landings later.
+    ///
+    /// MUTATION: drop `"providers:"` from `AUTH_PREFIXES` in this file.
+    /// RESULT:   this test fails naming the difference — and the emitted module would put a deleted provider
+    ///           back on a 24 h cache, which is the behaviour the source's dated comment exists to prevent.
+    ///
+    /// **AND THE FIRST VERSION OF THIS CHECK COUNTED QUOTES**, `ts.matches("\":\",").count()`, which the
+    /// heredoc that wrote it mangled into a two-character pattern: it answered `right: 0` against a list of ten
+    /// and would have answered the same for a list of one. The array is PARSED here instead, so the comparison
+    /// is between two lists rather than between a list and a guess about its punctuation.
+    #[test]
+    fn the_emission_carries_the_prefix_list_verbatim() {
+        let ts = render_typescript();
+        let start = ts
+            .find("export const AUTH_PREFIXES: string[] = [")
+            .expect("the emitted prefix array");
+        let body = &ts[start..];
+        let end = body.find("];").expect("a closed array");
+        let emitted: Vec<&str> = body[..end].split('"').skip(1).step_by(2).collect();
+        assert_eq!(
+            emitted,
+            AUTH_PREFIXES.to_vec(),
+            "the emission's prefix list is not the rule's"
+        );
     }
 }

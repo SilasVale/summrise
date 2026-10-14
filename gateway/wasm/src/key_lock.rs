@@ -131,7 +131,7 @@ impl KeyedLocks {
         }
         let lock = Arc::new(KeyLock::new());
         locks.push((key.to_string(), lock.clone()));
-        if locks.len() > 512 {
+        if locks.len() > crate::store::LOCK_MAX_ENTRIES {
             locks.remove(0);
         }
         lock
