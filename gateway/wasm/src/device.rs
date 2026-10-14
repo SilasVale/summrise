@@ -20,82 +20,13 @@
 //! ~320 s where `deviceFetch`'s bound is 60 s, which is why `mcp_browser.rs` applies
 //! [`device_host_error`] itself instead (exactly as `mcp-browser.ts` does).
 
-/// The default device-host suffix. **IT IS A PRODUCTION HOSTNAME**, which is why this file is declared in
-/// `agent/tests/production_host.rs` beside `device-fetch.ts` — the rule that decides what a device
-/// hostname is has to name one.
-pub const DEFAULT_DEVICE_HOST_SUFFIX: &str = ".agent.saisi.online";
+//! The worker's own half of the device surface (`DeviceDial`, `device_fetch`, the emitters) stays here; the GUARD
+//! RULES moved to `summrise-core` and are re-exported so every call site and gate keeps its path.
 
-/// `hostAllowError(hostname, env)`: the allowlist, overridable per deployment.
-///
-/// Two tests, and the second is the one that is easy to miss: the host must END WITH the suffix **and be
-/// strictly longer than it**, so the bare suffix is not a device hostname. The suffix is lowercased and so
-/// is the host, because a hostname comparison is case-insensitive; an empty override falls back to the
-/// default through `||`, which is a truthiness test rather than a presence test.
-pub fn host_allow_error(hostname: &str, device_host_suffix: Option<&str>) -> Option<String> {
-    let suffix = match device_host_suffix {
-        Some(s) if !s.is_empty() => s.to_lowercase(),
-        _ => DEFAULT_DEVICE_HOST_SUFFIX.to_string(),
-    };
-    let h = hostname.to_lowercase();
-    if !h.ends_with(&suffix) || h.len() <= suffix.len() {
-        return Some(format!("hostname must be under {suffix}"));
-    }
-    None
-}
-
-/// `deviceHostError(hostname)`: `Some(reason)` when the hostname must NOT be dialled with device
-/// credentials.
-///
-/// THE `172.` ARM IS SECOND-OCTET AND NUMERIC: `172.16/12` is only 16–31, and a blanket
-/// `startsWith("172.")` would also refuse the public `172.15.x.x` and `172.32+.x.x`. `Number.isInteger` is
-/// what makes `"172.abc.1.1"` not private — `Number("abc")` is NaN.
-///
-/// THE v6 PREFIXES REQUIRE A COLON, because a hostname STRING never contains one: without that test,
-/// `fc.example.com` would false-positive as a unique-local address.
-pub fn device_host_error(hostname: &str) -> Option<String> {
-    let host = hostname.to_lowercase();
-    let is_172_private = if let Some(rest) = host.strip_prefix("172.") {
-        let second = rest.split('.').next().unwrap_or("");
-        match js_number_of(second) {
-            Some(n) => n.fract() == 0.0 && (16.0..=31.0).contains(&n),
-            None => false,
-        }
-    } else {
-        false
-    };
-    let is_v6_private = host.contains(':')
-        && (host.starts_with("fc") || host.starts_with("fd") || host.starts_with("fe80"));
-    let blocked = host == "localhost"
-        || host.starts_with("127.")
-        || host.starts_with("10.")
-        || host.starts_with("192.168.")
-        || is_172_private
-        || host == "::1"
-        || host == "[::1]"
-        || is_v6_private
-        || host == "0.0.0.0"
-        || host == "[::]"
-        || host == "169.254.169.254"
-        || host.starts_with("::ffff:")
-        || host.starts_with("[::ffff:");
-    if blocked {
-        Some("device hostname resolves to a private/internal address".to_string())
-    } else {
-        None
-    }
-}
-
-/// `Number(x)` for the one place this module needs it: `Number.isInteger(Number(second))`.
-///
-/// `None` is `NaN`, which is what makes a non-numeric second octet not private. An EMPTY string is `0` and
-/// therefore an integer — `"172..1.1"` takes the private branch, exactly as the JavaScript does.
-fn js_number_of(s: &str) -> Option<f64> {
-    let t = s.trim();
-    if t.is_empty() {
-        return Some(0.0);
-    }
-    t.parse::<f64>().ok()
-}
+pub use summrise_core::guard::{
+    authority_prefix_ok, device_host_error, dial_path, host_allow_error, hostname_mismatch,
+    starts_like_a_scheme, DEFAULT_DEVICE_HOST_SUFFIX, PROXY_PATH_REFUSAL,
+};
 
 /* ─────────────────────────── the dial ─────────────────────────── */
 
@@ -471,50 +402,6 @@ fn thrown_message(error: &Error) -> String {
         Error::JsError(_) => "undefined".to_string(),
         other => other.to_string(),
     }
-}
-
-/// `authorityPrefix`'s scheme test: `^[a-z][a-z0-9+.-]*:`. Moved here with the dial, because both the dial and
-/// the device family's own path check read it.
-pub fn starts_like_a_scheme(authority: &str) -> bool {
-    let Some((head, _)) = authority.split_once(':') else {
-        return false;
-    };
-    let mut chars = head.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
-}
-
-/// The refusal both authority-shaped bad paths answer with — a `restPath` carrying userinfo (`@`) or a scheme can
-/// RE-ROOT the URL the device token travels to (round-120/121).
-pub const PROXY_PATH_REFUSAL: &str = "invalid proxy path";
-
-/// `deviceFetch`'s first guard: the AUTHORITY-RELEVANT prefix of `restPath` — up to the first `/`, `?` or `#` — may
-/// carry neither userinfo nor a scheme.
-///
-/// **NARROWED ON PURPOSE** (round-121): an at-sign in a QUERY string is legitimate (`?user=a@b.com`), and the
-/// hostname-equality gate below already blocks userinfo smuggling. A leading scheme in the authority is still
-/// refused.
-pub fn authority_prefix_ok(rest_path: &str) -> bool {
-    let authority = rest_path.split(['/', '?', '#']).next().unwrap_or_default();
-    !authority.contains('@') && !starts_like_a_scheme(authority)
-}
-
-/// The path half of the dial URL: the source prepends `/` unless it is already there.
-pub fn dial_path(rest_path: &str) -> String {
-    if rest_path.starts_with('/') {
-        rest_path.to_string()
-    } else {
-        format!("/{rest_path}")
-    }
-}
-
-/// **BELT-AND-SUSPENDERS**: whatever the parser produced, the host MUST be the device's own. Case-insensitive,
-/// because WHATWG lowercases special-scheme hosts while registration stores hostnames verbatim.
-pub fn hostname_mismatch(parsed_host: &str, hostname: &str) -> bool {
-    parsed_host.to_lowercase() != hostname.to_lowercase()
 }
 
 /// One header operation the dial applies, IN ORDER, after copying the caller's own headers.

@@ -15,6 +15,10 @@ description = "The Rust half of the Summrise Gate worker (workers-rs). FIRST ROU
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+# THE SHARED CORE (2026-10-13): pure Rust, no bindings — see docs/superpowers/plans/2026-10-13-one-core-thin-hosts.md.
+# The worker depends on it the same way the agent will, and the guard rules it now owns were the worker's own until
+# this landing.
+summrise-core = { path = "../../core/summrise-core" }
 worker = "0.8.7"
 serde = { version = "1", features = ["derive"] }
 # ALREADY IN THE TREE (worker depends on it), so parsing an Origin costs no extra bytes.

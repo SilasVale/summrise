@@ -94,6 +94,20 @@ jobs:
         run: |
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
+      # THE SHARED CORE (2026-10-13). `summrise-core` is a NEW CRATE and no job would have built it — and a
+      # crate whose tests no job invokes is a crate whose tests are decoration, which is the sentence the step
+      # above was added for. It is checked HERE rather than in a job of its own because this job already builds
+      # it: `gateway/wasm` depends on it by path, so these three commands reuse the checkout, the toolchain and
+      # the compiled dependency graph rather than paying for a second runner.
+      #
+      # AND ITS `cargo fmt --check` IS SAFE WHERE THE WASM CRATE'S IS NOT: the exemption above is a fact about
+      # `gateway/wasm`'s six pre-existing files, not a policy against checking formatting. This crate is pure
+      # Rust with no bindings and a `debug = 0`-sized build, which is why it is the fastest gate here.
+      - name: Rust (the shared core, and the guards the worker reads from it)
+        run: |
+          cargo test --manifest-path core/summrise-core/Cargo.toml
+          cargo clippy --manifest-path core/summrise-core/Cargo.toml --all-targets -- -D warnings
+          cargo fmt --manifest-path core/summrise-core/Cargo.toml --all -- --check
 
   ui:
     name: ui (tsc + build + test)

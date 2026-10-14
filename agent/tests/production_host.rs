@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 52] = [
+const ALLOWED: [(&str, &str); 53] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -117,6 +117,10 @@ const ALLOWED: [(&str, &str); 52] = [
     // the default device-host suffix IS a production hostname — the entry above declares the TypeScript
     // for exactly that reason ("the rule that decides what a device hostname is").
     ("gateway/wasm/src/device.rs", "the DEVICE_HOST_SUFFIX fallback, ported: the rule that decides what a device hostname is"),
+    // ADDED 2026-10-13, WITH THE GUARD RULES' MOVE INTO THE PURE CORE: the rule that DECIDES a device hostname
+    // now lives here, and `gateway/wasm/src/device.rs` re-exports it rather than spelling it. The suffix is the
+    // same production hostname as every entry above; what moved is which file owns it.
+    ("core/summrise-core/src/guard.rs", "the DEVICE_HOST_SUFFIX default, moved out of gateway/wasm/src/device.rs into the pure core both hosts share: the rule that decides what a device hostname is"),
     // ADDED 2026-10-13, WITH THE DEVICE DIAL'S EMISSION — AN ADDITION RATHER THAN A MOVE, AND THE FIRST RAISE SINCE
     // 2026-10-08: the RULE left `gateway/src/device-fetch.ts` for the emission, while the host file still names the
     // suffix in the PROSE that records it ("the suffix allowlist (DEVICE_HOST_SUFFIX, default …)") — the paragraph
@@ -252,7 +256,14 @@ const ALLOWED: [(&str, &str); 52] = [
 // `agent/summrise-cli/src/endpoints.rs` — `tunnel.rs`'s carried `d1` default and `rollback.rs`'s
 // version.json URL. So the OCCURRENCES in the crate went DOWN while the declared FILES went up by one, which
 // is the direction this list is for. The raise is one, it is visible, and the reason is beside the entry.
-const MAX_ALLOWED: usize = 52;
+//
+// 52 -> 53 ON 2026-10-13, AND IT IS A MOVE RATHER THAN A HOST BEING ADDED. The device-host rules LEFT
+// `gateway/wasm/src/device.rs` for `core/summrise-core/src/guard.rs` — the first tenant of the pure core both
+// hosts will share — so the file that DECIDES the suffix is a new path, while the file that used to decide it
+// still names the host once in the prose that records the move. Both are declared, which is why the count
+// rises by one while the host on the wire does not change at all: the same shape as the `device-dial-logic.ts`
+// entry above, where the rule left a file and the prose stayed behind.
+const MAX_ALLOWED: usize = 53;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
