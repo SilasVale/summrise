@@ -115,28 +115,30 @@ pub fn validate_device(body: &Value) -> Result<DeviceFields, String> {
 
 /// `maskKey(v)` from `store/users.ts` — the console's only view of a device token.
 ///
-/// Character-wise rather than byte-wise: the source's `slice` counts UTF-16 code units, and a token is hex, so
-/// the two agree on every value this route can produce. (`v[0]` on an empty string is `undefined`, which is why
-/// the `!v` arm comes first there and here.)
+/// CODE-UNIT-wise rather than byte-wise, and that is the source's own rule: `v.length` and `v.slice` count
+/// UTF-16 code units, so an astral character is TWO of them on both sides. (`v[0]` on an empty string is
+/// `undefined`, which is why the `!v` arm comes first there and here.)
 pub fn mask_key(v: &str) -> String {
     if v.is_empty() {
         return "not configured".to_string();
     }
-    let units: Vec<char> = v.chars().collect();
+    // **UTF-16 CODE UNITS, BECAUSE THAT IS WHAT `v.length` AND `v.slice` COUNT** — and the first version of
+    // this function collected `chars()`, which agrees with the source on every ASCII value and answers a
+    // DIFFERENT ARM at the boundary: a five-character string of six units (`"abcd😀"`) takes the SHORT arm in
+    // JavaScript and took the long one here. The comment above this function used to say the two "agree on
+    // every value this route can produce", which was true of a hex token and false of a user's own key.
+    //
+    // THE ONE THING RUST CANNOT REPRODUCE, recorded rather than hidden: a slice that cuts a surrogate pair in
+    // half yields a LONE SURROGATE in JavaScript, and a `String` cannot hold one — so that unit becomes U+FFFD
+    // here. It is the difference between an unpaired surrogate and a replacement character, in a display
+    // mask, and only for a key containing an astral character.
+    let units: Vec<u16> = v.encode_utf16().collect();
+    let head = |n: usize| String::from_utf16_lossy(&units[..n.min(units.len())]);
+    let tail = |n: usize| String::from_utf16_lossy(&units[units.len().saturating_sub(n)..]);
     if units.len() <= 6 {
-        return format!(
-            "{}…{}",
-            units[0],
-            units[units.len().saturating_sub(2)..]
-                .iter()
-                .collect::<String>()
-        );
+        return format!("{}…{}", head(1), tail(2));
     }
-    format!(
-        "{}…{}",
-        units[..3].iter().collect::<String>(),
-        units[units.len() - 4..].iter().collect::<String>()
-    )
+    format!("{}…{}", head(3), tail(4))
 }
 
 /// `mcpConfig(d)` — the Claude Code snippet, and the ONLY place a raw device token is returned.
