@@ -8,6 +8,9 @@
 
 use std::sync::Mutex;
 
+use serde_json::Value;
+use worker::Env;
+
 /// The two TTLs, verbatim.
 pub const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 pub const AUTH_CACHE_TTL_MS: i64 = 60 * 1000;
@@ -473,6 +476,36 @@ pub use summrise_core::provider_spec::{advertised_model_id, bare_prefix};
 /// it would dial a built-in upstream under a different provider's name."*
 ///
 /// The match is on the BARE prefix (trailing slashes off both sides), and the FIRST record wins — the same
+/// `publicProvider(p, env)` — the record view: the key is MASKED, never returned, and `keyReady` says whether one
+/// resolved at all. The projection itself is the DECISION ROUTE's (`decisions::public_provider`), called here
+/// rather than restated: this route and `/__decision` must not be able to disagree about a masked credential.
+pub fn public_provider_view(env: &Env, spec: &Value) -> Value {
+    // The binding the record NAMES, read off the real environment — exactly what the source's `env?.[name]`
+    // does. An absent binding and an explicit null are the same answer (`?? ""`), which `provider_key` owns.
+    let mut bindings = serde_json::Map::new();
+    if let Some(name) = spec.get("apiKeyEnv").and_then(Value::as_str) {
+        if !name.is_empty() {
+            if let Ok(value) = env.var(name) {
+                bindings.insert(name.to_string(), Value::String(value.to_string()));
+            }
+        }
+    }
+    let resolved = provider_key(&Value::Object(bindings), Some(spec));
+    crate::decisions::public_provider(&serde_json::json!({ "p": spec, "resolved": resolved }))
+        .unwrap_or(Value::Null)
+}
+
+/// `setCfToken(env, value)` — a NON-EMPTY value is written and cached; an EMPTY one DELETES the key and drops it
+/// from the cache. That asymmetry is the route's "clear the token" arm.
+pub async fn set_cf_token(env: &Env, value: &str) {
+    let v = value.trim();
+    if v.is_empty() {
+        crate::device_store::kv_delete(env, "cf:api_token").await;
+    } else {
+        crate::device_store::kv_put(env, "cf:api_token", v, None).await;
+    }
+}
+
 /// linear scan the source does.
 pub fn provider_for_prefix(
     providers: &[serde_json::Value],
@@ -486,6 +519,91 @@ pub fn provider_for_prefix(
         .iter()
         .find(|p| bare_prefix(p.get("prefix").unwrap_or(&serde_json::Value::Null)) == bare)
         .cloned()
+}
+
+/* ─────────────────── the provider store's writes ─────────────────── */
+
+/// `providers:custom` — the KV key the custom provider records live under.
+pub const CUSTOM_PROVIDERS_KEY: &str = "providers:custom";
+
+/// `readList(env)` — the KV read with the source's two silent arms, exactly like the model store's
+/// ([`crate::model_store::read_list`]): a non-array cache hit and a malformed blob both answer `[]`, and the cache
+/// is refreshed with what was read.
+pub async fn custom_provider_list(env: &Env) -> Vec<Value> {
+    crate::model_store::read_list(env, CUSTOM_PROVIDERS_KEY).await
+}
+
+/// `putCustomProvider(env, spec)` — **THE UPSERT IS BY BARE PREFIX, UNDER A KEYED LOCK.** Re-posting a prefix is
+/// how an operator edits the provider they own, and the lock is the source's own lesson ("two concurrent POSTs
+/// used to be able to read the same pre-write list and have the second clobber the first").
+pub async fn put_custom_provider(env: &Env, spec: &Value) -> Vec<Value> {
+    crate::key_lock::with_key_lock(&PROVIDER_LOCKS, CUSTOM_PROVIDERS_KEY, async {
+        let cur = custom_provider_list(env).await;
+        let bare =
+            summrise_core::provider_spec::bare_prefix(spec.get("prefix").unwrap_or(&Value::Null));
+        let mut next: Vec<Value> = cur
+            .into_iter()
+            .filter(|p| {
+                summrise_core::provider_spec::bare_prefix(p.get("prefix").unwrap_or(&Value::Null))
+                    != bare
+            })
+            .collect();
+        next.push(spec.clone());
+        crate::model_store::write_list(env, CUSTOM_PROVIDERS_KEY, &next).await;
+        next
+    })
+    .await
+}
+
+/// `deleteCustomProvider(env, prefix)` — the same lock, and `false` when the prefix is not one this deployment
+/// owns (the route turns that into its 404).
+pub async fn delete_custom_provider(env: &Env, prefix: &str) -> bool {
+    crate::key_lock::with_key_lock(&PROVIDER_LOCKS, CUSTOM_PROVIDERS_KEY, async {
+        let cur = custom_provider_list(env).await;
+        let bare = summrise_core::provider_spec::bare_prefix(&Value::String(prefix.to_string()));
+        let next: Vec<Value> = cur
+            .iter()
+            .filter(|p| {
+                summrise_core::provider_spec::bare_prefix(p.get("prefix").unwrap_or(&Value::Null))
+                    != bare
+            })
+            .cloned()
+            .collect();
+        if next.len() == cur.len() {
+            return false;
+        }
+        crate::model_store::write_list(env, CUSTOM_PROVIDERS_KEY, &next).await;
+        true
+    })
+    .await
+}
+
+/// The keyed locks for the provider store — one map, because both writers serialize on the same key.
+static PROVIDER_LOCKS: crate::key_lock::KeyedLocks = crate::key_lock::KeyedLocks::new();
+
+/// `new URL(rawBase)` — **THE PARSE THE PURE PARSER CANNOT DO, SO THE HOST DOES IT AND HANDS IT OVER.**
+///
+/// The core's `parse_provider_spec` takes `base: Option<&ParsedBase>` precisely because a pure module cannot
+/// reach a URL parser (`core` has no `url` dependency); the WORKER can, and `parse_provider_spec` without it
+/// answers "baseURL is not a URL" for every record — which is what this route did on its first replay, for three
+/// cases in a row.
+///
+/// The eight fields are `URL`'s own (`protocol`, `username`, `password`, `search`, `hash`, `hostname`, `origin`,
+/// `pathname`), and `worker::Url` is the WHATWG parser, so `https://x.test/v1` answers `https:` + `x.test` +
+/// `https://x.test` + `/v1`. An unparsable base answers `None`, which the parser turns into the source's own
+/// refusal with the raw text quoted.
+pub fn parsed_base(raw: &str) -> Option<summrise_core::provider_spec::ParsedBase> {
+    let url = url::Url::parse(raw).ok()?;
+    Some(summrise_core::provider_spec::ParsedBase {
+        protocol: format!("{}:", url.scheme()),
+        username: url.username().to_string(),
+        password: url.password().unwrap_or_default().to_string(),
+        search: url.query().map(|q| format!("?{q}")).unwrap_or_default(),
+        hash: url.fragment().map(|f| format!("#{f}")).unwrap_or_default(),
+        hostname: url.host_str().unwrap_or_default().to_string(),
+        origin: url.origin().ascii_serialization(),
+        pathname: url.path().to_string(),
+    })
 }
 
 /// `providerKey(env, p)` — the provider's OWN credential: the inline `apiKey`, else the named Worker binding.
