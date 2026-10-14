@@ -781,6 +781,10 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 54 -> 53 ON 2026-10-14, FOR `store/admin.ts`: the admin's identity — the v1 schema's addresses, the password
+// record's format, the SEED SEQUENCE (three migrations, whose ORDER is the product) and the KV-authoritative
+// resolution — is an emission from `user_store.rs` now, and the Rust twin runs the same order for the worker.
+//
 // 55 -> 54 ON 2026-10-14, FOR `store/models.ts` — the largest store host left, and the first landing whose
 // subject was an EMISSION rather than a port: the advertised-id merge, the /v1/models extras, the sort, the two
 // upserts, the facet-override rule, the reasoning chain and the CATALOGUE PROJECTION all already existed in Rust
@@ -808,4 +812,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 54;
+const MAX_LOGIC: usize = 53;

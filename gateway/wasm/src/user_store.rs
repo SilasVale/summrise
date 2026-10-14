@@ -57,6 +57,40 @@ pub const INVITE_CODE_BYTES: usize = 5;
 /// forever."* Like [`INVITE_CODE_BYTES`], its reader today is the emission.
 pub const INVITE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// **`user:<id>` AND `token:<token>` — THE TWO KEY FAMILIES THIS STORE OWNS.** `access.rs` writes them too (an
+/// Access-provisioned account is a user), so they live HERE and are imported there: a key family spelled in two
+/// modules is the class this repository has paid for three times.
+pub const USER_KEY_PREFIX: &str = "user:";
+pub const TOKEN_KEY_PREFIX: &str = "token:";
+
+/// `u-admin` — the v1 schema's random id, and the marker `token:<t>` held before the migration to "username as
+/// KV key".
+pub const V1_ADMIN_ID: &str = "u-admin";
+
+/// `auth:admin_password` — where the admin's `salt:hash` lives. KV IS AUTHORITATIVE.
+pub const ADMIN_PASSWORD_KEY: &str = "auth:admin_password";
+
+/// `_admin_seeded` — the marker a completed seed writes, and the early return for every later boot.
+pub const ADMIN_SEEDED_KEY: &str = "_admin_seeded";
+
+/// `CLIENT_KEY` — the legacy gateway token a deployer may have set as a Worker secret. The seed uses it instead
+/// of minting, so an existing deployment's scripts keep working.
+pub const CLIENT_KEY: &str = "CLIENT_KEY";
+
+/// The v1 -> v2 schema's three addresses: the random-id admin record, its key blob, and the old username index.
+pub const V1_ADMIN_USER_KEY: &str = "user:u-admin";
+pub const V1_ADMIN_UKEYS_KEY: &str = "ukeys:u-admin";
+pub const V1_USERNAME_KEY: &str = "username:admin";
+
+/// **`legacy` IS THE SALT EVERY MIGRATED HASH USES**, and it is why a bare hash was a lockout: the source's own
+/// comment records that `getAdminPassword` returning an un-salted hash made `verifyAdminPassword` fail forever
+/// ("admin locked out of the console"). The record format is `salt:hash`, and this is the salt the WORKER SECRET
+/// is migrated under.
+pub const LEGACY_SALT: &str = "legacy";
+
+/// `setAdminPassword`'s fresh salt — the source's `randomHex(8)`.
+pub const ADMIN_PASSWORD_SALT_BYTES: usize = 8;
+
 /// `PASSWORD_ITERATIONS` — 100,000, and see the module header for what changing it costs.
 pub const PASSWORD_ITERATIONS: u32 = 100_000;
 
@@ -108,6 +142,51 @@ pub async fn verify_password(password: &str, salt: &str, expected: &str) -> bool
 
 /* ─────────────────────────── admin password ─────────────────────────── */
 
+/// `${salt}:${hash}` — the one stored format, used by the migration, the seed's writes and every verification.
+pub fn admin_password_record(salt: &str, hash: &str) -> String {
+    format!("{salt}:{hash}")
+}
+
+/// The two halves of a stored password, **SPLIT ON THE FIRST COLON EXACTLY AS `String.prototype.split(":")`
+/// DESTRUCTURING TAKES THE FIRST TWO PARTS**: a hash containing a colon keeps the rest in the second half, and a
+/// record with no colon at all answers `(whole, "")` — which is what the source's `stored.split(":")` gives when
+/// the migration never ran.
+pub fn admin_password_parts(stored: &str) -> (String, String) {
+    match stored.split_once(':') {
+        Some((salt, hash)) => (salt.to_string(), hash.to_string()),
+        None => (stored.to_string(), String::new()),
+    }
+}
+
+/// The record the FRESH seed writes. **FIELD ORDER IS THE STORED BYTES**:
+/// `id, username, role, enabled, createdAt, token` — and `role` is `"admin"`, which is the only difference from
+/// an Access-provisioned account.
+pub fn admin_record(username: &str, token: &str, now_ms: i64) -> Value {
+    json!({
+        "id": username,
+        "username": username,
+        "role": "admin",
+        "enabled": true,
+        "createdAt": now_ms,
+        "token": token,
+    })
+}
+
+/// The empty-token backfill's test: **A RECORD THAT EXISTS WITH A FALSY `token`**.
+///
+/// WHY IT EXISTS (the source's own record): deployments seeded BEFORE the mint fix hold `user:admin` with
+/// `token: ""` and `_admin_seeded = "1"`, so the early return locks them out FOREVER — bootstrap and
+/// reset-password 403 on `!admin?.token` while register/login 500. Healing is unreachable from a healthy
+/// deployment (no valid session could ever have existed with an empty token), so no hijack is possible.
+pub fn backfill_needed(existing: Option<&Value>) -> bool {
+    match existing {
+        Some(record) => {
+            !crate::device_registry::js_truthy(record.get("token").unwrap_or(&Value::Null))
+        }
+        None => false,
+    }
+}
+
 /// `getAdminPassword(env)` — **KV IS AUTHORITATIVE AND THE WORKER SECRET IS MIGRATED ONCE**, hashed in the same
 /// `salt:hash` format `verifyAdminPassword` expects. The source's comment records what a bare hash cost: "a bare
 /// hash (no colon) made verification permanently fail — admin locked out of the console".
@@ -138,6 +217,149 @@ pub async fn admin_password(env: &Env) -> String {
     }
     crate::store::cache_put(KEY, Value::String(value.clone()), now);
     value
+}
+
+/// The process-once flag — the source's module-level `let seeded`, and the reason `seedAdmin` may be called on
+/// every request the console makes without paying for the reads.
+static SEEDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `__resetSeedForTests()` — the test hook, which the source documents as "never called in production".
+pub fn reset_seed_for_tests() {
+    SEEDED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// `seedAdmin(env)` — **THE WHOLE SEQUENCE, AND ITS ORDER IS THE PRODUCT**.
+///
+/// Three migrations live in it, each one a lockout that was fixed by hand once:
+///
+/// 1. **v1 -> v2, the schema**: a random-id admin (`user:u-admin`, `ukeys:u-admin`, `username:admin`) becomes
+///    "username as KV key" (`user:admin`), and a token still mapped to `u-admin` is remapped. It runs inside a
+///    `try` because **a failed migration must not block startup** — the old deployment keeps working.
+/// 2. **the empty-token backfill**: a deployment seeded BEFORE the mint fix holds `user:admin` with `token: ""`
+///    and `_admin_seeded = "1"`, so the early returns below would lock it out forever. [`backfill_needed`]
+///    decides; a record with a non-empty token is untouched.
+/// 3. **round-394, the fresh seed**: mint ONLY when no `user:admin` record exists, because a v1 upgrade (which
+///    has no marker) used to fall through and CLOBBER the just-migrated record — a new random token that orphaned
+///    the remapped `token:V1TOK -> admin` mapping (which then still authenticated), and `ukeys:admin` reset to
+///    `{}`, wiping the migrated keys. **The migration IS the seed for a v1 upgrade.**
+///
+/// The `seeded` flag is set BEFORE the work and after the KV check, exactly as the source's `if (!env.KEYS ||
+/// seeded) return; seeded = true;` — a second concurrent call in the same isolate must not run it twice.
+pub async fn seed_admin(env: &Env) {
+    if env.kv("KEYS").is_err() {
+        return;
+    }
+    if SEEDED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+
+    // 1. THE v1 -> v2 MIGRATION.
+    if let Some(old_raw) = kv_text(env, V1_ADMIN_USER_KEY).await {
+        if let Ok(mut admin) = serde_json::from_str::<Value>(&old_raw) {
+            if let Some(object) = admin.as_object_mut() {
+                object.insert("id".into(), json!(ADMIN_ID));
+            }
+            let user_key = format!("{USER_KEY_PREFIX}{ADMIN_ID}");
+            kv_put(env, &user_key, &admin.to_string(), None).await;
+            crate::store::cache_put(&user_key, admin.clone(), now_ms());
+            kv_delete(env, V1_ADMIN_USER_KEY).await;
+            let token = admin
+                .get("token")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !token.is_empty() {
+                let token_key = format!("{TOKEN_KEY_PREFIX}{token}");
+                if kv_text(env, &token_key).await.as_deref() == Some(V1_ADMIN_ID) {
+                    kv_put(env, &token_key, ADMIN_ID, None).await;
+                    crate::store::cache_put(&token_key, json!(ADMIN_ID), now_ms());
+                }
+            }
+            if let Some(uks) = kv_text(env, V1_ADMIN_UKEYS_KEY).await {
+                let ukeys_key = format!("ukeys:{ADMIN_ID}");
+                kv_put(env, &ukeys_key, &uks, None).await;
+                // **THE CACHED VALUE IS THE PARSED OBJECT WHILE KV HOLDS THE RAW STRING** — the source's
+                // `cset(key, parsed || {})`, whose `|| {}` is what a malformed blob caches as.
+                let parsed = serde_json::from_str::<Value>(&uks).unwrap_or_else(|_| json!({}));
+                crate::store::cache_put(&ukeys_key, parsed, now_ms());
+                kv_delete(env, V1_ADMIN_UKEYS_KEY).await;
+            }
+            kv_delete(env, V1_USERNAME_KEY).await;
+        }
+    }
+
+    // 2. THE EMPTY-TOKEN BACKFILL.
+    let legacy_token = kv_text(env, CLIENT_KEY)
+        .await
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            env.var(CLIENT_KEY)
+                .ok()
+                .map(|v| v.to_string())
+                .filter(|v| !v.is_empty())
+        })
+        .unwrap_or_default();
+    let user_key = format!("{USER_KEY_PREFIX}{ADMIN_ID}");
+    let existing = kv_text(env, &user_key)
+        .await
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+    if backfill_needed(existing.as_ref()) {
+        let mut record = existing.unwrap_or_else(|| json!({}));
+        let admin_token = if legacy_token.is_empty() {
+            generate_gateway_token()
+        } else {
+            legacy_token.clone()
+        };
+        if let Some(object) = record.as_object_mut() {
+            object.insert("token".into(), json!(admin_token));
+        }
+        kv_put(env, &user_key, &record.to_string(), None).await;
+        crate::store::cache_put(&user_key, record, now_ms());
+        let token_key = format!("{TOKEN_KEY_PREFIX}{admin_token}");
+        kv_put(env, &token_key, ADMIN_ID, None).await;
+        crate::store::cache_put(&token_key, json!(ADMIN_ID), now_ms());
+        kv_put(env, ADMIN_SEEDED_KEY, "1", None).await;
+    }
+
+    // 3. THE FRESH SEED — and the two early returns that make an upgrade a no-op.
+    if kv_text(env, ADMIN_SEEDED_KEY).await.is_some() {
+        return;
+    }
+    if kv_text(env, &user_key).await.is_some() {
+        return;
+    }
+    let admin_token = if legacy_token.is_empty() {
+        generate_gateway_token()
+    } else {
+        legacy_token
+    };
+    let admin = admin_record(ADMIN_USERNAME, &admin_token, now_ms());
+    kv_put(env, &user_key, &admin.to_string(), None).await;
+    crate::store::cache_put(&user_key, admin, now_ms());
+    let token_key = format!("{TOKEN_KEY_PREFIX}{admin_token}");
+    kv_put(env, &token_key, ADMIN_ID, None).await;
+    crate::store::cache_put(&token_key, json!(ADMIN_ID), now_ms());
+
+    // The key blob: a Worker secret per name, whichever the deployer set.
+    let mut ukeys = serde_json::Map::new();
+    for name in user_key_names() {
+        let from_kv = kv_text(env, name).await.unwrap_or_default();
+        let value = if from_kv.is_empty() {
+            env.var(name)
+                .ok()
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        } else {
+            from_kv
+        };
+        if !value.is_empty() {
+            ukeys.insert(name.to_string(), json!(value));
+        }
+    }
+    let ukeys_key = format!("ukeys:{ADMIN_ID}");
+    let ukeys = Value::Object(ukeys);
+    kv_put(env, &ukeys_key, &ukeys.to_string(), None).await;
+    crate::store::cache_put(&ukeys_key, ukeys, now_ms());
+    kv_put(env, ADMIN_SEEDED_KEY, "1", None).await;
 }
 
 /// `hasAdminPassword(env)`.
@@ -575,6 +797,226 @@ pub async fn set_global_setting(env: &Env, name: &str, value: Option<&Value>) {
     kv_put(env, &key, canonical, None).await;
 }
 
+/// The SECOND emitted module: `gateway/src/store/admin-logic.ts`.
+///
+/// **WHY IT IS A SECOND FILE RATHER THAN MORE OF THE FIRST.** `users-logic.ts` answers "what is a user"; this one
+/// answers "what is the ADMIN, and how does a deployment come to have one" — the v1 schema's addresses, the
+/// password record's format, and the SEED, whose order is a product decision (round-394: a v1 upgrade that fell
+/// through to the fresh seed had its just-migrated record clobbered). Two subjects, two files, one producer.
+///
+/// **AND IT TAKES THE PLATFORM AS AN ARGUMENT.** Every other emission is either a pure function or a leaf that
+/// imports another emission; the seed is a SEQUENCE of KV reads and writes, so it is rendered against a `deps`
+/// object the host fills in. That keeps the ORDER — which is the whole decision — in Rust while the four calls
+/// stay the host's.
+const TS_MODULE_ADMIN: &str = r#"/**
+ * admin-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/user_store.rs` (`render_admin_typescript`), which is the single source for the
+ * rules below. The freshness test in that module is a byte comparison against this file:
+ *
+ *     SUMMRISE_REFRESH_ADMIN=1 cargo test --manifest-path gateway/wasm/Cargo.toml user_store::emission
+ *
+ * `gateway/src/store/admin.ts` re-exports this module and keeps the HOST: the `seeded` process-once flag, the
+ * `__resetSeedForTests` hook, the Worker's own `crypto.subtle` PBKDF2, and the KV calls the seed is handed.
+ *
+ * **THREE MIGRATIONS LIVE IN THE SEED, AND EACH ONE WAS ONCE A LOCKOUT** — the v1 -> v2 schema, the empty-token
+ * backfill, and round-394's "mint only when no record exists". Their ORDER is why this file exists.
+ */
+
+import { ADMIN_ID, ADMIN_USERNAME, USER_KEY_NAMES } from "./users-logic.ts";
+
+/** `auth:admin_password` — where the admin's `salt:hash` lives. **KV IS AUTHORITATIVE.** */
+export const ADMIN_PASSWORD_KEY = "auth:admin_password";
+
+/** `_admin_seeded` — the marker a completed seed writes, and the early return for every later boot. */
+export const ADMIN_SEEDED_KEY = "_admin_seeded";
+
+/** `CLIENT_KEY` — the legacy gateway token a deployer may have set as a Worker secret. The seed uses it instead
+ *  of minting, so an existing deployment's scripts keep working. */
+export const CLIENT_KEY = "CLIENT_KEY";
+
+/** The v1 -> v2 schema's three addresses: the random-id admin record, its key blob, and the old username index. */
+export const V1_ADMIN_USER_KEY = "user:u-admin";
+export const V1_ADMIN_UKEYS_KEY = "ukeys:u-admin";
+export const V1_USERNAME_KEY = "username:admin";
+
+/** `u-admin` — the id `token:<t>` held before the migration to "username as KV key". */
+export const V1_ADMIN_ID = "u-admin";
+
+/** **`legacy` IS THE SALT EVERY MIGRATED HASH USES**, and it is why a bare hash was a lockout: a stored hash
+ *  without its salt made verification fail forever. */
+export const LEGACY_SALT = "legacy";
+
+/** `setAdminPassword`'s fresh salt — the source's `randomHex(8)`. */
+export const ADMIN_PASSWORD_SALT_BYTES = 8;
+
+/** `${salt}:${hash}` — the one stored format, used by the migration, the seed's writes and every verification. */
+export function adminPasswordRecord(salt: string, hash: string): string {
+  return `${salt}:${hash}`;
+}
+
+/** The two halves of a stored password, **SPLIT ON THE FIRST COLON EXACTLY AS `String.prototype.split(":")`
+ *  DESTRUCTURING TAKES THE FIRST TWO PARTS** — a hash containing a colon keeps the rest in the second half, and
+ *  a record with no colon at all answers `(whole, "")`. */
+export function adminPasswordParts(stored: string): { salt: string; hash: string } {
+  const [salt, hash] = stored.split(":");
+  return { salt: salt ?? "", hash: hash ?? "" };
+}
+
+/** The record the FRESH seed writes. **FIELD ORDER IS THE STORED BYTES**:
+ *  `id, username, role, enabled, createdAt, token` — and `role` is `"admin"`, the only difference from an
+ *  Access-provisioned account. */
+export function adminRecord(name: string, token: string, nowMs: number): unknown {
+  return { id: name, username: name, role: "admin", enabled: true, createdAt: nowMs, token };
+}
+
+/** The empty-token backfill's test: **A RECORD THAT EXISTS WITH A FALSY `token`**. A deployment seeded before
+ *  the mint fix holds `token: ""` with `_admin_seeded` set, so the early returns would lock it out forever. */
+export function backfillNeeded(existing: unknown): boolean {
+  return !!existing && !(existing as { token?: unknown }).token;
+}
+
+/** The platform the seed runs on. Four KV calls, the cache, the mint, the clock, and the Worker's secrets. */
+export interface AdminSeedDeps {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+  /** `cset` — the per-isolate cache. It is handed the PARSED object for a key blob, which is what the source
+   *  cached (`cset(key, parsed || {})`). */
+  cache(key: string, value: unknown): void;
+  /** `generateGatewayToken()`. */
+  mint(): string;
+  /** `Date.now()`. */
+  now(): number;
+  /** `env[name]` — the Worker secret a channel key may come from. */
+  secret(name: string): unknown;
+}
+
+/** **`seedAdmin`'s SEQUENCE, AND ITS ORDER IS THE PRODUCT.** */
+export async function seedAdminSequence(deps: AdminSeedDeps): Promise<void> {
+  // 1. THE v1 -> v2 MIGRATION. Inside a `try` because **a failed migration must not block startup**.
+  const oldRaw = await deps.get(V1_ADMIN_USER_KEY);
+  if (oldRaw) {
+    try {
+      const admin = JSON.parse(oldRaw);
+      admin.id = ADMIN_ID;
+      await deps.put(`user:${ADMIN_ID}`, JSON.stringify(admin));
+      deps.cache(`user:${ADMIN_ID}`, admin);
+      await deps.delete(V1_ADMIN_USER_KEY);
+      // The token mapping is remapped only when it still points at the v1 id.
+      if (admin.token && (await deps.get(`token:${admin.token}`)) === V1_ADMIN_ID) {
+        await deps.put(`token:${admin.token}`, ADMIN_ID);
+        deps.cache(`token:${admin.token}`, ADMIN_ID);
+      }
+      const uks = await deps.get(V1_ADMIN_UKEYS_KEY);
+      if (uks) {
+        await deps.put(`ukeys:${ADMIN_ID}`, uks);
+        let parsed = null;
+        try {
+          parsed = JSON.parse(uks);
+        } catch {
+          /* malformed JSON */
+        }
+        deps.cache(`ukeys:${ADMIN_ID}`, parsed || {});
+        await deps.delete(V1_ADMIN_UKEYS_KEY);
+      }
+      await deps.delete(V1_USERNAME_KEY);
+    } catch {
+      /* a failed migration must not block startup */
+    }
+  }
+
+  // `String(... || "")` IS the source's `env.CLIENT_KEY || ""` with the type the deps object carries: a secret
+  // that is absent, null or falsy contributes nothing, and a non-string one is rendered as itself.
+  const legacyToken = (await deps.get(CLIENT_KEY)) || String(deps.secret(CLIENT_KEY) || "");
+
+  // 2. THE EMPTY-TOKEN BACKFILL — heal exactly like fresh: mint and remap. A record with a NON-EMPTY token is
+  // left completely untouched.
+  try {
+    const existingRaw = await deps.get(`user:${ADMIN_ID}`);
+    if (existingRaw) {
+      const existing = JSON.parse(existingRaw);
+      if (backfillNeeded(existing)) {
+        const adminToken = legacyToken || deps.mint();
+        existing.token = adminToken;
+        await deps.put(`user:${ADMIN_ID}`, JSON.stringify(existing));
+        deps.cache(`user:${ADMIN_ID}`, existing);
+        await deps.put(`token:${adminToken}`, ADMIN_ID);
+        deps.cache(`token:${adminToken}`, ADMIN_ID);
+        await deps.put(ADMIN_SEEDED_KEY, "1");
+      }
+    }
+  } catch {
+    /* a failed backfill must not block startup */
+  }
+
+  // 3. THE FRESH SEED, and the two early returns that make an upgrade a no-op. **round-394: mint ONLY when no
+  // `user:admin` record exists** — the migration IS the seed for a v1 upgrade.
+  if (await deps.get(ADMIN_SEEDED_KEY)) return;
+  if (await deps.get(`user:${ADMIN_ID}`)) return;
+  const adminToken = legacyToken || deps.mint();
+  const admin = adminRecord(ADMIN_USERNAME, adminToken, deps.now());
+  await deps.put(`user:${ADMIN_ID}`, JSON.stringify(admin));
+  deps.cache(`user:${ADMIN_ID}`, admin);
+  await deps.put(`token:${adminToken}`, ADMIN_ID);
+  deps.cache(`token:${adminToken}`, ADMIN_ID);
+
+  // The key blob: a Worker secret per name, whichever the deployer set.
+  const ukeys: Record<string, string> = {};
+  for (const n of USER_KEY_NAMES) {
+    const v = (await deps.get(n)) || String(deps.secret(n) || "");
+    if (v) ukeys[n] = v;
+  }
+  await deps.put(`ukeys:${ADMIN_ID}`, JSON.stringify(ukeys));
+  deps.cache(`ukeys:${ADMIN_ID}`, ukeys);
+  await deps.put(ADMIN_SEEDED_KEY, "1");
+}
+
+/** The platform `getAdminPassword` runs on. */
+export interface AdminPasswordDeps {
+  /** `cget(key)` — the per-isolate cache, which answers `undefined` for a miss. */
+  cached(key: string): unknown;
+  hasKv: boolean;
+  /** `env.ADMIN_PASSWORD` — the Worker secret a fresh deployment may carry. */
+  secretValue: unknown;
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  cache(key: string, value: string): void;
+  /** `hashPassword(password, LEGACY_SALT)`. */
+  hash(password: string): Promise<string>;
+}
+
+/** `getAdminPassword(env)` — **KV IS AUTHORITATIVE AND THE WORKER SECRET IS MIGRATED ONCE**, hashed in the same
+ *  `salt:hash` format verification expects. **A CACHED VALUE WINS EVEN WHEN IT IS THE EMPTY STRING**, and the
+ *  no-KV arm returns WITHOUT caching, because there is no store to be consistent with. */
+export async function resolveAdminPassword(deps: AdminPasswordDeps): Promise<string> {
+  const hit = deps.cached(ADMIN_PASSWORD_KEY);
+  if (hit !== undefined) return String(hit);
+  const secret = deps.secretValue ? String(deps.secretValue) : "";
+  const legacy = async () => adminPasswordRecord(LEGACY_SALT, await deps.hash(secret));
+  if (!deps.hasKv) return secret ? await legacy() : "";
+  let v = (await deps.get(ADMIN_PASSWORD_KEY)) || "";
+  if (!v && secret) {
+    // one-time migration from the Worker secret — stored HASHED, because a bare hash (no colon) made
+    // verification permanently fail: admin locked out of the console.
+    v = await legacy();
+    await deps.put(ADMIN_PASSWORD_KEY, v);
+  }
+  deps.cache(ADMIN_PASSWORD_KEY, v);
+  return v;
+}
+"#;
+
+/// **THE PRODUCER FOR `admin-logic.ts`.**
+pub fn render_admin_typescript() -> String {
+    TS_MODULE_ADMIN.to_string()
+}
+
+/// The committed admin emission, and the path the refresh command writes.
+pub fn admin_typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/store/admin-logic.ts")
+}
+
 /// The emitted module's header, and then the module.
 const TS_MODULE: &str = r#"/**
  * users-logic.ts — GENERATED. DO NOT EDIT BY HAND.
@@ -778,6 +1220,56 @@ mod tests {
         assert_eq!(canonical(&json!(0)), "0");
         assert_eq!(canonical(&json!({"a": 1})), "0");
     }
+
+    /// **THE SEED'S THREE MIGRATIONS, AS THE PURE RULES THEY REST ON.**
+    ///
+    /// MUTATION: make `backfill_needed` answer `false` for a record whose `token` is the empty string.
+    /// RESULT:   this test fails — and a deployment seeded before the mint fix stays locked out forever, which is
+    ///           the defect the backfill exists for (`bootstrap` and `reset-password` 403 on `!admin?.token`, and
+    ///           `register`/`login` 500 with "Admin password not configured").
+    #[test]
+    fn the_admin_record_rules_are_the_sources() {
+        // `${salt}:${hash}`, and the SPLIT IS THE FIRST COLON — a hash containing one keeps the rest.
+        assert_eq!(admin_password_record("legacy", "ab"), "legacy:ab");
+        assert_eq!(
+            admin_password_parts("legacy:ab:cd"),
+            ("legacy".to_string(), "ab:cd".to_string())
+        );
+        // A record with NO colon answers (whole, "") — the source's `stored.split(":")` destructuring.
+        assert_eq!(
+            admin_password_parts("nocolon"),
+            ("nocolon".to_string(), String::new())
+        );
+        assert_eq!(admin_password_parts(""), (String::new(), String::new()));
+        // The fresh record's shape, field for field.
+        assert_eq!(
+            admin_record("admin", "tok", 7),
+            json!({"id": "admin", "username": "admin", "role": "admin", "enabled": true, "createdAt": 7, "token": "tok"})
+        );
+        // The backfill's test: a record that EXISTS with a FALSY token — and only that.
+        assert!(backfill_needed(Some(&json!({"id": "admin", "token": ""}))));
+        assert!(backfill_needed(Some(&json!({"id": "admin"}))));
+        assert!(backfill_needed(Some(
+            &json!({"id": "admin", "token": null})
+        )));
+        assert!(!backfill_needed(Some(
+            &json!({"id": "admin", "token": "t"})
+        )));
+        assert!(
+            !backfill_needed(None),
+            "no record is the FRESH seed's arm, not the backfill's"
+        );
+        // The v1 addresses are the schema's own strings, and the token marker is the v1 id.
+        assert_eq!(V1_ADMIN_USER_KEY, "user:u-admin");
+        assert_eq!(V1_ADMIN_UKEYS_KEY, "ukeys:u-admin");
+        assert_eq!(V1_USERNAME_KEY, "username:admin");
+        assert_eq!(V1_ADMIN_ID, "u-admin");
+        assert_eq!(LEGACY_SALT, "legacy");
+        assert_eq!(ADMIN_PASSWORD_SALT_BYTES, 8);
+        // The key families, from their owner.
+        assert_eq!(USER_KEY_PREFIX, "user:");
+        assert_eq!(TOKEN_KEY_PREFIX, "token:");
+    }
 }
 
 #[cfg(test)]
@@ -832,5 +1324,76 @@ mod emission {
         ] {
             assert!(ts.contains(rule), "the emission lost: {rule}");
         }
+    }
+
+    /// **THE ADMIN EMISSION'S FRESHNESS CHECK** — a second module, one producer.
+    #[test]
+    fn the_admin_typescript_is_what_this_module_emits() {
+        let path = admin_typescript_path();
+        let rendered = render_admin_typescript();
+        if std::env::var("SUMMRISE_REFRESH_ADMIN").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write admin-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_ADMIN=1 cargo test user_store::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/store/admin-logic.ts is not what user_store.rs emits — \
+             run SUMMRISE_REFRESH_ADMIN=1 cargo test user_store::emission"
+        );
+    }
+
+    /// **THE SEED'S THREE MIGRATIONS ARE IN THE TEXT, IN ORDER, WITH THE GUARDS THAT MAKE EACH ONE SAFE.**
+    ///
+    /// MUTATION: move the `user:${ADMIN_ID}` early return above the empty-token backfill.
+    /// RESULT:   this test fails on the order assertion — and a deployment seeded with an empty token would stay
+    ///           locked out forever, which is the defect the backfill was written for.
+    #[test]
+    fn the_admin_emission_carries_the_seed_in_order() {
+        let ts = render_admin_typescript();
+        for item in [
+            format!("export const ADMIN_PASSWORD_KEY = \"{ADMIN_PASSWORD_KEY}\";"),
+            format!("export const ADMIN_SEEDED_KEY = \"{ADMIN_SEEDED_KEY}\";"),
+            format!("export const CLIENT_KEY = \"{CLIENT_KEY}\";"),
+            format!("export const V1_ADMIN_USER_KEY = \"{V1_ADMIN_USER_KEY}\";"),
+            format!("export const V1_ADMIN_UKEYS_KEY = \"{V1_ADMIN_UKEYS_KEY}\";"),
+            format!("export const V1_USERNAME_KEY = \"{V1_USERNAME_KEY}\";"),
+            format!("export const V1_ADMIN_ID = \"{V1_ADMIN_ID}\";"),
+            format!("export const LEGACY_SALT = \"{LEGACY_SALT}\";"),
+            format!("export const ADMIN_PASSWORD_SALT_BYTES = {ADMIN_PASSWORD_SALT_BYTES};"),
+            "export function adminPasswordRecord(".to_string(),
+            "export function adminPasswordParts(".to_string(),
+            "export function adminRecord(".to_string(),
+            "export function backfillNeeded(".to_string(),
+            "export async function seedAdminSequence(".to_string(),
+            "export async function resolveAdminPassword(".to_string(),
+            "import { ADMIN_ID, ADMIN_USERNAME, USER_KEY_NAMES } from \"./users-logic.ts\";"
+                .to_string(),
+        ] {
+            assert!(ts.contains(&item), "the emission lost: {item}");
+        }
+        // THE ORDER: migration, then backfill, then the marker return, then the record return, then the seed.
+        let at = |needle: &str| {
+            ts.find(needle)
+                .unwrap_or_else(|| panic!("missing {needle}"))
+        };
+        let migration = at("const oldRaw = await deps.get(V1_ADMIN_USER_KEY);");
+        let backfill = at("2. THE EMPTY-TOKEN BACKFILL");
+        let marker = at("if (await deps.get(ADMIN_SEEDED_KEY)) return;");
+        let existing = at("if (await deps.get(`user:${ADMIN_ID}`)) return;");
+        let seed = at("const admin = adminRecord(ADMIN_USERNAME, adminToken, deps.now());");
+        assert!(
+            migration < backfill && backfill < marker && marker < existing && existing < seed,
+            "the seed's order is the product: migration -> backfill -> marker -> record -> fresh seed"
+        );
+        // And the legacy fallback is the SHARED name, not a second spelling of it.
+        assert!(
+            ts.contains(r#"(await deps.get(CLIENT_KEY)) || String(deps.secret(CLIENT_KEY) || "")"#)
+        );
     }
 }

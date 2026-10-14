@@ -34,9 +34,11 @@ use serde_json::Value;
 use worker::*;
 
 use crate::device_registry::js_falsy_string;
+// The two key families are the USER STORE's (it owns the schema); an Access-provisioned account is a user.
 use crate::device_store;
 use crate::key_lock::{with_key_lock, KeyedLocks};
 use crate::session_gate::b64url_decode;
+use crate::user_store::{TOKEN_KEY_PREFIX, USER_KEY_PREFIX};
 use crate::RouteFailure;
 
 /// `CERTS_TTL_MS` — the fetched JWKS is cached for an hour, per isolate, exactly like the source's `jwksCache`.
@@ -60,12 +62,6 @@ fn env_str(env: &Env, name: &str) -> Option<String> {
 
 /// `access-email:<email>` — the KV key binding a verified Access identity to a console user.
 pub const ACCESS_EMAIL_KEY: &str = "access-email:";
-
-/// `user:<id>` / `token:<token>` — the two key families this module reads and writes. Named here because the
-/// EMISSION publishes them: a key written by one language and read by the other, with the spelling in both, is
-/// the class `x-do-auth`, `/__decision` and `"unknown"` each cost a landing.
-pub const USER_KEY_PREFIX: &str = "user:";
-pub const TOKEN_KEY_PREFIX: &str = "token:";
 
 /// `user:admin` — the seeded account the owner shortcut reads.
 pub const ADMIN_USER_KEY: &str = "user:admin";

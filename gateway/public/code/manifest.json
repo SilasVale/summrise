@@ -146,6 +146,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/admin-logic.ts",
+      "path": "files/summrise-gate/src/store/admin-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/admin.ts",
       "path": "files/summrise-gate/src/store/admin.ts",
       "group": "summrise-gate"
