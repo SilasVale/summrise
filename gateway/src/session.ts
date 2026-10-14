@@ -26,7 +26,37 @@ import {
   getUser as liveGetUser,
   type User,
 } from "./store.ts";
-import { parseCookie, verifySessionToken, SESSION_COOKIE } from "./auth.ts";
+import { parseCookie, verifySessionToken } from "./auth.ts";
+// **THE SEQUENCE ITSELF IS AN EMISSION NOW (2026-10-14)** — `session-logic.ts`, GENERATED from
+// `gateway/wasm/src/session_gate.rs`. What is left here is the HOST: the cookie parse, the Cloudflare Access
+// fallback, the store seam, the isolate `Map` the revocation reads go through, and the two refusals. **The
+// ORDER of the checks is not written here any more** — it is `cookieSession` in the emission, because the order
+// is the security property and a comment cannot be reordered into a vulnerability the way code can.
+import {
+  ADMIN_REQUIRED_MESSAGE,
+  cookieSession,
+  isAdmin,
+  NOT_LOGGED_IN_MESSAGE,
+  SESSION_COOKIE,
+} from "./session-logic.ts";
+
+/** Production binding — the previous direct imports, named as one seam. */
+export const liveSessionStore: SessionUserStore = {
+  getAdminPassword: liveGetAdminPassword,
+  getUser: liveGetUser,
+};
+
+export {
+  ADMIN_REQUIRED_MESSAGE,
+  isAdmin,
+  issueSessionSecret,
+  NOT_LOGGED_IN_MESSAGE,
+  NOT_REVOKED_MAX,
+  NOT_REVOKED_TTL_MS,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  sessionSecret,
+} from "./session-logic.ts";
 import { jsonError } from "./http.ts";
 import { requireAccessSession } from "./access.ts";
 
@@ -49,41 +79,21 @@ export interface SessionUserStore {
   getUser(env: any, uid: string): Promise<User | null>;
 }
 
-/** Production binding — the previous direct imports, named as one seam. */
-export const liveSessionStore: SessionUserStore = {
-  getAdminPassword: liveGetAdminPassword,
-  getUser: liveGetUser,
-};
-
-export function sessionSecret(env: any, adminPassword: string): string {
-  // VERIFY path only (rotation compat): prefer the dedicated SESSION_SECRET
-  // but still accept cookies signed with the admin password so a secret
-  // rotation / first-time SESSION_SECRET rollout doesn't log everyone out.
-  // New issuance MUST use issueSessionSecret (fail-closed) instead.
-  return env.SESSION_SECRET || adminPassword;
-}
-
-/**
- * Issuance key for NEW sessions (login / register) — FAIL CLOSED.
- * Without a dedicated high-entropy SESSION_SECRET the HMAC key would fall
- * back to the admin password, letting any invited user offline-brute-force
- * it from their own signed cookie (HMAC-SHA256 is not memory-hard).
- * Returns null (and logs an error) when unconfigured; callers must refuse
- * to issue a session (HTTP 500 config_error), never silently fall back.
- */
-export function issueSessionSecret(env: any): string | null {
-  if (env.SESSION_SECRET) return env.SESSION_SECRET;
-  console.error(
-    "[session] SESSION_SECRET not configured — refusing to issue new session (fail-closed)",
-  );
-  return null;
-}
-
 // Negative-cache for the revocation check — this was the LAST raw KV read on
 // every console request (the 30s status poll alone burned ~3k reads/day
 // against the free tier). Tradeoff matches AUTH_CACHE_TTL elsewhere in the
 // store: a logout takes <=60s to propagate to a hot isolate.
 const __notRevoked = new Map<string, { revoked: boolean; exp: number }>();
+
+/** The isolate cache, as the emission's interface — the `Map` is platform state and stays here. */
+const revokedCache = {
+  get: (key: string) => __notRevoked.get(key),
+  set: (key: string, entry: { revoked: boolean; exp: number }) => {
+    __notRevoked.set(key, entry);
+  },
+  size: () => __notRevoked.size,
+  clear: () => __notRevoked.clear(),
+};
 
 export async function requireSession(
   request: Request,
@@ -102,34 +112,19 @@ async function requireCookieSession(
   env: any,
   store: SessionUserStore,
 ): Promise<User | null> {
-  const ap = await store.getAdminPassword(env);
-  if (!ap) return null;
+  // **`parseCookie(request.headers.get("Cookie") || "")[SESSION_COOKIE]`** — the host owns the header read.
   const cookie = parseCookie(request.headers.get("Cookie") || "")[SESSION_COOKIE];
-  if (!cookie) return null;
-  // Revoked by logout (server-side blacklist — a copied cookie dies too).
-  if (env.KEYS) {
-    const hit = __notRevoked.get(cookie);
-    if (hit && hit.exp > Date.now()) {
-      if (hit.revoked) return null;
-    } else {
-      const revoked = (await env.KEYS.get(`sess-revoked:${cookie}`)) === "1";
-      if (__notRevoked.size >= 512) __notRevoked.clear();
-      __notRevoked.set(cookie, { revoked, exp: Date.now() + 60_000 });
-      if (revoked) return null;
-    }
-  }
-  const primary = sessionSecret(env, ap);
-  let session = await verifySessionToken(primary, cookie);
-  if (!session && env.SESSION_SECRET && ap && env.SESSION_SECRET !== ap) {
-    // Rotation compat: SESSION_SECRET is set now, but this cookie was
-    // signed with the old admin-password key — accept it this once (the
-    // next login re-issues under SESSION_SECRET).
-    session = await verifySessionToken(ap, cookie);
-  }
-  if (!session) return null;
-  const user = await store.getUser(env, session.uid);
-  if (!user || !user.enabled) return null;
-  return user;
+  return (await cookieSession({
+    adminPassword: await store.getAdminPassword(env),
+    env,
+    cookie,
+    hasKeys: !!env.KEYS,
+    nowMs: () => Date.now(),
+    readRevoked: async (token: string) => (await env.KEYS.get(`sess-revoked:${token}`)) === "1",
+    cache: revokedCache,
+    verify: (secret: string, token: string) => verifySessionToken(secret, token),
+    loadUser: (uid: string) => store.getUser(env, uid),
+  })) as User | null;
 }
 
 /**
@@ -143,9 +138,7 @@ export async function requireAdmin(
   store: SessionUserStore = liveSessionStore,
 ): Promise<User | Response> {
   const user = await requireSession(request, env, store);
-  if (!user) return jsonError(401, "Not logged in or session expired", "authentication_error");
-  if (user.role !== "admin") {
-    return jsonError(403, "Admin permission required", "authorization_error");
-  }
+  if (!user) return jsonError(401, NOT_LOGGED_IN_MESSAGE, "authentication_error");
+  if (!isAdmin(user)) return jsonError(403, ADMIN_REQUIRED_MESSAGE, "authorization_error");
   return user;
 }
