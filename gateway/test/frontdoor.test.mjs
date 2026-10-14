@@ -144,3 +144,72 @@ test("static page: off-host path 404s; page host proxies ASSETS or 404s", async 
   assert.equal(proxied.status, 200);
   assert.equal(await proxied.text(), "landing");
 });
+
+// ── THE ADMIN FAMILY'S CUTOVER ───────────────────────────────────────────────────────────────────
+//
+// **THIS IS THE LANDING THAT MAKES SEVENTEEN PORTED ROUTES LIVE.** The worker has served `/api/admin/*` since
+// the model probe landed; until this cutover nothing routed to it, so the ported family was dead weight behind a
+// path the console's own plugin registry answered first. These tests pin the PREDICATE (path for path, because a
+// path handed over is a path that must be served) and the ROLLBACK (no binding → the TypeScript plugin).
+test("the admin family is handed to the worker, path for path", async () => {
+  const cases = [
+    ["GET", "/api/admin/users"],
+    ["GET", "/api/admin/cloudflare-token"],
+    ["GET", "/api/admin/password"],
+    ["GET", "/api/admin/models"],
+    ["GET", "/api/admin/providers"],
+    ["GET", "/api/admin/catalogue"],
+    ["GET", "/api/admin/public"],
+    ["PUT", "/api/admin/password"],
+    ["PUT", "/api/admin/cloudflare-token"],
+    ["PUT", "/api/admin/users/bob/enabled"],
+    ["PUT", "/api/admin/models/og%2Fmimo-v2.5/enabled"],
+    ["POST", "/api/admin/invite"],
+    ["POST", "/api/admin/models"],
+    ["POST", "/api/admin/models/probe"],
+    ["POST", "/api/admin/providers"],
+    ["DELETE", "/api/admin/models/og%2Fmimo-v2.5"],
+    ["DELETE", "/api/admin/providers/acme%2F"],
+    // **THE EMPTY PREFIX IS A ROUTE, NOT A MISS**: `DELETE /api/admin/providers/` is in the family and answers
+    // the route's own 400 — the Rust predicate claims it, so this one has to as well.
+    ["DELETE", "/api/admin/providers/"],
+  ];
+  for (const [method, path] of cases) {
+    const e = env();
+    await worker.fetch(new Request(`https://x${path}`, { method }), e);
+    assert.deepEqual(
+      e._frontDoor,
+      [`${method} ${path}`],
+      `${method} ${path} must be handed to the worker`,
+    );
+  }
+});
+
+test("a path the family does not claim is NOT handed over", async () => {
+  // Each of these shares a prefix or a shape with the family and must stay on the TypeScript path: an unknown
+  // `/api/admin/...` path, a GET where only a PUT exists, and a DELETE that is not one of the two dynamic arms.
+  for (const [method, path] of [
+    ["GET", "/api/admin/anything"],
+    ["GET", "/api/admin/models/og%2Fmimo-v2.5/enabled"],
+    ["PUT", "/api/admin/users/bob"],
+    ["POST", "/api/admin/users"],
+    ["DELETE", "/api/admin/invite"],
+    ["GET", "/api/admin"],
+  ]) {
+    const e = env();
+    await worker.fetch(new Request(`https://x${path}`, { method }), e);
+    assert.deepEqual(e._frontDoor, [], `${method} ${path} must NOT be handed to the worker`);
+  }
+});
+
+test("WITHOUT the binding the admin family falls back to the TypeScript plugin", async () => {
+  // **THE ROLLBACK, AND IT IS THE BINDING'S ABSENCE.** `plugins/admin.ts` is unchanged and still registered, so
+  // a local `wrangler dev` or a deployment whose binding was removed serves the family as it did before. The
+  // assertion is that the request reached a TypeScript handler at all — a session-gated route answers 401 there,
+  // where an unbound handover would have reached no one.
+  const e = env();
+  delete e.WASM_GATE;
+  const res = await worker.fetch(new Request("https://x/api/admin/users"), e);
+  assert.equal(res.status, 401, "the plugin's own session gate, not a routing 404");
+  assert.deepEqual(e._frontDoor, [], "nothing may reach a worker that is not bound");
+});
