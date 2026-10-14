@@ -77,83 +77,18 @@ pub struct DeviceFields {
     pub token: String,
 }
 
-/// `String(v || "")` — the truthiness arm the source's `body?.name || ""` performs before every trim.
+/// **THE COERCIONS LIVE IN `summrise-core::text` NOW (2026-10-13), AND THESE NAMES ARE RE-EXPORTS**, so every
+/// call site in this crate and in the emitters keeps reading `device_registry::js_to_string` and friends. This
+/// file held SIX of the worker's eight copies; the core holds the one the engine agrees with.
 ///
-/// `undefined`, `null`, `false`, `0` and `""` are all falsy and all become `""`; every other value is
-/// `String(v)`, so `true` → `"true"` and `{}` → `"[object Object]"` (both then fail the name rule).
-pub fn js_falsy_string(v: Option<&Value>) -> String {
-    js_truthy_string(v, "")
-}
-
-/// `String(v || fallback)` — the general form, which `verifySessionToken`'s `String(data.role || "user")`
-/// and `validateDevice`'s three fields are both instances of.
-pub fn js_truthy_string(v: Option<&Value>, fallback: &str) -> String {
-    match v {
-        Some(value) if !js_falsy(value) => js_to_string(value),
-        _ => fallback.to_string(),
-    }
-}
-
-/// `String(v)` with `undefined` for a missing key — the difference `String(data.uid)` turns on, and the
-/// difference `js_truthy_string` deliberately does not have.
-pub fn js_to_string_of(v: Option<&Value>) -> String {
-    match v {
-        Some(value) => js_to_string(value),
-        None => "undefined".to_string(),
-    }
-}
-
-/// JavaScript truthiness for a JSON value: `undefined`, `null`, `false`, `0`, `NaN` and `""` are falsy.
-pub fn js_falsy(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::Bool(b) => !*b,
-        Value::Number(n) => n.as_f64() == Some(0.0) || n.as_f64().is_none_or(f64::is_nan),
-        Value::String(s) => s.is_empty(),
-        Value::Array(_) | Value::Object(_) => false,
-    }
-}
-
-/// JavaScript truthiness, the POSITIVE form of [`js_falsy`] — the source writes `x ? …` far more often than
-/// `!x ? …`, and a call site that has to spell the negation reads as the opposite of what it means.
-pub fn js_truthy(v: &Value) -> bool {
-    !js_falsy(v)
-}
-
-/// `String(v)` for the JSON values a request body can carry.
-pub fn js_to_string(v: &Value) -> String {
-    match v {
-        Value::Null => "null".to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => js_number_string(n),
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|x| match x {
-                Value::Null => String::new(),
-                other => js_to_string(other),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".to_string(),
-    }
-}
-
-/// `String(number)`: an integer prints without a fraction, which `serde_json`'s own `to_string` does not do for
-/// a float that arrived as `1.0`.
-fn js_number_string(n: &serde_json::Number) -> String {
-    if let Some(i) = n.as_i64() {
-        return i.to_string();
-    }
-    if let Some(u) = n.as_u64() {
-        return u.to_string();
-    }
-    let f = n.as_f64().unwrap_or(f64::NAN);
-    if f.fract() == 0.0 && f.abs() < 1e21 {
-        return format!("{}", f as i64);
-    }
-    format!("{f}")
-}
+/// THE NAMES ARE THE SOURCE'S SHAPES RATHER THAN ONE FUNCTION: `js_falsy_string` is `String(v || "")`,
+/// `js_truthy_string` is `String(v || fallback)`, `js_to_string_of` is `String(v)` with `"undefined"` for an
+/// ABSENT key, and `js_to_string` is `String(v)` for a value that is there. Four call sites, four meanings, and
+/// collapsing them is how `String(data.role || "user")` becomes `String(data.role)`.
+pub use summrise_core::text::{
+    js_falsy, js_falsy_string, js_string as js_to_string, js_string_of as js_to_string_of,
+    js_truthy, js_truthy_string,
+};
 
 /// `validateDevice(body)` — the name, the hostname, the token, IN THAT ORDER (the order is which message a
 /// caller with two bad fields gets).

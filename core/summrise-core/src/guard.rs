@@ -12,7 +12,7 @@
 //! The worker re-exports every name below from `device.rs`, so its call sites and its own gates (`device-fetch.test.mjs`
 //! through the emission, `production_host.rs` through the suffix) read exactly what they read before.
 
-use crate::text::js_number_of;
+use crate::text::{js_is_integer, js_number_of};
 
 /// The default device-host suffix. **IT IS A PRODUCTION HOSTNAME**, which is why this file is declared in
 /// `agent/tests/production_host.rs` beside `device-fetch.ts` — the rule that decides what a device
@@ -50,10 +50,8 @@ pub fn device_host_error(hostname: &str) -> Option<String> {
     let host = hostname.to_lowercase();
     let is_172_private = if let Some(rest) = host.strip_prefix("172.") {
         let second = rest.split('.').next().unwrap_or("");
-        match js_number_of(second) {
-            Some(n) => n.fract() == 0.0 && (16.0..=31.0).contains(&n),
-            None => false,
-        }
+        let n = js_number_of(second);
+        js_is_integer(n) && (16.0..=31.0).contains(&n)
     } else {
         false
     };

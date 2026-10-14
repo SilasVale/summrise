@@ -18,67 +18,10 @@ pub const GLM_LOTTERY_MODEL: &str = "z-ai/glm-5.2:free";
 pub const UPSTREAM_TIMEOUT_MS: i64 = 30_000;
 pub const OG_TIMEOUT_MS: i64 = 120_000;
 
-/// `Number(x)` for the shapes an env value can take — the engine's coercion, not a parse.
-///
-/// `NaN` is the answer for anything that is not a number, and the callers' `Number.isFinite` test is what
-/// turns it into the default. An ARRAY coerces through its string form (`[]` -> `""` -> 0, `[5]` -> "5"),
-/// which is why this handles it rather than refusing it.
-pub fn js_number(v: &serde_json::Value) -> f64 {
-    match v {
-        serde_json::Value::Null => 0.0,
-        serde_json::Value::Bool(b) => {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        serde_json::Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
-        serde_json::Value::String(s) => js_number_of_string(s),
-        serde_json::Value::Array(items) => {
-            if items.is_empty() {
-                0.0
-            } else if items.len() == 1 {
-                js_number(&items[0])
-            } else {
-                f64::NAN
-            }
-        }
-        serde_json::Value::Object(_) => f64::NAN,
-    }
-}
-
-/// `Number(str)`: trim, then the empty string is 0, the three prefixed bases are integers, and anything
-/// else must be a complete decimal literal (or `Infinity`).
-fn js_number_of_string(s: &str) -> f64 {
-    let t =
-        s.trim_matches(|c: char| matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000c}' | '\u{000b}'));
-    if t.is_empty() {
-        return 0.0;
-    }
-    let lower = t.to_ascii_lowercase();
-    let prefixed = |prefix: &str, radix: u32| -> Option<f64> {
-        lower
-            .strip_prefix(prefix)
-            .filter(|rest| !rest.is_empty())
-            .and_then(|rest| i64::from_str_radix(rest, radix).ok())
-            .map(|n| n as f64)
-    };
-    if let Some(v) = prefixed("0x", 16) {
-        return v;
-    }
-    if let Some(v) = prefixed("0o", 8) {
-        return v;
-    }
-    if let Some(v) = prefixed("0b", 2) {
-        return v;
-    }
-    match lower.as_str() {
-        "infinity" | "+infinity" => f64::INFINITY,
-        "-infinity" => f64::NEG_INFINITY,
-        _ => lower.parse::<f64>().unwrap_or(f64::NAN),
-    }
-}
+/// **`Number(x)` LIVES IN `summrise-core::text` NOW (2026-10-13) AND THIS NAME IS THE RE-EXPORT.** The copy
+/// that used to be here was the worker's only FAITHFUL one — it had the `0x`/`0o`/`0b` arms and `Infinity` —
+/// and it is the copy the core kept, because `str::parse::<f64>()` refuses what the engine accepts.
+pub use summrise_core::text::js_number;
 
 /// The shape of a retry policy. `None` is an ABSENT key, which is not the same as a false one: the
 /// JavaScript builds each arm as an object literal, so `attempts`/`backoffMs`/`retry502`/
