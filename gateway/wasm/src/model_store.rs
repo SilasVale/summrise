@@ -544,27 +544,6 @@ fn push_bare(card: &mut Value, bare: &str) {
     }
 }
 
-/// `ROUTE_INFO` — the console's channel table, **AS THE WORKER'S COPY OF THE SAME BYTES**.
-///
-/// `channels.ts` stays the source (the prefix, the backend NAME, the description and the bare model names
-/// `routeModelsFor` derives from the registry); `scripts/sync-route-info-json.mjs` mirrors it here, and
-/// `test/model-config-file.test.mjs` fails when the twin drifts. The prose is the operator's editing surface, and
-/// moving it into Rust to emit it back would have been a bigger decision than this route is worth.
-static ROUTE_INFO: std::sync::OnceLock<Vec<Value>> = std::sync::OnceLock::new();
-
-/// The cards, parsed once per isolate. A malformed twin answers an EMPTY table rather than a 500 — the same
-/// "degrade to nothing extra" rule the catalogue file follows.
-pub fn route_info() -> Vec<Value> {
-    ROUTE_INFO
-        .get_or_init(|| {
-            serde_json::from_str::<Value>(include_str!("../route-info.json"))
-                .ok()
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default()
-        })
-        .clone()
-}
-
 /// The emitted module's header, and then the module./// The emitted module's header, and then the module.
 const TS_MODULE: &str = r#"/**
  * models-logic.ts — GENERATED. DO NOT EDIT BY HAND.

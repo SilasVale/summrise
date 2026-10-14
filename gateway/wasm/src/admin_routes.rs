@@ -393,7 +393,7 @@ async fn admin_public(request: &Request, env: &Env) -> Result<Response, RouteFai
     let advertised = advertised_ids_for(env).await;
     let provided = crate::store::advertised_provider_models(&providers);
     let routes = crate::model_store::catalogue_routes(
-        &Value::Array(crate::model_store::route_info()),
+        &Value::Array(crate::registry::channel_cards()),
         &advertised,
         &Value::Array(custom),
         &Value::Array(

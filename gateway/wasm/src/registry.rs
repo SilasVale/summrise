@@ -41,6 +41,99 @@ pub enum ReasoningMax {
     Parsed,
 }
 
+/// **THE CONSOLE'S CHANNEL CARDS — `ROUTE_INFO` — AND THEY USED TO BE THE TYPESCRIPT'S.**
+///
+/// They were `gateway/src/channels.ts`'s table, mirrored into the worker as a GENERATED JSON TWIN
+/// (`wasm/route-info.json`) plus a script that wrote it plus a test that checked the twin. **A TWIN IS A
+/// SECOND SOURCE WEARING A FRESHNESS TEST**: every prose edit had to be made in TypeScript, copied by a
+/// script, committed, and only then could the worker serve it. `/api/admin/public` was the only reason the
+/// worker needed them at all — so the table moved here, the cards are rendered BACK to the console by
+/// [`render_typescript`], and the twin, its generator and its test are deleted.
+///
+/// **WHAT THE OPERATOR LOSES**: a prose edit is now a Rust edit plus the refresh command. **WHAT THE
+/// REPOSITORY GAINS**: one source for nine cards, and no chance of the console's "model routing" section
+/// describing a channel the worker does not dial.
+///
+/// The order is the console's own, and `none` is LAST — it is the default channel's card, not a prefix.
+pub const CHANNEL_CARDS: [(&str, &str, &str); 8] = [
+    (
+        "og/",
+        "OpenCode Go",
+        "opencode.ai/zen/go — all models via chat/completions (OpenAI format); gpt-5.6-luna auto-routes via OpenRouter US exit (zen region-blocks it); muse-spark-* via /v1/responses forced through the US exit (Meta region policy)",
+    ),
+    (
+        "or/",
+        "OpenRouter",
+        "openrouter.ai — user's own key (BYOK); dual-format passthrough, US-proxy switch decides direct vs exit",
+    ),
+    (
+        "nv/",
+        "NVIDIA NIM",
+        "integrate.api.nvidia.com — official nemotron API, dedicated key capacity (build.nvidia.com), OpenAI format",
+    ),
+    (
+        "gmi/",
+        "GMI Cloud",
+        "api.gmi-serving.com — MiniMax Week free tier (MiniMax-M3/M2.7 free 14 days, user's own GMI key), OpenAI format; any catalog model reachable as gmi/<id>",
+    ),
+    (
+        "qw/",
+        "Qwen MaaS (Aliyun)",
+        "token-plan.ap-southeast-1.maas.aliyuncs.com — Anthropic passthrough",
+    ),
+    (
+        "cm/",
+        "Command Code (GOAT)",
+        "api.commandcode.ai/provider — GOAT plan & up get Provider API access (Go plan excluded); Anthropic /v1/messages translated to chat/completions (the Anthropic endpoint only serves claude-*), OpenAI format passes through; any catalog model reachable as cm/<id>",
+    ),
+    (
+        "r4/",
+        "r4.codes",
+        "api.r4.codes — Anthropic /v1/messages AND OpenAI /v1/chat/completions both native (no translation either way), user's own R4_API_KEY; no server-side tools — a web_search request is forwarded UNCHANGED and the tool is ignored (r4 is not on the parse gate that swaps to the og/ lane); any catalog model reachable as r4/<id>",
+    ),
+    (
+        "none",
+        "Command Code (default)",
+        "no prefix → the default channel, Command Code (GOAT) with the model name passed through as-is; `auto` resolves to cm/deepseek/deepseek-v4.1-flash (per-user selection first, see model-route.ts). Note: cm/ rides Command Code's OpenAI endpoint, which rejects claude-* ids (those exist only on their Anthropic endpoint) — use a prefixed deepseek/OSS model there",
+    ),
+];
+
+/// `routeModelsFor(prefix, noneModels)` — **THE DERIVATION, NOT A FIFTH COPY OF THE CATALOGUE.**
+///
+/// The console's own comment records what the hand-maintained version cost: `og/`'s list omitted
+/// `openai/gpt-5.6-luna:floor[1m]` entirely while `/v1/models` advertised it, and two channels listed theirs in
+/// a different order — "nothing caught it: the only ROUTE_INFO test checked that the PREFIXES were covered,
+/// never the lists". The list is therefore DERIVED from [`MODEL_REGISTRY`] in catalogue order, and the `none`
+/// card is the one exception: it carries an explicit list because a bare model name has no prefix to filter by.
+pub fn route_models_for(prefix: &str, none_models: &[&str]) -> Vec<String> {
+    if prefix == "none" {
+        return none_models.iter().map(|s| (*s).to_string()).collect();
+    }
+    MODEL_REGISTRY
+        .iter()
+        .filter(|m| m.id.starts_with(prefix))
+        .map(|m| m.id[prefix.len()..].to_string())
+        .collect()
+}
+
+/// The `none` card's explicit list — **ONE ENTRY, AND IT IS THE MODEL `auto` RESOLVES TO**.
+pub const NONE_CARD_MODELS: [&str; 1] = ["deepseek/deepseek-v4.1-flash"];
+
+/// The cards as JSON, in the console's order — what `/api/admin/public` serves and what the emission renders.
+pub fn channel_cards() -> Vec<serde_json::Value> {
+    CHANNEL_CARDS
+        .iter()
+        .map(|(prefix, backend, desc)| {
+            serde_json::json!({
+                "prefix": prefix,
+                "backend": backend,
+                "desc": desc,
+                "models": route_models_for(prefix, &NONE_CARD_MODELS),
+            })
+        })
+        .collect()
+}
+
 /// See the header. Order = the `/v1/models` order.
 pub const MODEL_REGISTRY: [ModelSpec; 24] = [
     // 24 entries, generated once from gateway/src/channels.ts and then checked by the corpus.
@@ -436,6 +529,168 @@ pub fn reasoning_max_parsed_for(wire_name: &str) -> bool {
         wire_spec(wire_name).and_then(|m| m.reasoning_max),
         Some(ReasoningMax::Parsed)
     )
+}
+
+/// **THE EMISSION: THE CARDS, RENDERED BACK TO THE CONSOLE.**
+///
+/// This is the file that replaces the twin. `channels.ts` re-exports it, so every consumer keeps its import
+/// path and the console's "model routing" section is built from the same bytes the worker serves.
+///
+/// **IT RENDERS THE TABLES RATHER THAN QUOTING THEM**: a hand-written string literal for prose this long is a
+/// transcription waiting to differ from [`CHANNEL_CARDS`], and the freshness test would then be checking the
+/// literal against itself.
+pub fn render_typescript() -> String {
+    let mut out = String::from(
+        "// channels-logic.ts — GENERATED. DO NOT EDIT BY HAND.\n\
+         //\n\
+         // Emitted by `gateway/wasm/src/registry.rs` (`render_typescript`). The freshness test in that module is a\n\
+         // byte comparison against this file:\n\
+         //\n\
+         //     SUMMRISE_REFRESH_CHANNELS=1 cargo test --manifest-path gateway/wasm/Cargo.toml registry::emission\n\
+         //\n\
+         // `gateway/src/channels.ts` re-exports this module. **THE CHANNEL CARDS LIVE HERE NOW** — they were\n\
+         // `channels.ts`'s table, mirrored into the worker as a generated JSON twin with a script and a freshness\n\
+         // test of its own. A twin is a second source wearing a freshness test: the prose had to be edited in\n\
+         // TypeScript, copied by the script, committed, and only then could the worker serve it. The table moved\n\
+         // into the Rust, the cards are rendered back here, and the twin, its generator and its test are gone.\n\
+         //\n\
+         // **AN EDIT TO A CARD IS NOW A RUST EDIT PLUS**:\n\
+         //\n\
+         //     cd gateway && SUMMRISE_REFRESH_CHANNELS=1 cargo test --manifest-path wasm/Cargo.toml registry::emission\n\
+         \n\
+         /** The advertised models on one channel prefix, in catalogue order.  */\n\
+         export const ROUTE_INFO: {\n\
+         \x20 prefix: string;\n\
+         \x20 backend: string;\n\
+         \x20 desc: string;\n\
+         \x20 models: string[];\n\
+         }[] = [\n",
+    );
+    for (prefix, backend, desc, models) in card_rows() {
+        out.push_str("  {\n");
+        out.push_str(&format!("    prefix: {},\n", ts_string(prefix)));
+        out.push_str(&format!("    backend: {},\n", ts_string(backend)));
+        out.push_str(&format!("    desc: {},\n", ts_string(desc)));
+        // **THE LIST'S LAYOUT IS PRETTIER'S, AND THAT IS A RULE RATHER THAN A STYLE**: a generated file that
+        // fails `format:check` is a red CI on a tree nobody edited. Prettier keeps an array on ONE line when the
+        // line fits `printWidth` (100, from gateway/.prettierrc) and wraps it one-per-line when it does not.
+        let one_line = format!(
+            "    models: [{}],",
+            models
+                .iter()
+                .map(|m| ts_string(m))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        if one_line.chars().count() <= PRINT_WIDTH {
+            out.push_str(&one_line);
+            out.push('\n');
+        } else {
+            out.push_str("    models: [\n");
+            for model in &models {
+                out.push_str(&format!("      {},\n", ts_string(model)));
+            }
+            out.push_str("    ],\n");
+        }
+        out.push_str("  },\n");
+    }
+    out.push_str("];\n");
+    out
+}
+
+/// The rows the renderer walks: the cards, joined to their derived model lists. **THE JOIN IS THE EMISSION'S
+/// OWN SHAPE** — a card's `models` is derived, never typed, which is what makes the two sides unable to
+/// disagree about a channel's list.
+fn card_rows() -> Vec<(&'static str, &'static str, &'static str, Vec<String>)> {
+    CHANNEL_CARDS
+        .iter()
+        .map(|(prefix, backend, desc)| {
+            (
+                *prefix,
+                *backend,
+                *desc,
+                route_models_for(prefix, &NONE_CARD_MODELS),
+            )
+        })
+        .collect()
+}
+
+/// `gateway/.prettierrc`'s `printWidth`, which the emission has to know: the arrays it writes are laid out by
+/// Prettier's rule, not by one of mine.
+const PRINT_WIDTH: usize = 100;
+
+/// A TypeScript string literal for a Rust `&str`. The prose carries em-dashes and backticks; it does not carry
+/// quotes or backslashes today, and the escape keeps that from being a requirement.
+fn ts_string(raw: &str) -> String {
+    format!("\"{}\"", raw.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/channels-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_CHANNELS").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write channels-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_CHANNELS=1 cargo test registry::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/channels-logic.ts is not what registry.rs emits — \
+             run SUMMRISE_REFRESH_CHANNELS=1 cargo test registry::emission"
+        );
+    }
+
+    /// **THE CARDS ARE THE CONSOLE'S, IN THE CONSOLE'S ORDER, AND EVERY PREFIX HAS ONE.** The order matters:
+    /// `none` is last because it is the DEFAULT channel's card rather than a prefix, and the console renders
+    /// the list as it arrives.
+    #[test]
+    fn the_cards_are_the_consoles() {
+        let cards = channel_cards();
+        let prefixes: Vec<&str> = cards
+            .iter()
+            .map(|c| c["prefix"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(
+            prefixes,
+            vec!["og/", "or/", "nv/", "gmi/", "qw/", "cm/", "r4/", "none"]
+        );
+        // Every NON-default card's list is DERIVED, so it is exactly the registry's ids for that prefix —
+        // bare, in catalogue order, and never empty (a prefix nobody uses would be a card nobody needs).
+        for card in &cards {
+            let prefix = card["prefix"].as_str().unwrap_or_default();
+            let models = card["models"].as_array().expect("a list");
+            if prefix == "none" {
+                assert_eq!(models.len(), 1, "the default card carries the `auto` model");
+                continue;
+            }
+            assert!(!models.is_empty(), "{prefix} has no models");
+            for m in models {
+                let bare = m.as_str().unwrap_or_default();
+                assert!(
+                    MODEL_REGISTRY
+                        .iter()
+                        .any(|spec| spec.id == format!("{prefix}{bare}")),
+                    "{prefix}{bare} is not in the registry"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
