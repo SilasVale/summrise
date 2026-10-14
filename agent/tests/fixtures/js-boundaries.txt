@@ -280,6 +280,17 @@ BOUNDARY | gateway/src/store/users.ts | **THE USER-RECORD HOST, AND ITS DECISION
 #   this file, so `indexOf` answered `-1` and the slice ran to the end of the module — passing against the whole
 #   host instead of the record. The slice is bounded by the record's own braces now and fails loudly when they
 #   move.
+GENERATED | gateway/src/store/cache-logic.ts | the per-isolate cache's rules — the two TTLs, the prefix list that chooses between them, the two bounds and the eviction comparison — emitted from Rust | gateway/wasm/src/store.rs
+#   **AND THIS EMISSION EXISTS BECAUSE THE RUST'S PREFIX LIST WAS WRONG (2026-10-14).** The worker's copy was
+#   missing `"providers:"`, with a comment asserting *"the source keeps it as a COMMENTED entry"* and a test that
+#   pinned the same wrong answer by iterating the constant it was checking — so a deleted or re-pointed provider
+#   (a record carrying a CREDENTIAL and an egress DESTINATION) stayed dialled for up to 24 h on a warm isolate
+#   where `store/cache.ts` propagates it within a minute. The list is written down in the test now, and the
+#   emission's own test compares the two element for element.
+BOUNDARY | gateway/src/store/cache.ts | **THE CACHE'S HOST, AND ITS RULES ARE EMITTED FROM RUST (2026-10-14).** What is left is the two
+#   `Map`s (`__c` and `__locks`), `cget`/`cdel`, the write-through `cset` that asks the emission for its TTL and
+#   its bound, the self-pruning lock chain, and `__clearCaches`. The TTLs, the prefix list, the two bounds and the
+#   eviction comparison are `cache-logic.ts`, GENERATED from `gateway/wasm/src/store.rs`.
 GENERATED | gateway/src/cors-logic.ts | the CORS decisions — the allowlist, the loopback pair, the base headers and the reflect/stamp rules — emitted from Rust | gateway/wasm/src/cors.rs
 #   **THE THIRD EMISSION, AND THE FIRST WHOSE SUBJECT IS REACHED BY THE STATUS PAGE (2026-10-13).** `http.ts`'s CORS
 #   half is called by `plugins/status.ts`, and the status page reports ON the worker, so it must not ask it

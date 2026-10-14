@@ -151,6 +151,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/cache-logic.ts",
+      "path": "files/summrise-gate/src/store/cache-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/cache.ts",
       "path": "files/summrise-gate/src/store/cache.ts",
       "group": "summrise-gate"
