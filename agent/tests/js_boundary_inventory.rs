@@ -781,10 +781,16 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 58 -> 57 THE SAME DAY, FOR `store/users.ts`: the mask, the three-state key status, the seeded admin's two
+// names and the token/salt/invite sizes are an emission from `user_store.rs` now. **AND THIS LANDING IS WHY THE
+// MASK WAS WRONG**: the Rust twin counted `chars()` where the source counts UTF-16 code units, so `"abcd😀"`
+// took a different arm — invisible while only ASCII rows existed, and forced into the open when the two sides
+// had to be written down beside each other.
+//
 // 59 -> 58 ON 2026-10-13, AND IT IS THE LARGEST SINGLE FILE OF THE TAIL RATHER THAN A DEAD ONE: `store/providers.ts`
 // becomes BOUNDARY because its ~200-line parser — `parseProviderSpec` + `parseProviderModel`, every refusal a response
 // byte — plus the vocabulary, the prefix helpers and the record shapes are now EMITTED from
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 58;
+const MAX_LOGIC: usize = 57;

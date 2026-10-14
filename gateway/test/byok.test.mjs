@@ -52,8 +52,14 @@ test("byok: USER_KEY_NAMES IS the source — set-equal, and absent from the cons
   );
   const { readFile } = await import("node:fs/promises");
   const src = await readFile(new URL("../src/store/users.ts", import.meta.url), "utf8");
-  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
-  assert.deepEqual(leaked, [], `users.ts must not re-type these: ${leaked.join(", ")}`);
+  // **THE DERIVATION LIVES IN THE EMISSION NOW (2026-10-13)** — `USER_KEY_NAMES` is re-exported from
+  // `users-logic.ts` — so the file that could re-type the names is the emission, and it is checked beside the
+  // host. Both, because the host could grow a second list back just as easily as the emission could.
+  const emitted = await readFile(new URL("../src/store/users-logic.ts", import.meta.url), "utf8");
+  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter(
+    (k) => src.includes(`"${k}"`) || emitted.includes(`"${k}"`),
+  );
+  assert.deepEqual(leaked, [], `users.ts/users-logic.ts must not re-type these: ${leaked.join(", ")}`);
 });
 
 test("byok: translate-vision derives the NINE and keeps the TENTH", async () => {

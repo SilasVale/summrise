@@ -191,6 +191,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/users-logic.ts",
+      "path": "files/summrise-gate/src/store/users-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/users.ts",
       "path": "files/summrise-gate/src/store/users.ts",
       "group": "summrise-gate"

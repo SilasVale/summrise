@@ -243,6 +243,13 @@ BOUNDARY | gateway/src/store/settings.ts | **A BOUNDARY IN FACT: ITS DECISIONS A
 #   `settings-logic.ts`, which is GENERATED and whose freshness test is a byte comparison. **The emission is the seam
 #   rather than the decision route because `npm test` cannot reach `/__decision`** — see the spec.
 GENERATED | gateway/src/store/byok.ts | the BYOK channel table and its two lookups, emitted from Rust | gateway/wasm/src/byok.rs
+#   **THE TABLE IS THE RUST'S NOW, AND THE FILE IS ITS EMISSION (2026-10-12).** `byok.rs` carries all five fields
+#   (`kind`, `userKey`, `envKey`, `prefix`, `shape`) and `render_typescript()` writes this file, whose freshness test is
+#   a byte comparison — the shape `mcp_tools.rs` and `settings_logic.rs` already have. The file's own long comment is
+#   CARRIED VERBATIM into the emission, because it is the record of why the table exists and none of it is recoverable
+#   from the rows. **`agent/tests/byok_channel_keys.rs` WAS DELETED WITH IT**: its TypeScript side was this file, so
+#   once the file became the emission the gate compared Rust against its own output — **a gate reading its own subject
+#   cannot fail when the subject changes**, and the freshness test is what carries the emission's honesty now.
 GENERATED | gateway/src/store/providers-logic.ts | the provider vocabulary, the two prefix helpers, the record shapes and the parser whose every refusal is a response byte — emitted from the pure core | core/summrise-core/src/provider_spec.rs
 #   **THE LARGEST SINGLE DECISION IN THE CONSOLE'S TAIL, AND THE FIRST EMISSION PRODUCED BY `summrise-core` RATHER THAN
 #   BY THE WORKER (2026-10-13).** ~200 lines of `store/providers.ts` move here: `parseProviderSpec`,
@@ -258,13 +265,21 @@ BOUNDARY | gateway/src/store/providers.ts | **THE CUSTOM-PROVIDER HOST, AND ITS 
 #   from `core/summrise-core/src/provider_spec.rs`. **`RESERVED_PREFIXES` IS RE-EXPORTED FROM THE EMISSION BY
 #   `channels.ts` NOW**, so the console, the worker's routing and the parser read ONE array where three spellings of the
 #   same nine prefixes used to be held together by a test on one side.
-#   **THE TABLE IS THE RUST'S NOW, AND THE FILE IS ITS EMISSION (2026-10-12).** `byok.rs` carries all five fields
-#   (`kind`, `userKey`, `envKey`, `prefix`, `shape`) and `render_typescript()` writes this file, whose freshness test is
-#   a byte comparison — the shape `mcp_tools.rs` and `settings_logic.rs` already have. The file's own long comment is
-#   CARRIED VERBATIM into the emission, because it is the record of why the table exists and none of it is recoverable
-#   from the rows. **`agent/tests/byok_channel_keys.rs` WAS DELETED WITH IT**: its TypeScript side was this file, so
-#   once the file became the emission the gate compared Rust against its own output — **a gate reading its own subject
-#   cannot fail when the subject changes**, and the freshness test is what carries the emission's honesty now.
+GENERATED | gateway/src/store/users-logic.ts | the user-account decisions — who the seeded admin is, the key names a user may hold, the token/salt/invite sizes, the mask and the three-state key status — emitted from Rust | gateway/wasm/src/user_store.rs
+#   **THE USERS STORE'S DECISIONS, AND THE MASK WAS WRONG IN RUST UNTIL THE EMISSION MADE THE TWO COMPARABLE
+#   (2026-10-13).** `maskKey` counts UTF-16 CODE UNITS (`v.length`, `v.slice`), and the Rust twin collected
+#   `chars()` — so `"abcd😀"` is six units and FIVE characters, the source takes the SHORT arm and the port took
+#   the long one. Every ASCII row passed on both sides, which is why it survived; the emission is what forced
+#   the two to be written down beside each other.
+BOUNDARY | gateway/src/store/users.ts | **THE USER-RECORD HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left
+#   is the KV read/write pair, the keyed locks, the record reads (`getUser`, `findUserByUsername`,
+#   `findUserByToken`, `listUsers`), the token rotations, the per-user key blob, the invite WRITE and the RouteDO
+#   calls. The vocabulary, the sizes, the mask and the key status are `users-logic.ts`, GENERATED from
+#   `gateway/wasm/src/user_store.rs`. **AND POINTING ONE TEST AT THE EMISSION FOUND A TEST THAT HAD STOPPED
+#   MEASURING**: `auth.test.mjs` sliced the record with an end anchor (`export const ADMIN_USERNAME`) that LEFT
+#   this file, so `indexOf` answered `-1` and the slice ran to the end of the module — passing against the whole
+#   host instead of the record. The slice is bounded by the record's own braces now and fails loudly when they
+#   move.
 GENERATED | gateway/src/cors-logic.ts | the CORS decisions — the allowlist, the loopback pair, the base headers and the reflect/stamp rules — emitted from Rust | gateway/wasm/src/cors.rs
 #   **THE THIRD EMISSION, AND THE FIRST WHOSE SUBJECT IS REACHED BY THE STATUS PAGE (2026-10-13).** `http.ts`'s CORS
 #   half is called by `plugins/status.ts`, and the status page reports ON the worker, so it must not ask it

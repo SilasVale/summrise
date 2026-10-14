@@ -205,7 +205,18 @@ test("PASSWORD_ITERATIONS is pinned: raising it locks out every existing user", 
 
   // ...and the stored record really has nowhere to record the count.
   const users = readFileSync(new URL("../src/store/users.ts", import.meta.url), "utf8");
-  const record = users.slice(users.indexOf("  id: string;"), users.indexOf("export const ADMIN_USERNAME"));
+  // **THE SLICE IS BOUNDED BY THE RECORD'S OWN BRACES, AND IT SAYS SO WHEN THEY MOVE.** The end anchor used to
+  // be `export const ADMIN_USERNAME`, which LEFT this file for the emission on 2026-10-13 — `indexOf` answered
+  // `-1`, `slice(start, -1)` ran to the END OF THE FILE, and the assertions below passed against the whole host
+  // module instead of the record. Nothing failed; the test simply stopped measuring what its sentence says.
+  // **A MISSING ANCHOR MUST FAIL LOUDLY**, which is what the `assert.ok` is for.
+  const start = users.indexOf("  id: string;");
+  const end = users.indexOf("\n}", start);
+  assert.ok(
+    start >= 0 && end > start,
+    "the `User` record's boundaries moved in store/users.ts — this slice would otherwise run to the end of the file and pass for the wrong reason",
+  );
+  const record = users.slice(start, end);
   for (const field of ["salt", "passwordHash"]) {
     assert.ok(record.includes(field), `the user record still carries ${field}`);
   }

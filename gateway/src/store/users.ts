@@ -1,11 +1,37 @@
-import { BYOK_CHANNELS } from "./byok.ts";
 /**
  * store/users.ts — user accounts, gateway tokens, per-user backend keys,
  * per-user route selection (RouteDO), invites, and key masking.
+ *
+ * **THE DECISIONS ARE AN EMISSION NOW (2026-10-13)** — `store/users-logic.ts`, GENERATED from
+ * `gateway/wasm/src/user_store.rs`. What is left here is the HOST: the KV reads and writes, the keyed locks,
+ * the record reads, the invite write and the RouteDO calls.
  */
 
 import { hashPassword, randomHex, safeEq } from "../auth.ts";
 import { cdel, cget, cset, withKeyLock, type Env } from "./cache.ts";
+import {
+  ADMIN_ID,
+  GATEWAY_TOKEN_BYTES,
+  INVITE_CODE_BYTES,
+  INVITE_TTL_SECS,
+  PASSWORD_SALT_BYTES,
+  USER_KEY_NAMES,
+} from "./users-logic.ts";
+
+// …AND RE-EXPORTED, so every existing import (`plugins/admin.ts`, `plugins/auth.ts`, `store/providers.ts`)
+// keeps its path. The names are listed rather than `export *`, because the shape of what this module offers is
+// the thing a reader checks.
+export {
+  ADMIN_ID,
+  ADMIN_USERNAME,
+  GATEWAY_TOKEN_BYTES,
+  INVITE_CODE_BYTES,
+  INVITE_TTL_SECS,
+  PASSWORD_SALT_BYTES,
+  USER_KEY_NAMES,
+  maskKey,
+  userKeysStatus,
+} from "./users-logic.ts";
 
 export interface User {
   id: string;
@@ -22,21 +48,6 @@ export interface User {
   relayToken?: string;
 }
 
-export const ADMIN_USERNAME = "admin";
-export const ADMIN_ID = "admin"; // user ID = username → readable KV keys
-/** Every env-var name a USER may hold a key for, DERIVED from `store/byok.ts` since round 193.
- *
- *  This was the third of four independently-typed copies of the same eight names (round 186).
- *  Order is NOT load-bearing here — every consumer iterates (`for...of`), tests membership
- *  (`.includes`) or counts (`length`), and nothing indexes it positionally (verified before the
- *  change), so deriving it in the source's order is safe.
- *
- *  NOTE for the next reader: round 187 said "nothing compares them" and that was TOO STRONG —
- *  `test/model-route.test.mjs` already asserted that CHANNEL_KEY_RULES covers every entry of
- *  this list, i.e. ONE PAIR of the four was already under test. The gap was real but smaller
- *  than the arc's own summary claimed. */
-export const USER_KEY_NAMES: string[] = BYOK_CHANNELS.map((c) => c.userKey);
-
 async function getJSON(env: Env, key: string): Promise<any> {
   if (!env.KEYS) return null;
   const raw = await env.KEYS.get(key);
@@ -51,7 +62,7 @@ async function getJSON(env: Env, key: string): Promise<any> {
 /* ---- Users ---- */
 
 export function generateGatewayToken(): string {
-  return randomHex(24);
+  return randomHex(GATEWAY_TOKEN_BYTES);
 }
 
 export async function createUser(
@@ -92,7 +103,7 @@ export async function createUser(
       void r;
     }
 
-    const salt = randomHex(16);
+    const salt = randomHex(PASSWORD_SALT_BYTES);
     const passwordHash = await hashPassword(String(password), salt);
     const token = generateGatewayToken();
     // user ID = username → readable KV keys: user:<name> / ukeys:<name> / token:<t> → <name>
@@ -401,58 +412,8 @@ export async function setUserRoute(
 /* ---- Invites ---- */
 
 export async function createInvite(env: Env): Promise<string> {
-  const code = randomHex(5).toUpperCase();
-  // 7-day TTL: an invite shared in chat must not stay valid forever.
-  await env.KEYS.put(`invite:${code}`, "1", { expirationTtl: 7 * 24 * 60 * 60 });
+  const code = randomHex(INVITE_CODE_BYTES).toUpperCase();
+  // The TTL's reason is the emission's; the WRITE is this host's.
+  await env.KEYS.put(`invite:${code}`, "1", { expirationTtl: INVITE_TTL_SECS });
   return code;
-}
-
-/* ---- Masking ---- */
-
-export function maskKey(v: string): string {
-  if (!v) return "not configured";
-  if (v.length <= 6) return v[0] + "…" + v.slice(-2);
-  return v.slice(0, 3) + "…" + v.slice(-4);
-}
-
-/** Per-key configured/masked status for the console (shared by the auth
- *  plugin's /api/me and the admin plugin's user list — was copy-pasted in
- *  both with subtly different types).
- *
- *  AND WHICH CREDENTIAL IS IN FORCE (2026-09-21). `configured` answers "has this
- *  user stored this key"; it does NOT answer "will a request on this channel be
- *  served, and on whose credential" — and since the request path falls back to the
- *  channel's Worker secret (`bearerKeyFor`, translate.ts), those are different
- *  questions. A page that shows only the first told an operator "not configured" for
- *  a channel that was working, and could not explain a 502 on a channel whose own
- *  key had been rotated to a wrong value. `source` is that second answer, derived
- *  from the SAME authority the request path uses (`BYOK_CHANNELS.envKey`):
- *
- *      user        this user's own key is set — it wins, the deployment is not charged
- *      deployment  no user key, but the channel declares an envKey and the worker has it
- *      none        neither — including nv/gmi, whose envKey is null BY DESIGN, so a
- *                  stray secret of the same name is not a fallback here
- *
- *  Pure: `env` is passed in, never read from a global, so the three states are
- *  directly testable and the console cannot invent a fourth. */
-export function userKeysStatus(
-  ukeys: Record<string, any>,
-  env: Record<string, any> = {},
-): Record<string, { configured: boolean; masked: string; source: "user" | "deployment" | "none" }> {
-  const out: Record<
-    string,
-    { configured: boolean; masked: string; source: "user" | "deployment" | "none" }
-  > = {};
-  for (const n of USER_KEY_NAMES) {
-    const v = ukeys?.[n];
-    const channel = BYOK_CHANNELS.find((c) => c.userKey === n);
-    const envKey = channel?.envKey ?? null;
-    const source: "user" | "deployment" | "none" = v
-      ? "user"
-      : envKey && env[envKey]
-        ? "deployment"
-        : "none";
-    out[n] = { configured: !!v, masked: maskKey(v || ""), source };
-  }
-  return out;
 }
