@@ -780,4 +780,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // **AND THE POSTURE BECAME A VALUE**: the outer `catch` returns `FAIL_OPEN_VERDICT` instead of a bare `false`, so
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
-const MAX_LOGIC: usize = 59;
+//
+// 59 -> 58 ON 2026-10-13, AND IT IS THE LARGEST SINGLE FILE OF THE TAIL RATHER THAN A DEAD ONE: `store/providers.ts`
+// becomes BOUNDARY because its ~200-line parser — `parseProviderSpec` + `parseProviderModel`, every refusal a response
+// byte — plus the vocabulary, the prefix helpers and the record shapes are now EMITTED from
+// `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
+// CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
+// forced to 0 on the landed tree: `LOGIC files: 58`.
+const MAX_LOGIC: usize = 58;

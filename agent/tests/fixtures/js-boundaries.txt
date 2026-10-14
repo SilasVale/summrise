@@ -243,6 +243,21 @@ BOUNDARY | gateway/src/store/settings.ts | **A BOUNDARY IN FACT: ITS DECISIONS A
 #   `settings-logic.ts`, which is GENERATED and whose freshness test is a byte comparison. **The emission is the seam
 #   rather than the decision route because `npm test` cannot reach `/__decision`** — see the spec.
 GENERATED | gateway/src/store/byok.ts | the BYOK channel table and its two lookups, emitted from Rust | gateway/wasm/src/byok.rs
+GENERATED | gateway/src/store/providers-logic.ts | the provider vocabulary, the two prefix helpers, the record shapes and the parser whose every refusal is a response byte — emitted from the pure core | core/summrise-core/src/provider_spec.rs
+#   **THE LARGEST SINGLE DECISION IN THE CONSOLE'S TAIL, AND THE FIRST EMISSION PRODUCED BY `summrise-core` RATHER THAN
+#   BY THE WORKER (2026-10-13).** ~200 lines of `store/providers.ts` move here: `parseProviderSpec`,
+#   `parseProviderModel`, `barePrefix`, `advertisedModelId`, the dialect table and the reserved-prefix list. **THE URL
+#   PARSE IS THE ONE THING THAT COULD NOT MOVE** — `new URL` is a WHATWG parser the pure core must not carry — so the
+#   emitted parser takes the PARSED PARTS and the host hands them over; the refusal ORDER is preserved because the
+#   decision reads `base` only after its prefix/reserved/label refusals. It imports `deviceHostError` from
+#   `device-fetch.ts` rather than restating the private-address list, so the SSRF stack stays one copy.
+BOUNDARY | gateway/src/store/providers.ts | **THE CUSTOM-PROVIDER HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left
+#   is the KV read/write pair (`readList`/`writeList`), the per-isolate cache, the file-layer merge, the record views
+#   (`publicProvider`, `providerKey`, `providerModelVision`), the key resolution, and the `new URL` call the parser is
+#   handed. The vocabulary, the prefix helpers, the record shapes and the parser are `providers-logic.ts`, GENERATED
+#   from `core/summrise-core/src/provider_spec.rs`. **`RESERVED_PREFIXES` IS RE-EXPORTED FROM THE EMISSION BY
+#   `channels.ts` NOW**, so the console, the worker's routing and the parser read ONE array where three spellings of the
+#   same nine prefixes used to be held together by a test on one side.
 #   **THE TABLE IS THE RUST'S NOW, AND THE FILE IS ITS EMISSION (2026-10-12).** `byok.rs` carries all five fields
 #   (`kind`, `userKey`, `envKey`, `prefix`, `shape`) and `render_typescript()` writes this file, whose freshness test is
 #   a byte comparison — the shape `mcp_tools.rs` and `settings_logic.rs` already have. The file's own long comment is

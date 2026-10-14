@@ -337,22 +337,14 @@ mod oracle_corpus {
     }
 }
 
-/// `barePrefix(prefix)` — `String(prefix ?? "").replace(/\/+$/, "")`: the TRAILING slashes come off.
+/// **`barePrefix` AND `advertisedModelId` LIVE IN `summrise-core::provider_spec` NOW (2026-10-13)**, because
+/// the console's emission ships them beside the parser that uses them — and these two names are the RE-EXPORTS
+/// every call site here already reads.
 ///
-/// `String(... ?? "")` IS A COERCION, not a null check: a number becomes its digits, an object becomes
-/// `[object Object]`, and an array becomes its joined elements. The corpus carries a number.
-pub fn bare_prefix(prefix: &serde_json::Value) -> String {
-    // **`?? ""` IS NOT DECORATION, AND `js_text` IS NOT A SUBSTITUTE FOR IT.** `String(x ?? "")` maps `null`
-    // and `undefined` to the EMPTY string; `js_text` maps a JSON null to the TEXT `"null"` (it mirrors
-    // `String(x)`, which is a different expression). Measured: with the direct call, a provider whose `prefix`
-    // was absent advertised its models as `null/foo`. The corpus carries a provider with no prefix.
-    let text = if prefix.is_null() {
-        String::new()
-    } else {
-        crate::stream::js_text(prefix)
-    };
-    text.trim_end_matches('/').to_string()
-}
+/// `?? ""` IS THE ARM THAT MOVED WITH THEM, and it is a COERCION rather than a null check: `String(prefix ??
+/// "")` maps `null` and an absent key to the EMPTY string, where `String(null)` is the text `"null"` — measured,
+/// a provider whose `prefix` was absent once advertised its models as `null/foo`.
+pub use summrise_core::provider_spec::{advertised_model_id, bare_prefix};
 
 /// **`providerForPrefix(env, prefix)` — THE CUSTOM-PROVIDER LOOKUP, AND THE HALF THAT WAS MISSING.**
 ///
@@ -458,22 +450,6 @@ pub fn provider_key_env_names(providers: &[serde_json::Value]) -> Vec<String> {
         }
     }
     out
-}
-
-/// `advertisedModelId(prefix, wire)` — **"prefix ONCE, never twice"**, in the source's own words.
-///
-/// The leading slashes come off the wire first, and then the prefix is prepended ONLY IF the wire does not
-/// already start with it. A provider whose models are spelled `acme/foo` under the prefix `acme` would
-/// otherwise be advertised as `acme/acme/foo`.
-pub fn advertised_model_id(prefix: &str, wire: &serde_json::Value) -> String {
-    let bare = bare_prefix(&serde_json::Value::String(prefix.to_string()));
-    let w = crate::stream::js_text(wire);
-    let w = w.trim_start_matches('/');
-    if w.starts_with(&format!("{bare}/")) {
-        w.to_string()
-    } else {
-        format!("{bare}/{w}")
-    }
 }
 
 /// `advertisedProviderModels` — every model of every CUSTOM PROVIDER, as the listing sees them.

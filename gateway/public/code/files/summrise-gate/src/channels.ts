@@ -604,11 +604,19 @@ export const ROUTE_INFO: { prefix: string; backend: string; desc: string; models
  * request — a lie in the catalogue. The routing order is the security guard;
  * this list is the correctness one.
  */
-export const RESERVED_PREFIXES: string[] = [
-  ...ROUTE_INFO.map((r) => r.prefix.replace(/\/$/, "")),
-  "ds",
-  "amd",
-];
+// **THE LIST IS AN EMISSION NOW (2026-10-13) AND THIS IS A RE-EXPORT.** It used to be DERIVED here from the
+// table above (`ROUTE_INFO` minus the trailing slash, plus `ds` and `amd`), while the WORKER spelled the same
+// nine prefixes in `routing.rs` and only a test held the two together. `store/providers-logic.ts` is GENERATED
+// from `core/summrise-core/src/provider_spec.rs`'s `RESERVED_PREFIXES`, so the console, the worker and the
+// parser all read ONE array — and the test that pins it against this file's route table
+// (`upstream.test.mjs`, `RESERVED_PREFIXES` EQUALS `Object.keys(ROUTE_TABLE) ∪ {"none"}`) now pins the RUST
+// list against the TypeScript table, which is the direction that matters.
+//
+// Why reserve at all, when resolveRoute consults ROUTE_TABLE first and a built-in therefore cannot be
+// shadowed? Because the alternative is a provider that validates, is advertised in the console, and then never
+// serves a request — a lie in the catalogue. The routing order is the security guard; this list is the
+// correctness one.
+export { RESERVED_PREFIXES } from "./store/providers-logic.ts";
 
 // ---- Channel health (public /api/health) ----
 // 2026-09-10 (V4 retirement): the ds/ and amd/ cards left with their models —
