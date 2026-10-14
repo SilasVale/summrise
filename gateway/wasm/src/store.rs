@@ -476,6 +476,13 @@ pub use summrise_core::provider_spec::{advertised_model_id, bare_prefix};
 /// it would dial a built-in upstream under a different provider's name."*
 ///
 /// The match is on the BARE prefix (trailing slashes off both sides), and the FIRST record wins — the same
+/// `new URL(raw).host` — the HOST, or `None` when the string is not a URL (the caller keeps the raw text, which
+/// is the console's own arm: "a hand-edited record: show the raw string rather than dropping the card").
+pub fn url_host(raw: &str) -> Option<String> {
+    let url = url::Url::parse(raw).ok()?;
+    url.host_str().map(|h| h.to_string())
+}
+
 /// `publicProvider(p, env)` — the record view: the key is MASKED, never returned, and `keyReady` says whether one
 /// resolved at all. The projection itself is the DECISION ROUTE's (`decisions::public_provider`), called here
 /// rather than restated: this route and `/__decision` must not be able to disagree about a masked credential.

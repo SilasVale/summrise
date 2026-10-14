@@ -58,6 +58,7 @@ pub fn in_family(method: &Method, path: &str) -> bool {
                 | "/api/admin/models"
                 | "/api/admin/providers"
                 | "/api/admin/catalogue"
+                | "/api/admin/public"
         ),
         // PUT is three routes with one method, and two of them are the plugin's DYNAMIC matchers: a prefix plus
         // a suffix, which is why they are written out rather than matched exactly.
@@ -91,6 +92,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Get, "/api/admin/models") => admin_model_state(&request, env).await,
         (Method::Get, "/api/admin/providers") => admin_list_providers(&request, env).await,
         (Method::Get, "/api/admin/catalogue") => admin_catalogue_document(&request, env).await,
+        (Method::Get, "/api/admin/public") => admin_public(&request, env).await,
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
@@ -297,6 +299,91 @@ async fn admin_enable_model(
         &serde_json::json!({ "ok": true, "enabled": id, "disabledModels": next }),
     )
     .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminPublic(request, env)` — **THE MERGED CATALOGUE, AND IT IS THE ONE ROUTE IN THIS FAMILY WITH NO GATE.**
+/// The plugin's header says so in as many words: "ALL routes except /api/admin/public require an admin session".
+/// It is what the console's Models page and `/api/health`-style public views render, and it carries no credential
+/// — the cards, the advertised ids and the API host.
+///
+/// **`catalogueRoutes` IS THE PROJECTION** (the bare-vs-prefixed join the round-58/65 defect was about), and the
+/// host does the two things only it can: flattening the advertised provider models, and parsing each record's
+/// `baseURL` for a card's `host`.
+async fn admin_public(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    let _ = request;
+    let custom = crate::catalogue_file::custom_models(env).await;
+    let disabled =
+        crate::model_store::read_list(env, crate::model_store::DISABLED_MODELS_KEY).await;
+    let providers = crate::catalogue_file::custom_providers(env).await;
+    let advertised = crate::model_store::advertised_ids(
+        &crate::registry::MODEL_REGISTRY
+            .iter()
+            .map(|m| m.id)
+            .collect::<Vec<_>>(),
+        &disabled
+            .iter()
+            .map(summrise_core::text::js_string)
+            .collect::<Vec<_>>(),
+        &custom
+            .iter()
+            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
+            .collect::<Vec<_>>(),
+        &crate::store::advertised_provider_models(&providers)
+            .iter()
+            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
+            .collect::<Vec<_>>(),
+    );
+    let provided = crate::store::advertised_provider_models(&providers);
+    let routes = crate::model_store::catalogue_routes(
+        &Value::Array(crate::model_store::route_info()),
+        &advertised,
+        &Value::Array(custom),
+        &Value::Array(
+            provided
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "wire": m.get("wire").cloned().unwrap_or(Value::Null),
+                        "provider": summrise_core::provider_spec::bare_prefix(
+                            m.get("provider").and_then(|p| p.get("prefix")).unwrap_or(&Value::Null)
+                        ),
+                    })
+                })
+                .collect(),
+        ),
+        &Value::Array(
+            providers
+                .iter()
+                .filter(|p| {
+                    !summrise_core::provider_spec::bare_prefix(
+                        p.get("prefix").unwrap_or(&Value::Null),
+                    )
+                    .is_empty()
+                })
+                .map(|p| {
+                    let base = summrise_core::text::js_or_empty(p.get("baseURL"));
+                    serde_json::json!({
+                        "prefix": summrise_core::provider_spec::bare_prefix(
+                            p.get("prefix").unwrap_or(&Value::Null)
+                        ),
+                        "label": summrise_core::text::js_or_empty(p.get("label")),
+                        "baseURL": base,
+                        "api": summrise_core::text::js_or_empty(p.get("api")),
+                        // `new URL(baseURL).host`, or the raw string when that throws — a hand-edited record
+                        // must still show a card rather than dropping out of the console.
+                        "host": crate::store::url_host(&base).unwrap_or_else(|| base.clone()),
+                    })
+                })
+                .collect(),
+        ),
+    );
+    let answer = serde_json::json!({
+        "routes": routes,
+        "models": advertised,
+        "apiHost": env.var("API_HOST").map(|v| v.to_string()).unwrap_or_default(),
+    });
+    let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(text, 200)?)
 }
 
