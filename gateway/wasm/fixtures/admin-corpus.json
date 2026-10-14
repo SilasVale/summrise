@@ -882,6 +882,379 @@
    }
   },
   {
+   "name": "a model id is required",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"id is required\"}}"
+   }
+  },
+  {
+   "name": "an id must look like prefix/name",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"noslash\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"id must look like \\\"prefix/name\\\" — got \\\"noslash\\\"\"}}"
+   }
+  },
+  {
+   "name": "an unknown channel prefix lists the known ones",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"zz/thing\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"unknown channel prefix \\\"zz/\\\"; known: og/, or/, nv/, gmi/, qw/, cm/, r4/\"}}"
+   }
+  },
+  {
+   "name": "a name over 80 units, or with a control character, is refused",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"qw/thing\",\"name\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"name must be at most 80 characters, with no control characters\"}}"
+   }
+  },
+  {
+   "name": "a contextWindow of ZERO is refused (omitting it already means unset)",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"qw/thing\",\"contextWindow\":0}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"contextWindow must be a whole number of tokens between 1 and 10000000\"}}"
+   }
+  },
+  {
+   "name": "a fractional capacity is refused",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"qw/thing\",\"maxTokens\":1.5}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"maxTokens must be a whole number of tokens between 1 and 10000000\"}}"
+   }
+  },
+  {
+   "name": "a capacity above the ceiling is refused",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"qw/thing\",\"contextWindow\":10000001}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"contextWindow must be a whole number of tokens between 1 and 10000000\"}}"
+   }
+  },
+  {
+   "name": "an unknown reasoning level is REFUSED, not dropped",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"qw/thing\",\"reasoningEffort\":\"extreme\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"reasoningEffort must be one of low, medium, high, max — got \\\"extreme\\\"\"}}"
+   }
+  },
+  {
+   "name": "a BUILT-IN's pinned routing facet is refused BY NAME",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"id\":\"og/mimo-v2.5\",\"wire\":\"mimo-2.5\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"a built-in model's wire is pinned in the channel registry — only name, contextWindow, maxTokens and reasoningEffort can be stored for it\"}}"
+   }
+  },
+  {
+   "name": "a console-owned model is stored with its defaults",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put models:custom=[{\"id\":\"my/thing\",\"ownedBy\":\"my\"},{\"id\":\"qw/thing\",\"ownedBy\":\"qw\",\"name\":\"Thing\",\"contextWindow\":128000,\"maxTokens\":4096,\"reasoningEffort\":\"high\"}]"
+   ],
+   "body": "{\"id\":\"qw/thing\",\"name\":\"Thing\",\"contextWindow\":128000,\"maxTokens\":4096,\"reasoningEffort\":\"high\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"model\":{\"id\":\"qw/thing\",\"ownedBy\":\"qw\",\"name\":\"Thing\",\"contextWindow\":128000,\"maxTokens\":4096,\"reasoningEffort\":\"high\"},\"custom\":[\"my/thing\",\"qw/thing\"]}"
+   }
+  },
+  {
+   "name": "a wire is stored only on og/, and ownedBy defaults to the bare prefix",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put models:custom=[{\"id\":\"my/thing\",\"ownedBy\":\"my\"},{\"id\":\"og/new-model\",\"ownedBy\":\"og\",\"wire\":\"new-wire\"}]"
+   ],
+   "body": "{\"id\":\"og/new-model\",\"wire\":\"new-wire\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"model\":{\"id\":\"og/new-model\",\"ownedBy\":\"og\",\"wire\":\"new-wire\"},\"custom\":[\"my/thing\",\"og/new-model\"]}"
+   }
+  },
+  {
+   "name": "a built-in's DISPLAY facets become an override",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put models:overrides=[{\"id\":\"og/mimo-v2.5\",\"name\":\"Mimo\",\"reasoningEffort\":\"low\"}]"
+   ],
+   "body": "{\"id\":\"og/mimo-v2.5\",\"name\":\"Mimo\",\"reasoningEffort\":\"low\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"override\":\"og/mimo-v2.5\",\"overrides\":[\"og/mimo-v2.5\"]}"
+   }
+  },
+  {
+   "name": "clearing every display facet REMOVES the override",
+   "method": "POST",
+   "path": "/api/admin/models",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put models:overrides=[]"
+   ],
+   "body": "{\"id\":\"og/mimo-v2.5\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"my/thing\",\"ownedBy\":\"my\"}]",
+     "models:overrides": "[{\"id\":\"og/mimo-v2.5\",\"name\":\"Old\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"override\":\"og/mimo-v2.5\",\"overrides\":[]}"
+   }
+  },
+  {
    "name": "an empty deployment answers an empty list",
    "method": "GET",
    "path": "/api/admin/users",

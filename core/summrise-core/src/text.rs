@@ -21,6 +21,42 @@
 
 use serde_json::Value;
 
+/// **IS THIS A JAVASCRIPT `\s` CHARACTER?** The set is the engine's own (`\s` in a regex, and what
+/// `String.prototype.trim` strips), and it is NOT `char::is_whitespace`: JS excludes `U+0085` and `U+180E` and
+/// INCLUDES `U+FEFF` (a zero-width no-break space), which is the byte a copy-paste from a document carries.
+///
+/// **IT WAS WRITTEN THREE TIMES IN THE WORKER BEFORE THIS** — `body_scan.rs`, `device_proxy.rs` and
+/// `request_shape.rs` each had a private copy, which is the class of duplication `summrise-core` exists to end:
+/// three spellings of one rule, each of which can drift on the arm nobody tested.
+pub fn is_js_space(c: char) -> bool {
+    matches!(
+        c,
+        '\u{000c}' | '\n' | '\r' | '\t' | '\u{000b}' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
+}
+
+/// `String.prototype.trim()` — **BOTH ENDS, AND THE JS SET** (see [`is_js_space`]). `str::trim` is not the same
+/// function: it strips `U+0085` and `U+180E`, which JS keeps, so a name that trims to nothing in one language
+/// can be non-empty in the other.
+/// **`s.length` IS UTF-16 CODE UNITS, NOT `chars()`.** They agree on every ASCII string and disagree the moment
+/// one contains an astral character: `"😀😀😀😀"` is FOUR `chars()` and EIGHT `.length`. A port that counts
+/// `chars()` refuses a password (or a name) the shipping code accepts, and the difference is invisible to any
+/// test whose data is ASCII.
+pub fn js_length(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+pub fn js_trim(s: &str) -> &str {
+    s.trim_matches(is_js_space)
+}
+
 /// JavaScript truthiness for a JSON value: `undefined`, `null`, `false`, `0`, `NaN` and `""` are falsy, and
 /// EVERY object — an empty one, an empty array — is truthy.
 pub fn js_truthy(v: &Value) -> bool {

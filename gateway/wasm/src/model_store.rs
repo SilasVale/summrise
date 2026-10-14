@@ -39,6 +39,179 @@ pub fn js_sorted(mut ids: Vec<String>) -> Vec<String> {
     ids
 }
 
+/// `KNOWN_PREFIXES` — `ROUTE_INFO.map((r) => r.prefix).filter((p) => p && p !== "none")`, and **IT IS NOT THE
+/// CORE'S [`summrise_core::catalogue::RESERVED_PREFIXES`]** — which is what the first version of this function
+/// assumed, and the fixture caught it: the reserved list has TEN entries (the two card-less channels `ds/` and
+/// `amd/` included) while the route table has SEVEN cards, so the refusal below printed two prefixes the console
+/// would have refused. **THE ORDER IS BYTES A CLIENT RECEIVES** (the message PRINTS the list).
+///
+/// `the_known_prefixes_are_the_console_route_table` reads `gateway/src/channels.ts` and compares, so the two
+/// spellings cannot drift silently.
+pub const KNOWN_PREFIXES: [&str; 7] = ["og/", "or/", "nv/", "gmi/", "qw/", "cm/", "r4/"];
+
+/// The refusal's own list — `KNOWN_PREFIXES.join(", ")`.
+pub fn known_prefixes() -> Vec<&'static str> {
+    KNOWN_PREFIXES.to_vec()
+}
+
+/// The four ROUTING facets a built-in's record may never carry: its `wire`, its egress, and the two
+/// response-shape switches are pinned in the channel registry, and a stored copy would be a second,
+/// contradictory answer to "where does this request go".
+pub const PINNED_FACETS: [&str; 4] = ["wire", "usEgress", "search", "responsesOnly"];
+
+/// `parseModelSpec(body)` — the console's model validator, ported with its own error strings because they ARE
+/// the response bytes a client renders.
+///
+/// **EVERY REFUSAL HERE IS NAMED RATHER THAN GENERIC, AND THAT IS THE POINT OF THE FUNCTION**: this is the only
+/// place an operator hears about a mistake (the source says so of the id, the prefix, the name and the effort
+/// alike), so "invalid model" would be a port that kept the check and lost the instruction.
+///
+/// The rules, in the source's order: the id (trimmed, and it must LOOK like `prefix/name`), the prefix against
+/// the route table, `ownedBy` (defaulting to the bare prefix), `wire` (only on `og/`, where the wire spelling is
+/// not the model id), the three boolean switches (`=== true`, so a `"true"` STRING is not one), the display name
+/// (80 UTF-16 units, no control characters), the two capacities (`Number.isInteger`, 1..=10_000_000 — zero and
+/// negatives are the shapes an operator reaches for to mean "unset", which omitting it already means) and the
+/// reasoning default (an unknown level is REFUSED rather than dropped: a typo that silently means "no default"
+/// is a behaviour change nobody can see).
+pub fn parse_model_spec(body: &Value, known_prefixes: &[&str]) -> Result<Value, String> {
+    let raw_id = summrise_core::text::js_or_empty(body.get("id"));
+    let id = summrise_core::text::js_trim(&raw_id).to_string();
+    if id.is_empty() {
+        return Err("id is required".into());
+    }
+    if !looks_like_a_model_id(&id) {
+        return Err(format!(
+            "id must look like \"prefix/name\" — got {}",
+            serde_json::to_string(&Value::String(id.clone())).unwrap_or_default()
+        ));
+    }
+    let slash = id.find('/').map(|i| i + 1).unwrap_or(0);
+    let prefix = &id[..slash];
+    if !known_prefixes.contains(&prefix) {
+        return Err(format!(
+            "unknown channel prefix {}; known: {}",
+            serde_json::to_string(&Value::String(prefix.to_string())).unwrap_or_default(),
+            known_prefixes.join(", ")
+        ));
+    }
+    let owned_by = {
+        let raw_owned = summrise_core::text::js_or_empty(body.get("ownedBy"));
+        let raw = summrise_core::text::js_trim(&raw_owned);
+        if raw.is_empty() {
+            prefix.replace('/', "")
+        } else {
+            raw.to_string()
+        }
+    };
+    let mut spec = serde_json::Map::new();
+    spec.insert("id".into(), Value::String(id.clone()));
+    spec.insert("owned_by_placeholder".into(), Value::Null);
+    spec.remove("owned_by_placeholder");
+    spec.insert("ownedBy".into(), Value::String(owned_by));
+
+    let raw_wire = summrise_core::text::js_or_empty(body.get("wire"));
+    let wire = summrise_core::text::js_trim(&raw_wire);
+    if !wire.is_empty() && prefix == "og/" {
+        spec.insert("wire".into(), Value::String(wire.to_string()));
+    }
+    for (from, to) in [
+        ("usEgress", "usEgress"),
+        ("search", "search"),
+        ("responsesOnly", "responsesOnly"),
+    ] {
+        if body
+            .get(from)
+            .map(|v| v == &Value::Bool(true))
+            .unwrap_or(false)
+        {
+            spec.insert(to.into(), Value::Bool(true));
+        }
+    }
+    let raw_name = summrise_core::text::js_or_empty(body.get("name"));
+    let name = summrise_core::text::js_trim(&raw_name);
+    if !name.is_empty() {
+        // The control-character class is the point of the check, not an accident: a newline or a NUL in a
+        // display name breaks the listing it is printed in.
+        if summrise_core::text::js_length(name) > 80
+            || name.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}')
+        {
+            return Err("name must be at most 80 characters, with no control characters".into());
+        }
+        spec.insert("name".into(), Value::String(name.to_string()));
+    }
+    for field in ["contextWindow", "maxTokens"] {
+        let raw = body.get(field).unwrap_or(&Value::Null);
+        if raw.is_null() || raw.as_str() == Some("") {
+            continue;
+        }
+        let n = summrise_core::text::js_number(raw);
+        if !summrise_core::text::js_is_integer(n) || n <= 0.0 || n > 10_000_000.0 {
+            return Err(format!(
+                "{field} must be a whole number of tokens between 1 and 10000000"
+            ));
+        }
+        // **AN INTEGER, NOT A FLOAT.** `json!(n)` on an `f64` renders `128000.0` where JavaScript renders
+        // `128000` — and this value is echoed back to the console AND stored in KV, so the port would have
+        // written a record whose bytes differ from the shipping one. `js_is_integer` has already refused a
+        // fractional value, and the ceiling is below `i64`, so the cast is exact.
+        spec.insert(
+            field.to_string(),
+            Value::Number(serde_json::Number::from(n as i64)),
+        );
+    }
+    let raw_effort = summrise_core::text::js_or_empty(body.get("reasoningEffort"));
+    let effort = summrise_core::text::js_trim(&raw_effort);
+    if !effort.is_empty() {
+        if !["low", "medium", "high", "max"].contains(&effort) {
+            return Err(format!(
+                "reasoningEffort must be one of low, medium, high, max — got {}",
+                serde_json::to_string(&Value::String(effort.to_string())).unwrap_or_default()
+            ));
+        }
+        spec.insert("reasoningEffort".into(), Value::String(effort.to_string()));
+    }
+    Ok(Value::Object(spec))
+}
+
+/// `/^[a-z0-9]+\/\S+$/` — **`\S` IS THE JAVASCRIPT SET**, so `U+00A0` and `U+FEFF` are whitespace here too (see
+/// [`summrise_core::text::is_js_space`]): an id whose tail carries a no-break space is refused, which is what the
+/// console has always done and what a hand-rolled `!c.is_whitespace()` would NOT do.
+fn looks_like_a_model_id(id: &str) -> bool {
+    let Some(slash) = id.find('/') else {
+        return false;
+    };
+    let (head, tail) = (&id[..slash], &id[slash + 1..]);
+    !head.is_empty()
+        && head
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && !tail.is_empty()
+        && !tail.chars().any(summrise_core::text::is_js_space)
+}
+
+/// `putFacetOverride(env, override)` — the read, the emptied-or-upsert rule ([`put_override`]) and the write.
+pub async fn put_facet_override(env: &Env, o: &Value) -> Vec<Value> {
+    let cur = read_list(env, MODEL_OVERRIDES_KEY).await;
+    let next = put_override(&cur, o);
+    write_list(env, MODEL_OVERRIDES_KEY, &next).await;
+    next
+}
+
+/// `putCustomModel(env, spec)` — the same shape for the console's own records.
+pub async fn put_custom_model(env: &Env, spec: &Value) -> Vec<Value> {
+    let cur = read_list(env, CUSTOM_MODELS_KEY).await;
+    let next = upsert_by_id(&cur, spec);
+    write_list(env, CUSTOM_MODELS_KEY, &next).await;
+    next
+}
+
+/// The ids of a list of records, in order — `next.map((m) => m.id)`.
+pub fn ids_of(list: &[Value]) -> Vec<Value> {
+    list.iter()
+        .map(|m| m.get("id").cloned().unwrap_or(Value::Null))
+        .collect()
+}
+
 /// `readList(env, key)` — **THE CONSOLE'S OWN READ, AND ITS TWO SILENT ARMS**: a cache hit wins (and a
 /// non-array hit answers `[]` rather than the value), and a malformed or unreadable blob answers `[]` too —
 /// "a catalogue that cannot be parsed must degrade to nothing extra, never to a 500 that takes the whole gateway
@@ -817,6 +990,44 @@ mod tests {
 
 #[cfg(test)]
 mod the_file_layer_is_empty_or_this_module_is_wrong {
+    use super::KNOWN_PREFIXES;
+    /// **THE PREFIX LIST IS THE CONSOLE'S ROUTE TABLE, AND THIS IS THE GATE.** `KNOWN_PREFIXES` is what the
+    /// refusal PRINTS, so a card added to `channels.ts` (or one of the card-less channels gaining one) has to
+    /// move the Rust too — and the only way that happens reliably is if the drift FAILS here.
+    ///
+    /// MUTATION: add `ds/` to [`KNOWN_PREFIXES`].
+    /// RESULT:   this test fails naming the two lists — and the console would refuse a prefix the worker accepts.
+    #[test]
+    fn the_known_prefixes_are_the_console_route_table() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/channels.ts");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} missing ({e})", path.display()));
+        let start = text.find("export const ROUTE_INFO").unwrap_or_else(|| {
+            panic!("channels.ts has no `export const ROUTE_INFO` — this gate's anchor moved")
+        });
+        let end = text[start..].find("\n];").unwrap_or_else(|| {
+            panic!("ROUTE_INFO's closing `];` moved — this gate's anchor moved")
+        });
+        let body = &text[start..start + end];
+        let prefixes: Vec<String> = body
+            .match_indices("prefix: \"")
+            .filter_map(|(i, m)| {
+                let rest = &body[i + m.len()..];
+                rest.find('"').map(|q| rest[..q].to_string())
+            })
+            .collect();
+        let expected: Vec<String> = prefixes
+            .into_iter()
+            .filter(|p| !p.is_empty() && p != "none")
+            .collect();
+        assert_eq!(
+            expected,
+            KNOWN_PREFIXES.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+            "KNOWN_PREFIXES and ROUTE_INFO disagree — the refusal prints the console's list, so the two must be \
+             the same list in the same order"
+        );
+    }
+
     /// **THE ONE THING THE WORKER'S MODEL ROUTES DO NOT READ, AND A GATE INSTEAD OF A SILENT DIVERGENCE.**
     ///
     /// `store/models.ts` merges the committed CATALOGUE FILE (`gateway/config/models.ts`) over KV, and the file

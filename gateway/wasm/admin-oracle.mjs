@@ -430,6 +430,74 @@ await record("the model writes refuse without a session", {
   env: envFor(MODELS),
 });
 
+// ── ADDING A MODEL: THE VALIDATOR'S REFUSALS, THEN THE TWO ANSWERS ───────────────────────────────
+const post = (body) => ({
+  method: "POST",
+  path: "/api/admin/models",
+  body: JSON.stringify(body),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+});
+
+// Every refusal below is a NAMED error the operator reads, in the source's own order.
+await record("a model id is required", { ...post({}), env: envFor(MODELS) });
+await record("an id must look like prefix/name", {
+  ...post({ id: "noslash" }),
+  env: envFor(MODELS),
+});
+await record("an unknown channel prefix lists the known ones", {
+  ...post({ id: "zz/thing" }),
+  env: envFor(MODELS),
+});
+await record("a name over 80 units, or with a control character, is refused", {
+  ...post({ id: "qw/thing", name: "a".repeat(81) }),
+  env: envFor(MODELS),
+});
+await record("a contextWindow of ZERO is refused (omitting it already means unset)", {
+  ...post({ id: "qw/thing", contextWindow: 0 }),
+  env: envFor(MODELS),
+});
+await record("a fractional capacity is refused", {
+  ...post({ id: "qw/thing", maxTokens: 1.5 }),
+  env: envFor(MODELS),
+});
+await record("a capacity above the ceiling is refused", {
+  ...post({ id: "qw/thing", contextWindow: 10_000_001 }),
+  env: envFor(MODELS),
+});
+await record("an unknown reasoning level is REFUSED, not dropped", {
+  ...post({ id: "qw/thing", reasoningEffort: "extreme" }),
+  env: envFor(MODELS),
+});
+await record("a BUILT-IN's pinned routing facet is refused BY NAME", {
+  ...post({ id: "og/mimo-v2.5", wire: "mimo-2.5" }),
+  env: envFor(MODELS),
+});
+await record("a console-owned model is stored with its defaults", {
+  ...post({
+    id: "qw/thing",
+    name: "Thing",
+    contextWindow: 128000,
+    maxTokens: 4096,
+    reasoningEffort: "high",
+  }),
+  env: envFor(MODELS),
+});
+await record("a wire is stored only on og/, and ownedBy defaults to the bare prefix", {
+  ...post({ id: "og/new-model", wire: "new-wire" }),
+  env: envFor(MODELS),
+});
+await record("a built-in's DISPLAY facets become an override", {
+  ...post({ id: "og/mimo-v2.5", name: "Mimo", reasoningEffort: "low" }),
+  env: envFor(MODELS),
+});
+await record("clearing every display facet REMOVES the override", {
+  ...post({ id: "og/mimo-v2.5" }),
+  env: envFor({
+    ...MODELS,
+    "models:overrides": JSON.stringify([{ id: "og/mimo-v2.5", name: "Old" }]),
+  }),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",

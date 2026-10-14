@@ -20,6 +20,7 @@
 //! model value, found/truncated) rather than the raw offsets.
 
 /// `MAX_SCAN_BYTES` — 2 MiB. A char-by-char walk of a multi-MB body alone blows the 10 ms budget.
+use summrise_core::text::is_js_space;
 const MAX_SCAN_BYTES: usize = 2 * 1024 * 1024;
 
 /// What a top-level field scan found — and **`truncated` is not decoration**: "the body was walked to the
@@ -33,21 +34,6 @@ pub enum FieldScan {
     Absent {
         truncated: bool,
     },
-}
-
-/// Is this a JS `\s` character? The scans use `/\s/`, which is the same set `request_shape.rs` names.
-fn is_js_space(c: char) -> bool {
-    matches!(
-        c,
-        '\u{000c}' | '\n' | '\r' | '\t' | '\u{000b}' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
 }
 
 /// `scanTopLevelField(raw, field)` — the MORE expensive of the two walks (it tracks nested values).
