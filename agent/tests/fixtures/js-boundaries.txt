@@ -291,6 +291,18 @@ BOUNDARY | gateway/src/store/cache.ts | **THE CACHE'S HOST, AND ITS RULES ARE EM
 #   `Map`s (`__c` and `__locks`), `cget`/`cdel`, the write-through `cset` that asks the emission for its TTL and
 #   its bound, the self-pruning lock chain, and `__clearCaches`. The TTLs, the prefix list, the two bounds and the
 #   eviction comparison are `cache-logic.ts`, GENERATED from `gateway/wasm/src/store.rs`.
+GENERATED | gateway/src/access-logic.ts | the Access identity decisions — the JWT split and its four claim checks, the email/username derivations, the key families and the provisioned record — emitted from Rust | gateway/wasm/src/access.rs
+#   **AND READING BOTH SIDES FOUND A FOURTH DIVERGENCE (2026-10-14).** `aud_list` mapped every `aud` element
+#   through `js_to_string`, so `aud: [5]` became `["5"]` and matched a deployment whose `ACCESS_AUD` is the text
+#   `5` — where JavaScript's `[5].includes("5")` is FALSE. Its own comment claimed non-strings were "carried as
+#   the empty string", which is what `String(null)` does: **the comment and the code disagreed, and neither was
+#   the rule.** Only string entries can match now, on both sides.
+BOUNDARY | gateway/src/access.ts | **THE ACCESS HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-14).** What is left is the JWKS
+#   fetch and its one-hour cache, the `crypto.subtle` RSASSA verify, the KV reads and writes and the
+#   `withKeyLock` that serializes a provision. The JWT split, the four claim checks (kid, aud, the PINNED issuer,
+#   a numeric `exp`), the email and username derivations, the `access-email:`/`user:`/`token:` key families and
+#   the record a provisioned account is written as are `access-logic.ts`, GENERATED from
+#   `gateway/wasm/src/access.rs`.
 GENERATED | gateway/src/cors-logic.ts | the CORS decisions — the allowlist, the loopback pair, the base headers and the reflect/stamp rules — emitted from Rust | gateway/wasm/src/cors.rs
 #   **THE THIRD EMISSION, AND THE FIRST WHOSE SUBJECT IS REACHED BY THE STATUS PAGE (2026-10-13).** `http.ts`'s CORS
 #   half is called by `plugins/status.ts`, and the status page reports ON the worker, so it must not ask it

@@ -16,6 +16,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/access-logic.ts",
+      "path": "files/summrise-gate/src/access-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/access.ts",
       "path": "files/summrise-gate/src/access.ts",
       "group": "summrise-gate"

@@ -21,6 +21,10 @@
  * session FIRST (local/dev fallback), and only falls back to this path when
  * there is no valid session cookie. Multi-user is preserved — identity is
  * the verified email instead of a shared password.
+ *
+ * **THE DECISIONS ARE AN EMISSION NOW (2026-10-14)** — `access-logic.ts`, GENERATED from
+ * `gateway/wasm/src/access.rs`. What is left here is the HOST: the JWKS fetch and its cache, the
+ * `crypto.subtle` verify, the KV reads and writes, and the provisioning lock.
  */
 
 interface Env {
@@ -29,14 +33,26 @@ interface Env {
 import type { User } from "./store.ts";
 import { withKeyLock } from "./store.ts";
 import { randomHex } from "./auth.ts";
+import {
+  ACCESS_NAME_ATTEMPTS,
+  ACCESS_SUFFIX_BYTES,
+  ACCESS_TOKEN_BYTES,
+  accessEmailKeyFor,
+  accessUserRecord,
+  b64urlToJson,
+  claimsOk,
+  emailOf,
+  isAdminEmail,
+  isDisabledAccount,
+  normalizeEmail,
+  splitJwt,
+  tokenKeyFor,
+  userKeyFor,
+  usernameFromEmail,
+} from "./access-logic.ts";
 
 const CERTS_TTL_MS = 60 * 60 * 1000;
 let jwksCache: { keys: any[]; exp: number } | null = null;
-
-function b64urlToJson(part: string): any {
-  const pad = part.length % 4 === 0 ? "" : "=".repeat(4 - (part.length % 4));
-  return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/") + pad));
-}
 
 async function fetchJwks(env: Env): Promise<any[]> {
   if (env.ACCESS_JWKS_JSON) return JSON.parse(env.ACCESS_JWKS_JSON).keys;
@@ -57,8 +73,8 @@ export async function verifyAccessJwt(
 ): Promise<{ email: string } | null> {
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token || !env.ACCESS_AUD || !env.ACCESS_TEAM_DOMAIN) return null;
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  const parts = splitJwt(token);
+  if (!parts) return null;
 
   let header: any;
   let payload: any;
@@ -68,19 +84,13 @@ export async function verifyAccessJwt(
   } catch {
     return null;
   }
-  if (!header.kid) return null;
-  // Access JWTs carry `aud` as either a string or an array of strings
-  // (RFC 7519 §4.1.3 — Cloudflare currently emits the array form).
-  const audList: string[] = Array.isArray(payload.aud)
-    ? payload.aud
-    : typeof payload.aud === "string"
-      ? [payload.aud]
-      : [];
-  if (!audList.includes(env.ACCESS_AUD)) return null;
-  // audit L5: pin the issuer too (aud + team JWKS sig mostly covers it, but
-  // a token signed by ANOTHER CF team's app under the same aud was possible).
-  if (payload.iss !== `https://${env.ACCESS_TEAM_DOMAIN}`) return null;
-  if (typeof payload.exp !== "number" || payload.exp * 1000 < Date.now()) return null;
+  // The four checks — `kid`, the audience, the PINNED issuer (audit L5) and a numeric `exp` — are the
+  // emission's, in the source's order.
+  if (
+    !claimsOk(header, payload, String(env.ACCESS_AUD), String(env.ACCESS_TEAM_DOMAIN), Date.now())
+  ) {
+    return null;
+  }
 
   let keyJwk: any;
   try {
@@ -114,19 +124,8 @@ export async function verifyAccessJwt(
   }
   if (!ok) return null;
 
-  const email = String(payload.email || "")
-    .toLowerCase()
-    .trim();
-  return email.includes("@") ? { email } : null;
-}
-
-function usernameFromEmail(email: string): string {
-  let base = email
-    .split("@")[0]!
-    .replace(/[^A-Za-z0-9_.-]/g, "")
-    .slice(0, 28);
-  if (!/^[A-Za-z0-9_.-]{2,32}$/.test(base)) base = "user";
-  return base;
+  const email = emailOf(payload);
+  return email ? { email } : null;
 }
 
 /**
@@ -135,25 +134,22 @@ function usernameFromEmail(email: string): string {
  */
 export async function ensureUserByEmail(env: Env, email: string): Promise<User | null> {
   if (!env.KEYS) return null;
-  email = String(email || "")
-    .toLowerCase()
-    .trim();
+  email = normalizeEmail(email);
 
   // Owner shortcut: the configured admin email drives the seeded admin account.
-  const adminEmail = String(env.ACCESS_ADMIN_EMAIL || "").toLowerCase();
-  if (adminEmail && email === adminEmail) {
-    const admin = await env.KEYS.get("user:admin");
+  if (isAdminEmail(email, env.ACCESS_ADMIN_EMAIL)) {
+    const admin = await env.KEYS.get(userKeyFor("admin"));
     if (admin) {
       const u = typeof admin === "string" ? JSON.parse(admin) : admin;
-      if (u.enabled !== false) return u;
+      if (!isDisabledAccount(u)) return u;
     }
     return null;
   }
 
   // Previously bound?
-  const bound = await env.KEYS.get(`access-email:${email}`);
+  const bound = await env.KEYS.get(accessEmailKeyFor(email));
   if (bound) {
-    const u = await env.KEYS.get(`user:${bound}`);
+    const u = await env.KEYS.get(userKeyFor(bound));
     if (u) {
       const user = typeof u === "string" ? JSON.parse(u) : u;
       // round-395: a DISABLED bound account must stay logged out — the old
@@ -162,19 +158,19 @@ export async function ensureUserByEmail(env: Env, email: string): Promise<User |
       // session.ts rejects disabled users, so Access users could never be
       // suspended). Return null WITHOUT provisioning: minting a fresh
       // suffixed account for a suspended user would defeat the suspension.
-      if (user.enabled === false) return null;
+      if (isDisabledAccount(user)) return null;
       return user;
     }
   }
 
   // Provision a passwordless user. Serialized like createUser (round-107).
   return withKeyLock(`access-provision:${email}`, async () => {
-    const again = await env.KEYS.get(`access-email:${email}`);
+    const again = await env.KEYS.get(accessEmailKeyFor(email));
     if (again) {
-      const u = await env.KEYS.get(`user:${again}`);
+      const u = await env.KEYS.get(userKeyFor(again));
       if (u) {
         const user = typeof u === "string" ? JSON.parse(u) : u;
-        if (user.enabled === false) return null;
+        if (isDisabledAccount(user)) return null;
         return user;
       }
     }
@@ -185,11 +181,11 @@ export async function ensureUserByEmail(env: Env, email: string): Promise<User |
     // silently OVERWRITE the colliding account's record (the old code suffixed
     // once, then put unconditionally). Retry with a fresh random suffix until
     // the name is free; bounded so a pathological KV state can't loop forever.
-    if (await env.KEYS.get(`user:${name}`)) {
+    if (await env.KEYS.get(userKeyFor(name))) {
       let unique = false;
-      for (let i = 0; i < 10; i++) {
-        const candidate = `${base}-${randomHex(2)}`; // 4 hex chars — collision suffix
-        if (!(await env.KEYS.get(`user:${candidate}`))) {
+      for (let i = 0; i < ACCESS_NAME_ATTEMPTS; i++) {
+        const candidate = `${base}-${randomHex(ACCESS_SUFFIX_BYTES)}`; // 4 hex chars — collision suffix
+        if (!(await env.KEYS.get(userKeyFor(candidate)))) {
           name = candidate;
           unique = true;
           break;
@@ -198,19 +194,13 @@ export async function ensureUserByEmail(env: Env, email: string): Promise<User |
       if (!unique) throw new Error("could not allocate a unique username — try again");
     }
 
-    const token = randomHex(24);
-    const user: User & { accessEmail?: string } = {
-      id: name,
-      username: name,
-      role: "user",
-      enabled: true,
-      createdAt: Date.now(),
-      token,
-      accessEmail: email,
+    const token = randomHex(ACCESS_TOKEN_BYTES);
+    const user = accessUserRecord(name, email, token, Date.now()) as User & {
+      accessEmail?: string;
     };
-    await env.KEYS.put(`user:${name}`, JSON.stringify(user));
-    await env.KEYS.put(`token:${token}`, name);
-    await env.KEYS.put(`access-email:${email}`, name);
+    await env.KEYS.put(userKeyFor(name), JSON.stringify(user));
+    await env.KEYS.put(tokenKeyFor(token), name);
+    await env.KEYS.put(accessEmailKeyFor(email), name);
     return user;
   });
 }
