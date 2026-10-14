@@ -465,6 +465,17 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // `auth_routes::handle` answers its own 404 for a family path it does not own — that is not a fallback, it
     // is the front door's answer for a path under a prefix whose plugin has no route for it, and the corpus
     // compares it (`GET /api/auth/nonsense`).
+    // **THE ADMIN FAMILY — `/api/admin/*`, the console's own surface.** Ordered here because it is the same
+    // kind of thing as the auth family above it: a route table over session-gated stores. A path under the
+    // prefix that no slice serves yet answers this module's 404, which is the front door's answer for a family
+    // prefix with no route under it.
+    if admin_routes::in_family(&req.method(), url.path()) {
+        return match admin_routes::handle(req, &env).await {
+            Ok(response) => Ok(response),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
     if auth_routes::in_family(&req.method(), url.path()) {
         // **THE FAMILY THAT RESOLVES AN IDENTITY IS THE FAMILY THAT MUST HAVE ONE.** `user_store::seed_admin` is
         // the console's `seedAdmin` — the v1 migration, the empty-token backfill and the fresh record — and it is
@@ -503,6 +514,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
 }
 
 pub mod access;
+pub mod admin_routes;
 pub mod auth;
 pub mod auth_routes;
 pub mod auto_route;

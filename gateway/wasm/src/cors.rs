@@ -91,7 +91,10 @@ pub fn is_allowed_origin(
 /// TYPESCRIPT READS.** `render_typescript` writes this table into `gateway/src/cors-logic.ts`, so a header added
 /// here reaches the shipping file only through the emitter, and a header added to the emitter alone cannot exist.
 pub const CORS_HEADERS: [(&str, &str); 2] = [
-    ("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT"),
+    (
+        "Access-Control-Allow-Methods",
+        "GET,POST,OPTIONS,DELETE,PUT",
+    ),
     ("Access-Control-Allow-Headers", "*"),
 ];
 
@@ -379,14 +382,8 @@ mod emission {
         let at = ts
             .find("export const ALLOWED_ORIGINS")
             .expect("cors-allowlist.test.mjs anchors on this name");
-        let open = ts[at..]
-            .find("new Set([")
-            .expect("...then on `new Set([`")
-            + at;
-        let close = ts[open..]
-            .find("])")
-            .expect("...and slices to `])`")
-            + open;
+        let open = ts[at..].find("new Set([").expect("...then on `new Set([`") + at;
+        let close = ts[open..].find("])").expect("...and slices to `])`") + open;
         let slice = &ts[open..close];
         assert!(
             slice.contains("\"https://ai.saisi.online\"")
