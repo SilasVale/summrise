@@ -57,6 +57,7 @@ pub fn in_family(method: &Method, path: &str) -> bool {
                 | "/api/admin/password"
                 | "/api/admin/models"
                 | "/api/admin/providers"
+                | "/api/admin/catalogue"
         ),
         // PUT is three routes with one method, and two of them are the plugin's DYNAMIC matchers: a prefix plus
         // a suffix, which is why they are written out rather than matched exactly.
@@ -89,6 +90,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Get, "/api/admin/password") => admin_get_password(&request, env).await,
         (Method::Get, "/api/admin/models") => admin_model_state(&request, env).await,
         (Method::Get, "/api/admin/providers") => admin_list_providers(&request, env).await,
+        (Method::Get, "/api/admin/catalogue") => admin_catalogue_document(&request, env).await,
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
@@ -296,6 +298,94 @@ async fn admin_enable_model(
     )
     .map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(text, 200)?)
+}
+
+/// `adminCatalogueDocument(request, env)` — **THE EFFECTIVE CATALOGUE AS THE DOCUMENT A FILE WOULD CARRY**, plus
+/// the text to paste and the entries the FILE already owns.
+///
+/// **WHY THE SERVER RENDERS THE TEXT.** The console must never assemble a path or a filename — the same
+/// discipline DSH's settings action follows, where the client asks the Host for ITS document and never learns
+/// where it lives. Here the "document" is the effective catalogue, and the text is rendered where the shape is
+/// known, so a field added to the stores cannot be forgotten by a client-side formatter.
+///
+/// **AND THE KEY IS NEVER IN THE DOCUMENT**: `apiKeyEnv` names the secret, and that is the only form a committed
+/// file may carry (the file validator refuses an inline one outright). The provider view here is the RECORD's,
+/// not [`crate::store::public_provider_view`]'s — the document is what a file would say, so it carries the
+/// binding's NAME rather than a masked value and no `advertised` list.
+async fn admin_catalogue_document(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let providers: Vec<Value> = crate::catalogue_file::custom_providers(env)
+        .await
+        .iter()
+        .map(|p| {
+            let mut out = serde_json::Map::new();
+            for field in ["prefix", "label", "baseURL", "api", "apiKeyEnv"] {
+                if let Some(v) = p.get(field) {
+                    if crate::device_registry::js_truthy(v) {
+                        out.insert(field.to_string(), v.clone());
+                    }
+                }
+            }
+            // `p.models?.length ? { models: p.models } : {}` — an EMPTY list is omitted rather than written
+            // as `[]`, so a document round-trips to the same bytes it came from.
+            if let Some(models) = p.get("models").and_then(Value::as_array) {
+                if !models.is_empty() {
+                    out.insert("models".to_string(), Value::Array(models.clone()));
+                }
+            }
+            Value::Object(out)
+        })
+        .collect();
+    let facet_view = |list: Vec<Value>| -> Vec<Value> {
+        list.iter()
+            .map(|entry| {
+                let mut out = serde_json::Map::new();
+                for field in [
+                    "id",
+                    "name",
+                    "contextWindow",
+                    "maxTokens",
+                    "reasoningEffort",
+                ] {
+                    if let Some(v) = entry.get(field) {
+                        if crate::device_registry::js_truthy(v) {
+                            out.insert(field.to_string(), v.clone());
+                        }
+                    }
+                }
+                Value::Object(out)
+            })
+            .collect()
+    };
+    let models = facet_view(crate::catalogue_file::custom_models(env).await);
+    let overrides = facet_view(crate::catalogue_file::facet_overrides(env).await);
+    let document = serde_json::json!({
+        "providers": providers,
+        "models": models,
+        "overrides": overrides,
+    });
+    // The pasteable edit: `export default ${JSON.stringify(document, null, 2)} satisfies CatalogueFile;` plus a
+    // newline, and `to_string_pretty` is the same two-space shape `JSON.stringify`'s third argument produces.
+    let text = format!(
+        "export default {} satisfies CatalogueFile;\n",
+        serde_json::to_string_pretty(&document).map_err(|_| RouteFailure::Threw)?
+    );
+    let layers = crate::catalogue_file::load_catalogue_file();
+    let (file_providers, file_models, file_overrides) =
+        crate::catalogue_file::file_declared_keys(&layers);
+    let answer = serde_json::json!({
+        "document": document,
+        "text": text,
+        "file": {
+            "providers": file_providers,
+            "models": file_models,
+            "overrides": file_overrides,
+        },
+    });
+    let body = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(body, 200)?)
 }
 
 /// `adminModelState(request, env)` — **WHAT THE CONSOLE NEEDS TO RENDER THE RIGHT CONTROL PER MODEL**, which is

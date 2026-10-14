@@ -669,6 +669,40 @@ await record("both reads refuse without a session", {
   env: envFor(SHADOWED),
 });
 
+// ── THE PASTEABLE DOCUMENT ───────────────────────────────────────────────────────────────────────
+// The response carries the effective catalogue, the TEXT to paste and the entries the FILE owns. The text is
+// JSON.stringify's own layout, so this is one of the cases where the BYTES of a pretty-printer are the answer.
+await record("the catalogue document carries the records, the pasteable text and the file's keys", {
+  path: "/api/admin/catalogue",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(SHADOWED, { ACME_API_KEY: "sk-env-key-0123456789" }),
+});
+await record("an EMPTY catalogue renders the same three keys and no entries", {
+  path: "/api/admin/catalogue",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(USERS),
+});
+await record("the document omits an empty model list rather than writing []", {
+  path: "/api/admin/catalogue",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor({
+    ...USERS,
+    "providers:custom": JSON.stringify([
+      {
+        prefix: "bare/",
+        baseURL: "https://bare.test",
+        api: "openai-completions",
+        apiKeyEnv: "BARE_KEY",
+        models: [],
+      },
+    ]),
+  }),
+});
+await record("the catalogue document refuses without a session", {
+  path: "/api/admin/catalogue",
+  env: envFor(SHADOWED),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",
