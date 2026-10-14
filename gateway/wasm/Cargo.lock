@@ -508,12 +508,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "summrise-core"
+version = "0.1.0"
+
+[[package]]
 name = "summrise-gate-wasm"
 version = "0.1.0"
 dependencies = [
  "futures-util",
  "serde",
  "serde_json",
+ "summrise-core",
  "url",
  "worker",
 ]

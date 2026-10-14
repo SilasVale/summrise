@@ -1,0 +1,15 @@
+[package]
+name = "summrise-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The decisions both hosts share: pure Rust, no bindings, no I/O."
+
+# **A PLAIN LIBRARY, AND THAT IS THE POINT.** `specs/2026-10-08` §6.6: wasm-bindgen exports every
+# `#[wasm_bindgen]` item in the crate GRAPH, so a crate that both a wasm host and a native host depend on
+# must carry no binding at all. Each host wraps what it needs; the core never knows JS exists.
+#
+# NO DEPENDENCIES, DELIBERATELY. A dependency here is a dependency of the worker, the agent and the
+# emitted TypeScript (through the emitters), and the fastest gate in this repository is `cargo test` on a
+# crate that compiles in a second.
+[dependencies]
