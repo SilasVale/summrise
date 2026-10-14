@@ -384,3 +384,36 @@ reads around it — `user_store.rs` already owns the password rules) and `store/
 catalogue projection. **THE ADMIN FAMILY (§6 ROW 3) IS STILL THE BIG ONE**, and the honest sequencing is: finish
 the store hosts whose decisions already exist in Rust, then port the routes — because a route port that still
 needs its store's decisions in TypeScript is a port with nothing to call.
+
+---
+
+## LANDED 2026-10-14 — the Access layer, and the fourth divergence (56 -> 55)
+
+**`gateway/src/access.ts` IS A HOST NOW.** `access-logic.ts`, GENERATED from `access.rs`, carries the JWT's
+three-part split, the four claim checks (`kid`, the audience, the PINNED issuer, a numeric `exp`), the `aud`
+list's two shapes, the email and username derivations, the `access-email:`/`user:`/`token:` key families and the
+record a provisioned account is written as. The host keeps the JWKS fetch and its cache, the `crypto.subtle`
+RSASSA verify, the KV access and the provisioning lock.
+
+**AND THE FOURTH DIVERGENCE IS THE ONE THAT DECIDES WHOSE TOKEN IS ACCEPTED.** `aud_list` mapped every element of
+`payload.aud` through `js_to_string` — so `aud: [5]` became `["5"]` and MATCHED a deployment whose `ACCESS_AUD`
+is the text `5`, where JavaScript's `[5].includes("5")` is **false**. Its own comment said a non-string entry was
+"carried as the empty string", which is `String(null)`, not `js_to_string(5)`: **the comment and the code
+disagreed, and neither was the rule.** Both sides compare strings only now.
+
+**THE FOUR, IN ONE PLACE, BECAUSE THE PATTERN IS THE ARGUMENT FOR THE WHOLE EMISSION PATH:**
+
+| # | where | the Rust | the source | why the corpus could not see it |
+| --- | --- | --- | --- | --- |
+| 1 | `advertisedModelId` | `js_string(null)` → `"null"` | `String(wire ?? "")` → `""` | unreachable from the listing; reachable from the decision route |
+| 2 | `maskKey` | `chars()` — five for `"abcd😀"` | UTF-16 units — six, the SHORT arm | every ASCII row agrees; a token is never astral |
+| 3 | `AUTH_PREFIXES` | `"providers:"` absent | present, ACTIVE, with a dated reason | the port's test iterated the constant it checked |
+| 4 | `aud_list` | every element stringified | only strings can match | a malformed `aud` is not a corpus case |
+
+**WHAT THE NEXT LANDING IS, MEASURED**: `store/models.ts` is the largest store host left (345 lines) and it is
+NOT a one-file emission — its `catalogue` projection, `declaredReasoningEffort`'s three-source order, the
+facet-override "emptied means deleted" rule, the disabled set's sort and the two custom-model upserts are all
+decisions, so the file only becomes BOUNDARY when every one of them has an owner. **AND `store/admin.ts` NEEDS
+ITS SEQUENCE IN RUST** (`seedAdmin`'s v1 migration, the empty-token backfill and the round-394 mint rule) before
+it can be a host — which is also the first thing the admin family's routes will need. **So the next landing is
+`models.ts` in full, and then the admin family's first slice, in that order.**
