@@ -426,6 +426,30 @@ deploy_relay() {
   echo "  ok: $name smoke — /files/* reached the worker and its claim DO ($url)"
 }
 
+# THE MAIL WORKER (`summrise-mail`): one address's inbound mail lands in its own R2 bucket and the agent reads it
+# over an unguessable path. The design is `docs/superpowers/specs/2026-10-14-saisi-mail-inbox-design.md`.
+deploy_mail() {
+  local dir="mail" name="Summrise Mail"
+  require_cf_token "$name" || return 1
+  echo "=== [deploy] ${name} (${dir}/) ==="
+  # The build is wrangler's own `build.command` (`worker-build --release worker`) and the tool is the GLOBAL
+  # wrangler, never `npx` — both for the reasons `deploy_relay` above records in full, which were measured
+  # there rather than assumed here.
+  ( cd "$ROOT/$dir" && CLOUDFLARE_API_TOKEN="$CF_TOKEN" wrangler deploy ) || return 1
+  echo "  ok: $name deployed"
+  # **THE SMOKE NEEDS NO SECRET, WHICH IS THE POINT OF ITS SHAPE**: a wrong path segment must answer 404, and
+  # that single status proves two things at once — the route reached THIS worker, and the path guard is on. A
+  # 200 would mean the read path is open to whoever finds the hostname; a 5xx would mean the worker is broken.
+  local url="https://mail.saisi.online/s/deadbeefdeadbeef/"
+  local code
+  code="$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url" || true)"
+  if [[ "$code" != "404" ]]; then
+    echo "  !! $name smoke FAILED: want 404 for a wrong secret, got ${code:-<curl error>} ($url)" >&2
+    return 1
+  fi
+  echo "  ok: $name smoke — a wrong secret answers 404 ($url)"
+}
+
 deploy_api_relay() {
   # VPS api relay (vrelay @ Oracle box): zen/or egress, git+github mirrors,
   # gform, muse /v1/responses exit. Builds from proxies/api-relay (the former
@@ -523,6 +547,10 @@ case "$cmd" in
   # implementation in A7, so the deploy that swaps it is taken deliberately rather than as a side effect of
   # a full-stack `deploy`.
   relay)    deploy_relay ;;
+  # THE MAIL WORKER, a command of its own for the same reason the file relay has one: it is a new worker with a
+  # new bucket and a new account-side rule, and it must be deployable without touching anything that serves
+  # devices.
+  mail)     deploy_mail ;;
   # THE RUST RELAY, ALONGSIDE RATHER THAN INSTEAD (block ④). The plan's own warning is the reason this is
   # a separate command: `api-relay` is this repository's push path, so the binary runs on a port of its
   # own FIRST, and the cutover is a deliberate act somebody takes after reading its smoke. See
@@ -540,5 +568,5 @@ case "$cmd" in
   # P0-2: full-stack preflight FIRST — a missing toolchain piece or token
   # aborts here, never mid-chain as a half-deployed stack (&& serial).
   deploy)   preflight_deploy && build_agent "${2:-release}" && deploy_worker gateway "Summrise Gate" && deploy_worker index "Summrise Index" && deploy_proxy zen-go-proxy "zen-go" "https://opencode.saisi.online/v1/models" && deploy_proxy zen-us-proxy "zen-us" "https://zen-us.saisi.online/v1/models" ;;
-  *) echo "usage: $0 [agent|gateway|gateway-wasm|index|proxies|relay|api-relay|vrelay-rs|deploy]"; exit 1 ;;
+  *) echo "usage: $0 [agent|gateway|gateway-wasm|index|proxies|relay|mail|api-relay|vrelay-rs|deploy]"; exit 1 ;;
 esac

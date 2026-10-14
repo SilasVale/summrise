@@ -1490,6 +1490,21 @@ jobs:
       # so the host suite compiles none of the entry point. The job's toolchain already carries the target.
       - name: The file relay's entry point, for the target it serves
         run: cargo clippy --manifest-path relay/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      # **THE MAIL WORKER, THE SAME FOUR STEPS ITS SIBLING CARRIES, AND FOR THE SAME REASONS.** `mail/` is a
+      # Rust-backed worker with its own crate, its own bucket and one account-side rule; a crate whose tests no
+      # job invokes is a crate whose tests are decoration, and `worker.rs` sits behind
+      # `#[cfg(target_arch = "wasm32")]` so the host suite compiles none of the entry point. The dry run is what
+      # would have caught a `main` that nothing generates; `provision-stub.bash` is the only thing that says the
+      # bucket's retention age and the worker's config still agree.
+      - name: Dry-run the mail worker
+        run: wrangler deploy --dry-run
+        working-directory: mail
+      - name: The mail worker's decisions (Rust)
+        run: cargo test --manifest-path mail/worker/Cargo.toml
+      - name: The mail worker's entry point, for the target it serves
+        run: cargo clippy --manifest-path mail/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      - name: The mail bucket's retention has one source
+        run: bash mail/scripts/test/provision-stub.bash
       # EVERY PROXY SUITE RUNS HERE, and that sentence had to be corrected twice.
       #
       # Round 231: the vrelay suite (the relay that serves THIS repository's git mirror) was
