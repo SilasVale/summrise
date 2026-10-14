@@ -54,18 +54,11 @@ pub fn sse(name: &str, data: &Value) -> String {
     )
 }
 
-/// JavaScript truthiness, spelled out — `truthy_js` in the sibling crate, and it is duplicated here
-/// for the same reason `sse` is: **the two crates are autonomous satellites and the gateway, and a
-/// shared crate for four lines is a coupling neither asked for.** It is the same eleven lines.
-pub(crate) fn truthy_js(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
-}
+/// JavaScript truthiness. **THE COMMENT THAT STOOD HERE SAID WHY IT WAS DUPLICATED — "the two crates are
+/// autonomous satellites and the gateway, and a shared crate for four lines is a coupling neither asked for"
+/// — AND THE SHARED CRATE NOW EXISTS** (2026-10-13): `summrise-core` is a plain library this worker already
+/// depends on, so the premise is gone and this is the re-export.
+pub(crate) use summrise_core::text::js_truthy as truthy_js;
 
 /// What `Array.prototype.join` does with one element — and both converters push `b.text`
 /// UNCONDITIONALLY, so a `text` block with no `text` still COUNTS and joins to the empty string.

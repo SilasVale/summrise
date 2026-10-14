@@ -44,26 +44,13 @@ const STREAM_STOP_MAP: [(&str, &str); 4] = [
 ];
 
 /// `String(v)` as a TEMPLATE LITERAL coerces — which is not `Array.prototype.join`'s rule: `${null}`
-/// is `"null"` where `[null].join("")` is `""`, and `${[1,2]}` is `"1,2"` where serde would print
-/// `[1,2]`.
-pub fn js_text(v: &Value) -> String {
-    match v {
-        Value::Null => "null".to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|i| match i {
-                Value::Null => String::new(),
-                other => js_text(other),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        // `String({})` is `"[object Object]"`, and so is every plain object's.
-        Value::Object(_) => "[object Object]".to_string(),
-    }
-}
+/// is `"null"` where `[null].join("")` is `""`, and `${[1,2]}` is `"1,2"` where serde would print `[1,2]`.
+///
+/// **THE RULE LIVES IN `summrise-core::text` NOW (2026-10-13) AND THIS NAME IS THE RE-EXPORT**, so the call
+/// sites here and in the emitters keep reading `stream::js_text`. The copy that used to be here was one of
+/// EIGHT in the worker, and it was the one that was WRONG: it rendered a number with `serde_json`'s `Display`,
+/// so a `1.0` that arrived as a float printed `"1.0"` where the engine prints `"1"`. The corpus is what says so.
+pub use summrise_core::text::js_string as js_text;
 
 /// `a || b` — `a` when it is truthy, `b` otherwise.
 fn or(a: &Value, b: Value) -> Value {

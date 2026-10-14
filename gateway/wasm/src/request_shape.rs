@@ -194,15 +194,11 @@ pub fn is_forced_web_search(tool_choice: &serde_json::Value) -> bool {
 
 /// JavaScript truthiness, which is what `!!x` and a bare `&&` mean: `false`, `0`, `NaN`, `""`, `null`
 /// and `undefined` are falsy, and EVERY object (including an empty one and an empty array) is truthy.
-fn js_truthy(v: &serde_json::Value) -> bool {
-    match v {
-        serde_json::Value::Null => false,
-        serde_json::Value::Bool(b) => *b,
-        serde_json::Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
-        serde_json::Value::String(s) => !s.is_empty(),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
-    }
-}
+///
+/// **A RE-EXPORT OF THE CORE'S RULE (2026-10-13)**, and the copy that stood here had the `NaN` arm wrong —
+/// `n.as_f64().map(|f| f != 0.0)` calls NaN TRUTHY, where the engine calls it falsy. JSON has no NaN literal,
+/// so it was unreachable rather than live; the core's form is the one that stays right for the next caller.
+use summrise_core::text::js_truthy;
 
 #[cfg(test)]
 mod oracle_corpus {

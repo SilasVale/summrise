@@ -174,28 +174,14 @@ pub fn estimate_tokens(json_str: &serde_json::Value) -> f64 {
     estimate_text_tokens(&s, text_len) + (images * PER_IMAGE_TOKENS) as f64
 }
 
-/// `String(x)` for the shapes a caller can pass — the engine's own coercion, because the parameter is
-/// typed `any` and the deployed worker really can be handed a number here.
-fn js_string_of(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Null => "null".to_string(),
-        serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Array(items) => items
-            .iter()
-            .map(|i| match i {
-                serde_json::Value::Null => String::new(),
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Bool(b) => b.to_string(),
-                serde_json::Value::Number(n) => n.to_string(),
-                _ => "[object Object]".to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        serde_json::Value::Object(_) => "[object Object]".to_string(),
-    }
-}
+/// `String(x)` for the shapes a caller can pass — the engine's own coercion, because the parameter is typed
+/// `any` and the deployed worker really can be handed a number here. **A RE-EXPORT OF THE CORE'S RULE
+/// (2026-10-13)**, and the copy that stood here disagreed with it in the ARRAY arm: a nested EMPTY ARRAY
+/// rendered as `"[object Object]"` where the engine renders it as nothing (`String([[],{}])` is
+/// `",[object Object]"`). That arm is the core's now. `js_string` rather than `js_string_of`, because the
+/// parameter here is a VALUE and not an optional key: an absent key is a question only `String(record?.uid)`
+/// asks.
+use summrise_core::text::js_string as js_string_of;
 
 #[cfg(test)]
 mod oracle_corpus {

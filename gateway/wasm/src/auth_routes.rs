@@ -43,7 +43,7 @@ use worker::*;
 use crate::auth::{
     clear_session_cookie_header, parse_cookie, safe_eq, session_cookie_header, SESSION_COOKIE,
 };
-use crate::device_registry::{js_falsy, js_falsy_string, js_to_string};
+use crate::device_registry::{js_falsy, js_falsy_string};
 use crate::device_store::{kv_put, kv_text, now_ms};
 use crate::ip_rate_limit::{check, Counters, IpRateLimiter};
 use crate::session_gate;
@@ -307,13 +307,9 @@ async fn session_and_key_name(
 }
 
 /// `String(x)` for the two places a request value is interpolated into a message — with `undefined` for a
-/// missing field, which is what the source's template literal produces.
-fn js_to_string_of(v: Option<&Value>) -> String {
-    match v {
-        Some(value) => js_to_string(value),
-        None => "undefined".to_string(),
-    }
-}
+/// missing field, which is what the source's template literal produces. **A RE-EXPORT OF THE CORE'S RULE
+/// (2026-10-13)**, under the name the call sites here already use.
+use summrise_core::text::js_string_of as js_to_string_of;
 
 /// The user's id as the store addresses it: **`String(user.id)`, RAW** — the source passes `user.id` without the
 /// `|| ""` its message sites use, so a record with no id addresses `ukeys:undefined` / `user:undefined`. A

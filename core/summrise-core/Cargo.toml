@@ -9,7 +9,16 @@ description = "The decisions both hosts share: pure Rust, no bindings, no I/O."
 # `#[wasm_bindgen]` item in the crate GRAPH, so a crate that both a wasm host and a native host depend on
 # must carry no binding at all. Each host wraps what it needs; the core never knows JS exists.
 #
-# NO DEPENDENCIES, DELIBERATELY. A dependency here is a dependency of the worker, the agent and the
-# emitted TypeScript (through the emitters), and the fastest gate in this repository is `cargo test` on a
-# crate that compiles in a second.
+# **ONE DEPENDENCY, AND THE FIRST VERSION OF THIS FILE SAID NONE — THE CORRECTION IS THE RECORD.** It read
+# "NO DEPENDENCIES, DELIBERATELY", and the reason given was build time. That is still the reason to keep the
+# list SHORT, but it cannot be a reason to keep it EMPTY: half of what the two hosts share is the shape of
+# the JSON that crosses between them (`js_string`, `js_number`, the provider parser), and a core that cannot
+# see a `Value` cannot own a rule about one. `serde_json` is pure Rust with no I/O — it is not the kind of
+# dependency the purity rule in `lib.rs` is about (no `web_sys`, no `worker`, no socket, no clock).
+#
+# **AND NO `preserve_order` HERE, DELIBERATELY.** That feature swaps `serde_json`'s `Map` for an
+# insertion-ordered one FOR THE WHOLE BUILD GRAPH, and the agent does not enable it — so a core that assumed
+# insertion order would compile in one host and mean something else in the other. Nothing below reads key
+# order; the worker's own crate enables the feature where its wire format needs it.
 [dependencies]
+serde_json = "1"
