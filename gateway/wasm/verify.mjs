@@ -282,6 +282,91 @@ for (const [i, c] of CASES.entries()) {
   bad += authBad;
 }
 
+// ── THE ADMIN FAMILY, REPLAYED ───────────────────────────────────────────────────────────────────
+//
+// **`fixtures/admin-corpus.json` IS THE SHIPPING ADMIN PLUGIN'S OWN ANSWERS**, recorded by
+// `gateway/wasm/admin-oracle.mjs` through the plugin's ROUTE TABLE (so the matcher is pinned, not just the
+// handler). This section drives the BUILT WORKER with the same request, the same KV and the same cookie, and
+// compares status and body byte for byte.
+//
+// **THE FIRST ROUTE FAMILY THE WORKER SERVES ITSELF.** The stores under it were already Rust and `session_gate`
+// already owned the gate; what this proves is the layer above them — the path match, the JSON shape, the
+// masking — which nothing else can, because a divergence there is a divergence in the MEETING of the pieces.
+//
+// THE COOKIE IS IN THE FIXTURE, LITERALLY, and that is only possible because the oracle FREEZES `Date.now()`
+// (a token minted twice from a live clock is two different tokens, and the replay could never reproduce one).
+// It expires in 2100.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/admin-corpus.json", import.meta.url)), "utf8"),
+  );
+  /** The KV namespace over the fixture's plain object.
+   *
+   *  **THE SECOND ARGUMENT IS NOT THE SAME IN THE TWO LANGUAGES, AND THIS STUB IS THE FIRST PLACE THAT
+   *  MATTERED.** The shipping TypeScript calls `env.KEYS.get(key, "json")` — a bare string. `workers-rs` calls
+   *  `get(key, { cacheTtl, type })` — an OPTIONS OBJECT (`worker-0.8.7/src/kv/builder.rs`'s `build_get_options`).
+   *  A stub that knows only the string form hands the Rust a raw string where it asked for a parsed record, and
+   *  `user.get("enabled")` on a string is `undefined` — which the session gate reads as DISABLED, so this
+   *  section's first run answered 401 to every gated case while the ungated ones passed. Both forms are
+   *  accepted below, and that is deliberate: the fixture is generated from one language and replayed against the
+   *  other, and the stub is where they meet. */
+  const kvOf = (entries) => {
+    const map = new Map(Object.entries(entries));
+    return {
+      async get(key, options) {
+        if (!map.has(key)) return null;
+        const value = map.get(key);
+        const wantsJson = options === "json" || options?.type === "json";
+        if (wantsJson && typeof value === "string") {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        }
+        return value;
+      },
+      async put(key, value) {
+        map.set(key, value);
+      },
+      async delete(key) {
+        map.delete(key);
+      },
+      async list({ prefix = "" } = {}) {
+        return {
+          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+  let adminBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    // A fresh module instance per case: the store caches, the revoke cache AND the seed flag are isolate state,
+    // and a fresh instance is what a new isolate looks like.
+    const worker = await import(`${pathToFileURL(BUILT).href}?admin=${i}`);
+    const instance = new worker.default();
+    instance.env = { ...envFor("0"), KEYS: kvOf(c.env.KEYS), SESSION_SECRET: c.env.SESSION_SECRET };
+    instance.ctx = {};
+    const res = await instance.fetch(
+      new Request(`https://console.test${c.path}`, { method: c.method, headers: c.headers }),
+    );
+    const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
+    const ok = res.status === c.expected.status && body === c.expected.body;
+    if (!ok) adminBad++;
+    console.log(`      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${res.status} (shipping ${c.expected.status})`);
+    if (!ok) {
+      console.log(`        shipping: ${JSON.stringify(c.expected.body).slice(0, 300)}`);
+      console.log(`        wasm    : ${JSON.stringify(body).slice(0, 300)}`);
+    }
+  }
+  console.log(
+    `  the admin family, through the built worker: ${corpus.cases.length - adminBad}/${corpus.cases.length}`,
+  );
+  bad += adminBad;
+}
+
 // ── THE DEPLOYMENT'S OWN KEY REACHES THE UPSTREAM ────────────────────────────────────────────────
 // **THE PURE LAYER READS A FIXED SET OF NAMES OUT OF `env`, AND `v1.rs` HANDED IT `{"US_PROXY"}` ALONE.**
 // Measured 2026-10-06 on the built worker, with a valid token, NO user key in KV, and the deployment's own
