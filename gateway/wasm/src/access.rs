@@ -33,7 +33,7 @@
 use serde_json::Value;
 use worker::*;
 
-use crate::device_registry::{js_falsy_string, js_to_string};
+use crate::device_registry::js_falsy_string;
 use crate::device_store;
 use crate::key_lock::{with_key_lock, KeyedLocks};
 use crate::session_gate::b64url_decode;
@@ -57,6 +57,28 @@ fn env_str(env: &Env, name: &str) -> Option<String> {
         .map(|v| v.to_string())
         .filter(|v| !v.is_empty())
 }
+
+/// `access-email:<email>` — the KV key binding a verified Access identity to a console user.
+pub const ACCESS_EMAIL_KEY: &str = "access-email:";
+
+/// `user:<id>` / `token:<token>` — the two key families this module reads and writes. Named here because the
+/// EMISSION publishes them: a key written by one language and read by the other, with the spelling in both, is
+/// the class `x-do-auth`, `/__decision` and `"unknown"` each cost a landing.
+pub const USER_KEY_PREFIX: &str = "user:";
+pub const TOKEN_KEY_PREFIX: &str = "token:";
+
+/// `user:admin` — the seeded account the owner shortcut reads.
+pub const ADMIN_USER_KEY: &str = "user:admin";
+
+/// The uniqueness suffix: `randomHex(2)`, so four hex characters.
+pub const ACCESS_SUFFIX_BYTES: usize = 2;
+
+/// The provision loop's bound — the source's own `for (let i = 0; i < 10; i++)`.
+pub const ACCESS_NAME_ATTEMPTS: usize = 10;
+
+/// The token a provisioned account is minted with: `randomHex(24)`, the same size
+/// `user_store::GATEWAY_TOKEN_BYTES` names.
+pub const ACCESS_TOKEN_BYTES: usize = 24;
 
 /// `b64urlToJson(part)` — `atob` after the `-`/`_` translation and the padding restoration, then `JSON.parse`.
 /// `None` is the source's `catch`, which covers BOTH an invalid base64 length/alphabet and a payload that does
@@ -87,7 +109,15 @@ pub fn split_jwt(token: &str) -> Option<(&str, &str, &str)> {
 /// one line earlier by the truthiness check.
 pub fn aud_list(payload: &Value) -> Vec<String> {
     match payload.get("aud") {
-        Some(Value::Array(items)) => items.iter().map(js_to_string).collect(),
+        // **ONLY STRING ENTRIES CAN EVER MATCH, WHICH IS WHAT `includes` DOES.** The first version mapped every
+        // element through `js_to_string` — so `aud: [5]` became `["5"]` and matched a deployment whose
+        // `ACCESS_AUD` is the text `5`, where JavaScript's `[5].includes("5")` is FALSE. Its own comment said
+        // "carried as the empty string", which is what a `null` entry does under `String(null)` — the comment
+        // and the code disagreed, and neither was the rule. A malformed `aud` is now simply not a match.
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
         Some(Value::String(s)) => vec![s.clone()],
         _ => Vec::new(),
     }
@@ -283,7 +313,7 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
         .unwrap_or_default()
         .to_lowercase();
     if !admin_email.is_empty() && email == admin_email {
-        if let Some(raw) = device_store::kv_text(env, "user:admin").await {
+        if let Some(raw) = device_store::kv_text(env, ADMIN_USER_KEY).await {
             if let Ok(u) = serde_json::from_str::<Value>(&raw) {
                 if u.get("enabled") != Some(&Value::Bool(false)) {
                     return Ok(Some(u));
@@ -293,8 +323,8 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
         return Ok(None);
     }
 
-    if let Some(bound) = device_store::kv_text(env, &format!("access-email:{email}")).await {
-        if let Some(raw) = device_store::kv_text(env, &format!("user:{bound}")).await {
+    if let Some(bound) = device_store::kv_text(env, &format!("{ACCESS_EMAIL_KEY}{email}")).await {
+        if let Some(raw) = device_store::kv_text(env, &format!("{USER_KEY_PREFIX}{bound}")).await {
             if let Ok(user) = serde_json::from_str::<Value>(&raw) {
                 // **A DISABLED BOUND ACCOUNT STAYS LOGGED OUT** (the source's round-395): returning `None`
                 // WITHOUT provisioning is the point — minting a fresh suffixed account for a suspended user
@@ -311,9 +341,12 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
         &PROVISION_LOCKS,
         &format!("access-provision:{email}"),
         async {
-            if let Some(again) = device_store::kv_text(env, &format!("access-email:{email}")).await
+            if let Some(again) =
+                device_store::kv_text(env, &format!("{ACCESS_EMAIL_KEY}{email}")).await
             {
-                if let Some(raw) = device_store::kv_text(env, &format!("user:{again}")).await {
+                if let Some(raw) =
+                    device_store::kv_text(env, &format!("{USER_KEY_PREFIX}{again}")).await
+                {
                     if let Ok(user) = serde_json::from_str::<Value>(&raw) {
                         if user.get("enabled") == Some(&Value::Bool(false)) {
                             return Ok(None);
@@ -327,13 +360,16 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
             let mut name = base.clone();
             // The uniqueness loop: a SINGLE suffix attempt could still collide and overwrite the colliding account's
             // record (the old code suffixed once, then put unconditionally). Ten attempts, then give up loudly.
-            if device_store::kv_text(env, &format!("user:{name}"))
+            if device_store::kv_text(env, &format!("{USER_KEY_PREFIX}{name}"))
                 .await
                 .is_some()
             {
                 let mut unique = false;
-                for _ in 0..10 {
-                    let candidate = format!("{base}-{}", crate::webcrypto::random_hex(2));
+                for _ in 0..ACCESS_NAME_ATTEMPTS {
+                    let candidate = format!(
+                        "{base}-{}",
+                        crate::webcrypto::random_hex(ACCESS_SUFFIX_BYTES)
+                    );
                     if device_store::kv_text(env, &format!("user:{candidate}"))
                         .await
                         .is_none()
@@ -348,7 +384,7 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
                 }
             }
 
-            let token = crate::webcrypto::random_hex(24);
+            let token = crate::webcrypto::random_hex(ACCESS_TOKEN_BYTES);
             // FIELD ORDER IS THE STORED BYTES: `id, username, role, enabled, createdAt, token, accessEmail`, which
             // is the order the source's object literal writes and therefore the order this record's JSON has.
             let user = serde_json::json!({
@@ -360,9 +396,15 @@ pub async fn ensure_user_by_email(env: &Env, email: &str) -> Result<Option<Value
                 "token": token,
                 "accessEmail": email,
             });
-            device_store::kv_put(env, &format!("user:{name}"), &user.to_string(), None).await;
-            device_store::kv_put(env, &format!("token:{token}"), &name, None).await;
-            device_store::kv_put(env, &format!("access-email:{email}"), &name, None).await;
+            device_store::kv_put(
+                env,
+                &format!("{USER_KEY_PREFIX}{name}"),
+                &user.to_string(),
+                None,
+            )
+            .await;
+            device_store::kv_put(env, &format!("{TOKEN_KEY_PREFIX}{token}"), &name, None).await;
+            device_store::kv_put(env, &format!("{ACCESS_EMAIL_KEY}{email}"), &name, None).await;
             Ok(Some(user))
         },
     )
@@ -381,6 +423,172 @@ pub async fn require_access_session(
         return Ok(None);
     };
     ensure_user_by_email(env, &email).await
+}
+
+/// The emitted module's header, and then the module.
+const TS_MODULE: &str = r#"/**
+ * access-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/access.rs` (`render_typescript`), which is now the single source for the rules
+ * below. The freshness test in that module is a byte comparison against this file, so a hand edit fails there
+ * with the text and one command to fix it:
+ *
+ *     SUMMRISE_REFRESH_ACCESS=1 cargo test --manifest-path gateway/wasm/Cargo.toml access::emission
+ *
+ * `gateway/src/access.ts` re-exports this module and keeps the HOST: the JWKS fetch and its cache, the
+ * `crypto.subtle` verify, the KV reads and writes, and the provisioning lock. **THE DECISIONS ARE HERE** — the
+ * JWT's split and its four claim checks, the email and username derivations, the two key-name families, and the
+ * record a provisioned account is written as.
+ *
+ * **AND IT IMPORTS THE GATEWAY TOKEN SIZE RATHER THAN RESTATING IT**: the account this file provisions is a user
+ * like any other, and a second `24` would be a second answer to "how long is a gateway token".
+ */
+
+import { GATEWAY_TOKEN_BYTES } from "./store/users-logic.ts";
+
+/** `access-email:<email>` — the binding from a verified Access identity to a console user. */
+export const ACCESS_EMAIL_KEY = "access-email:";
+
+/** `user:admin` — the seeded account the owner shortcut reads. */
+export const ADMIN_USER_KEY = "user:admin";
+
+/** The uniqueness suffix: `randomHex(2)`, so four hex characters. */
+export const ACCESS_SUFFIX_BYTES = 2;
+
+/** The provision loop's bound — the source's own `for (let i = 0; i < 10; i++)`. */
+export const ACCESS_NAME_ATTEMPTS = 10;
+
+/** The token a provisioned account is minted with. */
+export const ACCESS_TOKEN_BYTES = GATEWAY_TOKEN_BYTES;
+
+/** `user:<id>` — the record key. Named, because the two languages write and read it. */
+export function userKeyFor(id: string): string {
+  return `user:${id}`;
+}
+
+/** `token:<token>` — the lookup key. */
+export function tokenKeyFor(token: string): string {
+  return `token:${token}`;
+}
+
+/** `access-email:<email>` — the binding key. */
+export function accessEmailKeyFor(email: string): string {
+  return `${ACCESS_EMAIL_KEY}${email}`;
+}
+
+/** `String(v || "").toLowerCase().trim()` — the normalization both the claim and the record path use. */
+export function normalizeEmail(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .trim();
+}
+
+/** The owner shortcut's test: a CONFIGURED admin email that matches exactly. An empty `ACCESS_ADMIN_EMAIL` is
+ *  not a match for anything, which is what `adminEmail &&` means before the comparison. */
+export function isAdminEmail(email: string, adminEmail: unknown): boolean {
+  const configured = String(adminEmail || "").toLowerCase();
+  return !!configured && email === configured;
+}
+
+/** `user.enabled === false` — **AN EXPLICIT `false` DISABLES, AND A MISSING FIELD DOES NOT** (round-395: the
+ *  bound-account path must return null for a suspended user WITHOUT provisioning a fresh one, and the owner
+ *  shortcut answers a record whose `enabled` is merely absent). */
+export function isDisabledAccount(user: unknown): boolean {
+  return (user as { enabled?: unknown } | null | undefined)?.enabled === false;
+}
+
+/** `b64urlToJson(part)` — the padding restoration, the URL alphabet, `atob`, `JSON.parse`. It THROWS where the
+ *  source throws (`atob` on a bad alphabet, `JSON.parse` on bad text), which is what its caller's `try` catches. */
+export function b64urlToJson(part: string): unknown {
+  const pad = part.length % 4 === 0 ? "" : "=".repeat(4 - (part.length % 4));
+  return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/") + pad));
+}
+
+/** `token.split(".")` with the source's `parts.length !== 3` refusal — THREE parts exactly, and the third is the
+ *  signature. (This is NOT `auth.ts`'s first-dot split: a session token has one dot, an Access JWT has two.) */
+export function splitJwt(token: string): [string, string, string] | null {
+  const parts = token.split(".");
+  return parts.length === 3 ? [parts[0]!, parts[1]!, parts[2]!] : null;
+}
+
+/** `Array.isArray(payload.aud) ? payload.aud : typeof payload.aud === "string" ? [payload.aud] : []` — the two
+ *  shapes Cloudflare emits. **ONLY STRING ENTRIES CAN MATCH**, which is what `includes` does with them. */
+export function audList(payload: unknown): string[] {
+  const aud = (payload as { aud?: unknown } | null | undefined)?.aud;
+  return Array.isArray(aud)
+    ? aud.filter((a): a is string => typeof a === "string")
+    : typeof aud === "string"
+      ? [aud]
+      : [];
+}
+
+/** **THE FOUR CLAIMS CHECKS, IN THE SOURCE'S ORDER, EACH ONE A REFUSAL THAT NEVER REACHES THE NETWORK.** The
+ *  `kid` lookup is by name, the audience must list this deployment, the issuer is PINNED to the team (audit L5:
+ *  a token from ANOTHER Cloudflare team under the same `aud` was possible), and `exp` must be a NUMBER that has
+ *  not passed. */
+export function claimsOk(
+  header: unknown,
+  payload: unknown,
+  aud: string,
+  teamDomain: string,
+  nowMs: number,
+): boolean {
+  const kid = (header as { kid?: unknown } | null | undefined)?.kid;
+  if (typeof kid !== "string" || !kid) return false;
+  if (!audList(payload).includes(aud)) return false;
+  if ((payload as { iss?: unknown } | null | undefined)?.iss !== `https://${teamDomain}`)
+    return false;
+  const exp = (payload as { exp?: unknown } | null | undefined)?.exp;
+  return typeof exp === "number" && exp * 1000 >= nowMs;
+}
+
+/** `String(payload.email || "").toLowerCase().trim()`, then the `@` test — null where the source answers null. */
+export function emailOf(payload: unknown): string | null {
+  const email = normalizeEmail((payload as { email?: unknown } | null | undefined)?.email);
+  return email.includes("@") ? email : null;
+}
+
+/** `usernameFromEmail(email)`: the local part, everything outside `[A-Za-z0-9_.-]` dropped, 28 characters at
+ *  most — and `"user"` when what is left is not a 2-to-32 character name. **THE ORDER IS THE SOURCE'S**: the
+ *  strip is BEFORE the slice and the test is AFTER it, so a name that is legal before stripping and illegal
+ *  after becomes `"user"` rather than being kept. */
+export function usernameFromEmail(email: string): string {
+  let base = email
+    .split("@")[0]!
+    .replace(/[^A-Za-z0-9_.-]/g, "")
+    .slice(0, 28);
+  if (!/^[A-Za-z0-9_.-]{2,32}$/.test(base)) base = "user";
+  return base;
+}
+
+/** The record a provisioned account is written as. **FIELD ORDER IS THE STORED BYTES**:
+ *  `id, username, role, enabled, createdAt, token, accessEmail`. */
+export function accessUserRecord(
+  name: string,
+  email: string,
+  token: string,
+  nowMs: number,
+): unknown {
+  return {
+    id: name,
+    username: name,
+    role: "user",
+    enabled: true,
+    createdAt: nowMs,
+    token,
+    accessEmail: email,
+  };
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_MODULE.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/access-logic.ts")
 }
 
 #[cfg(test)]
@@ -492,5 +700,58 @@ mod tests {
         assert_eq!(b64url_to_json("!!!!"), None, "atob refuses the alphabet");
         assert_eq!(b64url_to_json("Zg"), None, "…and so does JSON.parse");
         assert_eq!(b64url_to_json("eyJhIjoxfQ"), Some(json!({"a": 1})));
+    }
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_ACCESS").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write access-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_ACCESS=1 cargo test access::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/access-logic.ts is not what access.rs emits — \
+             run SUMMRISE_REFRESH_ACCESS=1 cargo test access::emission"
+        );
+    }
+
+    /// **THE EMISSION'S KEY NAMES ARE THE RUST'S** — a wire whose two ends live in two languages is the class
+    /// this repository has paid for three times (`x-do-auth`, `/__decision`, `"unknown"`), and the keys this
+    /// module writes are read back by `session.ts` and `user_store.rs`.
+    ///
+    /// MUTATION: change `ACCESS_EMAIL_KEY` to `"access:"`.
+    /// RESULT:   this test fails naming the key — and the emitted host would write a binding the worker never
+    ///           reads, so every Access login would provision a fresh account.
+    #[test]
+    fn the_emission_carries_the_key_names_and_the_bounds() {
+        let ts = render_typescript();
+        for item in [
+            format!("export const ACCESS_EMAIL_KEY = \"{ACCESS_EMAIL_KEY}\";"),
+            format!("export const ADMIN_USER_KEY = \"{ADMIN_USER_KEY}\";"),
+            format!("export const ACCESS_SUFFIX_BYTES = {ACCESS_SUFFIX_BYTES};"),
+            format!("export const ACCESS_NAME_ATTEMPTS = {ACCESS_NAME_ATTEMPTS};"),
+            "return `user:${id}`;".to_string(),
+            "return `token:${token}`;".to_string(),
+            "return `${ACCESS_EMAIL_KEY}${email}`;".to_string(),
+        ] {
+            assert!(ts.contains(&item), "the emission lost: {item}");
+        }
+        // The token size is IMPORTED, not restated — a second `24` would be a second answer.
+        assert!(ts.contains("export const ACCESS_TOKEN_BYTES = GATEWAY_TOKEN_BYTES;"));
+        assert!(ts.contains("import { GATEWAY_TOKEN_BYTES } from \"./store/users-logic.ts\";"));
     }
 }
