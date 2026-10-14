@@ -8,9 +8,18 @@
 //!
 //! THE SHAPE IS WRITTEN THREE TIMES:
 //!
-//!     gateway/src/store/providers.ts   ProviderSpec + ProviderModel   what the admin API VALIDATES and stores
-//!     gateway/ui/src/api/client.ts     ProviderDraft                  what the FORM submits
-//!     gateway/wasm/src/store.rs        provider_*()                   what the WORKER reads back out
+//!     gateway/src/store/providers-logic.ts   ProviderSpec + ProviderModel   what the admin API VALIDATES and stores
+//!     gateway/ui/src/api/client.ts           ProviderDraft                  what the FORM submits
+//!     gateway/wasm/src/store.rs              provider_*()                   what the WORKER reads back out
+//!
+//! **AND THE FIRST PLACE IS AN EMISSION NOW (2026-10-13), WHICH IS WHY THE CONSTANT BELOW MOVED WITH IT.** The
+//! parser, `MODEL_FIELDS` and the two record interfaces are written in `core/summrise-core/src/provider_spec.rs`
+//! and RENDERED into `store/providers-logic.ts`; `store/providers.ts` keeps the host. **THIS GATE WENT RED IN CI
+//! FOR EXACTLY THAT REASON** — it read `providers.ts`, the subject had left, and it panicked with "has no
+//! `interface ProviderSpec`" rather than passing on a document that no longer decided anything. That is the
+//! failure mode the repository keeps paying for (round 2's `AGENTS.md` verb extractor, `proxy_cors_parity.rs`
+//! anchoring on a mention): **a text-reading gate whose subject MOVES must be pointed at the file that decides
+//! now, and the panic is what tells you so.**
 //!
 //! **`tsc` CHECKS ONE OF THE TWO SEAMS AND CANNOT CHECK THE OTHER.** `gateway/ui` is its own package with
 //! its own tsconfig, so `ProviderDraft` cannot import `ProviderSpec` — the file says *"Mirrors the server's
@@ -58,8 +67,10 @@ use std::collections::BTreeSet;
 
 /// The Rust reader: `gateway/wasm/src/store.rs`'s `provider_*` functions.
 const RUST: &str = "gateway/wasm/src/store.rs";
-/// The record the admin API validates and stores.
-const SPEC: &str = "gateway/src/store/providers.ts";
+/// The record the admin API validates and stores — **the EMISSION, because that is the code the server runs.**
+/// Pointing this at `store/providers.ts` again would compare the form against a host that no longer declares a
+/// field the parser accepts.
+const SPEC: &str = "gateway/src/store/providers-logic.ts";
 /// What the console's form submits.
 const DRAFT: &str = "gateway/ui/src/api/client.ts";
 
@@ -151,33 +162,65 @@ fn the_worker_can_only_read_fields_the_record_declares() {
     );
 }
 
-/// The wire fields the admin parser accepts: `body.<name>` inside `parseProviderSpec`, plus
-/// `MODEL_FIELDS` for one model.
+/// The wire fields the admin parser accepts: `body.<name>` or `body?.<name>` inside `parseProviderSpec` **and
+/// inside the one function it delegates the base-URL read to**, plus `MODEL_FIELDS` for one model.
+///
+/// **TWO THINGS THIS PARSE LEARNED FROM CI, AND BOTH ARE THE MIGRATION'S OWN SHAPE.** The first version read one
+/// function and `body.`; the emission (a) writes `providerBaseText` for the `baseURL` read, because the host has
+/// to parse that same text, and (b) spells the optional chain `body?.baseURL ?? ""` — so a scan that stopped at
+/// `parseProviderSpec` and only knew `body.` reported that THE WHOLE FORM was unsendable. **A gate that reads a
+/// DELEGATED read must follow the delegation**, or it fails on the refactor rather than on the rename it exists
+/// for.
 fn parser_fields() -> BTreeSet<String> {
     let text = common::read(SPEC);
-    let anchor = "export function parseProviderSpec(";
-    let start = text.find(anchor).unwrap_or_else(|| {
-        panic!("{SPEC} has no `{anchor}` — the parser this seam pins was renamed")
-    });
-    let body = &text[start..];
-    let end = body.find("\n}\n").expect("a closed function");
     let mut out = BTreeSet::new();
-    let mut rest = &body[..end];
-    while let Some(i) = rest.find("body.") {
-        rest = &rest[i + 5..];
-        let name: String = rest
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if !name.is_empty() {
-            out.insert(name);
+    for anchor in [
+        "export function parseProviderSpec(",
+        "export function providerBaseText(",
+    ] {
+        let start = text.find(anchor).unwrap_or_else(|| {
+            panic!("{SPEC} has no `{anchor}` — the parser this seam pins was renamed or moved")
+        });
+        let body = &text[start..];
+        let end = body.find("\n}\n").expect("a closed function");
+        let mut rest = &body[..end];
+        // `body.` AND `body?.` — the optional chain is what the emitted text uses for a field the body may omit.
+        // **THE MATCH LENGTHS DIFFER (`5` vs `6`), and that is the whole bug this loop had**: skipping a fixed
+        // five characters after `body?.` left the scanner ON the dot, the name parse found nothing, and
+        // `baseURL` — the ONE field the delegation exists for — went missing while every other field passed.
+        loop {
+            let plain = rest.find("body.").map(|i| (i, 5usize));
+            let optional = rest.find("body?.").map(|i| (i, 6usize));
+            let next = match (plain, optional) {
+                (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+                (Some(a), None) => Some(a),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            };
+            let Some((i, skip)) = next else { break };
+            rest = &rest[i + skip..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !name.is_empty() {
+                out.insert(name);
+            }
         }
     }
     // `MODEL_FIELDS` is the model-level half of the same list, and it is an array literal.
-    let fields = text
-        .find("const MODEL_FIELDS = [")
+    // **THE `[` SEARCH STARTS AT THE INITIALIZER**: the declaration is `MODEL_FIELDS: string[] = [`, and the
+    // first `[` after the NAME is the one in `string[]` — the first version of this anchor read an EMPTY list
+    // and reported every model field as unaccepted.
+    let at = text
+        .find("MODEL_FIELDS")
         .unwrap_or_else(|| panic!("{SPEC} has no `MODEL_FIELDS` — the model field list moved"));
-    let line = &text[fields..text[fields..].find(']').expect("a closed array") + fields];
+    let open = text[at..]
+        .find("= [")
+        .expect("an array initializer for MODEL_FIELDS")
+        + at
+        + 2;
+    let line = &text[open..text[open..].find(']').expect("a closed array") + open];
     for quoted in line.split('"').skip(1).step_by(2) {
         out.insert(quoted.to_string());
     }
