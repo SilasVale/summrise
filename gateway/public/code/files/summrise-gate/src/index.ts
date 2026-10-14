@@ -124,6 +124,64 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
 }
 
 /**
+ * **THE ADMIN FAMILY'S CUTOVER — THE LAST FAMILY, AND THE ONE THE CONSOLE ITSELF LIVES ON.**
+ *
+ * `gateway/wasm/src/admin_routes.rs` serves all seventeen `/api/admin/*` routes, proved case for case by
+ * `gateway/wasm/verify.mjs` (**82 cases**: the refusals, the writes, the KV TTLs and the PROBE's outbound dial
+ * with its credential and its `redirect` mode). Until this landing that worker code was **unreachable**: the
+ * console's own plugin registry answered `/api/admin/*` first, so the ported family was dead weight behind a
+ * route that never arrived.
+ *
+ * **THE PREDICATE IS THE RUST ONE, PATH FOR PATH** (`admin_routes::in_family`): exact matches for the reads and
+ * the writes, `startsWith`/`endsWith` for the two dynamic PUTs, and a prefix for the two DELETEs — because
+ * `DELETE /api/admin/providers/` with an EMPTY prefix is a route that answers its own 400 rather than a
+ * path the family does not claim.
+ *
+ * **THE ROLLBACK IS THE BINDING.** `plugins/admin.ts` and `plugins/models-probe.ts` are unchanged and still
+ * registered, so a deployment without `WASM_GATE` — a local `wrangler dev`, a test env, a deployment whose
+ * binding was removed — serves every one of these routes from TypeScript exactly as it did before. That is the
+ * same rule the device, identity and MCP families already follow, and deleting the two plugins is the step AFTER
+ * the deploy that proves the worker serves this family.
+ *
+ * **AND THE UNGATED ROUTE IS WHY THE HANDOVER IS NOT A SESSION GATE**: `GET /api/admin/public` answers the
+ * console's channel cards with NO session at all (`/api/admin/public` is the family's only ungated path, in the
+ * plugin's own words). The handover below sits after `seedAdmin` and after the CSRF gate, so a cookie-less
+ * caller is handed to the worker and served, not refused here.
+ */
+function isAdminFamily(method: string, path: string): boolean {
+  if (!path.startsWith("/api/admin/")) return false;
+  const m = method.toUpperCase();
+  if (m === "GET") {
+    return [
+      "/api/admin/users",
+      "/api/admin/cloudflare-token",
+      "/api/admin/password",
+      "/api/admin/models",
+      "/api/admin/providers",
+      "/api/admin/catalogue",
+      "/api/admin/public",
+    ].includes(path);
+  }
+  if (m === "PUT") {
+    return (
+      path === "/api/admin/password" ||
+      path === "/api/admin/cloudflare-token" ||
+      (path.startsWith("/api/admin/users/") && path.endsWith("/enabled")) ||
+      (path.startsWith("/api/admin/models/") && path.endsWith("/enabled"))
+    );
+  }
+  if (m === "POST") {
+    return ["/api/admin/invite", "/api/admin/models", "/api/admin/models/probe", "/api/admin/providers"].includes(
+      path,
+    );
+  }
+  if (m === "DELETE") {
+    return path.startsWith("/api/admin/models/") || path.startsWith("/api/admin/providers/");
+  }
+  return false;
+}
+
+/**
  * THE DEVICE FAMILY'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH IT DOES NOT.
  *
  * The rule is the same one `/v1` already follows: the TypeScript front door hands a path to the `WASM_GATE`
@@ -376,6 +434,13 @@ export default {
         // **THE MCP ENDPOINT GOES TO THE SAME PLACE, BY THE SAME RULE.** After `seedAdmin` and the CSRF gate,
         // and with `plugins/mcp.ts` as the rollback when the binding is absent — see `isMcpFamily`.
         if (isMcpFamily(path) && wasmGate(env)) {
+          return await frontDoor(request, env, request);
+        }
+        // **THE ADMIN FAMILY GOES TO THE SAME PLACE, BY THE SAME RULE** — the last family, and the one that
+        // makes the seventeen ported routes live. Same placement, same reasons: after `seedAdmin` (the front
+        // door's job, which the worker does not do) and after the CSRF gate above, and with `plugins/admin.ts`
+        // and `plugins/models-probe.ts` as the rollback when the binding is absent — see `isAdminFamily`.
+        if (isAdminFamily(request.method, path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
         const pctx = ensurePluginCtx();
