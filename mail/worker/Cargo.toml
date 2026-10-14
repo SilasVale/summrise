@@ -1,0 +1,23 @@
+[package]
+name = "summrise-mail-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The mail worker: one address's inbound mail lands in R2 and is served to the agent over an unguessable path. NO MIME PARSING — Workers Free gives 10 ms of CPU per request, so the parsing happens on the operator's box."
+
+# TWO HALVES, AND THEY COMPILE IN DIFFERENT WORLDS — the same arrangement `relay/worker` and the zen
+# satellites carry. `lib.rs` (the decisions) is a plain host build, which is what `cargo test` runs;
+# `worker.rs` is `#[cfg(target_arch = "wasm32")]`, because `#[event(fetch)]` and `#[event(email)]` expand to
+# nothing on the host. That is why the entry point is checked by
+# `cargo clippy --target wasm32-unknown-unknown` and driven for real by `wrangler dev`.
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "summrise_mail_worker"
+path = "src/lib.rs"
+
+[dependencies]
+worker = "0.8.7"
+# `worker` already links serde_json (its own dependency), so this line adds no second copy of it to the
+# module — the same sentence `gateway/wasm/Cargo.toml` carries, and the size measurement in the commit
+# message is the check on that claim, not this comment.
+serde_json = { version = "1", features = ["preserve_order"] }
