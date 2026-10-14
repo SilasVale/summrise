@@ -474,3 +474,60 @@ admin family, §6 row 3), the six plugin files, `auth.ts`, `session.ts`, `upstre
 routing glue. The next landing is the admin family's first slice, and the sequencing question it answers is
 whether a route port needs a differential (old vs new on the same request) or whether the corpus already covers
 what it touches.
+
+---
+
+## LANDED 2026-10-14 — the admin family is COMPLETE, and the route layer has a method (17/17)
+
+**ALL SEVENTEEN `/api/admin/*` ROUTES ARE THE WORKER'S**, over ten landings: the five reads, the model writes and
+the probe, the provider CRUD, the password's two arms, the invite, the catalogue document and the public
+catalogue. **AND WITH THEM THE ROUTE LAYER HAS A METHOD, WHICH IS THE PART WORTH KEEPING:**
+
+1. **A ROUTE IS PORTED WHEN EVERY INPUT IS ALREADY RUST'S, AND NOT BEFORE.** `/api/admin/public` was the obvious
+   first route and it waited until last-but-one, because its catalogue merges `ROUTE_INFO`'s prose with the
+   CATALOGUE FILE — two tables with no Rust home. Porting it early would have meant guessing at both, with no
+   oracle to catch the guess.
+2. **THE WITNESS IS A FIXTURE RECORDED FROM THE SHIPPING PLUGIN, REPLAYED AGAINST THE BUILT WORKER.** The oracle
+   drives the plugin's OWN ROUTE TABLE (`registerPlugins` + `dispatch`), so the matcher is pinned too; the replay
+   installs the same frozen clock, the same frozen random stream and the same stubs, and compares **status, body,
+   KV WRITES (with TTLs) and DIALS (method, URL, credential, redirect)**.
+3. **A HARNESS THAT OMITS AN INPUT AGREES WITH EVERY ROUTE THAT ANSWERS "NO".** Four times, this pair produced a
+   green that meant nothing: the KV namespace recorded as `{}` (`Object.entries(Map)`), the KV second argument
+   (`get(key, "json")` in TypeScript, `get(key, {type})` in `workers-rs`), the request body never recorded, and
+   the upstream stub living in the harness instead of in the case. **Every one was found by the cases that
+   FAILED**, which is the argument for recording the input as part of the fixture rather than as part of the
+   runner.
+4. **A NEW ROUTE IS A NEW SUBJECT FOR EVERY PREDICATE THAT WAS ALREADY THERE.** `/api/admin/models` was claimed
+   by the v1 fallback's `ends_with("/models")` arm — a PUBLIC listing, answered for an admin path with no session
+   — and nothing noticed until the admin route existed to compare against.
+
+**WHAT IS LEFT IN THE CONSOLE: 14 SOURCE FILES, 39 TEST FILES.** The stores, the families and the emissions are
+done; what remains is the console's own plumbing — `session.ts`, `auth.ts`, `reliability.ts`, `upstream.ts`,
+`tooling.ts`, `channels.ts` (the registry), `index.ts`, and the five plugin files. **AND `plugins/admin.ts` +
+`plugins/models-probe.ts` (825 lines) ARE NOW DEAD WEIGHT ON THE TYPESCRIPT SIDE**: the worker serves every route
+they hold.
+
+## THE NEXT STEP IS RETIREMENT, NOT ANOTHER PORT, AND IT NEEDS A DECISION
+
+The repository's own precedent is **A3: the TypeScript `/v1` half was DELETED, not emitted** — a route family
+whose worker half is complete and proved gets deleted on the TS side, and the LOGIC count falls by deletion rather
+than by emission. For the admin family that means three things in order:
+
+1. **THE CONSOLE'S TRAFFIC MUST REACH THE WORKER.** Today `index.ts` dispatches its plugin registry first; the
+   worker's admin family is additive. The cutover is a ROUTING decision (the deployed front door sends
+   `/api/admin/*` to the worker) and it needs a **ROLLBACK STORY** that is not "redeploy": the TS handler stays in
+   the bundle until the cutover has been observed, so a rollback is a routing change rather than a revert.
+2. **THE FIXTURE IS THE EVIDENCE FOR THE DELETION.** 82 cases, byte for byte, including refusals, writes and
+   dials — "the corpus checks the ANSWER, per path, for all recorded cases", which is exactly the argument A3
+   used.
+3. **THEN THE FILES GO, AND THE CAP FOLLOWS.** `plugins/admin.ts` and `plugins/models-probe.ts` are deleted in one
+   landing (LOGIC 53 -> 51), not emitted: emitting them would keep a second implementation of seventeen routes
+   alive to prove something the fixture already proves.
+
+**AND THE NEXT FAMILY, MEASURED RATHER THAN GUESSED**: `reliability.ts` (456 lines) is the largest console file
+whose decisions ALREADY EXIST IN RUST — `reliability.rs` owns `GLM_LOTTERY_MODEL`, the three timeouts,
+`retry_policy_for`, `retry_decision`, `retry_wait_ms`, `may_retry_5xx` and `timeout_from` — so it is an EMISSION
+with a host (the `BreakerDO` class, the dials, the isolate cache), not a port. `session.ts` is the same shape but
+its FLOW is the decision (the order of the checks is the security property the Rust documents), so it needs the
+`seedAdminSequence` treatment: the sequence emitted, the platform injected.
+
