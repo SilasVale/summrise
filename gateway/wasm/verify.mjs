@@ -349,8 +349,17 @@ for (const [i, c] of CASES.entries()) {
     const instance = new worker.default();
     instance.env = { ...envFor("0"), KEYS: kvOf(c.env.KEYS), SESSION_SECRET: c.env.SESSION_SECRET };
     instance.ctx = {};
+    // **THE BODY IS PART OF THE REQUEST, AND DROPPING IT AGREES WITH EVERY ROUTE THAT ANSWERS "NO".** This
+    // line omitted `body` on its first version, so all four enable/disable cases replayed with an EMPTY body —
+    // which the coercion turns into `false` — and the two cases where the shipping route answers `true` failed
+    // while the two that answer `false` passed. A case that passes because the request was never made is the
+    // exact failure this harness exists to prevent.
     const res = await instance.fetch(
-      new Request(`https://console.test${c.path}`, { method: c.method, headers: c.headers }),
+      new Request(`https://console.test${c.path}`, {
+        method: c.method,
+        headers: c.headers,
+        ...(c.body === undefined ? {} : { body: c.body }),
+      }),
     );
     const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
     const ok = res.status === c.expected.status && body === c.expected.body;

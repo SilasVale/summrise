@@ -20,8 +20,8 @@ use serde_json::{Map, Value};
 use worker::*;
 
 use crate::device_registry::{js_falsy_string, mask_key};
-use crate::device_store::{kv_json_cached, kv_list_prefix};
-use crate::user_store::{get_user_keys, user_keys_status};
+use crate::device_store::{cf_token, kv_json_cached, kv_list_prefix};
+use crate::user_store::{get_user_keys, set_user_enabled, user_keys_status, ADMIN_ID};
 use crate::RouteFailure;
 
 /// The plugin's base, and the separator is part of every test (a bare `starts_with` would claim
@@ -35,16 +35,29 @@ pub fn in_family(method: &Method, path: &str) -> bool {
         return false;
     }
     match method {
-        Method::Get => matches!(path, "/api/admin/users"),
+        // The plugin's own table is exact-match for these two, and `Method::Put` needs the dynamic arm:
+        // `startsWith(BASE + "/users/") && endsWith("/enabled")` — the source's own matcher, and the reason it
+        // is not a prefix match is recorded there ("exact here so /api/admin/users never swallows
+        // /api/admin/users/{id}/enabled").
+        Method::Get => matches!(path, "/api/admin/users" | "/api/admin/cloudflare-token"),
+        Method::Put => {
+            path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled")
+        }
         _ => false,
     }
 }
 
 /// `handle(request, env)` — the family's routes, in the plugin's own order.
-pub async fn handle(request: Request, env: &Env) -> Result<Response, RouteFailure> {
+pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFailure> {
     let url = request.url()?;
     match (request.method(), url.path()) {
         (Method::Get, "/api/admin/users") => admin_list_users(&request, env).await,
+        (Method::Get, "/api/admin/cloudflare-token") => admin_get_cf_token(&request, env).await,
+        (Method::Put, path)
+            if path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled") =>
+        {
+            admin_set_user_enabled(&mut request, env, path).await
+        }
         // A path under the family with no route here: the front door's own 404, in the source's bytes.
         _ => Ok(crate::json_error(404, "Not Found", "not_found_error")?),
     }
@@ -83,6 +96,86 @@ pub async fn list_users(env: &Env) -> Vec<Value> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     out
+}
+
+/// `adminGetCfToken(request, env)` — **THE TOKEN IS NEVER RETURNED, ONLY ITS EXISTENCE AND A MASK.** The
+/// account-level Cloudflare API token is a credential for the whole zone; the console needs to know whether one
+/// is set and which one it is, and neither of those requires the value.
+async fn admin_get_cf_token(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let token = cf_token(env).await;
+    let body = serde_json::to_string(&serde_json::json!({
+        "configured": !token.is_empty(),
+        "masked": if token.is_empty() { String::new() } else { mask_key(&token) },
+    }))
+    .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(body, 200)?)
+}
+
+/// `adminSetUserEnabled(request, env, url)` — **THE WRITE ROUTE, AND ITS THREE REFUSALS ARE EACH A ROUND**.
+///
+/// * **round-107**: a malformed percent-escape in the id threw `URIError` and answered 500. The decode is the
+///   same helper the device family uses, which is the same `decodeURIComponent` — including its `+`-is-not-a-
+///   space arm and its refusal of a truncated or non-UTF-8 escape.
+/// * **the admin account cannot be disabled** — a 400 with `invalid_request`, before any store call. Disabling
+///   it would lock the operator out of the console they are standing in.
+/// * **an unknown id is the store's own throw** (`User not found`), which becomes the front door's 500 — the
+///   source has no catch for it, and inventing a 404 here would be a decision the source never made.
+///
+/// `!!body.enabled` IS THE COERCION: a missing field, a `"false"` STRING and a `0` all mean DISABLE, which is
+/// what `!!` does — and the source's `body?.enabled` is why a `null` body is not a throw here (unlike
+/// `login`'s `body.username`).
+async fn admin_set_user_enabled(
+    request: &mut Request,
+    env: &Env,
+    path: &str,
+) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let raw = &path[format!("{ADMIN_BASE}/users/").len()..path.len() - "/enabled".len()];
+    let Some(id) = crate::devices::decode_device_name(raw) else {
+        return Ok(crate::json_error(
+            400,
+            "Invalid user id",
+            "invalid_request",
+        )?);
+    };
+    let body = read_json(request).await;
+    if id == ADMIN_ID {
+        return Ok(crate::json_error(
+            400,
+            "Cannot disable the admin account",
+            "invalid_request",
+        )?);
+    }
+    let enabled = crate::device_registry::js_truthy(body.get("enabled").unwrap_or(&Value::Null));
+    match set_user_enabled(env, &id, enabled).await {
+        Ok(user) => {
+            let body = serde_json::to_string(&serde_json::json!({
+                "ok": true,
+                "id": id,
+                "enabled": crate::device_registry::js_truthy(
+                    user.get("enabled").unwrap_or(&Value::Null)
+                ),
+            }))
+            .map_err(|_| RouteFailure::Threw)?;
+            Ok(crate::json(body, 200)?)
+        }
+        // `setUserEnabled` throwing is the front door's 500, not a route answer.
+        Err(_) => Err(RouteFailure::Threw),
+    }
+}
+
+/// `readJson(request)` — the parse failure arm is `{}` (the source's `catch`), and a body that parses to
+/// `null` stays `null` (the optional-chaining call sites depend on it).
+async fn read_json(request: &mut Request) -> Value {
+    match request.text().await {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({})),
+        Err(_) => serde_json::json!({}),
+    }
 }
 
 /// `adminListUsers(request, env)` — the gate, then every user with its credentials MASKED.
