@@ -159,7 +159,28 @@ function context() {
 const cookie = (token) => `${SESSION_COOKIE}=${token}`;
 
 const cases = [];
-const record = async (name, { method = "GET", path, headers = {}, body: rawBody, env }) => {
+
+/** **THE UPSTREAM STUB, AND ITS DIALS ARE PART OF THE CASE.** A probe's whole job is an outbound request, so
+ *  "what came back" is only half of it: the fixture records the method, the URL and the credential that travelled,
+ *  and the replay compares them. `answer` is looked up by URL path, like the device family's stub. */
+const stubUpstream = (c, calls) => {
+  const answer = (c.upstream ?? {})[new URL("https://placeholder.test").pathname];
+  globalThis.fetch = async (url, init = {}) => {
+    const request = new Request(url, init);
+    const auth = request.headers.get("authorization") ?? "-";
+    calls.push(`${request.method} ${request.url} auth=${auth} redirect=${init.redirect ?? "-"}`);
+    const hit = (c.upstream ?? {})[new URL(request.url).pathname];
+    if (!hit) throw new Error(`this case has no upstream answer for ${request.url}`);
+    if (hit.status === 0) throw new Error(hit.body ?? "boom");
+    return new Response(hit.body ?? "", {
+      status: hit.status ?? 200,
+      headers: { "content-type": hit.type ?? "application/json" },
+    });
+  };
+  void answer;
+};
+const record = async (name, opts) => {
+  const { method = "GET", path, headers = {}, body: rawBody, env } = opts;
   __clearCaches();
   randomCursor = 0;
   // **THE NAMESPACE IS SNAPSHOTTED BEFORE THE REQUEST, AND THIS IS THE THIRD TIME THIS HARNESS HAS LIED ABOUT
@@ -174,6 +195,9 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
     headers,
     ...(rawBody === undefined ? {} : { body: rawBody }),
   });
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  if (opts.upstream) stubUpstream(opts, calls);
   let res;
   try {
     res = await dispatch(context(), method, path, request, env, new URL(request.url));
@@ -183,6 +207,8 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
     // same shipping helper rather than from a string typed here. The worker's arm answers the identical bytes
     // (`RouteFailure::Threw`), which is what makes the case comparable at all.
     res = jsonError(500, "Internal error", "api_error");
+  } finally {
+    globalThis.fetch = realFetch;
   }
   const body = await res.text();
   cases.push({
@@ -191,11 +217,16 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
     path,
     headers,
     writes: env.KEYS.writes ?? [],
+    calls,
     // **THE BODY IS PART OF THE CASE, AND LEAVING IT OUT WAS THIS FIXTURE'S SECOND FALSE GREEN.** The replay
     // sent every write request with an EMPTY body — which the coercion reads as `false` — so the two cases whose
     // shipping answer is `true` failed while the two that answer `false` passed on a request that was never
     // made.
     ...(rawBody === undefined ? {} : { body: rawBody }),
+    // **THE UPSTREAM STUB IS PART OF THE CASE, NOT OF THE HARNESS.** Leaving it out of the fixture is what made
+    // the replay dial a provider with no answer configured: four cases reported "could not reach the upstream"
+    // while the shipping route compared a diff.
+    ...(opts.upstream === undefined ? {} : { upstream: opts.upstream }),
     env: {
       // Only the KEYS the case needs, so the fixture says what the route reads.
       // **`Object.fromEntries(MAP)`, NOT `Object.entries(MAP)`** — a Map's entries are not own enumerable
@@ -751,6 +782,112 @@ await record("a provider with NO baseURL host still gets a card, with the raw st
 await record("a DISABLED built-in leaves its channel's list", {
   path: "/api/admin/public",
   env: envFor({ ...USERS, "models:disabled": JSON.stringify(["og/mimo-v2.5"]) }),
+});
+
+// ── THE PROBE: WHAT THE UPSTREAM SERVES, AND WHAT TRAVELLED TO ASK ───────────────────────────────
+// **A PROBE'S WHOLE JOB IS AN OUTBOUND REQUEST**, so these cases stub `fetch` and compare the DIALS as well as
+// the answer: the method, the URL, the credential and the `redirect` mode.
+const PROBE_USERS = {
+  ...USERS,
+  "providers:custom": JSON.stringify([
+    {
+      prefix: "acme/",
+      label: "Acme",
+      baseURL: "https://acme.test/v1",
+      api: "openai-completions",
+      models: [],
+      apiKey: "sk-acme-inline-key-0123456789",
+    },
+  ]),
+};
+const probe = (body, extra = {}) => ({
+  method: "POST",
+  path: "/api/admin/models/probe",
+  body: JSON.stringify(body),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+  ...extra,
+});
+
+// **NO COOKIE, AND NO UPSTREAM ANSWER EITHER** — the gate must refuse BEFORE anything is dialled, which is why
+// this case has no `upstream`: a stub would have hidden a dial that should never happen.
+await record("the probe refuses without a session", {
+  method: "POST",
+  path: "/api/admin/models/probe",
+  body: JSON.stringify({ prefix: "acme/" }),
+  headers: { "content-type": "application/json" },
+  env: envFor(PROBE_USERS),
+});
+await record("a body that is not JSON is its own 400", {
+  method: "POST",
+  path: "/api/admin/models/probe",
+  body: "not json",
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+  env: envFor(PROBE_USERS),
+});
+await record("an empty prefix is refused before anything is dialled", {
+  ...probe({ prefix: "" }),
+  env: envFor(PROBE_USERS),
+});
+await record("a prefix nobody claims is NOT CHECKED, not dialled", {
+  ...probe({ prefix: "zz/" }),
+  env: envFor(PROBE_USERS),
+});
+// A dialect whose model list cannot be derived: the probe says so rather than inventing a URL.
+await record("a dialect with no derivable model list says it cannot check", {
+  ...probe({ prefix: "qw/" }),
+  env: envFor(PROBE_USERS),
+});
+// A custom provider: the endpoint is derived, the INLINE key travels, and the diff names the adopt candidates.
+await record("a custom provider is probed and its own key travels", {
+  ...probe(
+    { prefix: "acme/" },
+    {
+      upstream: {
+        "/v1/models": { body: JSON.stringify({ data: [{ id: "chat" }, { id: "new-model" }] }) },
+      },
+    },
+  ),
+  env: envFor(PROBE_USERS),
+});
+await record("an upstream 401 is NOT CHECKED with the credential's own reason", {
+  ...probe({ prefix: "acme/" }, { upstream: { "/v1/models": { status: 401, body: "{}" } } }),
+  env: envFor(PROBE_USERS),
+});
+await record("an upstream 500 is reported with its status", {
+  ...probe({ prefix: "acme/" }, { upstream: { "/v1/models": { status: 500, body: "{}" } } }),
+  env: envFor(PROBE_USERS),
+});
+// A BUILT-IN prefix: the key is the CALLER's BYOK key, so it comes from the user's own record.
+await record("a built-in channel uses the caller's BYOK key", {
+  ...probe(
+    { prefix: "og/" },
+    {
+      // The zen upstream's CHAT path is `/zen/go/v1/chat/completions`, so the derived list lives one directory
+      // up — the stub is keyed by the path the probe actually dials.
+      upstream: { "/zen/go/v1/models": { body: JSON.stringify({ data: [{ id: "mimo-v2.5" }] }) } },
+    },
+  ),
+  env: envFor({
+    ...PROBE_USERS,
+    "ukeys:admin": JSON.stringify({ OPENCODE_GO_API_KEY: "sk-caller-og-key-0123" }),
+  }),
+});
+// The SSRF guard, AT DIAL TIME, on a record that predates it.
+await record("a private baseURL is refused with 502 before the dial", {
+  ...probe({ prefix: "local/" }),
+  env: envFor({
+    ...PROBE_USERS,
+    "providers:custom": JSON.stringify([
+      {
+        prefix: "local/",
+        label: "Local",
+        baseURL: "https://127.0.0.1/v1",
+        api: "openai-completions",
+        models: [{ id: "m" }],
+        apiKey: "sk-local-inline-key-0123456789",
+      },
+    ]),
+  }),
 });
 
 // An empty deployment: the route must answer the same shape with nothing in it.

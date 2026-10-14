@@ -71,7 +71,10 @@ pub fn in_family(method: &Method, path: &str) -> bool {
         }
         Method::Post => matches!(
             path,
-            "/api/admin/invite" | "/api/admin/models" | "/api/admin/providers"
+            "/api/admin/invite"
+                | "/api/admin/models"
+                | "/api/admin/models/probe"
+                | "/api/admin/providers"
         ),
         // DELETE reads the id (or the provider prefix) off the path, encoded or bare.
         Method::Delete => {
@@ -97,6 +100,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
         (Method::Post, "/api/admin/providers") => admin_add_provider(&mut request, env).await,
+        (Method::Post, "/api/admin/models/probe") => admin_probe_models(&mut request, env).await,
         (Method::Put, "/api/admin/cloudflare-token") => admin_put_cf_token(&mut request, env).await,
         (Method::Delete, path) if path.starts_with(&format!("{ADMIN_BASE}/providers/")) => {
             admin_delete_provider(
@@ -128,6 +132,35 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         // A path under the family with no route here: the front door's own 404, in the source's bytes.
         _ => Ok(crate::json_error(404, "Not Found", "not_found_error")?),
     }
+}
+
+/// `advertisedIds(env)` — **EVERY ID THE GATEWAY CURRENTLY ADVERTISES**, from the three stores the console
+/// writes and the registry it does not: built-ins minus the disabled ones, then the console's own models, then
+/// the custom providers'. `/v1/models`, `/api/admin/public` and the probe all read THIS — two spellings of "what
+/// is advertised" is how a probe reports drift against a list no client ever sees.
+pub async fn advertised_ids_for(env: &Env) -> Vec<String> {
+    let custom = crate::catalogue_file::custom_models(env).await;
+    let disabled =
+        crate::model_store::read_list(env, crate::model_store::DISABLED_MODELS_KEY).await;
+    let providers = crate::catalogue_file::custom_providers(env).await;
+    crate::model_store::advertised_ids(
+        &crate::registry::MODEL_REGISTRY
+            .iter()
+            .map(|m| m.id)
+            .collect::<Vec<_>>(),
+        &disabled
+            .iter()
+            .map(summrise_core::text::js_string)
+            .collect::<Vec<_>>(),
+        &custom
+            .iter()
+            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
+            .collect::<Vec<_>>(),
+        &crate::store::advertised_provider_models(&providers)
+            .iter()
+            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// `listUsers(env)` — **THE SORT IS A DECISION AND IT IS THE SOURCE'S**: `(a.createdAt || 0) - (b.createdAt ||
@@ -302,6 +335,49 @@ async fn admin_enable_model(
     Ok(crate::json(text, 200)?)
 }
 
+/// `adminProbeModels(request, env)` — the gate, the body, and then [`crate::models_probe::probe`].
+///
+/// **THE BODY PARSE IS STRICTER HERE THAN ANYWHERE ELSE IN THE FAMILY**: a malformed body is a 400 "body must be
+/// JSON" rather than the `{}` the other routes read, because the prefix in it is the whole request — an empty
+/// body is not a default, it is an operator who sent the wrong thing.
+async fn admin_probe_models(request: &mut Request, env: &Env) -> Result<Response, RouteFailure> {
+    let user = match crate::session_gate::require_admin(request, env).await? {
+        Ok(user) => user,
+        Err(refusal) => return Ok(refusal),
+    };
+    let text = request.text().await.unwrap_or_default();
+    let body: Value = match serde_json::from_str(&text) {
+        Ok(body) => body,
+        Err(_) => {
+            return Ok(crate::json_error(
+                400,
+                "body must be JSON",
+                "invalid_request",
+            )?);
+        }
+    };
+    let bare =
+        summrise_core::provider_spec::bare_prefix(body.get("prefix").unwrap_or(&Value::Null));
+    if bare.is_empty() {
+        return Ok(crate::json_error(
+            400,
+            "a provider prefix is required",
+            "invalid_request",
+        )?);
+    }
+    let providers = crate::catalogue_file::custom_providers(env).await;
+    let provider = crate::store::provider_for_prefix(&providers, &bare);
+    // The probe route reads the worker's OWN egress switch (`US_PROXY` as a var), which is what this helper
+    // builds — the KV-setting precedence belongs to the `/v1` front door and importing it here would change
+    // which upstream the probe reports on.
+    let env_json = crate::probe::env_value(env);
+    let caller = summrise_core::text::js_string(user.get("id").unwrap_or(&Value::Null));
+    crate::models_probe::probe(env, &env_json, &bare, provider.as_ref(), &caller)
+        .await
+        .into_response()
+        .map_err(RouteFailure::Platform)
+}
+
 /// `adminPublic(request, env)` — **THE MERGED CATALOGUE, AND IT IS THE ONE ROUTE IN THIS FAMILY WITH NO GATE.**
 /// The plugin's header says so in as many words: "ALL routes except /api/admin/public require an admin session".
 /// It is what the console's Models page and `/api/health`-style public views render, and it carries no credential
@@ -313,27 +389,8 @@ async fn admin_enable_model(
 async fn admin_public(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
     let _ = request;
     let custom = crate::catalogue_file::custom_models(env).await;
-    let disabled =
-        crate::model_store::read_list(env, crate::model_store::DISABLED_MODELS_KEY).await;
     let providers = crate::catalogue_file::custom_providers(env).await;
-    let advertised = crate::model_store::advertised_ids(
-        &crate::registry::MODEL_REGISTRY
-            .iter()
-            .map(|m| m.id)
-            .collect::<Vec<_>>(),
-        &disabled
-            .iter()
-            .map(summrise_core::text::js_string)
-            .collect::<Vec<_>>(),
-        &custom
-            .iter()
-            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
-            .collect::<Vec<_>>(),
-        &crate::store::advertised_provider_models(&providers)
-            .iter()
-            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
-            .collect::<Vec<_>>(),
-    );
+    let advertised = advertised_ids_for(env).await;
     let provided = crate::store::advertised_provider_models(&providers);
     let routes = crate::model_store::catalogue_routes(
         &Value::Array(crate::model_store::route_info()),

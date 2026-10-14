@@ -94,7 +94,7 @@ fn reply(built: Built) -> Response {
 /// `upstreamModelsUrl(upstream)` — `gateway/src/plugins/models-probe.ts`.
 ///
 /// `upstream.endsWith("/chat/completions") ? upstream.slice(0, -len) + "/models" : null`
-fn upstream_models_url(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn upstream_models_url(args: &Value) -> std::result::Result<Value, String> {
     const SUFFIX: &str = "/chat/completions";
     let upstream = args
         .get("upstream")
@@ -115,7 +115,7 @@ fn upstream_models_url(args: &Value) -> std::result::Result<Value, String> {
 /// decimal form, a bool becomes `true`/`false`, and an object becomes `[object Object]`. An id is a string in every
 /// dialect we speak, so the last two are unreachable in practice; they are here because **a port that silently
 /// answers `""` where the source answered `"[object Object]"` is a divergence with no test on it.**
-fn offered_ids(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn offered_ids(args: &Value) -> std::result::Result<Value, String> {
     let payload = args.get("payload").cloned().unwrap_or(Value::Null);
     let rows = if payload.is_array() {
         payload
