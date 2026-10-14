@@ -239,3 +239,49 @@ matters is not the core's: `gateway/wasm/target` was 2.9 GB and `agent/target` 1
 `~/.cargo/config.toml` now sets `debug = 0` for the `dev`/`test` profiles machine-wide, and
 `scripts/clean-build-space.bash` returns what a run leaves. Measured after: `gateway/wasm/target` **403 MB**. **A gate
 that cannot run because the disk is full is a gate that does not exist**, which is why this is in a plan about code.
+
+---
+
+## MEASURED 2026-10-13 — §6 ROW 2 HAS A PREREQUISITE, AND IT IS EIGHT COPIES OF THREE PRIMITIVES
+
+**`parseProviderSpec` CANNOT MOVE BEFORE `text` DOES, AND THE REASON IS THE PARSE ITSELF RATHER THAN TASTE.** The
+parser's decisions are made of JavaScript coercions — `String(body.prefix ?? "").trim()`, `Array.isArray`,
+`Number(v)` + `Number.isInteger(n)`, `JSON.stringify` inside a message, and `Object.keys(raw)` for the
+unsupported-field list. `summrise-core` owns none of them today, and the worker owns **eight near-copies**:
+
+| where | what it is |
+| --- | --- |
+| `stream.rs:49` `js_text` | `String(x)` — arrays join with `,`, an object is `"[object Object]"` |
+| `device_registry.rs:84` `js_falsy_string` · `:90` `js_truthy_string` · `:99` `js_to_string_of` · `:107` `js_falsy` · `:119` `js_truthy` · `:124` `js_to_string` | the same three rules, split by argument shape |
+| `reliability.rs:26` `js_number` | `Number(x)` |
+| `request_shape.rs:197` `js_truthy` · `decisions.rs:145` `js_string` · `tokens.rs:179` `js_string_of` · `auth_routes.rs:311` `js_to_string_of` · `translate.rs:72` `js_join_part` | five more, each written where it was needed |
+
+**AND THEY ARE NOT THE SAME FUNCTION, WHICH IS THE PART THAT DECIDES THE WORK.** `stream::js_text` renders a number
+with `Number::to_string`, while `device_registry::js_to_string` renders it with `js_number_string` — JavaScript's
+`String(n)`, where `1e21` is `"1e+21"`. So a consolidation that picks either one changes behaviour somewhere, and
+**which one is faithful is a question the frozen corpus answers, not the name.** That is the behaviour-diff method
+of `specs/2026-10-10` applied to the primitives themselves, and it is landing 2's real first task:
+
+* move the canonical `String()` / truthiness / `Number()` into `summrise-core::text`, with the case families that
+  separate them (`-0`, `1e21`, `NaN`, an array of nulls, an object, a lone surrogate) pinned as tests;
+* re-export from each host module so no call site moves, exactly as `device.rs` did for the guards;
+* let the corpus and each host's own suite say which copy was wrong — a copy that was wrong is a live bug the
+  consolidation finds, which is what makes this worth doing before the parser rather than after it.
+
+**THREE OTHER FACTS MEASURED THE SAME DAY, EACH ONE A PREREQUISITE OR A TRAP:**
+
+1. **THE CORE HAS NO `serde_json`, AND THE PARSER IS A JSON TRANSFORM.** `core/summrise-core/Cargo.toml` says "no
+   dependencies, deliberately" — and the reason given is build time and blast radius, not purity: `serde_json` is a
+   pure-Rust, no-I/O crate that every host already links. **The decision this plan takes: the core takes
+   `serde_json` with `preserve_order`,** because the wire shapes are the core's own subject (§2.1) and a JSON
+   parser that cannot see JSON cannot own them. The "no dependencies" note was a starting position, not a law.
+2. **THE URL PARSE IS THE HOST'S, AND THE CORE MUST NOT OWN IT.** `new URL(rawBase)` is a WHATWG parser (JS) or the
+   `url` crate (Rust) — a real dependency and a real platform difference. So the core takes the PARSED PARTS
+   (`protocol`, `username`, `password`, `search`, `hash`, `hostname`, `origin`, `pathname`) and decides on them,
+   exactly as `dial_plan` takes its parser. **The order is preserved by construction**: the host parses before the
+   call and the core reads `base` only after the prefix, label and reserved-prefix refusals, so a body that is
+   wrong twice is refused for the reason the shipping console refuses it.
+3. **`RESERVED_PREFIXES` HAS NO RUST OWNER AT ALL.** `channels.ts:607` derives it — `ROUTE_INFO` minus the trailing
+   slash, plus `"ds"` and `"amd"` — and `gateway/wasm` has no equivalent, so the worker cannot refuse a reserved
+   prefix today. The core needs the rule (and the derivation, not a second literal list) before the parser can
+   answer 409 in both languages.
