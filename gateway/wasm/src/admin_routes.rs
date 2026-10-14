@@ -25,6 +25,10 @@ use crate::model_store::{
     delete_custom_model, ids_of, known_prefixes, parse_model_spec, put_custom_model,
     put_facet_override, set_model_disabled, PINNED_FACETS,
 };
+use crate::store::{
+    custom_provider_list, delete_custom_provider, provider_for_prefix, public_provider_view,
+    put_custom_provider, set_cf_token,
+};
 use crate::user_store::{
     create_invite, get_user, get_user_keys, has_admin_password, set_admin_password,
     set_user_enabled, user_keys_status, verify_admin_password, ADMIN_ID,
@@ -54,13 +58,20 @@ pub fn in_family(method: &Method, path: &str) -> bool {
         // a suffix, which is why they are written out rather than matched exactly.
         Method::Put => {
             path == "/api/admin/password"
+                || path == "/api/admin/cloudflare-token"
                 || (path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled"))
                 || (path.starts_with(&format!("{ADMIN_BASE}/models/"))
                     && path.ends_with("/enabled"))
         }
-        Method::Post => matches!(path, "/api/admin/invite" | "/api/admin/models"),
-        // DELETE on the model family is the id read off the path, encoded or bare.
-        Method::Delete => path.starts_with(&format!("{ADMIN_BASE}/models/")),
+        Method::Post => matches!(
+            path,
+            "/api/admin/invite" | "/api/admin/models" | "/api/admin/providers"
+        ),
+        // DELETE reads the id (or the provider prefix) off the path, encoded or bare.
+        Method::Delete => {
+            path.starts_with(&format!("{ADMIN_BASE}/models/"))
+                || path.starts_with(&format!("{ADMIN_BASE}/providers/"))
+        }
         _ => false,
     }
 }
@@ -75,6 +86,16 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
+        (Method::Post, "/api/admin/providers") => admin_add_provider(&mut request, env).await,
+        (Method::Put, "/api/admin/cloudflare-token") => admin_put_cf_token(&mut request, env).await,
+        (Method::Delete, path) if path.starts_with(&format!("{ADMIN_BASE}/providers/")) => {
+            admin_delete_provider(
+                &request,
+                env,
+                &path[format!("{ADMIN_BASE}/providers/").len()..],
+            )
+            .await
+        }
         (Method::Delete, path) if path.starts_with(&format!("{ADMIN_BASE}/models/")) => {
             admin_delete_model(
                 &request,
@@ -268,6 +289,143 @@ async fn admin_enable_model(
         &serde_json::json!({ "ok": true, "enabled": id, "disabledModels": next }),
     )
     .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminPutCfToken(request, env)` — **THE TOKEN IS VALIDATED BEFORE IT IS STORED, AND AN EMPTY ONE CLEARS IT.**
+/// The shape check is deliberately loose (20+ characters of letters, digits, `_` and `-`): a Cloudflare API
+/// token is opaque, and the check exists to catch a paste of the wrong thing, not to model their format.
+async fn admin_put_cf_token(request: &mut Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let body = read_json(request).await;
+    let token = summrise_core::text::js_trim(&js_or_empty(body.get("token"))).to_string();
+    if !token.is_empty() && !looks_like_a_cf_token(&token) {
+        return Ok(crate::json_error(
+            400,
+            "Token looks invalid (expected 20+ chars of letters/digits/_ -)",
+            "invalid_request",
+        )?);
+    }
+    set_cf_token(env, &token).await;
+    Ok(crate::json("{\"ok\":true}".to_string(), 200)?)
+}
+
+/// `/^[A-Za-z0-9_-]{20,}$/` — ASCII only, and the anchors are the whole test.
+fn looks_like_a_cf_token(token: &str) -> bool {
+    summrise_core::text::js_length(token) >= 20
+        && token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// `adminAddProvider(request, env)` — **CREATE DEMANDS A KEY; UPDATE MAY OMIT IT.**
+///
+/// The console holds only `keyMasked`, so a re-post that edits a model would otherwise answer 400 "a key is
+/// required" — on the very path the plugin documents as the edit path. The existing record is therefore read
+/// first and handed to the parser as `keepKeyFrom`, which is the parser's own parameter (the core ported it
+/// with the rest of `parseProviderSpec`).
+///
+/// A BUILT-IN prefix never gets here: `parseProviderSpec` refuses it with its own 409, so this route cannot
+/// shadow a channel.
+async fn admin_add_provider(request: &mut Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let raw = read_json(request).await;
+    let existing = {
+        let wanted =
+            summrise_core::provider_spec::bare_prefix(raw.get("prefix").unwrap_or(&Value::Null));
+        if wanted.is_empty() {
+            None
+        } else {
+            provider_for_prefix(&custom_provider_list(env).await, &wanted)
+        }
+    };
+    // The URL parse the pure parser cannot do: the HOST hands it over.
+    let base_text = summrise_core::provider_spec::provider_base_text(&raw);
+    let base = crate::store::parsed_base(&base_text);
+    let parsed = summrise_core::provider_spec::parse_provider_spec(
+        &raw,
+        base.as_ref(),
+        // `keepKeyFrom` is ONE value with the two credential fields — the parser's own shape.
+        existing
+            .as_ref()
+            .map(|p| {
+                serde_json::json!({
+                    "apiKey": p.get("apiKey").cloned().unwrap_or(Value::Null),
+                    "apiKeyEnv": p.get("apiKeyEnv").cloned().unwrap_or(Value::Null),
+                })
+            })
+            .as_ref(),
+    );
+    let (spec, error, status) = match parsed {
+        Ok(spec) => (spec, String::new(), 0u16),
+        Err(failure) => (Value::Null, failure.error.clone(), failure.status),
+    };
+    if !error.is_empty() || spec.is_null() {
+        return Ok(crate::json_error(
+            if status == 0 { 400 } else { status },
+            if error.is_empty() {
+                "invalid provider"
+            } else {
+                &error
+            },
+            "invalid_request",
+        )?);
+    }
+    let next = put_custom_provider(env, &spec).await;
+    let prefixes: Vec<Value> = next
+        .iter()
+        .map(|p| p.get("prefix").cloned().unwrap_or(Value::Null))
+        .collect();
+    let answer = serde_json::json!({
+        "ok": true,
+        "provider": public_provider_view(env, &spec),
+        "providers": prefixes,
+    });
+    let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminDeleteProvider(request, env, prefix)` — **TWO REFUSALS BEFORE THE STORE, AND THE DECODE IS CAUGHT.**
+/// A malformed escape is a 400 here (unlike the model id, where the source lets it throw), the trailing slashes
+/// are stripped (`replace(/\/+$/, "")` — ALL of them), and an empty prefix is its own message. Only then is the
+/// store asked, and its `false` is the 404.
+async fn admin_delete_provider(
+    request: &Request,
+    env: &Env,
+    raw_prefix: &str,
+) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let Some(decoded) = crate::devices::decode_device_name(raw_prefix) else {
+        return Ok(crate::json_error(
+            400,
+            "Invalid provider prefix",
+            "invalid_request",
+        )?);
+    };
+    let bare = decoded.trim_end_matches('/').to_string();
+    if bare.is_empty() {
+        return Ok(crate::json_error(
+            400,
+            "A provider prefix is required",
+            "invalid_request",
+        )?);
+    }
+    if !delete_custom_provider(env, &bare).await {
+        return Ok(crate::json_error(
+            404,
+            &format!("No custom provider {bare}/"),
+            "not_found_error",
+        )?);
+    }
+    let text =
+        serde_json::to_string(&serde_json::json!({ "ok": true, "removed": format!("{bare}/") }))
+            .map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(text, 200)?)
 }
 

@@ -498,6 +498,117 @@ await record("clearing every display facet REMOVES the override", {
   }),
 });
 
+// ── PROVIDERS: CREATE, EDIT (the key is kept), DELETE, AND THE CF TOKEN'S WRITE ──────────────────
+const PROVIDERS = {
+  ...USERS,
+  "providers:custom": JSON.stringify([
+    {
+      prefix: "acme/",
+      label: "Acme",
+      baseURL: "https://acme.test/v1",
+      api: "openai-completions",
+      models: [{ id: "chat" }],
+      apiKeyEnv: "ACME_API_KEY",
+    },
+  ]),
+};
+const postJson = (path, body) => ({
+  method: "POST",
+  path,
+  body: JSON.stringify(body),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+});
+
+// THE VALIDATOR'S REFUSALS: a built-in prefix (409), a prefix with no slash, and a create with no key.
+await record("a provider on a BUILT-IN prefix is refused with the parser's own 409", {
+  ...postJson("/api/admin/providers", {
+    prefix: "og/",
+    baseURL: "https://x.test",
+    api: "openai-completions",
+    apiKey: "k".repeat(24),
+  }),
+  env: envFor(PROVIDERS),
+});
+await record("a provider prefix must end in a slash", {
+  ...postJson("/api/admin/providers", {
+    prefix: "acme",
+    baseURL: "https://x.test",
+    api: "openai-completions",
+    apiKey: "k".repeat(24),
+  }),
+  env: envFor(PROVIDERS),
+});
+await record("creating a provider with NO key is refused", {
+  ...postJson("/api/admin/providers", {
+    prefix: "new/",
+    baseURL: "https://new.test/v1",
+    api: "openai-completions",
+  }),
+  env: envFor(PROVIDERS),
+});
+await record("a new provider is stored, and its key is masked in the answer", {
+  ...postJson("/api/admin/providers", {
+    prefix: "new/",
+    label: "New",
+    baseURL: "https://new.test/v1",
+    api: "openai-completions",
+    apiKey: "sk-new-provider-key-0123456789",
+    models: [{ id: "chat" }],
+  }),
+  env: envFor(PROVIDERS),
+});
+await record("EDITING an existing provider may omit the key — the stored one is kept", {
+  ...postJson("/api/admin/providers", {
+    prefix: "acme/",
+    label: "Acme Renamed",
+    baseURL: "https://acme.test/v1",
+    api: "openai-completions",
+    models: [{ id: "chat" }],
+  }),
+  env: envFor({ ...PROVIDERS, ACME_API_KEY: "sk-env-inline-key-0123456789" }),
+});
+
+const delProvider = (path) => ({ method: "DELETE", path, headers: { Cookie: cookie(adminToken) } });
+await record("deleting a provider removes it and answers the slashed prefix", {
+  ...delProvider("/api/admin/providers/acme"),
+  env: envFor(PROVIDERS),
+});
+await record("deleting a provider that is not there is a 404", {
+  ...delProvider("/api/admin/providers/ghost"),
+  env: envFor(PROVIDERS),
+});
+await record("deleting an EMPTY prefix is its own 400", {
+  ...delProvider("/api/admin/providers/%2F%2F"),
+  env: envFor(PROVIDERS),
+});
+await record("a malformed escape in a provider prefix is a 400, not a 500", {
+  ...delProvider("/api/admin/providers/%zz"),
+  env: envFor(PROVIDERS),
+});
+
+// THE CF TOKEN'S WRITE: a shape check, and an empty value CLEARS the key.
+await record("a Cloudflare token is stored when it looks like one", {
+  method: "PUT",
+  path: "/api/admin/cloudflare-token",
+  body: JSON.stringify({ token: "cf-token-0123456789abcd" }),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+  env: envFor(PROVIDERS),
+});
+await record("a token that looks wrong is refused", {
+  method: "PUT",
+  path: "/api/admin/cloudflare-token",
+  body: JSON.stringify({ token: "short" }),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+  env: envFor(PROVIDERS),
+});
+await record("an EMPTY token deletes the stored one", {
+  method: "PUT",
+  path: "/api/admin/cloudflare-token",
+  body: JSON.stringify({ token: "" }),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+  env: envFor({ ...PROVIDERS, "cf:api_token": "cf-account-token" }),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",

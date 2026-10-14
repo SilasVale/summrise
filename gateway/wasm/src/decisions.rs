@@ -334,7 +334,7 @@ fn is_falsy(value: &Value) -> bool {
 ///
 /// **THE KEY ORDER IS THE SOURCE'S**: the five record fields, then `models`, then `advertised`, then `keyEnv`,
 /// `keyMasked`, `keyReady`. `jsonOk(out)` writes `JSON.stringify`'s order, so this is the response's bytes.
-fn public_provider(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn public_provider(args: &Value) -> std::result::Result<Value, String> {
     let p = args
         .get("p")
         .filter(|v| v.is_object())
