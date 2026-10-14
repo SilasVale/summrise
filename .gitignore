@@ -71,3 +71,7 @@ docs/agents/release-reconcile.txt
 # Python bytecode from a gate that compiles a .py to check it parses
 __pycache__/
 *.pyc
+
+# The mail worker's local development values (`wrangler dev` only — the deployed secret is a Cloudflare
+# secret, and this file never carries a value that matters outside this box).
+mail/.dev.vars

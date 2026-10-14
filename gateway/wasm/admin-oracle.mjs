@@ -124,16 +124,34 @@ function context() {
 const cookie = (token) => `${SESSION_COOKIE}=${token}`;
 
 const cases = [];
-const record = async (name, { method = "GET", path, headers = {}, env }) => {
+const record = async (name, { method = "GET", path, headers = {}, body: rawBody, env }) => {
   __clearCaches();
-  const request = new Request(`https://console.test${path}`, { method, headers });
-  const res = await dispatch(context(), method, path, request, env, new URL(request.url));
+  const request = new Request(`https://console.test${path}`, {
+    method,
+    headers,
+    ...(rawBody === undefined ? {} : { body: rawBody }),
+  });
+  let res;
+  try {
+    res = await dispatch(context(), method, path, request, env, new URL(request.url));
+  } catch {
+    // **A HANDLER THAT THROWS IS THE FRONT DOOR'S 500, AND THESE ARE ITS BYTES** — `index.ts`'s catch is
+    // `withCors(request, jsonError(500, "Internal error", "api_error"), env)`, and the body comes from that
+    // same shipping helper rather than from a string typed here. The worker's arm answers the identical bytes
+    // (`RouteFailure::Threw`), which is what makes the case comparable at all.
+    res = jsonError(500, "Internal error", "api_error");
+  }
   const body = await res.text();
   cases.push({
     name,
     method,
     path,
     headers,
+    // **THE BODY IS PART OF THE CASE, AND LEAVING IT OUT WAS THIS FIXTURE'S SECOND FALSE GREEN.** The replay
+    // sent every write request with an EMPTY body — which the coercion reads as `false` — so the two cases whose
+    // shipping answer is `true` failed while the two that answer `false` passed on a request that was never
+    // made.
+    ...(rawBody === undefined ? {} : { body: rawBody }),
     env: {
       // Only the KEYS the case needs, so the fixture says what the route reads.
       // **`Object.fromEntries(MAP)`, NOT `Object.entries(MAP)`** — a Map's entries are not own enumerable
@@ -182,6 +200,64 @@ await record("a revoked cookie is a 401", {
   path: "/api/admin/users",
   headers: { Cookie: cookie(daveToken) },
   env: envFor({ ...USERS, [`sess-revoked:${daveToken}`]: "1" }),
+});
+
+// ── THE CF TOKEN: PRESENT, ABSENT, AND NEVER IN THE CLEAR ────────────────────────────────────────
+await record("a configured Cloudflare token is masked, never returned", {
+  path: "/api/admin/cloudflare-token",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor({ ...USERS, "cf:api_token": "cf-account-token-0123456789" }),
+});
+
+await record("an unconfigured Cloudflare token answers empty", {
+  path: "/api/admin/cloudflare-token",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(USERS),
+});
+
+// ── THE WRITE: ENABLE / DISABLE, AND ITS THREE REFUSALS ─────────────────────────────────────────
+const put = (path, body) => ({
+  method: "PUT",
+  path,
+  body: JSON.stringify(body),
+  headers: { Cookie: cookie(adminToken), "content-type": "application/json" },
+});
+
+await record("a user can be disabled", {
+  ...put("/api/admin/users/alice/enabled", { enabled: false }),
+  env: envFor(USERS),
+});
+await record("a user can be re-enabled", {
+  ...put("/api/admin/users/bob/enabled", { enabled: true }),
+  env: envFor(USERS),
+});
+// The coercion: a missing field, a "false" string and a 0 all mean DISABLE.
+await record("a missing enabled field means DISABLE", {
+  ...put("/api/admin/users/alice/enabled", {}),
+  env: envFor(USERS),
+});
+await record('the STRING "false" means DISABLE', {
+  ...put("/api/admin/users/alice/enabled", { enabled: "false" }),
+  env: envFor(USERS),
+});
+await record("the admin account cannot be disabled", {
+  ...put("/api/admin/users/admin/enabled", { enabled: false }),
+  env: envFor(USERS),
+});
+await record("a malformed percent-escape is a 400, not a 500", {
+  ...put("/api/admin/users/%zz/enabled", { enabled: false }),
+  env: envFor(USERS),
+});
+await record("an unknown id is the front door's 500", {
+  ...put("/api/admin/users/ghost/enabled", { enabled: false }),
+  env: envFor(USERS),
+});
+await record("the write refuses without a session", {
+  method: "PUT",
+  path: "/api/admin/users/alice/enabled",
+  body: JSON.stringify({ enabled: false }),
+  headers: { "content-type": "application/json" },
+  env: envFor(USERS),
 });
 
 // An empty deployment: the route must answer the same shape with nothing in it.

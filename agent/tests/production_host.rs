@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 53] = [
+const ALLOWED: [(&str, &str); 56] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -98,6 +98,17 @@ const ALLOWED: [(&str, &str); 53] = [
     // would make declared config manual config. `relay/` had been undeclared in git entirely until the
     // previous day.
     ("relay/", "the file relay's OWN worker config: its /files/* route and PUBLIC_BASE must name the host to mint one-time download URLs (D6 cut the relay out of the CDN worker)"),
+    // ADDED 2026-10-14, WITH THE AGENT'S MAIL INBOX, AND IT IS THREE ENTRIES FOR ONE FEATURE — the shape the
+    // failure message asks for (declare the path AND raise the constant) rather than a widened prefix. `mail/`
+    // is a new worker directory whose own config must name the host in its route pattern; the two documents are
+    // the design and the plan, and this repository's rule is that a plan which cannot name where its surfaces
+    // live is not a plan. The cheap alternative — spelling the host only in `mail/wrangler.jsonc` and leaving
+    // both documents hostless — was rejected because the read URL IS the deliverable the operator asked for;
+    // a design that cannot write it down is not one. One new name on the wire (`mail.` in front of the apex),
+    // three files that must spell it.
+    ("mail/", "the mail worker's own config: its route pattern and the read host must name the host"),
+    ("docs/superpowers/specs/2026-10-14-saisi-mail-inbox-design.md", "the design that records this hostname and the routing rule that serves it"),
+    ("docs/superpowers/plans/2026-10-14-saisi-mail-inbox.md", "the plan that implements it, including the route pattern"),
     // ── the worker's own configuration ──
     ("gateway/wrangler", "the deployment's own routes and vars"),
     // MOVED RATHER THAN ADDED (2026-10-13), AND THE DECLARED COUNT IS UNCHANGED AT 51 — one entry left and one
@@ -263,7 +274,14 @@ const ALLOWED: [(&str, &str); 53] = [
 // still names the host once in the prose that records the move. Both are declared, which is why the count
 // rises by one while the host on the wire does not change at all: the same shape as the `device-dial-logic.ts`
 // entry above, where the rule left a file and the prose stayed behind.
-const MAX_ALLOWED: usize = 53;
+// 53 -> 56 ON 2026-10-14, FOR ONE FEATURE AND ONE NEW NAME ON THE WIRE: the agent's mail inbox adds a worker
+// directory (`mail/`) plus the two documents that specify it (the design and the plan), and each of the three
+// must spell the read host. This is the same shape as the `device-dial-logic.ts` raise — the count tracks the
+// FILES that have to name a host, not the hosts themselves — and it is visible here rather than hidden behind
+// a widened prefix, which is what this ratchet exists to prevent. The alternative considered and rejected was
+// keeping the hostname out of the design and the plan; the read URL is what the operator asked for, and a
+// design that cannot write down its own surface is not a design.
+const MAX_ALLOWED: usize = 56;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.

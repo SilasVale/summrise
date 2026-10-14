@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "summrise-mail",
+  // **THE ENTRY POINT IS `worker-build`'s OUTPUT, AND THE CONFIG SAYS SO** — `agent/tests/worker_build_commands.rs`
+  // requires a config whose `main` is not a tracked file to carry a `build.command`, because on a clean checkout
+  // the file above does not exist and `wrangler deploy` stops with "entry-point file was not found". Same shape as
+  // `relay/wrangler.jsonc`; the crate is one directory down, which is what the argument is for.
+  "main": "worker/build/index.js",
+  "build": { "command": "worker-build --release worker" },
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  // **ITS OWN BUCKET AND NOT A PREFIX IN SOMEONE ELSE'S.** Object lifecycles are BUCKET-LEVEL, so the retention
+  // rule that deletes a week-old message would otherwise have to be written against a bucket that also holds
+  // release artifacts and the installer's component cache. One bucket, one rule, one owner.
+  "r2_buckets": [{ "binding": "MAIL", "bucket_name": "summrise-mail" }],
+  // **A ROUTE RATHER THAN A CUSTOM DOMAIN**, which is the shape `relay/` already proves on this account: a
+  // custom domain is a dashboard-managed attachment while a route is declared here, in git, next to the code it
+  // serves. The host's DNS record is created by `mail/scripts/route.sh`.
+  "routes": [{ "pattern": "mail.saisi.online/*", "zone_name": "saisi.online" }],
+  "vars": {
+    // THE SINGLE SOURCE OF THE RETENTION WINDOW. `mail/scripts/provision.sh` reads this number and turns it into
+    // the bucket's lifecycle rule, and `mail/scripts/test/provision-stub.bash` fails if it drifts — a second copy
+    // in Rust would be a sentence nothing enforces.
+    "RETENTION_DAYS": "7",
+    // The copy that makes a dropped message visible in the operator's own inbox. Empty (in `.dev.vars`) means no
+    // forwarding, which is what local development wants.
+    "FORWARD_TO": "13122231591@163.com"
+  },
+  "observability": { "enabled": true }
+}

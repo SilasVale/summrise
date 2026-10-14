@@ -29,4 +29,11 @@ hooks (the emitters; no push while CI runs), `publish-release.bash` (the whole-t
 **WHERE THE LONG FORM LIVES**: the commit message (the measurement and the `VERIFIED:` line — this is the record) ·
 `CONTEXT.md` (a word and what it means) · the gate itself (its mutation proof) · `docs/superpowers/` (designs and
 decisions, including the wrong ones) · `scripts/RELEASE.md` (the release runbook) · `scripts/DERP.md` (the tailnet's
-self-hosted relay on the exit node, and the traps it cost to learn).
+self-hosted relay on the exit node, and the traps it cost to learn) · `mail/README.md` (the operator's mail inbox:
+its URL contract, its retention and its rollback).
+
+**THE OPERATOR'S MAIL INBOX** is `mail/` (`summrise-mail`): mail to `dsh@saisi.online` is stored in its own R2
+bucket and read at `https://mail.saisi.online/s/<secret>/`, where the secret is the worker's `MAIL_PATH_SECRET`
+mirrored at `~/.saisi-mail-secret` (600) on this box. Nothing parses MIME in the worker (Workers Free allows 10 ms
+of CPU) — the reading side parses. It deletes after 7 days, it has ONE Email Routing rule, and the zone's catch-all
+that sends every other address to 163 is not its business. `./scripts/build.sh mail` deploys it.

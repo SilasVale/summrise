@@ -562,6 +562,25 @@ pub async fn regenerate_token(env: &Env, id: &str) -> Result<String, String> {
     .await
 }
 
+/// `setUserEnabled(env, id, enabled)` — **THE LOCK IS THE DECISION**, and the source's comment records what its
+/// absence cost (round-122): an unlocked read-modify-write let an enable/disable land with a STALE token value,
+/// and a concurrent `regenerateToken`'s delete of `token:T1` then made the record's own `T1` dead — `x-api-key`
+/// stops working while the console still shows `T1`. Three writers share this key: create, regenerate, enable.
+///
+/// The read is `fresh_json` (RAW KV, not the cache) so the write is based on the latest value, and the cache is
+/// refreshed with the new object afterwards — the source's own two comments.
+pub async fn set_user_enabled(env: &Env, id: &str, enabled: bool) -> Result<Value, String> {
+    with_key_lock(&USER_LOCKS, &format!("user:{id}"), async {
+        let Some(mut u) = fresh_json(env, &format!("user:{id}")).await else {
+            return Err("User not found".into());
+        };
+        u["enabled"] = Value::Bool(enabled);
+        kv_put(env, &format!("user:{id}"), &u.to_string(), None).await;
+        Ok(u)
+    })
+    .await
+}
+
 /// `rotateRelayToken(env, id)` — the scoped relay credential, issued (or rotated) under the user's lock.
 pub async fn rotate_relay_token(env: &Env, id: &str) -> Result<String, String> {
     with_key_lock(&USER_LOCKS, &format!("user:{id}"), async {

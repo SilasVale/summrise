@@ -1,0 +1,4 @@
+# `worker-build`'s output, exactly as `relay/worker/.gitignore` has it: the deploy entry point is generated,
+# and `agent/tests/worker_build_commands.rs` is the gate that makes sure something builds it.
+build/
+target/
