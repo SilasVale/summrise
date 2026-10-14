@@ -20,7 +20,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import admin from "../src/plugins/admin.ts";
-import { SESSION_COOKIE, issueSessionToken } from "../src/auth.ts";
+import { SESSION_COOKIE, hashPassword, issueSessionToken } from "../src/auth.ts";
 import { jsonOk, jsonError, readJson } from "../src/http.ts";
 import { createPluginContext, registerPlugins, dispatch } from "../src/plugins/registry.ts";
 import { __clearCaches } from "../src/store/cache.ts";
@@ -28,7 +28,12 @@ import { __clearCaches } from "../src/store/cache.ts";
 /** A KV namespace over a plain map: the four methods the stores touch. */
 function fakeKV(entries = {}) {
   const map = new Map(Object.entries(entries));
+  /** Every write, in the shape the device corpus compares: `put key=value ttl=N` / `del key`. **A WRITE THAT
+   *  IS NOT COMPARED IS A WRITE NOBODY CHECKED** — the invite's week-long TTL and the enable/disable record are
+   *  invisible in a status and a body. */
+  const writes = [];
   return {
+    writes,
     // **THE TYPE ARGUMENT IS NOT DECORATION.** The store reads records with `env.KEYS.get(key, "json")`, which
     // PARSES in the real binding; a fake that ignores the second argument hands back a string. The retired
     // route oracle learned this the hard way ("every case with a user key answered 502").
@@ -44,11 +49,15 @@ function fakeKV(entries = {}) {
       }
       return value;
     },
-    async put(key, value) {
-      map.set(key, value);
+    async put(key, value, options = {}) {
+      map.set(key, String(value));
+      writes.push(
+        `put ${key}=${value}${options.expirationTtl ? ` ttl=${options.expirationTtl}` : ""}`,
+      );
     },
     async delete(key) {
       map.delete(key);
+      writes.push(`del ${key}`);
     },
     async list({ prefix = "" } = {}) {
       return {
@@ -67,6 +76,32 @@ function fakeKV(entries = {}) {
  *  the replay freezes the same one. */
 const FROZEN_NOW = 4102444800000;
 Date.now = () => FROZEN_NOW;
+
+/** **THE RANDOM STREAM IS FROZEN TOO, AND FOR THE SAME REASON THE CLOCK IS.** `createInvite` mints a random
+ *  code, so a fixture recorded from a live CSPRNG could never be replayed. This is `verify.mjs`'s
+ *  `installDeterminism` stream (bytes `cursor, cursor+1, …`) applied to node's own `crypto`, and the replay
+ *  installs the identical one — with the cursor RESET PER CASE, because the draw sequence belongs to a request
+ *  and each side must start a case where the other one did.
+ *
+ *  `Object.defineProperty`, not assignment: node's `globalThis.crypto` is a getter with no setter. */
+let randomCursor = 0;
+const realCrypto = globalThis.crypto;
+Object.defineProperty(globalThis, "crypto", {
+  configurable: true,
+  value: new Proxy(realCrypto, {
+    get(target, prop) {
+      if (prop === "getRandomValues") {
+        return (array) => {
+          for (let i = 0; i < array.length; i++) array[i] = (randomCursor + i) & 0xff;
+          randomCursor += array.length;
+          return array;
+        };
+      }
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
 
 const SECRET = "oracle-secret-not-a-real-one";
 const ADMIN_PW = "legacy:0011223344556677:aabbccddeeff0011";
@@ -126,6 +161,14 @@ const cookie = (token) => `${SESSION_COOKIE}=${token}`;
 const cases = [];
 const record = async (name, { method = "GET", path, headers = {}, body: rawBody, env }) => {
   __clearCaches();
+  randomCursor = 0;
+  // **THE NAMESPACE IS SNAPSHOTTED BEFORE THE REQUEST, AND THIS IS THE THIRD TIME THIS HARNESS HAS LIED ABOUT
+  // ITS OWN INPUT.** Recording it after the handler ran meant every case whose route WRITES replayed against the
+  // state the write had just produced: the password cases arrived with the NEW hash already stored, so the route
+  // took its "a password exists" arm and refused the current password — 403 on both sides' fixtures and 200 from
+  // the shipping route. A fixture must describe the world the REQUEST was made in. The WRITES are still read
+  // afterwards, because they are the request's effect.
+  const before = Object.fromEntries(env.KEYS.__map ?? new Map());
   const request = new Request(`https://console.test${path}`, {
     method,
     headers,
@@ -147,6 +190,7 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
     method,
     path,
     headers,
+    writes: env.KEYS.writes ?? [],
     // **THE BODY IS PART OF THE CASE, AND LEAVING IT OUT WAS THIS FIXTURE'S SECOND FALSE GREEN.** The replay
     // sent every write request with an EMPTY body — which the coercion reads as `false` — so the two cases whose
     // shipping answer is `true` failed while the two that answer `false` passed on a request that was never
@@ -158,8 +202,12 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
       // properties, so `Object.entries` answers `[]` and the fixture records an EMPTY namespace. That is what
       // this line did on its first run: every recorded case carried no KV at all, and the replay's gated cases
       // answered 401 for a reason that had nothing to do with the route.
-      KEYS: Object.fromEntries(env.KEYS.__map ?? new Map()),
+      KEYS: before,
       SESSION_SECRET: env.SESSION_SECRET ?? null,
+      // The Worker VARS the case set (`ADMIN_PASSWORD`, say), minus the two the harness owns.
+      ...Object.fromEntries(
+        Object.entries(env).filter(([k]) => k !== "KEYS" && k !== "SESSION_SECRET"),
+      ),
     },
     expected: { status: res.status, body },
   });
@@ -167,7 +215,11 @@ const record = async (name, { method = "GET", path, headers = {}, body: rawBody,
   console.error(`  ${name} — ${res.status}, ${body.length} bytes`);
 };
 
-const envFor = (entries) => ({ KEYS: fakeKV(entries), SESSION_SECRET: SECRET });
+const envFor = (entries, extra = {}) => ({
+  KEYS: fakeKV(entries),
+  SESSION_SECRET: SECRET,
+  ...extra,
+});
 
 // ── THE CASES ────────────────────────────────────────────────────────────────────────────────────
 await record("no cookie is a 401", { path: "/api/admin/users", env: envFor(USERS) });
@@ -257,6 +309,84 @@ await record("the write refuses without a session", {
   path: "/api/admin/users/alice/enabled",
   body: JSON.stringify({ enabled: false }),
   headers: { "content-type": "application/json" },
+  env: envFor(USERS),
+});
+
+// ── THE PASSWORD: PRESENCE, THE BOOTSTRAP, AND THE ROTATION ──────────────────────────────────────
+await record("a deployment WITH a password reports it set", {
+  path: "/api/admin/password",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(USERS),
+});
+await record("a deployment with NO password reports it unset", {
+  path: "/api/admin/password",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor({ ...USERS, "auth:admin_password": "" }),
+});
+
+const putJson = (path, body, cookieValue = adminToken) => ({
+  method: "PUT",
+  path,
+  body: JSON.stringify(body),
+  headers: { Cookie: cookie(cookieValue), "content-type": "application/json" },
+});
+
+// THE BOOTSTRAP ARM: no password anywhere, and the admin gateway token is the credential.
+await record("the FIRST password is set with the admin key, session-less", {
+  ...putJson("/api/admin/password", {
+    password: "a-fresh-password",
+    adminKey: "tok-admin-secret-value",
+  }),
+  env: envFor({ ...USERS, "auth:admin_password": "" }),
+});
+await record("the bootstrap refuses a WRONG admin key", {
+  ...putJson("/api/admin/password", { password: "a-fresh-password", adminKey: "not-the-key" }),
+  env: envFor({ ...USERS, "auth:admin_password": "" }),
+});
+await record("the bootstrap refuses a short password BEFORE reading any key", {
+  ...putJson("/api/admin/password", { password: "short", adminKey: "not-the-key" }),
+  env: envFor({ ...USERS, "auth:admin_password": "" }),
+});
+
+// THE ROTATION ARM: a password exists, so the session and the CURRENT password are both required. **THE STORED
+// RECORD IS DERIVED HERE RATHER THAN TYPED** — `hashPassword(pw, "legacy")` is PBKDF2 over a fixed salt, so it
+// is deterministic, and a hand-written hash would have made "the right current password" a case that could only
+// ever answer 403 (which is what the first version of this fixture recorded, and it looked like a refusal the
+// route had decided rather than one the fixture had baked in).
+const CURRENT_PW = "the-current-one";
+const CURRENT_RECORD = `legacy:${await hashPassword(CURRENT_PW, "legacy")}`;
+const ROTATION = { ...USERS, "auth:admin_password": CURRENT_RECORD };
+
+await record("the password rotates with the current one", {
+  ...putJson("/api/admin/password", { password: "a-new-password", currentPassword: CURRENT_PW }),
+  env: envFor(ROTATION),
+});
+await record("a rotation with the WRONG current password is refused", {
+  ...putJson("/api/admin/password", { password: "a-new-password", currentPassword: "wrong" }),
+  env: envFor(ROTATION),
+});
+await record("a rotation with no session is refused even with the right password", {
+  method: "PUT",
+  path: "/api/admin/password",
+  body: JSON.stringify({ password: "a-new-password", currentPassword: CURRENT_PW }),
+  headers: { "content-type": "application/json" },
+  env: envFor(ROTATION),
+});
+await record("a rotation to a short password is refused", {
+  ...putJson("/api/admin/password", { password: "tiny", currentPassword: CURRENT_PW }),
+  env: envFor(ROTATION),
+});
+
+// ── THE INVITE: A RANDOM CODE AND A TTL, BOTH FROZEN BY THE HARNESS ──────────────────────────────
+await record("an invite is minted with a week-long TTL at the binding", {
+  method: "POST",
+  path: "/api/admin/invite",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(USERS),
+});
+await record("an invite refuses without a session", {
+  method: "POST",
+  path: "/api/admin/invite",
   env: envFor(USERS),
 });
 

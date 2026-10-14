@@ -21,7 +21,10 @@ use worker::*;
 
 use crate::device_registry::{js_falsy_string, mask_key};
 use crate::device_store::{cf_token, kv_json_cached, kv_list_prefix};
-use crate::user_store::{get_user_keys, set_user_enabled, user_keys_status, ADMIN_ID};
+use crate::user_store::{
+    create_invite, get_user, get_user_keys, has_admin_password, set_admin_password,
+    set_user_enabled, user_keys_status, verify_admin_password, ADMIN_ID,
+};
 use crate::RouteFailure;
 
 /// The plugin's base, and the separator is part of every test (a bare `starts_with` would claim
@@ -39,10 +42,15 @@ pub fn in_family(method: &Method, path: &str) -> bool {
         // `startsWith(BASE + "/users/") && endsWith("/enabled")` — the source's own matcher, and the reason it
         // is not a prefix match is recorded there ("exact here so /api/admin/users never swallows
         // /api/admin/users/{id}/enabled").
-        Method::Get => matches!(path, "/api/admin/users" | "/api/admin/cloudflare-token"),
+        Method::Get => matches!(
+            path,
+            "/api/admin/users" | "/api/admin/cloudflare-token" | "/api/admin/password"
+        ),
         Method::Put => {
-            path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled")
+            path == "/api/admin/password"
+                || (path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled"))
         }
+        Method::Post => path == "/api/admin/invite",
         _ => false,
     }
 }
@@ -53,6 +61,9 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
     match (request.method(), url.path()) {
         (Method::Get, "/api/admin/users") => admin_list_users(&request, env).await,
         (Method::Get, "/api/admin/cloudflare-token") => admin_get_cf_token(&request, env).await,
+        (Method::Get, "/api/admin/password") => admin_get_password(&request, env).await,
+        (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
+        (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Put, path)
             if path.starts_with(&format!("{ADMIN_BASE}/users/")) && path.ends_with("/enabled") =>
         {
@@ -112,6 +123,118 @@ async fn admin_get_cf_token(request: &Request, env: &Env) -> Result<Response, Ro
     }))
     .map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(body, 200)?)
+}
+
+/// `adminGetPassword(request, env)` — **THE PASSWORD ITSELF IS NEVER RETURNED, ONLY WHETHER ONE IS SET.** The
+/// route used to hand the stored value back verbatim (plaintext, before the hashing landing), which made any
+/// console session able to impersonate the admin indefinitely.
+async fn admin_get_password(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let body = serde_json::to_string(&serde_json::json!({ "set": has_admin_password(env).await }))
+        .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(body, 200)?)
+}
+
+/// `adminPutPassword(request, env)` — **TWO ROUTES IN ONE, AND THE FIRST ARM IS THE BOOTSTRAP.**
+///
+/// round-119: bootstrap is circular. With NO password set, no session can ever exist (`requireSession` answers
+/// null on an empty `getAdminPassword`, and login 500s "not configured"), so a fresh deployment with no
+/// `ADMIN_PASSWORD` secret had NO way into the console. The rule that resolves it: a session-less FIRST set is
+/// allowed, gated by the ADMIN GATEWAY TOKEN from KV — the same credential the reset-password path uses — and
+/// it answers `initial: true` so the console can tell the two apart. **Once a password exists, the session and
+/// the CURRENT password are both required** (a hijacked session must not be able to rotate the password and lock
+/// the real admin out), and the answer is `changed: true` without `initial`.
+///
+/// The order inside the bootstrap arm is the source's: LENGTH first (a 400 before any store read), then the key.
+async fn admin_put_password(request: &mut Request, env: &Env) -> Result<Response, RouteFailure> {
+    if !has_admin_password(env).await {
+        let body = read_json(request).await;
+        let password = js_or_empty(body.get("password"));
+        if js_length(&password) < 8 {
+            return Ok(crate::json_error(
+                400,
+                "Admin password must be at least 8 chars",
+                "invalid_request",
+            )?);
+        }
+        // **THE ADMIN KEY IS THE BOOTSTRAP'S CREDENTIAL, COMPARED IN CONSTANT TIME** — an unauthenticated caller
+        // on the internet must not be able to set the console's password on a fresh deployment, and a
+        // length-leaking comparison on a token is the other half of that.
+        let admin = get_user(env, ADMIN_ID).await;
+        let admin_token = admin
+            .as_ref()
+            .map(|u| js_falsy_string(u.get("token")))
+            .unwrap_or_default();
+        let admin_key = js_or_empty(body.get("adminKey")).trim().to_string();
+        if admin_token.is_empty() || !crate::auth::safe_eq(&admin_key, &admin_token) {
+            return Ok(crate::json_error(
+                403,
+                "Invalid admin key — cannot set initial password",
+                "authentication_error",
+            )?);
+        }
+        if set_admin_password(env, &password).await.is_err() {
+            return Err(RouteFailure::Threw);
+        }
+        let body = serde_json::to_string(
+            &serde_json::json!({"ok": true, "changed": true, "initial": true}),
+        )
+        .map_err(|_| RouteFailure::Threw)?;
+        return Ok(crate::json(body, 200)?);
+    }
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let body = read_json(request).await;
+    let password = js_or_empty(body.get("password"));
+    if js_length(&password) < 8 {
+        return Ok(crate::json_error(
+            400,
+            "Admin password must be at least 8 chars",
+            "invalid_request",
+        )?);
+    }
+    let current = js_or_empty(body.get("currentPassword"));
+    if !verify_admin_password(env, &current).await {
+        return Ok(crate::json_error(
+            403,
+            "Current password is incorrect",
+            "authentication_error",
+        )?);
+    }
+    if set_admin_password(env, &password).await.is_err() {
+        return Err(RouteFailure::Threw);
+    }
+    let body = serde_json::to_string(&serde_json::json!({ "ok": true, "changed": true }))
+        .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(body, 200)?)
+}
+
+/// `adminInvite(request, env)` — a code, and nothing else. The TTL lives at the binding ([`create_invite`]).
+async fn admin_invite(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let code = create_invite(env).await;
+    let body = serde_json::to_string(&serde_json::json!({ "ok": true, "code": code }))
+        .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(body, 200)?)
+}
+
+/// `String(v || "")` — the coercion `String(body?.password || "")` performs, named once.
+fn js_or_empty(v: Option<&serde_json::Value>) -> String {
+    summrise_core::text::js_or_empty(v)
+}
+
+/// **`v.length` IS UTF-16 CODE UNITS, AND THE FIRST VERSION OF THIS ROUTE COUNTED `chars()`.** They agree on
+/// every ASCII password (which is every password a test would use) and disagree the moment one contains an
+/// astral character: `"😀😀😀😀"` is FOUR `chars()` and EIGHT `.length`, so the port would have refused a password
+/// the shipping route accepts — the same arm, and the same class of divergence, as `maskKey`'s (`chars()` vs
+/// code units) two landings ago.
+fn js_length(text: &str) -> usize {
+    text.encode_utf16().count()
 }
 
 /// `adminSetUserEnabled(request, env, url)` — **THE WRITE ROUTE, AND ITS THREE REFUSALS ARE EACH A ROUND**.
