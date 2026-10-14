@@ -1733,6 +1733,114 @@
    }
   },
   {
+   "name": "the catalogue document carries the records, the pasteable text and the file's keys",
+   "method": "GET",
+   "path": "/api/admin/catalogue",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"qw/console\",\"ownedBy\":\"qw\",\"name\":\"Console\",\"contextWindow\":4096},{\"id\":\"qw/gone\",\"ownedBy\":\"qw\"}]",
+     "models:overrides": "[{\"id\":\"og/mimo-v2.5\",\"name\":\"Override\"}]",
+     "models:disabled": "[\"zz/last\",\"og/off\"]",
+     "providers:custom": "[{\"prefix\":\"acme/\",\"label\":\"Acme\",\"baseURL\":\"https://acme.test/v1\",\"api\":\"openai-completions\",\"models\":[{\"id\":\"chat\"}],\"apiKeyEnv\":\"ACME_API_KEY\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one",
+    "ACME_API_KEY": "sk-env-key-0123456789"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"document\":{\"providers\":[{\"prefix\":\"acme/\",\"label\":\"Acme\",\"baseURL\":\"https://acme.test/v1\",\"api\":\"openai-completions\",\"apiKeyEnv\":\"ACME_API_KEY\",\"models\":[{\"id\":\"chat\"}]}],\"models\":[{\"id\":\"qw/console\",\"name\":\"Console\",\"contextWindow\":4096},{\"id\":\"qw/gone\"}],\"overrides\":[{\"id\":\"og/mimo-v2.5\",\"name\":\"Override\"}]},\"text\":\"export default {\\n  \\\"providers\\\": [\\n    {\\n      \\\"prefix\\\": \\\"acme/\\\",\\n      \\\"label\\\": \\\"Acme\\\",\\n      \\\"baseURL\\\": \\\"https://acme.test/v1\\\",\\n      \\\"api\\\": \\\"openai-completions\\\",\\n      \\\"apiKeyEnv\\\": \\\"ACME_API_KEY\\\",\\n      \\\"models\\\": [\\n        {\\n          \\\"id\\\": \\\"chat\\\"\\n        }\\n      ]\\n    }\\n  ],\\n  \\\"models\\\": [\\n    {\\n      \\\"id\\\": \\\"qw/console\\\",\\n      \\\"name\\\": \\\"Console\\\",\\n      \\\"contextWindow\\\": 4096\\n    },\\n    {\\n      \\\"id\\\": \\\"qw/gone\\\"\\n    }\\n  ],\\n  \\\"overrides\\\": [\\n    {\\n      \\\"id\\\": \\\"og/mimo-v2.5\\\",\\n      \\\"name\\\": \\\"Override\\\"\\n    }\\n  ]\\n} satisfies CatalogueFile;\\n\",\"file\":{\"providers\":[],\"models\":[],\"overrides\":[]}}"
+   }
+  },
+  {
+   "name": "an EMPTY catalogue renders the same three keys and no entries",
+   "method": "GET",
+   "path": "/api/admin/catalogue",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"document\":{\"providers\":[],\"models\":[],\"overrides\":[]},\"text\":\"export default {\\n  \\\"providers\\\": [],\\n  \\\"models\\\": [],\\n  \\\"overrides\\\": []\\n} satisfies CatalogueFile;\\n\",\"file\":{\"providers\":[],\"models\":[],\"overrides\":[]}}"
+   }
+  },
+  {
+   "name": "the document omits an empty model list rather than writing []",
+   "method": "GET",
+   "path": "/api/admin/catalogue",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "providers:custom": "[{\"prefix\":\"bare/\",\"baseURL\":\"https://bare.test\",\"api\":\"openai-completions\",\"apiKeyEnv\":\"BARE_KEY\",\"models\":[]}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"document\":{\"providers\":[{\"prefix\":\"bare/\",\"baseURL\":\"https://bare.test\",\"api\":\"openai-completions\",\"apiKeyEnv\":\"BARE_KEY\"}],\"models\":[],\"overrides\":[]},\"text\":\"export default {\\n  \\\"providers\\\": [\\n    {\\n      \\\"prefix\\\": \\\"bare/\\\",\\n      \\\"baseURL\\\": \\\"https://bare.test\\\",\\n      \\\"api\\\": \\\"openai-completions\\\",\\n      \\\"apiKeyEnv\\\": \\\"BARE_KEY\\\"\\n    }\\n  ],\\n  \\\"models\\\": [],\\n  \\\"overrides\\\": []\\n} satisfies CatalogueFile;\\n\",\"file\":{\"providers\":[],\"models\":[],\"overrides\":[]}}"
+   }
+  },
+  {
+   "name": "the catalogue document refuses without a session",
+   "method": "GET",
+   "path": "/api/admin/catalogue",
+   "headers": {},
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}",
+     "models:custom": "[{\"id\":\"qw/console\",\"ownedBy\":\"qw\",\"name\":\"Console\",\"contextWindow\":4096},{\"id\":\"qw/gone\",\"ownedBy\":\"qw\"}]",
+     "models:overrides": "[{\"id\":\"og/mimo-v2.5\",\"name\":\"Override\"}]",
+     "models:disabled": "[\"zz/last\",\"og/off\"]",
+     "providers:custom": "[{\"prefix\":\"acme/\",\"label\":\"Acme\",\"baseURL\":\"https://acme.test/v1\",\"api\":\"openai-completions\",\"models\":[{\"id\":\"chat\"}],\"apiKeyEnv\":\"ACME_API_KEY\"}]"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}"
+   }
+  },
+  {
    "name": "an empty deployment answers an empty list",
    "method": "GET",
    "path": "/api/admin/users",
