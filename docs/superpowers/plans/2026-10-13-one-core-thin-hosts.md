@@ -348,3 +348,39 @@ decision route calls it.
 **WHAT IS NEXT, AND IT IS §6 ROW 3**: the admin family. The parser was the prerequisite and it is done; `/api/admin/*`
 is now a route port rather than a parser port, and `store/users.ts`, `store/models.ts` and `store/devices.ts` are
 the stores it reads.
+
+---
+
+## LANDED 2026-10-14 — two more store hosts, and the pattern the emissions keep paying for (58 -> 56)
+
+**`store/users.ts` AND `store/cache.ts` ARE HOSTS NOW** — their decisions are emitted from `user_store.rs` and
+`store.rs`. What moved: the seeded admin's two names, the key names a user may hold, the token/salt/invite sizes,
+`maskKey` and `userKeysStatus`; and the cache's two TTLs, its prefix list, its two bounds and the eviction
+comparison. What stayed: KV access, the keyed locks, the `Map`s, the lock chain.
+
+**AND THE REASON TO KEEP DOING THIS IS NO LONGER "THE COUNT FALLS" — IT IS THAT WRITING BOTH SIDES DOWN BESIDE
+EACH OTHER KEEPS FINDING LIVE BUGS. THREE SO FAR, AND NOT ONE OF THEM WAS REACHABLE BY THE FROZEN CORPUS:**
+
+| the divergence | what the Rust did | what the source does | why it survived |
+| --- | --- | --- | --- |
+| `advertisedModelId`'s null wire | `js_string(null)` → `"null"` | `String(wire ?? "")` → `""` | unreachable from the listing, reachable from the decision route |
+| `maskKey`'s arm | `chars()` — five characters for `"abcd😀"` | UTF-16 units — six, so the SHORT arm | every ASCII row agrees, and a token is never astral |
+| `AUTH_PREFIXES` | nine entries, `"providers:"` absent, with a comment asserting the source "keeps it as a COMMENTED entry" | ten entries, active, with a dated reason about credentials and egress destinations | the port's test iterated the constant it was checking, so it passed for any list |
+
+**THE THIRD ONE IS THE INSTRUCTIVE ONE.** The comment was not lazy — it described a state the file had been in.
+It had simply stopped being true, and the test that should have caught it was written as a loop over its own
+subject. **A port carries a READING of its source, and a reading has a date**; the emission is what forces the
+reading to be re-taken, because the two sides must be written down in one place. `providers:` being the missing
+entry makes the point sharper: the record it caches carries a credential and an egress destination, and the
+console propagates a deletion or a re-point within a minute while the worker was holding it for up to 24 hours.
+
+**AND ONE TEST HAD STOPPED MEASURING ALTOGETHER, FOUND THE SAME WAY.** `auth.test.mjs` slices the `User` record
+out of `store/users.ts` between two anchors; the end anchor left the file for the emission, `indexOf` answered
+`-1`, and `slice(start, -1)` ran to the end of the module — passing against the whole host file instead of the
+record, silently. It is bounded by the record's own braces now and fails loudly when they move.
+
+**THE NEXT TWO CANDIDATES, MEASURED RATHER THAN GUESSED**: `store/admin.ts` (the admin-password seed and the
+reads around it — `user_store.rs` already owns the password rules) and `store/models.ts`'s `isBuiltIn` plus the
+catalogue projection. **THE ADMIN FAMILY (§6 ROW 3) IS STILL THE BIG ONE**, and the honest sequencing is: finish
+the store hosts whose decisions already exist in Rust, then port the routes — because a route port that still
+needs its store's decisions in TypeScript is a port with nothing to call.
