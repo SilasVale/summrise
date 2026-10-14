@@ -17,6 +17,11 @@ line returns NOTHING, which looks exactly like a suite that passed silently.
 **PREFER RUST.** A change to a `.js`/`.mjs`/`.cjs` file needs a reason, not a habit: `agent/tests/js_boundary_inventory.rs`
 classifies every tracked JS/TS file against `agent/tests/fixtures/js-boundaries.txt` and caps the LOGIC count.
 
+**THE DISK IS THE CONSTRAINT, NOT THE CPU** (one HDD, measured 84% full on 2026-10-13). A full local run leaves ~15 GB of
+`target/` behind, so `bash scripts/clean-build-space.bash` after one, and `--targets` for the crates not in flight.
+Debug info is off machine-wide (`~/.cargo/config.toml`: `debug = 0`) and that is measured rather than cosmetic:
+`gateway/wasm/target` went 2.9 GB -> 403 MB, `agent/target` 13 GB -> ~2 GB.
+
 **THE RULES ARE ENFORCED, NOT WRITTEN DOWN**: `main_shape.rs` (main advances only by merge), the pre-commit and pre-push
 hooks (the emitters; no push while CI runs), `publish-release.bash` (the whole-tree mode check), and every gate's own
 `MUTATION:`/`RESULT:` header. **A sentence that can be enforced should be enforced instead of written down.**
