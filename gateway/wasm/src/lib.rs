@@ -466,6 +466,16 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // is the front door's answer for a path under a prefix whose plugin has no route for it, and the corpus
     // compares it (`GET /api/auth/nonsense`).
     if auth_routes::in_family(&req.method(), url.path()) {
+        // **THE FAMILY THAT RESOLVES AN IDENTITY IS THE FAMILY THAT MUST HAVE ONE.** `user_store::seed_admin` is
+        // the console's `seedAdmin` — the v1 migration, the empty-token backfill and the fresh record — and it is
+        // called HERE rather than on every request because this is the only surface that cannot answer without it:
+        // login mints a session for an id that must resolve, and `require_cookie_session` reads `user:<id>`. **A
+        // FRESH DEPLOYMENT SERVED BY THIS WORKER HAD NO ADMIN RECORD AT ALL** — `getAdminPassword` migrates the
+        // Worker secret, so the password verified, and then the session it issued resolved to nothing.
+        //
+        // The cost is once per isolate: `seed_admin`'s first act is an atomic flag, and the next 1000 requests
+        // through this branch pay one `swap`.
+        user_store::seed_admin(&env).await;
         return match auth_routes::handle(req, &env).await {
             Ok(response) => Ok(response),
             // The one arm the routes do not answer themselves: the source THREW (`Failure::Threw`) — a `null`
