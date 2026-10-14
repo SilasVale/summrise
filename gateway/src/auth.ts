@@ -18,6 +18,34 @@
  *           (the single Worker-secret trust anchor).
  */
 
+// **THE PRIMITIVES ARE AN EMISSION NOW (2026-10-14)** — `auth-logic.ts`, GENERATED from
+// `gateway/wasm/src/auth.rs`. What is left here is the HOST: `crypto.subtle`'s PBKDF2 and HMAC, the base64
+// platform calls, and `randomHex`. Every decision — the compare's length rule, the cookie parser's four
+// details, the CSRF gate's order, the two cookie headers' spellings, the base64url alphabet and the claims
+// check — is the emission's. **This file imports NOTHING ELSE**, and that property is what the header above
+// claims: the emission is a leaf, not a dependency edge.
+import {
+  b64urlDecodeStr,
+  safeEq,
+  sessionClaims,
+  SESSION_TTL_MS,
+  splitToken,
+} from "./auth-logic.ts";
+
+export {
+  b64urlDecodeStr,
+  clearSessionCookieHeader,
+  csrfCookieViolation,
+  MUTATING_METHODS,
+  parseCookie,
+  safeEq,
+  sessionClaims,
+  sessionCookieHeader,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  splitToken,
+} from "./auth-logic.ts";
+
 /** PBKDF2 iteration count.
  *
  * ⚠️ **THIS CONSTANT IS BAKED INTO EVERY STORED HASH.** A user record holds
@@ -65,14 +93,7 @@ export async function verifyPassword(
   expectedHash: string,
 ): Promise<boolean> {
   const h = await hashPassword(password, salt);
-  return timingSafeEqual(h, expectedHash);
-}
-
-/// Constant-time string compare for credential-shaped values (auth-core
-/// audit LOW: plain !== on the admin token leaked timing, and the compare
-/// itself must not early-exit).
-export function safeEq(a: string, b: string): boolean {
-  return timingSafeEqual(a, b);
+  return safeEq(h, expectedHash);
 }
 
 /// Auth-core audit MED-1: SameSite=Lax only blocks CROSS-SITE sends — but
@@ -89,41 +110,13 @@ export function safeEq(a: string, b: string): boolean {
 /// mutation means BOTH credential families. Same reasoning applies: a
 /// same-site page holding neither cookie cannot ride them; the panel's own
 /// same-origin fetches pass.
-export const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-export function csrfCookieViolation(request: Request): boolean {
-  const method = request.method.toUpperCase();
-  if (!MUTATING_METHODS.has(method)) return false;
-  const cookie = request.headers.get("cookie") || "";
-  const hasSession = cookie.includes(SESSION_COOKIE + "=");
-  const hasDevicePair = Object.keys(parseCookie(cookie)).some((n) => n.startsWith("summrise_pt_"));
-  if (!hasSession && !hasDevicePair) return false; // bearer path
-  // Browsers attach Sec-Fetch-Site to EVERY request (forbidden header — a
-  // cross-site page cannot forge it), so a DRIVE-BY from a device panel or
-  // any foreign page carries same-site/cross-site and is rejected. A MISSING
-  // header means a non-browser client: browsers never omit it, and raw HTTP
-  // has no ambient cookie to ride — nothing to defend against there, so
-  // absent = allowed (test suites + CLI session probes keep working).
-  const site = request.headers.get("sec-fetch-site");
-  if (site == null) return false;
-  const v = site.toLowerCase();
-  return v !== "same-origin" && v !== "none";
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 /* ---- Sessions (HMAC-signed, key = ADMIN_PASSWORD) ---- */
 
-export const SESSION_COOKIE = "ag_session";
 /** Session lifetime. SAFELY CHANGEABLE, unlike `PASSWORD_ITERATIONS` above:
  *  the value is not read at VERIFY time — it is written into the signed
  *  payload as `exp` when a token is issued, and verification trusts that
  *  embedded expiry. Changing this therefore affects only newly issued tokens. */
-export const SESSION_TTL_MS = 24 * 3600 * 1000;
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
@@ -145,15 +138,6 @@ function b64urlEncodeStr(str: string): string {
   return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function b64urlDecodeStr(s: string): string {
-  // issueSessionToken/b64urlEncodeStr strip the '=' padding — restore it
-  // before atob (same as access.ts b64urlToJson): without it, payloads whose
-  // stripped length is not a multiple of 4 fail to decode and every such
-  // valid session 401s in verifySessionToken's catch.
-  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
-  return atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);
-}
-
 /** Issue a session token: `b64url(payload).hmac`, payload = { uid, role, exp } */
 export async function issueSessionToken(
   secret: string,
@@ -172,38 +156,18 @@ export async function verifySessionToken(
   token: string,
 ): Promise<{ uid: string; role: string } | null> {
   if (!secret || !token) return null;
-  const dot = token.indexOf(".");
-  if (dot < 0) return null;
-  const payload = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
+  const split = splitToken(token);
+  if (!split) return null;
+  const [payload, sig] = split;
   const key = await hmacKey(secret);
   const sigBytes = new Uint8Array(
     await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)),
   );
-  if (!timingSafeEqual(bytesToB64url(sigBytes), sig)) return null;
+  // **THE SIGNATURE IS CHECKED BEFORE THE PAYLOAD IS PARSED**, and the claims rules are the emission's.
+  if (!safeEq(bytesToB64url(sigBytes), sig)) return null;
   try {
-    const data = JSON.parse(b64urlDecodeStr(payload));
-    if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
-    return { uid: String(data.uid), role: String(data.role || "user") };
+    return sessionClaims(JSON.parse(b64urlDecodeStr(payload)), Date.now());
   } catch {
     return null;
   }
-}
-
-export function parseCookie(str: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const pair of String(str || "").split(";")) {
-    const i = pair.indexOf("=");
-    if (i < 0) continue;
-    out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
-  }
-  return out;
-}
-
-export function sessionCookieHeader(token: string, maxAgeSec: number, secure: boolean): string {
-  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? "; Secure" : ""}`;
-}
-
-export function clearSessionCookieHeader(secure: boolean): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
 }
