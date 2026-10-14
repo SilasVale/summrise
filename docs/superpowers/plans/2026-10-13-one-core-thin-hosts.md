@@ -285,3 +285,24 @@ of `specs/2026-10-10` applied to the primitives themselves, and it is landing 2'
    slash, plus `"ds"` and `"amd"` — and `gateway/wasm` has no equivalent, so the worker cannot refuse a reserved
    prefix today. The core needs the rule (and the derivation, not a second literal list) before the parser can
    answer 409 in both languages.
+
+### AND THE PREREQUISITE LANDED THE SAME DAY — what consolidating the primitives actually cost
+
+**`summrise-core::text` OWNS THE COERCIONS NOW, AND EVERY HOST NAME IS A RE-EXPORT, SO NO CALL SITE MOVED.**
+Ten files changed, 445 lines added and 233 removed, and **the copies were not the same function**: the
+consolidation found one live divergence (`stream::js_text` rendered a `1.0` that arrived as a float as `"1.0"`
+where the engine says `"1"`, and the frozen corpus does not cover it), one comment that was wrong about its own
+subject (`guard.rs` called hex a "recorded divergence" when it was a missing arm, so the hostname rule read
+`172.0x10.0.1` as public), and two unreachable-but-wrong arms (`tokens::js_string_of` on a nested empty array,
+`request_shape::js_truthy` on NaN). **That is the argument for consolidating BEFORE porting the parser rather
+than after it: the parser would have inherited whichever copy its author happened to read.**
+
+**AND IT IS ALSO WHERE THE CORE TOOK ITS FIRST DEPENDENCY.** `Cargo.toml` said "no dependencies, deliberately"
+and gave build time as the reason — which is still the reason to keep the list short, and cannot be a reason to
+keep it empty when the shared subject is the JSON that crosses between the hosts. `serde_json` is pure Rust with
+no I/O, and `preserve_order` is NOT enabled here because it changes `Map` for the whole build graph and the agent
+does not enable it.
+
+**SO §6 ROW 2 IS NOW UNBLOCKED, WITH TWO PREREQUISITES STILL OPEN AND BOTH NAMED**: `RESERVED_PREFIXES` needs a
+Rust owner (item 3 above), and `parseProviderSpec`'s byte-exact messages need the `Number.isInteger`/`Array.isArray`
+arms that now exist. Nothing else stands between this plan and the largest single gap in the console's tail.
