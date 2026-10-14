@@ -12,6 +12,12 @@
 #   bash mail/scripts/route.sh --dry-run   # print the plan; touches nothing, needs no token
 #   bash mail/scripts/route.sh             # create what is missing, then re-read and print both facts
 #
+# **THE WORKER MUST ALREADY EXIST, AND THAT IS AN ORDERING FACT RATHER THAN A PREFERENCE** — measured on the
+# first live run: the routing API answers `{"code":2016,"message":"Workers Script Info not found"}` for an
+# action naming a script that is not deployed. So the order is provision (the bucket) → deploy
+# (`./scripts/build.sh mail`) → route (the rule). The script is idempotent, so running it early costs one
+# refusal and nothing else.
+#
 # Env: CLOUDFLARE_API_TOKEN (else ~/.cloudflare-token), CLOUDFLARE_ZONE_ID (else looked up by name).
 set -euo pipefail
 

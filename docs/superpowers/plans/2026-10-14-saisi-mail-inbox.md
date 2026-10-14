@@ -401,13 +401,19 @@ git commit -m "feat(mail): deploy branch, CI steps, the routing script and the r
 - Consumes: everything above, and the operator's two messages.
 - Produces: a live address, and the measurement that decides Task 7.
 
-- [ ] **Step 1: Provision and deploy**
+- [ ] **Step 1: Provision and deploy — IN THIS ORDER, WHICH THE LIVE RUN CORRECTED**
 
 Run: `bash mail/scripts/provision.sh` (expect the re-read lifecycle rule in its output)
-Run: `bash mail/scripts/route.sh`
 Run: `./scripts/build.sh mail` → expect the 404 smoke line and no error.
+Run: `bash mail/scripts/route.sh` → **after the deploy, not before.** Measured: the routing API refuses an action
+naming a script that is not deployed (`{"code":2016,"message":"Workers Script Info not found"}`), so the first
+attempt created the DNS record and then failed on the rule. Re-running the script is the fix, and it is
+idempotent.
 Run: `printf '%s' "$(openssl rand -hex 24)" | wrangler secret put MAIL_PATH_SECRET --name summrise-mail`, then write
 the same value to `~/.saisi-mail-secret` (mode 600) so the agent can read it without it entering a command line.
+**Check the upload actually happened** (`wrangler secret list --name summrise-mail` must name it): a piped
+`secret put` whose output is swallowed looks identical to one that worked, and the symptom is a read path that
+answers 404 to the correct secret — which is exactly what an unset secret does by design.
 
 - [ ] **Step 2: Ask the operator for the two messages**
 
