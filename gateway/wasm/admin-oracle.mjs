@@ -390,6 +390,46 @@ await record("an invite refuses without a session", {
   env: envFor(USERS),
 });
 
+// ── THE MODEL FAMILY'S TWO WRITES: DELETE AND RE-ENABLE ──────────────────────────────────────────
+// A CONSOLE-OWNED model is REMOVED; a BUILT-IN is DISABLED. The registry decides which, and the two answers
+// have different shapes (`removed` vs `disabled` + the whole list) — so both arms need a case.
+const MODELS = { ...USERS, "models:custom": JSON.stringify([{ id: "my/thing", ownedBy: "my" }]) };
+const del = (path) => ({ method: "DELETE", path, headers: { Cookie: cookie(adminToken) } });
+const enable = (path) => ({ method: "PUT", path, headers: { Cookie: cookie(adminToken) } });
+
+await record("deleting a console-owned model removes it", {
+  ...del("/api/admin/models/my%2Fthing"),
+  env: envFor(MODELS),
+});
+await record("deleting an id this deployment does not own is a 404", {
+  ...del("/api/admin/models/my%2Fghost"),
+  env: envFor(MODELS),
+});
+await record("deleting a BUILT-IN disables it instead of removing it", {
+  ...del("/api/admin/models/og%2Fmimo-v2.5"),
+  env: envFor(MODELS),
+});
+await record("a malformed percent-escape in a model id is the front door's 500", {
+  ...del("/api/admin/models/%zz"),
+  env: envFor(MODELS),
+});
+await record("re-enabling a built-in drops it from the disabled list, SORTED", {
+  ...enable("/api/admin/models/og%2Fmimo-v2.5/enabled"),
+  env: envFor({
+    ...MODELS,
+    "models:disabled": JSON.stringify(["zz/last", "og/mimo-v2.5", "aa/first"]),
+  }),
+});
+await record("re-enabling an id that was not disabled writes the same list", {
+  ...enable("/api/admin/models/og%2Fnever-disabled/enabled"),
+  env: envFor({ ...MODELS, "models:disabled": JSON.stringify(["zz/last"]) }),
+});
+await record("the model writes refuse without a session", {
+  method: "DELETE",
+  path: "/api/admin/models/my%2Fthing",
+  env: envFor(MODELS),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",

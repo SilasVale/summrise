@@ -20,6 +20,7 @@
 //! every card goes through.
 
 use serde_json::Value;
+use worker::Env;
 
 /// `models:custom` / `models:overrides` / `models:disabled` — the three KV keys this store owns. Named because
 /// the EMISSION publishes them and the worker's own admin routes will read them.
@@ -38,7 +39,80 @@ pub fn js_sorted(mut ids: Vec<String>) -> Vec<String> {
     ids
 }
 
-/// `isBuiltIn(id)` — membership in the model registry, with the TABLE passed in: the registry's data lives in
+/// `readList(env, key)` — **THE CONSOLE'S OWN READ, AND ITS TWO SILENT ARMS**: a cache hit wins (and a
+/// non-array hit answers `[]` rather than the value), and a malformed or unreadable blob answers `[]` too —
+/// "a catalogue that cannot be parsed must degrade to nothing extra, never to a 500 that takes the whole gateway
+/// down". The cache is then refreshed with what was read, INCLUDING the empty answer.
+pub async fn read_list(env: &Env, key: &str) -> Vec<Value> {
+    let now = crate::device_store::now_ms();
+    if let Some(hit) = crate::store::cached_get(key, now) {
+        return hit.as_array().cloned().unwrap_or_default();
+    }
+    let out = match crate::device_store::kv_text(env, key).await {
+        Some(raw) => serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    crate::store::cache_put(key, Value::Array(out.clone()), now);
+    out
+}
+
+/// `writeList(env, key, value)` — the KV write, and the cache written through with the SAME value.
+pub async fn write_list(env: &Env, key: &str, value: &[Value]) {
+    let text = Value::Array(value.to_vec()).to_string();
+    crate::device_store::kv_put(env, key, &text, None).await;
+    crate::store::cache_put(
+        key,
+        Value::Array(value.to_vec()),
+        crate::device_store::now_ms(),
+    );
+}
+
+/// `setModelDisabled(env, id, disabled)` — the set, the sort, the write.
+///
+/// **THE SORT IS `[...set].sort()` AND IT IS OBSERVABLE** — the disabled list is a response field
+/// (`disabledModels`) the console renders in order, and [`js_sorted`] is the engine's own comparison.
+pub async fn set_model_disabled(env: &Env, id: &str, disabled: bool) -> Vec<String> {
+    let mut ids: Vec<String> = read_list(env, DISABLED_MODELS_KEY)
+        .await
+        .iter()
+        .map(summrise_core::text::js_string)
+        .collect();
+    if disabled {
+        if !ids.iter().any(|x| x == id) {
+            ids.push(id.to_string());
+        }
+    } else {
+        ids.retain(|x| x != id);
+    }
+    let next = js_sorted(ids);
+    write_list(
+        env,
+        DISABLED_MODELS_KEY,
+        &next
+            .iter()
+            .map(|s| Value::String(s.clone()))
+            .collect::<Vec<_>>(),
+    )
+    .await;
+    next
+}
+
+/// `deleteCustomModel(env, id)` — **`removed` IS THE ANSWER**, and it is what the route turns into a 404: the
+/// list is only written when something left, so a delete of an id this deployment does not own is not a write.
+pub async fn delete_custom_model(env: &Env, id: &str) -> bool {
+    let cur = read_list(env, CUSTOM_MODELS_KEY).await;
+    let (next, removed) = remove_by_id(&cur, id);
+    if !removed {
+        return false;
+    }
+    write_list(env, CUSTOM_MODELS_KEY, &next).await;
+    true
+}
+
+/// `isBuiltIn(id)` — membership in the model registry/// `isBuiltIn(id)` — membership in the model registry, with the TABLE passed in: the registry's data lives in
 /// `registry.rs` (the worker) and in `channels.ts` (the console), and what this owns is the RULE — an id is
 /// built-in exactly when the registry lists it, which is what tells the console whether to offer "disable" or
 /// "delete".
@@ -738,6 +812,39 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0]["backend"], json!("static"));
         assert_eq!(routes[0]["models"], json!(["chat"]));
+    }
+}
+
+#[cfg(test)]
+mod the_file_layer_is_empty_or_this_module_is_wrong {
+    /// **THE ONE THING THE WORKER'S MODEL ROUTES DO NOT READ, AND A GATE INSTEAD OF A SILENT DIVERGENCE.**
+    ///
+    /// `store/models.ts` merges the committed CATALOGUE FILE (`gateway/config/models.ts`) over KV, and the file
+    /// WINS per id — that is what "configured from the file" means. The Rust port would need the document at
+    /// compile time (the TypeScript imports it, and a Worker can do that; a `.ts` module cannot be read by
+    /// `include_str!`), so the file layer is NOT ported yet.
+    ///
+    /// **TODAY THAT COSTS NOTHING, BECAUSE THE SHIPPED DOCUMENT IS EMPTY** — and "today" is exactly the word
+    /// that turns into a divergence tomorrow. This test is the boundary: the moment the document declares a
+    /// provider, a model or an override, it FAILS, and the failure is the instruction.
+    ///
+    /// MUTATION: add `models: [{ id: "og/x" }]` to `gateway/config/models.ts`.
+    /// RESULT:   this test fails, naming the file layer — and the worker's `DELETE`/`enabled` routes would
+    ///           otherwise have written a KV list with the file's entries silently dropped from the merge.
+    #[test]
+    fn the_catalogue_file_declares_nothing_yet() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../config/models.ts");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} missing ({e})", path.display()));
+        for (key, _) in [("providers", ()), ("models", ()), ("overrides", ())] {
+            let empty = format!("{key}: [],");
+            assert!(
+                text.contains(&empty),
+                "gateway/config/models.ts declares `{key}`, and the worker's model routes read KV only — \
+                 port the file layer into Rust (parseCatalogueFile + mergeLayers + fileDeclaredKeys) before \
+                 serving them, or the file's entries will be silently missing from every merge"
+            );
+        }
     }
 }
 
