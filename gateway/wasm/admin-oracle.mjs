@@ -609,6 +609,66 @@ await record("an EMPTY token deletes the stored one", {
   env: envFor({ ...PROVIDERS, "cf:api_token": "cf-account-token" }),
 });
 
+// ── THE TWO READS THE CATALOGUE FILE LAYER UNLOCKS ───────────────────────────────────────────────
+// The FILE WINS per id/prefix over KV, and the responses say which entries that is — so both a KV-only
+// deployment and one whose console records are shadowed have cases.
+const SHADOWED = {
+  ...USERS,
+  "models:custom": JSON.stringify([
+    { id: "qw/console", ownedBy: "qw", name: "Console", contextWindow: 4096 },
+    { id: "qw/gone", ownedBy: "qw" },
+  ]),
+  "models:overrides": JSON.stringify([{ id: "og/mimo-v2.5", name: "Override" }]),
+  "models:disabled": JSON.stringify(["zz/last", "og/off"]),
+  "providers:custom": JSON.stringify([
+    {
+      prefix: "acme/",
+      label: "Acme",
+      baseURL: "https://acme.test/v1",
+      api: "openai-completions",
+      models: [{ id: "chat" }],
+      apiKeyEnv: "ACME_API_KEY",
+    },
+  ]),
+};
+
+await record("the model state: ids, the disabled list, the file's keys and the declared facets", {
+  path: "/api/admin/models",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(SHADOWED, { ACME_API_KEY: "sk-env-key-0123456789" }),
+});
+await record("the model state on a deployment with nothing at all", {
+  path: "/api/admin/models",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(USERS),
+});
+await record("the provider list names the protocols this build serves", {
+  path: "/api/admin/providers",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor(SHADOWED, { ACME_API_KEY: "sk-env-key-0123456789" }),
+});
+await record("the provider list masks an inline key", {
+  path: "/api/admin/providers",
+  headers: { Cookie: cookie(adminToken) },
+  env: envFor({
+    ...USERS,
+    "providers:custom": JSON.stringify([
+      {
+        prefix: "inline/",
+        label: "Inline",
+        baseURL: "https://inline.test/v1",
+        api: "openai-completions",
+        models: [{ id: "m" }],
+        apiKey: "sk-inline-provider-key-0123",
+      },
+    ]),
+  }),
+});
+await record("both reads refuse without a session", {
+  path: "/api/admin/providers",
+  env: envFor(SHADOWED),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",

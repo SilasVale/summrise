@@ -52,7 +52,11 @@ pub fn in_family(method: &Method, path: &str) -> bool {
         // /api/admin/users/{id}/enabled").
         Method::Get => matches!(
             path,
-            "/api/admin/users" | "/api/admin/cloudflare-token" | "/api/admin/password"
+            "/api/admin/users"
+                | "/api/admin/cloudflare-token"
+                | "/api/admin/password"
+                | "/api/admin/models"
+                | "/api/admin/providers"
         ),
         // PUT is three routes with one method, and two of them are the plugin's DYNAMIC matchers: a prefix plus
         // a suffix, which is why they are written out rather than matched exactly.
@@ -83,6 +87,8 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Get, "/api/admin/users") => admin_list_users(&request, env).await,
         (Method::Get, "/api/admin/cloudflare-token") => admin_get_cf_token(&request, env).await,
         (Method::Get, "/api/admin/password") => admin_get_password(&request, env).await,
+        (Method::Get, "/api/admin/models") => admin_model_state(&request, env).await,
+        (Method::Get, "/api/admin/providers") => admin_list_providers(&request, env).await,
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
         (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
@@ -289,6 +295,89 @@ async fn admin_enable_model(
         &serde_json::json!({ "ok": true, "enabled": id, "disabledModels": next }),
     )
     .map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminModelState(request, env)` — **WHAT THE CONSOLE NEEDS TO RENDER THE RIGHT CONTROL PER MODEL**, which is
+/// why it answers more than a list: the ids the console owns, the disabled ones, **the ids the FILE owns** (a
+/// control whose effect the next deploy would undo must be shown as such), and the declared facets of every
+/// model either store speaks for.
+///
+/// **THE FACETS MAP IS TWO SOURCES IN ONE OBJECT AND THE ORDER IS THE PRECEDENCE**: the overrides first, then the
+/// console's own records spread over them — "a custom record wins where both could speak, because moving a model
+/// to that store is the deliberate act".
+async fn admin_model_state(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let custom = crate::catalogue_file::custom_models(env).await;
+    let layers = crate::catalogue_file::load_catalogue_file();
+    let (_, file_models, file_overrides) = crate::catalogue_file::file_declared_keys(&layers);
+    let disabled =
+        crate::model_store::read_list(env, crate::model_store::DISABLED_MODELS_KEY).await;
+    let mut facets = serde_json::Map::new();
+    for source in [
+        crate::catalogue_file::facet_overrides(env).await,
+        custom.clone(),
+    ] {
+        for entry in source {
+            let Some(id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let mut declared = serde_json::Map::new();
+            for field in ["name", "contextWindow", "maxTokens", "reasoningEffort"] {
+                if let Some(v) = entry.get(field) {
+                    if crate::device_registry::js_truthy(v) {
+                        declared.insert(field.to_string(), v.clone());
+                    }
+                }
+            }
+            facets.insert(id.to_string(), Value::Object(declared));
+        }
+    }
+    let ids = |list: &[Value]| -> Vec<Value> {
+        list.iter()
+            .map(|m| m.get("id").cloned().unwrap_or(Value::Null))
+            .collect()
+    };
+    let answer = serde_json::json!({
+        "custom": ids(&custom),
+        "disabled": disabled,
+        "fileModels": file_models,
+        "fileOverrides": file_overrides,
+        "facets": Value::Object(facets),
+    });
+    let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
+}
+
+/// `adminListProviders(request, env)` — the records, the protocols this build can SERVE, and the prefixes the
+/// file owns.
+///
+/// **`apis` IS THE SERVER TELLING THE FORM WHAT IT CAN SERVE.** The panel used to offer `anthropic-messages`
+/// because it looked like a reasonable second option, and this build serves `openai-completions` only — so the
+/// UI was offering a choice the server rejects. The list is the vocabulary table's own keys, never a literal.
+async fn admin_list_providers(request: &Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let providers = crate::catalogue_file::custom_providers(env).await;
+    let layers = crate::catalogue_file::load_catalogue_file();
+    let (file_prefixes, _, _) = crate::catalogue_file::file_declared_keys(&layers);
+    let views: Vec<Value> = providers
+        .iter()
+        .map(|p| crate::store::public_provider_view(env, p))
+        .collect();
+    let apis: Vec<Value> = summrise_core::provider_spec::SUPPORTED_PROVIDER_APIS
+        .iter()
+        .map(|(name, _)| Value::String((*name).to_string()))
+        .collect();
+    let answer = serde_json::json!({
+        "providers": views,
+        "apis": apis,
+        "filePrefixes": file_prefixes,
+    });
+    let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(text, 200)?)
 }
 

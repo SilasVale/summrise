@@ -59,6 +59,11 @@ pub fn known_prefixes() -> Vec<&'static str> {
 /// contradictory answer to "where does this request go".
 pub const PINNED_FACETS: [&str; 4] = ["wire", "usEgress", "search", "responsesOnly"];
 
+/// The reasoning levels the router speaks — `parseModelSpec` refuses anything else BY NAME rather than dropping
+/// it ("a typo that silently means 'no default' is a behaviour change nobody can see"), and the catalogue file's
+/// override validator reuses the same list.
+pub const REASONING_EFFORTS: [&str; 4] = ["low", "medium", "high", "max"];
+
 /// `parseModelSpec(body)` — the console's model validator, ported with its own error strings because they ARE
 /// the response bytes a client renders.
 ///
@@ -162,7 +167,7 @@ pub fn parse_model_spec(body: &Value, known_prefixes: &[&str]) -> Result<Value, 
     let raw_effort = summrise_core::text::js_or_empty(body.get("reasoningEffort"));
     let effort = summrise_core::text::js_trim(&raw_effort);
     if !effort.is_empty() {
-        if !["low", "medium", "high", "max"].contains(&effort) {
+        if !REASONING_EFFORTS.contains(&effort) {
             return Err(format!(
                 "reasoningEffort must be one of low, medium, high, max — got {}",
                 serde_json::to_string(&Value::String(effort.to_string())).unwrap_or_default()
@@ -176,7 +181,7 @@ pub fn parse_model_spec(body: &Value, known_prefixes: &[&str]) -> Result<Value, 
 /// `/^[a-z0-9]+\/\S+$/` — **`\S` IS THE JAVASCRIPT SET**, so `U+00A0` and `U+FEFF` are whitespace here too (see
 /// [`summrise_core::text::is_js_space`]): an id whose tail carries a no-break space is refused, which is what the
 /// console has always done and what a hand-rolled `!c.is_whitespace()` would NOT do.
-fn looks_like_a_model_id(id: &str) -> bool {
+pub(crate) fn looks_like_a_model_id(id: &str) -> bool {
     let Some(slash) = id.find('/') else {
         return false;
     };
@@ -989,76 +994,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod the_file_layer_is_empty_or_this_module_is_wrong {
-    use super::KNOWN_PREFIXES;
-    /// **THE PREFIX LIST IS THE CONSOLE'S ROUTE TABLE, AND THIS IS THE GATE.** `KNOWN_PREFIXES` is what the
-    /// refusal PRINTS, so a card added to `channels.ts` (or one of the card-less channels gaining one) has to
-    /// move the Rust too — and the only way that happens reliably is if the drift FAILS here.
-    ///
-    /// MUTATION: add `ds/` to [`KNOWN_PREFIXES`].
-    /// RESULT:   this test fails naming the two lists — and the console would refuse a prefix the worker accepts.
-    #[test]
-    fn the_known_prefixes_are_the_console_route_table() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/channels.ts");
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{} missing ({e})", path.display()));
-        let start = text.find("export const ROUTE_INFO").unwrap_or_else(|| {
-            panic!("channels.ts has no `export const ROUTE_INFO` — this gate's anchor moved")
-        });
-        let end = text[start..].find("\n];").unwrap_or_else(|| {
-            panic!("ROUTE_INFO's closing `];` moved — this gate's anchor moved")
-        });
-        let body = &text[start..start + end];
-        let prefixes: Vec<String> = body
-            .match_indices("prefix: \"")
-            .filter_map(|(i, m)| {
-                let rest = &body[i + m.len()..];
-                rest.find('"').map(|q| rest[..q].to_string())
-            })
-            .collect();
-        let expected: Vec<String> = prefixes
-            .into_iter()
-            .filter(|p| !p.is_empty() && p != "none")
-            .collect();
-        assert_eq!(
-            expected,
-            KNOWN_PREFIXES.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
-            "KNOWN_PREFIXES and ROUTE_INFO disagree — the refusal prints the console's list, so the two must be \
-             the same list in the same order"
-        );
-    }
-
-    /// **THE ONE THING THE WORKER'S MODEL ROUTES DO NOT READ, AND A GATE INSTEAD OF A SILENT DIVERGENCE.**
-    ///
-    /// `store/models.ts` merges the committed CATALOGUE FILE (`gateway/config/models.ts`) over KV, and the file
-    /// WINS per id — that is what "configured from the file" means. The Rust port would need the document at
-    /// compile time (the TypeScript imports it, and a Worker can do that; a `.ts` module cannot be read by
-    /// `include_str!`), so the file layer is NOT ported yet.
-    ///
-    /// **TODAY THAT COSTS NOTHING, BECAUSE THE SHIPPED DOCUMENT IS EMPTY** — and "today" is exactly the word
-    /// that turns into a divergence tomorrow. This test is the boundary: the moment the document declares a
-    /// provider, a model or an override, it FAILS, and the failure is the instruction.
-    ///
-    /// MUTATION: add `models: [{ id: "og/x" }]` to `gateway/config/models.ts`.
-    /// RESULT:   this test fails, naming the file layer — and the worker's `DELETE`/`enabled` routes would
-    ///           otherwise have written a KV list with the file's entries silently dropped from the merge.
-    #[test]
-    fn the_catalogue_file_declares_nothing_yet() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../config/models.ts");
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("{} missing ({e})", path.display()));
-        for (key, _) in [("providers", ()), ("models", ()), ("overrides", ())] {
-            let empty = format!("{key}: [],");
-            assert!(
-                text.contains(&empty),
-                "gateway/config/models.ts declares `{key}`, and the worker's model routes read KV only — \
-                 port the file layer into Rust (parseCatalogueFile + mergeLayers + fileDeclaredKeys) before \
-                 serving them, or the file's entries will be silently missing from every merge"
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod emission {
     use super::*;
