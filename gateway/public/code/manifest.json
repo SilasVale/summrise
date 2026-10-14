@@ -86,6 +86,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/reliability-logic.ts",
+      "path": "files/summrise-gate/src/reliability-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/reliability.ts",
       "path": "files/summrise-gate/src/reliability.ts",
       "group": "summrise-gate"

@@ -17,6 +17,38 @@
  * to the caller. Used by the SSE in-band error guard: an OpenRouter-style
  * upstream can accept the request (HTTP 200) and THEN fail inside the stream.
  */
+// **THE RULES ARE AN EMISSION NOW (2026-10-14)** — `reliability-logic.ts`, GENERATED from
+// `gateway/wasm/src/reliability.rs`. What is left here is the HOST: the `BreakerDO` Durable Object, the two
+// dials, the retry LOOP and the isolate cache the breaker's reads go through. Every decision the loop makes
+// between its platform calls is a function imported below.
+import {
+  DEFAULT_ATTEMPTS,
+  DEFAULT_BACKOFF_MS,
+  DEFAULT_MAX_WAIT_MS,
+  mayRetry5xx,
+  retryDecision,
+  retryWaitMs,
+} from "./reliability-logic.ts";
+
+// ...AND RE-EXPORTED, so every existing call site keeps its import path. The names are listed rather than
+// `export *`, because two of them (`mayRetry5xx`, `retryWaitMs`) are called BOTH by this file's loop and by
+// callers that want the rule alone.
+export {
+  DEFAULT_ATTEMPTS,
+  DEFAULT_BACKOFF_MS,
+  DEFAULT_MAX_WAIT_MS,
+  GLM_LOTTERY_MODEL,
+  isChannelDownFailure,
+  mayRetry5xx,
+  ogTimeoutMs,
+  passthroughTimeoutMs,
+  retryDecision,
+  retryPolicyFor,
+  retryWaitMs,
+  timeoutFrom,
+  upstreamTimeoutMs,
+} from "./reliability-logic.ts";
+
 import { DoAuthBase } from "./route-do.ts";
 export interface RetryInspection {
   /** false → treat this 2xx as a failed attempt and run the retry ladder. */
@@ -53,9 +85,6 @@ export interface RetryInspection {
  * concurrent workers don't retry in lockstep.
  */
 
-/** The OpenRouter :free model whose shared pool is won by rapid knocks. */
-export const GLM_LOTTERY_MODEL = "z-ai/glm-5.2:free";
-
 /**
  * Per-kind retry policy for fetchWithRetry (SOLID Round-77: the same measured
  * policy table was copy-pasted at the chat and messages-native sites with
@@ -73,38 +102,16 @@ export const GLM_LOTTERY_MODEL = "z-ai/glm-5.2:free";
  * asymmetry that does not exist — removed, with the routing fact pinned
  * by the gmi/nv messages-translate flow tests instead.
  */
-export function retryPolicyFor(
-  kind: string,
-  upstreamModel: string,
-  timeoutMs: number,
-): {
-  timeoutMs: number;
-  attempts?: number;
-  backoffMs?: number;
-  retry502?: boolean;
-  ignoreRetryAfter?: boolean;
-} {
-  if (kind === "nvidia" || kind === "gmi") {
-    return { timeoutMs, attempts: 4, retry502: true };
-  }
-  if (kind === "openrouter") {
-    return upstreamModel === GLM_LOTTERY_MODEL
-      ? { timeoutMs, attempts: 10, backoffMs: 300, retry502: true, ignoreRetryAfter: true }
-      : { timeoutMs, attempts: 4, retry502: true };
-  }
-  return { timeoutMs };
-}
-
 export async function fetchWithRetry(
   url: string,
   init: any,
   {
-    attempts = 3,
-    backoffMs = 750,
+    attempts = DEFAULT_ATTEMPTS,
+    backoffMs = DEFAULT_BACKOFF_MS,
     timeoutMs = 30000,
     idempotent = false,
     retry502 = false,
-    maxWaitMs = 10000,
+    maxWaitMs = DEFAULT_MAX_WAIT_MS,
     ignoreRetryAfter = false,
     inspect = undefined,
   }: {
@@ -134,18 +141,17 @@ export async function fetchWithRetry(
   let last: any = null;
   let detail = "";
   let inspectFailure: { status?: number } | undefined;
-  const mayRetry5xx = (status: number) =>
-    status === 502 || status === 503 ? idempotent || retry502 : idempotent;
-  /** Wait between attempts: honor Retry-After (seconds) when the upstream sent
-   * one, else the legacy linear ladder; jitter ±400ms desynchronizes workers;
-   * everything clamped to maxWaitMs so a huge header can't stall the request. */
-  const retryWaitMs = (): number => {
-    const jitter = Math.floor(Math.random() * 200);
-    if (ignoreRetryAfter) return Math.min(backoffMs + jitter, maxWaitMs);
-    const ra = Number(last?.headers?.get?.("retry-after"));
-    const raMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0;
-    return Math.min(Math.max(raMs, backoffMs * attempt) + jitter, maxWaitMs);
-  };
+  /** The two rule calls this loop makes, bound to the attempt it is on. **BOTH RULES ARE THE EMISSION'S**;
+   *  what is here is the clock and the header read, which is the host's half. */
+  const waitBeforeRetry = (): number =>
+    retryWaitMs(
+      !!ignoreRetryAfter,
+      last?.headers?.get?.("retry-after"),
+      backoffMs,
+      attempt,
+      Math.floor(Math.random() * 200),
+      maxWaitMs,
+    );
   let attempt = 1;
   for (; attempt <= attempts; attempt++) {
     try {
@@ -172,7 +178,7 @@ export async function fetchWithRetry(
           );
           inspectFailure = { status: insp.status };
           if (attempt < attempts) {
-            await new Promise((r) => setTimeout(r, retryWaitMs()));
+            await new Promise((r) => setTimeout(r, waitBeforeRetry()));
             continue;
           }
           return { response: null as any, detail, inspectFailure };
@@ -186,22 +192,23 @@ export async function fetchWithRetry(
     // 5xx only when the caller vouches for it (idempotent probes, or the
     // retry502 pre-processing contract above). 429 (rate-limited, NOT
     // processed) is always safe to retry.
-    if (last.status === 429 || (last.status >= 500 && mayRetry5xx(last.status))) {
-      detail = `upstream ${last.status} (retried ${attempt}/${attempts})`;
+    // **ONE CALL, AND IT CARRIES BOTH THE DETAIL AND WHETHER TO TRY AGAIN** — the retryable branch, the
+    // exhausted ladder and the billing guard are the emission's `retryDecision`, in the source's order.
+    const decided = retryDecision(last.status, attempt, attempts, idempotent, retry502);
+    detail = decided.detail;
+    if (decided.retry) {
       console.error(
         `[gateway] upstream ${last.status} on attempt ${attempt}/${attempts} — retrying`,
       );
-      if (attempt < attempts) {
-        await new Promise((r) => setTimeout(r, retryWaitMs()));
-        continue;
-      }
+      await new Promise((r) => setTimeout(r, waitBeforeRetry()));
+      continue;
+    }
+    if (
+      last.status === 429 ||
+      (last.status >= 500 && mayRetry5xx(last.status, idempotent, retry502))
+    ) {
       return { response: last, detail };
     }
-    if (attempt >= attempts) {
-      detail = `upstream ${last.status} (retried ${attempt}/${attempts})`;
-      return { response: last, detail };
-    }
-    detail = `upstream ${last.status} (not retried — POST may have been billed)`;
     console.error(`[gateway] upstream ${last.status} — not retryable (billing guard)`);
     return { response: last, detail };
   }
@@ -243,42 +250,6 @@ export async function fetchWithTimeout(
 }
 
 /* ---------------- Reliability: upstream timeout, circuit breaker, estimation ---------------- */
-
-/** Effective upstream timeout: env UPSTREAM_TIMEOUT_MS, default 30s. */
-export function upstreamTimeoutMs(env: any): number {
-  const v = Number(env?.UPSTREAM_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : 30000;
-}
-
-/**
- * og (zen) timeout — 120s. zen is a third-party gateway whose latency
- * intermittently spikes past 30s (observed "og: timeout after 30000ms" 502s),
- * and real max-thinking requests run 40-54s before first byte (measured
- * 2026-08-09); a 60s budget was tight for those. 120s absorbs the spikes AND
- * the legitimate long thinking without surfacing a 502. Streaming note: this
- * timeout only gates time-to-headers (observed ~7s) — once the SSE stream
- * starts, it runs untimed.
- */
-export function ogTimeoutMs(env: any): number {
-  const v = Number(env?.OG_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : 120000;
-}
-
-/**
- * Timeout for passthrough routes. The og Flash line must use
- * the 120s og budget — zen's latency intermittently spikes past 30s and real
- * max-thinking runs 40-54s to first byte — while every other passthrough
- * channel (ds/qw/or) keeps the generic 30s upstream budget. cm/ (Command Code)
- * is a third-party gateway like zen with the same long-thinking profile, so it
- * shares the og budget. amd/ (Radeon Cloud) shares it too: the free pool is a
- * cold-starting self-deploy router whose GLM backend measured >40s to first
- * byte under load (2026-09-02), and thinking-heavy answers run long.
- */
-export function passthroughTimeoutMs(env: any, kind: string): number {
-  return kind === "opencode" || kind === "commandgoat" || kind === "amd"
-    ? ogTimeoutMs(env)
-    : upstreamTimeoutMs(env);
-}
 
 // Circuit breaker for the og channel, backed by a Durable Object so every
 // worker isolate shares one strongly-consistent state. Alternatives were
@@ -408,17 +379,6 @@ export function __clearDegradedCache() {
 
 let degradedCache = { at: 0, value: false };
 const DEGRADED_CACHE_TTL_MS = 5000;
-
-/**
- * F5 closure test anchor: WHICH upstream failures feed the breaker. Exactly
- * hard network errors and FULL timeouts (the caller already filtered retry-
- * able fast 5xx/4xx out of `detail`). Exported so the semantics that used to
- * live inline in translate.ts are unit-testable — do NOT weaken without also
- * reopening the DoS-by-timeout question this answers.
- */
-export function isChannelDownFailure(detail: string | undefined | null): boolean {
-  return !!detail && (detail.startsWith("network error") || detail.startsWith("timeout"));
-}
 
 export async function isChannelDegraded(env: any): Promise<boolean> {
   const now = Date.now();
