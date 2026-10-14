@@ -36,6 +36,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/channels-logic.ts",
+      "path": "files/summrise-gate/src/channels-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/channels.ts",
       "path": "files/summrise-gate/src/channels.ts",
       "group": "summrise-gate"

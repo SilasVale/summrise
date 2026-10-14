@@ -504,27 +504,29 @@ export function museResponsesExit(env: any): string {
  * Adding a model is now ONE record there instead of choosing among six
  * tables, and `model-registry.test.mjs` fails the build if a facet is
  * forgotten. */
-export const MODELS: { id: string; owned_by: string }[] = MODEL_REGISTRY.map((m) => ({
-  id: m.id,
-  owned_by: m.ownedBy,
-}));
+// **THE CHANNEL CARDS ARE AN EMISSION NOW (2026-10-14).** They were this file's table, mirrored into the worker
+// as a generated JSON twin (`wasm/route-info.json`) by a script, with a freshness test of its own. **A twin is a
+// second source wearing a freshness test**: editing a description meant editing TypeScript, running the script,
+// committing the twin, and only then could the worker serve it — and `/api/admin/public` was the only reason the
+// worker needed them at all. The table is `gateway/wasm/src/registry.rs`'s `CHANNEL_CARDS` now; `channels-logic.ts`
+// renders it back, and the twin, its generator and its test are deleted.
+//
+// AN EDIT TO A CARD IS A RUST EDIT, THEN:
+//   cd gateway && SUMMRISE_REFRESH_CHANNELS=1 cargo test --manifest-path wasm/Cargo.toml registry::emission
+export { ROUTE_INFO } from "./channels-logic.ts";
 
 /** The advertised models on one channel prefix, in catalogue order.
  *
- * `ROUTE_INFO[].models` used to be hand-maintained — the FIFTH copy of the
- * catalogue — and had silently drifted from MODELS: the `og/` list omitted
- * `openai/gpt-5.6-luna:floor[1m]` entirely (advertised by /v1/models, absent
- * from the console's route breakdown), and `og/` + `cm/` listed theirs in a
- * different order. Nothing caught it: the only ROUTE_INFO test checked that
- * the PREFIXES were covered, never the lists.
+ * **IT LIVES HERE BECAUSE ITS INPUT DOES**: `MODEL_REGISTRY` is this file's, and an emitted helper closing over
+ * a table the emission does not own would make `channels-logic.ts` import back from here — a cycle to save one
+ * line. The emitted `ROUTE_INFO`'s lists come from the RUST's version of this derivation, and
+ * `channels-registry.test.mjs` compares the two card by card, so the two spellings cannot drift apart quietly.
  *
- * Deriving makes `routes[].models` by construction "the advertised models
- * whose channel is this prefix" — the same relationship `adminPublic` states
- * by returning `models: MODELS.map(...)` right beside it.
- *
- * `prefix` is the ROUTE_INFO spelling (`"og/"`, `"none"`). `"none"` is the
- * no-prefix default channel: its ids carry no channel prefix at all, so it is
- * NOT a filtered view and stays an explicit argument — see the call site. */
+ * The history is worth keeping: `ROUTE_INFO[].models` used to be hand-maintained — the FIFTH copy of the
+ * catalogue — and had silently drifted from MODELS: the `og/` list omitted `openai/gpt-5.6-luna:floor[1m]`
+ * entirely (advertised by /v1/models, absent from the console's route breakdown), and `og/` + `cm/` listed
+ * theirs in a different order. Nothing caught it: the only ROUTE_INFO test checked that the PREFIXES were
+ * covered, never the lists. */
 export function routeModelsFor(prefix: string, noneModels: string[] = []): string[] {
   if (prefix === "none") return noneModels;
   return MODEL_REGISTRY.filter((m) => m.id.startsWith(prefix)).map((m) =>
@@ -532,57 +534,10 @@ export function routeModelsFor(prefix: string, noneModels: string[] = []): strin
   );
 }
 
-// Route info shown in the console ("model routing" section). Public, no keys.
-export const ROUTE_INFO: { prefix: string; backend: string; desc: string; models: string[] }[] = [
-  {
-    prefix: "og/",
-    backend: "OpenCode Go",
-    desc: "opencode.ai/zen/go — all models via chat/completions (OpenAI format); gpt-5.6-luna auto-routes via OpenRouter US exit (zen region-blocks it); muse-spark-* via /v1/responses forced through the US exit (Meta region policy)",
-    models: routeModelsFor("og/"),
-  },
-  {
-    prefix: "or/",
-    backend: "OpenRouter",
-    desc: "openrouter.ai — user's own key (BYOK); dual-format passthrough, US-proxy switch decides direct vs exit",
-    models: routeModelsFor("or/"),
-  },
-  {
-    prefix: "nv/",
-    backend: "NVIDIA NIM",
-    desc: "integrate.api.nvidia.com — official nemotron API, dedicated key capacity (build.nvidia.com), OpenAI format",
-    models: routeModelsFor("nv/"),
-  },
-  {
-    prefix: "gmi/",
-    backend: "GMI Cloud",
-    desc: "api.gmi-serving.com — MiniMax Week free tier (MiniMax-M3/M2.7 free 14 days, user's own GMI key), OpenAI format; any catalog model reachable as gmi/<id>",
-    models: routeModelsFor("gmi/"),
-  },
-  {
-    prefix: "qw/",
-    backend: "Qwen MaaS (Aliyun)",
-    desc: "token-plan.ap-southeast-1.maas.aliyuncs.com — Anthropic passthrough",
-    models: routeModelsFor("qw/"),
-  },
-  {
-    prefix: "cm/",
-    backend: "Command Code (GOAT)",
-    desc: "api.commandcode.ai/provider — GOAT plan & up get Provider API access (Go plan excluded); Anthropic /v1/messages translated to chat/completions (the Anthropic endpoint only serves claude-*), OpenAI format passes through; any catalog model reachable as cm/<id>",
-    models: routeModelsFor("cm/"),
-  },
-  {
-    prefix: "r4/",
-    backend: "r4.codes",
-    desc: "api.r4.codes — Anthropic /v1/messages AND OpenAI /v1/chat/completions both native (no translation either way), user's own R4_API_KEY; no server-side tools — a web_search request is forwarded UNCHANGED and the tool is ignored (r4 is not on the parse gate that swaps to the og/ lane); any catalog model reachable as r4/<id>",
-    models: routeModelsFor("r4/"),
-  },
-  {
-    prefix: "none",
-    backend: "Command Code (default)",
-    desc: "no prefix → the default channel, Command Code (GOAT) with the model name passed through as-is; `auto` resolves to cm/deepseek/deepseek-v4.1-flash (per-user selection first, see model-route.ts). Note: cm/ rides Command Code's OpenAI endpoint, which rejects claude-* ids (those exist only on their Anthropic endpoint) — use a prefixed deepseek/OSS model there",
-    models: routeModelsFor("none", ["deepseek/deepseek-v4.1-flash"]),
-  },
-];
+export const MODELS: { id: string; owned_by: string }[] = MODEL_REGISTRY.map((m) => ({
+  id: m.id,
+  owned_by: m.ownedBy,
+}));
 
 /**
  * Every prefix the BUILT-IN router reserves — what a custom provider's prefix

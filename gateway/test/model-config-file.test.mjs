@@ -117,21 +117,3 @@ test("FILE: the JSON twin is what config/models.ts declares", () => {
   );
 });
 
-// ── THE OTHER TWIN: ROUTE_INFO ───────────────────────────────────────────────────────────────────
-test("FILE: the route-info twin is what channels.ts's ROUTE_INFO declares", () => {
-  // Same shape, same reason: the worker serves those cards (`GET /api/admin/public`), and a card whose text
-  // moved without the twin moving is a console section describing a channel that no longer exists that way.
-  const script = fileURLToPath(new URL("../scripts/sync-route-info-json.mjs", import.meta.url));
-  let failed = null;
-  try {
-    execFileSync(process.execPath, [script, "--check"], { stdio: "pipe" });
-  } catch (error) {
-    failed = String(error.stderr ?? error.message);
-  }
-  assert.equal(
-    failed,
-    null,
-    `${failed}\nwasm/route-info.json is the table the WORKER serves — regenerate it with\n` +
-      "  cd gateway && node scripts/sync-route-info-json.mjs",
-  );
-});

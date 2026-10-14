@@ -253,3 +253,24 @@ test("RUST: registry.rs IS builtin-models' registry, field for field", async () 
     "gateway/wasm/src/registry.rs and src/channels.ts's MODEL_REGISTRY have drifted — the worker and the console would advertise different tables",
   );
 });
+
+// ── THE EMITTED CARDS AND THIS FILE'S DERIVATION ────────────────────────────────────────────────
+test("CARDS: the emitted ROUTE_INFO is routeModelsFor's answer, card by card", async () => {
+  const { ROUTE_INFO, routeModelsFor } = await import("../src/channels.ts");
+  assert.equal(ROUTE_INFO.length, 8, "the card list");
+  for (const card of ROUTE_INFO) {
+    // The DEFAULT card is the exception on purpose: a bare model name has no prefix to filter by, so its
+    // list is explicit — and it is the model `auto` resolves to.
+    const expected = card.prefix === "none" ? ["deepseek/deepseek-v4.1-flash"] : routeModelsFor(card.prefix);
+    assert.deepEqual(
+      card.models,
+      expected,
+      `${card.prefix}'s card and routeModelsFor disagree — the worker's derivation and the console's have drifted`,
+    );
+  }
+  assert.deepEqual(
+    ROUTE_INFO.map((c) => c.prefix),
+    ["og/", "or/", "nv/", "gmi/", "qw/", "cm/", "r4/", "none"],
+    "the order is the console's own, and `none` is last",
+  );
+});
