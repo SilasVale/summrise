@@ -562,6 +562,18 @@ pub async fn regenerate_token(env: &Env, id: &str) -> Result<String, String> {
     .await
 }
 
+/// `createInvite(env)` — the code an operator hands out so somebody can register.
+///
+/// **THE TTL IS THE DECISION AND THE EMISSION PUBLISHES IT** ([`INVITE_TTL_SECS`], a week): an invite is a
+/// credential, so it is minted WITH AN EXPIRY AT THE BINDING rather than swept later by a job that has to run.
+/// `randomHex(5).toUpperCase()` is ten hex characters, and the uppercase is what makes a code read aloud or
+/// typed by hand unambiguous.
+pub async fn create_invite(env: &Env) -> String {
+    let code = crate::webcrypto::random_hex(INVITE_CODE_BYTES).to_uppercase();
+    kv_put(env, &format!("invite:{code}"), "1", Some(INVITE_TTL_SECS)).await;
+    code
+}
+
 /// `setUserEnabled(env, id, enabled)` — **THE LOCK IS THE DECISION**, and the source's comment records what its
 /// absence cost (round-122): an unlocked read-modify-write let an enable/disable land with a STALE token value,
 /// and a concurrent `regenerateToken`'s delete of `token:T1` then made the record's own `T1` dead — `x-api-key`

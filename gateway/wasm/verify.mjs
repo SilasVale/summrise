@@ -282,99 +282,6 @@ for (const [i, c] of CASES.entries()) {
   bad += authBad;
 }
 
-// ── THE ADMIN FAMILY, REPLAYED ───────────────────────────────────────────────────────────────────
-//
-// **`fixtures/admin-corpus.json` IS THE SHIPPING ADMIN PLUGIN'S OWN ANSWERS**, recorded by
-// `gateway/wasm/admin-oracle.mjs` through the plugin's ROUTE TABLE (so the matcher is pinned, not just the
-// handler). This section drives the BUILT WORKER with the same request, the same KV and the same cookie, and
-// compares status and body byte for byte.
-//
-// **THE FIRST ROUTE FAMILY THE WORKER SERVES ITSELF.** The stores under it were already Rust and `session_gate`
-// already owned the gate; what this proves is the layer above them — the path match, the JSON shape, the
-// masking — which nothing else can, because a divergence there is a divergence in the MEETING of the pieces.
-//
-// THE COOKIE IS IN THE FIXTURE, LITERALLY, and that is only possible because the oracle FREEZES `Date.now()`
-// (a token minted twice from a live clock is two different tokens, and the replay could never reproduce one).
-// It expires in 2100.
-{
-  const corpus = JSON.parse(
-    readFileSync(fileURLToPath(new URL("fixtures/admin-corpus.json", import.meta.url)), "utf8"),
-  );
-  /** The KV namespace over the fixture's plain object.
-   *
-   *  **THE SECOND ARGUMENT IS NOT THE SAME IN THE TWO LANGUAGES, AND THIS STUB IS THE FIRST PLACE THAT
-   *  MATTERED.** The shipping TypeScript calls `env.KEYS.get(key, "json")` — a bare string. `workers-rs` calls
-   *  `get(key, { cacheTtl, type })` — an OPTIONS OBJECT (`worker-0.8.7/src/kv/builder.rs`'s `build_get_options`).
-   *  A stub that knows only the string form hands the Rust a raw string where it asked for a parsed record, and
-   *  `user.get("enabled")` on a string is `undefined` — which the session gate reads as DISABLED, so this
-   *  section's first run answered 401 to every gated case while the ungated ones passed. Both forms are
-   *  accepted below, and that is deliberate: the fixture is generated from one language and replayed against the
-   *  other, and the stub is where they meet. */
-  const kvOf = (entries) => {
-    const map = new Map(Object.entries(entries));
-    return {
-      async get(key, options) {
-        if (!map.has(key)) return null;
-        const value = map.get(key);
-        const wantsJson = options === "json" || options?.type === "json";
-        if (wantsJson && typeof value === "string") {
-          try {
-            return JSON.parse(value);
-          } catch {
-            return null;
-          }
-        }
-        return value;
-      },
-      async put(key, value) {
-        map.set(key, value);
-      },
-      async delete(key) {
-        map.delete(key);
-      },
-      async list({ prefix = "" } = {}) {
-        return {
-          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
-          list_complete: true,
-          cursor: undefined,
-        };
-      },
-    };
-  };
-  let adminBad = 0;
-  for (const [i, c] of corpus.cases.entries()) {
-    // A fresh module instance per case: the store caches, the revoke cache AND the seed flag are isolate state,
-    // and a fresh instance is what a new isolate looks like.
-    const worker = await import(`${pathToFileURL(BUILT).href}?admin=${i}`);
-    const instance = new worker.default();
-    instance.env = { ...envFor("0"), KEYS: kvOf(c.env.KEYS), SESSION_SECRET: c.env.SESSION_SECRET };
-    instance.ctx = {};
-    // **THE BODY IS PART OF THE REQUEST, AND DROPPING IT AGREES WITH EVERY ROUTE THAT ANSWERS "NO".** This
-    // line omitted `body` on its first version, so all four enable/disable cases replayed with an EMPTY body —
-    // which the coercion turns into `false` — and the two cases where the shipping route answers `true` failed
-    // while the two that answer `false` passed. A case that passes because the request was never made is the
-    // exact failure this harness exists to prevent.
-    const res = await instance.fetch(
-      new Request(`https://console.test${c.path}`, {
-        method: c.method,
-        headers: c.headers,
-        ...(c.body === undefined ? {} : { body: c.body }),
-      }),
-    );
-    const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
-    const ok = res.status === c.expected.status && body === c.expected.body;
-    if (!ok) adminBad++;
-    console.log(`      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${res.status} (shipping ${c.expected.status})`);
-    if (!ok) {
-      console.log(`        shipping: ${JSON.stringify(c.expected.body).slice(0, 300)}`);
-      console.log(`        wasm    : ${JSON.stringify(body).slice(0, 300)}`);
-    }
-  }
-  console.log(
-    `  the admin family, through the built worker: ${corpus.cases.length - adminBad}/${corpus.cases.length}`,
-  );
-  bad += adminBad;
-}
 
 // ── THE DEPLOYMENT'S OWN KEY REACHES THE UPSTREAM ────────────────────────────────────────────────
 // **THE PURE LAYER READS A FIXED SET OF NAMES OUT OF `env`, AND `v1.rs` HANDED IT `{"US_PROXY"}` ALONE.**
@@ -6816,6 +6723,134 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
 // to the code it tests, and their code is the fallback.
 //
 // Left as a comment rather than as nothing, so the next reader can tell a deliberate deletion from a lost test.
+
+// ── THE ADMIN FAMILY, REPLAYED ───────────────────────────────────────────────────────────────────
+//
+// **IT SITS HERE, AFTER THE DEVICE FAMILY, FOR ONE REASON: IT USES `installDeterminism`.** The frozen clock and
+// the frozen random stream are what make an invite's minted code and a password's fresh salt comparable at all,
+// and both live above in the device section — as `const` arrow functions and `let` counters, which a section
+// ABOVE them cannot touch (`Cannot access 'installDeterminism' before initialization`, measured when this block
+// was first placed next to the auth-header corpus).
+//
+// **`fixtures/admin-corpus.json` IS THE SHIPPING ADMIN PLUGIN'S OWN ANSWERS**, recorded by
+// `gateway/wasm/admin-oracle.mjs` through the plugin's ROUTE TABLE (so the matcher is pinned, not just the
+// handler). This section drives the BUILT WORKER with the same request, the same KV and the same cookie, and
+// compares status and body byte for byte.
+//
+// **THE FIRST ROUTE FAMILY THE WORKER SERVES ITSELF.** The stores under it were already Rust and `session_gate`
+// already owned the gate; what this proves is the layer above them — the path match, the JSON shape, the
+// masking — which nothing else can, because a divergence there is a divergence in the MEETING of the pieces.
+//
+// THE COOKIE IS IN THE FIXTURE, LITERALLY, and that is only possible because the oracle FREEZES `Date.now()`
+// (a token minted twice from a live clock is two different tokens, and the replay could never reproduce one).
+// It expires in 2100.
+{
+  const corpus = JSON.parse(
+    readFileSync(fileURLToPath(new URL("fixtures/admin-corpus.json", import.meta.url)), "utf8"),
+  );
+  /** The KV namespace over the fixture's plain object.
+   *
+   *  **THE SECOND ARGUMENT IS NOT THE SAME IN THE TWO LANGUAGES, AND THIS STUB IS THE FIRST PLACE THAT
+   *  MATTERED.** The shipping TypeScript calls `env.KEYS.get(key, "json")` — a bare string. `workers-rs` calls
+   *  `get(key, { cacheTtl, type })` — an OPTIONS OBJECT (`worker-0.8.7/src/kv/builder.rs`'s `build_get_options`).
+   *  A stub that knows only the string form hands the Rust a raw string where it asked for a parsed record, and
+   *  `user.get("enabled")` on a string is `undefined` — which the session gate reads as DISABLED, so this
+   *  section's first run answered 401 to every gated case while the ungated ones passed. Both forms are
+   *  accepted below, and that is deliberate: the fixture is generated from one language and replayed against the
+   *  other, and the stub is where they meet. */
+  const kvOf = (entries) => {
+    const map = new Map(Object.entries(entries));
+    /** What the route WROTE, in the oracle's own shape. **A ROUTE'S EFFECT IS NOT IN ITS BODY**: the invite's
+     *  week-long TTL and the record an enable/disable rewrites are only visible here, and a stub that throws its
+     *  writes away compares two routes by their answers alone. */
+    const writes = [];
+    return {
+      writes,
+      async get(key, options) {
+        if (!map.has(key)) return null;
+        const value = map.get(key);
+        const wantsJson = options === "json" || options?.type === "json";
+        if (wantsJson && typeof value === "string") {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        }
+        return value;
+      },
+      async put(key, value, options = {}) {
+        map.set(key, String(value));
+        writes.push(`put ${key}=${value}${options.expirationTtl ? ` ttl=${options.expirationTtl}` : ""}`);
+      },
+      async delete(key) {
+        map.delete(key);
+        writes.push(`del ${key}`);
+      },
+      async list({ prefix = "" } = {}) {
+        return {
+          keys: [...map.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })),
+          list_complete: true,
+          cursor: undefined,
+        };
+      },
+    };
+  };
+  // **THE SAME FROZEN CLOCK AND RANDOM STREAM THE ORACLE USED.** Without them a case whose answer contains a
+  // minted code (the invite) or a fresh salt (the password) could never be compared; with them, `0001020304` is
+  // the invite and the PBKDF2 record is byte-identical on both sides.
+  installDeterminism(FROZEN_NOW);
+  let adminBad = 0;
+  for (const [i, c] of corpus.cases.entries()) {
+    randomCursor = 0;
+    // A fresh module instance per case: the store caches, the revoke cache AND the seed flag are isolate state,
+    // and a fresh instance is what a new isolate looks like.
+    const worker = await import(`${pathToFileURL(BUILT).href}?admin=${i}`);
+    const instance = new worker.default();
+    const stub = kvOf(c.env.KEYS);
+    const { KEYS: _keys, SESSION_SECRET: secret, ...vars } = c.env;
+    instance.env = {
+      ...envFor("0"),
+      ...vars,
+      KEYS: stub,
+      SESSION_SECRET: secret,
+    };
+    instance.ctx = {};
+    // **THE BODY IS PART OF THE REQUEST, AND DROPPING IT AGREES WITH EVERY ROUTE THAT ANSWERS "NO".** This
+    // line omitted `body` on its first version, so all four enable/disable cases replayed with an EMPTY body —
+    // which the coercion turns into `false` — and the two cases where the shipping route answers `true` failed
+    // while the two that answer `false` passed. A case that passes because the request was never made is the
+    // exact failure this harness exists to prevent.
+    const res = await instance.fetch(
+      new Request(`https://console.test${c.path}`, {
+        method: c.method,
+        headers: c.headers,
+        ...(c.body === undefined ? {} : { body: c.body }),
+      }),
+    );
+    const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
+    const writes = stub.writes;
+    const sameWrites = JSON.stringify(writes) === JSON.stringify(c.writes ?? []);
+    const ok = res.status === c.expected.status && body === c.expected.body && sameWrites;
+    if (!ok) adminBad++;
+    console.log(`      ${ok ? "ok  " : "FAIL"} ${c.name} — status ${res.status} (shipping ${c.expected.status})`);
+    if (!ok) {
+      if (body !== c.expected.body) {
+        console.log(`        shipping: ${JSON.stringify(c.expected.body).slice(0, 300)}`);
+        console.log(`        wasm    : ${JSON.stringify(body).slice(0, 300)}`);
+      }
+      if (!sameWrites) {
+        console.log(`        writes shipping: ${JSON.stringify(c.writes ?? [])}`);
+        console.log(`        writes wasm    : ${JSON.stringify(writes)}`);
+      }
+    }
+  }
+  console.log(
+    `  the admin family, through the built worker: ${corpus.cases.length - adminBad}/${corpus.cases.length}`,
+  );
+  restoreGlobals();
+  bad += adminBad;
+}
 
 // ── the bundle, measured here because it is the same artifact ───────────────────────────────────
 const { execSync } = await import("node:child_process");

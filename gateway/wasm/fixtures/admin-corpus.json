@@ -6,6 +6,7 @@
    "method": "GET",
    "path": "/api/admin/users",
    "headers": {},
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -30,6 +31,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJhbGljZSIsInJvbGUiOiJ1c2VyIiwiZXhwIjo0MTAyNTMxMjAwMDAwfQ.rEMrzCqeqVlC3QpDPi9Q_KHV59dFyBNcPGkJeCNDIa8"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -54,6 +56,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -78,6 +81,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJib2IiLCJyb2xlIjoidXNlciIsImV4cCI6NDEwMjUzMTIwMDAwMH0.1aAYGbfJ6gx_Mrt6KxpowdyaIftXOaodrAMRD2Zg_mg"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -102,6 +106,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJkYXZlIiwicm9sZSI6ImFkbWluIiwiZXhwIjo0MTAyNTMxMjAwMDAwfQ.ev6-dyq8CW7qvJTLIjhcG_HySjlQPmUA-UoUX6LWA4Q"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -127,6 +132,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -152,6 +158,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -177,12 +184,15 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [
+    "put user:alice={\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":false,\"createdAt\":2,\"token\":\"tok-alice-secret\"}"
+   ],
    "body": "{\"enabled\":false}",
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
      "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
-     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":false,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
      "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
      "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
      "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
@@ -203,13 +213,16 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [
+    "put user:bob={\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"createdAt\":3,\"token\":\"tok-bob-secret\"}"
+   ],
    "body": "{\"enabled\":true}",
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
      "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
      "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
-     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":true,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
      "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
      "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
      "ukeys:bob": "{}"
@@ -229,12 +242,15 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [
+    "put user:alice={\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":false,\"createdAt\":2,\"token\":\"tok-alice-secret\"}"
+   ],
    "body": "{}",
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
      "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
-     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":false,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
      "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
      "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
      "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
@@ -255,6 +271,9 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [
+    "put user:alice={\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}"
+   ],
    "body": "{\"enabled\":\"false\"}",
    "env": {
     "KEYS": {
@@ -281,6 +300,7 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [],
    "body": "{\"enabled\":false}",
    "env": {
     "KEYS": {
@@ -307,6 +327,7 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [],
    "body": "{\"enabled\":false}",
    "env": {
     "KEYS": {
@@ -333,6 +354,7 @@
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
     "content-type": "application/json"
    },
+   "writes": [],
    "body": "{\"enabled\":false}",
    "env": {
     "KEYS": {
@@ -358,7 +380,300 @@
    "headers": {
     "content-type": "application/json"
    },
+   "writes": [],
    "body": "{\"enabled\":false}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}"
+   }
+  },
+  {
+   "name": "a deployment WITH a password reports it set",
+   "method": "GET",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"set\":true}"
+   }
+  },
+  {
+   "name": "a deployment with NO password reports it unset",
+   "method": "GET",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}"
+   }
+  },
+  {
+   "name": "the FIRST password is set with the admin key, session-less",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put auth:admin_password=0001020304050607:91c024b361473e3b242a33352328c6e275cb6b2917bb57c19ee1e9a09f0c10a9"
+   ],
+   "body": "{\"password\":\"a-fresh-password\",\"adminKey\":\"tok-admin-secret-value\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"changed\":true,\"initial\":true}"
+   }
+  },
+  {
+   "name": "the bootstrap refuses a WRONG admin key",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"password\":\"a-fresh-password\",\"adminKey\":\"not-the-key\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid admin key — cannot set initial password\"}}"
+   }
+  },
+  {
+   "name": "the bootstrap refuses a short password BEFORE reading any key",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"password\":\"short\",\"adminKey\":\"not-the-key\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Admin password must be at least 8 chars\"}}"
+   }
+  },
+  {
+   "name": "the password rotates with the current one",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [
+    "put auth:admin_password=0001020304050607:680cb7f9adcf4c0ec8e3a7c573c1883cbaf818a64a74e20231a05bd6729db065"
+   ],
+   "body": "{\"password\":\"a-new-password\",\"currentPassword\":\"the-current-one\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:ba1eafe27fc3c2bc40c94e839673e4de488aed7abf839e3321a81559ace0dcb0",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"changed\":true}"
+   }
+  },
+  {
+   "name": "a rotation with the WRONG current password is refused",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"password\":\"a-new-password\",\"currentPassword\":\"wrong\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:ba1eafe27fc3c2bc40c94e839673e4de488aed7abf839e3321a81559ace0dcb0",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 403,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Current password is incorrect\"}}"
+   }
+  },
+  {
+   "name": "a rotation with no session is refused even with the right password",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"password\":\"a-new-password\",\"currentPassword\":\"the-current-one\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:ba1eafe27fc3c2bc40c94e839673e4de488aed7abf839e3321a81559ace0dcb0",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 401,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Not logged in or session expired\"}}"
+   }
+  },
+  {
+   "name": "a rotation to a short password is refused",
+   "method": "PUT",
+   "path": "/api/admin/password",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E",
+    "content-type": "application/json"
+   },
+   "writes": [],
+   "body": "{\"password\":\"tiny\",\"currentPassword\":\"the-current-one\"}",
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:ba1eafe27fc3c2bc40c94e839673e4de488aed7abf839e3321a81559ace0dcb0",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 400,
+    "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request\",\"message\":\"Admin password must be at least 8 chars\"}}"
+   }
+  },
+  {
+   "name": "an invite is minted with a week-long TTL at the binding",
+   "method": "POST",
+   "path": "/api/admin/invite",
+   "headers": {
+    "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
+   },
+   "writes": [
+    "put invite:0001020304=1 ttl=604800"
+   ],
+   "env": {
+    "KEYS": {
+     "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
+     "user:admin": "{\"id\":\"admin\",\"username\":\"admin\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":1,\"token\":\"tok-admin-secret-value\"}",
+     "user:alice": "{\"id\":\"alice\",\"username\":\"alice\",\"role\":\"user\",\"enabled\":true,\"createdAt\":2,\"token\":\"tok-alice-secret\"}",
+     "user:bob": "{\"id\":\"bob\",\"username\":\"bob\",\"role\":\"user\",\"enabled\":false,\"createdAt\":3,\"token\":\"tok-bob-secret\"}",
+     "ukeys:alice": "{\"DEEPSEEK_API_KEY\":\"sk-alice-deepseek\",\"OG_API_KEY\":\"\"}",
+     "user:dave": "{\"id\":\"dave\",\"username\":\"dave\",\"role\":\"admin\",\"enabled\":true,\"createdAt\":4,\"token\":\"tok-dave-secret\"}",
+     "ukeys:bob": "{}"
+    },
+    "SESSION_SECRET": "oracle-secret-not-a-real-one"
+   },
+   "expected": {
+    "status": 200,
+    "body": "{\"ok\":true,\"code\":\"0001020304\"}"
+   }
+  },
+  {
+   "name": "an invite refuses without a session",
+   "method": "POST",
+   "path": "/api/admin/invite",
+   "headers": {},
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
@@ -383,6 +698,7 @@
    "headers": {
     "Cookie": "ag_session=eyJ1aWQiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiIsImV4cCI6NDEwMjUzMTIwMDAwMH0.mz-obsh57M9DvEdN5_EcEB8WtCApcLzNGgiJVQJxY2E"
    },
+   "writes": [],
    "env": {
     "KEYS": {
      "auth:admin_password": "legacy:0011223344556677:aabbccddeeff0011",
