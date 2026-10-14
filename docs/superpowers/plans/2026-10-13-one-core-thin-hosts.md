@@ -445,3 +445,32 @@ claiming non-strings became the empty string — was the reverse: there the code
 empty-token backfill, the round-394 mint rule) has to be Rust before the file can be a host — and that sequence is
 also what the admin family's routes need. Then the routes themselves (§6 row 3), which is where the console's tail
 stops being a store problem and becomes a route problem.
+
+---
+
+## LANDED 2026-10-14 — the admin is Rust's, and the store layer is done (54 -> 53)
+
+**`store/admin.ts` IS A HOST, AND IT IS THE FIRST EMISSION THAT TAKES THE PLATFORM AS AN ARGUMENT.** Every earlier
+one is a pure predicate or a projection; the seed is a SEQUENCE of KV reads and writes whose ORDER is the product,
+so `admin-logic.ts` renders it against a `deps` object (four KV calls, the cache, the mint, the clock, the
+Worker's secrets). What moved: the v1 schema's addresses and id, the `salt:hash` format and its first-colon
+split, the fresh record's shape, the backfill's test, the KV-authoritative password resolution, and the order the
+three migrations run in.
+
+**THREE MIGRATIONS IN THAT ORDER, EACH ONE ONCE A LOCKOUT** — the v1 -> v2 schema; the empty-token backfill (a
+deployment seeded before the mint fix holds `token: ""` with the marker set, so the early returns lock it out
+forever); and round-394's "mint only when no record exists" (a v1 upgrade used to fall through and clobber the
+just-migrated record). The emission's test asserts the order and its mutation moves one early return.
+
+**AND THE RUST TWIN HAS A CALLER, WHICH IS A FIX.** `seed_admin` runs at the top of the `/api/auth/*` family — the
+only surface that cannot answer without it, because login mints a session for an id that must resolve and
+`require_cookie_session` reads `user:<id>`. **A fresh deployment served by this worker had NO admin record at
+all**: `getAdminPassword` migrated the Worker secret, so the password verified and the session it issued then
+resolved to nothing.
+
+**THE STORE LAYER IS DONE.** Every store the console has is now a host: `users`, `cache`, `providers`, `models`,
+`admin`, plus `access` beside them. **What is left in the tail is the ROUTE layer** — `plugins/admin.ts` (the
+admin family, §6 row 3), the six plugin files, `auth.ts`, `session.ts`, `upstream.ts` and the three that are
+routing glue. The next landing is the admin family's first slice, and the sequencing question it answers is
+whether a route port needs a differential (old vs new on the same request) or whether the corpus already covers
+what it touches.
