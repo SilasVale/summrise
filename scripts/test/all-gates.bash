@@ -219,14 +219,22 @@ for cmd in "${gates[@]}"; do
     # the convention this suite reads. So empty output is a FAILURE, not a pass, and it is labelled so
     # the reader knows it was not the gate s verdict that failed but the gate s silence.
     0)
-      # ONE NAMED EXCEPTION, AND IT IS NAMED RATHER THAN PATTERN-MATCHED SO A SECOND ONE CANNOT RIDE
-      # ALONG UNNOTICED. `cargo fmt --all -- --check` is a CHECKER whose silence IS its pass: rustfmt
-      # prints nothing when everything is formatted, and it exits 0. Every other command here reports,
-      # which is the convention the rule below reads — so this one is written out, with the reason, and
-      # the rule is left intact for everything else. Found by widening this runner to the clippy/fmt
-      # steps (2026-09-29): the first run called a perfectly formatted tree a vacuous gate.
+      # TWO NAMED EXCEPTIONS NOW, AND EACH IS STILL NAMED RATHER THAN PATTERN-MATCHED SO A THIRD CANNOT RIDE
+      # ALONG UNNOTICED. `cargo fmt --all -- --check` is a CHECKER whose silence IS its pass: rustfmt prints
+      # nothing when everything is formatted, and it exits 0. Every other command here reports, which is the
+      # convention the rule below reads — so these are written out, with the reason, and the rule is left
+      # intact for everything else. Found by widening this runner to the clippy/fmt steps (2026-09-29): the
+      # first run called a perfectly formatted tree a vacuous gate.
+      #
+      # **AND THE SECOND ONE WAS ADDED BY CI RATHER THAN BY READING (2026-10-13).** `core/summrise-core`'s fmt
+      # step went into `ci.yml` with the new crate, the crate's own `cargo fmt` was run by hand and was clean,
+      # and this runner called it a FAIL on the next push — "exited 0 having printed NOTHING". **A check run by
+      # hand is not the check the other end runs**, which is the sentence AGENTS.md already carries, and the
+      # lesson here is narrower and worth keeping: the one-command list has RULES of its own (this one) that a
+      # hand-run command does not exercise.
       case "$cmd" in
-        "cargo:cargo fmt --all -- --check")
+        "cargo:cargo fmt --all -- --check" | \
+        "cargo:cargo fmt --manifest-path core/summrise-core/Cargo.toml --all -- --check")
           ok=$((ok + 1))
           printf '  ok    %s (silent by design: rustfmt prints nothing when the tree is formatted)\n' "$cmd"
           continue
