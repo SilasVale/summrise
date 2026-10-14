@@ -512,6 +512,7 @@ pub mod mcp;
 pub mod mcp_browser;
 pub mod mcp_errors;
 pub mod mcp_tools;
+pub mod model_store;
 pub mod probe;
 pub mod rate_limit;
 pub mod redact;

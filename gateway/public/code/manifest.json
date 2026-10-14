@@ -176,6 +176,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/models-logic.ts",
+      "path": "files/summrise-gate/src/store/models-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/models.ts",
       "path": "files/summrise-gate/src/store/models.ts",
       "group": "summrise-gate"
