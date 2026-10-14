@@ -703,6 +703,56 @@ await record("the catalogue document refuses without a session", {
   env: envFor(SHADOWED),
 });
 
+// ── THE PUBLIC CATALOGUE: THE ONE ROUTE IN THE FAMILY WITH NO GATE ───────────────────────────────
+// It answers the console's "model routing" section, so its BYTES include the channel prose and the per-channel
+// model lists — which come from the route-info twin, not from this file.
+await record("the public catalogue serves the channel cards with NO session at all", {
+  path: "/api/admin/public",
+  env: envFor(SHADOWED, { ACME_API_KEY: "sk-env-key-0123456789", API_HOST: "console.test" }),
+});
+await record("the public catalogue includes an advertised custom provider as a card", {
+  path: "/api/admin/public",
+  env: envFor(
+    {
+      ...USERS,
+      "providers:custom": JSON.stringify([
+        {
+          prefix: "acme/",
+          label: "Acme",
+          baseURL: "https://acme.test/v1",
+          api: "openai-completions",
+          models: [{ id: "chat" }],
+          apiKeyEnv: "ACME_API_KEY",
+        },
+      ]),
+    },
+    { ACME_API_KEY: "sk-env-key-0123456789" },
+  ),
+});
+await record("a provider with NO baseURL host still gets a card, with the raw string", {
+  path: "/api/admin/public",
+  env: envFor(
+    {
+      ...USERS,
+      "providers:custom": JSON.stringify([
+        {
+          prefix: "raw/",
+          label: "Raw",
+          baseURL: "not a url",
+          api: "openai-completions",
+          models: [{ id: "m" }],
+          apiKeyEnv: "RAW_KEY",
+        },
+      ]),
+    },
+    { RAW_KEY: "sk-raw-key-0123456789" },
+  ),
+});
+await record("a DISABLED built-in leaves its channel's list", {
+  path: "/api/admin/public",
+  env: envFor({ ...USERS, "models:disabled": JSON.stringify(["og/mimo-v2.5"]) }),
+});
+
 // An empty deployment: the route must answer the same shape with nothing in it.
 await record("an empty deployment answers an empty list", {
   path: "/api/admin/users",
