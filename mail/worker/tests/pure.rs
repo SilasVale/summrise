@@ -10,8 +10,9 @@
 //! message can never be written over another.
 
 use summrise_mail_worker::{
-    date_partition, idx_key, index_json, new_id, parse_index_row, parse_route, raw_key, render_index,
-    secret_eq, IndexRow, NewRow, Route, DEFAULT_INDEX_LIMIT, ID_HEX_LEN, MAX_INDEX_LIMIT,
+    date_partition_from_millis, idx_key, index_json, new_id, new_id_from, parse_index_row, parse_route,
+    raw_key, render_index, secret_eq, stamp_from_millis, IndexRow, NewRow, Route, DEFAULT_INDEX_LIMIT,
+    ID_HEX_LEN, MAX_INDEX_LIMIT,
 };
 
 const SECRET: &str = "s3cret-not-in-any-url";
@@ -118,15 +119,57 @@ fn keys_partition_by_date_and_id() {
 }
 
 #[test]
-fn a_raw_date_header_is_never_used_as_the_partition() {
-    // The partition comes from the worker's clock, formatted as ISO 8601. A sender-supplied RFC 2822 `Date`
-    // header must never reach a key: it is attacker-controlled text.
-    assert_eq!(date_partition("2026-10-14T05:57:00.000Z"), "2026-10-14");
-    assert_eq!(date_partition("2026-10-14T05:57:00Z"), "2026-10-14");
-    assert_eq!(date_partition("Tue, 27 Aug 2024 08:49:44 -0700"), "undated");
-    assert_eq!(date_partition(""), "undated");
-    assert_eq!(date_partition("2026-10-14"), "undated");
-    assert_eq!(date_partition("../../etc/passwd"), "undated");
+fn the_partition_comes_from_the_clock_and_can_only_ever_be_a_date() {
+    // MEASURED, and it corrected this function's first shape: `worker::Date`'s `Display` is JavaScript's
+    // `Date.prototype.toString()` ("Tue Oct 14 2026 06:39:45 GMT+0000 (Coordinated Universal Time)"), NOT ISO
+    // 8601 — so the handler passes `Date::now().as_millis()` and the conversion to a civil date is this
+    // function, which is why it is pure Rust that runs on the host.
+    //
+    // A sender-supplied `Date:` header cannot reach a key by construction: this takes a NUMBER. The values
+    // below are the UTC calendar pinned by hand (`date -u -d @<seconds>`).
+    assert_eq!(date_partition_from_millis(0), "1970-01-01");
+    assert_eq!(date_partition_from_millis(86_400_000), "1970-01-02");
+    assert_eq!(date_partition_from_millis(1_760_000_000_000), "2025-10-09");
+    assert_eq!(date_partition_from_millis(1_709_208_000_000), "2024-02-29"); // a leap day
+    assert_eq!(date_partition_from_millis(1_772_323_200_000), "2026-03-01"); // the day after a 28-day February
+    // The stamp is the same arithmetic, one granularity finer, and it is what the index prints.
+    assert_eq!(stamp_from_millis(0), "1970-01-01T00:00:00Z");
+    assert_eq!(stamp_from_millis(1_760_000_000_000), "2025-10-09T08:53:20Z");
+    assert_eq!(stamp_from_millis(1_709_208_000_000), "2024-02-29T12:00:00Z");
+    // Lexicographic order IS chronological order for this shape, which is what lets the index sort as strings.
+    assert!(stamp_from_millis(1_760_000_000_000) < stamp_from_millis(1_772_323_200_000));
+}
+
+#[test]
+fn an_id_is_derived_from_the_secret_and_the_message_and_nothing_else() {
+    // WHY DERIVED RATHER THAN DRAWN FROM A CSPRNG: `worker` 0.8.7 exposes no `getRandomValues` (measured — the
+    // crate has no crypto RNG and js-sys has no `crypto` module), and the id's job is to be unguessable
+    // WITHOUT the path secret and to never collide. A keyed derivation gives both, stays on the host where it
+    // is tested, and makes a sender's retry idempotent instead of a second copy of the same message.
+    let id = new_id_from("secret", 1_760_000_000_000, 1234, "a@example.com", "dsh@example.com");
+    assert_eq!(id.len(), ID_HEX_LEN);
+    assert!(id.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
+    // Deterministic: the same message through the same secret is the same id.
+    assert_eq!(
+        id,
+        new_id_from("secret", 1_760_000_000_000, 1234, "a@example.com", "dsh@example.com")
+    );
+    // Every input moves it.
+    for other in [
+        new_id_from("another-secret", 1_760_000_000_000, 1234, "a@example.com", "dsh@example.com"),
+        new_id_from("secret", 1_760_000_000_001, 1234, "a@example.com", "dsh@example.com"),
+        new_id_from("secret", 1_760_000_000_000, 1235, "a@example.com", "dsh@example.com"),
+        new_id_from("secret", 1_760_000_000_000, 1234, "b@example.com", "dsh@example.com"),
+        new_id_from("secret", 1_760_000_000_000, 1234, "a@example.com", "other@example.com"),
+    ] {
+        assert_ne!(id, other);
+    }
+    // Two DIFFERENT messages in the same millisecond must not collide — the separator bytes are what make
+    // "ab" + "c" and "a" + "bc" different messages rather than the same bytes.
+    assert_ne!(
+        new_id_from("s", 1, 1, "ab", "c"),
+        new_id_from("s", 1, 1, "a", "bc")
+    );
 }
 
 // ── the index rows ───────────────────────────────────────────────────────────────────────────────────────

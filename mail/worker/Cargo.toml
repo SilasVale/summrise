@@ -17,6 +17,11 @@ path = "src/lib.rs"
 
 [dependencies]
 worker = "0.8.7"
+# A MESSAGE'S ID IS DERIVED, NOT DRAWN (see `new_id_from`): `worker` 0.8.7 has no secure RNG, and the design
+# needs an id that is unguessable without the path secret, collision-free, and host-testable — a keyed hash is
+# all three. sha2 is already in this repository's tree (`relay/worker` uses it for the same reason: a digest
+# that decides something), so this adds no new dependency to the lockfile's world.
+sha2 = "0.10"
 # `worker` already links serde_json (its own dependency), so this line adds no second copy of it to the
 # module — the same sentence `gateway/wasm/Cargo.toml` carries, and the size measurement in the commit
 # message is the check on that claim, not this comment.

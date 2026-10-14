@@ -13,6 +13,14 @@
 //! allowed to see anything live here — on the host, where they are tested — rather than inside the wasm-only
 //! handler where nothing could reach them.
 
+use sha2::{Digest, Sha256};
+
+// THE OTHER HALF. `#[event(fetch)]` and `#[event(email)]` expand to nothing off wasm32, so this module exists
+// only for the target the worker actually runs on; the entry point is checked by
+// `cargo clippy --target wasm32-unknown-unknown` and driven for real by `wrangler dev`.
+#[cfg(target_arch = "wasm32")]
+pub mod worker;
+
 /// The length of an id in hex characters — 128 bits of randomness, which is what makes a message link
 /// unguessable even if one leaks.
 pub const ID_HEX_LEN: usize = 32;
@@ -20,13 +28,12 @@ pub const ID_HEX_LEN: usize = 32;
 /// How many index rows the read path answers with when the caller does not say.
 pub const DEFAULT_INDEX_LIMIT: usize = 20;
 
-/// The most index rows a caller may ask for. Each row costs one R2 `get`, and Workers Free allows 50
-/// subrequests per invocation, so this has to stay below that with room for the listing itself.
-pub const MAX_INDEX_LIMIT: usize = 50;
-
-/// The partition used when the clock's value is not the ISO 8601 shape this worker expects. It is a word
-/// rather than an empty string because an empty partition would put objects at `mail/raw//<id>.eml`.
-const UNDATED: &str = "undated";
+/// The most index rows a caller may ask for.
+///
+/// **40 AND NOT 50, BECAUSE THE SUBREQUEST BUDGET IS 50.** A listing costs one subrequest and each row costs
+/// one R2 `get`, so 50 rows would be 51 — one over the Workers Free ceiling, where the failure is a dead read
+/// path rather than a smaller answer. 40 leaves ten for the listing and whatever comes next.
+pub const MAX_INDEX_LIMIT: usize = 40;
 
 /// What a request to the read host asked for.
 #[derive(Debug, PartialEq, Eq)]
@@ -141,28 +148,87 @@ pub fn new_id(bytes: &[u8; 16]) -> String {
     out
 }
 
+/// A message's id: 128 bits derived from the path secret and what the runtime hands us for free.
+///
+/// **WHY DERIVED RATHER THAN DRAWN, MEASURED**: `worker` 0.8.7 exposes no cryptographically secure RNG (its
+/// `crypto` module carries only the digest stream, `js-sys` has no `crypto` module, and the only drawing
+/// primitive left would be `Math::random`, which is not one). Deriving is not a consolation prize here:
+/// * an attacker without the path secret cannot compute an id, because the secret is an input to the hash —
+///   and an attacker WITH the secret can already read everything;
+/// * a sender's retry produces the same id, so a retried message overwrites itself instead of arriving twice;
+/// * it is a pure function, so `cargo test` covers it instead of a comment claiming it works.
+///
+/// The `0x00` after every field is what keeps `("ab", "c")` and `("a", "bc")` different messages rather than
+/// the same bytes; no field can carry a NUL of its own.
+pub fn new_id_from(secret: &str, millis: u64, size: u64, from: &str, to: &str) -> String {
+    let mut hasher = Sha256::new();
+    for field in [
+        secret.as_bytes(),
+        &millis.to_be_bytes(),
+        &size.to_be_bytes(),
+        from.as_bytes(),
+        to.as_bytes(),
+    ] {
+        hasher.update(field);
+        hasher.update([0u8]);
+    }
+    let digest = hasher.finalize();
+    let mut head = [0u8; 16];
+    head.copy_from_slice(&digest[..16]);
+    new_id(&head)
+}
+
 /// The receive-time partition, from the worker's own clock — never from the message.
 ///
-/// A MESSAGE'S `Date:` HEADER IS ATTACKER-CONTROLLED TEXT and must never reach an object key, which is why the
-/// only shape accepted here is the ISO 8601 one [`worker::Date`] produces. An RFC 2822 header, a bare date, a
-/// relative path: all of them answer [`UNDATED`], which is a key nobody can steer.
-pub fn date_partition(iso: &str) -> String {
-    let b = iso.as_bytes();
-    let iso_shaped = b.len() >= 11
-        && b[10] == b'T'
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[..10]
-            .iter()
-            .enumerate()
-            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
-    // The slice is taken only after the first ten bytes are known to be ASCII, so this cannot split a
-    // multi-byte character.
-    if iso_shaped {
-        iso[..10].to_string()
-    } else {
-        UNDATED.to_string()
-    }
+/// A MESSAGE'S `Date:` HEADER IS ATTACKER-CONTROLLED TEXT and must never reach an object key. That is a
+/// property of this signature rather than of a check inside it: the input is a NUMBER (milliseconds since the
+/// epoch, which is what `worker::Date::now().as_millis()` returns), so there is no string a sender could write
+/// that becomes a path.
+///
+/// **WHY MILLISECONDS AND NOT AN ISO STRING, MEASURED IN `worker` 0.8.7**: its `Date` implements `Display` as
+/// JavaScript's `Date.prototype.toString()` — `"Tue Oct 14 2026 06:39:45 GMT+0000 (Coordinated Universal
+/// Time)"` — not ISO 8601, so a handler that formatted the clock with `{}` would have written every message
+/// into a partition called nothing this function would recognise. The conversion is therefore pure Rust, which
+/// also means it runs in `cargo test` on the host.
+pub fn date_partition_from_millis(ms: u64) -> String {
+    let (year, month, day, _, _, _) = parts_from_millis(ms);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// The same clock, one granularity finer: `YYYY-MM-DDTHH:MM:SSZ`, which is what the index prints and what
+/// sorts chronologically as a string.
+pub fn stamp_from_millis(ms: u64) -> String {
+    let (year, month, day, hour, minute, second) = parts_from_millis(ms);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+/// Milliseconds since the epoch → the UTC civil date and time. Howard Hinnant's `civil_from_days`, which is
+/// exact for every value a `u64` of milliseconds can hold and needs no calendar library.
+fn parts_from_millis(ms: u64) -> (i64, u32, u32, u32, u32, u32) {
+    let seconds = (ms / 1_000) as i64;
+    let days = seconds.div_euclid(86_400);
+    let second_of_day = seconds.rem_euclid(86_400);
+
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097; // [0, 146096]
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365; // [0, 399]
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100); // [0, 365]
+    let mp = (5 * day_of_year + 2) / 153; // [0, 11]
+    let day = (day_of_year - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let year = if month <= 2 { year + 1 } else { year };
+
+    (
+        year,
+        month,
+        day,
+        (second_of_day / 3_600) as u32,
+        ((second_of_day % 3_600) / 60) as u32,
+        (second_of_day % 60) as u32,
+    )
 }
 
 /// Where one message's bytes live. The date partition is in the key so the bucket listing groups a day's mail
