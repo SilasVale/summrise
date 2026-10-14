@@ -31,6 +31,8 @@ use serde_json::Value;
 use worker::worker_sys::ext::ResponseExt;
 use worker::*;
 
+use summrise_core::text::is_js_space;
+
 use crate::auth::parse_cookie;
 use crate::device::{device_fetch, DialBody, DialInit};
 use crate::device_registry as registry;
@@ -617,30 +619,6 @@ fn strip_panel_token(text: &str) -> String {
         i = start + NEEDLE.len();
     }
     out
-}
-
-/// ECMAScript's `\s`, which is not Rust's `char::is_whitespace`: it includes U+FEFF and the Unicode space
-/// separators, and `\v` is a single character there.
-fn is_js_space(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{0009}'
-            | '\u{000a}'
-            | '\u{000b}'
-            | '\u{000c}'
-            | '\u{000d}'
-            | '\u{0020}'
-            | '\u{00a0}'
-            | '\u{1680}'
-            | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
 }
 
 fn skip_js_whitespace(text: &str, mut at: usize) -> usize {

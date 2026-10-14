@@ -85,25 +85,6 @@ pub fn tools_region_of(raw_text: &str) -> String {
     }
 }
 
-/// **JS `\s`, WHICH IS NOT ASCII WHITESPACE.** `RegExp`'s `\s` is
-/// `[\f\n\r\t\v\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]`, and a port that
-/// used `char::is_whitespace` would accept a few characters the JavaScript does not (and refuse none it
-/// accepts) — a difference that only shows up in a body containing one, which is exactly the kind of
-/// case the corpus carries.
-fn is_js_space(c: char) -> bool {
-    matches!(
-        c,
-        '\u{000c}' | '\n' | '\r' | '\t' | '\u{000b}' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
-}
-
 /// `/"type"\s*:\s*"image"/` — a literal scan, because the pattern is a literal with two whitespace runs.
 fn has_image_type(text: &str) -> bool {
     const NEEDLE: &str = "\"type\"";
@@ -192,6 +173,7 @@ pub fn is_forced_web_search(tool_choice: &serde_json::Value) -> bool {
     false
 }
 
+use summrise_core::text::is_js_space;
 /// JavaScript truthiness, which is what `!!x` and a bare `&&` mean: `false`, `0`, `NaN`, `""`, `null`
 /// and `undefined` are falsy, and EVERY object (including an empty one and an empty array) is truthy.
 ///

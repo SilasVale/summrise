@@ -21,7 +21,10 @@ use worker::*;
 
 use crate::device_registry::{js_falsy_string, mask_key};
 use crate::device_store::{cf_token, kv_json_cached, kv_list_prefix};
-use crate::model_store::{delete_custom_model, set_model_disabled};
+use crate::model_store::{
+    delete_custom_model, ids_of, known_prefixes, parse_model_spec, put_custom_model,
+    put_facet_override, set_model_disabled, PINNED_FACETS,
+};
 use crate::user_store::{
     create_invite, get_user, get_user_keys, has_admin_password, set_admin_password,
     set_user_enabled, user_keys_status, verify_admin_password, ADMIN_ID,
@@ -55,7 +58,7 @@ pub fn in_family(method: &Method, path: &str) -> bool {
                 || (path.starts_with(&format!("{ADMIN_BASE}/models/"))
                     && path.ends_with("/enabled"))
         }
-        Method::Post => path == "/api/admin/invite",
+        Method::Post => matches!(path, "/api/admin/invite" | "/api/admin/models"),
         // DELETE on the model family is the id read off the path, encoded or bare.
         Method::Delete => path.starts_with(&format!("{ADMIN_BASE}/models/")),
         _ => false,
@@ -71,6 +74,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Result<Response, RouteFa
         (Method::Get, "/api/admin/password") => admin_get_password(&request, env).await,
         (Method::Put, "/api/admin/password") => admin_put_password(&mut request, env).await,
         (Method::Post, "/api/admin/invite") => admin_invite(&request, env).await,
+        (Method::Post, "/api/admin/models") => admin_add_model(&mut request, env).await,
         (Method::Delete, path) if path.starts_with(&format!("{ADMIN_BASE}/models/")) => {
             admin_delete_model(
                 &request,
@@ -156,6 +160,66 @@ fn is_built_in(id: &str) -> bool {
 /// is the same answer, reached deliberately.
 fn decode_model_id(raw: &str) -> Result<String, RouteFailure> {
     crate::devices::decode_device_name(raw).ok_or(RouteFailure::Threw)
+}
+
+/// `adminAddModel(request, env)` — **ONE ROUTE, TWO ANSWERS, AND THE REGISTRY DECIDES.**
+///
+/// A BUILT-IN's routing facets are pinned in the channel registry and its display facets are not in the registry
+/// at all — so an operator may store the LATTER and never the FORMER, and a record carrying `wire` or `usEgress`
+/// is refused BY NAME rather than quietly ignored ("an operator who set one must not believe it took"). What
+/// lands is a FACET OVERRIDE. Everything else is a console-owned model, and what lands is a custom record.
+///
+/// The two arms answer different shapes — `override` + every override id, versus the whole `model` record plus
+/// every custom id — because the console re-renders from them.
+async fn admin_add_model(request: &mut Request, env: &Env) -> Result<Response, RouteFailure> {
+    if let Err(refusal) = crate::session_gate::require_admin(request, env).await? {
+        return Ok(refusal);
+    }
+    let body = read_json(request).await;
+    let spec = match parse_model_spec(&body, &known_prefixes()) {
+        Ok(spec) => spec,
+        Err(error) => return Ok(crate::json_error(400, &error, "invalid_request")?),
+    };
+    let id = spec
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let answer = if is_built_in(&id) {
+        let pinned: Vec<&str> = PINNED_FACETS
+            .iter()
+            .copied()
+            .filter(|f| spec.get(*f).is_some())
+            .collect();
+        if !pinned.is_empty() {
+            return Ok(crate::json_error(
+                400,
+                &format!(
+                    "a built-in model's {} is pinned in the channel registry — only name, contextWindow, \
+                     maxTokens and reasoningEffort can be stored for it",
+                    pinned.join(", ")
+                ),
+                "invalid_request",
+            )?);
+        }
+        // Only the four display facets, and only when they are TRUTHY — the source's spread.
+        let mut override_spec = serde_json::Map::new();
+        override_spec.insert("id".into(), Value::String(id.clone()));
+        for field in ["name", "contextWindow", "maxTokens", "reasoningEffort"] {
+            if let Some(v) = spec.get(field) {
+                if crate::device_registry::js_truthy(v) {
+                    override_spec.insert(field.to_string(), v.clone());
+                }
+            }
+        }
+        let next = put_facet_override(env, &Value::Object(override_spec)).await;
+        serde_json::json!({ "ok": true, "override": id, "overrides": ids_of(&next) })
+    } else {
+        let next = put_custom_model(env, &spec).await;
+        serde_json::json!({ "ok": true, "model": spec, "custom": ids_of(&next) })
+    };
+    let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
+    Ok(crate::json(text, 200)?)
 }
 
 /// `adminDeleteModel(request, env, id)` — **DELETE MEANS TWO DIFFERENT THINGS AND THE REGISTRY DECIDES WHICH.**
@@ -310,13 +374,9 @@ fn js_or_empty(v: Option<&serde_json::Value>) -> String {
     summrise_core::text::js_or_empty(v)
 }
 
-/// **`v.length` IS UTF-16 CODE UNITS, AND THE FIRST VERSION OF THIS ROUTE COUNTED `chars()`.** They agree on
-/// every ASCII password (which is every password a test would use) and disagree the moment one contains an
-/// astral character: `"😀😀😀😀"` is FOUR `chars()` and EIGHT `.length`, so the port would have refused a password
-/// the shipping route accepts — the same arm, and the same class of divergence, as `maskKey`'s (`chars()` vs
-/// code units) two landings ago.
+/// `v.length` — UTF-16 code units, and `chars()` is NOT it (see the core's [`js_length`]).
 fn js_length(text: &str) -> usize {
-    text.encode_utf16().count()
+    summrise_core::text::js_length(text)
 }
 
 /// `adminSetUserEnabled(request, env, url)` — **THE WRITE ROUTE, AND ITS THREE REFUSALS ARE EACH A ROUND**.
