@@ -617,6 +617,13 @@ time this session estimated the remaining work from a file LIST, the estimate wa
     guess them. The route stays on the TypeScript path, the cutover section of the harness proves that it does,
     and the honest label for this file is **a deliberate BOUNDARY, not a migration debt.** (A boundary the plan
     itself got wrong once: this list named it as the next emission until the worker's own comment was read.)
+  * **MEASURED 2026-10-15 — THE DELETION'S SAFETY PROPERTY HOLDS, SO IT IS A ONE-STEP OPERATION WHEN THE DEPLOY
+    IS OBSERVED.** Every path the worker's admin corpus exercises is a path the front door hands over: the 82 cases
+    cover **28 (method, path) pairs**, and `isAdminFamily` claims **all 28** (checked mechanically against
+    `index.ts`'s predicate). The predicate's **13 exact paths** plus its **four dynamic arms**
+    (`PUT users/{id}/enabled`, `PUT models/{id}/enabled`, `DELETE models/{id}`, `DELETE providers/{prefix}`) are the
+    family's **17 routes** — the two counts agree, which is the cross-check that nothing is served-but-unreachable
+    or handed-over-but-unserved.
   * **`plugins/auth.ts` (842)**, **`plugins/admin.ts` (614)**, **`plugins/models-probe.ts` (211)**: **these three
     are the ROLLBACK FILES** for families the worker already serves and the front door already routes to. They are
     deleted after a deploy observes the cutover — not emitted — and that deletion is LOGIC 49 -> 46 in one step.
