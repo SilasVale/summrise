@@ -39,7 +39,9 @@ fn repo() -> PathBuf {
 
 /// Every `.rs` file under `dir`, recursively, skipping build output.
 fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -55,19 +57,22 @@ fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// Every `.ts`/`.tsx` file under `dir`, recursively, skipping build output and test directories.
 fn ts_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if name == "node_modules" || name == "dist" || name == "__tests__" {
                 continue;
             }
             ts_files(&path, out);
-        } else if path
-            .extension()
-            .is_some_and(|e| e == "ts" || e == "tsx")
-        {
+        } else if path.extension().is_some_and(|e| e == "ts" || e == "tsx") {
             out.push(path);
         }
     }
@@ -99,7 +104,10 @@ fn declared_names(src: &str, into: &mut BTreeSet<String>) {
             }
         }
         if let Some(name) = seen_literal {
-            if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+            if !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
             {
                 into.insert(name);
             }
@@ -118,7 +126,10 @@ fn called_names(src: &str, file: &Path, into: &mut Vec<(String, String)>) {
             if let Some(end) = tail.find('"') {
                 let name = &tail[..end];
                 // Only a bare first argument is a tool name; `callTool(variable, …)` is not this test's business.
-                if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+                if !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
                 {
                     let line = src[..at].lines().count();
                     into.push((name.to_string(), format!("{}:{line}", file.display())));
@@ -150,7 +161,10 @@ fn every_tool_the_panel_calls_is_one_the_agent_declares() {
     );
 
     let mut panel_files = Vec::new();
-    ts_files(&root.join("agent/resources/panel-react/src"), &mut panel_files);
+    ts_files(
+        &root.join("agent/resources/panel-react/src"),
+        &mut panel_files,
+    );
     let mut called = Vec::new();
     for file in &panel_files {
         let src = fs::read_to_string(file).unwrap_or_default();
@@ -183,10 +197,8 @@ fn nearest(declared: &BTreeSet<String>, unknown: &[String]) -> String {
     let mut out = Vec::new();
     for line in unknown {
         let name = line.trim().split_whitespace().next().unwrap_or("");
-        let mut best: Vec<(usize, &String)> = declared
-            .iter()
-            .map(|d| (distance(d, name), d))
-            .collect();
+        let mut best: Vec<(usize, &String)> =
+            declared.iter().map(|d| (distance(d, name), d)).collect();
         best.sort();
         let picks: Vec<String> = best.iter().take(3).map(|(_, d)| (*d).clone()).collect();
         out.push(format!("  {name} -> {}", picks.join(", ")));
