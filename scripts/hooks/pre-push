@@ -33,4 +33,16 @@ if [ -z "$root" ]; then
   root=$(cd "$(dirname "$(readlink -f "$0")")/../.." 2>/dev/null && pwd) || root=""
 fi
 [ -n "$root" ] || { echo "pre-push: cannot find the repository — failing OPEN" >&2; exit 0; }
-exec bash "$root/scripts/hooks/ci-not-in-flight"
+# TWO CHECKS, IN THIS ORDER, AND THE FIRST ONE IS CHEAP.
+#
+#   1. `ci-not-in-flight` — do not supersede a run whose content this push does not carry (seconds).
+#   2. `local-gates` — RUN THE CI JOB'S COMMANDS FOR WHAT THIS PUSH TOUCHES, before it leaves. **THIS IS THE ONE
+#      THAT PREVENTS THE RED LANDING** rather than reporting it six minutes later: three landings in a row went red
+#      on a gate nobody ran locally (rustfmt, clippy, `exports_check`), each costing a CI cycle and a repair round,
+#      each preventable in under three minutes here. The mapping and its proof are `scripts/test/local-gates.bash`.
+#
+# **A CHILD, NOT AN `exec`, BECAUSE THERE ARE TWO NOW** — the first version of this line `exec`'d the check, which
+# would have made the second one unreachable. The same shape as the `dirname "$0"` defect recorded above: a hook
+# that runs ONE check is not a hook that runs two.
+bash "$root/scripts/hooks/ci-not-in-flight" || exit $?
+exec bash "$root/scripts/hooks/local-gates"

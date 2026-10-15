@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# local-gates — RUN THE CI JOB'S OWN COMMANDS FOR WHAT THIS PUSH TOUCHES, BEFORE IT LEAVES.
+#
+# WHY THIS EXISTS, MEASURED RATHER THAN FELT. Three landings in a row (2026-10-15, rounds 50-52) went red on a gate
+# that was never run locally: `cargo fmt --check` (read as a COUNT instead of a list), `cargo clippy -D warnings`,
+# and `agent/tests/exports_check.rs` — the last one a rule the author had QUOTED two rounds earlier. Each cost a
+# ~6-minute CI cycle plus a repair round, and each was preventable in under three minutes locally.
+#
+# **AGENTS.md ALREADY SAYS THE RULE — "RUN THE COMMAND THE OTHER END RUNS" — AND A SENTENCE THAT CAN BE ENFORCED
+# SHOULD BE ENFORCED INSTEAD OF WRITTEN DOWN.** So this is the mechanism: the commands come from `ci.yml`'s own job
+# definitions (the same source `scripts/test/all-gates.bash` derives its list from), narrowed to the directories this
+# push actually touches.
+#
+# **NARROWED, BECAUSE THE WHOLE LIST IS 15.6 MEASURED MINUTES AND A CHECK NOBODY WAITS FOR IS A CHECK NOBODY RUNS.**
+# The mapping is by path, and the FIRST match wins:
+#
+#   agent/**            -> the `agent` job's commands for the crate whose files moved
+#   gateway/**          -> the `gateway` job's commands (test + typecheck + lint + format)
+#   panel-react/**      -> the panel's typecheck + vitest
+#   proxies|relay|mail/** -> the `proxies` jobs' cargo tests for those crates
+#   (docs only)         -> nothing, and it says so
+#
+# **FAIL-CLOSED ON A FAILING GATE, FAIL-OPEN WHEN IT CANNOT RUN AT ALL** — the same asymmetry `ci-not-in-flight`
+# carries: a box without cargo cannot judge Rust, and blocking a push for that would be worse than the slip it
+# prevents. `git push --no-verify` remains the escape hatch, and its cost is the CI cycle this exists to avoid.
+set -uo pipefail
+
+root="${SUMMRISE_LOCAL_GATES_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+[ -n "$root" ] || { echo "local-gates: cannot find the repository — failing OPEN" >&2; exit 0; }
+cd "$root" || exit 0
+
+base="${SUMMRISE_LOCAL_GATES_BASE:-}"
+if [ -z "$base" ]; then
+  for candidate in origin/main main; do
+    git rev-parse --verify --quiet "$candidate" >/dev/null && { base="$candidate"; break; }
+  done
+fi
+[ -n "$base" ] || { echo "local-gates: no base to diff against — failing OPEN" >&2; exit 0; }
+
+changed=$(git diff --name-only "$base"...HEAD 2>/dev/null; git diff --name-only HEAD 2>/dev/null)
+[ -n "$changed" ] || { echo "local-gates: nothing changed against $base — nothing to run" >&2; exit 0; }
+
+has() { printf '%s\n' "$changed" | grep -qE "$1"; }
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/agent/target}"
+export PATH="$HOME/.cargo/bin:$PATH"
+
+fail=0
+# **A DRY RUN, BECAUSE THE MAPPING IS THE PART THAT CAN BE WRONG.** `SUMMRISE_LOCAL_GATES_DRY=1` prints the commands
+# this push WOULD run and exits 0 without running them — which is how `scripts/test/local-gates.bash` proves the
+# path-to-job table (and how a reader can see what a push is about to cost before paying it).
+dry="${SUMMRISE_LOCAL_GATES_DRY:-}"
+run() { # label, then the command
+  local label="$1"; shift
+  if [ -n "$dry" ]; then
+    printf 'local-gates: would run: %s -- %s\n' "$label" "$*" >&2
+    return 0
+  fi
+  printf 'local-gates: %s\n' "$label" >&2
+  local out
+  out=$("$@" 2>&1); local st=$?
+  if [ "$st" != 0 ]; then
+    fail=1
+    printf 'local-gates: FAILED — %s\n' "$label" >&2
+    printf '%s\n' "$out" | grep -E "^test .* FAILED|^error(\[|:)|panicked at|error:|✖|not ok|warn Code style|Diff in" | head -12 | sed 's/^/    /' >&2
+  else
+    printf 'local-gates: ok — %s\n' "$label" >&2
+  fi
+}
+
+if has '^agent/'; then
+  if command -v cargo >/dev/null 2>&1; then
+    run "agent: rustfmt" cargo fmt --manifest-path agent/Cargo.toml --all -- --check
+    # The crates whose files moved, plus the agent crate itself: a change in core can break the agent.
+    crates=""
+    has '^agent/summrise-agent-core/' && crates="$crates -p summrise-agent-core"
+    has '^agent/summrise-cli/' && crates="$crates -p summrise-cli"
+    has '^agent/src/|^agent/tests/|^agent/Cargo.toml' && crates="$crates -p summrise-agent"
+    # **THE LEADING SPACE IS PART OF THE VALUE**: the label is `"clippy$crates"`, and a missing space printed
+    # `clippy-p` — caught by the hook's own fixture test on its first run, which is what a routing test is for.
+    [ -n "$crates" ] || crates=" -p summrise-agent"
+    # shellcheck disable=SC2086
+    run "agent: clippy$crates" cargo clippy --manifest-path agent/Cargo.toml $crates --all-targets -- -D warnings
+    # shellcheck disable=SC2086
+    run "agent: tests$crates" cargo test --manifest-path agent/Cargo.toml $crates --no-fail-fast
+  else
+    echo "local-gates: no cargo on PATH — the Rust gates cannot run here (failing OPEN for them)" >&2
+  fi
+  if has '^agent/resources/panel-react/src'; then
+    # **THE DRY RUN REPORTS THE MAPPING, NOT THE TOOLCHAIN**: a scratch repository has no `node_modules`, and "what
+    # would this push run" must not depend on where it is asked.
+    if [ -n "$dry" ] || [ -x agent/resources/panel-react/node_modules/.bin/vite ]; then
+      run "panel: typecheck" bash -c 'cd agent/resources/panel-react && npx tsc --noEmit'
+      run "panel: vitest" bash -c 'cd agent/resources/panel-react && npx vitest run'
+    else
+      echo "local-gates: the panel has no dependencies installed — skipping its two gates (they run in CI)" >&2
+    fi
+  fi
+fi
+
+if has '^gateway/src/|^gateway/test/'; then
+  if [ -n "$dry" ] || [ -d gateway/node_modules ]; then
+    run "gateway: format" bash -c 'cd gateway && npm run format:check'
+    run "gateway: tests" bash -c 'cd gateway && npm test'
+  else
+    echo "local-gates: gateway/node_modules is missing — skipping its gates (they run in CI)" >&2
+  fi
+fi
+
+if has '^proxies/|^relay/|^mail/'; then
+  if command -v cargo >/dev/null 2>&1; then
+    for m in proxies/zen-us-proxy/worker/Cargo.toml proxies/zen-go-proxy/worker/Cargo.toml proxies/api-relay/relay/Cargo.toml relay/worker/Cargo.toml mail/worker/Cargo.toml; do
+      [ -f "$m" ] || continue
+      dir=$(dirname "$m")
+      has "^${dir}/" || continue
+      run "cargo test in ${dir}" cargo test --manifest-path "$m"
+    done
+  fi
+fi
+
+if [ "$fail" != 0 ]; then
+  echo >&2
+  echo "local-gates: REFUSED — a gate the other end runs is red here. That is the point: the alternative" >&2
+  echo "             is a ~6 minute CI cycle and a repair round. Fix it, or push with --no-verify." >&2
+  exit 1
+fi
+exit 0
