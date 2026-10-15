@@ -687,3 +687,32 @@ the operator observes the deploy and those three rollback files are deleted (LOG
 becomes a snapshot too, exactly like the others. **That is not a loss to avoid; it is the completion of the
 cutover** — the worker becomes the only implementation, and the corpus keeps proving what it answers.
 
+---
+
+## THE DELETION, REHEARSED ON A SCRATCH BRANCH (2026-10-15, round 50) — THE RECIPE, MEASURED
+
+The three rollback files were deleted on `scratch/the-deletion-rehearsed` (NOT merged, NOT pushed: the operator's
+ruling is that they go only after the deploy is observed). **The rehearsal's value is that the landing is now a
+recipe instead of a surprise.** In the order the gates ask for it:
+
+| step | what it is | why |
+|---|---|---|
+| 1 | `git rm` the three files | 842 + 614 + 211 lines |
+| 2 | `index.ts`: drop the two imports and take `authPlugin, adminPlugin` out of the `registerPlugins` array — **`statusPlugin` stays, and its comment says why** | the registry is where the rollback lived |
+| 3 | `MAX_LOGIC` 48 -> 45 **and** the three lines out of `js-boundaries.txt` | **the boundary gate NAMES THE FIX ITSELF**: "LOGIC files: 45, and the frozen budget is 48 — the list SHRANK and the cap did not follow it down. A cap left high is finished work wearing a budget. FIX: lower MAX_LOGIC to 45 in this commit." |
+| 4 | re-sync the code-viewer mirror | `test/code-viewer-mirror.test.mjs` |
+| 5 | `test/plugin-collaborators.test.mjs`: drop the three from the DIRECTORY CONTRACT | the contract lists every collaborator and nothing else |
+| 6 | `test/frontdoor.test.mjs`: **two tests** — the no-binding fallback becomes the front door's 503, and the cross-site cookie case moves to the worker | both were written to prove the ROLLBACK answered |
+| 7 | `test/key-probe.test.mjs`, `test/usage-map.test.mjs`, `test/byok.test.mjs`: re-point their imports | **the logic they pin ALREADY MOVED** (`gate.ts` carries `decide` and the three usage mappers — its own header records the `MAX_LOGIC 69 -> 70` entry that extracted them), so this is an import path rather than lost coverage |
+
+**MEASURED BLAST RADIUS BEFORE THE FIX: 47 of 368 tests**, in exactly those files plus the auth-family suites.
+**No test loses coverage the worker does not already carry**: the auth, admin and probe behaviour is the
+identity/admin/probe families' own corpus (the identity section alone drives 30 request paths through the built
+worker), which is what cutting them over was for.
+
+**AND THE ONE THING THE REHEARSAL CONFIRMS ABOUT THE END STATE**: with the plugins gone, a deployment WITHOUT the
+`WASM_GATE` binding answers 503 on those families with the front door's own sentence — *"the Rust front door is not
+bound to this deployment (WASM_GATE) — the TypeScript implementation was deleted at the cutover"*. That sentence is
+already in `frontDoor()`. **The rollback stops being a second implementation and becomes a refusal that says
+exactly what is missing** — which is what a cutover is supposed to look like when it is finished.
+
