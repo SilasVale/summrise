@@ -215,6 +215,151 @@ pub async fn facet_overrides(env: &Env) -> Vec<Value> {
     })
 }
 
+/// **THE FILE LAYER'S TWO PURE RULES, EMITTED — `file-config-logic.ts` (2026-10-14).**
+///
+/// `store/file-config.ts` is the catalogue FILE layer: the validator, the merge that gives the FILE precedence,
+/// and the key sets the console marks as not-locally-editable. `catalogue_file.rs` is its Rust twin, and the
+/// admin family's 82-case corpus already proves the layer end to end (`GET /api/admin/catalogue`,
+/// `/api/admin/models`, `/api/admin/public`). What this renders is the half that is PURE and shared word for
+/// word; the validator's 76 lines and the module-load cache stay the host's for now, because their SHAPE differs
+/// by necessity (the console reads `config/models.ts`, the worker reads its JSON twin).
+///
+/// **WHY THESE TWO FIRST**: they are the rules whose two spellings could disagree without any test noticing — the
+/// merge's precedence and the provider-key normalisation (`"acme/"` → `"acme"`) — and each is small enough to
+/// compare by reading.
+const TS_MODULE: &str = r#"/**
+ * file-config-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/catalogue_file.rs` (`render_typescript`). The freshness test there is a byte
+ * comparison:
+ *
+ *     SUMMRISE_REFRESH_FILE_CONFIG=1 cargo test --manifest-path gateway/wasm/Cargo.toml catalogue_file::emission
+ *
+ * `gateway/src/store/file-config.ts` re-exports this module and keeps the host: the document validator's four
+ * refusal arms, the `config/models.ts` import, and the module-load cache.
+ */
+
+/** The layers a validated document declares.
+ *
+ *  **GENERIC IN THE ENTRY TYPES, AND THAT IS THE HOST'S SHAPE, NOT A CONVENIENCE**: the console's layers are
+ *  `ProviderSpec[]` / `ModelSpec[]` / `FacetOverride[]` — three types this generated leaf may not import (it
+ *  would be an edge back into its own host). The defaults make a bare `CatalogueLayers` accept those concrete
+ *  types, and the two functions below only ever read `prefix` and `id`. */
+export interface CatalogueLayers<P = any, M = any, O = any> {
+  providers: P[];
+  models: M[];
+  overrides: O[];
+}
+
+/**
+ * **THE FILE WINS, AND THE ORDER OF THE RESULT IS PART OF THE ANSWER**: the KV entries that survive come FIRST
+ * and the file's follow, so a list rendered from this shows the console's own entries and then the committed
+ * ones. The comparison is by [`FileDeclaredKeys`]-style key — a bare prefix for providers, an id for models and
+ * overrides — because `"acme/"` and `"acme"` are the same provider.
+ */
+export function mergeLayers<T>(file: T[], kv: T[], keyOf: (t: T) => string): T[] {
+  const declared = new Set(file.map(keyOf));
+  return [...kv.filter((k) => !declared.has(keyOf(k))), ...file];
+}
+
+/** Ids/prefixes THIS FILE declares — what the console must mark as not-locally-editable.
+ *
+ *  **A PROVIDER'S KEY IS ITS BARE PREFIX**: `"acme/"` becomes `"acme"`, which is how the merge compares them. */
+export function fileDeclaredKeys(layers: CatalogueLayers): {
+  providers: Set<string>;
+  models: Set<string>;
+  overrides: Set<string>;
+} {
+  return {
+    providers: new Set(layers.providers.map((p) => String(p.prefix ?? "").replace(/\/$/, ""))),
+    models: new Set(layers.models.map((m) => m.id)),
+    overrides: new Set(layers.overrides.map((o) => o.id)),
+  };
+}
+"#;
+
+/// **THE PRODUCER.** The emitted module is exactly this string.
+pub fn render_typescript() -> String {
+    TS_MODULE.to_string()
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/store/file-config-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_FILE_CONFIG").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write file-config-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_FILE_CONFIG=1 cargo test catalogue_file::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/store/file-config-logic.ts is not what catalogue_file.rs emits — \
+             run SUMMRISE_REFRESH_FILE_CONFIG=1 cargo test catalogue_file::emission"
+        );
+    }
+
+    /// **THE TWO RULES THE EMISSION EXISTS FOR ARE IN IT, SPELLED THE WAY THE HOST NEEDS THEM.** The merge's
+    /// precedence (the dichotomous `filter` before the spread) and the bare-prefix normalisation are the two
+    /// lines a "cleanup" would rewrite into something that reads the same and behaves differently.
+    #[test]
+    fn the_emission_carries_the_rules() {
+        let ts = render_typescript();
+        for item in [
+            "export function mergeLayers<T>(file: T[], kv: T[], keyOf: (t: T) => string): T[] {",
+            "const declared = new Set(file.map(keyOf));",
+            "return [...kv.filter((k) => !declared.has(keyOf(k))), ...file];",
+            "export function fileDeclaredKeys(layers: CatalogueLayers): {",
+            "providers: new Set(layers.providers.map((p) => String(p.prefix ?? \"\").replace(/\\/$/, \"\"))),",
+            "models: new Set(layers.models.map((m) => m.id)),",
+            "overrides: new Set(layers.overrides.map((o) => o.id)),",
+        ] {
+            assert!(ts.contains(item), "the emission lost: {item}");
+        }
+    }
+
+    /// **AND THE RUST'S OWN MERGE AGREES WITH IT, CASE FOR CASE** — the two implementations are one rule in two
+    /// languages, so the check is a table rather than a reading: a file entry shadows the KV entry with the same
+    /// key, the survivors keep their order, and the file's entries follow.
+    #[test]
+    fn the_rust_merge_is_the_emitted_rule() {
+        let kv = vec![
+            serde_json::json!({"prefix": "acme/"}),
+            serde_json::json!({"prefix": "kept/"}),
+        ];
+        let file = vec![serde_json::json!({"prefix": "acme/"})];
+        let merged = merge_layers(&file, &kv, |v| {
+            summrise_core::provider_spec::bare_prefix(v.get("prefix").unwrap_or(&Value::Null))
+        });
+        let order: Vec<String> = merged
+            .iter()
+            .map(|v| {
+                summrise_core::provider_spec::bare_prefix(v.get("prefix").unwrap_or(&Value::Null))
+            })
+            .collect();
+        assert_eq!(
+            order,
+            vec!["kept".to_string(), "acme".to_string()],
+            "the survivor comes first and the file's entry follows — `\"acme/\"` and `\"acme\"` are one provider"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

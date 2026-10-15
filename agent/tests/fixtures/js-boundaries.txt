@@ -334,6 +334,14 @@ BOUNDARY | gateway/src/store/admin.ts | **THE ADMIN-STORE HOST, AND ITS DECISION
 #   KV calls and the cache the seed is handed, the mint, and `crypto.subtle`'s PBKDF2 through `auth.ts`. The v1
 #   addresses, the password record's format, the seed's ORDER and the KV-authoritative resolution are
 #   `admin-logic.ts`, GENERATED from `gateway/wasm/src/user_store.rs`.
+GENERATED | gateway/src/store/file-config-logic.ts | the catalogue FILE layer's two pure rules — the merge that gives the file precedence (and the ORDER of its result) and the key sets the console marks as not-locally-editable, where a provider's key is its BARE prefix — emitted from Rust | gateway/wasm/src/catalogue_file.rs
+#   **THE RUST TWIN EXISTED AND THE CORPUS ALREADY PROVED THE LAYER** (82 admin cases: `/api/admin/catalogue`,
+#   `/api/admin/models`, `/api/admin/public`); what this closes is the half where two spellings could disagree
+#   with NOTHING watching — the merge's precedence and the `"acme/"` → `"acme"` normalisation, each small enough
+#   to compare by reading, and now compared by a byte-freshness test instead.
+#   **`store/file-config.ts` IS NOT A HOST YET**: the document validator's four refusal arms and the module-load
+#   cache stay there, because their SHAPE differs by necessity (this module reads `config/models.ts`, the worker
+#   reads its JSON twin).
 GENERATED | gateway/src/routing-logic.ts | the router's PUBLIC constants and predicates — the upstream URL constants, the US-egress set, the retired-model table and its lookup, the US-proxy base and the muse exit — emitted from Rust | gateway/wasm/src/routing.rs
 #   **AND THE SECOND COPY OF THE URLS IS PINNED RATHER THAN TRUSTED**: `pick_route` builds its upstreams inline,
 #   so `the_url_constants_are_the_routers_own` asserts each route's upstream starts with the constant this module
