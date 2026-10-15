@@ -171,9 +171,12 @@ function isAdminFamily(method: string, path: string): boolean {
     );
   }
   if (m === "POST") {
-    return ["/api/admin/invite", "/api/admin/models", "/api/admin/models/probe", "/api/admin/providers"].includes(
-      path,
-    );
+    return [
+      "/api/admin/invite",
+      "/api/admin/models",
+      "/api/admin/models/probe",
+      "/api/admin/providers",
+    ].includes(path);
   }
   if (m === "DELETE") {
     return path.startsWith("/api/admin/models/") || path.startsWith("/api/admin/providers/");
