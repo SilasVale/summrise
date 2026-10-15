@@ -582,7 +582,7 @@ other missed two files entirely.
 
 | file | lines | verdict |
 |---|---|---|
-| `store/file-config.ts` | 217 | **TARGET.** The catalogue FILE layer — `catalogue_file.rs` is its Rust twin, already proved by the admin corpus, so this is an emission. |
+| `store/file-config.ts` | 217 | **TARGET, HALF DONE.** The two pure rules are emitted (`file-config-logic.ts`, round 34). **What remains is the VALIDATOR** (~90 lines, eight refusal arms, the same messages as the Rust's `parse_catalogue_file`) — renderable, and it is what moves the count to 48. **THE LOADER IS NOT EMITTABLE**: its document read is an `import` of `config/models.ts`, which is the host's by necessity; only its cache-poisoning CHECK is a rule, and splitting one function's check from its read would be worse than leaving both. |
 | `store/devices.ts` | 196 | **TARGET.** The console's device registry; `device_store.rs` is the worker's. |
 | `tooling.ts` | 260 | **TARGET, and the only one needing NEW Rust**: the two installer templates are decisions with no Rust home yet, and `summriseProbe` is a sequence. |
 | `upstream.ts` | 397 | **BOUNDARY WITH A GATE.** Its rules are the console's own runtime (the panel asks "which channel is this model?"), and the **617-case translate corpus already pins them function by function** — `resolve_model` 81, `pick_route` 45, `model_spec` 25, `strip_bracket` 9, `csrf_cookie_violation` 13, `probe_env_key_name` 12. **An emission here would be a transcription, not a single source.** |
@@ -590,6 +590,8 @@ other missed two files entirely.
 | `plugins/registry.ts` | 246 | **BOUNDARY**: the plugin framework its own plugins are registered into. |
 | `plugins/status.ts` | 314 | **BOUNDARY, and the worker says so twice** (see above). |
 | `plugins/auth.ts` `plugins/admin.ts` `plugins/models-probe.ts` | 842 / 614 / 211 | **ROLLBACK FILES**, deleted after a deploy observes the cutover — LOGIC 49 -> 46 in one step. The operator's ruling (round 32): continue the emissions, delete after the deploy. |
+
+**ONE MORE METHOD NOTE, MEASURED THE HARD WAY THIS ROUND**: comparing the two validators' refusal WORDING is the check that would catch a drift like the retired-hint one, and a grep for `"config/models.ts…"` cannot do it — the TypeScript builds each message from a `where` variable and the Rust spells it out, so the two extractions do not line up. The instrument that WOULD work is a table of (bad document → the message both sides produce), which needs the four arms fed synthetic input on both sides; that is the right shape for the next landing, and the reason this round did not claim a comparison it had not made.
 
 **SO THE MIGRATION HAS THREE FILES OF REAL WORK LEFT, NOT TEN** — and a lesson worth more than the count: **every
 time this session estimated the remaining work from a file LIST, the estimate was wrong; the two times it MEASURED
