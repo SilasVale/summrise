@@ -584,8 +584,16 @@ list with no arm fails it). **So rendering `pickRoute` means rendering the nine 
   * **`tooling.ts` (260)**: needs the two installer templates moved into Rust (new decisions) and `summriseProbe`
     as a sequence. `buildHealth`, `probeEnvKeyName`, `encodeBase64Utf8` and the limiter's numbers are already
     `lib.rs`/`tooling.rs`/`ip_rate_limit.rs`.
-  * **`plugins/status.ts` (314)**, **`plugins/registry.ts` (246)**, **`index.ts` (452)**: the plugin framework and
-    the front door — the LAST layer, because the front door is what hands routes to the worker.
+  * **`plugins/registry.ts` (246)**, **`index.ts` (452)**: the plugin framework and the front door — the LAST
+    layer, because the front door is what hands routes to the worker.
+  * **`plugins/status.ts` (314) IS NOT A TARGET, AND THE WORKER SAYS SO TWICE** (`lib.rs`'s mcp arm, `mcp.rs`'s
+    `in_family`): its route `GET /api/plugins/status` carries `routes` — the TypeScript plugin registry's own
+    dispatch instrumentation (`routeStats(ctx)`: a registration index and a per-isolate hit counter for every
+    route of every plugin). **Those counters are a property of the TypeScript plugin TABLE and of the traffic ONE
+    isolate has seen**; a Rust worker cannot reproduce them without porting the plugin framework, and it must not
+    guess them. The route stays on the TypeScript path, the cutover section of the harness proves that it does,
+    and the honest label for this file is **a deliberate BOUNDARY, not a migration debt.** (A boundary the plan
+    itself got wrong once: this list named it as the next emission until the worker's own comment was read.)
   * **`plugins/auth.ts` (842)**, **`plugins/admin.ts` (614)**, **`plugins/models-probe.ts` (211)**: **these three
     are the ROLLBACK FILES** for families the worker already serves and the front door already routes to. They are
     deleted after a deploy observes the cutover — not emitted — and that deletion is LOGIC 49 -> 46 in one step.
