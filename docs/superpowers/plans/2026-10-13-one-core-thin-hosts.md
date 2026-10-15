@@ -636,3 +636,29 @@ input is Rust's; the witness is a fixture recorded from the shipping plugin and 
 with every route that answers no (four times over); and a new route is a new subject for every predicate that was
 already there.
 
+---
+
+## THE OTHER HALF OF THE OBJECTIVE, MEASURED: THE AGENT HAS NO MIGRATION DEBT (2026-10-15)
+
+The objective names two modules — "agent, gateway" — and this plan has been about the gateway. **The agent side
+was measured the same way the console's remaining work was, and the answer is that there is nothing to do:**
+
+| | |
+|---|---|
+| Rust files under `agent/` | **282**, across **12 crates** |
+| JS/TS files under `agent/` | 180 |
+| …of those, LOGIC | **ZERO** |
+| …the rest | the React panel (a RENDERING surface, which must be JS), its tests, and the build/screenshot/mock scripts (BOUNDARY) |
+
+**THE MANIFEST IS THE EVIDENCE, AND IT IS STRONGER THAN A COUNT**: its ONLY `LOGIC` directory rules are
+`gateway/src/` and `gateway/test/` (lines 481-482). A file that is not matched by a rule and not covered by a
+directory rule FAILS the inventory test, so "the agent has no LOGIC" is not an absence of findings — it is a
+classification the gate enforces on every run, with `agent/`'s 18 BOUNDARY, 11 GENERATED and 2 RENDERING rules
+written out.
+
+**AND THE AGENT'S OWN MIGRATIONS ARE THE REASON**: `agent/model-drift/` (the ops tool whose `.mjs` is deleted),
+`agent/e2e-judge/` (the device e2e suite's plan and judge — "74 `check(...)` call sites that COMPUTED their
+conditions and DERIVED the sentences a reader triages a failure from"), and `summrise-launch` are Rust crates
+with their JS halves gone or reduced to a driver. **The pattern that took the console forty landings was applied
+there first, and it is why this half of the objective needs no round of its own.**
+
