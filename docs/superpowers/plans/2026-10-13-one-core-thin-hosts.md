@@ -662,3 +662,28 @@ conditions and DERIVED the sentences a reader triages a failure from"), and `sum
 with their JS halves gone or reduced to a driver. **The pattern that took the console forty landings was applied
 there first, and it is why this half of the objective needs no round of its own.**
 
+---
+
+## THE ORACLE'S ARC, AND WHAT THE ROLLBACK DELETION COSTS (2026-10-15, rounds 47-49)
+
+**`gateway/wasm/oracle-translate.mjs` DID NOT EXIST** while every Rust test that reads
+`fixtures/translate-corpus.json` named it as the producer. **617 cases, the repository's largest differential, could
+only ever be compared against a snapshot** — and a snapshot cannot tell you the shipping side moved.
+
+It exists now, in **replay** mode: each recorded input goes back through the LIVE console code and is compared
+against the recorded answer. **Today it replays 331 recorded cases over 34 functions and every one still answers
+what the fixture records** — the session and header family, the channel registry, the origin and device-host
+decisions, the timeouts, the retry ladder, the auth core, the base64 door.
+
+**THE BOUNDARY IS MEASURED AND PRINTED** (`--check` reports what it replayed and what it owns): the other 31
+functions are the ones whose TypeScript was deleted at the `/v1` cutover and the earlier family cutovers. **For
+those the snapshot IS the record** — there is nothing left to drive — and the tool says so instead of pretending.
+
+**AND THERE IS NO SECOND ORACLE TO WRITE, WHICH IS THE FACT THE DELETION TURNS ON.** The device, identity and MCP
+families' TypeScript is already gone (their recorded answers live inside `gateway/wasm/verify.mjs`);
+`shipping-answers.json` has consumers and no producer. **`plugins/admin.ts` is the LAST console implementation of a
+cut-over family that still exists — so `admin-oracle.mjs` is the last oracle that can re-record anything.** When
+the operator observes the deploy and those three rollback files are deleted (LOGIC 48 -> 45), the admin corpus
+becomes a snapshot too, exactly like the others. **That is not a loss to avoid; it is the completion of the
+cutover** — the worker becomes the only implementation, and the corpus keeps proving what it answers.
+
