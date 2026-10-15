@@ -574,6 +574,27 @@ that a REGISTERED prefix resolves through the table. For every prefix either sid
 list with no arm fails it). **So rendering `pickRoute` means rendering the nine as the table's DATA, with
 `registerRoute` and the table-based predicate staying the host's.**
 
+## THE TEN LOGIC SOURCE FILES, CLASSIFIED — AND ONLY THREE OF THEM ARE WORK
+
+**MEASURED, NOT LISTED** (the manifest's own classification against `git ls-files gateway/src`), because the two
+estimates before this one were wrong in opposite directions: one called `plugins/status.ts` the next emission, the
+other missed two files entirely.
+
+| file | lines | verdict |
+|---|---|---|
+| `store/file-config.ts` | 217 | **TARGET.** The catalogue FILE layer — `catalogue_file.rs` is its Rust twin, already proved by the admin corpus, so this is an emission. |
+| `store/devices.ts` | 196 | **TARGET.** The console's device registry; `device_store.rs` is the worker's. |
+| `tooling.ts` | 260 | **TARGET, and the only one needing NEW Rust**: the two installer templates are decisions with no Rust home yet, and `summriseProbe` is a sequence. |
+| `upstream.ts` | 397 | **BOUNDARY WITH A GATE.** Its rules are the console's own runtime (the panel asks "which channel is this model?"), and the **617-case translate corpus already pins them function by function** — `resolve_model` 81, `pick_route` 45, `model_spec` 25, `strip_bracket` 9, `csrf_cookie_violation` 13, `probe_env_key_name` 12. **An emission here would be a transcription, not a single source.** |
+| `index.ts` | 520 | **BOUNDARY BY DEFINITION**: it IS the console's front door — the thing that hands routes to the worker. Nothing to port. |
+| `plugins/registry.ts` | 246 | **BOUNDARY**: the plugin framework its own plugins are registered into. |
+| `plugins/status.ts` | 314 | **BOUNDARY, and the worker says so twice** (see above). |
+| `plugins/auth.ts` `plugins/admin.ts` `plugins/models-probe.ts` | 842 / 614 / 211 | **ROLLBACK FILES**, deleted after a deploy observes the cutover — LOGIC 49 -> 46 in one step. The operator's ruling (round 32): continue the emissions, delete after the deploy. |
+
+**SO THE MIGRATION HAS THREE FILES OF REAL WORK LEFT, NOT TEN** — and a lesson worth more than the count: **every
+time this session estimated the remaining work from a file LIST, the estimate was wrong; the two times it MEASURED
+(the manifest's classification, and the worker's own comments), it was right.**
+
 ## WHAT IS LEFT, MEASURED
 
 **LOGIC 49** — 10 source files and 39 test files. The source files, in the order the next landings should take:
