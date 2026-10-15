@@ -23,7 +23,11 @@
 //   2. **`undefined` is `{"null": true}`** — the corpus's own sentinel for "no such model / no such wire", which
 //      its Rust tests decode. JSON has no `undefined`; the recording named it.
 //   3. **A `Set` is not a list in JSON**: `allowed_origins` returns a `ReadonlySet`, which serializes to `{}`.
-//   4. **The Rust struct's field is not the TypeScript's**: the worker's `RouteInfo` carries `is_translate`, the
+//   4. **A case may record a THROW**: \`{"threw": true, "message": "Invalid character"}\` is what
+//      \`b64_url_decode\`'s whitespace case records, with the RUNTIME's own message captured from the shipping side
+//      — so the expected shape has three forms (a value, a throw, and the undefined sentinel) and reading
+//      \`expected.value\` unconditionally compared five throwing cases against \`undefined\`.
+//   5. **The Rust struct's field is not the TypeScript's**: the worker's `RouteInfo` carries `is_translate`, the
 //      console's carries a `type` STRING. Reading the wrong one made all 45 routing cases look like passthrough.
 //
 // **AND IT ADDS CASES WITHOUT EVER DROPPING ONE.** The functions whose shipping implementation was deleted at the
@@ -47,6 +51,7 @@ import {
   wireSpec,
 } from "../src/channels-logic.ts";
 import {
+  b64urlDecodeStr,
   clearSessionCookieHeader,
   csrfCookieViolation,
   parseCookie,
@@ -120,6 +125,9 @@ const LIVE = {
 
   // ── auth/session (`auth-logic.ts`) ─────────────────────────────────────────────────────────────
   safe_eq: (input) => safeEq(input.a, input.b),
+  // The live name is `b64urlDecodeStr` — the corpus's `fn` is the RUST function's name, and this is the pair that
+  // proves the two spellings agree (the cases include the URL-safe alphabet and the missing padding).
+  b64_url_decode: (input) => b64urlDecodeStr(input),
   parse_cookie: (input) => parseCookie(input),
   session_cookie_header: (input) => sessionCookieHeader(input.token, input.maxAgeSec, input.secure),
   clear_session_cookie_header: (input) => clearSessionCookieHeader(input.secure),
@@ -238,9 +246,21 @@ let checked = 0;
 const moved = [];
 for (const c of doc.cases) {
   if (!owned.has(c.fn)) continue;
-  const got = encode(LIVE[c.fn](c.input));
+  // **A CASE MAY RECORD A THROW** — a third shape beside a value and the `{"null": true}` sentinel:
+  // `{"threw": true, "message": "Invalid character"}` is what `b64_url_decode`'s whitespace case records, and the
+  // message is the runtime's own, captured from the shipping side. So the replay catches and records the same way.
+  let got;
+  try {
+    got = encode(LIVE[c.fn](c.input));
+  } catch (error) {
+    got = { threw: true, message: String(error?.message ?? error) };
+  }
   checked += 1;
-  if (JSON.stringify(shrink(got, c.expected.value)) !== JSON.stringify(c.expected.value)) {
+  // **THE EXPECTED SHAPE HAS THREE FORMS**: `{value: …}`, `{threw: true, message: …}`, and `{value: {null: true}}`
+  // for the undefined sentinel. Reading `expected.value` unconditionally made the throwing cases compare against
+  // `undefined` — so the recording is taken whole unless it carries a `value`.
+  const want = Object.hasOwn(c.expected, "value") ? c.expected.value : c.expected;
+  if (JSON.stringify(shrink(got, want)) !== JSON.stringify(want)) {
     moved.push(
       `  ${c.fn} / ${c.name}\n    recorded: ${JSON.stringify(c.expected.value)}\n    live    : ${JSON.stringify(got)}`,
     );
