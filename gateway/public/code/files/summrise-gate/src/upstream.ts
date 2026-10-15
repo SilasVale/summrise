@@ -16,6 +16,12 @@
  * layered; no split warranted.
  */
 
+// **`stripBracket` AND `wireModelName` ARE THE EMISSION'S NOW (2026-10-14)** — `routing-logic.ts`, from
+// `routing.rs` and `registry.rs`. Both are one-line rules with a long history (the bracket marker clients
+// append; the `og`-only wire remap whose own comment says a wire on any other prefix would be silently
+// ignored), and both are re-exported below so every call site keeps its import.
+export { stripBracket, wireModelName } from "./routing-logic.ts";
+
 import {
   VERIFY_PATH,
   usProxyBase,
@@ -25,7 +31,6 @@ import {
   AMD_CHAT,
   R4_ANTHROPIC,
   R4_CHAT,
-  OG_WIRE_REMAP,
 } from "./channels.ts";
 import {
   SUPPORTED_PROVIDER_APIS,
@@ -341,25 +346,6 @@ export async function resolveRoute(
   const provider = await providerForPrefix(env, prefix);
   if (provider) return providerRoute(provider);
   return pickRoute(prefix, env, usProxy, requestPath);
-}
-
-// Claude Code appends a [context-window] marker (e.g. [1m]) to model names and strips it
-// before sending; strip it here too as a safety net so a literal "[1m]" never hits zen/OpenRouter.
-export function stripBracket(s: string): string {
-  return s.replace(/\[[^\]]*\]$/, "");
-}
-
-/**
- * Map a prefix-stripped model name to the slug the upstream actually accepts.
- * Currently only og/ has aliases (OG_WIRE_REMAP in channels.ts); every other
- * prefix passes through unchanged. Call sites: translate (the live /v1 path)
- * and the tooling probes — same contract as pickRoute/passthroughHeaders.
- */
-export function wireModelName(prefix: string, stripped: string): string {
-  if (prefix !== "og") return stripped;
-  return Object.prototype.hasOwnProperty.call(OG_WIRE_REMAP, stripped)
-    ? (OG_WIRE_REMAP[stripped] as string)
-    : stripped;
 }
 
 export function pickRoute(

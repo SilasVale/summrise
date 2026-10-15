@@ -583,11 +583,13 @@ const TS_MODULE: &str = r#"/**
  *
  *     SUMMRISE_REFRESH_ROUTING=1 cargo test --manifest-path gateway/wasm/Cargo.toml routing::emission
  *
- * `gateway/src/channels.ts` re-exports this module. **AND IT IMPORTS THE REGISTRY FROM THE OTHER EMISSION**:
+ * `gateway/src/channels.ts` re-exports this module. **`wireModelName` READS THE WIRE REMAP, SO THIS MODULE
+ * IMPORTS THE CATALOGUE EMISSION** — one generated module reading another's TABLE is a dependency, not a cycle,
+ * and the direction is one way. **AND IT IMPORTS THE REGISTRY FROM THE OTHER EMISSION**:
  * `OG_FORCE_US_PROXY` is derived from `MODEL_REGISTRY`, which is `channels-logic.ts`'s — one generated module
  * reading another's TABLE is a dependency, not a cycle, and the direction is one way.
  */
-import { MODEL_REGISTRY } from "./channels-logic.ts";
+import { MODEL_REGISTRY, OG_WIRE_REMAP } from "./channels-logic.ts";
 
 /** The path an Anthropic-format upstream serves. */
 export const VERIFY_PATH: string = "/v1/messages";
@@ -752,6 +754,22 @@ export function opencodeSessionHeader(
 /** Two 32-bit FNV-1a lanes over the string's UTF-16 code units, hex-padded — **`Math.imul` SEMANTICS, WHICH
  *  IS WHY IT IS NOT ONE 64-BIT HASH**: the source's arithmetic wraps at 32 bits per lane, and the emitted
  *  TypeScript keeps `Math.imul` so the two implementations agree digit for digit. */
+/** Drop ONE trailing `[...]` marker, if there is one — the `[1m]`-style suffix clients append and the router
+ *  must not send upstream. */
+export function stripBracket(s: string): string {
+  return s.replace(/\[[^\]]*\]$/, "");
+}
+
+/** The name the UPSTREAM is asked for, after the prefix is stripped: `og/`'s advertised names are not all zen's
+ *  slugs, so `OG_WIRE_REMAP` rewrites them **for `og` ALONE** — the console's own note is that a wire on any
+ *  other prefix would be silently ignored, and this is the function that decides that. */
+export function wireModelName(prefix: string, stripped: string): string {
+  if (prefix !== "og") return stripped;
+  return Object.prototype.hasOwnProperty.call(OG_WIRE_REMAP, stripped)
+    ? (OG_WIRE_REMAP[stripped] as string)
+    : stripped;
+}
+
 export function fnvHex(s: string): string {
   let h1 = 0x811c9dc5;
   let h2 = 0x01000193;
