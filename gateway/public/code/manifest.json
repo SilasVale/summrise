@@ -116,6 +116,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/routing-logic.ts",
+      "path": "files/summrise-gate/src/routing-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/session-logic.ts",
       "path": "files/summrise-gate/src/session-logic.ts",
       "group": "summrise-gate"

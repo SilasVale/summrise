@@ -116,6 +116,28 @@ pub fn provider_route(provider: &serde_json::Value) -> (RouteInfo, Option<String
 /// `web_search` TOOL.** The search swap below rewrites an og/ route to this passthrough because "the
 /// server-side tool is not executed on the chat/completions translation this route otherwise uses"
 /// (round-46 Medium #3).
+/// zen's OpenAI-compatible endpoint.
+pub const OG_ZEN_CHAT: &str = "https://opencode.ai/zen/go/v1/chat/completions";
+
+/// Command Code's OpenAI-compatible endpoint — the default channel's dialect.
+pub const CMD_CHAT: &str = "https://api.commandcode.ai/provider/v1/chat/completions";
+
+/// Qwen MaaS (Aliyun Token Plan), OpenAI-compatible mode — **NOT** the Anthropic endpoint, which rejects
+/// OpenAI-format bodies with 400 "Request body format invalid".
+pub const QWEN_COMPAT_CHAT: &str =
+    "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions";
+
+/// AMD Radeon Cloud's Anthropic endpoint — native, verified against the live API on 2026-09-02.
+pub const AMD_ANTHROPIC: &str = "https://developer.amd.com.cn/radeon/api/v1/messages";
+
+/// AMD's OpenAI-compatible endpoint.
+pub const AMD_CHAT: &str = "https://developer.amd.com.cn/radeon/api/v1/chat/completions";
+
+/// r4.codes' Anthropic endpoint — native too, verified 2026-09-20, and it accepts `x-api-key` OR `Bearer`.
+pub const R4_ANTHROPIC: &str = "https://api.r4.codes/v1/messages";
+
+/// r4's OpenAI-compatible endpoint.
+pub const R4_CHAT: &str = "https://api.r4.codes/v1/chat/completions";
 pub const OG_ZEN_ANTHROPIC: &str = "https://opencode.ai/zen/go/v1/messages";
 
 /// `VERIFY_PATH` — the path an Anthropic-format upstream serves.
@@ -392,9 +414,16 @@ pub const RETIRED_MODELS: [(&str, &str); 13] = [
 
 /// `retiredModelHint(model)` — the replacement to NAME, or `None`.
 pub fn retired_model_hint(model: &str) -> Option<&'static str> {
+    // **THE LOOKUP TRIMS AND LOWERCASES, AND THIS FUNCTION DID NOT UNTIL 2026-10-14.** The console's version
+    // always did — `String(model || "").trim().toLowerCase()` then a `hasOwnProperty` — so a caller spelling a
+    // retired id `amd/DeepSeek-V4-Flash` was told the replacement by the console and "Unknown channel model" by
+    // the worker. **EMITTING THE TABLE IS WHAT EXPOSED IT**: the console's test for the mixed-case spelling
+    // failed against the render of this function, which is the differential working in the direction nobody
+    // plans for (Rust → TypeScript, on a rule the Rust had wrong).
+    let key = model.trim().to_lowercase();
     RETIRED_MODELS
         .iter()
-        .find(|(id, _)| *id == model)
+        .find(|(id, _)| *id == key)
         .map(|(_, to)| *to)
 }
 
@@ -533,6 +562,219 @@ pub fn muse_responses_exit(env: Option<&serde_json::Value>) -> String {
 /// The og zen host's own `/v1/responses` — the exit's alternative.
 pub fn og_responses_direct() -> String {
     "https://opencode.ai/zen/go/v1/responses".to_string()
+}
+
+/// **THE ROUTER'S PUBLIC CONSTANTS AND PREDICATES, EMITTED — `routing-logic.ts`.**
+///
+/// `channels.ts` kept this half of the catalogue: the upstream URL constants, the US-egress set, the retired
+/// models and their hint, the US-proxy base and the muse exit. Every one of them was already a rule in this
+/// module — `pick_route` decides by these URLs, `og_force_us_proxy` IS the set's predicate,
+/// `retired_model_hint` is the table's lookup — and the console's copies existed because `channels.ts` is where
+/// its consumers import them from. They are rendered back now, and `channels.ts` re-exports.
+///
+/// **THE URLS ARE ALSO SPELLED INSIDE `pick_route`, AND THAT IS PINNED RATHER THAN TRUSTED**: the router builds
+/// its upstreams inline, so `the_url_constants_are_the_router's_own` asserts that each route's upstream STARTS
+/// WITH the constant this module exports — a second spelling that a test compares beats a second spelling that
+/// nothing does.
+const TS_MODULE: &str = r#"/**
+ * routing-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/routing.rs` (`render_typescript`). The freshness test there is a byte comparison:
+ *
+ *     SUMMRISE_REFRESH_ROUTING=1 cargo test --manifest-path gateway/wasm/Cargo.toml routing::emission
+ *
+ * `gateway/src/channels.ts` re-exports this module. **AND IT IMPORTS THE REGISTRY FROM THE OTHER EMISSION**:
+ * `OG_FORCE_US_PROXY` is derived from `MODEL_REGISTRY`, which is `channels-logic.ts`'s — one generated module
+ * reading another's TABLE is a dependency, not a cycle, and the direction is one way.
+ */
+import { MODEL_REGISTRY } from "./channels-logic.ts";
+
+/** The path an Anthropic-format upstream serves. */
+export const VERIFY_PATH: string = "/v1/messages";
+
+/** zen's Anthropic endpoint — the route `/v1/messages` takes for `og/`. */
+export const OG_ZEN_ANTHROPIC: string = "https://opencode.ai/zen/go/v1/messages";
+
+/** zen's OpenAI-compatible endpoint. */
+export const OG_ZEN_CHAT: string = "https://opencode.ai/zen/go/v1/chat/completions";
+
+/** Command Code's OpenAI-compatible endpoint (the default channel's dialect). */
+export const CMD_CHAT: string = "https://api.commandcode.ai/provider/v1/chat/completions";
+
+/**
+ * Qwen MaaS (Aliyun Token Plan), OpenAI-compatible mode — **NOT** the Anthropic
+ * `/apps/anthropic/v1/messages` endpoint, which rejects OpenAI-format bodies with 400 "Request body format
+ * invalid", so chat/completions requests (DSH & co.) must ride the compatible-mode endpoint instead.
+ */
+export const QWEN_COMPAT_CHAT: string =
+  "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions";
+
+/**
+ * AMD Radeon Cloud (`developer.amd.com.cn/radeon`) — a self-deploy inference pool ("Dynamic sglang/vllm-router
+ * service managed by Model Ops"), free tier with a per-model global concurrency cap. **BOTH formats are
+ * native**: `/api/v1/messages` really speaks Anthropic (thinking blocks + tool_use + SSE, verified against the
+ * live API 2026-09-02) and `/api/v1/chat/completions` speaks OpenAI — no translation on either path.
+ */
+export const AMD_ANTHROPIC: string = "https://developer.amd.com.cn/radeon/api/v1/messages";
+
+/** AMD's OpenAI-compatible endpoint. */
+export const AMD_CHAT: string = "https://developer.amd.com.cn/radeon/api/v1/chat/completions";
+
+/**
+ * r4.codes — a coding-agent gateway serving its whole catalog on ONE host under BOTH protocols natively, like
+ * AMD (verified against the live API 2026-09-20): `/v1/messages` returns a real Anthropic message (thinking
+ * blocks included) and accepts `x-api-key` OR `Bearer`, and `/v1/chat/completions` returns a normal
+ * chat.completion. No translation on either path, so the route is picked by `requestPath`.
+ */
+export const R4_ANTHROPIC: string = "https://api.r4.codes/v1/messages";
+
+/** r4's OpenAI-compatible endpoint. */
+export const R4_CHAT: string = "https://api.r4.codes/v1/chat/completions";
+
+/** Reserved for future use — **CURRENTLY EMPTY**, and that is a measurement rather than a placeholder: models
+ *  listed here would bypass the OpenAI translate path and take native Anthropic `/v1/messages` passthrough. */
+export const OG_NATIVE_ANTHROPIC: Set<string> = new Set();
+
+/** The models that MUST ride the US egress pool — `usEgress` on the registry, by advertised id. */
+export const OG_FORCE_US_PROXY: Set<string> = new Set(
+  MODEL_REGISTRY.filter((m) => m.usEgress).map((m) => m.id),
+);
+
+/** `model id → the id to suggest instead`, for the ids this deployment has retired. */
+export const RETIRED_MODELS: Record<string, string> = {
+{{RETIRED}}
+};
+
+/** The replacement to suggest for a retired id, or null. */
+export function retiredModelHint(model: string): string | null {
+  const key = String(model || "")
+    .trim()
+    .toLowerCase();
+  return Object.prototype.hasOwnProperty.call(RETIRED_MODELS, key)
+    ? (RETIRED_MODELS[key] as string)
+    : null;
+}
+
+/** `usProxyBase(env)` — the US-exit base, `US_PROXY_BASE` over it. **AN EMPTY VALUE FALLS BACK**, which is
+ *  what the deployment that clears the variable wants. */
+export function usProxyBase(env: any): string {
+  return env?.US_PROXY_BASE || "https://v.saisi.online";
+}
+
+/** `museResponsesExit(env)` — where `muse-spark-*`'s `/v1/responses` requests leave through: `vercel` builds a
+ *  path on the US-proxy base, `zen-us` is a fixed host, any absolute URL is taken as given, and everything else
+ *  (including unset) is the oracle. */
+export function museResponsesExit(env: any): string {
+  const v = env?.MUSE_RESPONSES_EXIT;
+  if (v === "vercel") {
+    return `${usProxyBase(env)}/api/zen?target=og&path=${encodeURIComponent("/v1/responses")}`;
+  }
+  if (v === "zen-us") return "https://zen-us.saisi.online/v1/responses";
+  if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) return v;
+  return "https://oracle.saisi.online/v1/responses";
+}
+"#;
+
+/// **THE PRODUCER.** The retired table is rendered as a literal rather than quoted, so its 13 rows come from
+/// [`RETIRED_MODELS`] and cannot drift from it.
+pub fn render_typescript() -> String {
+    let rows = RETIRED_MODELS
+        .iter()
+        .map(|(id, to)| format!("  {}: {},", ts_string(id), ts_string(to)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    TS_MODULE.replace("{{RETIRED}}", &rows)
+}
+
+/// A TypeScript string literal for a Rust `&str`.
+fn ts_string(raw: &str) -> String {
+    format!("\"{}\"", raw.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/routing-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_ROUTING").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write routing-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_ROUTING=1 cargo test routing::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/routing-logic.ts is not what routing.rs emits — \
+             run SUMMRISE_REFRESH_ROUTING=1 cargo test routing::emission"
+        );
+    }
+
+    /// **THE SECOND SPELLING OF THE URLS IS COMPARED, NOT TRUSTED.** `pick_route` builds each upstream inline;
+    /// each of these must agree with the constant the emission publishes, or the console would describe an
+    /// upstream the router does not dial.
+    #[test]
+    fn the_url_constants_are_the_routers_own() {
+        let env = serde_json::json!({});
+        // **THE MAPPING WAS MEASURED, NOT ASSUMED** — the first version of this table asserted `og` +
+        // `/v1/messages` → `OG_ZEN_ANTHROPIC` and the test failed, because **`og` rides zen's OpenAI-compatible
+        // endpoint for BOTH paths** (its own card says so: "all models via chat/completions"). The Anthropic
+        // constant is the SWAP's target, not `pick_route`'s. Every row below is what `pick_route` answers.
+        for (prefix, path, expected) in [
+            ("og", "/v1/messages", OG_ZEN_CHAT),
+            ("og", "/v1/chat/completions", OG_ZEN_CHAT),
+            ("cm", "/v1/messages", CMD_CHAT),
+            ("cm", "/v1/chat/completions", CMD_CHAT),
+            // The one prefix that really does split by path: Anthropic passthrough for messages,
+            // compatible-mode for chat.
+            ("qw", "/v1/chat/completions", QWEN_COMPAT_CHAT),
+            ("amd", "/v1/messages", AMD_ANTHROPIC),
+            ("amd", "/v1/chat/completions", AMD_CHAT),
+            ("r4", "/v1/messages", R4_ANTHROPIC),
+            ("r4", "/v1/chat/completions", R4_CHAT),
+        ] {
+            let route = pick_route(prefix, Some(&env), None, path);
+            assert!(
+                route.upstream.starts_with(expected),
+                "{prefix} {path}: the router dials {} but the emission publishes {expected}",
+                route.upstream
+            );
+        }
+    }
+
+    /// The retired table is the emission's and the lookup reads it — one table, and the hint is its own row.
+    #[test]
+    fn the_retired_table_is_the_emissions() {
+        let ts = render_typescript();
+        assert_eq!(RETIRED_MODELS.len(), 13);
+        for (id, to) in RETIRED_MODELS.iter() {
+            assert!(
+                ts.contains(&format!("\"{id}\": \"{to}\",")),
+                "the emission lost {id}"
+            );
+            assert_eq!(retired_model_hint(id), Some(*to));
+        }
+        assert_eq!(retired_model_hint("og/not-retired"), None);
+        // **THE MIXED-CASE SPELLING, WHICH IS THE CASE THE CONSOLE'S SUITE FOUND.** `amd/DeepSeek-V4-Flash`
+        // resolves to the replacement; the table's own keys are lowercase, so without the fold this answered
+        // `None` and the worker told a caller "Unknown channel model" where the console named the replacement.
+        assert_eq!(
+            retired_model_hint("  amd/DeepSeek-V4-Flash  "),
+            Some("cm/deepseek/deepseek-v4.1-flash")
+        );
+    }
 }
 
 #[cfg(test)]
