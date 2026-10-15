@@ -178,15 +178,17 @@ test("every argument the console sends a browser tool exists in the shipped serv
 });
 
 test("every mapping in the bridge points at a tool the shipped server defines", () => {
-  // THE SUBJECT MOVED, NOT DIED: the table is `fn playwright_tool` in the Rust bridge, and this parses its
-  // `"console" => "shipped"` arms. The `other => other` fallback is not a mapping and is skipped by the regex.
+  // **THE SUBJECT MOVED AGAIN, AND THIS IS THE THIRD FORM — WHICH IS WHY THE ASSERTION BELOW IS WRITTEN THE WAY
+  // IT IS.** It has been a `switch`, then `fn playwright_tool`'s `match name { … }` arms, and now
+  // `const BRIDGE_TOOLS: &[(&str, &str)]` — moved on 2026-10-15 because **the `match` could not answer "is this
+  // name ours?"**: four of the seven map to THEMSELVES, so `playwright_tool(name) != name` said "not ours" for
+  // tools the bridge answers every day, and the console's new catalogue gate failed on them immediately. **A
+  // membership test needs a table, not a transformation.**
   const src = readFileSync(new URL("../wasm/src/mcp_browser.rs", import.meta.url), "utf8");
   const { tools: blocks } = shippedSchemaText();
-  const table = /fn playwright_tool\(name: &str\) -> &str \{[\s\S]*?match name \{([\s\S]*?)\n    \}/.exec(
-    src,
-  );
+  const table = /const BRIDGE_TOOLS: &\[\(&str, &str\)\] = &\[([\s\S]*?)\n\];/.exec(src);
   assert.ok(table, "the mapping table moved — re-point this test rather than deleting it");
-  const mappings = [...table[1].matchAll(/"(\w+)"\s*=>\s*"(\w+)"/g)].map((m) => [m[1], m[2]]);
+  const mappings = [...table[1].matchAll(/\(\s*"(\w+)",\s*"(\w+)"\s*\)/g)].map((m) => [m[1], m[2]]);
   assert.ok(mappings.length >= 7, `only ${mappings.length} mappings parsed`);
   const ghosts = mappings.filter(([, pm]) => !blocks[pm]).map(([g, pm]) => `${g} -> ${pm}`);
   assert.deepEqual(ghosts, [], `the bridge maps to tools the server does not define: ${ghosts.join(", ")}`);

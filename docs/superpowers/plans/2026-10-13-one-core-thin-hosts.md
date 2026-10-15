@@ -716,3 +716,43 @@ bound to this deployment (WASM_GATE) — the TypeScript implementation was delet
 already in `frontDoor()`. **The rollback stops being a second implementation and becomes a refusal that says
 exactly what is missing** — which is what a cutover is supposed to look like when it is finished.
 
+---
+
+## A GATE THAT WAS DELETED WITH ITS PLUGIN, AND A QUESTION THE MEASUREMENT LEFT OPEN (2026-10-15, round 54)
+
+**`gateway/wasm/src/mcp_tools.rs` STILL NAMES A CONTRACT TEST THAT DOES NOT EXIST**: *"the contract test that reads
+`../agent/spec-tools.json` still holds the table against the DEVICE's registry"* — it lived in
+`gateway/test/mcp-handler.test.mjs`, which went with the MCP plugin at the cutover. **For a while the console's tool
+catalogue was held against nothing at all**, and the file's own header has a paragraph about a sentence that
+"BECAME FALSE" — this is that paragraph's subject again, one deletion later.
+
+**THE HALF THAT CANNOT BE ARGUED ABOUT IS GATED NOW**: `every_tool_the_console_offers_is_served_by_the_device_or_the_bridge`
+— every tool in the console's catalogue must exist in the device's registry (`agent/spec-tools.json`, which the
+agent writes from its own `ToolDef`s) **or** in the browser bridge's table (`mcp_browser::BRIDGE_TOOLS`, whose seven
+`browser_*` names the bridge answers itself). **A catalogue entry nobody serves is a tool a model can call and watch
+fail**, and it is the one class of drift that survives both refresh mechanisms.
+
+**AND THE GATE FOUND A BUG IN ITS OWN PREDICATE WHILE BEING WRITTEN**: `is_bridged` first asked
+`playwright_tool(name) != name`, and **four of the seven names map to THEMSELVES** (`browser_snapshot`,
+`browser_click`, `browser_type`, `browser_close`) — so identity said "not ours" for tools the bridge answers every
+day. The mapping is a table now (`const BRIDGE_TOOLS`), because **membership and mapping are one fact**, and
+`browser-contract.test.mjs`'s parser was re-pointed at it (that test's own comment says "the mapping table moved —
+re-point this test rather than deleting it", and this is the third form it has followed).
+
+### THE QUESTION THE OTHER DIRECTION LEAVES OPEN, WITH THE LIST
+
+**24 of the device's 56 tools are NOT in the console's MCP catalogue.** The gate deliberately does not assert that
+direction, because whether the model-driven surface SHOULD expose them is a product decision, and two of them
+install software and kill processes:
+
+    agent_update, mcp_client_call, mcp_client_connect, mcp_client_disconnect, mcp_client_list,
+    memory_delete, memory_export, memory_list, memory_save, memory_search, memory_update,
+    page_view, sftp, system_file_list, system_file_read, system_file_stat, system_file_write,
+    system_net_test, system_process_kill, system_process_list,
+    terminal_secret_delete, terminal_secret_get, terminal_secret_set, terminal_sftp
+
+**THE COUNTER-EVIDENCE IS IN THE FILE THAT LISTS THEM**: `mcp_tools.rs`'s header records the opposite failure once
+already — *"21 of the agent's 49 tools were invisible AND uncalled with every gate green"* (round 554), which is why
+the table became Rust in the first place. **So: is a 24-tool gap the same defect at a larger size, or a deliberate
+allowlist?** Nothing in the tree answers it, which is why it is written here rather than encoded as a gate.
+

@@ -97,6 +97,30 @@ if has '^agent/'; then
   fi
 fi
 
+# **THE GATEWAY'S RUST HALF, AND THE HOOK FOUND THIS RULE MISSING BY BEING USED** (2026-10-15): a change under
+# `gateway/wasm/` ran the gateway SUITE and none of the crate's own gates — the mapping was written from memory of
+# which job holds which crate, which is the same mistake this hook exists to remove, one level up. The commands are
+# the `gateway` job's own, INCLUDING THE `wasm32-unknown-unknown` CLIPPY PASS, which no local run in this session
+# had ever done.
+#
+# **`cargo fmt --check` IS DELIBERATELY NOT RUN FOR THIS CRATE**: the workflow records that it fails at `main` on
+# six pre-existing files, and that formatting them is its own commit. A hook that reports a failure the other end
+# does not would be a hook people learn to bypass.
+if has '^gateway/wasm/src/|^gateway/wasm/Cargo.toml|^core/summrise-core/'; then
+  if command -v cargo >/dev/null 2>&1; then
+    run "wasm: tests" cargo test --manifest-path gateway/wasm/Cargo.toml
+    run "wasm: clippy (host)" cargo clippy --manifest-path gateway/wasm/Cargo.toml --all-targets -- -D warnings
+    run "wasm: clippy (wasm32)" cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
+    if has '^core/summrise-core/'; then
+      run "core: tests" cargo test --manifest-path core/summrise-core/Cargo.toml
+      run "core: clippy" cargo clippy --manifest-path core/summrise-core/Cargo.toml --all-targets -- -D warnings
+      run "core: rustfmt" cargo fmt --manifest-path core/summrise-core/Cargo.toml --all -- --check
+    fi
+  else
+    echo "local-gates: no cargo on PATH — the wasm gates cannot run here (failing OPEN for them)" >&2
+  fi
+fi
+
 if has '^gateway/src/|^gateway/test/'; then
   if [ -n "$dry" ] || [ -d gateway/node_modules ]; then
     run "gateway: format" bash -c 'cd gateway && npm run format:check'
