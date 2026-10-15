@@ -673,6 +673,95 @@ export function museResponsesExit(env: any): string {
   if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) return v;
   return "https://oracle.saisi.online/v1/responses";
 }
+
+// ── THE REQUEST-SHAPING HELPERS (`session.rs`) ──────────────────────────────────────────────────
+//
+// **THEY ARE HERE BECAUSE THE ROUTER IS WHAT CALLS THEM**, and they were hand-mirrored in `upstream.ts`:
+// the passthrough header set, the session-id extraction and its synthetic fallback, and the FNV that makes
+// the fallback stable per user.
+
+/**
+ * The headers a passthrough dial sends. **THE CLIENT'S OWN AUTH IS NEVER FORWARDED** — the user's key is —
+ * and `apiKeyHeader` is the one upstream that authenticates with `x-api-key` instead of `Bearer`.
+ *
+ * The two base headers are unconditional: every passthrough target speaks the Anthropic protocol (ds/qw
+ * native, the openrouter proxy), and OpenAI-format backends ignore `anthropic-version`.
+ */
+export function passthroughHeaders(
+  bearerKey: string | null,
+  {
+    apiKeyHeader = false,
+    extra = {},
+  }: { apiKeyHeader?: string | false; extra?: Record<string, string> } = {},
+): Headers {
+  const h = new Headers();
+  h.set("Content-Type", "application/json");
+  h.set("anthropic-version", "2023-06-01");
+  // An EMPTY key is not a key: the arms below are skipped rather than sent blank.
+  if (bearerKey) {
+    if (apiKeyHeader) h.set(apiKeyHeader, bearerKey);
+    else h.set("Authorization", `Bearer ${bearerKey}`);
+  }
+  for (const [name, value] of Object.entries(extra)) {
+    if (value) h.set(name, value);
+  }
+  return h;
+}
+
+/** `SESSION_SALT` — **A CONSTANT APPLICATION SALT, NOT A SECRET**: it keeps two deployments' synthetic ids
+ *  from colliding without pretending to be a credential. */
+export const SESSION_SALT = "summrise-og-session-v1";
+
+/** One header, trimmed, or `""` — **AND IT ANSWERS `""` RATHER THAN THROWING** for a `HeadersInit` the
+ *  platform refuses (the source's `try`/`catch`), because a malformed header set must not fail a dial. */
+function headerValue(headers: Headers | HeadersInit | undefined, name: string): string {
+  if (!headers) return "";
+  try {
+    const h = headers instanceof Headers ? headers : new Headers(headers as HeadersInit);
+    return h.get(name)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+/** The client's session id, from the four header names zen/go and its clients use — the FIRST non-empty one
+ *  wins, and an absent one answers `""` rather than throwing. */
+export function clientSessionId(incoming: Headers | HeadersInit | undefined): string {
+  return (
+    headerValue(incoming, "x-opencode-session") ||
+    headerValue(incoming, "x-client-request-id") ||
+    headerValue(incoming, "session_id") ||
+    headerValue(incoming, "x-session-id")
+  );
+}
+
+/** A per-USER session id for a client that sent none: `summrise-` and the FNV of a salted uid, so the same
+ *  user gets the same id across requests and two users never collide. */
+export function syntheticSessionId(uid: string): string {
+  return `summrise-${fnvHex(`${SESSION_SALT}:${uid}`)}`;
+}
+
+/** The header zen/go routes on: the client's id verbatim, or the synthetic per-user value. */
+export function opencodeSessionHeader(
+  incoming: Headers | HeadersInit | undefined,
+  uid: string,
+): { "x-opencode-session": string } {
+  return { "x-opencode-session": clientSessionId(incoming) || syntheticSessionId(uid) };
+}
+
+/** Two 32-bit FNV-1a lanes over the string's UTF-16 code units, hex-padded — **`Math.imul` SEMANTICS, WHICH
+ *  IS WHY IT IS NOT ONE 64-BIT HASH**: the source's arithmetic wraps at 32 bits per lane, and the emitted
+ *  TypeScript keeps `Math.imul` so the two implementations agree digit for digit. */
+export function fnvHex(s: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+}
 "#;
 
 /// **THE PRODUCER.** The retired table is rendered as a literal rather than quoted, so its 13 rows come from
