@@ -324,17 +324,38 @@ async fn invoke_once(
 }
 
 /// The gateway name → playwright-mcp name map, with `|| name` for anything not in it.
+/// **THE BRIDGE'S OWN TABLE: console name -> playwright-mcp name.**
+///
+/// IT IS A TABLE BECAUSE MEMBERSHIP AND MAPPING ARE ONE FACT. The first version of `is_bridged` asked
+/// `playwright_tool(name) != name`, and **FOUR OF THE SEVEN NAMES MAP TO THEMSELVES** (`browser_snapshot`,
+/// `browser_click`, `browser_type`, `browser_close`) — so identity said "not ours" for tools the bridge answers
+/// every day, and the new console-catalogue gate failed on them within a minute of being written.
+const BRIDGE_TOOLS: &[(&str, &str)] = &[
+    ("browser_open", "browser_navigate"),
+    ("browser_snapshot", "browser_snapshot"),
+    ("browser_screenshot", "browser_take_screenshot"),
+    ("browser_click", "browser_click"),
+    ("browser_type", "browser_type"),
+    ("browser_wait", "browser_wait_for"),
+    ("browser_close", "browser_close"),
+];
+
 fn playwright_tool(name: &str) -> &str {
-    match name {
-        "browser_open" => "browser_navigate",
-        "browser_snapshot" => "browser_snapshot",
-        "browser_screenshot" => "browser_take_screenshot",
-        "browser_click" => "browser_click",
-        "browser_type" => "browser_type",
-        "browser_wait" => "browser_wait_for",
-        "browser_close" => "browser_close",
-        other => other,
-    }
+    BRIDGE_TOOLS
+        .iter()
+        .find(|(from, _)| *from == name)
+        .map(|(_, to)| *to)
+        .unwrap_or(name)
+}
+
+/// **IS THIS ONE OF THE NAMES THE BRIDGE ANSWERS ITSELF?** The mapping above falls through to `other` for a name
+/// it does not know, so identity is the test — and it is exposed rather than re-listed, because a second copy of
+/// these seven names is exactly what `mcp_tools.rs`'s new gate exists to avoid.
+/// **`#[cfg(test)]`, BECAUSE THE TEST IS THE ONLY CALLER** — clippy said so (`is_bridged` is never used) on the
+/// first run of the command list, and that is the honest answer for a predicate a GATE asks rather than the bridge.
+#[cfg(test)]
+pub(crate) fn is_bridged(name: &str) -> bool {
+    BRIDGE_TOOLS.iter().any(|(from, _)| *from == name)
 }
 
 /// `{ "Content-Type": "application/json", Authorization: \`Bearer ${token}\` }`.

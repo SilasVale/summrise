@@ -1131,6 +1131,74 @@ pub fn typescript_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/mcp-tools.ts")
 }
 
+/// **EVERY TOOL IN THIS TABLE IS SERVED BY SOMEBODY — AND THAT IS THE HALF OF THE OLD GATE THAT SURVIVED
+/// ITS DELETION.**
+///
+/// This module's header still names a contract test — "the contract test that reads `../agent/spec-tools.json`
+/// still holds the table against the DEVICE's registry" — and **THE FILE IT NAMES DOES NOT EXIST**: the test
+/// lived in `gateway/test/mcp-handler.test.mjs`, which went with the MCP plugin at the cutover. So for a while
+/// the console's catalogue was held against nothing at all.
+///
+/// **THE DIRECTION CHECKED HERE IS THE ONE THAT CANNOT BE ARGUED ABOUT**: a tool this table OFFERS must exist
+/// somewhere — either in the device's own registry (`agent/spec-tools.json`, written by the agent from its
+/// `ToolDef`s) or in the browser bridge's mapping (`mcp_browser::playwright_tool`, which answers the seven
+/// `browser_*` names itself). **A catalogue entry nobody serves is a tool a model can call and watch fail**,
+/// and it is the one class of drift that survives both refresh mechanisms.
+///
+/// **THE OTHER DIRECTION IS DELIBERATELY NOT ASSERTED**, and the measurement is why: **24 of the device's 56
+/// tools are NOT in this table** (`memory_*`, `system_*`, `mcp_client_*`, `page_view`, `agent_update`,
+/// `terminal_secret_*`, `sftp`/`terminal_sftp`, four `system_file_*`). Whether the model-driven surface SHOULD
+/// expose them is a product decision — two of them install software and kill processes — and this module's
+/// header records the opposite failure once already ("21 of the agent's 49 tools were invisible AND uncalled
+/// with every gate green", round 554). **A gate is the wrong instrument for a decision that has not been made;
+/// the list is in the plan document instead.**
+#[test]
+fn every_tool_the_console_offers_is_served_by_the_device_or_the_bridge() {
+    // `gateway/wasm/` is TWO levels below the repo root, not three — measured after the first run said
+    // "No such file or directory" and resolved to `/home/zss/agent/…`.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../agent/spec-tools.json");
+    let raw = std::fs::read_to_string(path).expect("agent/spec-tools.json is committed");
+    // The artifact carries a `//` comment header (its writer adds one), so the JSON starts below it.
+    let body: String = raw
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("the device spec parses");
+    // **A TOP-LEVEL ARRAY, NOT `{tools: …}`** — measured, after the first version asked for `spec.tools` and
+    // panicked on a document that is a list.
+    let tools = doc
+        .as_array()
+        .expect("the device spec is an array of tools");
+    let device: std::collections::BTreeSet<&str> =
+        tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(
+        device.len() >= 40,
+        "only {} device tool(s) in the spec — the scan is looking at the wrong shape",
+        device.len()
+    );
+
+    let mut ghosts = Vec::new();
+    let mut checked = 0;
+    for tool in TOOLS {
+        checked += 1;
+        if device.contains(tool.name) {
+            continue;
+        }
+        if crate::mcp_browser::is_bridged(tool.name) {
+            continue;
+        }
+        ghosts.push(tool.name);
+    }
+    assert!(checked >= 30, "only {checked} tool(s) in the console table");
+    assert!(
+            ghosts.is_empty(),
+            "the console offers tool(s) nothing serves — not the device ({:?}) and not the browser bridge: {:?}",
+            device.len(),
+            ghosts
+        );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
