@@ -1452,6 +1452,12 @@ jobs:
           cache-bin: true
       - name: every Rust/JS byte comparison
         run: bash scripts/test/rust-byte-checks.bash
+      # **THE CORPUS'S OWN PRODUCER, BACK IN THE TREE AND GATED (2026-10-15).** `translate-corpus.json` is 621
+      # cases that every worker test reads, and until now it could not be re-recorded — its producer was named in
+      # comments and absent from the repository. The oracle replays the recorded inputs through the LIVE console
+      # code, so this step fails when the shipping side moves and the worker does not follow.
+      - name: the translate corpus still matches the live TypeScript
+        run: bash scripts/test/oracle-translate-freshness.bash
 
   proxies-zen:
     name: proxies (zen-us + zen-go)
