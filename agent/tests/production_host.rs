@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 56] = [
+const ALLOWED: [(&str, &str); 57] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -195,6 +195,12 @@ const ALLOWED: [(&str, &str); 56] = [
     // ── the worker's other configured defaults ──
     ("gateway/src/auth.ts", "a comment explaining why a device panel is same-site with the console"),
     ("gateway/src/channels.ts", "the AI channel defaults (oracle/zen-us/zen-go) a deployment ships with"),
+    // **A FILE BEING SPLIT, WHICH IS THE ONE CASE THIS GATE'S OWN RATCHET DOCUMENTS AS A LEGITIMATE UP.** The
+    // three hosts above moved OUT of `channels.ts` and INTO this emission when the URL constants became
+    // `routing.rs`'s (2026-10-14) — the count of places a production host is NAMED did not change, the FILE
+    // that names them did, and the source of truth is the Rust module listed two lines up. MAX_ALLOWED
+    // 56 -> 57 in this commit, as the gate's own message requires.
+    ("gateway/src/routing-logic.ts", "the EMISSION of the upstream URLs: oracle/zen-us/zen-go as `routing.rs` spells them"),
     ("gateway/src/upstream.ts", "the upstream provider defaults those channels point at"),
     ("gateway/src/store/", "store defaults that name the deployment's own hosts"),
     (".github/workflows/release.yml", "the release job that must reach the live CDN and gateway"),
@@ -281,7 +287,7 @@ const ALLOWED: [(&str, &str); 56] = [
 // a widened prefix, which is what this ratchet exists to prevent. The alternative considered and rejected was
 // keeping the hostname out of the design and the plan; the read URL is what the operator asked for, and a
 // design that cannot write down its own surface is not a design.
-const MAX_ALLOWED: usize = 56;
+const MAX_ALLOWED: usize = 57;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.
