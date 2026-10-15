@@ -33,6 +33,22 @@ import {
   type ProviderSpec,
 } from "./store/providers.ts";
 
+// **THE REQUEST-SHAPING HELPERS ARE AN EMISSION NOW (2026-10-14)** — `routing-logic.ts`, GENERATED from
+// `gateway/wasm/src/routing.rs` and `session.rs`. They were hand-mirrored here (the passthrough header set,
+// the session-id extraction and its synthetic fallback, the FNV that makes the fallback stable per user), and
+// the worker dials by them. The router's own decisions — `pickRoute`, `providerRoute`, `resolveRoute`,
+// `wireModelName`, `stripBracket` — are the next slice; `resolveRoute` is a SEQUENCE (the provider lookup, the
+// KV setting, then the table), so it takes the `seedAdminSequence` treatment rather than a straight render.
+
+export {
+  clientSessionId,
+  fnvHex,
+  opencodeSessionHeader,
+  passthroughHeaders,
+  SESSION_SALT,
+  syntheticSessionId,
+} from "./routing-logic.ts";
+
 export interface RouteInfo {
   /** How to talk to the upstream: "passthrough" (forward the body as-is),
    *  "translate" (reshape Anthropic <-> OpenAI), or "error" (the route exists
@@ -371,33 +387,6 @@ export function pickRoute(
   return builder({ env, prefix, usProxy, requestPath, via });
 }
 
-export function passthroughHeaders(
-  bearerKey: string | null,
-  {
-    apiKeyHeader = false,
-    extra = {},
-  }: { apiKeyHeader?: string | false; extra?: Record<string, string> } = {},
-): Headers {
-  const h = new Headers();
-  h.set("Content-Type", "application/json");
-  // All passthrough targets speak the Anthropic protocol (ds/qw native,
-  // openrouter-proxy) — send the standard version header; OpenAI-format
-  // backends ignore it.
-  h.set("anthropic-version", "2023-06-01");
-  // Do not forward the client's auth header — use this user's own key.
-  // zen/go/v1/messages (native-Anthropic og) authenticates with x-api-key;
-  // every other upstream accepts Bearer.
-  if (bearerKey) {
-    if (apiKeyHeader) h.set(apiKeyHeader, bearerKey);
-    else h.set("Authorization", `Bearer ${bearerKey}`);
-  }
-  // Extra per-request headers (e.g. x-opencode-session for zen/go routing).
-  for (const [name, value] of Object.entries(extra)) {
-    if (value) h.set(name, value);
-  }
-  return h;
-}
-
 // Stable per-conversation session id for opencode zen/go requests.
 //
 // zen/go requires x-opencode-session on every request since 2026-09-05 and
@@ -420,70 +409,3 @@ export function passthroughHeaders(
 // Only attached to requests actually destined for zen/go (route.kind ===
 // "opencode"), so ds/qw/or/nv/gmi/cm/amd wires stay untouched and no foreign
 // header leaks to other upstreams.
-const SESSION_SALT = "summrise-og-session-v1";
-
-/**
- * Priority-ordered client conversation id (SOLID Round-4: SRP extraction).
- *
- * Pure read of the four identifiers a client may already carry — native
- * opencode clients (`x-opencode-session` / future DSH builds), DSH's pi-ai
- * adapter (`x-client-request-id`, stamped per conversation), and
- * OpenAI/OpenRouter-style ids (`session_id` / `x-session-id`). Returns the
- * first non-blank value (headers are trimmed), or "" when the client sent
- * none. Relaying the client's own id keeps one cache namespace per real
- * conversation upstream.
- */
-export function clientSessionId(incoming: Headers | HeadersInit | undefined): string {
-  return (
-    headerValue(incoming, "x-opencode-session") ||
-    headerValue(incoming, "x-client-request-id") ||
-    headerValue(incoming, "session_id") ||
-    headerValue(incoming, "x-session-id")
-  );
-}
-
-/**
- * Stable per-user fallback id (SOLID Round-4: SRP extraction).
- *
- * Used only when the client sent no conversation id. Derived WITHOUT KV (no
- * extra reads/writes): a digest of the uid under a constant application
- * salt. Stable across isolates and deploys (cache reuse), never a secret —
- * zen treats the value as a routing hint, not a gate.
- */
-export function syntheticSessionId(uid: string): string {
-  return `summrise-${fnvHex(`${SESSION_SALT}:${uid}`)}`;
-}
-
-export function opencodeSessionHeader(
-  incoming: Headers | HeadersInit | undefined,
-  uid: string,
-): { "x-opencode-session": string } | Record<string, never> {
-  // Thin composer (SOLID Round-4): extraction + fallback live above and are
-  // unit-tested in isolation; this keeps the exact historical semantics —
-  // client id wins verbatim, otherwise the synthetic per-user value.
-  return { "x-opencode-session": clientSessionId(incoming) || syntheticSessionId(uid) };
-}
-
-// FNV-1a 64-bit fold into 16 hex chars. Deliberately non-cryptographic: the
-// value is a routing/cache key, not a secret — see syntheticSessionId.
-// Exported for unit tests (was private); the algorithm itself is unchanged.
-export function fnvHex(s: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
-  }
-  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
-}
-
-function headerValue(headers: Headers | HeadersInit | undefined, name: string): string {
-  if (!headers) return "";
-  try {
-    const h = headers instanceof Headers ? headers : new Headers(headers as HeadersInit);
-    return h.get(name)?.trim() || "";
-  } catch {
-    return "";
-  }
-}
