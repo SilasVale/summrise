@@ -1485,6 +1485,18 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
+      # **A HIDDEN ORDER DEPENDENCY, MADE EXPLICIT (2026-10-15).** The differential tests build the module with
+      # `worker-build`. Until the fat `proxies` job was split, NOTHING in that job installed it — `rust-byte-checks.bash`
+      # did, because it self-heals — so the step that INSTALLED it and the steps that USED it were related only by
+      # their position in one job's list. The split broke that silently and three jobs went red with
+      # "worker-build is not runnable … Install it: cargo install worker-build --locked".
+      #
+      # The detection is the byte-checks script's own, and so is why it is cheap: the runner caches ~/.cargo/bin,
+      # so this is a no-op after the first job on a warm cache (a few minutes cold — which the byte checks, the
+      # job that still runs first, already paid).
+      - name: Install worker-build (what the differential tests drive)
+        run: |
+          command -v worker-build >/dev/null 2>&1 || cargo install worker-build --locked
       # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
       # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
       # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
@@ -1597,6 +1609,18 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
+      # **A HIDDEN ORDER DEPENDENCY, MADE EXPLICIT (2026-10-15).** The differential tests build the module with
+      # `worker-build`. Until the fat `proxies` job was split, NOTHING in that job installed it — `rust-byte-checks.bash`
+      # did, because it self-heals — so the step that INSTALLED it and the steps that USED it were related only by
+      # their position in one job's list. The split broke that silently and three jobs went red with
+      # "worker-build is not runnable … Install it: cargo install worker-build --locked".
+      #
+      # The detection is the byte-checks script's own, and so is why it is cheap: the runner caches ~/.cargo/bin,
+      # so this is a no-op after the first job on a warm cache (a few minutes cold — which the byte checks, the
+      # job that still runs first, already paid).
+      - name: Install worker-build (what the differential tests drive)
+        run: |
+          command -v worker-build >/dev/null 2>&1 || cargo install worker-build --locked
       # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
       # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
       # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
@@ -1696,6 +1720,18 @@ jobs:
         with:
           toolchain: 1.98.1
           targets: wasm32-unknown-unknown
+      # **A HIDDEN ORDER DEPENDENCY, MADE EXPLICIT (2026-10-15).** The differential tests build the module with
+      # `worker-build`. Until the fat `proxies` job was split, NOTHING in that job installed it — `rust-byte-checks.bash`
+      # did, because it self-heals — so the step that INSTALLED it and the steps that USED it were related only by
+      # their position in one job's list. The split broke that silently and three jobs went red with
+      # "worker-build is not runnable … Install it: cargo install worker-build --locked".
+      #
+      # The detection is the byte-checks script's own, and so is why it is cheap: the runner caches ~/.cargo/bin,
+      # so this is a no-op after the first job on a warm cache (a few minutes cold — which the byte checks, the
+      # job that still runs first, already paid).
+      - name: Install worker-build (what the differential tests drive)
+        run: |
+          command -v worker-build >/dev/null 2>&1 || cargo install worker-build --locked
       # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
       # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
       # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
