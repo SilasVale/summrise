@@ -111,7 +111,7 @@ function ensurePluginCtx() {
  */
 async function frontDoor(original: Request, env: any, request: Request): Promise<Response> {
   const gate = wasmGate(env);
-  if (gate) return await gate.fetch(request);
+  if (gate) return stampRust(await gate.fetch(request));
   return withCors(
     original,
     jsonError(
@@ -121,6 +121,27 @@ async function frontDoor(original: Request, env: any, request: Request): Promise
     ),
     env,
   );
+}
+
+/**
+ * **WHICH SIDE ANSWERED — A HEADER, BECAUSE THE TWO ANSWERS ARE IDENTICAL BY DESIGN.**
+ *
+ * The whole point of the corpus is that the worker's response is the TypeScript's response: same status, same
+ * bytes, same KV writes, same dials (82 cases). So when the cutover is DEPLOYED, an operator cannot tell from a
+ * response whether the worker or the rollback served it — and the retirement of the rollback files is documented
+ * as "the step AFTER the deploy that proves the worker serves this family". **A proof nobody can observe is not a
+ * proof.**
+ *
+ * This stamps `x-summrise-front-door: rust` on every hand-off. **ITS ABSENCE IS THE OTHER HALF OF THE SIGNAL**: a
+ * response from the TypeScript plugin simply does not carry it, so one header distinguishes the two paths in both
+ * directions without changing a single body byte. It is added to the RESPONSE, not the request, so nothing
+ * upstream sees it; and it is not part of what the corpus compares (status, body, KV writes, dials), which is why
+ * it can be added without re-recording a case.
+ */
+function stampRust(response: Response): Response {
+  const out = new Response(response.body, response);
+  out.headers.set("x-summrise-front-door", "rust");
+  return out;
 }
 
 /**

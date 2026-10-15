@@ -213,3 +213,20 @@ test("WITHOUT the binding the admin family falls back to the TypeScript plugin",
   assert.equal(res.status, 401, "the plugin's own session gate, not a routing 404");
   assert.deepEqual(e._frontDoor, [], "nothing may reach a worker that is not bound");
 });
+
+test("a hand-off is STAMPED, because the two answers are identical by design", async () => {
+  // **THE OBSERVATION THE RETIREMENT WAITS ON NEEDS A SIGNAL.** The corpus's whole point is that the worker's
+  // response IS the TypeScript's — same status, same bytes — so without this header an operator cannot tell
+  // which side served a route, and "the deploy that proves the worker serves this family" would be a proof
+  // nobody can see. The stamp's ABSENCE is the other half: the plugin's own answer does not carry it.
+  const e = env();
+  const res = await worker.fetch(new Request("https://x/api/admin/public"), e);
+  assert.equal(res.headers.get("x-summrise-front-door"), "rust");
+  assert.deepEqual(e._frontDoor, ["GET /api/admin/public"], "and it is the worker that answered");
+
+  // The rollback path: no binding, no stamp — the TypeScript plugin answered.
+  const e2 = env();
+  delete e2.WASM_GATE;
+  const res2 = await worker.fetch(new Request("https://x/api/admin/public"), e2);
+  assert.equal(res2.headers.get("x-summrise-front-door"), null);
+});
