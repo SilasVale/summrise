@@ -48,3 +48,35 @@ export function encodeBase64Utf8(text: string): string {
   }
   return btoa(bin);
 }
+
+// ── THE TWO INSTALLER TEMPLATES ─────────────────────────────────────────────────────────────────
+//
+// **THE ONLY PIECE OF `tooling.ts` THAT NEEDED NEW RUST**: every other rule in that file already lived here or
+// was corpus-pinned, but the two one-liners the CLI is installed with (`curl|sh` and `irm|iex`) were decided in
+// the console alone. They are decisions — what the installer DOES, what it refuses, what it prints — and they
+// are rendered back verbatim below.
+
+export function posixInstaller(b64: string) {
+  return `#!/bin/sh
+set -e
+command -v node >/dev/null 2>&1 || { echo "error: Node.js required"; exit 1; }
+DEST="\${SUMMRISE_BIN:-$HOME/.local/bin}"
+mkdir -p "$DEST"
+echo "${b64}" | (base64 -d 2>/dev/null || base64 -D) > "$DEST/summrise"
+chmod +x "$DEST/summrise"
+echo "installed: $DEST/summrise"
+echo "usage: summrise check | summrise use <ds|qw|og|or> | summrise use auto | summrise restore"
+`;
+}
+
+export function psInstaller(b64: string) {
+  return `$ErrorActionPreference = "Stop"
+try { node --version | Out-Null } catch { Write-Error "Node.js required"; exit 1 }
+$dest = Join-Path $HOME ".local\\bin"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+$script = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${b64}"))
+Set-Content -Path (Join-Path $dest "summrise") -Value $script -Encoding UTF8 -NoNewline
+Set-Content -Path (Join-Path $dest "summrise.cmd") -Value '@echo off\r\nnode "%~dp0summrise" %*' -Encoding ASCII
+Write-Host "installed: $dest\\summrise  (command: summrise)"
+`;
+}

@@ -38,7 +38,13 @@ import { createIpRateLimiter } from "./lib/ratelimit.ts";
 // `gateway/wasm/src/tooling.rs`, which has been their Rust home since it was written ("TWO PURE HELPERS FROM
 // `gateway/src/tooling.ts`", its own first line). What it lacked was the render, so the console kept its two
 // spellings and nothing compared them. Re-exported below, so every call site keeps its import path.
-export { encodeBase64Utf8, PROBE_ENV_KEYS, probeEnvKeyName } from "./tooling-logic.ts";
+export {
+  encodeBase64Utf8,
+  posixInstaller,
+  PROBE_ENV_KEYS,
+  probeEnvKeyName,
+  psInstaller,
+} from "./tooling-logic.ts";
 import { probeEnvKeyName } from "./tooling-logic.ts";
 
 // Public /api/summrise-probe rate limit: each probe costs a real upstream call
@@ -198,33 +204,6 @@ export async function summriseProbe(env: any, model: string) {
     return jsonOk({ ok: false, channel: prefix, detail: (e as any).message });
   }
   return probeResultJson(prefix, res);
-}
-
-// POSIX one-liner installer — embeds the summrise CLI as base64 (no quoting issues).
-export function posixInstaller(b64: string) {
-  return `#!/bin/sh
-set -e
-command -v node >/dev/null 2>&1 || { echo "error: Node.js required"; exit 1; }
-DEST="\${SUMMRISE_BIN:-$HOME/.local/bin}"
-mkdir -p "$DEST"
-echo "${b64}" | (base64 -d 2>/dev/null || base64 -D) > "$DEST/summrise"
-chmod +x "$DEST/summrise"
-echo "installed: $DEST/summrise"
-echo "usage: summrise check | summrise use <ds|qw|og|or> | summrise use auto | summrise restore"
-`;
-}
-
-// PowerShell one-liner installer (irm | iex) — installs summrise + summrise.cmd wrapper.
-export function psInstaller(b64: string) {
-  return `$ErrorActionPreference = "Stop"
-try { node --version | Out-Null } catch { Write-Error "Node.js required"; exit 1 }
-$dest = Join-Path $HOME ".local\\bin"
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-$script = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("${b64}"))
-Set-Content -Path (Join-Path $dest "summrise") -Value $script -Encoding UTF8 -NoNewline
-Set-Content -Path (Join-Path $dest "summrise.cmd") -Value '@echo off\r\nnode "%~dp0summrise" %*' -Encoding ASCII
-Write-Host "installed: $dest\\summrise  (command: summrise)"
-`;
 }
 
 export async function serveAssetText(env: any, assetPath: string) {
