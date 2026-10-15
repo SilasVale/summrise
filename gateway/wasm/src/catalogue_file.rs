@@ -393,6 +393,65 @@ pub fn typescript_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/store/file-config-logic.ts")
 }
 
+/// **THE REFUSALS, AS A TABLE — THE COMPARISON A GREP COULD NOT MAKE.**
+///
+/// Round 35 tried to compare the two validators' wording by extracting `"config/models.ts…"` strings from each
+/// side and concluded **nothing**, because the TypeScript builds every message from a `where` variable while
+/// this module spells it out. **The instrument that works is this one**: feed both sides the same bad document
+/// and compare the SENTENCES. The TypeScript half of the table lives in
+/// `gateway/test/model-config-file.test.mjs` (`REFUSALS: both validators answer the same sentence`) — the same
+/// rows, so a wording that moves on either side turns one of the two red.
+///
+/// MUTATION: change a word in any message above (e.g. "is a ROUTING facet" -> "is a routing facet").
+/// RESULT:   this table fails with the sentence it got, and the console's half fails with the same one.
+#[test]
+fn the_refusals_are_the_sentences_the_console_answers() {
+    // **THE PROVIDER PARSER IS NOT INJECTED HERE, AND THAT IS THE ONE SHAPE DIFFERENCE**: the TypeScript
+    // takes it as a dependency (its own stores supply it, to avoid a cycle), while this module calls the
+    // core's — the same parser the console's POST goes through, reached the other way. The TABLE is still
+    // the same table on both sides, which is what makes the sentences comparable.
+    let cases: Vec<(Value, &str)> = vec![
+            (
+                serde_json::json!("not an object"),
+                "config/models.ts must export an object with providers/models/overrides",
+            ),
+            (
+                // **`models` IS REQUIRED FOR THIS ARM TO BE REACHED AT ALL**: the parser refuses an empty
+                // model list BEFORE it looks at the key, which is what the first run of this table taught —
+                // the same lesson the neighbouring test records about naming a binding AND an inline key.
+                serde_json::json!({"providers": [{"prefix": "acme/", "baseURL": "https://acme.test", "api": "openai-completions", "models": [{"id": "chat"}], "apiKey": "sk-inline-0123456789"}]}),
+                "config/models.ts providers[0]: an inline apiKey cannot be committed — use apiKeyEnv and set the secret with wrangler",
+            ),
+            (
+                serde_json::json!({"models": [{}]}),
+                "config/models.ts models[0]: id is required",
+            ),
+            (
+                serde_json::json!({"models": [{"id": "!!! nope"}]}),
+                "config/models.ts models[0].id must look like \"prefix/name\" — got \"!!! nope\"",
+            ),
+            (
+                serde_json::json!({"overrides": [{}]}),
+                "config/models.ts overrides[0]: id is required",
+            ),
+            (
+                serde_json::json!({"overrides": [{"id": "og/mimo-v2.5", "wire": "x"}]}),
+                "config/models.ts overrides[0]: wire is a ROUTING facet pinned in the channel registry — a file may set name, contextWindow, maxTokens and reasoningEffort only",
+            ),
+            (
+                serde_json::json!({"overrides": [{"id": "og/mimo-v2.5", "reasoningEffort": "extreme"}]}),
+                "config/models.ts overrides[0].reasoningEffort must be one of low, medium, high, max",
+            ),
+        ];
+    let known = ["og", "or", "nv", "gmi", "qw", "cm", "r4", "ds", "amd"];
+    for (document, expected) in cases {
+        let got = parse_catalogue_file(&document, &known)
+            .err()
+            .unwrap_or_else(|| panic!("{document} was ACCEPTED; expected {expected}"));
+        assert_eq!(got, expected, "the document {document}");
+    }
+}
+
 #[cfg(test)]
 mod emission {
     use super::*;

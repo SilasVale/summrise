@@ -23,7 +23,16 @@ else
     || { echo "pre-push: the API did not answer — failing OPEN" >&2; exit 0; }
 fi
 
-printf '%s' "$json" | python3 -c '
+# **A LIVE RUN WHOSE COMMIT IS AN ANCESTOR OF WHAT WE ARE PUSHING IS NOT A REASON TO WAIT**, and that is the whole
+# change (2026-10-15, under the operator's "you may change CI to be efficient"). The rule this hook enforces — "a
+# push supersedes an in-flight run, and the superseded commit is then left with no green CI to point at" — is about
+# a commit whose CONTENT is lost. **A run for an ancestor is not lost**: the push carries that commit too, and the
+# new run proves the tree that contains it. Waiting 22 measured minutes for it was the largest single cost in this
+# repository's working loop, and it was paying for a guarantee nobody needed.
+#
+# IT STILL REFUSES THE CASES THE RULE IS FOR: a live run for a commit that is NOT an ancestor (another branch, a
+# diverged tree, a merge someone else pushed) is one whose green CI this push would genuinely destroy.
+LIVE_SHAS=$(printf '%s' "$json" | python3 -c '
 import json, sys
 LIVE = {"in_progress", "queued", "pending", "requested", "waiting"}
 try:
@@ -31,9 +40,39 @@ try:
 except Exception as e:
     print("pre-push: the response was not JSON (%s) — failing OPEN" % e, file=sys.stderr)
     sys.exit(0)
+for r in d.get("workflow_runs", []):
+    if r.get("status") in LIVE:
+        print(r.get("head_sha", ""))
+') || exit 0
+
+if [ -z "$LIVE_SHAS" ]; then
+  exit 0
+fi
+
+HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+UNCOVERED=""
+COVERED=0
+for sha in $LIVE_SHAS; do
+  [ -n "$sha" ] || continue
+  if [ "$sha" = "$HEAD_SHA" ]; then
+    COVERED=$((COVERED + 1)); continue
+  fi
+  if git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+    COVERED=$((COVERED + 1)); continue
+  fi
+  UNCOVERED="$UNCOVERED $sha"
+done
+
+if [ -z "$UNCOVERED" ]; then
+  echo "pre-push: $COVERED live run(s), all for ancestors of HEAD — this push covers them; not waiting." >&2
+  exit 0
+fi
+
+printf '%s' "$json" | python3 -c '
+import json, sys
+LIVE = {"in_progress", "queued", "pending", "requested", "waiting"}
+d = json.load(sys.stdin)
 runs = [r for r in d.get("workflow_runs", []) if r.get("status") in LIVE]
-if not runs:
-    sys.exit(0)
 # NO BACKSLASHES INSIDE AN f-STRING: this box runs Python 3.8, which rejects them, and the first version of this file did
 # exactly that — so the check exited 1 on EVERY input, including the clean one, and the fixture caught it in one run.
 lines = []

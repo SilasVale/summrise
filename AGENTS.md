@@ -23,7 +23,9 @@ Debug info is off machine-wide (`~/.cargo/config.toml`: `debug = 0`) and that is
 `gateway/wasm/target` went 2.9 GB -> 403 MB, `agent/target` 13 GB -> ~2 GB.
 
 **THE RULES ARE ENFORCED, NOT WRITTEN DOWN**: `main_shape.rs` (main advances only by merge), the pre-commit and pre-push
-hooks (the emitters; no push while CI runs), `publish-release.bash` (the whole-tree mode check), and every gate's own
+hooks (the emitters; **no push while CI runs FOR A COMMIT THIS PUSH DOES NOT CARRY** — a live run for an ancestor is
+covered by the push and no longer blocks, which removed the largest measured cost in the working loop),
+`publish-release.bash` (the whole-tree mode check), and every gate's own
 `MUTATION:`/`RESULT:` header. **A sentence that can be enforced should be enforced instead of written down.**
 
 **WHERE THE LONG FORM LIVES**: the commit message (the measurement and the `VERIFIED:` line — this is the record) ·

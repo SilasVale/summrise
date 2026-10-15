@@ -117,3 +117,62 @@ test("FILE: the JSON twin is what config/models.ts declares", () => {
   );
 });
 
+// ── THE REFUSALS, AS A TABLE — THE OTHER HALF OF THE SAME COMPARISON ─────────────────────────────
+//
+// **THE SENTENCES ARE THE CONTRACT**: a document the file layer refuses is refused with a sentence the operator
+// reads, and the WORKER reads the same document through `parse_catalogue_file` (Rust). Round 35 tried to compare
+// the two spellings by grepping `"config/models.ts…"` out of each side and concluded NOTHING — the TypeScript
+// builds every message from a `where` variable and the Rust spells it out, so the extractions do not line up.
+//
+// **THE INSTRUMENT THAT WORKS IS A TABLE OF (bad document -> the sentence), FED TO BOTH SIDES.** This is the
+// console's half; the Rust half is
+// `catalogue_file.rs::the_refusals_are_the_sentences_the_console_answers`, with the same rows. A wording that
+// moves on either side turns one of the two red — which is the gate a grep could not be.
+test("REFUSALS: both validators answer the same sentence", () => {
+  const cases = [
+    ["a document that is not an object", "not an object", /must export an object with providers\/models\/overrides/],
+    [
+      "a provider with an INLINE key",
+      {
+        providers: [
+          {
+            prefix: "acme/",
+            baseURL: "https://acme.test",
+            api: "openai-completions",
+            // The model list is REQUIRED for this arm to be reached: the parser refuses an empty one first.
+            models: [{ id: "chat" }],
+            apiKey: "sk-inline-0123456789",
+          },
+        ],
+      },
+      /providers\[0\]: an inline apiKey cannot be committed — use apiKeyEnv and set the secret with wrangler/,
+    ],
+    ["a model with no id", { models: [{}] }, /models\[0\]: id is required/],
+    [
+      "a model id that is not prefix/name",
+      { models: [{ id: "!!! nope" }] },
+      /models\[0\]\.id must look like "prefix\/name" — got "!!! nope"/,
+    ],
+    ["an override with no id", { overrides: [{}] }, /overrides\[0\]: id is required/],
+    [
+      "an override that sets a PINNED routing facet",
+      { overrides: [{ id: "og/mimo-v2.5", wire: "x" }] },
+      /overrides\[0\]: wire is a ROUTING facet pinned in the channel registry — a file may set name, contextWindow, maxTokens and reasoningEffort only/,
+    ],
+    [
+      "an override with an unknown reasoning level",
+      { overrides: [{ id: "og/mimo-v2.5", reasoningEffort: "extreme" }] },
+      /overrides\[0\]\.reasoningEffort must be one of low, medium, high, max/,
+    ],
+  ];
+  for (const [why, doc, expected] of cases) {
+    let message = null;
+    try {
+      parseCatalogueFile(doc, deps);
+    } catch (error) {
+      message = String(error.message);
+    }
+    assert.notEqual(message, null, `${why}: ACCEPTED, and it must be refused`);
+    assert.match(message, expected, `${why}: the sentence moved`);
+  }
+});

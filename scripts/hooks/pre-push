@@ -7,6 +7,13 @@
 # were this loop, twice in three rounds.** A rule that has to be remembered is not a mechanism, so the check moved to the
 # one place a push cannot skip: here.
 #
+# **AND IT IS NARROWER SINCE 2026-10-15, WHICH IS THE POINT OF THE PARAGRAPH ABOVE RATHER THAN A RETREAT FROM IT.** The
+# loss the rule guards against is a commit whose CONTENT is left unproven. A live run for an ANCESTOR of what is being
+# pushed is not that: the push carries the ancestor too, so the new run proves a tree that contains it, and waiting was
+# paying 22 measured minutes for a guarantee nobody needed. The check now asks `git merge-base --is-ancestor` per live
+# run and refuses only for a run this push would genuinely strand (another branch, a diverged tree). Both directions are
+# fixtures in `scripts/test/ci-not-in-flight.bash`.
+#
 # THE CHECK ITSELF IS `scripts/hooks/ci-not-in-flight`, ITS OWN FILE, for the same reason `main-only-by-merge` is: a hook
 # that does network I/O needs to be provable on fixtures, and `scripts/test/ci-not-in-flight.bash` runs it against saved
 # API responses in both directions without touching the network.
