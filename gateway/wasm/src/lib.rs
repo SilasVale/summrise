@@ -33,37 +33,6 @@ use std::sync::Mutex;
 use serde::Serialize;
 use worker::*;
 
-/// The health cards, MIRRORING `gateway/src/channels.ts`'s `HEALTH_CHANNELS` verbatim — order
-/// included, because the order is what the response bytes are. The duplicate ids are deliberate
-/// there and here: `build_health` asks the og circuit once per og card, and `recommended` takes the
-/// FIRST card of a priority id.
-pub(crate) const HEALTH_CHANNELS: [(&str, &str); 20] = [
-    ("qw", "qw/qwen3.8-max-preview"),
-    ("qw", "qw/qwen3.8-flash"),
-    ("qw", "qw/deepseek-v4.1-flash"),
-    ("og", "og/deepseek-v4.1-flash"),
-    ("og", "og/gpt-5.6-luna"),
-    ("og", "og/mimo-v2.5"),
-    ("og", "og/mimo-v2.6-flash"),
-    ("og", "og/ox-alpha-free"),
-    ("og", "og/muse-spark-1.3-contributor"),
-    ("or", "or/openai/gpt-5.6-luna:floor[1m]"),
-    ("or", "or/z-ai/glm-5.2:free"),
-    ("or", "or/nvidia/nemotron-3-ultra-550b-a55b:free"),
-    ("or", "or/stealth/ox-alpha"),
-    ("nv", "nv/nvidia/nemotron-3-ultra-550b-a55b"),
-    ("gmi", "gmi/MiniMaxAI/MiniMax-M3"),
-    ("gmi", "gmi/MiniMaxAI/MiniMax-M2.7"),
-    ("cm", "cm/deepseek/deepseek-v4.1-flash"),
-    ("cm", "cm/meituan/LongCat-2.0:free"),
-    ("cm", "cm/poolside/laguna-s-2.1-free"),
-    ("r4", "r4/deepseek-v4.1-flash"),
-];
-
-/// The default channel leads (`HEALTH_PRIORITY`), so the "recommended" badge points where `auto`
-/// resolves.
-const HEALTH_PRIORITY: [&str; 4] = ["cm", "qw", "og", "or"];
-
 /// The static headers `jsonOk` puts on every JSON response (`http.ts`'s `CORS_HEADERS`). The
 /// per-request ACAO is NOT here — see the module header.
 const CORS_HEADERS: [(&str, &str); 2] = [
@@ -104,7 +73,7 @@ struct Health {
 /// other card is `ok` by construction, which is what `tooling.ts` says out loud: "a card costs
 /// NOTHING upstream: buildHealth reads the channel's circuit breaker, it does not call zen".
 fn build_health(degraded: bool) -> Health {
-    let channels: Vec<Card> = HEALTH_CHANNELS
+    let channels: Vec<Card> = crate::registry::HEALTH_CHANNELS
         .iter()
         .map(|(id, model)| {
             let (ok, reason) = if *id == "og" && degraded {
@@ -123,7 +92,7 @@ fn build_health(degraded: bool) -> Health {
 
     // The TypeScript maps each priority id to the FIRST card carrying it and then takes the first
     // of those that is ok — the same two steps, in the same order.
-    let recommended = HEALTH_PRIORITY.iter().find_map(|wanted| {
+    let recommended = crate::registry::HEALTH_PRIORITY.iter().find_map(|wanted| {
         channels
             .iter()
             .find(|c| c.id == *wanted)

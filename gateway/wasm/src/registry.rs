@@ -41,6 +41,43 @@ pub enum ReasoningMax {
     Parsed,
 }
 
+/// The health cards, **MOVED HERE FROM `gateway/src/channels.ts` (2026-10-14)** — order included, because the
+/// order is what the response bytes are.
+///
+/// **THIS TABLE WAS MIRRORED TWICE AND COMPARED NOWHERE.** `lib.rs` said of its copy "MIRRORING
+/// `gateway/src/channels.ts`'s `HEALTH_CHANNELS` verbatim", and the console had the original; the only thing
+/// standing between them was `/api/health`'s fixture, **which is a SNAPSHOT rather than a comparison** — so a
+/// card edited on one side would have left the probe asking about a model the other side retired. It is the same
+/// gap `CHANNEL_CARDS` closed, and it is closed the same way: one table, emitted back to the console.
+///
+/// **THE DUPLICATE IDS ARE DELIBERATE**: `build_health` asks the og circuit once per og card, and `recommended`
+/// takes the FIRST card of a priority id.
+pub const HEALTH_CHANNELS: [(&str, &str); 20] = [
+    ("qw", "qw/qwen3.8-max-preview"),
+    ("qw", "qw/qwen3.8-flash"),
+    ("qw", "qw/deepseek-v4.1-flash"),
+    ("og", "og/deepseek-v4.1-flash"),
+    ("og", "og/gpt-5.6-luna"),
+    ("og", "og/mimo-v2.5"),
+    ("og", "og/mimo-v2.6-flash"),
+    ("og", "og/ox-alpha-free"),
+    ("og", "og/muse-spark-1.3-contributor"),
+    ("or", "or/openai/gpt-5.6-luna:floor[1m]"),
+    ("or", "or/z-ai/glm-5.2:free"),
+    ("or", "or/nvidia/nemotron-3-ultra-550b-a55b:free"),
+    ("or", "or/stealth/ox-alpha"),
+    ("nv", "nv/nvidia/nemotron-3-ultra-550b-a55b"),
+    ("gmi", "gmi/MiniMaxAI/MiniMax-M3"),
+    ("gmi", "gmi/MiniMaxAI/MiniMax-M2.7"),
+    ("cm", "cm/deepseek/deepseek-v4.1-flash"),
+    ("cm", "cm/meituan/LongCat-2.0:free"),
+    ("cm", "cm/poolside/laguna-s-2.1-free"),
+    ("r4", "r4/deepseek-v4.1-flash"),
+];
+
+/// The default channel leads (`HEALTH_PRIORITY`), so the "recommended" badge points where `auto` resolves.
+pub const HEALTH_PRIORITY: [&str; 4] = ["cm", "qw", "og", "or"];
+
 /// **THE CONSOLE'S CHANNEL CARDS — `ROUTE_INFO` — AND THEY USED TO BE THE TYPESCRIPT'S.**
 ///
 /// They were `gateway/src/channels.ts`'s table, mirrored into the worker as a GENERATED JSON TWIN
@@ -594,7 +631,106 @@ pub fn render_typescript() -> String {
         }
         out.push_str("  },\n");
     }
-    out.push_str("];\n");
+    out.push_str("];\n\n");
+
+    // ── THE MODEL REGISTRY ───────────────────────────────────────────────────────────────────────
+    //
+    // **THE CONSOLE'S TABLE AND THE WORKER'S ARE ONE TABLE NOW.** Until this landing `channels.ts` held its own
+    // 24 entries and `registry.rs` held a copy "generated once from gateway/src/channels.ts and then checked by
+    // the corpus" — a snapshot, not a comparison. `model-catalogue-store.test.mjs` compared them field for field
+    // from 2026-10-14; that comparison is GONE with the second copy, and this freshness test is what replaces it.
+    out.push_str(
+        "/** One catalogue entry. The three DISPLAY facets (`name`, `contextWindow`, `maxTokens`) and the\n\
+         \x20* reasoning default may be overridden by a deployment; `wire`, `usEgress`, `search` and\n\
+         \x20* `responsesOnly` change where a request GOES and stay pinned here. */\n\
+         export interface ModelSpec {\n\
+         \x20 id: string;\n\
+         \x20 ownedBy: string;\n\
+         \x20 wire?: string;\n\
+         \x20 usEgress?: boolean;\n\
+         \x20 search?: boolean;\n\
+         \x20 responsesOnly?: boolean;\n\
+         \x20 name?: string;\n\
+         \x20 contextWindow?: number;\n\
+         \x20 maxTokens?: number;\n\
+         \x20 reasoningEffort?: \"low\" | \"medium\" | \"high\" | \"max\";\n\
+         \x20 reasoningMax?: \"raw\" | \"parsed\";\n\
+         \x20 probe?: boolean;\n\
+         \x20 probeWhy?: string;\n\
+         }\n\n\
+         export const MODEL_REGISTRY: ModelSpec[] = [\n",
+    );
+    for spec in MODEL_REGISTRY.iter() {
+        out.push_str("  {\n");
+        out.push_str(&format!("    id: {},\n", ts_string(spec.id)));
+        out.push_str(&format!("    ownedBy: {},\n", ts_string(spec.owned_by)));
+        if let Some(wire) = spec.wire {
+            out.push_str(&format!("    wire: {},\n", ts_string(wire)));
+        }
+        for (key, flag) in [
+            ("usEgress", spec.us_egress),
+            ("search", spec.search),
+            ("responsesOnly", spec.responses_only),
+        ] {
+            if let Some(value) = flag {
+                out.push_str(&format!("    {key}: {value},\n"));
+            }
+        }
+        if let Some(effort) = spec.reasoning_effort {
+            out.push_str(&format!("    reasoningEffort: {},\n", ts_string(effort)));
+        }
+        if let Some(max) = spec.reasoning_max {
+            let spelling = match max {
+                ReasoningMax::Raw => "raw",
+                ReasoningMax::Parsed => "parsed",
+            };
+            out.push_str(&format!("    reasoningMax: {},\n", ts_string(spelling)));
+        }
+        if let Some(window) = spec.context_window {
+            out.push_str(&format!("    contextWindow: {window},\n"));
+        }
+        if let Some(tokens) = spec.max_tokens {
+            out.push_str(&format!("    maxTokens: {tokens},\n"));
+        }
+        if let Some(probe) = spec.probe {
+            out.push_str(&format!("    probe: {probe},\n"));
+        }
+        if let Some(why) = spec.probe_why {
+            out.push_str(&format!("    probeWhy: {},\n", ts_string(why)));
+        }
+        out.push_str("  },\n");
+    }
+    out.push_str(
+        "];\n\
+         \n\
+         /** The advertised ids and their owners, in catalogue order — what `/v1/models` reports. */\n\
+         export const MODELS: { id: string; owned_by: string }[] = MODEL_REGISTRY.map((m) => ({\n\
+         \x20 id: m.id,\n\
+         \x20 owned_by: m.ownedBy,\n\
+         }));\n\
+         \n\
+         /** The `/api/health` cards, IN ORDER — the order is what the response bytes are. The duplicate ids are\n\
+         \x20* deliberate: `buildHealth` asks the og circuit once per og card, and `recommended` takes the FIRST\n\
+         \x20* card of a priority id. */\n\
+         export const HEALTH_CHANNELS: { id: string; model: string }[] = [\n",
+    );
+    for (id, model) in HEALTH_CHANNELS.iter() {
+        out.push_str(&format!(
+            "  {{ id: {}, model: {} }},\n",
+            ts_string(id),
+            ts_string(model)
+        ));
+    }
+    out.push_str("];\n\n");
+    out.push_str(&format!(
+        "/** The default channel leads, so the \"recommended\" badge points where `auto` resolves. */\n\
+         export const HEALTH_PRIORITY: string[] = [{}];\n",
+        HEALTH_PRIORITY
+            .iter()
+            .map(|id| ts_string(id))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     out
 }
 

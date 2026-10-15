@@ -133,7 +133,9 @@ async fn probe(mut request: Request, env: &Env) -> Result<worker::Response, Rout
             "invalid_request",
         ));
     }
-    let known_channel = crate::HEALTH_CHANNELS.iter().any(|(id, _)| *id == prefix);
+    let known_channel = crate::registry::HEALTH_CHANNELS
+        .iter()
+        .any(|(id, _)| *id == prefix);
     let known_model = registry::model_spec(&model).is_some();
     if !known_channel || !known_model {
         return reply(responses::json_error(

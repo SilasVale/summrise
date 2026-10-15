@@ -90,3 +90,194 @@ export const ROUTE_INFO: {
     models: ["deepseek/deepseek-v4.1-flash"],
   },
 ];
+
+/** One catalogue entry. The three DISPLAY facets (`name`, `contextWindow`, `maxTokens`) and the
+ * reasoning default may be overridden by a deployment; `wire`, `usEgress`, `search` and
+ * `responsesOnly` change where a request GOES and stay pinned here. */
+export interface ModelSpec {
+  id: string;
+  ownedBy: string;
+  wire?: string;
+  usEgress?: boolean;
+  search?: boolean;
+  responsesOnly?: boolean;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high" | "max";
+  reasoningMax?: "raw" | "parsed";
+  probe?: boolean;
+  probeWhy?: string;
+}
+
+export const MODEL_REGISTRY: ModelSpec[] = [
+  {
+    id: "og/deepseek-v4.1-flash",
+    ownedBy: "opencode",
+    wire: "deepseek-flash",
+    search: true,
+    probe: true,
+  },
+  {
+    id: "og/minimax-m3",
+    ownedBy: "opencode",
+    probe: false,
+    probeWhy: "translate-only model; the og/ health card covers the channel",
+  },
+  {
+    id: "og/mimo-v2.5",
+    ownedBy: "opencode",
+    probe: true,
+  },
+  {
+    id: "og/mimo-v2.6-flash",
+    ownedBy: "opencode",
+    probe: true,
+  },
+  {
+    id: "og/ox-alpha-free",
+    ownedBy: "opencode",
+    reasoningMax: "parsed",
+    probe: true,
+  },
+  {
+    id: "og/muse-spark-1.3-contributor",
+    ownedBy: "opencode",
+    usEgress: true,
+    responsesOnly: true,
+    probe: true,
+  },
+  {
+    id: "og/muse-spark-1.2-contributor",
+    ownedBy: "opencode",
+    usEgress: true,
+    responsesOnly: true,
+    probe: false,
+    probeWhy: "superseded by 1.3; one probe per model family is enough",
+  },
+  {
+    id: "og/gpt-5.6-luna",
+    ownedBy: "opencode",
+    usEgress: true,
+    probe: true,
+  },
+  {
+    id: "og/openai/gpt-5.6-luna:floor[1m]",
+    ownedBy: "opencode",
+    usEgress: true,
+    probe: false,
+    probeWhy: "the or/ spelling below is the probed luna card",
+  },
+  {
+    id: "or/openai/gpt-5.6-luna:floor[1m]",
+    ownedBy: "openrouter",
+    probe: true,
+  },
+  {
+    id: "or/z-ai/glm-5.2:free",
+    ownedBy: "openrouter",
+    probe: true,
+  },
+  {
+    id: "or/nvidia/nemotron-3-ultra-550b-a55b:free",
+    ownedBy: "openrouter",
+    probe: true,
+  },
+  {
+    id: "nv/nvidia/nemotron-3-ultra-550b-a55b",
+    ownedBy: "nvidia",
+    probe: true,
+  },
+  {
+    id: "nv/moonshotai/kimi-k3",
+    ownedBy: "nvidia",
+    probe: false,
+    probeWhy: "the nv/ health card already probes nemotron",
+  },
+  {
+    id: "gmi/MiniMaxAI/MiniMax-M3",
+    ownedBy: "gmi",
+    probe: true,
+  },
+  {
+    id: "gmi/MiniMaxAI/MiniMax-M2.7",
+    ownedBy: "gmi",
+    probe: true,
+  },
+  {
+    id: "or/stealth/ox-alpha",
+    ownedBy: "openrouter",
+    reasoningMax: "raw",
+    probe: true,
+  },
+  {
+    id: "qw/qwen3.8-max-preview",
+    ownedBy: "qwen",
+    probe: true,
+  },
+  {
+    id: "qw/qwen3.8-flash",
+    ownedBy: "qwen",
+    probe: true,
+  },
+  {
+    id: "qw/deepseek-v4.1-flash",
+    ownedBy: "qwen",
+    probe: true,
+  },
+  {
+    id: "cm/meituan/LongCat-2.0:free",
+    ownedBy: "command-code",
+    probe: true,
+  },
+  {
+    id: "cm/poolside/laguna-s-2.1-free",
+    ownedBy: "command-code",
+    probe: true,
+  },
+  {
+    id: "cm/deepseek/deepseek-v4.1-flash",
+    ownedBy: "command-code",
+    probe: true,
+  },
+  {
+    id: "r4/deepseek-v4.1-flash",
+    ownedBy: "r4",
+    probe: true,
+  },
+];
+
+/** The advertised ids and their owners, in catalogue order — what `/v1/models` reports. */
+export const MODELS: { id: string; owned_by: string }[] = MODEL_REGISTRY.map((m) => ({
+  id: m.id,
+  owned_by: m.ownedBy,
+}));
+
+/** The `/api/health` cards, IN ORDER — the order is what the response bytes are. The duplicate ids are
+ * deliberate: `buildHealth` asks the og circuit once per og card, and `recommended` takes the FIRST
+ * card of a priority id. */
+export const HEALTH_CHANNELS: { id: string; model: string }[] = [
+  { id: "qw", model: "qw/qwen3.8-max-preview" },
+  { id: "qw", model: "qw/qwen3.8-flash" },
+  { id: "qw", model: "qw/deepseek-v4.1-flash" },
+  { id: "og", model: "og/deepseek-v4.1-flash" },
+  { id: "og", model: "og/gpt-5.6-luna" },
+  { id: "og", model: "og/mimo-v2.5" },
+  { id: "og", model: "og/mimo-v2.6-flash" },
+  { id: "og", model: "og/ox-alpha-free" },
+  { id: "og", model: "og/muse-spark-1.3-contributor" },
+  { id: "or", model: "or/openai/gpt-5.6-luna:floor[1m]" },
+  { id: "or", model: "or/z-ai/glm-5.2:free" },
+  { id: "or", model: "or/nvidia/nemotron-3-ultra-550b-a55b:free" },
+  { id: "or", model: "or/stealth/ox-alpha" },
+  { id: "nv", model: "nv/nvidia/nemotron-3-ultra-550b-a55b" },
+  { id: "gmi", model: "gmi/MiniMaxAI/MiniMax-M3" },
+  { id: "gmi", model: "gmi/MiniMaxAI/MiniMax-M2.7" },
+  { id: "cm", model: "cm/deepseek/deepseek-v4.1-flash" },
+  { id: "cm", model: "cm/meituan/LongCat-2.0:free" },
+  { id: "cm", model: "cm/poolside/laguna-s-2.1-free" },
+  { id: "r4", model: "r4/deepseek-v4.1-flash" },
+];
+
+/** The default channel leads, so the "recommended" badge points where `auto` resolves. */
+export const HEALTH_PRIORITY: string[] = ["cm", "qw", "og", "or"];
