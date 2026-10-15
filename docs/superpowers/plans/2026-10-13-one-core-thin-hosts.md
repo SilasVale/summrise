@@ -531,3 +531,70 @@ with a host (the `BreakerDO` class, the dials, the isolate cache), not a port. `
 its FLOW is the decision (the order of the checks is the security property the Rust documents), so it needs the
 `seedAdminSequence` treatment: the sequence emitted, the platform injected.
 
+---
+
+## LANDED 2026-10-14 — the console's plumbing follows the families (LOGIC 53 -> 49)
+
+**THIRTEEN LANDINGS AFTER THE ADMIN FAMILY, AND EVERY ONE OF THEM FOUND SOMETHING.** The families were ports
+(decisions written in Rust, routes proved by a fixture); what followed was the console's own plumbing, where the
+decisions were ALREADY in Rust because the worker had needed them since the `/v1` cutover. That makes them
+EMISSIONS — and an emission is a measurement of whether the two sides really agreed.
+
+| file | what it was | what happened |
+|---|---|---|
+| `reliability.ts` | 456 lines | **first pure emission**: the budgets, the per-kind retry policy, the decision and its two client-visible details, the wait rule, the three timeout readers |
+| `session.ts` | 151 lines | the **SEQUENCE** emitted (`cookieSession(deps)`): the order IS the security property |
+| `auth.ts` | 209 lines | the primitives; **the file's "imports NOTHING" claim survives** — an emission, not an edge |
+| `channels.ts` | 663 lines | the catalogue: `channels-logic.ts` + `routing-logic.ts`; the file is now **93 lines of re-exports** |
+| `upstream.ts` | 489 lines | IN PROGRESS: the URL constants, the request-shaping helpers (`session.rs`), `stripBracket`, `wireModelName` |
+
+**FIVE THINGS THE EMISSIONS FOUND, ALL OF THEM INVISIBLE TO A READING:**
+
+1. **`retiredModelHint` did not trim or lowercase in Rust.** The console resolved `amd/DeepSeek-V4-Flash` to its
+   replacement; the worker said "Unknown channel model". Nothing had compared them until the Rust function was
+   rendered into TypeScript and the console's own test for that spelling failed. **The differential ran Rust ->
+   TypeScript, which is the direction nobody plans for.**
+2. **`/api/admin/models` was answered by the v1 fallback's `ends_with("/models")` arm** — a PUBLIC model listing,
+   for an admin path, with no session. A new route is a new subject for every predicate that was already there.
+3. **`HEALTH_CHANNELS` was mirrored in `lib.rs` "verbatim" and compared by NOTHING** — not even a field test, only
+   an `/api/health` fixture snapshot.
+4. **`MODEL_REGISTRY`'s two copies** were compared only by a corpus snapshot until round 21 added a field-for-field
+   test — which the emission then retired, because one table needs no comparison.
+5. **The URL constants are spelled twice**: as constants (now in Rust) and inline inside `pick_route`. Pinned by
+   `the_url_constants_are_the_routers_own` — **and that test's first version was wrong**: it expected `og` +
+   `/v1/messages` -> `OG_ZEN_ANTHROPIC`, and the router answered the CHAT endpoint, because `og` rides zen's
+   OpenAI-compatible endpoint for BOTH paths. The mapping in the test is measured, not assumed.
+
+**THE RULING THAT SETTLES THE NEXT SLICE (round 29).** "Which prefixes does this gateway own" has three
+spellings: the core's `RESERVED_PREFIXES` minus the `"none"` sentinel (the worker's rule), `pick_route`'s match
+arms, and the console's `hasOwnProperty(ROUTE_TABLE, prefix)`. **The console's is deliberately different**:
+`registerRoute` writes into `ROUTE_TABLE` — a plugin seam the worker does not have — and `upstream.test.mjs` pins
+that a REGISTERED prefix resolves through the table. For every prefix either side SHIPS they agree, and
+`the_built_in_prefixes_are_the_route_tables` now pins the worker's two spellings (mutation: a prefix added to the
+list with no arm fails it). **So rendering `pickRoute` means rendering the nine as the table's DATA, with
+`registerRoute` and the table-based predicate staying the host's.**
+
+## WHAT IS LEFT, MEASURED
+
+**LOGIC 49** — 10 source files and 39 test files. The source files, in the order the next landings should take:
+
+  * **`upstream.ts` (finish it)**: `pickRoute` (nine arms as table data), `providerRoute`, `isBuiltInPrefix` (the
+    host's, per the ruling), `resolveRoute` (**a sequence**: provider lookup -> the KV setting -> the table, so
+    `seedAdminSequence` treatment). Then the file is a host and the count is 48.
+  * **`tooling.ts` (260)**: needs the two installer templates moved into Rust (new decisions) and `summriseProbe`
+    as a sequence. `buildHealth`, `probeEnvKeyName`, `encodeBase64Utf8` and the limiter's numbers are already
+    `lib.rs`/`tooling.rs`/`ip_rate_limit.rs`.
+  * **`plugins/status.ts` (314)**, **`plugins/registry.ts` (246)**, **`index.ts` (452)**: the plugin framework and
+    the front door — the LAST layer, because the front door is what hands routes to the worker.
+  * **`plugins/auth.ts` (842)**, **`plugins/admin.ts` (614)**, **`plugins/models-probe.ts` (211)**: **these three
+    are the ROLLBACK FILES** for families the worker already serves and the front door already routes to. They are
+    deleted after a deploy observes the cutover — not emitted — and that deletion is LOGIC 49 -> 46 in one step.
+    The admin family's cutover is in `main` as of round 23; **what it waits for is the observation, which is the
+    operator's call.**
+
+**AND THE ROUTE LAYER'S OWN DISCIPLINE, WHICH THE LAST TEN LANDINGS VALIDATED**: a family is ported when every
+input is Rust's; the witness is a fixture recorded from the shipping plugin and replayed against the built worker
+(status, body, KV writes with TTLs, dials with credential and redirect); a harness that omits an input agrees
+with every route that answers no (four times over); and a new route is a new subject for every predicate that was
+already there.
+
