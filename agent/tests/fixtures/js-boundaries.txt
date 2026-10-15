@@ -334,6 +334,20 @@ BOUNDARY | gateway/src/store/admin.ts | **THE ADMIN-STORE HOST, AND ITS DECISION
 #   KV calls and the cache the seed is handed, the mint, and `crypto.subtle`'s PBKDF2 through `auth.ts`. The v1
 #   addresses, the password record's format, the seed's ORDER and the KV-authoritative resolution are
 #   `admin-logic.ts`, GENERATED from `gateway/wasm/src/user_store.rs`.
+GENERATED | gateway/src/routing-logic.ts | the router's PUBLIC constants and predicates — the upstream URL constants, the US-egress set, the retired-model table and its lookup, the US-proxy base and the muse exit — emitted from Rust | gateway/wasm/src/routing.rs
+#   **AND THE SECOND COPY OF THE URLS IS PINNED RATHER THAN TRUSTED**: `pick_route` builds its upstreams inline,
+#   so `the_url_constants_are_the_routers_own` asserts each route's upstream starts with the constant this module
+#   exports. That test's first version was WRONG and said so loudly: it expected `og` + `/v1/messages` →
+#   `OG_ZEN_ANTHROPIC`, and the router answered the CHAT endpoint — because `og` rides zen's OpenAI-compatible
+#   endpoint for both paths (its own card says so), and the Anthropic constant is the SWAP's target. The mapping
+#   in the test is measured, not assumed.
+BOUNDARY | gateway/src/channels.ts | **THE CATALOGUE HOST, AND THE TABLES ARE EMITTED FROM RUST (2026-10-14).** What is left is
+#   re-exports: `channels-logic.ts` carries `ModelSpec`, `MODEL_REGISTRY`, `MODELS`, the health cards, the channel
+#   cards and `routeModelsFor`; `routing-logic.ts` carries the URLs, the US-egress set, the retired table, the
+#   US-proxy base and the muse exit; `providers-logic.ts` carries the reserved prefixes. **THE FILE IS 663 LINES
+#   OF HAND-MIRRORED TABLES BECOMING 93 LINES OF `export … from`**, and the mirrors it shed were the two the
+#   worker kept copies of (`MODEL_REGISTRY` compared by a test since round 21, `HEALTH_CHANNELS` compared by
+#   NOTHING) plus the URL constants, which `pick_route` spells inline.
 GENERATED | gateway/src/channels-logic.ts | the CATALOGUE TABLES — `ModelSpec`, `MODEL_REGISTRY` (24 entries), `MODELS`, the `/api/health` cards and their priority list, and the console's CHANNEL CARDS (`ROUTE_INFO`, prose and per-channel model lists) — emitted from Rust | gateway/wasm/src/registry.rs
 #   **THIS FILE REPLACED A TWIN.** The cards were `channels.ts`'s table, mirrored into the worker as
 #   `wasm/route-info.json` by `scripts/sync-route-info-json.mjs`, with a freshness test on the twin. A twin is a

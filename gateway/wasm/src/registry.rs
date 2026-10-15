@@ -722,15 +722,95 @@ pub fn render_typescript() -> String {
         ));
     }
     out.push_str("];\n\n");
+    let wire_remap = og_wire_remap()
+        .iter()
+        .map(|(bare, wire)| format!("  {}: {},", ts_string(bare), ts_string(wire)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // **ONE LINE, BECAUSE PRETTIER PUTS IT ON ONE LINE** (the list is one slug and the line fits `printWidth`).
+    let search = search_capable_wire_models()
+        .iter()
+        .map(|wire| ts_string(wire))
+        .collect::<Vec<_>>()
+        .join(", ");
     out.push_str(&format!(
         "/** The default channel leads, so the \"recommended\" badge points where `auto` resolves. */\n\
-         export const HEALTH_PRIORITY: string[] = [{}];\n",
+         export const HEALTH_PRIORITY: string[] = [{}];\n\
+         \n\
+         /** The advertised models on one channel prefix, in catalogue order.\n\
+         \x20*\n\
+         \x20* **IT MOVED HERE WHEN THE REGISTRY DID.** It used to live in `channels.ts` because its input did —\n\
+         \x20* an emitted helper closing over a table the emission did not own would have made the generated file\n\
+         \x20* import back from its host. The registry is this module's table now, so the cycle is gone and the\n\
+         \x20* derivation sits beside the list it walks.\n\
+         \x20*\n\
+         \x20* The history is worth keeping: `ROUTE_INFO[].models` used to be hand-maintained — the FIFTH copy of\n\
+         \x20* the catalogue — and had silently drifted from MODELS: the `og/` list omitted\n\
+         \x20* `openai/gpt-5.6-luna:floor[1m]` entirely (advertised by /v1/models, absent from the console's route\n\
+         \x20* breakdown), and `og/` + `cm/` listed theirs in a different order. Nothing caught it: the only\n\
+         \x20* ROUTE_INFO test checked that the PREFIXES were covered, never the lists. */\n\
+         export function routeModelsFor(prefix: string, noneModels: string[] = []): string[] {{\n\
+         \x20 if (prefix === \"none\") return noneModels;\n\
+         \x20 return MODEL_REGISTRY.filter((m) => m.id.startsWith(prefix)).map((m) =>\n\
+         \x20\x20\x20 m.id.slice(prefix.length),\n\
+         \x20 );\n\
+         }}\n\
+         \n\
+         /** One entry by ADVERTISED id. */\n\
+         export function modelSpec(id: string): ModelSpec | undefined {{\n\
+         \x20 return MODEL_REGISTRY.find((m) => m.id === id);\n\
+         }}\n\
+         \n\
+         /** One entry by the name the UPSTREAM sees.\n\
+         \x20*\n\
+         \x20* **AMBIGUOUS NAMES RESOLVE TO NOTHING.** Stripping the channel makes two channels that advertise\n\
+         \x20* the same slug indistinguishable, and guessing would apply one channel's wire remap or reasoning\n\
+         \x20* mechanism to another's request. */\n\
+         export function wireSpec(wireName: string): ModelSpec | undefined {{\n\
+         \x20 let hit: ModelSpec | undefined;\n\
+         \x20 for (const m of MODEL_REGISTRY) {{\n\
+         \x20\x20\x20 const wire = m.wire ?? m.id.slice(m.id.indexOf(\"/\") + 1);\n\
+         \x20\x20\x20 if (wire !== wireName) continue;\n\
+         \x20\x20\x20 if (hit) return undefined; // ambiguous — refuse rather than guess\n\
+         \x20\x20\x20 hit = m;\n\
+         \x20 }}\n\
+         \x20 return hit;\n\
+         }}\n\
+         \n\
+         /** Does this wire name's model inject a `max` reasoning effort TEXTUALLY (passthrough routes)? */\n\
+         export function reasoningMaxRawFor(wireName: string): boolean {{\n\
+         \x20 return wireSpec(wireName)?.reasoningMax === \"raw\";\n\
+         }}\n\
+         \n\
+         /** Does this wire name's model default to `max` on the PARSED object (translate routes)? */\n\
+         export function reasoningMaxParsedFor(wireName: string): boolean {{\n\
+         \x20 return wireSpec(wireName)?.reasoningMax === \"parsed\";\n\
+         }}\n\
+         \n\
+         /** Is this model served ONLY by `/v1/responses`? */\n\
+         export function isResponsesOnlyModel(wireName: string): boolean {{\n\
+         \x20 return wireSpec(wireName)?.responsesOnly === true;\n\
+         }}\n\
+         \n\
+         /** Advertised `og/` bare ids → the wire slug the upstream accepts. */\n\
+         export const OG_WIRE_REMAP: Record<string, string> = {{\n@@WIRE_REMAP@@\n\
+         }};\n\
+         \n\
+         /** The wire slugs that execute Anthropic `web_search` natively. */\n\
+         export const SEARCH_CAPABLE_WIRE_MODELS: Set<string> = new Set([@@SEARCH@@]);\n",
         HEALTH_PRIORITY
             .iter()
             .map(|id| ts_string(id))
             .collect::<Vec<_>>()
             .join(", ")
     ));
+    // **THE SUBSTITUTION RUNS LAST**, after every push: the placeholders live in a block appended after the
+    // derivation, so replacing them where the tables were BUILT left them in the output — which the formatter
+    // caught (`@@WIRE_REMAP@@` is not TypeScript) rather than the freshness test, because the emission was
+    // self-consistent and simply wrong.
+    out = out
+        .replace("@@WIRE_REMAP@@", &wire_remap)
+        .replace("@@SEARCH@@", &search);
     out
 }
 

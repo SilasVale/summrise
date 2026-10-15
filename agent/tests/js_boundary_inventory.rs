@@ -781,6 +781,13 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 50 -> 49 ON 2026-10-14, FOR `channels.ts`: the catalogue registry, 663 lines of hand-mirrored tables and the
+// helpers over them. Two emissions carry it now (`channels-logic.ts` for the catalogue, `routing-logic.ts` for
+// the router's URLs and predicates), and the file is 93 lines of re-exports. **THE EMISSION FOUND A LIVE
+// DIVERGENCE ON THE WAY**: the console's `retiredModelHint` trims and lowercases its key and the Rust's did not,
+// so a caller spelling `amd/DeepSeek-V4-Flash` was told the replacement by the console and "Unknown channel
+// model" by the worker — the console's own test for that spelling failed against the render of the Rust function.
+//
 // 51 -> 50 ON 2026-10-14, FOR `auth.ts`: the credential primitives leaf, where every DECISION (the compare's
 // length rule, the cookie parser's four details, the CSRF gate's order, the two cookie headers, the base64url
 // alphabet, the claims check) was already in `auth.rs`. The host keeps `crypto.subtle`, `btoa`/`atob` and
@@ -828,4 +835,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 50;
+const MAX_LOGIC: usize = 49;

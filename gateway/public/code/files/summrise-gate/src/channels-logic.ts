@@ -281,3 +281,66 @@ export const HEALTH_CHANNELS: { id: string; model: string }[] = [
 
 /** The default channel leads, so the "recommended" badge points where `auto` resolves. */
 export const HEALTH_PRIORITY: string[] = ["cm", "qw", "og", "or"];
+
+/** The advertised models on one channel prefix, in catalogue order.
+ *
+ * **IT MOVED HERE WHEN THE REGISTRY DID.** It used to live in `channels.ts` because its input did —
+ * an emitted helper closing over a table the emission did not own would have made the generated file
+ * import back from its host. The registry is this module's table now, so the cycle is gone and the
+ * derivation sits beside the list it walks.
+ *
+ * The history is worth keeping: `ROUTE_INFO[].models` used to be hand-maintained — the FIFTH copy of
+ * the catalogue — and had silently drifted from MODELS: the `og/` list omitted
+ * `openai/gpt-5.6-luna:floor[1m]` entirely (advertised by /v1/models, absent from the console's route
+ * breakdown), and `og/` + `cm/` listed theirs in a different order. Nothing caught it: the only
+ * ROUTE_INFO test checked that the PREFIXES were covered, never the lists. */
+export function routeModelsFor(prefix: string, noneModels: string[] = []): string[] {
+  if (prefix === "none") return noneModels;
+  return MODEL_REGISTRY.filter((m) => m.id.startsWith(prefix)).map((m) =>
+    m.id.slice(prefix.length),
+  );
+}
+
+/** One entry by ADVERTISED id. */
+export function modelSpec(id: string): ModelSpec | undefined {
+  return MODEL_REGISTRY.find((m) => m.id === id);
+}
+
+/** One entry by the name the UPSTREAM sees.
+ *
+ * **AMBIGUOUS NAMES RESOLVE TO NOTHING.** Stripping the channel makes two channels that advertise
+ * the same slug indistinguishable, and guessing would apply one channel's wire remap or reasoning
+ * mechanism to another's request. */
+export function wireSpec(wireName: string): ModelSpec | undefined {
+  let hit: ModelSpec | undefined;
+  for (const m of MODEL_REGISTRY) {
+    const wire = m.wire ?? m.id.slice(m.id.indexOf("/") + 1);
+    if (wire !== wireName) continue;
+    if (hit) return undefined; // ambiguous — refuse rather than guess
+    hit = m;
+  }
+  return hit;
+}
+
+/** Does this wire name's model inject a `max` reasoning effort TEXTUALLY (passthrough routes)? */
+export function reasoningMaxRawFor(wireName: string): boolean {
+  return wireSpec(wireName)?.reasoningMax === "raw";
+}
+
+/** Does this wire name's model default to `max` on the PARSED object (translate routes)? */
+export function reasoningMaxParsedFor(wireName: string): boolean {
+  return wireSpec(wireName)?.reasoningMax === "parsed";
+}
+
+/** Is this model served ONLY by `/v1/responses`? */
+export function isResponsesOnlyModel(wireName: string): boolean {
+  return wireSpec(wireName)?.responsesOnly === true;
+}
+
+/** Advertised `og/` bare ids → the wire slug the upstream accepts. */
+export const OG_WIRE_REMAP: Record<string, string> = {
+  "deepseek-v4.1-flash": "deepseek-flash",
+};
+
+/** The wire slugs that execute Anthropic `web_search` natively. */
+export const SEARCH_CAPABLE_WIRE_MODELS: Set<string> = new Set(["deepseek-flash"]);
