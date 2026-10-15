@@ -1,6 +1,7 @@
 // Transport layer — migrated from the original panel.js callApi/callTool.
 // Every device request carries Authorization: Bearer <token>; a 401 triggers
 // the onUnauthorized callback (the UI drops back to the connection form).
+import type { ToolName } from "./contract.gen";
 
 let hostname = "";
 let token = "";
@@ -101,7 +102,10 @@ export async function callApi(
 
 /** Call a device tool (POST /api/tools/{name}). */
 export async function callTool(
-  name: string,
+  // **A TOOL NAME IS A GENERATED UNION, NOT A STRING** (2026-10-15): `contract.gen.ts` carries every tool the
+  // device declares, so a name the device does not have is a TYPE ERROR here rather than a failed call on a
+  // device. The vocabulary's own test keeps that list and the `ToolDef` declarations in step.
+  name: ToolName,
   body: Record<string, unknown> = {},
 ): Promise<any> {
   const res = await callApi(`/api/tools/${name}`, {

@@ -37,24 +37,6 @@ fn repo() -> PathBuf {
         .to_path_buf()
 }
 
-/// Every `.rs` file under `dir`, recursively, skipping build output.
-fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|n| n == "target") {
-                continue;
-            }
-            rs_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
-}
-
 /// Every `.ts`/`.tsx` file under `dir`, recursively, skipping build output and test directories.
 fn ts_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -75,43 +57,6 @@ fn ts_files(dir: &Path, out: &mut Vec<PathBuf>) {
         } else if path.extension().is_some_and(|e| e == "ts" || e == "tsx") {
             out.push(path);
         }
-    }
-}
-
-/// The tool name in `ToolDef::new(\n "name",` — the shape every declaration in `agent/src/plugins` uses.
-fn declared_names(src: &str, into: &mut BTreeSet<String>) {
-    let mut rest = src;
-    while let Some(at) = rest.find("ToolDef::new(") {
-        let after = &rest[at + "ToolDef::new(".len()..];
-        // The name is the first string literal after the call, allowing whitespace and comments between.
-        let mut seen_literal = None;
-        for (i, c) in after.char_indices() {
-            match c {
-                '"' => {
-                    let start = i + 1;
-                    let mut end = start;
-                    let bytes = after.as_bytes();
-                    while end < bytes.len() && bytes[end] != b'"' {
-                        end += 1;
-                    }
-                    seen_literal = Some(after[start..end].to_string());
-                    break;
-                }
-                // Stop at the end of the argument list: a `ToolDef::new` with no literal is not a name.
-                ')' | ';' => break,
-                _ => {}
-            }
-        }
-        if let Some(name) = seen_literal {
-            if !name.is_empty()
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
-            {
-                into.insert(name);
-            }
-        }
-        rest = after;
     }
 }
 
@@ -146,16 +91,17 @@ const PANEL_FLOOR: usize = 10;
 fn every_tool_the_panel_calls_is_one_the_agent_declares() {
     let root = repo();
 
-    let mut agent_files = Vec::new();
-    rs_files(&root.join("agent/src/plugins"), &mut agent_files);
-    let mut declared = BTreeSet::new();
-    for file in &agent_files {
-        let src = fs::read_to_string(file).unwrap_or_default();
-        declared_names(&src, &mut declared);
-    }
+    // **THE DECLARATIONS COME FROM `vocabulary::TOOL_NAMES`, NOT FROM A SECOND SCAN.** That module is the single
+    // source (it emits `contract.gen.ts`, which `callTool`'s `ToolName` union is generated from), and its own test
+    // scans `agent/src` for `ToolDef::new("<name>"` and fails by name when the two disagree. Scanning again here
+    // would be the second copy this whole exercise is about.
+    let declared: BTreeSet<String> = summrise_agent::vocabulary::TOOL_NAMES
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
     assert!(
         declared.len() >= AGENT_FLOOR,
-        "only {} tool(s) found under agent/src/plugins — the scan is looking at the wrong shape (floor {AGENT_FLOOR})",
+        "only {} tool(s) in vocabulary::TOOL_NAMES (floor {AGENT_FLOOR})",
         declared.len()
     );
 

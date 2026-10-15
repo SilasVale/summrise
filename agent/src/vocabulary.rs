@@ -60,6 +60,67 @@ pub const END_REASONS: &[&str] = &[
 ];
 pub const EXITED_PREFIX: &str = "exited:";
 
+/// **EVERY TOOL THE DEVICE DECLARES, AND THE PANEL CALLS THEM BY THESE EXACT SPELLINGS.**
+///
+/// `callTool("terminal_read", …)` in the panel becomes `POST /api/tools/terminal_read`; the device resolves it
+/// against its own `ToolDef` table. **A name that is not there is not a compile error anywhere** — it is a failed
+/// call in the UI, on a device, in production — so until 2026-10-15 the two ends agreed by spelling alone. The
+/// panel's `callTool` now takes `ToolName`, generated from this list, which turns that agreement into a TYPE.
+///
+/// MECHANICAL, NOT REMEMBERED: the test below scans `agent/src` for `ToolDef::new("<name>"` and fails BY NAME when
+/// this list and the declarations disagree. **THE SCAN STOPS AT THE FIRST `#[cfg(test)]` IN EACH FILE** — every
+/// file here keeps its test module at the end, and a fixture tool (`c1`, `x`) is not a tool the panel may call.
+pub const TOOL_NAMES: &[&str] = &[
+    "agent_update",
+    "browser_pw_info",
+    "browser_run_script",
+    "mcp_client_call",
+    "mcp_client_connect",
+    "mcp_client_disconnect",
+    "mcp_client_list",
+    "memory_delete",
+    "memory_export",
+    "memory_list",
+    "memory_save",
+    "memory_search",
+    "memory_update",
+    "monitor_add",
+    "monitor_list",
+    "monitor_probe",
+    "monitor_remove",
+    "page_view",
+    "run_begin",
+    "run_end",
+    "system_file_download",
+    "system_file_list",
+    "system_file_read",
+    "system_file_stat",
+    "system_file_upload",
+    "system_file_write",
+    "system_net_test",
+    "system_process_kill",
+    "system_process_list",
+    "terminal_close",
+    "terminal_connect_saved",
+    "terminal_diag_read",
+    "terminal_diag_write",
+    "terminal_env",
+    "terminal_execute",
+    "terminal_forget_saved",
+    "terminal_history",
+    "terminal_jobs",
+    "terminal_list",
+    "terminal_list_ports",
+    "terminal_open",
+    "terminal_plan",
+    "terminal_read",
+    "terminal_resize",
+    "terminal_saved_connections",
+    "terminal_screen",
+    "terminal_select",
+    "terminal_write",
+];
+
 /// The JSON artifact `contract-vocabulary-check.mjs` reads. Written by `contract_vocabulary_snapshot`.
 pub fn as_json() -> serde_json::Value {
     serde_json::json!({
@@ -67,6 +128,7 @@ pub fn as_json() -> serde_json::Value {
         "boot_kinds": BOOT_KINDS,
         "end_reasons": END_REASONS,
         "exited_prefix": EXITED_PREFIX,
+        "tool_names": TOOL_NAMES,
     })
 }
 
@@ -107,6 +169,73 @@ mod tests {
         );
     }
 
+    /// **THE LIST IS A VIEW OF THE DECLARATIONS, NOT A COPY OF THEM** — the same rule
+    /// `boot_kinds_match_the_enum` carries for the enum. The scan is the one this module's header describes for
+    /// `FRAMES`; here it reads `ToolDef::new("<name>"` out of `agent/src`, stopping at the first `#[cfg(test)]` in
+    /// each file, because a fixture tool is not a tool the panel may call.
+    #[test]
+    fn tool_names_are_the_declared_tools() {
+        use std::collections::BTreeSet;
+        use std::fs;
+        use std::path::{Path, PathBuf};
+
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+
+        let mut files = Vec::new();
+        walk(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src").as_path(),
+            &mut files,
+        );
+        let mut declared = BTreeSet::new();
+        for file in &files {
+            let src = fs::read_to_string(file).unwrap_or_default();
+            let cut = src.find("#[cfg(test)]").unwrap_or(src.len());
+            let head = &src[..cut];
+            let mut rest = head;
+            while let Some(at) = rest.find("ToolDef::new(") {
+                let after = &rest[at + "ToolDef::new(".len()..];
+                if let Some(quote) = after.find('"') {
+                    let tail = &after[quote + 1..];
+                    if let Some(end) = tail.find('"') {
+                        let name = &tail[..end];
+                        if !name.is_empty()
+                            && name
+                                .chars()
+                                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+                        {
+                            declared.insert(name.to_string());
+                        }
+                    }
+                }
+                rest = after;
+            }
+        }
+        assert!(
+            declared.len() >= 40,
+            "only {} tool declarations found — the scan is looking at the wrong shape",
+            declared.len()
+        );
+        let listed: BTreeSet<String> = TOOL_NAMES.iter().map(|s| (*s).to_string()).collect();
+        let missing: Vec<&String> = declared.difference(&listed).collect();
+        let extra: Vec<&String> = listed.difference(&declared).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "vocabulary::TOOL_NAMES and the declarations disagree.\n  declared but not listed: {missing:?}\n  listed but not declared: {extra:?}\nFIX: update TOOL_NAMES in agent/src/vocabulary.rs, then SUMMRISE_REFRESH_CONTRACT=1 cargo test contract_vocabulary_snapshot."
+        );
+    }
+
     /// Writes both artifacts, or checks them. Refresher, exactly like the tool spec's:
     /// `SUMMRISE_REFRESH_CONTRACT=1 cargo test --features terminal,keyring contract_vocabulary_snapshot`.
     #[test]
@@ -143,7 +272,11 @@ mod tests {
              // reader and it is `panel-logic/src/path.rs` now, where the list and the table it keys\n\
              // live in ONE crate — and `agent/tests/contract_vocabulary.rs` compares that copy\n\
              // against `contract-vocabulary.json` on every run. The JSON still carries both: it is\n\
-             // the contract the gate reads.\n",
+             // the contract the gate reads.\n\n\
+             /** Every tool the DEVICE declares. `callTool` takes `ToolName`, so a name the device does\n\
+              *  not have is a TYPE ERROR at the call site rather than a failed call on a device. */\n\
+             export const TOOL_NAMES = {tool_names} as const;\n\
+             export type ToolName = (typeof TOOL_NAMES)[number];\n",
             frames = serde_json::to_string(FRAMES).unwrap(),
             // The union the TYPE is spelled with, generated from the same list the JSON carries — so
             // the type cannot drift from the vocabulary either.
@@ -152,6 +285,8 @@ mod tests {
                 .map(|k| format!("\"{k}\""))
                 .collect::<Vec<_>>()
                 .join(" | "),
+            // The panel reads THIS list; `api.ts`'s `callTool` takes the union derived from it.
+            tool_names = serde_json::to_string(TOOL_NAMES).unwrap(),
         );
 
         let refresh = std::env::var("SUMMRISE_REFRESH_CONTRACT").is_ok_and(|v| !v.is_empty());
