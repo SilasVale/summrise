@@ -1458,6 +1458,12 @@ jobs:
       # code, so this step fails when the shipping side moves and the worker does not follow.
       - name: the translate corpus still matches the live TypeScript
         run: bash scripts/test/oracle-translate-freshness.bash
+      # **THE PRE-PUSH HOOK'S ROUTING, PROVEN ON FIXTURES** (2026-10-15): the hook runs the CI job's own commands for
+      # the directories a push touches, so a red landing is caught in three minutes instead of six. What can go
+      # wrong in such a hook is not "does it run commands" but "does it pick the RIGHT ones", so this proves the
+      # path-to-job table in both directions — including that a docs-only push runs NOTHING.
+      - name: the pre-push gate routes by what changed
+        run: bash scripts/test/local-gates.bash
 
   proxies-zen:
     name: proxies (zen-us + zen-go)
