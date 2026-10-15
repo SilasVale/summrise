@@ -85,8 +85,7 @@ fn declared_names(src: &str, into: &mut BTreeSet<String>) {
         let after = &rest[at + "ToolDef::new(".len()..];
         // The name is the first string literal after the call, allowing whitespace and comments between.
         let mut seen_literal = None;
-        let mut chars = after.char_indices().peekable();
-        while let Some((i, c)) = chars.next() {
+        for (i, c) in after.char_indices() {
             match c {
                 '"' => {
                     let start = i + 1;
@@ -196,7 +195,7 @@ fn every_tool_the_panel_calls_is_one_the_agent_declares() {
 fn nearest(declared: &BTreeSet<String>, unknown: &[String]) -> String {
     let mut out = Vec::new();
     for line in unknown {
-        let name = line.trim().split_whitespace().next().unwrap_or("");
+        let name = line.split_whitespace().next().unwrap_or("");
         let mut best: Vec<(usize, &String)> =
             declared.iter().map(|d| (distance(d, name), d)).collect();
         best.sort();
