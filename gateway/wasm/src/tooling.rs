@@ -61,6 +61,138 @@ pub fn encode_base64_utf8(text: &str) -> String {
     out
 }
 
+/// **TWO PURE HELPERS FROM `gateway/src/tooling.ts`, EMITTED BACK — `tooling-logic.ts` (2026-10-15).**
+///
+/// This module was already their Rust home ("TWO PURE HELPERS FROM `gateway/src/tooling.ts`", its own first
+/// line); what it lacked was the render, so the console kept its two spellings and nothing compared them. They
+/// are the probe's environment-key table and the installer's base64 — the second of which has a CHUNKING rule
+/// whose only observable effect is not throwing on a large CLI.
+const TS_MODULE: &str = r#"/**
+ * tooling-logic.ts — GENERATED. DO NOT EDIT BY HAND.
+ *
+ * Emitted by `gateway/wasm/src/tooling.rs` (`render_typescript`). The freshness test there is a byte comparison:
+ *
+ *     SUMMRISE_REFRESH_TOOLING=1 cargo test --manifest-path gateway/wasm/Cargo.toml tooling::emission
+ *
+ * `gateway/src/tooling.ts` re-exports this module and keeps the host: the `/api/health` assembly, the
+ * `summriseProbe` sequence, the ASSETS read and the installer templates' callers.
+ */
+
+/** The worker-level key each channel's probe uses — **A TABLE WITH A DEFAULT**, because an unknown channel
+ *  probes the one channel that always has a key rather than nothing at all. */
+export const PROBE_ENV_KEYS: Record<string, string> = {
+{{ENV_KEYS}}
+};
+
+/** `probeEnvKeyName(prefix)` — the key name, or DeepSeek's for an unknown prefix.
+ *
+ *  **`hasOwnProperty` AGAIN, AND THIS TIME IT MATTERS IN BOTH DIRECTIONS**: the lookup is guarded, so
+ *  `"constructor"` gets the DEFAULT rather than `Object.prototype.constructor`'s source, and the default is a
+ *  real key rather than null. */
+export function probeEnvKeyName(prefix: string): string {
+  return Object.prototype.hasOwnProperty.call(PROBE_ENV_KEYS, prefix)
+    ? (PROBE_ENV_KEYS[prefix] as string)
+    : "DEEPSEEK_API_KEY";
+}
+
+/** UTF-8-safe base64: `btoa` is Latin1-only and throws on non-ASCII (the summrise CLI is full of Chinese text),
+ *  so the text is encoded to bytes first.
+ *
+ *  **AND IT IS CHUNKED, WHICH IS A RULE RATHER THAN AN OPTIMISATION**: spreading a big `Uint8Array` into
+ *  `String.fromCharCode` blows the argument-length limit (`RangeError`) as the CLI grows, so the bytes are
+ *  appended 32k at a time. The OUTPUT is what matters — standard base64 of the UTF-8 encoding, padded. */
+export function encodeBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+"#;
+
+/// **THE PRODUCER.** The key table is rendered as a literal rather than quoted, so its eight rows come from
+/// [`PROBE_ENV_KEYS`] and cannot drift from the lookup that reads them.
+pub fn render_typescript() -> String {
+    let rows = PROBE_ENV_KEYS
+        .iter()
+        // **PRETTIER DROPS THE QUOTES ON A KEY THAT IS A PLAIN IDENTIFIER** ("or", "qw", …) and keeps them
+        // where they are needed, so the emission has to know the same rule: a generated file that fails
+        // `format:check` is a red CI on a tree nobody edited.
+        .map(|(prefix, name)| {
+            let key = if prefix
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                && !prefix.chars().next().is_some_and(|c| c.is_ascii_digit())
+            {
+                prefix.to_string()
+            } else {
+                ts_string(prefix)
+            };
+            format!("  {key}: {},", ts_string(name))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    TS_MODULE.replace("{{ENV_KEYS}}", &rows)
+}
+
+/// A TypeScript string literal for a Rust `&str`.
+fn ts_string(raw: &str) -> String {
+    format!("\"{}\"", raw.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The committed emission, and the path the refresh command writes.
+pub fn typescript_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/tooling-logic.ts")
+}
+
+#[cfg(test)]
+mod emission {
+    use super::*;
+
+    /// **THE FRESHNESS CHECK** — the committed file IS `render_typescript()`'s bytes.
+    #[test]
+    fn the_typescript_is_what_this_module_emits() {
+        let path = typescript_path();
+        let rendered = render_typescript();
+        if std::env::var("SUMMRISE_REFRESH_TOOLING").is_ok_and(|v| !v.is_empty()) {
+            std::fs::write(&path, &rendered).expect("write tooling-logic.ts");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "{} missing ({e}) — run SUMMRISE_REFRESH_TOOLING=1 cargo test tooling::emission",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "gateway/src/tooling-logic.ts is not what tooling.rs emits — \
+             run SUMMRISE_REFRESH_TOOLING=1 cargo test tooling::emission"
+        );
+    }
+
+    /// **EIGHT ROWS, AND THE TWO ENDS OF THE TABLE ARE THE ONES THAT MATTER**: the lookup's guard (a prefix
+    /// that exists on `Object.prototype` gets the default, not the prototype's value) and the default itself.
+    #[test]
+    fn the_emission_carries_the_table_and_the_default() {
+        let ts = render_typescript();
+        assert_eq!(PROBE_ENV_KEYS.len(), 8);
+        for (prefix, name) in PROBE_ENV_KEYS.iter() {
+            // Prettier's key rule, mirrored: an identifier-safe key is written unquoted.
+            assert!(
+                ts.contains(&format!("  {prefix}: \"{name}\",")),
+                "lost {prefix}"
+            );
+            assert_eq!(probe_env_key_name(prefix), *name);
+        }
+        assert_eq!(probe_env_key_name("constructor"), "DEEPSEEK_API_KEY");
+        assert_eq!(probe_env_key_name("nope"), "DEEPSEEK_API_KEY");
+        assert!(ts.contains("hasOwnProperty"), "the guard is the rule");
+    }
+}
+
 #[cfg(test)]
 mod oracle_corpus {
     //! `fixtures/translate-corpus.json`'s `tooling` cases were produced by the SHIPPING TypeScript

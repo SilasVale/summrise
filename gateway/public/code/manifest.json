@@ -136,6 +136,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/tooling-logic.ts",
+      "path": "files/summrise-gate/src/tooling-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/tooling.ts",
       "path": "files/summrise-gate/src/tooling.ts",
       "group": "summrise-gate"
