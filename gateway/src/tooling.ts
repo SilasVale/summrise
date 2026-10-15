@@ -34,6 +34,13 @@ import { fetchWithTimeout, upstreamTimeoutMs, isChannelDegraded } from "./reliab
 import { jsonOk, jsonError } from "./http.ts";
 import { createIpRateLimiter } from "./lib/ratelimit.ts";
 
+// **TWO PURE HELPERS ARE AN EMISSION NOW (2026-10-15)** — `tooling-logic.ts`, GENERATED from
+// `gateway/wasm/src/tooling.rs`, which has been their Rust home since it was written ("TWO PURE HELPERS FROM
+// `gateway/src/tooling.ts`", its own first line). What it lacked was the render, so the console kept its two
+// spellings and nothing compared them. Re-exported below, so every call site keeps its import path.
+export { encodeBase64Utf8, PROBE_ENV_KEYS, probeEnvKeyName } from "./tooling-logic.ts";
+import { probeEnvKeyName } from "./tooling-logic.ts";
+
 // Public /api/summrise-probe rate limit: each probe costs a real upstream call
 // (real money), so cap probes per-caller via a KV counter. Per-IP (the
 // gateway-wide bucket let one caller exhaust the budget for everyone AND a
@@ -75,20 +82,6 @@ export async function buildHealth(env: any) {
   };
 }
 
-/** UTF-8-safe base64: btoa is Latin1-only and throws on non-ASCII (the summrise
- *  CLI is full of Chinese text). Encode to bytes first. Chunked: spreading a
- *  big Uint8Array into String.fromCharCode blows the argument-length limit
- *  (RangeError) as the CLI grows — append per 32k chunk instead. */
-export function encodeBase64Utf8(text: string) {
-  const bytes = new TextEncoder().encode(text);
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
-}
-
 /** Probe-result envelope for summriseProbe's channel branches: {ok, channel,
  * status} with the upstream status as detail on failure. The og and
  * passthrough branches used to each inline this shape. */
@@ -110,23 +103,6 @@ function probeResultJson(prefix: string, res: Response) {
  * to the DeepSeek arm exactly like the old default branch (the AMD test's
  * BYOK-isolation design depends on that fall-through staying put).
  */
-const PROBE_ENV_KEYS: Record<string, string> = {
-  or: "OPENROUTER_API_KEY",
-  qw: "QWEN_API_KEY",
-  nv: "NVAPI_KEY",
-  gmi: "GMI_API_KEY",
-  cm: "CMD_API_KEY",
-  amd: "AMD_API_KEY",
-  r4: "R4_API_KEY",
-  ds: "DEEPSEEK_API_KEY",
-};
-
-/** OCP extension point: new channels register their worker key here. */
-export function probeEnvKeyName(prefix: string): string {
-  return Object.prototype.hasOwnProperty.call(PROBE_ENV_KEYS, prefix)
-    ? (PROBE_ENV_KEYS[prefix] as string)
-    : "DEEPSEEK_API_KEY";
-}
 
 /**
  * Channel probe for the summrise CLI's `use` command (public POST /api/summrise-probe).
