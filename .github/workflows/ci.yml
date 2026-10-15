@@ -835,7 +835,24 @@ jobs:
         # umask loop's glob was the only thing reaching it. The stubs make it need nothing but bash: no
         # docker, no musl toolchain, no box.
         run: bash scripts/test/relay-deploy-stub.bash
+      # **AND ITS ELIGIBLE HALF IS ON THE CADENCE TOO (2026-10-15) — THE MEASUREMENT IS THE SAME ONE**: this step
+      # was 5.85 of `pack-chain`'s 8.1 minutes AFTER the duplicate all-gates step was scheduled, which made it the
+      # new critical path of the whole run. What it does is re-run EVERY `scripts/test/*.bash` gate under
+      # `umask 077` — a distinct CONFIGURATION rather than a duplicate, so its coverage is real; and a mode bug is
+      # a structural property, not a per-commit regression, which is exactly the class a daily run is for.
+      #
+      # **THE ONE GATE ITS OWN COMMENT SAYS BELONGS IN THE PUSH PATH STAYS THERE**: `publish-release.bash` runs
+      # under the hostile umask below on every push, because it is the gate that WRITES the release's files. The
+      # loop keeps its floor (a glob that matched nothing is not a clean run), its `n/a` exit-2 convention and its
+      # `::error::` annotations — moved, not weakened, and still proved by `every bash gate under a hostile umask`
+      # on the schedule.
+      - name: the release script's umask sanity (the one gate that writes files)
+        run: |
+          umask 077
+          set -o pipefail
+          bash scripts/test/publish-release.bash
       - name: every bash gate under a hostile umask
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
           umask 077
           # A GLOB THAT MATCHED NOTHING IS NOT A CLEAN RUN (round 191). This loop s own comment above
