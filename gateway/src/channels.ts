@@ -57,276 +57,6 @@ export const OG_NATIVE_ANTHROPIC: Set<string> = new Set();
 // the display name) and has NO deepseek-v4.1-flash slug; we advertise the
 // clear name and rewrite on the wire. The raw lane name stays reachable by
 // exact spelling too (it strips to a slug with no remap entry → passthrough).
-/** ── THE MODEL REGISTRY ────────────────────────────────────────────────
- *
- * ONE record per advertised model, holding every facet that used to live in a
- * separate table. Before this, adding a model meant remembering SIX places:
- *
- *     MODELS          advertise it            (channels.ts)
- *     OG_WIRE_REMAP   its upstream wire slug  (channels.ts, og/ only)
- *     OG_FORCE_US_PROXY        region policy  (channels.ts)
- *     SEARCH_CAPABLE_WIRE_MODELS  can search  (channels.ts)
- *     HEALTH_CHANNELS          health card    (channels.ts)
- *     VISION_CAPABLE_MODELS    sees images    (wrangler.jsonc, ENV)
- *
- * plus hardcoded conditions in plugins/translate.ts. Nothing FAILED if you
- * forgot one — measured: adding an id to MODELS alone left all 737 tests
- * green while the model was half-wired. Every table below now DERIVES from
- * this registry, and `model-registry.test.mjs` makes the coverage
- * bidirectional, so a forgotten facet fails the build instead of shipping.
- *
- * ORDER IS PART OF THE CONTRACT: `MODELS` is served verbatim by
- * /v1/models, so records must stay in the advertised order.
- *
- * VISION is deliberately NOT a facet here — it stays the
- * `VISION_CAPABLE_MODELS` env var in wrangler.jsonc, because operators must
- * be able to correct it WITHOUT a redeploy (a live model's image support is
- * discovered in the field, not at commit time). The registry is the default
- * for the other facets; env wins where both exist.
- */
-export interface ModelSpec {
-  /** Advertised id — the `MODELS` entry and what clients send. */
-  id: string;
-  /** `owned_by` reported by /v1/models. */
-  ownedBy: string;
-  /** Upstream wire slug when it differs from the prefix-stripped id.
-   *  ONLY `og/` records may set this: `wireModelName` (upstream.ts) consults
-   *  the map for prefix "og" alone, so a wire on any other prefix would be
-   *  silently ignored. Pinned. */
-  wire?: string;
-  /** Must ride the US egress pool (region block / geographic policy). */
-  usEgress?: boolean;
-  /** Executes Anthropic web_search natively — keyed by WIRE slug. */
-  search?: boolean;
-  /** Served ONLY by /v1/responses (chat/completions 5xxs upstream). */
-  responsesOnly?: boolean;
-  /** Human name, as `/v1/models` reports it and DSH's discovery reads it.
-   *
-   *  THESE THREE ARE THE FORM-OWNED FACETS, and the line is deliberate: name,
-   *  context window and max output tokens are DISPLAY AND DISCOVERY — a client uses
-   *  them to describe a model to a human, and none of them can change what a request
-   *  MEANS. `wire`, `usEgress`, `search` and the vision flag are the other kind:
-   *  they change where a request goes or what the upstream does with it, which is
-   *  why they stay pinned in this registry rather than open to a text field. The
-   *  split is the same one the DSH editor makes — protocol and credential belong to
-   *  the provider, the per-model row carries what the model IS. */
-  name?: string;
-  /** Context window in tokens. Positive integer; a form may set it, routing may not read it. */
-  contextWindow?: number;
-  /** Max output tokens, same rule. */
-  maxTokens?: number;
-  /** Default reasoning effort when the CLIENT does not send one.
-   *
-   *  A THIRD CATEGORY, and the reason it may live in a form at all: unlike `wire` or
-   *  `usEgress`, this is not a routing decision — it is a DEFAULT PARAMETER, and the
-   *  client's own `reasoning` always wins (see the injection site in translate.ts).
-   *  A value that cannot be overridden would change what a request means; one that can
-   *  only fills a gap does not.
-   *
-   *  CONSULTED BY RECORD, NOT BY WIRE NAME. The built-in flags (`reasoningMax`) are
-   *  looked up by wire, which is why that file insists a wire slug be unique; a
-   *  per-model default that two models could share through a wire collision would be
-   *  exactly the kind of silent inheritance this field exists to avoid. */
-  reasoningEffort?: "low" | "medium" | "high" | "max";
-  /** Reasoning-effort model: default effort=max when the client sends none.
-   *
-   *  The MECHANISM follows the path, so it is part of the facet:
-   *    "raw"    — passthrough routes forward raw text (no parse, for CPU), so
-   *               the default is injected textually before forwarding;
-   *    "parsed" — translate routes already hold the parsed object, so it is
-   *               set on that object.
-   *  Encoding the mechanism keeps each call site scoped to the models it
-   *  actually served before — a `true` here would have let a passthrough
-   *  model pick up the parsed path's default (or vice versa), which is a
-   *  behaviour change even when both would look reasonable. */
-  reasoningMax?: "raw" | "parsed";
-  /** Health-probe card in /api/health. `false` = deliberately NOT probed and
-   *  MUST carry `probeWhy`, so the decision is explicit rather than an
-   *  oversight (five models had silently gone unprobed before this). */
-  probe?: boolean;
-  probeWhy?: string;
-}
-
-/** See the header above. Order = the /v1/models order. */
-export const MODEL_REGISTRY: ModelSpec[] = [
-  // ── og/ — OpenCode Go (zen/go) ──────────────────────────────────────────
-  // V4.1 Flash: advertised under the CLEAR name, served by zen/go under the
-  // version-less lane slug `deepseek-flash` (verified live 2026-09-10 — there
-  // is no deepseek-v4.1-flash slug upstream), hence the wire remap. Also the
-  // one web_search-capable model (Anthropic web_search_20250305 natively).
-  {
-    id: "og/deepseek-v4.1-flash",
-    ownedBy: "opencode",
-    wire: "deepseek-flash",
-    search: true,
-    probe: true,
-  },
-  // Not separately probed: the og/ card already has a representative model
-  // and a card per model multiplies upstream traffic on every /api/health.
-  {
-    id: "og/minimax-m3",
-    ownedBy: "opencode",
-    probe: false,
-    probeWhy: "translate-only model; the og/ health card covers the channel",
-  },
-  { id: "og/mimo-v2.5", ownedBy: "opencode", probe: true },
-  // MiMo V2.6 Flash — the v2.6 refresh of the mimo lane (registered
-  // 2026-09-22). NO `wire` FACET, and that one is measured: zen/go's own
-  // /v1/models lists `mimo-v2.6-flash` verbatim, so the prefix-stripped id IS
-  // the upstream slug — unlike og/deepseek-v4.1-flash, whose lane slug is the
-  // version-less `deepseek-flash`.
-  //
-  // Facets measured through this worker before the record was written
-  // (2026-09-22):
-  //   * both protocols answer 200 and stream: /v1/chat/completions returns
-  //     reasoning_content, /v1/messages returns thinking + text blocks;
-  //   * an image_url request read a 320x100 PNG's text verbatim, so the model
-  //     SEES images itself and its ADVERTISED id goes on
-  //     VISION_CAPABLE_MODELS (wrangler.jsonc) — the bare wire spelling stays
-  //     out, for the reason the r4/ entry spells out: a bare entry would claim
-  //     vision for every channel serving that slug;
-  //   * `reasoning_effort` accepts none|low|medium|high and REJECTS minimal
-  //     and max with a 400 ("Invalid request parameters"). The settings.yaml
-  //     entry therefore does NOT follow the og/ off→max convention — that one
-  //     would 400 on the level DSH sends by default; off→none and max→high are
-  //     the honest ends of THIS model's ladder.
-  //   * NO `search` FACET: a web_search request naming this model is swapped to
-  //     the version-less Flash lane by searchTargetFor and the reply comes back
-  //     echoing `deepseek-flash` (measured) — the treatment every og/ model
-  //     except og/deepseek-v4.1-flash gets.
-  { id: "og/mimo-v2.6-flash", ownedBy: "opencode", probe: true },
-  // Reasoning-effort model — see `reasoningMax` and `reasoningDefaultMaxFor`.
-  { id: "og/ox-alpha-free", ownedBy: "opencode", reasoningMax: "parsed", probe: true },
-  // Meta Muse Spark Contributor: /v1/responses ONLY (chat/completions 500s,
-  // verified 2026-09-04) and forced through the US exit (Meta Geographic Use
-  // Policy). Requires the workspace data-training opt-in.
-  {
-    id: "og/muse-spark-1.3-contributor",
-    ownedBy: "opencode",
-    usEgress: true,
-    responsesOnly: true,
-    probe: true,
-  },
-  {
-    id: "og/muse-spark-1.2-contributor",
-    ownedBy: "opencode",
-    usEgress: true,
-    responsesOnly: true,
-    probe: false,
-    probeWhy: "superseded by 1.3; one probe per model family is enough",
-  },
-  // zen region-blocks luna for CN → rides the OpenRouter US exit.
-  { id: "og/gpt-5.6-luna", ownedBy: "opencode", usEgress: true, probe: true },
-  {
-    id: "og/openai/gpt-5.6-luna:floor[1m]",
-    ownedBy: "opencode",
-    usEgress: true,
-    probe: false,
-    probeWhy: "the or/ spelling below is the probed luna card",
-  },
-  // ── or/ — OpenRouter (BYOK) ─────────────────────────────────────────────
-  { id: "or/openai/gpt-5.6-luna:floor[1m]", ownedBy: "openrouter", probe: true },
-  { id: "or/z-ai/glm-5.2:free", ownedBy: "openrouter", probe: true },
-  {
-    id: "or/nvidia/nemotron-3-ultra-550b-a55b:free",
-    ownedBy: "openrouter",
-    probe: true,
-  },
-  // ── nv/ — NVIDIA NIM (BYOK, dedicated capacity) ─────────────────────────
-  { id: "nv/nvidia/nemotron-3-ultra-550b-a55b", ownedBy: "nvidia", probe: true },
-  // RETIRED 2026-09-11: `nv/minimaxai/minimax-m3` was advertised here and NVIDIA
-  // does not offer it. `agent/model-drift/` flagged it on every run, and the
-  // check held up under the obvious objection — that the wire name might differ
-  // from the advertised one — because NVIDIA's catalogue has NO MiniMax entry at
-  // all, bare or prefixed (82 models, of which 7 are Chinese-lab: yi, deepseek x3,
-  // kimi x2, glm — and no minimax). Every other nv/ id resolves exactly.
-  //
-  // An advertised model that cannot work is worse than an absent one: it appears
-  // in /v1/models, it is selectable in the console's catalogue, and choosing it
-  // fails upstream. `og/minimax-m3` is a DIFFERENT channel and is untouched.
-  {
-    id: "nv/moonshotai/kimi-k3",
-    ownedBy: "nvidia",
-    probe: false,
-    probeWhy: "the nv/ health card already probes nemotron",
-  },
-  // ── gmi/ — GMI Cloud ────────────────────────────────────────────────────
-  { id: "gmi/MiniMaxAI/MiniMax-M3", ownedBy: "gmi", probe: true },
-  { id: "gmi/MiniMaxAI/MiniMax-M2.7", ownedBy: "gmi", probe: true },
-  // ox-alpha reasoning-effort model (the or/ spelling). Sits here — NOT in the
-  // or/ group above — because order is the /v1/models contract and this is
-  // where the catalogue has always listed it.
-  { id: "or/stealth/ox-alpha", ownedBy: "openrouter", reasoningMax: "raw", probe: true },
-  // ── qw/ — Qwen ──────────────────────────────────────────────────────────
-  { id: "qw/qwen3.8-max-preview", ownedBy: "qwen", probe: true },
-  { id: "qw/qwen3.8-flash", ownedBy: "qwen", probe: true },
-  // DeepSeek V4.1 Flash on the same Aliyun token plan (registered 2026-09-16).
-  // The upstream slug carries the version exactly as the ADVERTISED name does,
-  // so the prefix-stripped id CROSSES THE WIRE UNCHANGED: no `wire` facet is
-  // set, and none could be (`wire` is consulted for og/ alone — see the
-  // og/-only test). This is the difference from og/deepseek-v4.1-flash, whose
-  // zen/go lane slug is the version-less `deepseek-flash`.
-  //
-  // Every facet below was measured against the live upstream through this
-  // worker before the record was written: both /v1/chat/completions
-  // (compatible-mode) and /v1/messages (apps/anthropic) answer 200 with
-  // thinking blocks; an image_url request reads a 320x100 PNG's text verbatim
-  // and reports usage.image_tokens, so VISION_CAPABLE_MODELS gains the id
-  // (wrangler.jsonc) rather than letting the gateway describe the picture
-  // away; and `reasoning_effort` accepts minimal|low|medium|high|xhigh|max|
-  // ultra while `none` is a 400 — which is why the qw/ spelling of this model
-  // keeps the channel's existing off→max convention in DSH.
-  { id: "qw/deepseek-v4.1-flash", ownedBy: "qwen", probe: true },
-  // ── cm/ — Command Code (GOAT plan) ──────────────────────────────────────
-  { id: "cm/meituan/LongCat-2.0:free", ownedBy: "command-code", probe: true },
-  { id: "cm/poolside/laguna-s-2.1-free", ownedBy: "command-code", probe: true },
-  { id: "cm/deepseek/deepseek-v4.1-flash", ownedBy: "command-code", probe: true },
-  // ── r4/ — r4.codes (registered 2026-09-20) ──────────────────────────────
-  // A coding-agent gateway serving its whole catalog on ONE host under BOTH
-  // protocols natively: /v1/messages returns a real Anthropic message
-  // (thinking blocks included) and accepts x-api-key OR Bearer, while
-  // /v1/chat/completions returns a normal chat.completion — so r4Route picks
-  // by requestPath and NOTHING is translated (the amd/ pattern). The upstream
-  // slug carries the version exactly as the advertised name does, so the
-  // prefix-stripped id CROSSES THE WIRE UNCHANGED: no `wire` facet is set, and
-  // none could be (`wire` is consulted for og/ alone).
-  //
-  // Every facet below was measured against the live upstream before this
-  // record was written (2026-09-20). Both paths answer 200 for all eight
-  // catalog models; an image_url request reads a 320x100 PNG's text verbatim
-  // and reports usage.prompt_tokens_details.image_tokens=202, so
-  // VISION_CAPABLE_MODELS gains the id (wrangler.jsonc); and `reasoning_effort`
-  // accepts minimal|low|medium|high|xhigh|max while `none` is a 400 with no
-  // floor below minimal — which is why DSH maps off→minimal for this channel
-  // rather than the off→max convention og/ and qw/ use.
-  //
-  // NO `search` FACET, and that one is measured too, not assumed. r4's
-  // /v1/messages accepts a `tools` array but implements only CLIENT-side
-  // tools: `web_search_20250305` is IGNORED — 200, no server_tool_use block,
-  // no web_search_tool_result, and the model answers "the web_search tool
-  // isn't available in this session". A deliberately fabricated tool type
-  // (`totally_made_up_20991231`) behaves identically, which is what rules out
-  // "this request was malformed": the upstream simply does not know the tool.
-  // Forcing tool_choice does not change it.
-  //
-  // WHAT ACTUALLY HAPPENS TO A web_search REQUEST — measured through the
-  // DEPLOYED gateway on 2026-09-20, after an earlier version of this comment
-  // claimed otherwise and shipped: the request is forwarded to r4 UNCHANGED.
-  // The swap to the og/ Flash lane (searchTargetFor) sits behind the
-  // /v1/messages parse gate, whose kind list is the translate route plus
-  // opencode/deepseek/gmi/amd/nvidia — r4 is a passthrough kind and is NOT on
-  // it, so the body is never parsed, `body` stays null, and the swap cannot
-  // fire. qw/ and or/ behave the same way. The control that settles it: og/ was
-  // answering 429 (weekly cap exhausted) at the moment of the test, so a swap
-  // would have returned 429 — the r4 request returned 200 with no
-  // web_search_tool_result block, and the model emitted its attempted tool call
-  // as PLAIN TEXT (`<tool_use><invoke name="web_search">…`). That is the honest
-  // shape of "this upstream has no server tools": not an error, and not a
-  // search. Wiring the swap for r4/ means adding its kind to that parse gate —
-  // a real CPU cost on every r4 request, and a silent re-point of the answer at
-  // zen/go — so it is a deliberate decision, not a doc fix.
-  { id: "r4/deepseek-v4.1-flash", ownedBy: "r4", probe: true },
-];
 
 /** A record by advertised id. */
 export function modelSpec(id: string): ModelSpec | undefined {
@@ -513,14 +243,33 @@ export function museResponsesExit(env: any): string {
 //
 // AN EDIT TO A CARD IS A RUST EDIT, THEN:
 //   cd gateway && SUMMRISE_REFRESH_CHANNELS=1 cargo test --manifest-path wasm/Cargo.toml registry::emission
-export { ROUTE_INFO } from "./channels-logic.ts";
+// **FOUR MORE TABLES ARE THE EMISSION'S NOW (2026-10-14).** `MODEL_REGISTRY` (24 entries), `ModelSpec`, `MODELS`
+// and the `/api/health` cards were this file's, and `registry.rs` held copies — the registry compared field for
+// field by a test, the health cards mirrored "verbatim" and compared by NOTHING but a fixture snapshot. Both are
+// one table now, rendered back here by the same emission that carries the channel cards.
+//
+// The helpers BELOW still live in this file: `modelSpec`, `wireSpec`, the two reasoning lookups,
+// `isResponsesOnlyModel`, `OG_WIRE_REMAP`, `SEARCH_CAPABLE_WIRE_MODELS`, the retired-model table, the US-proxy
+// predicates and `routeModelsFor`. They read the emitted registry, and moving them is the next landing.
+export {
+  HEALTH_CHANNELS,
+  HEALTH_PRIORITY,
+  MODEL_REGISTRY,
+  MODELS,
+  ROUTE_INFO,
+  type ModelSpec,
+} from "./channels-logic.ts";
+// The reserved prefixes are the PROVIDER vocabulary's (`provider_spec.rs`, emitted as `providers-logic.ts`) and
+// this file is where every consumer imports them from — a re-export that survived the migration of the four
+// tables above.
+export { RESERVED_PREFIXES } from "./store/providers-logic.ts";
 
 /** The advertised models on one channel prefix, in catalogue order.
  *
- * **IT LIVES HERE BECAUSE ITS INPUT DOES**: `MODEL_REGISTRY` is this file's, and an emitted helper closing over
- * a table the emission does not own would make `channels-logic.ts` import back from here — a cycle to save one
- * line. The emitted `ROUTE_INFO`'s lists come from the RUST's version of this derivation, and
- * `channels-registry.test.mjs` compares the two card by card, so the two spellings cannot drift apart quietly.
+ * **IT LIVES HERE BECAUSE ITS INPUT DOES** — `MODEL_REGISTRY` is now the EMISSION's, but this helper is the
+ * console's own derivation and `channels-logic.ts` bakes the Rust's answer into each card. The two are compared
+ * card by card (`CARDS: the emitted ROUTE_INFO is routeModelsFor's answer`), which is what keeps one derivation
+ * with two spellings from drifting apart quietly.
  *
  * The history is worth keeping: `ROUTE_INFO[].models` used to be hand-maintained — the FIFTH copy of the
  * catalogue — and had silently drifted from MODELS: the `og/` list omitted `openai/gpt-5.6-luna:floor[1m]`
@@ -534,85 +283,8 @@ export function routeModelsFor(prefix: string, noneModels: string[] = []): strin
   );
 }
 
-export const MODELS: { id: string; owned_by: string }[] = MODEL_REGISTRY.map((m) => ({
-  id: m.id,
-  owned_by: m.ownedBy,
-}));
+import { MODEL_REGISTRY, type ModelSpec } from "./channels-logic.ts";
 
-/**
- * Every prefix the BUILT-IN router reserves — what a custom provider's prefix
- * is validated against (store/providers.ts refuses to register one).
- *
- * The list is the union of two sources that live in two modules, so it is
- * spelled out and PINNED instead of derived: ROUTE_INFO's prefixes are read
- * from the registry above, while `ds` and `amd` are ROUTE_TABLE-only channels
- * (live routes with no console card — ds is unpayable since 402s on every
- * request, amd has no V4.1 to advertise), and `none` is the no-prefix sentinel
- * rather than a prefix at all. `upstream.test.mjs` asserts this EQUALS
- * Object.keys(ROUTE_TABLE) ∪ {"none"}: a channel added to the route table
- * without a reservation here would become a shadowable prefix, and that fails
- * the build instead of shipping.
- *
- * Why reserve at all, when resolveRoute consults ROUTE_TABLE first and a
- * built-in therefore cannot be shadowed? Because the alternative is a provider
- * that validates, is advertised in the console, and then never serves a
- * request — a lie in the catalogue. The routing order is the security guard;
- * this list is the correctness one.
- */
-// **THE LIST IS AN EMISSION NOW (2026-10-13) AND THIS IS A RE-EXPORT.** It used to be DERIVED here from the
-// table above (`ROUTE_INFO` minus the trailing slash, plus `ds` and `amd`), while the WORKER spelled the same
-// nine prefixes in `routing.rs` and only a test held the two together. `store/providers-logic.ts` is GENERATED
-// from `core/summrise-core/src/provider_spec.rs`'s `RESERVED_PREFIXES`, so the console, the worker and the
-// parser all read ONE array — and the test that pins it against this file's route table
-// (`upstream.test.mjs`, `RESERVED_PREFIXES` EQUALS `Object.keys(ROUTE_TABLE) ∪ {"none"}`) now pins the RUST
-// list against the TypeScript table, which is the direction that matters.
-//
-// Why reserve at all, when resolveRoute consults ROUTE_TABLE first and a built-in therefore cannot be
-// shadowed? Because the alternative is a provider that validates, is advertised in the console, and then never
-// serves a request — a lie in the catalogue. The routing order is the security guard; this list is the
-// correctness one.
-export { RESERVED_PREFIXES } from "./store/providers-logic.ts";
-
-// ---- Channel health (public /api/health) ----
-// 2026-09-10 (V4 retirement): the ds/ and amd/ cards left with their models —
-// ds/ is unpayable (402 on every request) and amd/ has no V4.1 to advertise.
-export const HEALTH_CHANNELS: { id: string; model: string }[] = [
-  { id: "qw", model: "qw/qwen3.8-max-preview" },
-  { id: "qw", model: "qw/qwen3.8-flash" },
-  { id: "qw", model: "qw/deepseek-v4.1-flash" },
-  { id: "og", model: "og/deepseek-v4.1-flash" },
-  // More og/ route cards: gpt-5.6-luna (auto-routes via the OpenRouter US
-  // exit — translate.ts remaps it), mimo, ox-alpha. Duplicate ids are safe
-  // here: buildHealth checks the og circuit for each and recommended uses
-  // find() (first match).
-  { id: "og", model: "og/gpt-5.6-luna" },
-  { id: "og", model: "og/mimo-v2.5" },
-  // The v2.6 refresh (2026-09-22). A card costs NOTHING upstream: buildHealth
-  // reads the channel's circuit breaker, it does not call zen (tooling.ts), and
-  // the registry gate requires a card for every probe:true record.
-  { id: "og", model: "og/mimo-v2.6-flash" },
-  { id: "og", model: "og/ox-alpha-free" },
-  // muse-spark Contributor — /v1/responses model; health probe must ride the
-  // responses endpoint through the US exit (see translate.ts).
-  { id: "og", model: "og/muse-spark-1.3-contributor" },
-  { id: "or", model: "or/openai/gpt-5.6-luna:floor[1m]" },
-  { id: "or", model: "or/z-ai/glm-5.2:free" },
-  { id: "or", model: "or/nvidia/nemotron-3-ultra-550b-a55b:free" },
-  { id: "or", model: "or/stealth/ox-alpha" },
-  { id: "nv", model: "nv/nvidia/nemotron-3-ultra-550b-a55b" },
-  // MiniMax Week free tier on GMI Cloud — one card per free LLM.
-  { id: "gmi", model: "gmi/MiniMaxAI/MiniMax-M3" },
-  { id: "gmi", model: "gmi/MiniMaxAI/MiniMax-M2.7" },
-  { id: "cm", model: "cm/deepseek/deepseek-v4.1-flash" },
-  { id: "cm", model: "cm/meituan/LongCat-2.0:free" },
-  { id: "cm", model: "cm/poolside/laguna-s-2.1-free" },
-  // r4/ — ONE card, not one per catalog model. The registry above advertises a
-  // single r4 model deliberately (the other seven are reachable as r4/<id> but
-  // are not registered), and every card here costs an upstream call on a
-  // PUBLIC, unauthenticated endpoint.
-  { id: "r4", model: "r4/deepseek-v4.1-flash" },
-];
 // The default channel leads: `auto`/no-prefix now resolve to Command Code
 // V4.1 (model-route.ts / upstream.ts defaultRoute), so the console's
 // "recommended" badge points at the same place the gateway defaults to.
-export const HEALTH_PRIORITY: string[] = ["cm", "qw", "og", "or"];

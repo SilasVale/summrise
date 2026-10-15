@@ -334,15 +334,19 @@ BOUNDARY | gateway/src/store/admin.ts | **THE ADMIN-STORE HOST, AND ITS DECISION
 #   KV calls and the cache the seed is handed, the mint, and `crypto.subtle`'s PBKDF2 through `auth.ts`. The v1
 #   addresses, the password record's format, the seed's ORDER and the KV-authoritative resolution are
 #   `admin-logic.ts`, GENERATED from `gateway/wasm/src/user_store.rs`.
-GENERATED | gateway/src/channels-logic.ts | the console's CHANNEL CARDS (`ROUTE_INFO`, prose and per-channel model lists) — emitted from Rust | gateway/wasm/src/registry.rs
+GENERATED | gateway/src/channels-logic.ts | the CATALOGUE TABLES — `ModelSpec`, `MODEL_REGISTRY` (24 entries), `MODELS`, the `/api/health` cards and their priority list, and the console's CHANNEL CARDS (`ROUTE_INFO`, prose and per-channel model lists) — emitted from Rust | gateway/wasm/src/registry.rs
 #   **THIS FILE REPLACED A TWIN.** The cards were `channels.ts`'s table, mirrored into the worker as
 #   `wasm/route-info.json` by `scripts/sync-route-info-json.mjs`, with a freshness test on the twin. A twin is a
 #   second source wearing a freshness test: editing a description meant editing TypeScript, running the script,
 #   committing the JSON, and only then could the worker serve it — and `/api/admin/public` was the only reason the
 #   worker needed the cards at all. The table is `registry.rs`'s `CHANNEL_CARDS` now; this renders it back, and
 #   the twin, its generator and its test are deleted.
-#   **`channels.ts` IS NOT A HOST YET**: it still owns `MODEL_REGISTRY`, `MODELS`, `HEALTH_CHANNELS` and
-#   `routeModelsFor`, which is why the LOGIC count does not move for this landing.
+#   **AND THE TABLES FOUND A SECOND GAP ON THE WAY**: the `/api/health` cards were mirrored in `lib.rs` as
+#   "MIRRORING gateway/src/channels.ts's HEALTH_CHANNELS verbatim" and compared by NOTHING but a fixture
+#   snapshot. Both mirrors are one table now, in this module, rendered back here.
+#   **`channels.ts` IS NOT A HOST YET**: it still owns the helpers (`modelSpec`, `wireSpec`, the two reasoning
+#   lookups, `isResponsesOnlyModel`, `OG_WIRE_REMAP`, `SEARCH_CAPABLE_WIRE_MODELS`, the retired-model table, the
+#   US-proxy predicates and `routeModelsFor`), which is why the LOGIC count does not move for this landing.
 GENERATED | gateway/src/auth-logic.ts | the auth PRIMITIVES — the session cookie name and TTL, the mutating-method set, the timing-safe compare's length rule, the cookie parser's four details, the CSRF gate's order, the base64url decode, the two cookie headers' spellings, the first-dot token split and the claims check — emitted from Rust | gateway/wasm/src/auth.rs
 BOUNDARY | gateway/src/auth.ts | **THE AUTH HOST, AND ITS PRIMITIVES ARE EMITTED FROM RUST (2026-10-14).** What is left is `crypto.subtle`'s PBKDF2 and HMAC, the base64 platform calls, and `randomHex`. **THE FILE'S OWN HEADER SAYS IT IMPORTS NOTHING**, and that property survives: the emission is a leaf, not a dependency edge.
 GENERATED | gateway/src/session-logic.ts | the session SEQUENCE and its rules — the TTL, the cookie name, the revocation cache's bound and TTL, the two refusal messages, the fail-closed issuance line, the verify-path key choice, the role test and `cookieSession`'s five ordered arms — emitted from Rust | gateway/wasm/src/session_gate.rs
