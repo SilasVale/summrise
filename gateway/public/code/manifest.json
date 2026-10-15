@@ -201,6 +201,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/file-config-logic.ts",
+      "path": "files/summrise-gate/src/store/file-config-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/file-config.ts",
       "path": "files/summrise-gate/src/store/file-config.ts",
       "group": "summrise-gate"

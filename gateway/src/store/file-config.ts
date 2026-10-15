@@ -21,6 +21,13 @@ import type { ProviderSpec } from "./providers.ts";
 import type { ModelSpec } from "../channels.ts";
 import type { FacetOverride } from "./models.ts";
 
+// **THE FILE LAYER'S TWO PURE RULES ARE AN EMISSION NOW (2026-10-14)** — `file-config-logic.ts`, GENERATED from
+// `gateway/wasm/src/catalogue_file.rs`, whose twin the admin family's 82-case corpus already proves end to end.
+// What stays here is the host half: the document validator's refusal arms (its SHAPE differs by necessity — this
+// module reads `config/models.ts`, the worker reads its JSON twin) and the module-load cache.
+export { fileDeclaredKeys, mergeLayers, type CatalogueLayers } from "./file-config-logic.ts";
+import type { CatalogueLayers } from "./file-config-logic.ts";
+
 /** The file's shape. `config/models.ts` uses `satisfies CatalogueFile`, so the compiler
  *  checks the committed document; the runtime validator then covers what a type cannot —
  *  a routing field smuggled into an override, an inline credential, a bad prefix. */
@@ -28,13 +35,6 @@ export interface CatalogueFile {
   providers?: unknown[];
   models?: unknown[];
   overrides?: unknown[];
-}
-
-/** The three layers this file may declare, normalized and validated. */
-export interface CatalogueLayers {
-  providers: ProviderSpec[];
-  models: ModelSpec[];
-  overrides: FacetOverride[];
 }
 
 const ID_SHAPE = /^[a-z0-9]+\/\S+$/;
@@ -131,34 +131,6 @@ export function parseCatalogueFile(rawDoc: unknown, deps: CatalogueFileDeps): Ca
   }
 
   return out;
-}
-
-/**
- * THE PRECEDENCE RULE, as a pure function: the file wins per id/prefix, KV supplies the
- * rest. Separated from the import deliberately — this is the part that can silently
- * discard an operator's work, and it has to be testable with both sides supplied.
- *
- * @param file - entries declared in the committed document.
- * @param kv - entries the console wrote.
- * @param keyOf - how to identify an entry (prefix for providers, id for models/overrides).
- * @returns the KV entries that survive, followed by the file's.
- */
-export function mergeLayers<T>(file: T[], kv: T[], keyOf: (t: T) => string): T[] {
-  const declared = new Set(file.map(keyOf));
-  return [...kv.filter((k) => !declared.has(keyOf(k))), ...file];
-}
-
-/** Ids/prefixes THIS FILE declares — what the console must mark as not-locally-editable. */
-export function fileDeclaredKeys(layers: CatalogueLayers): {
-  providers: Set<string>;
-  models: Set<string>;
-  overrides: Set<string>;
-} {
-  return {
-    providers: new Set(layers.providers.map((p) => String(p.prefix ?? "").replace(/\/$/, ""))),
-    models: new Set(layers.models.map((m) => m.id)),
-    overrides: new Set(layers.overrides.map((o) => o.id)),
-  };
 }
 
 /**
