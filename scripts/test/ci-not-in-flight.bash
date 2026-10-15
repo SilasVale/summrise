@@ -41,6 +41,19 @@ JSON
 cat > "$T/queued.json" <<'JSON'
 {"total_count":1,"workflow_runs":[{"head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"queued","name":"ci"}]}
 JSON
+# **THE ANCESTOR CASE, WHICH IS THE CHANGE (2026-10-15).** A live run whose commit HEAD CONTAINS is not a reason to
+# wait: the push carries that commit too, and the new run proves the tree containing it. The fixture's sha is a REAL
+# ancestor taken from this repository rather than typed — a synthetic one sits on the refusal path, and the case
+# would then pass for the wrong reason.
+ANCESTOR=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+HEAD_SHA=$(git rev-parse HEAD)
+cat > "$T/ancestor.json" <<JSON
+{"total_count":1,"workflow_runs":[{"head_sha":"$ANCESTOR","status":"in_progress","name":"ci"}]}
+JSON
+cat > "$T/head-itself.json" <<JSON
+{"total_count":1,"workflow_runs":[{"head_sha":"$HEAD_SHA","status":"in_progress","name":"ci"}]}
+JSON
+
 printf 'not json at all' > "$T/garbage.json"
 printf '' > "$T/empty.json"
 
@@ -50,6 +63,9 @@ run "everything completed allows the push" 0 "$T/quiet.json"
 run "an unparseable response fails OPEN — a guard that blocks on a bad answer is worse than the slip" 0 "$T/garbage.json"
 run "an empty response fails OPEN" 0 "$T/empty.json"
 run "an unreadable fixture fails OPEN" 0 "$T/does-not-exist.json"
+
+run "a live run for an ANCESTOR does NOT block — the push covers it" 0 "$T/ancestor.json"
+run "a live run for HEAD itself does not block either (a re-push is a no-op)" 0 "$T/head-itself.json"
 
 # THE HOOK MUST ACTUALLY RUN, INVOKED THE WAY GIT INVOKES IT — and grepping for the call site is NOT that test.
 # The first version of this file only grepped, and the hook it was checking died on a real push with
@@ -68,5 +84,5 @@ else
   echo "  FAIL invoked as \`.githooks/pre-push\` the hook exited $probe_rc without refusing:"; printf '%s\n' "$probe_out" | sed 's/^/         /'; fail=1
 fi
 
-[ "$fail" = 0 ] && echo "ci-not-in-flight: 7 case(s), both directions, on saved API responses"
+[ "$fail" = 0 ] && echo "ci-not-in-flight: 9 case(s), both directions, on saved API responses"
 exit "$fail"
