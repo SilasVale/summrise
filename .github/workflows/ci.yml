@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # **THE CADENCE, AND IT EXISTS FOR THE ONE GRADER A PUSH SHOULD NOT PAY FOR**: `scripts/test/all-gates.bash`
+  # (the whole local gate set in one command, 15.6 measured minutes) runs here and on `workflow_dispatch`, while every
+  # individual gate keeps its own step in the push path. A daily run also catches what a push cannot: drift that only
+  # shows up when nothing was edited (a toolchain, an upstream API, a fixture that rots).
+  schedule:
+    - cron: "17 3 * * *"
   # On-demand only: the toolchain-fingerprint job below restores a 1 GB LLVM
   # tarball, far too heavy to run on every push. Dispatch it when the question
   # "is the runner's toolchain bit-identical to the release box's?" comes up.
@@ -1012,7 +1018,17 @@ jobs:
       # below is covered by it the moment it is added. It runs the gates a second time in this job, on
       # purpose: the individual steps stay because build-pins.bash requires every scripts/test file to
       # be named here, and the grader for the local capability has to be the same list CI runs.
+      # **MEASURED 2026-10-15: THIS STEP WAS 15.6 OF THIS JOB'S 22.4 MINUTES, AND THIS JOB WAS THE WHOLE RUN'S WALL
+      # TIME** (the next longest job was 9.4 min and everything else ran in parallel with it). The step is a SECOND
+      # run of gates whose own steps are all in this job already — the comment above says so in as many words
+      # ("it runs the gates a second time in this job, on purpose"). On a push that purpose is served by the parallel
+      # jobs; on the CADENCE it is served at a price nobody waits for.
+      #
+      # SO IT RUNS ON THE SCHEDULE AND ON DEMAND, NOT ON EVERY PUSH, and nothing stops running: every gate still has
+      # its own step below, and `build-pins.bash` still finds its path named here (it checks the PATH, not the step).
+      # The local-capability grader — "one command reproduces CI" — is exactly the question a daily run can answer.
       - name: every gate, in one command, as a developer would run them
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: bash scripts/test/all-gates.bash
       # WHERE A PRODUCTION HOST MAY APPEAR is a RUST gate now (`agent/tests/production_host.rs`, batch 6 of the P1
       # migration): same declared list, same ratchet, same two streams — and it is run by the `cargo test` step, which
