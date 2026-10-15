@@ -781,6 +781,11 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // "fail open on any internal error" is a named decision rather than a literal at an error site.
 // MEASURED on the landed tree with this constant forced to 0: `LOGIC files: 59`.
 //
+// 49 -> 48 ON 2026-10-15, FOR `store/devices.ts`: the console's copy of the device registry, whose Rust twin
+// (`device_store.rs`) the device family's corpus already proves. Every function in it is an async KV flow over
+// the `env` its callers pass, so it is a STRAIGHT RENDER rather than a sequence needing the platform injected —
+// which is why the file becomes a pure re-export and the count moves.
+//
 // 50 -> 49 ON 2026-10-14, FOR `channels.ts`: the catalogue registry, 663 lines of hand-mirrored tables and the
 // helpers over them. Two emissions carry it now (`channels-logic.ts` for the catalogue, `routing-logic.ts` for
 // the router's URLs and predicates), and the file is 93 lines of re-exports. **THE EMISSION FOUND A LIVE
@@ -835,4 +840,4 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 49;
+const MAX_LOGIC: usize = 48;

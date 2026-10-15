@@ -55,7 +55,7 @@ const HOST: &str = concat!("saisi", ".online");
 /// THE REASONS TRAVEL WITH THE PATHS. On the JS side they are comments beside the array; here they are
 /// the tuple's second element, because a declaration without its reason is the thing this gate's own
 /// failure message refuses ("declare its path in ALLOWED ... WITH A REASON").
-const ALLOWED: [(&str, &str); 57] = [
+const ALLOWED: [(&str, &str); 58] = [
     // ── the release + distribution path: these MUST name the real host to do their job ──
     ("scripts/", "cut, publish, smoke and audit a release against the live CDN"),
     ("index/", "the CDN worker and its landing page ARE the download site"),
@@ -195,6 +195,15 @@ const ALLOWED: [(&str, &str); 57] = [
     // ── the worker's other configured defaults ──
     ("gateway/src/auth.ts", "a comment explaining why a device panel is same-site with the console"),
     ("gateway/src/channels.ts", "the AI channel defaults (oracle/zen-us/zen-go) a deployment ships with"),
+    // **THE SAME EXAMPLE HOSTNAME THE CONSOLE'S REGISTRY DOC CARRIES**, in the module that now SERVES that
+    // registry: the `hostname` field's documentation gives a device's public host as an EXAMPLE. It is a doc
+    // comment rather than a default — no code path falls back to it — and the declaration mirrors the one this
+    // file's console copy already had. MAX_ALLOWED 57 -> 58 in this commit, as the gate requires.
+    //
+    // **AND THIS REASON MAY NOT SPELL THE HOST ITSELF**: the gate scans ITS OWN FILE, so a declaration that
+    // quoted the name it was declaring failed on the next run — which is how the rule "declare the path WITH A
+    // REASON" turns out to mean "with a reason that is not the string you are declaring".
+    ("gateway/wasm/src/device_store.rs", "the device registry's example public hostname, in the doc comment the console's copy carries too"),
     // **A FILE BEING SPLIT, WHICH IS THE ONE CASE THIS GATE'S OWN RATCHET DOCUMENTS AS A LEGITIMATE UP.** The
     // three hosts above moved OUT of `channels.ts` and INTO this emission when the URL constants became
     // `routing.rs`'s (2026-10-14) — the count of places a production host is NAMED did not change, the FILE
@@ -287,7 +296,7 @@ const ALLOWED: [(&str, &str); 57] = [
 // a widened prefix, which is what this ratchet exists to prevent. The alternative considered and rejected was
 // keeping the hostname out of the design and the plan; the read URL is what the operator asked for, and a
 // design that cannot write down its own surface is not a design.
-const MAX_ALLOWED: usize = 57;
+const MAX_ALLOWED: usize = 58;
 
 /// Both directions, and the message names the number to write — a reader who follows it must not meet a
 /// SECOND refusal from the constant, which is what happened to round 273.

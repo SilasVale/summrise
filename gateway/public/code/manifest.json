@@ -196,6 +196,11 @@
       "group": "summrise-gate"
     },
     {
+      "name": "src/store/devices-logic.ts",
+      "path": "files/summrise-gate/src/store/devices-logic.ts",
+      "group": "summrise-gate"
+    },
+    {
       "name": "src/store/devices.ts",
       "path": "files/summrise-gate/src/store/devices.ts",
       "group": "summrise-gate"
