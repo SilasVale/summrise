@@ -275,7 +275,10 @@ mod tests {
              // the contract the gate reads.\n\n\
              /** Every tool the DEVICE declares. `callTool` takes `ToolName`, so a name the device does\n\
               *  not have is a TYPE ERROR at the call site rather than a failed call on a device. */\n\
-             export const TOOL_NAMES = {tool_names} as const;\n\
+             /** NOT EXPORTED, AND `exports_check.rs` IS WHY: `ToolName` derives from it in this file\n\
+              *  and nothing else imports the array — a list nobody imports is a promise nobody keeps.\n\
+              *  The TYPE is the interface. */\n\
+             const TOOL_NAMES = {tool_names} as const;\n\
              export type ToolName = (typeof TOOL_NAMES)[number];\n",
             frames = serde_json::to_string(FRAMES).unwrap(),
             // The union the TYPE is spelled with, generated from the same list the JSON carries — so
