@@ -1381,8 +1381,8 @@ jobs:
   # + wrangler dry-run per worker + the api-relay syntax gate below.
   # (Studio retired 2026-09-06, ADR 0006 — its contract-test comment block
   # that sat here was removed; the suite lives in git history.)
-  proxies:
-    name: proxies (node --test + wrangler dry-run)
+  proxies-byte:
+    name: proxies (the Rust/JS byte comparisons)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -1433,8 +1433,66 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
+      # **SPLIT FROM THE ONE `proxies` JOB ON 2026-10-15, AND THE MEASUREMENT IS WHY**: that job was the
+      # run's critical path at 9.4 minutes, and it was twelve INDEPENDENT targets' suites in one job — so the
+      # wall was the SUM of per-step setup rather than the longest piece. Same steps, same names, three
+      # parallel jobs: nothing is skipped, and attribution per step is unchanged.
       - name: every Rust/JS byte comparison
         run: bash scripts/test/rust-byte-checks.bash
+
+  proxies-zen:
+    name: proxies (zen-us + zen-go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # **`fetch-depth: 0`, BECAUSE ONE OF THE BYTE COMPARISONS READS A COMMIT OUT OF GIT.**
+      # `index/landing/verify.mjs` does `git show 46fa0a3f:index/src/page.js` — the page as the LIVE site
+      # rendered it — and `actions/checkout@v4` defaults to `fetch-depth: 1`, where that object does not
+      # exist at all. **IT IS THE `agent/tests/first_screen.rs` HAZARD AGAIN**: that gate failed its first
+      # CI run while passing every local one, for exactly this reason, and the `agent` job has carried
+      # `fetch-depth: 0` since. Measured 2026-10-05, wiring these harnesses into CI for the first time.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # **THE TOOLCHAIN STEP THIS JOB NEVER NEEDED, AND THE TARGET IT NOW DOES.** It ran `cargo test` on the
+      # runner's default Rust; the entrypoint gate added 2026-10-03 needs `wasm32-unknown-unknown`, and
+      # measured in CI: `error[E0463]: can't find crate for `std`` — exit 101 in this job and in `pack-chain`,
+      # whose umask loop runs `all-gates.bash`. Pinning 1.98.1 is what the other three Rust jobs do, so this
+      # is also the first time this job compiles with the toolchain the repository pins.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
+      # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
+      # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
+      # cases each.
+      #
+      # **AND THE PROOF IS A RUST TEST NOW.** Those harnesses were ~400-line `.mjs` files doing three jobs
+      # at once: running the built wasm module, holding the cases, and judging the bytes. **ONLY THE FIRST
+      # NEEDS JAVASCRIPT** — it is `gateway/wasm/run-cases.mjs`, a runner that takes a spec and prints what
+      # the module did — and the other two are `proxies/zen-{us,go}-proxy/worker/tests/differential.rs`,
+      # run by the two `cargo test` steps below. The expected bytes are `worker/shipping-answers.json`:
+      # what the shipping JavaScript answered, recorded on a run where both sides agreed on all 17 cases.
+      #
+      # THE zen-us POLICY IS IN RUST (block ④, 2026-09-29): the origin allowlist, the loopback rule and
+      # the secret redaction live in `proxies/zen-us-proxy/worker`, and the two Rust gates that read them
+      # — `agent/tests/proxy_cors_parity.rs` and `agent/tests/proxy_timeout_parity.rs` — were re-pointed
+      # at those sources in the same change rather than left reading a file that no longer exists.
+      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job.
+      #
+      # **THE CACHE-BIN STEP COMES FIRST NOW, AND THAT IS AN ORDERING REQUIREMENT RATHER THAN A
+      # PREFERENCE.** `rust-byte-checks.bash` is what INSTALLS `worker-build` when it is missing (a
+      # several-minute build, cached between runs), and the differentials below SPAWN it: `worker-build`'s
+      # output is exactly what `run-cases.mjs` executes. Where the step used to sit — after `Test zen-us` —
+      # a cold cache meant the first differential ran with no toolchain to build the module it drives.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      # The zen pair: the two proxies with a differential each, split out of the fat job.
       - name: Test zen-us (policy + the differential)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
       # **THE HALF `cargo test` CANNOT SEE.** `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`
@@ -1451,6 +1509,27 @@ jobs:
       # **THE HALF `cargo test` CANNOT SEE**, for the same reason as zen-us's step above: `worker.rs` is
       # behind `#[cfg(target_arch = "wasm32")]`, so the host build compiles none of the entrypoint. The
       # job's toolchain already carries the target.
+      - name: Dry-run zen-us
+        run: wrangler deploy --dry-run
+        working-directory: proxies/zen-us-proxy
+      # **THE FILE RELAY — AND UNTIL THESE STEPS, NOTHING RAN IT (measured 2026-10-08).**
+      # `relay/` is a Cloudflare worker (`summrise-relay`, the `/files/*` route), and `ci.yml` had NO step
+      # for it: the suites under `proxies/` run, the worker under `index/` runs, and this one was in
+      # neither — `node --test` in `relay/` answers `fail 0` by hand and answered nothing at all in CI.
+      # **A GATE NOBODY RUNS IS A GATE NOBODY HAS**, which is the sentence `rust-byte-checks.bash` was
+      # written for.
+      #
+      # IT IS IN THIS JOB RATHER THAN A NEW ONE (the plan's standing rule is no new CI job), and the job's
+      # NAME is the only thing that does not say so: this is the job that already carries the other
+      # workers' `node --test` suites, their wrangler dry-runs and their cargo tests.
+      #
+      # **AND TWO OF THE STEPS THAT STOOD HERE EXPIRED WITH THE 2026-10-08 CUTOVER, WHICH IS WHAT THEY
+      # SAID THEY WOULD DO**: `node --test` ran the JavaScript suite and the syntax gate checked the two
+      # source files, and both the suite and the sources are deleted — the port they were proving is now
+      # the entry point, and the corpus check that re-recorded from the shipping JavaScript retired with
+      # the file it recorded from. **The Rust differential is what carries the proof now**: it drives the
+      # BUILT module and compares it against `worker/*-corpus.json`, the answers recorded on a run where
+      # both implementations agreed.
       - name: zen-go's entrypoint, for the target it serves
         run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       - name: Test zen-go (translation + the differential)
@@ -1463,8 +1542,9 @@ jobs:
       # A STEP IN THIS JOB, for the same reason as the two above: no new CI job, and this job already
       # carries the relay's JavaScript suite (`node --test` in `proxies/api-relay`), which is the
       # ORACLE the committed fixture was generated from.
-      - name: Test api-relay routing (Rust)
-        run: cargo test --manifest-path proxies/api-relay/relay/Cargo.toml
+      - name: Dry-run zen-go
+        run: wrangler deploy --dry-run
+        working-directory: proxies/zen-go-proxy
       - name: Install wrangler (pinned)
         # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
         # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
@@ -1496,6 +1576,77 @@ jobs:
       # the file it recorded from. **The Rust differential is what carries the proof now**: it drives the
       # BUILT module and compares it against `worker/*-corpus.json`, the answers recorded on a run where
       # both implementations agreed.
+
+  proxies-relay:
+    name: proxies (the relays + the mail worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # **`fetch-depth: 0`, BECAUSE ONE OF THE BYTE COMPARISONS READS A COMMIT OUT OF GIT.**
+      # `index/landing/verify.mjs` does `git show 46fa0a3f:index/src/page.js` — the page as the LIVE site
+      # rendered it — and `actions/checkout@v4` defaults to `fetch-depth: 1`, where that object does not
+      # exist at all. **IT IS THE `agent/tests/first_screen.rs` HAZARD AGAIN**: that gate failed its first
+      # CI run while passing every local one, for exactly this reason, and the `agent` job has carried
+      # `fetch-depth: 0` since. Measured 2026-10-05, wiring these harnesses into CI for the first time.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # **THE TOOLCHAIN STEP THIS JOB NEVER NEEDED, AND THE TARGET IT NOW DOES.** It ran `cargo test` on the
+      # runner's default Rust; the entrypoint gate added 2026-10-03 needs `wasm32-unknown-unknown`, and
+      # measured in CI: `error[E0463]: can't find crate for `std`` — exit 101 in this job and in `pack-chain`,
+      # whose umask loop runs `all-gates.bash`. Pinning 1.98.1 is what the other three Rust jobs do, so this
+      # is also the first time this job compiles with the toolchain the repository pins.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
+      # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
+      # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
+      # cases each.
+      #
+      # **AND THE PROOF IS A RUST TEST NOW.** Those harnesses were ~400-line `.mjs` files doing three jobs
+      # at once: running the built wasm module, holding the cases, and judging the bytes. **ONLY THE FIRST
+      # NEEDS JAVASCRIPT** — it is `gateway/wasm/run-cases.mjs`, a runner that takes a spec and prints what
+      # the module did — and the other two are `proxies/zen-{us,go}-proxy/worker/tests/differential.rs`,
+      # run by the two `cargo test` steps below. The expected bytes are `worker/shipping-answers.json`:
+      # what the shipping JavaScript answered, recorded on a run where both sides agreed on all 17 cases.
+      #
+      # THE zen-us POLICY IS IN RUST (block ④, 2026-09-29): the origin allowlist, the loopback rule and
+      # the secret redaction live in `proxies/zen-us-proxy/worker`, and the two Rust gates that read them
+      # — `agent/tests/proxy_cors_parity.rs` and `agent/tests/proxy_timeout_parity.rs` — were re-pointed
+      # at those sources in the same change rather than left reading a file that no longer exists.
+      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job.
+      #
+      # **THE CACHE-BIN STEP COMES FIRST NOW, AND THAT IS AN ORDERING REQUIREMENT RATHER THAN A
+      # PREFERENCE.** `rust-byte-checks.bash` is what INSTALLS `worker-build` when it is missing (a
+      # several-minute build, cached between runs), and the differentials below SPAWN it: `worker-build`'s
+      # output is exactly what `run-cases.mjs` executes. Where the step used to sit — after `Test zen-us` —
+      # a cold cache meant the first differential ran with no toolchain to build the module it drives.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      # The three relays and the mail worker, split out of the fat job.
+      - name: Test api-relay routing (Rust)
+        run: cargo test --manifest-path proxies/api-relay/relay/Cargo.toml
+      - name: Test api-relay
+        run: node --test
+        working-directory: proxies/api-relay
+      - name: Syntax-check api-relay handlers
+        run: |
+          node --check api/proxy.js
+          node --check api/zen.js
+          node --experimental-strip-types --check api/git.ts
+          node --experimental-strip-types --check api/github.ts
+          node --experimental-strip-types --check api/gform.ts
+        working-directory: proxies/api-relay
+
+  # extension/ (browser MV3) has no build tooling — syntax gate plus the
+  # pure-guard unit tests (shared.js MITM guard; DOM glue stays untested by
+  # design). No build/pack step exists here, so no new toolchain is needed.
       - name: Dry-run the file relay
         run: wrangler deploy --dry-run
         working-directory: relay
@@ -1512,6 +1663,76 @@ jobs:
       # `#[cfg(target_arch = "wasm32")]` so the host suite compiles none of the entry point. The dry run is what
       # would have caught a `main` that nothing generates; `provision-stub.bash` is the only thing that says the
       # bucket's retention age and the worker's config still agree.
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
+      - name: Dry-run the file relay
+        run: wrangler deploy --dry-run
+        working-directory: relay
+      - name: Test summrise-relay
+        run: node --test
+        working-directory: proxies/summrise-relay
+      - name: Syntax gate summrise-relay
+        run: node --check relay.mjs
+        working-directory: proxies/summrise-relay
+
+  proxies-mail:
+    name: proxies (the mail worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # **`fetch-depth: 0`, BECAUSE ONE OF THE BYTE COMPARISONS READS A COMMIT OUT OF GIT.**
+      # `index/landing/verify.mjs` does `git show 46fa0a3f:index/src/page.js` — the page as the LIVE site
+      # rendered it — and `actions/checkout@v4` defaults to `fetch-depth: 1`, where that object does not
+      # exist at all. **IT IS THE `agent/tests/first_screen.rs` HAZARD AGAIN**: that gate failed its first
+      # CI run while passing every local one, for exactly this reason, and the `agent` job has carried
+      # `fetch-depth: 0` since. Measured 2026-10-05, wiring these harnesses into CI for the first time.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # **THE TOOLCHAIN STEP THIS JOB NEVER NEEDED, AND THE TARGET IT NOW DOES.** It ran `cargo test` on the
+      # runner's default Rust; the entrypoint gate added 2026-10-03 needs `wasm32-unknown-unknown`, and
+      # measured in CI: `error[E0463]: can't find crate for `std`` — exit 101 in this job and in `pack-chain`,
+      # whose umask loop runs `all-gates.bash`. Pinning 1.98.1 is what the other three Rust jobs do, so this
+      # is also the first time this job compiles with the toolchain the repository pins.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      # **THE TWO `node --test` STEPS ARE GONE, AND THEIR SUITES WENT WITH THE JAVASCRIPT (2026-10-08).**
+      # `proxies/zen-{us,go}-proxy/test/behavior.test.mjs` imported `../src/index.js` — the shipping
+      # implementation — and both were deleted after the port was proven equal to them byte for byte on 17
+      # cases each.
+      #
+      # **AND THE PROOF IS A RUST TEST NOW.** Those harnesses were ~400-line `.mjs` files doing three jobs
+      # at once: running the built wasm module, holding the cases, and judging the bytes. **ONLY THE FIRST
+      # NEEDS JAVASCRIPT** — it is `gateway/wasm/run-cases.mjs`, a runner that takes a spec and prints what
+      # the module did — and the other two are `proxies/zen-{us,go}-proxy/worker/tests/differential.rs`,
+      # run by the two `cargo test` steps below. The expected bytes are `worker/shipping-answers.json`:
+      # what the shipping JavaScript answered, recorded on a run where both sides agreed on all 17 cases.
+      #
+      # THE zen-us POLICY IS IN RUST (block ④, 2026-09-29): the origin allowlist, the loopback rule and
+      # the secret redaction live in `proxies/zen-us-proxy/worker`, and the two Rust gates that read them
+      # — `agent/tests/proxy_cors_parity.rs` and `agent/tests/proxy_timeout_parity.rs` — were re-pointed
+      # at those sources in the same change rather than left reading a file that no longer exists.
+      # A STEP IN THIS JOB AND NOT A NEW ONE: the plan's standing rule is no new CI job.
+      #
+      # **THE CACHE-BIN STEP COMES FIRST NOW, AND THAT IS AN ORDERING REQUIREMENT RATHER THAN A
+      # PREFERENCE.** `rust-byte-checks.bash` is what INSTALLS `worker-build` when it is missing (a
+      # several-minute build, cached between runs), and the differentials below SPAWN it: `worker-build`'s
+      # output is exactly what `run-cases.mjs` executes. Where the step used to sit — after `Test zen-us` —
+      # a cold cache meant the first differential ran with no toolchain to build the module it drives.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      # The mail worker: retention, decisions, entry point.
       - name: Dry-run the mail worker
         run: wrangler deploy --dry-run
         working-directory: mail
@@ -1539,27 +1760,13 @@ jobs:
       # THE OUTBOUND RELAY (round 207 of the standing goal, step two of the plan the research settled): an agent dials out to
       # it and its own /mcp + /panel become reachable to whoever can reach the relay — the shape every comparable product uses
       # (Portainer Edge, VS Code tunnels, Nabu Casa, the CI runners). Six tests, in-process, loopback only.
-      - name: Test summrise-relay
-        run: node --test
-        working-directory: proxies/summrise-relay
-      - name: Syntax gate summrise-relay
-        run: node --check relay.mjs
-        working-directory: proxies/summrise-relay
-      - name: Test api-relay
-        run: node --test
-        working-directory: proxies/api-relay
-      - name: Syntax-check api-relay handlers
-        run: |
-          node --check api/proxy.js
-          node --check api/zen.js
-          node --experimental-strip-types --check api/git.ts
-          node --experimental-strip-types --check api/github.ts
-          node --experimental-strip-types --check api/gform.ts
-        working-directory: proxies/api-relay
-
-  # extension/ (browser MV3) has no build tooling — syntax gate plus the
-  # pure-guard unit tests (shared.js MITM guard; DOM glue stays untested by
-  # design). No build/pack step exists here, so no new toolchain is needed.
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
   toolchain-fingerprint:
     # Answers "does the runner build with the SAME toolchain as the release
     # box?" — the one variable still open behind the last bytes of exe drift.
