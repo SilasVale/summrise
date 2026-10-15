@@ -804,6 +804,53 @@ pub fn typescript_typescript_path() -> std::path::PathBuf {
 }
 
 #[cfg(test)]
+mod family_pins {
+    use super::*;
+
+    /// **THE RULE AND THE TABLE ARE THE SAME NINE PREFIXES, AND NOTHING COMPARED THEM.**
+    ///
+    /// `is_built_in_prefix` is a LIST (the core's `RESERVED_PREFIXES` minus the `"none"` sentinel) and
+    /// `pick_route` is a MATCH — two spellings of "which prefixes does this worker own", in two files, with the
+    /// console's third spelling (`Object.prototype.hasOwnProperty(ROUTE_TABLE, prefix)`) on the other side of the
+    /// wire. The console's side has had a gate since the prefix table landed; **this is the worker's.**
+    ///
+    /// **AND THE CONSOLE'S SPELLING IS DELIBERATELY NOT THIS ONE.** `upstream.ts` derives the answer from its
+    /// ROUTE_TABLE because `registerRoute` writes into it — a plugin seam the worker does not have — and
+    /// `upstream.test.mjs` pins that a REGISTERED prefix resolves through the table. So the console may answer
+    /// yes for a prefix this list has never heard of, and that is a difference in the HOST, not a drift in the
+    /// nine: for every prefix either side ships, the two agree.
+    ///
+    /// MUTATION: add a prefix to `RESERVED_PREFIXES` without an arm in `pick_route` (or the reverse).
+    /// RESULT:   the list below gains a name `pick_route` does not recognise, and this test fails.
+    #[test]
+    fn the_built_in_prefixes_are_the_route_tables() {
+        let shipped = ["og", "or", "nv", "gmi", "qw", "cm", "r4", "ds", "amd"];
+        for prefix in shipped {
+            assert!(
+                is_built_in_prefix(prefix),
+                "{prefix} ships as a route but is not in the built-in list"
+            );
+            // **THE COMPARISON IS THE WHOLE SHAPE, NOT THE URL, AND `cm` IS WHY**: the default channel IS
+            // Command Code, so `pick_route("cm")` and `pick_route("not-a-prefix")` dial the same URL — what
+            // separates them is that the `cm` arm STRIPS the prefix and the default arm does not.
+            let shape = |prefix: &str| {
+                let r = pick_route(prefix, None, None, "/v1/messages");
+                (r.upstream.clone(), r.strip_prefix, r.kind, r.is_translate)
+            };
+            assert_ne!(
+                shape(prefix),
+                shape("not-a-prefix"),
+                "{prefix} is in the built-in list but `pick_route` answers the default for it"
+            );
+        }
+        // And the sentinel is the ONE name in `RESERVED_PREFIXES` that is not a route: a provider may not claim
+        // it, and no built-in channel answers to it.
+        assert!(!is_built_in_prefix("none"));
+        assert!(summrise_core::catalogue::RESERVED_PREFIXES.contains(&"none"));
+    }
+}
+
+#[cfg(test)]
 mod emission {
     use super::*;
 
