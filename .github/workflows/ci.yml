@@ -1450,10 +1450,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-      # **SPLIT FROM THE ONE `proxies` JOB ON 2026-10-15, AND THE MEASUREMENT IS WHY**: that job was the
-      # run's critical path at 9.4 minutes, and it was twelve INDEPENDENT targets' suites in one job — so the
-      # wall was the SUM of per-step setup rather than the longest piece. Same steps, same names, three
-      # parallel jobs: nothing is skipped, and attribution per step is unchanged.
       - name: every Rust/JS byte comparison
         run: bash scripts/test/rust-byte-checks.bash
 
@@ -1509,7 +1505,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-      # The zen pair: the two proxies with a differential each, split out of the fat job.
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
       - name: Test zen-us (policy + the differential)
         run: cargo test --manifest-path proxies/zen-us-proxy/worker/Cargo.toml
       # **THE HALF `cargo test` CANNOT SEE.** `worker.rs` is behind `#[cfg(target_arch = "wasm32")]`
@@ -1526,27 +1528,6 @@ jobs:
       # **THE HALF `cargo test` CANNOT SEE**, for the same reason as zen-us's step above: `worker.rs` is
       # behind `#[cfg(target_arch = "wasm32")]`, so the host build compiles none of the entrypoint. The
       # job's toolchain already carries the target.
-      - name: Dry-run zen-us
-        run: wrangler deploy --dry-run
-        working-directory: proxies/zen-us-proxy
-      # **THE FILE RELAY — AND UNTIL THESE STEPS, NOTHING RAN IT (measured 2026-10-08).**
-      # `relay/` is a Cloudflare worker (`summrise-relay`, the `/files/*` route), and `ci.yml` had NO step
-      # for it: the suites under `proxies/` run, the worker under `index/` runs, and this one was in
-      # neither — `node --test` in `relay/` answers `fail 0` by hand and answered nothing at all in CI.
-      # **A GATE NOBODY RUNS IS A GATE NOBODY HAS**, which is the sentence `rust-byte-checks.bash` was
-      # written for.
-      #
-      # IT IS IN THIS JOB RATHER THAN A NEW ONE (the plan's standing rule is no new CI job), and the job's
-      # NAME is the only thing that does not say so: this is the job that already carries the other
-      # workers' `node --test` suites, their wrangler dry-runs and their cargo tests.
-      #
-      # **AND TWO OF THE STEPS THAT STOOD HERE EXPIRED WITH THE 2026-10-08 CUTOVER, WHICH IS WHAT THEY
-      # SAID THEY WOULD DO**: `node --test` ran the JavaScript suite and the syntax gate checked the two
-      # source files, and both the suite and the sources are deleted — the port they were proving is now
-      # the entry point, and the corpus check that re-recorded from the shipping JavaScript retired with
-      # the file it recorded from. **The Rust differential is what carries the proof now**: it drives the
-      # BUILT module and compares it against `worker/*-corpus.json`, the answers recorded on a run where
-      # both implementations agreed.
       - name: zen-go's entrypoint, for the target it serves
         run: cargo clippy --manifest-path proxies/zen-go-proxy/worker/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
       - name: Test zen-go (translation + the differential)
@@ -1559,16 +1540,6 @@ jobs:
       # A STEP IN THIS JOB, for the same reason as the two above: no new CI job, and this job already
       # carries the relay's JavaScript suite (`node --test` in `proxies/api-relay`), which is the
       # ORACLE the committed fixture was generated from.
-      - name: Dry-run zen-go
-        run: wrangler deploy --dry-run
-        working-directory: proxies/zen-go-proxy
-      - name: Install wrangler (pinned)
-        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
-        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
-        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
-        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
-        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
-        run: npm install -g wrangler@4.127.0
       - name: Dry-run zen-go
         run: wrangler deploy --dry-run
         working-directory: proxies/zen-go-proxy
@@ -1646,24 +1617,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-      # The three relays and the mail worker, split out of the fat job.
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
       - name: Test api-relay routing (Rust)
         run: cargo test --manifest-path proxies/api-relay/relay/Cargo.toml
-      - name: Test api-relay
-        run: node --test
-        working-directory: proxies/api-relay
-      - name: Syntax-check api-relay handlers
-        run: |
-          node --check api/proxy.js
-          node --check api/zen.js
-          node --experimental-strip-types --check api/git.ts
-          node --experimental-strip-types --check api/github.ts
-          node --experimental-strip-types --check api/gform.ts
-        working-directory: proxies/api-relay
-
-  # extension/ (browser MV3) has no build tooling — syntax gate plus the
-  # pure-guard unit tests (shared.js MITM guard; DOM glue stays untested by
-  # design). No build/pack step exists here, so no new toolchain is needed.
       - name: Dry-run the file relay
         run: wrangler deploy --dry-run
         working-directory: relay
@@ -1680,22 +1642,27 @@ jobs:
       # `#[cfg(target_arch = "wasm32")]` so the host suite compiles none of the entry point. The dry run is what
       # would have caught a `main` that nothing generates; `provision-stub.bash` is the only thing that says the
       # bucket's retention age and the worker's config still agree.
-      - name: Install wrangler (pinned)
-        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
-        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
-        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
-        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
-        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
-        run: npm install -g wrangler@4.127.0
-      - name: Dry-run the file relay
-        run: wrangler deploy --dry-run
-        working-directory: relay
       - name: Test summrise-relay
         run: node --test
         working-directory: proxies/summrise-relay
       - name: Syntax gate summrise-relay
         run: node --check relay.mjs
         working-directory: proxies/summrise-relay
+      - name: Test api-relay
+        run: node --test
+        working-directory: proxies/api-relay
+      - name: Syntax-check api-relay handlers
+        run: |
+          node --check api/proxy.js
+          node --check api/zen.js
+          node --experimental-strip-types --check api/git.ts
+          node --experimental-strip-types --check api/github.ts
+          node --experimental-strip-types --check api/gform.ts
+        working-directory: proxies/api-relay
+
+  # extension/ (browser MV3) has no build tooling — syntax gate plus the
+  # pure-guard unit tests (shared.js MITM guard; DOM glue stays untested by
+  # design). No build/pack step exists here, so no new toolchain is needed.
 
   proxies-mail:
     name: proxies (the mail worker)
@@ -1749,7 +1716,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-bin: true
-      # The mail worker: retention, decisions, entry point.
+      - name: Install wrangler (pinned)
+        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
+        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
+        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
+        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
+        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
+        run: npm install -g wrangler@4.127.0
       - name: Dry-run the mail worker
         run: wrangler deploy --dry-run
         working-directory: mail
@@ -1777,13 +1750,6 @@ jobs:
       # THE OUTBOUND RELAY (round 207 of the standing goal, step two of the plan the research settled): an agent dials out to
       # it and its own /mcp + /panel become reachable to whoever can reach the relay — the shape every comparable product uses
       # (Portainer Edge, VS Code tunnels, Nabu Casa, the CI runners). Six tests, in-process, loopback only.
-      - name: Install wrangler (pinned)
-        # A BARE MAJOR IS A MOVING TARGET (round 195). This installed `wrangler@4` — whatever 4.x was
-        # newest that day — and validated the proxies with it, while the deploy box runs 4.127.0: TEN
-        # minor versions apart, measured when this pin was written. A wrangler that changes dry-run
-        # behaviour fails the RELEASE having passed CI, or the reverse. The repo already pins rust,
-        # cargo-xwin and typescript for exactly this reason; build-pins.bash holds all four together.
-        run: npm install -g wrangler@4.127.0
   toolchain-fingerprint:
     # Answers "does the runner build with the SAME toolchain as the release
     # box?" — the one variable still open behind the last bytes of exe drift.
