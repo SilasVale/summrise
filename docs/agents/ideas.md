@@ -143,3 +143,30 @@ what `Split-Path (Get-Command summrise).Source` asks the machine for, computed b
 so that a device whose CLI is behind can be brought forward by the ONE command it is told to run — and the test that
 already asserts this outcome's text is where the corrected sentence belongs.
 
+## ROW 29's SECOND ASK, ANSWERED BY READING THE REFERENCE (round 100)
+
+*"deepseek harness 不是也有 windows 桌面客户端吗，它是怎么实现的，你能参考下吗"* — the package is on this box, so
+this is a reading rather than a guess:
+
+```
+@deepseek-ai/dsh 0.2.0-rc.2
+  bin: { "dsh": "lib/bin.js" }
+  scripts: (none)          optionalDependencies: (none)          one bundled lib/
+```
+
+**THE SHAPE IS THE ANSWER, AND IT IS ALMOST EMBARRASSINGLY PLAIN**: one npm package, ONE bin entry, **no install
+scripts, no post-install steps, no per-architecture optional dependencies, no prefix arithmetic anywhere in the
+documentation** — because the process that runs is the process that knows where it is. Nothing asks a human to compute
+a path, so nothing can be computed wrongly.
+
+**AND THAT IS WHY ROUND 98's FIX WAS THE RIGHT DIRECTION RATHER THAN A PATCH**: `summrise update` now prints the prefix
+IT is running from instead of asking for `Split-Path (Get-Command summrise).Source`. **The reference does not have a
+better trick; it never had the problem**, because its install never leaves the default prefix. Ours does (the agent runs
+as SYSTEM, so `summrise` lives under the device's own tree — `D:\Summrise\components\npm-global` on the measured
+device), and that is the ONE difference worth designing around.
+
+**SO THE REMAINING WORK ON ROW 29 IS NOT ANOTHER MESSAGE — IT IS THE INSTALL LAYOUT**: a fresh install that lands where
+the CLI will look (the current README already points at the tgz for exactly this reason), and an update that a device
+can complete with the single command it is shown. **Anything still asking a person to type a path is a layout problem
+wearing a documentation problem's clothes.**
+
