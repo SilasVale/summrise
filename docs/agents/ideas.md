@@ -393,3 +393,37 @@ exactly the state behind the "recovery target" parameter. **So the unified slot 
 only the recovery target FUNCTION differs.** A count that is a descriptor in one file becomes a specification in
 another, which is how both of these travelled.
 
+## THE DESKTOP SHELL LINE, CLOSED (rounds 103-145) — FOUR THINGS WORTH KEEPING
+
+**WHAT HAPPENED**: `main.ts` was 1368 lines with eight jobs and four state-bearing clusters inside it. Three were
+extracted verbatim (`embedded-view` 20 tests, `browser-sessions` 18, `dsh-view` 18) and then the last two — which a
+function-by-function comparison showed to be near-copies — were **unified into ONE factory instantiated twice**
+(`embedded-slot`), landed as `b414c9ca` with CI green at 6.6 minutes. The package went from 14 tests to **75**.
+
+**1. MEASURE THE SEAM WITH THE COMPILER, NOT WITH GREP.** Both of the first two extractions got this wrong once by
+grepping for names. Cutting the cluster out and compiling it alone (`tsc --noEmit`) makes `Cannot find name` the
+COMPLETE free-identifier set — and it catches what a grep cannot: `WebContentsView` and `Electron` appear only in TYPE
+positions (`let dshView: WebContentsView | null`), while `fetch`, `AbortController`, `setTimeout` and `process.env` are
+globals rather than dependencies. **A grep answers "where is this word"; the compiler answers "what does this code
+need".**
+
+**2. "IS THIS A MODULE?" AND "ARE THESE TWO THE SAME MODULE?" ARE DIFFERENT QUESTIONS.** The first two clusters were
+modules; the DSH cluster measured as a near-copy of the one already extracted (nine paired functions, three state
+bindings each, ELEVEN occurrences of the same four view primitives on each side). **Extracting it as a third module
+would have turned duplication into structure.** The right act was the opposite one — and the same test applies to the
+panel's 231 files: prefer unifying two things that are the same over extracting a third thing that is merely large.
+
+**3. A GATE THAT READS THE INDEX CANNOT BE DRIVEN BY A WORKER FORBIDDEN TO TOUCH IT.** `js_boundary_inventory` and
+`npm_package` discover their subjects through `git ls-files`, so the new files had to be `git add -N`-ed before either
+could pass — and a subagent instructed "do not commit" cannot do that. **It failed on rules matching no tracked file,
+which is a property of the instruction rather than of the code**, and the landing had to clear it.
+
+**4. A BEHAVIOUR MERGE MUST NAME ITS CHOICES.** The three extractions were pure moves, provable by diff; the
+unification was the first change in the series that touched behaviour, and it carried **four named changes** (the dead
+re-show branch fixed for both slots with both pinned assertions flipped in the same commit; `render-process-gone`
+hiding before reading the window; the DSH slot gaining the deny-by-default permission handlers; `state().visible` going
+through the crate on both sides). **A behaviour change a commit message does not name is a behaviour change nobody can
+find** — and the same round found two MORE differences that had never been in the plan (`stateUrl` as a sixth
+parameter, and `embeddedUrl` as a fourth per-instance binding), which is what happens when a comparison is measured
+rather than remembered.
+
