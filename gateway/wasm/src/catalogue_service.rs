@@ -19,6 +19,76 @@
 //! policy — how long facts are good for, and what happens at the boundary — is testable in-process, while the async
 //! half is left with nothing but plumbing.
 
+/// **ONE RUN'S WHOLE DECISION, GIVEN WHAT THE FETCH RETURNED** — pure, so the plan's tests are in-process rather
+/// than in a harness with a stubbed network.
+///
+/// `fetched` is `None` when the catalogue could not be reached at all, which is the case that matters most: **the run
+/// still makes an observation, and that observation is INCONCLUSIVE** — it breaks any streak (so two misses either
+/// side of an outage cannot add up) and it writes NO row state (so an outage cannot demote anything). The plan's
+/// first test, as a function signature.
+///
+/// The returned writes are `(id, lifecycle)` pairs for rows whose verdict asks for one, and they are computed
+/// through `lifecycle::lifecycle_for`, so the ring, the row state and the console's copy all read the same rule.
+pub fn plan_run(
+    rows: &[serde_json::Value],
+    prefix: &str,
+    fetched: Option<&[String]>,
+    ring: &[crate::lifecycle::Observation],
+    now: i64,
+    run_id: &str,
+) -> (
+    crate::lifecycle::Observation,
+    Vec<(String, crate::model_store::Lifecycle)>,
+) {
+    use crate::lifecycle::{self, Verdict};
+    let curated = crate::models_probe::upstream_spellings(prefix);
+    let normalise = |s: &str| s.trim().to_ascii_lowercase();
+
+    // **THE FLOOR DECIDES FIRST.** `conclusive` refuses an empty or unrelated listing, so an outage — or a body that
+    // changed shape — is recorded as an inconclusive run rather than as "every row is gone".
+    let offered: Vec<String> = fetched.unwrap_or(&[]).to_vec();
+    let conclusive = fetched.is_some()
+        && crate::models_probe::conclusive(
+            &offered,
+            prefix,
+            &curated.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        );
+    let missing = if conclusive {
+        lifecycle::absent_from(&curated, &offered, normalise)
+    } else {
+        Vec::new()
+    };
+    let observation = lifecycle::Observation {
+        run_id: run_id.to_string(),
+        at: now,
+        conclusive,
+        seen: offered.clone(),
+        missing,
+    };
+    let history = lifecycle::push(ring, observation.clone());
+
+    let mut writes = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !id.starts_with(prefix) {
+            continue;
+        }
+        let prior = crate::model_store::lifecycle_of(row);
+        // **THE VERDICT IS ASKED ABOUT THE UPSTREAM SPELLING**, because the ring records what a listing carried:
+        // `og/deepseek-v4.1-flash` answers to `deepseek-flash` upstream, and asking about the registry id would
+        // find nothing and answer `Unchanged` forever — a silent no-news that looks like a working system.
+        let upstream = crate::models_probe::upstream_spelling(id);
+        let verdict = lifecycle::verdict(&history, &upstream, normalise);
+        if let Some(next) = lifecycle::lifecycle_for(verdict, &prior, now, run_id) {
+            let _ = Verdict::Unchanged;
+            writes.push((id.to_string(), next));
+        }
+    }
+    (observation, writes)
+}
+
 /// **WHO IS ASKING TO WRITE A ROW'S LIFECYCLE.** The distinction is the plan's fifth review focus, and it is not
 /// about permissions: it is about what an answer MEANS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +140,136 @@ pub fn source_for(cached_at: Option<i64>, now: i64) -> Source {
 
 #[cfg(test)]
 mod tests {
+
+    /// **AN UNREACHABLE CATALOGUE IS AN INCONCLUSIVE RUN, NOT A MASS RETIREMENT.** This is the plan's first test and
+    /// the reason the floor exists: `fetched = None` must write nothing and break any streak.
+    #[test]
+    fn an_unreachable_catalogue_writes_nothing() {
+        let rows = serde_json::json!([{"id": "og/deepseek-v4.1-flash"}]);
+        let (observation, writes) =
+            plan_run(rows.as_array().unwrap(), "og", None, &[], 1_000, "run-1");
+        assert!(!observation.conclusive);
+        assert!(
+            observation.missing.is_empty(),
+            "an inconclusive run names nobody"
+        );
+        assert!(writes.is_empty(), "and it writes nothing at all");
+    }
+
+    /// **TWO CONCLUSIVE MISSES DEMOTE, AND THE WRITE CARRIES THE STAMP** — the whole chain from a listing to a row's
+    /// state, in one call.
+    #[test]
+    fn two_runs_that_do_not_see_a_row_demote_it() {
+        // **A CURATED ROW, NOT A CUSTOM ONE, AND THE DISTINCTION IS THE RULE**: the observation judges the
+        // REGISTRY's rows, because a listing can only be evidence about ids the upstream was ever asked for. A
+        // custom row (`og/another`) is never in an upstream listing, so judging it would demote every custom model
+        // on the first conclusive run.
+        let rows = serde_json::json!([
+            {"id": "og/deepseek-v4.1-flash"},
+            {"id": "og/mimo-v2.5"},
+        ]);
+        let listing = vec!["deepseek-flash".to_string()]; // one curated row present, so the run is evidence
+        let (first, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&listing),
+            &[],
+            1_000,
+            "run-1",
+        );
+        assert!(
+            first.conclusive,
+            "one of our rows was there, so the listing is evidence"
+        );
+        // **"ONE MISS IS A BLIP" MEANS NOTHING IS DEMOTED — NOT THAT NOTHING IS WRITTEN.** A conclusive run also
+        // stamps every row it SAW (that is how a returned row is restored), so the assertion is about the demotion
+        // and not about the write count. **The test has now been corrected twice for the same reason: an expectation
+        // narrower than the rule**, which is the failure mode a test is supposed to catch rather than cause.
+        let demoted_on_first: Vec<&String> = writes
+            .iter()
+            .filter(|(_, l)| l.status == crate::model_store::Status::Deprecated)
+            .map(|(id, _)| id)
+            .collect();
+        assert!(
+            demoted_on_first.is_empty(),
+            "one miss is a blip — nothing is demoted, but {demoted_on_first:?} was"
+        );
+
+        let history = crate::lifecycle::push(&[], first);
+        let (_, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&listing),
+            &history,
+            2_000,
+            "run-2",
+        );
+        // **EVERY CURATED ROW THE LISTING DID NOT CARRY IS MISSING, AND THAT IS THE RULE RATHER THAN A BUG**: a
+        // listing carrying ONE of our rows is evidence, so the rest really are absent upstream. The test's first
+        // version expected a single write; **the assertion was narrower than the rule**, and the run said so.
+        let demoted: Vec<&String> = writes.iter().map(|(id, _)| id).collect();
+        assert!(
+            demoted.iter().any(|id| *id == "og/mimo-v2.5"),
+            "the curated row nobody serves must be among those demoted: {demoted:?}"
+        );
+        let (_, lifecycle) = writes
+            .iter()
+            .find(|(id, _)| id == "og/mimo-v2.5")
+            .expect("og/mimo-v2.5 has a write");
+        assert_eq!(lifecycle.status, crate::model_store::Status::Deprecated);
+        assert_eq!(lifecycle.verified_by.as_deref(), Some("run-2"));
+    }
+
+    /// **A CUSTOM ROW IS NEVER JUDGED BY AN OBSERVATION** — the upstream was never asked about it, so its absence
+    /// from a listing is not evidence of anything. Judging it would demote every custom model on the first
+    /// conclusive run, which is the loudest way this design could fail.
+    #[test]
+    fn a_custom_row_is_not_judged() {
+        let rows = serde_json::json!([
+            {"id": "og/deepseek-v4.1-flash"},
+            {"id": "og/not-in-the-registry"},
+        ]);
+        let listing = vec!["deepseek-flash".to_string()];
+        let (observation, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&listing),
+            &[],
+            1_000,
+            "run-1",
+        );
+        assert!(
+            !observation
+                .missing
+                .iter()
+                .any(|m| m == "not-in-the-registry"),
+            "a custom id is not the observation's business: {:?}",
+            observation.missing
+        );
+        assert!(
+            !writes.iter().any(|(id, _)| id == "og/not-in-the-registry"),
+            "and it is never written by one"
+        );
+    }
+
+    /// **A ROW THAT COMES BACK IS RESTORED ON THE NEWEST RUN** — the plan's third review focus, end to end.
+    #[test]
+    fn a_row_that_comes_back_is_restored() {
+        let rows = serde_json::json!([{"id": "og/deepseek-v4.1-flash", "status": "deprecated"}]);
+        let listing = vec!["deepseek-flash".to_string(), "another".to_string()];
+        let (observation, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&listing),
+            &[],
+            5_000,
+            "run-9",
+        );
+        assert!(observation.conclusive);
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].1.status, crate::model_store::Status::Active);
+        assert_eq!(writes[0].1.verified_at, Some(5_000));
+    }
 
     /// **THE PROBE BUTTON MUST NOT DEMOTE A MODEL.** Its answer depends on the operator's own key and on the moment
     /// they pressed it, so a 401 from an out-of-credit key would otherwise retire a row that is perfectly alive.

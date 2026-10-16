@@ -61,6 +61,26 @@ pub fn upstream_spellings(prefix: &str) -> Vec<String> {
     out
 }
 
+/// **ONE REGISTRY ID, AS THE UPSTREAM SPELLS IT** — the per-id half of `upstream_spellings`, and the thing a caller
+/// gets wrong: the ring compares UPSTREAM names, so asking it about `og/deepseek-v4.1-flash` when the listing carries
+/// `deepseek-flash` finds nothing and reports `Unchanged` forever. **A silent `Unchanged` is the failure mode of this
+/// whole design** — it looks exactly like "no news", which is why the mapping is a function rather than a paragraph.
+pub fn upstream_spelling(id: &str) -> String {
+    for model in crate::registry::MODEL_REGISTRY {
+        if model.id == id {
+            return model
+                .wire
+                .map(str::to_string)
+                .unwrap_or_else(|| bare(id).to_string());
+        }
+    }
+    bare(id).to_string()
+}
+
+fn bare(id: &str) -> &str {
+    id.split_once('/').map(|(_, rest)| rest).unwrap_or(id)
+}
+
 /// **IS A LISTING EVIDENCE?** — the floor the whole lifecycle rests on, because a demotion is decided by ABSENCE.
 ///
 /// Three answers, and the first two are the ones that matter:
