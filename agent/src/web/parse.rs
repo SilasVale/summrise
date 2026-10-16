@@ -26,6 +26,7 @@ use axum::response::Response;
 use serde_json::Value;
 
 use super::built_response;
+use super::envelope::error_body;
 
 /// The shared 400 envelope for a request body that could not be accepted.
 ///
@@ -33,16 +34,17 @@ use super::built_response;
 /// and the outer `ok:false` is what the gateway's round-58 check reads. Both
 /// settings endpoints were unified onto HTTP 400 with product sign-off (the
 /// settings one used to answer 200); this keeps that decision in one place.
+///
+/// THE ENVELOPE IS [`super::envelope::error_body`]'S, the STATUS is this
+/// function's. It was the third hand-written copy of the same three keys (after
+/// the 46 sites in `web/mod.rs` and the monitor routes' `invalid_params`), and
+/// the only one that pairs them with a non-200 — which is exactly why it keeps
+/// its own name: the status is a decision about THIS door, not about the shape.
 pub(super) fn invalid_params_response(message: String) -> Box<Response> {
     Box::new(built_response(
         StatusCode::BAD_REQUEST,
         "application/json",
-        Body::from(
-            serde_json::json!({
-                "ok": false, "error": message, "code": "invalid_params",
-            })
-            .to_string(),
-        ),
+        Body::from(error_body(message, "invalid_params").to_string()),
     ))
 }
 
