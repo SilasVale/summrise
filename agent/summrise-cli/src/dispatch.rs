@@ -523,6 +523,36 @@ pub use crate::setup::setup_decision;
 /// update that would stamp the device with the version it already has, and a second update racing the
 /// first through `Copy-Item` on `*.new`. Past them the work is [`crate::swap::update_swap`] — the
 /// staging, the generated swap script, the WMI handoff and the read-back that says whether it took.
+/// **WHERE THIS CLI'S OWN GLOBAL PREFIX IS, COMPUTED RATHER THAN ASKED FOR.**
+///
+/// The documented workaround for updating a set-up device is `--prefix (Split-Path (Get-Command summrise).Source)` —
+/// which asks a HUMAN to compute the directory of the process that is already running. This is the same answer, from
+/// the process itself. Two layouts exist in the field (`components\npm-global` is current, `tools\npm-global`
+/// predates it), so the one that EXISTS wins and the current one is the fallback for a fresh device.
+///
+/// **AND IT IS IN THE MESSAGE RATHER THAN RUN BY THE CLI ON PURPOSE.** `summrise update` may not install its own
+/// successor: the version it would install is the version the device is already running when the CLI is behind, and
+/// a self-install that silently did nothing is the failure the README measured ("the device quietly stayed on its
+/// previous release with no error anywhere"). What the CLI CAN do is stop asking a person to compute what it knows.
+pub fn npm_global_prefix(layout: &Layout, exists: impl Fn(&str) -> bool) -> String {
+    npm_global_from(&layout.components_dir, &layout.dir, exists)
+}
+
+/// The decision itself, over two strings — **so it can be tested without building a `Layout`**, which has ten fields
+/// and no default, and which is why this half is separated from the half that reads one.
+pub fn npm_global_from(components_dir: &str, dir: &str, exists: impl Fn(&str) -> bool) -> String {
+    let sep = std::path::MAIN_SEPARATOR;
+    let current = format!("{components_dir}{sep}npm-global");
+    if exists(&current) {
+        return current;
+    }
+    let legacy = format!("{dir}{sep}tools{sep}npm-global");
+    if exists(&legacy) {
+        return legacy;
+    }
+    current
+}
+
 pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -> Outcome {
     let self_version = package_version();
     let mut out = Outcome::ok();
@@ -537,7 +567,8 @@ pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -
                 format!(
                     "update: this CLI is {self_version} and the release channel has {latest}.\n  \
                      Updating from here would stamp the device with {self_version} and change nothing, because the device reads <install>/.summrise-release (written by this package) as its version.\n  \
-                     Install the new CLI first, then update again:\n    npm i -g summrise-agent\n    summrise update"
+                     Install the new CLI first, then update again:\n    npm i -g summrise-agent --prefix \"{}\"\n    summrise update",
+                    npm_global_prefix(layout, |p| std::path::Path::new(p).exists()),
                 ),
             );
         }
@@ -556,7 +587,8 @@ pub fn update_decision(host: &dyn Host, layout: &Layout, latest: Option<&str>) -
                 "update: this CLI is {self_version} and the device is ALREADY on {device_now}.\n  \
                  Updating from here would stamp the device with the version it already has and change nothing,\n  \
                  because the device reads <install>/.summrise-release (written by this package) as its version.\n  \
-                 If the device is meant to be newer, this CLI is too old to deliver it: install the new one first.\n    npm i -g summrise-agent\n    summrise update"
+                 If the device is meant to be newer, this CLI is too old to deliver it: install the new one first.\n    npm i -g summrise-agent --prefix \"{}\"\n    summrise update",
+                npm_global_prefix(layout, |p| std::path::Path::new(p).exists()),
             ),
         );
     }
@@ -911,6 +943,37 @@ mod tests {
 
     /// The UPDATE path marks its own swap with the reason that makes the next start say "replaced"
     /// instead of "crashed" — its timing cannot be told from a crash, because the gaps overlap.
+    #[test]
+    /// **THE PREFIX IS THE ONE THAT EXISTS, AND THE CURRENT ONE WINS WHEN BOTH DO.**
+    ///
+    /// This is the whole of what the operator was being asked to compute by hand
+    /// (`Split-Path (Get-Command summrise).Source`): where this CLI's global prefix actually is. The fallback matters
+    /// because two layouts exist in the field, and the ordering matters because a device that has both has been
+    /// upgraded rather than newly installed.
+    #[test]
+    fn the_global_prefix_is_the_one_that_exists() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let comp = format!("C:{sep}Summrise{sep}components");
+        let dir = format!("C:{sep}Summrise");
+        let current = format!("{comp}{sep}npm-global");
+        let legacy = format!("{dir}{sep}tools{sep}npm-global");
+
+        // Both present: the current layout wins.
+        assert_eq!(
+            npm_global_from(&comp, &dir, |_| true),
+            current,
+            "a device that has both has been upgraded, not newly installed"
+        );
+        // Only the legacy one: it is the answer, not the current path that does not exist.
+        assert_eq!(
+            npm_global_from(&comp, &dir, |p| p == legacy),
+            legacy,
+            "an older layout's prefix is where the running CLI lives"
+        );
+        // Neither: the current path is the fallback, and it is at least a path this build can install into.
+        assert_eq!(npm_global_from(&comp, &dir, |_| false), current);
+    }
+
     #[test]
     fn update_marks_its_swap_as_deliberate() {
         let (host, layout) = host_with_layout();
