@@ -106,8 +106,17 @@ fi
 # **`cargo fmt --check` IS DELIBERATELY NOT RUN FOR THIS CRATE**: the workflow records that it fails at `main` on
 # six pre-existing files, and that formatting them is its own commit. A hook that reports a failure the other end
 # does not would be a hook people learn to bypass.
-if has '^gateway/wasm/src/|^gateway/wasm/Cargo.toml|^core/summrise-core/'; then
+# **AND THE HARNESS IS PART OF THIS CRATE'S GATES, WHICH THIS RULE LEARNED THE HARD WAY** (2026-10-16): a change to
+# `gateway/wasm/verify.mjs` — the differential that compares the built worker against the console, and the file that
+# holds the frozen byte answers — ran the crate's unit tests and NOT the comparison the file belongs to. CI caught
+# it: `proxies (the Rust/JS byte comparisons)` went red on a case no local run had ever executed. **The same class of
+# gap as the missing crate rule one round earlier, one level up again** — a mapping written from "which job holds
+# which crate" forgets that a DIRECTORY is not the same set as the gate that reads it.
+if has '^gateway/wasm/src/|^gateway/wasm/Cargo.toml|^gateway/wasm/verify.mjs|^gateway/wasm/fixtures/|^core/summrise-core/'; then
   if command -v cargo >/dev/null 2>&1; then
+    if has '^gateway/wasm/verify.mjs|^gateway/wasm/fixtures/'; then
+      run "wasm: the Rust/JS byte comparisons (the harness)" bash scripts/test/rust-byte-checks.bash
+    fi
     run "wasm: tests" cargo test --manifest-path gateway/wasm/Cargo.toml
     run "wasm: clippy (host)" cargo clippy --manifest-path gateway/wasm/Cargo.toml --all-targets -- -D warnings
     run "wasm: clippy (wasm32)" cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
