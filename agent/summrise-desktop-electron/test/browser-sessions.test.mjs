@@ -56,6 +56,14 @@ const policy = require(path.join(SRC, "summrise_shell_policy.js"));
 const urlPolicy = require(path.join(SRC, "summrise_url_policy.js"));
 const CAP = JSON.parse(policy.shellConstants()).MAX_BROWSER_WINDOWS;
 const CDP_PORT = JSON.parse(policy.shellConstants()).CDP_PORT;
+/** The id NAMESPACE the crate mints in — DERIVED from a real id rather than restated, so this file cannot
+ *  go on asserting yesterday's format: everything up to and including the first `-` of `browserId(…)`.
+ *  `browser-<ms>` and `browser-<ms>-<n>` share it, which is why a counter appended after the millisecond
+ *  moved no case that only asks for the namespace. */
+const ID_NAMESPACE = (() => {
+  const sample = policy.browserId(0);
+  return sample.slice(0, sample.indexOf("-") + 1);
+})();
 
 /** The Electron surface `browser-sessions.js` touches, and NOTHING besides it: every method below exists
  *  because the module calls it, so this object is that module's platform boundary read off the module
@@ -149,22 +157,25 @@ function loadBrowserSessions(electron) {
  *  `windowIcon` is a stub this test chooses per case.
  *
  *  `Date.now` IS STUBBED FOR THE DURATION OF EVERY CALL, AND THAT IS NOT CONVENIENCE. The module stamps
- *  each window's id with `browserId(Date.now())`, and the crate answers `browser-<ms>` — so two opens
- *  inside ONE millisecond collide on one id and the second overwrites the first in the session table.
- *  A test that opened eight windows in a tight loop therefore measured a table of ONE and proved
- *  nothing about the cap (the failure this file's first draft had). The patch is restored in a
- *  `finally`, so no other test in the run can observe it.
+ *  each window's id with `browserId(Date.now())`, and the crate answers `browser-<ms>-<n>` — the
+ *  millisecond PLUS a counter, so two opens inside ONE millisecond are two ids and the session table
+ *  tracks windows. WHEN IT DID NOT, this file's first draft measured a table of ONE from eight opens in a
+ *  tight loop and proved nothing about the cap: the id was the bare millisecond, the second open
+ *  overwrote the first, and the window it overwrote became unreachable. The clock stays stubbed because
+ *  the id still CARRIES the millisecond the module handed the crate, and a case that checks that field
+ *  needs to know what `Date.now()` answered. The patch is restored in a `finally`, so no other test in
+ *  the run can observe it.
  *
  *  THE CLOCK IS A MODE, AND NO MODE LEAVES THE REAL CLOCK IN PLACE — that absence is the point.
  *  `"step"` (the default) hands a fresh millisecond to each open, which is what a real operator's opens
- *  do, and it is what the cap and eviction cases need: they measure the CAP, not the collision, and a
- *  clock that let two of their opens collide would shrink the table they are counting. `"frozen"` hands
- *  the SAME millisecond to every open in the case, which FORCES the collision the last case is named
- *  for. The mode this replaced was a boolean whose `false` ran on the real clock, and the collision case
- *  took it — so whether the two opens shared a millisecond was decided by how long `browserOpen` took to
- *  run. That held on a warm local process and failed in CI (`browser-…588` against `…589`, a real
- *  millisecond apart). A case whose subject is a collision has to MAKE one; the real clock is not an
- *  instrument. An unknown mode throws here rather than falling through to it. */
+ *  do. `"frozen"` hands the SAME millisecond to every open in the case, which is what makes the two id
+ *  cases interesting: they assert that a SHARED millisecond still yields distinct, separately reachable
+ *  ids — the counter doing the work and not the clock. The mode this replaced was a boolean whose `false`
+ *  ran on the real clock, and the collision case took it — so whether two opens shared a millisecond was
+ *  decided by how long `browserOpen` took to run. That held on a warm local process and failed in CI
+ *  (`browser-…588` against `…589`, a real millisecond apart). A case whose subject is a shared
+ *  millisecond has to MAKE one; the real clock is not an instrument. An unknown mode throws here rather
+ *  than falling through to it. */
 function boundModule({ icon = "", clock = "step" } = {}) {
   const shell = fakeElectron();
   const mod = loadBrowserSessions(shell.electron);
@@ -189,11 +200,18 @@ function boundModule({ icon = "", clock = "step" } = {}) {
   const stamp = clock === "frozen"
     ? () => FROZEN_MS
     : () => { tick = Math.max(tick + 1, real.call(Date) + 1); return tick; };
+  // ONE MILLISECOND PER OPEN, REMEMBERED. A real `browserOpen` reads `Date.now()` once, and the id cases
+  // need to know WHICH millisecond the module handed the crate: `stampedAt()` answers that, and fixing
+  // the value for the duration of the call is what keeps it the same answer if the module ever read the
+  // clock twice. It is the frozen millisecond in `"frozen"` mode, so a guard can prove the two opens of a
+  // collision case really do share one.
+  let lastStamp = null;
   const open = (url) => {
-    Date.now = stamp;
-    try { return mod.browserOpen(url); } finally { Date.now = real; }
+    let fixed = null;
+    Date.now = () => (fixed ??= stamp());
+    try { return mod.browserOpen(url); } finally { lastStamp = fixed; Date.now = real; }
   };
-  return { ...shell, mod, asked, open, FROZEN_MS };
+  return { ...shell, mod, asked, open, FROZEN_MS, stampedAt: () => lastStamp };
 }
 
 test("an unbound module throws from the operation that needs the host, and still answers reads of an empty table", () => {
@@ -364,7 +382,8 @@ test("list() answers the crate's CDP endpoint, so a client can attach to the ses
 });
 
 test("open() builds the window at the shell's size with the crate's id and the security posture", () => {
-  const { open, windows } = boundModule();
+  const current = boundModule();
+  const { open, windows } = current;
   const url = "https://example.com/x";
   const answer = open(url);
   const bw = windows[0];
@@ -378,11 +397,16 @@ test("open() builds the window at the shell's size with the crate's id and the s
     { contextIsolation: true, nodeIntegration: false, sandbox: true },
     "a session window renders untrusted pages — a preload here would hand a remote page the bridge",
   );
-  // The id is the CRATE's format, asked of the crate rather than restated: `browserId` is what stamps
-  // it, and the only thing this file may assume is that the id carries that call's prefix.
-  const stamped = policy.browserId(Date.now());
-  const prefix = stamped.replace(/\d+$/, "");
-  assert.equal(answer.id.slice(0, prefix.length), prefix, `the id must carry the crate's prefix (${prefix}…) — a hand-built string is a second format`);
+  // THE ID IS THE CRATE'S, asked of the crate rather than restated: `browserId` is what stamps it, and
+  // what this case checks is the field the module SUPPLIES — the millisecond it read — prefixed by the
+  // crate's namespace. What follows that millisecond is the crate's own business (a counter today, and
+  // the reason two opens in one millisecond stay two windows); this file does not spell it.
+  const stampedAt = `${ID_NAMESPACE}${current.stampedAt()}`;
+  assert.equal(
+    answer.id.slice(0, stampedAt.length),
+    stampedAt,
+    `the id must be the crate's, stamped with the millisecond the module read (${stampedAt}…) — a hand-built string is a second format`,
+  );
 });
 
 test("open() DENIES popups — an unmanaged window would sit outside the cap", () => {
@@ -433,27 +457,69 @@ test("closeAll() destroys every live session and empties the table — the befor
   assert.equal(windows[1].closeCalls, 0, "the already-dead window is left alone rather than re-destroyed");
 });
 
-test("two opens inside ONE millisecond collide on the crate's id, and the sweep then covers only the newer", () => {
-  // PRE-EXISTING AND UNCHANGED — measured while extracting this module, not introduced by the move.
-  // `browserId(Date.now())` answers `browser-<ms>`, so two opens in the same millisecond produce ONE id,
-  // the second `set()` overwrites the first, and the first window becomes unreachable: nothing can
-  // reuse, close or sweep it. This case PINS TODAY'S BEHAVIOUR rather than endorsing it; the day the id
-  // gets a counter or a random suffix, these assertions are the ones to flip, and the name is why.
+test("two opens inside ONE millisecond are two ids, and the sweep reaches BOTH windows", () => {
+  // THE CASE THIS FILE USED TO PIN AS PRE-EXISTING DEFECT, RE-POINTED. Every assertion below is the same
+  // measurement turned around: `browserId(Date.now())` used to answer `browser-<ms>`, so two opens in one
+  // millisecond produced ONE id, the second `set()` overwrote the first, and the first window became
+  // unreachable — nothing could reuse it, close it or sweep it. The crate now appends a monotonic
+  // counter, so the millisecond is still the field a support log reads and the id still names ONE window.
+  // The subject has not changed (a SHARED millisecond); only the required answer has.
   //
   // THE MILLISECOND IS FORCED, NOT HOPED FOR. This case used to bind with `clock: false`, i.e. the real
   // clock, and assert the two ids came out EQUAL — a claim about how fast two `browserOpen` calls run.
   // It held on this development box and failed in CI, where a millisecond ticked between the opens and
   // the ids came out `browser-…588` and `…589`. `"frozen"` makes the subject of the case true by
-  // construction, and the `guard:` below proves the frozen millisecond is what stamped BOTH ids, so the
+  // construction, and the `guard:` lines below prove the frozen millisecond stamped BOTH ids, so the
   // case still cannot pass by measuring nothing.
-  const { mod, open, windows, FROZEN_MS } = boundModule({ clock: "frozen" });
+  const { mod, open, windows, FROZEN_MS, stampedAt } = boundModule({ clock: "frozen" });
   const first = open("https://example.com/a");
+  assert.equal(stampedAt(), FROZEN_MS, "guard: the first open read the frozen millisecond");
   const second = open("https://example.com/b");
-  assert.equal(first.id, policy.browserId(FROZEN_MS), "guard: the crate stamps the id from the millisecond the clock held still on, so the two opens really do share one");
-  assert.equal(first.id, second.id, "the collision is the crate's id being millisecond-stamped and nothing else");
-  assert.equal(windows.length, 2, "two windows really were built — the collision is in the TABLE, not in BrowserWindow");
-  assert.equal(mod.browserList().sessions.length, 1, "so the table keeps the newer window and silently drops the older");
+  assert.equal(stampedAt(), FROZEN_MS, "guard: and so did the second — the clock really did hold still");
+  const frozen = `${ID_NAMESPACE}${FROZEN_MS}`;
+  assert.equal(first.id.slice(0, frozen.length), frozen, "guard: the first id carries the frozen millisecond");
+  assert.equal(second.id.slice(0, frozen.length), frozen, "guard: and so does the second — the millisecond ALONE is not an identifier");
+  assert.notEqual(first.id, second.id, "the crate's counter is what separates two opens inside one millisecond");
+  assert.equal(windows.length, 2, "two windows really were built, one per id");
+  assert.deepEqual(
+    mod.browserList().sessions.map((s) => s.id).sort(),
+    [first.id, second.id].sort(),
+    "and the table holds BOTH rows — neither window was overwritten",
+  );
   mod.browserCloseAll();
-  assert.equal(windows[1].destroyed, true, "the sweep reaches the window the table still holds");
-  assert.equal(windows[0].destroyed, false, "and CANNOT reach the orphaned one — nothing names it any more");
+  assert.equal(windows[0].destroyed, true, "the sweep reaches the first window — the orphan this case used to measure");
+  assert.equal(windows[1].destroyed, true, "and the second");
+  assert.deepEqual(mod.browserList().sessions, [], "and the table is emptied");
+});
+
+test("a same-millisecond burst is capped over WINDOWS, and the sweep reaches every one of them", () => {
+  // THE MEASUREMENT THAT NAMED THE DEFECT, TURNED AROUND. With the cap at 8 and 11 distinct URLs under a
+  // frozen clock, the bare millisecond id produced ONE table row: `existing.len() >= cap` was never true,
+  // so nothing was evicted, 11 windows were built, and `browserCloseAll()` — which walks the TABLE —
+  // destroyed 1 and left 10 ALIVE. The cap counts table rows and the resource is windows; the counter is
+  // what makes those the same thing, so no separate repair of the cap or the sweep is owed.
+  const { mod, open, windows } = boundModule({ clock: "frozen" });
+  const BURST = CAP + 3;
+  for (let i = 0; i < BURST; i++) {
+    assert.equal(open(`https://example.com/${i}`).ok, true);
+    const live = windows.filter((w) => !w.isDestroyed()).length;
+    assert.equal(
+      live,
+      Math.min(i + 1, CAP),
+      `open #${i + 1} of ${BURST} in ONE millisecond: the cap fills to ${CAP} and then holds — no open may add a window the table cannot name`,
+    );
+    assert.equal(
+      mod.browserList().sessions.length,
+      live,
+      `open #${i + 1}: the table must hold one row per LIVE window (${live}) — a row the cap cannot see is the defect this pins`,
+    );
+  }
+  assert.equal(windows.length, BURST, "guard: every open really built a window, so the burst is larger than the cap");
+  mod.browserCloseAll();
+  assert.deepEqual(
+    windows.filter((w) => !w.isDestroyed()),
+    [],
+    "the before-quit sweep must reach EVERY window the burst built — these are the orphans that used to survive it",
+  );
+  assert.deepEqual(mod.browserList().sessions, [], "and the table is emptied");
 });

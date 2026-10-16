@@ -6,6 +6,8 @@
 //! window a reopen should focus, which one the cap evicts, whether a slot is big enough to show a native
 //! view over, and what a crashed view should be reloaded with.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde_json::{json, Value};
 
 /// The blank page — the one target every refusing door collapses to.
@@ -109,9 +111,39 @@ fn valid_cap(cap: f64) -> usize {
     }
 }
 
-/// `browser-${Date.now()}` — the id every session window is keyed by.
+/// The suffix `browser_id` appends — one value per id minted, for the life of this module instance.
+///
+/// IT IS A COUNTER AND NOT A CLOCK, because the clock is not an identifier: two ids minted inside one
+/// millisecond are two sessions, and a name that cannot tell them apart is not a name. `Relaxed` is the
+/// whole ordering this needs — the only property required of it is that no two callers receive the same
+/// value, and `fetch_add` gives that without a fence. The shell's main process is one JavaScript thread
+/// and the wasm module is single-threaded, so the atomic is here for correctness under `cargo test`'s
+/// parallel cases rather than for contention.
+static NEXT_BROWSER_ID: AtomicU64 = AtomicU64::new(1);
+
+/// `browser-<ms>-<n>` — the id every session window is keyed by.
+///
+/// IT IS THE MILLISECOND **AND A COUNTER**, and the counter is the load-bearing half. The TypeScript was
+/// `browser-${Date.now()}` and the port kept it: a bare stamp, so two `browserOpen` calls inside one
+/// millisecond produced ONE id, the second `Map.set` overwrote the first row, and the first window became
+/// unreachable — nothing could reuse it, close it or sweep it. THE CAP COUNTS TABLE ROWS AND THE RESOURCE
+/// IS WINDOWS: MEASURED with the cap at 8 and 11 distinct URLs under a frozen clock, that produced 11
+/// live windows and left 10 of them alive after `browserCloseAll()` (the `before-quit` sweep walks the
+/// table, so it cannot reach a window the table no longer names). Recorded in `docs/agents/ideas.md`
+/// before this fix, pinned by cases that asserted the collision as pre-existing.
+///
+/// THE ALTERNATIVE — count live windows instead of table rows — was rejected because it keeps the broken
+/// identifier: a sweep can only close a window it can NAME, and an id that collides names one window
+/// twice. With the counter, the table, the cap and the sweep are true at once and none of the three needs
+/// a repair of its own.
+///
+/// THE TIMESTAMP STAYS because a support log should still say when a session opened, and the `browser-`
+/// prefix stays because it is the namespace the id is recognised by. The counter is PROCESS-LOCAL and
+/// starts again at 1 on the next launch: an id never outlives the table that holds it, so two windows
+/// never share a name even though a suffix may be reused a release later.
 pub fn browser_id(now_ms: f64) -> String {
-    format!("browser-{}", crate::js::number_to_string(now_ms))
+    let n = NEXT_BROWSER_ID.fetch_add(1, Ordering::Relaxed);
+    format!("browser-{}-{n}", crate::js::number_to_string(now_ms))
 }
 
 /// `http://127.0.0.1:9333` — the CDP endpoint every browser-session answer carries.

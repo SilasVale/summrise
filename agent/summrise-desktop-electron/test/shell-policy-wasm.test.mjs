@@ -195,7 +195,13 @@ test("the decisions the shell asks about answer from the committed bytes", () =>
   const existing = JSON.stringify([{ id: "browser-1", target: "https://a/", destroyed: false }]);
   assert.deepEqual(JSON.parse(policy.planBrowserOpen(existing, "https://a/", 8)), { reuse: "browser-1", evict: null });
   assert.deepEqual(JSON.parse(policy.planBrowserOpen(existing, "https://b/", 1)), { reuse: null, evict: "browser-1" });
-  assert.equal(policy.browserId(1_759_123_456_789), "browser-1759123456789");
+  // THE ID IS THE MILLISECOND **AND** A COUNTER, and this is the SHIPPED artifact answering: the literal
+  // that used to be here — `browser-1759123456789` — was the collision (an id that IS the clock names
+  // every window opened in one millisecond). The millisecond is still the field a support log reads; the
+  // counter is what makes a second call in the SAME millisecond a second id.
+  const minted = policy.browserId(1_759_123_456_789);
+  assert.match(minted, /^browser-1759123456789-\d+$/, "the id must carry the millisecond it was minted at, plus a counter");
+  assert.notEqual(policy.browserId(1_759_123_456_789), minted, "a second id in the SAME millisecond must be a DIFFERENT id");
   assert.equal(policy.cdpEndpoint(9333), "http://127.0.0.1:9333");
   assert.equal(policy.slotTooSmall(null), true);
   assert.equal(policy.slotTooSmall({ width: 40, height: 400 }), true);

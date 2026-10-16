@@ -6,7 +6,7 @@
 # napi addon for free, and it could not be EXECUTED on the Linux box this repository is developed on, or
 # in CI, so its correctness could only be discovered on the device, after a release. wasm runs everywhere,
 # which is the property that makes this port's own tests run here: `cargo test -p summrise-shell-policy`
-# (the 55 cases in src/tests.rs) and `agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs`
+# (the 56 cases in src/tests.rs) and `agent/summrise-desktop-electron/test/shell-policy-wasm.test.mjs`
 # (which loads the COMMITTED artifact in Node and calls every export).
 #
 # WHY `--target nodejs`: the shell's main process is Node behind Electron, so the glue is CommonJS and
