@@ -35,6 +35,89 @@ pub struct Facts {
     pub vision: bool,
 }
 
+/// Why an adoption was refused. Each variant is a fact the operator must supply rather than something this code may
+/// guess, and the two are the plan's review focuses 2 and 4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// **NOTHING SAYS WHICH ARM THIS ROW ANSWERS ON.** A chat channel and a `responses` channel are different
+    /// dialects, and adopting a row onto the wrong one sends every request to an endpoint that does not serve it.
+    /// The catalogue does not carry a shape (see the module header) and the registry only describes CURATED rows, so
+    /// unless the operator declares it the honest answer is to refuse — **and this is the refusal the live document
+    /// makes the common case today, which is why it is named rather than special-cased.**
+    UnderivableDialect,
+    /// A row that needs a region facet (the US egress, for a model an upstream region-blocks) cannot be adopted
+    /// until a human declares it: guessing would send the request from the wrong continent and the failure would look
+    /// like an outage.
+    UndeclaredRegion,
+    /// **A CATALOGUE ROW MAY NEVER CREATE A CURATED ROW.** The registry is a reviewed list whose ids carry behaviour
+    /// (`wire`, `responsesOnly`, `search`); adopting onto one of its ids would silently rewrite a curated row from a
+    /// third party's data.
+    Curated,
+}
+
+/// The lifecycle an adoption writes, or the reason it does not.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Adoption {
+    pub lifecycle: crate::model_store::Lifecycle,
+    /// The facets the operator declared — carried into the row so the console can show them.
+    pub declared: Value,
+}
+
+/// **CAN THIS ROW BE ADOPTED, AND WHAT WOULD BE ASSUMED?** — pure, so the whole rule is testable without a KV, a
+/// route or a clock.
+///
+/// * `id` is the row as it will be advertised; `facts` is what the slice knows (`None` = the slice has never heard of
+///   it, which is not a refusal by itself — a row can be adopted from an operator's declaration alone).
+/// * `declared` is the operator's own facets: `responsesOnly`, `usEgress`, `wire`. **The dialect comes from there or
+///   from the catalogue's shape, and if NEITHER says, this refuses** (`Refusal::UnderivableDialect`).
+///
+/// **WHAT IS ASSUMED IS RECORDED, NOT HIDDEN**: a row adopted without a region declaration is refused; a row adopted
+/// WITH one records `usEgress` in `assumed` so the console can show that a person put it there rather than the
+/// catalogue. `ephemeral` comes from the slice's `status` (a limited-time free tier says so).
+pub fn adoptable(
+    prefix: &str,
+    id: &str,
+    facts: Option<&Facts>,
+    declared: &Value,
+    curated_ids: &[&str],
+) -> Result<Adoption, Refusal> {
+    if curated_ids.contains(&id) {
+        return Err(Refusal::Curated);
+    }
+    let says_dialect = declared.get("responsesOnly").is_some()
+        || declared.get("wire").is_some()
+        || declared.get("shape").is_some();
+    if !says_dialect {
+        return Err(Refusal::UnderivableDialect);
+    }
+    let needs_region = declared
+        .get("regionRequired")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_region = declared.get("usEgress").is_some();
+    if needs_region && !has_region {
+        return Err(Refusal::UndeclaredRegion);
+    }
+    let mut assumed: Vec<String> = Vec::new();
+    if has_region {
+        assumed.push("usEgress".to_string());
+    }
+    let lifecycle = crate::model_store::Lifecycle {
+        status: crate::model_store::Status::Active,
+        // A free tier is a fact the slice states; anything else is not ephemeral by default.
+        ephemeral: facts
+            .and_then(|f| f.status.as_deref())
+            .is_some_and(|s| s.eq_ignore_ascii_case("free")),
+        verified_at: None,
+        verified_by: Some(format!("adopted:{}", prefix.trim_end_matches('/'))),
+        assumed,
+    };
+    Ok(Adoption {
+        lifecycle,
+        declared: declared.clone(),
+    })
+}
+
 /// The two providers' rows, keyed by id, parsed ONCE.
 pub struct Slice {
     rows: BTreeMap<String, Facts>,
@@ -102,6 +185,89 @@ pub fn slice() -> &'static Slice {
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE REFUSAL THE LIVE DOCUMENT MAKES COMMON**: nothing in `models.dev` says whether a row answers
+    /// `completions` or `responses`, so a row adopted on the catalogue's word alone cannot be placed on an arm.
+    #[test]
+    fn a_row_whose_dialect_nobody_states_is_refused() {
+        let facts = Facts::default();
+        assert_eq!(
+            adoptable("og", "acme/x", Some(&facts), &serde_json::json!({}), &[]),
+            Err(Refusal::UnderivableDialect)
+        );
+        // A declaration makes it adoptable.
+        assert!(adoptable(
+            "og",
+            "acme/x",
+            Some(&facts),
+            &serde_json::json!({"responsesOnly": true}),
+            &[]
+        )
+        .is_ok());
+    }
+
+    /// **A REGION-DEPENDENT ROW IS REFUSED UNTIL A HUMAN DECLARES IT** — guessing would send the request from the
+    /// wrong continent and the failure would look like an outage — and once declared, the assumption is RECORDED.
+    #[test]
+    fn a_row_needing_a_region_is_refused_until_declared() {
+        let facts = Facts::default();
+        let asking = serde_json::json!({"wire": "cat-jam", "regionRequired": true});
+        assert_eq!(
+            adoptable("og", "acme/cat-jam-free", Some(&facts), &asking, &[]),
+            Err(Refusal::UndeclaredRegion)
+        );
+        let declared =
+            serde_json::json!({"wire": "cat-jam", "regionRequired": true, "usEgress": true});
+        let adopted = adoptable("og", "acme/cat-jam-free", Some(&facts), &declared, &[])
+            .expect("declared, so adoptable");
+        assert_eq!(adopted.lifecycle.assumed, vec!["usEgress".to_string()]);
+        assert_eq!(
+            adopted.lifecycle.verified_by.as_deref(),
+            Some("adopted:og"),
+            "an adoption is attributable to the act, not to a check"
+        );
+    }
+
+    /// **A CATALOGUE ROW CAN NEVER CREATE A CURATED ROW**: the registry's ids carry reviewed behaviour, and a third
+    /// party's data must not rewrite them.
+    #[test]
+    fn a_curated_id_is_never_adoptable() {
+        let curated = ["og/deepseek-v4.1-flash"];
+        assert_eq!(
+            adoptable(
+                "og",
+                "og/deepseek-v4.1-flash",
+                None,
+                &serde_json::json!({"wire": "deepseek-flash"}),
+                &curated
+            ),
+            Err(Refusal::Curated)
+        );
+    }
+
+    /// A slice row that says it is a free tier is adopted as ephemeral; one that says nothing is not.
+    #[test]
+    fn ephemeral_comes_from_the_slice_and_is_not_invented() {
+        let free = Facts {
+            status: Some("free".to_string()),
+            ..Default::default()
+        };
+        let declared = serde_json::json!({"wire": "x"});
+        assert!(
+            adoptable("og", "acme/free", Some(&free), &declared, &[])
+                .unwrap()
+                .lifecycle
+                .ephemeral
+        );
+        assert!(
+            !adoptable("og", "acme/paid", Some(&Facts::default()), &declared, &[])
+                .unwrap()
+                .lifecycle
+                .ephemeral
+        );
+        // And an id the slice has never heard of is still adoptable on the operator's word alone.
+        assert!(adoptable("og", "acme/unknown", None, &declared, &[]).is_ok());
+    }
     use super::*;
 
     /// **THE FLOOR IS THE POINT**: an `include_str!` that silently pointed at an empty file would make every lookup
