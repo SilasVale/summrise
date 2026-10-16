@@ -621,16 +621,18 @@ echo "tgz content check OK ($TGZ)"
 echo "== stage =="
 cp "$TGZ" "$ASSET_DIR/"
 cp "$TGZ" "$ASSET_DIR/summrise-agent-latest.tgz"
-# Installer 同版同发：--with-installer 在这里打自包含安装器（--no-deploy，
-# 单次 deploy 在下面统一做，manifest 和安装器不可能互相滞后）。tgz 已在
-# 上面 stage 好，正好满足 build-installer.sh 的前置。
+# The installer ships with the same version: --with-installer builds the self-contained installer
+# here (--no-deploy, because the single deploy happens below, so the manifest and the installer
+# cannot lag behind each other). The tgz is already staged above, which is exactly what
+# build-installer.sh requires as its prerequisite.
 if [ "$WITH_INSTALLER" -eq 1 ]; then
   echo "== installer (self-contained, staged, no deploy yet) =="
   ./scripts/build-installer.sh "$VER" --no-deploy
 fi
-# 自包含证明：staged 安装器必须比 tgz 大（内嵌 payload）。更小的只有一种
-# 可能——上一个版本的在线包残留（没打进去 tgz）。WARN 不 fail：紧急发布
-# 允许先上 tgz-only manifest，补打安装器后重跑 manifest+deploy 即可。
+# The self-contained proof: the staged installer must be larger than the tgz (the embedded
+# payload). There is only one way for it to be smaller — a leftover online-only build from the
+# previous version (the tgz never went in). WARN, do not fail: an emergency release may ship the
+# tgz-only manifest first, then rebuild the installer and re-run manifest+deploy.
 INST_EXE="$ASSET_DIR/SummriseAgent-Setup-$VER.exe"
 if [ -f "$INST_EXE" ]; then
   echo "installer staged: $(basename "$INST_EXE") ($(stat -c %s "$INST_EXE") bytes)"

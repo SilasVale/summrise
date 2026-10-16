@@ -143,7 +143,7 @@ function run(args, settingsFile, gatewayUrl, providersFile) {
 
 const gw = (port) => `http://127.0.0.1:${port}`;
 
-test("check: 显示渠道状态和当前渠道", async () => {
+test("check: shows the channel status and the current channel", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -154,7 +154,7 @@ test("check: 显示渠道状态和当前渠道", async () => {
   } finally { server.close(); }
 });
 
-test("use qw: 探测通过 + token 有效 → 改写 env + 备份", async () => {
+test("use qw: probe succeeds + token valid → rewrites env + backs up", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -176,7 +176,7 @@ test("use qw: 探测通过 + token 有效 → 改写 env + 备份", async () => 
   } finally { server.close(); }
 });
 
-test("use og: 探测失败(400) → 拒绝切换, 配置不变", async () => {
+test("use og: probe fails (400) → refuses to switch, config unchanged", async () => {
   const { server, port } = await makeGateway({ probeOk: false, probeStatus: 400 });
   try {
     const { file } = makeSettings();
@@ -189,7 +189,7 @@ test("use og: 探测失败(400) → 拒绝切换, 配置不变", async () => {
   } finally { server.close(); }
 });
 
-test("use qw: token 对网关无效(401) → 拒绝切换并提示", async () => {
+test("use qw: token invalid for the gateway (401) → refuses to switch and says so", async () => {
   const { server, port } = await makeGateway({ tokenOk: false });
   try {
     const { file } = makeSettings();
@@ -203,7 +203,7 @@ test("use qw: token 对网关无效(401) → 拒绝切换并提示", async () =>
   } finally { server.close(); }
 });
 
-test("use auto: 按优先级 cm>qw>og>or 选第一个健康渠道", async () => {
+test("use auto: picks the first healthy channel by priority cm>qw>og>or", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -214,7 +214,7 @@ test("use auto: 按优先级 cm>qw>og>or 选第一个健康渠道", async () => 
   } finally { server.close(); }
 });
 
-test("restore: 恢复最近备份（原子写；恢复前先备份当前状态）", async () => {
+test("restore: restores the most recent backup (atomic write; backs up the current state first)", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -232,7 +232,7 @@ test("restore: 恢复最近备份（原子写；恢复前先备份当前状态�
   } finally { server.close(); }
 });
 
-test("备份保留: 6 次 use 后只保留最近 5 个 .bak-summrise-*", async () => {
+test("backup retention: after 6 `use` runs only the most recent 5 .bak-summrise-* remain", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -248,7 +248,7 @@ test("备份保留: 6 次 use 后只保留最近 5 个 .bak-summrise-*", async (
   } finally { server.close(); }
 });
 
-test("use auto: 推荐渠道 cm 探测失败 → 回退到下一个健康渠道 qw", async () => {
+test("use auto: the recommended channel cm fails its probe → falls back to the next healthy channel qw", async () => {
   const { server, port } = await makeGateway({ probeFailModels: ["qw/qwen3.8-max-preview"] });
   try {
     // starts as or: if the fallback doesn't take, the config stays on or (and the command exits non-zero)
@@ -260,7 +260,7 @@ test("use auto: 推荐渠道 cm 探测失败 → 回退到下一个健康渠道 
   } finally { server.close(); }
 });
 
-test("use auto: 所有渠道探测失败 → 无可用渠道, 配置不变", async () => {
+test("use auto: every channel fails its probe → no usable channel, config unchanged", async () => {
   const { server, port } = await makeGateway({ probeOk: false, probeStatus: 400 });
   try {
     const { file } = makeSettings();
@@ -274,7 +274,7 @@ test("use auto: 所有渠道探测失败 → 无可用渠道, 配置不变", asy
   } finally { server.close(); }
 });
 
-test("未知渠道/模型 → 报错退出", async () => {
+test("an unknown channel/model → errors out", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -284,7 +284,7 @@ test("未知渠道/模型 → 报错退出", async () => {
   } finally { server.close(); }
 });
 
-test("models: 列出全部模型（含 og/minimax-m3）", async () => {
+test("models: lists every model (including og/minimax-m3)", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -298,7 +298,7 @@ test("models: 列出全部模型（含 og/minimax-m3）", async () => {
   } finally { server.close(); }
 });
 
-test("use og/minimax-m3: 白名单内的完整模型名 → 切换", async () => {
+test("use og/minimax-m3: a full model name in the allowlist → switches", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -311,7 +311,7 @@ test("use og/minimax-m3: 白名单内的完整模型名 → 切换", async () =>
   } finally { server.close(); }
 });
 
-test("use og/mimo-v2.5: 白名单内的完整模型名 → 切换", async () => {
+test("use og/mimo-v2.5: a full model name in the allowlist → switches", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -324,7 +324,7 @@ test("use og/mimo-v2.5: 白名单内的完整模型名 → 切换", async () => 
   } finally { server.close(); }
 });
 
-test("use xx/nope: 不在模型列表 → 拒绝切换", async () => {
+test("use xx/nope: not in the model list → refuses to switch", async () => {
   const { server, port } = await makeGateway();
   try {
     const { file } = makeSettings();
@@ -342,7 +342,7 @@ test("use xx/nope: 不在模型列表 → 拒绝切换", async () => {
 
 const provFile = (n) => path.join(os.tmpdir(), `summrise-prov-${n}-${process.pid}.json`);
 
-test("provider add: 写入仓库（0600）", async () => {
+test("provider add: writes the store (0600)", async () => {
   const file = provFile("add");
   try {
     fs.rmSync(file, { force: true });
@@ -355,7 +355,7 @@ test("provider add: 写入仓库（0600）", async () => {
   } finally { fs.rmSync(file, { force: true }); }
 });
 
-test("provider list: token 打码", async () => {
+test("provider list: masks the token", async () => {
   const file = provFile("list");
   try {
     fs.rmSync(file, { force: true });
@@ -364,12 +364,12 @@ test("provider list: token 打码", async () => {
     const r = await run(["provider", "list"], sf, gw(1), file);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /p1/);
-    assert.ok(!r.stdout.includes("sk-abcdef123456"), "token 必须打码");
+    assert.ok(!r.stdout.includes("sk-abcdef123456"), "the token must be masked");
     assert.match(r.stdout, /\*\*\*/);
   } finally { fs.rmSync(file, { force: true }); }
 });
 
-test("provider rm: 删除提供商", async () => {
+test("provider rm: deletes a provider", async () => {
   const file = provFile("rm");
   try {
     fs.rmSync(file, { force: true });
@@ -381,7 +381,7 @@ test("provider rm: 删除提供商", async () => {
   } finally { fs.rmSync(file, { force: true }); }
 });
 
-test("use <provider>: 探测通过 → 整套 env（base/token/model）替换 + 备份", async () => {
+test("use <provider>: probe succeeds → the whole env (base/token/model) is replaced + backed up", async () => {
   const { server, port } = await makeGateway({ authMode: "both" });
   const file = provFile("use");
   try {
@@ -401,7 +401,7 @@ test("use <provider>: 探测通过 → 整套 env（base/token/model）替换 + 
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("provider add: 自动探测鉴权（bearer-only 端点 → auth=bearer）", async () => {
+test("provider add: probes the auth itself (bearer-only endpoint → auth=bearer)", async () => {
   const { server, port } = await makeGateway({ authMode: "bearer" });
   const file = provFile("detect-bearer");
   try {
@@ -414,7 +414,7 @@ test("provider add: 自动探测鉴权（bearer-only 端点 → auth=bearer）",
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("provider add: 自动探测鉴权（api-key-only 端点 → auth=api-key）", async () => {
+test("provider add: probes the auth itself (api-key-only endpoint → auth=api-key)", async () => {
   const { server, port } = await makeGateway({ authMode: "api-key" });
   const file = provFile("detect-apikey");
   try {
@@ -427,7 +427,7 @@ test("provider add: 自动探测鉴权（api-key-only 端点 → auth=api-key）
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("use <api-key 型 provider>: 只写 ANTHROPIC_API_KEY，清除 AUTH_TOKEN", async () => {
+test("use <api-key provider>: writes only ANTHROPIC_API_KEY, clears AUTH_TOKEN", async () => {
   const { server, port } = await makeGateway({ authMode: "api-key" });
   const file = provFile("usekey");
   try {
@@ -443,7 +443,7 @@ test("use <api-key 型 provider>: 只写 ANTHROPIC_API_KEY，清除 AUTH_TOKEN",
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("use <provider>: 探测失败(400) → 拒绝切换", async () => {
+test("use <provider>: probe fails (400) → refuses to switch", async () => {
   const { server, port } = await makeGateway({ messagesOk: false });
   const file = provFile("usefail");
   try {
@@ -457,7 +457,7 @@ test("use <provider>: 探测失败(400) → 拒绝切换", async () => {
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("provider 名优先于渠道名", async () => {
+test("a provider name takes precedence over a channel name", async () => {
   const { server, port } = await makeGateway();
   const file = provFile("prio");
   try {
@@ -471,7 +471,7 @@ test("provider 名优先于渠道名", async () => {
   } finally { fs.rmSync(file, { force: true }); server.close(); }
 });
 
-test("check: /api/health 接受连接但不响应 → 超时后非0退出（不挂起）", async () => {
+test("check: /api/health accepts the connection but never answers → exits non-zero after the timeout (does not hang)", async () => {
   // The server accepts TCP connections but never responds to /api/health; fetchHealth should
   // abort after PROBE_TIMEOUT_MS and return null, so summrise check exits non-zero immediately.
   const server = http.createServer(() => {}); // no res written → the connection hangs forever

@@ -245,9 +245,9 @@ deploy_worker() {
     ( cd "$ROOT/gateway/ui" && npm run build ) || return 1
   fi
   if [[ "$dir" == "gateway" ]]; then
-    # Gateway deploy preflight (fail-closed): DO_AUTH / SESSION_SECRET /
-    # ADMIN_PASSWORD 任一缺失即 abort，不带病上线 (secrets live in the
-    # worker, never in wrangler.jsonc — see its Secrets comment).
+    # Gateway deploy preflight (fail-closed): if ANY of DO_AUTH / SESSION_SECRET /
+    # ADMIN_PASSWORD is missing, abort — never deploy a sick gateway (secrets live in
+    # the worker, never in wrangler.jsonc — see its Secrets comment).
     # DO_AUTH is required because RouteDO denies every caller when it is
     # unset (fail-closed) while the store path still forwards — deploying
     # without it turns route calls into 401s surfacing as store-side 500s.
@@ -258,7 +258,7 @@ deploy_worker() {
     # list" is NOT "the secret is absent". This used to call the API once per
     # secret inside the loop with stderr discarded, so a single throttled or
     # transient failure produced an empty list and the deploy aborted with
-    # "worker secret ADMIN_PASSWORD 未配置" while the secret was right there
+    # "worker secret ADMIN_PASSWORD is not configured" while the secret was right there
     # (observed 2026-09-13: all three secrets listed by a direct call, and an
     # immediate re-run of the same deploy passed). A missing-secret verdict may
     # only come from a list that was actually READ.
@@ -278,7 +278,7 @@ deploy_worker() {
     fi
     for s in DO_AUTH SESSION_SECRET ADMIN_PASSWORD; do
       if ! printf '%s\n' "$secret_json" | grep -qE "(^|[\"' ])${s}([\"' ]|$)"; then
-        echo "  !! abort: worker secret $s 未配置 — 先执行 wrangler secret put $s (gateway fail-closed)" >&2
+        echo "  !! abort: worker secret $s is not configured — run wrangler secret put $s first (gateway fail-closed)" >&2
         return 1
       fi
     done
