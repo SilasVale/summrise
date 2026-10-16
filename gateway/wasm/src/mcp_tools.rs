@@ -1026,14 +1026,8 @@ fn schema_from_spec(tool: &serde_json::Value) -> String {
     let types = tool["param_types"].as_object().cloned().unwrap_or_default();
     for name in tool["params"].as_array().cloned().unwrap_or_default() {
         let Some(name) = name.as_str() else { continue };
-        let ty = types
-            .get(name)
-            .and_then(|v| v.as_str())
-            .unwrap_or("string");
-        properties.insert(
-            name.to_string(),
-            serde_json::json!({ "type": ty }),
-        );
+        let ty = types.get(name).and_then(|v| v.as_str()).unwrap_or("string");
+        properties.insert(name.to_string(), serde_json::json!({ "type": ty }));
     }
     let mut schema = serde_json::Map::new();
     schema.insert("type".into(), serde_json::json!("object"));
@@ -1069,7 +1063,9 @@ pub fn all_tools() -> &'static [Tool] {
         let mut have: std::collections::BTreeSet<String> =
             CURATED.iter().map(|t| t.name.to_string()).collect();
         for tool in device_spec_tools() {
-            let Some(name) = tool["name"].as_str() else { continue };
+            let Some(name) = tool["name"].as_str() else {
+                continue;
+            };
             if !have.insert(name.to_string()) {
                 continue;
             }
@@ -1421,7 +1417,10 @@ mod tests {
         assert!(!crate::mcp::is_device_direct_tool("browser_open"));
         assert!(!crate::mcp::is_device_direct_tool("browser_close"));
         // Every browser_* name that is NOT one of the two runner tools goes through the bridge.
-        for tool in all_tools().iter().filter(|t| t.name.starts_with("browser_")) {
+        for tool in all_tools()
+            .iter()
+            .filter(|t| t.name.starts_with("browser_"))
+        {
             let expected = tool.name == "browser_pw_info" || tool.name == "browser_run_script";
             assert_eq!(
                 crate::mcp::is_device_direct_tool(tool.name),
