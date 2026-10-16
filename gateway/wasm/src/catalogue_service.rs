@@ -89,6 +89,58 @@ pub fn plan_run(
     (observation, writes)
 }
 
+/// **WHERE A CALLER'S FACTS CAME FROM** — the answer to "what did we serve", which the console shows and a test can
+/// assert.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Served {
+    /// The KV entry, still inside its TTL.
+    Cache(std::collections::BTreeMap<String, crate::catalogue::Facts>),
+    /// **THE FLOOR** — the committed slice, because there is no fresh cache. This is what an unreachable catalogue
+    /// degrades to, and the plan's first test is exactly this arm.
+    Floor,
+}
+
+impl Served {
+    /// The facts for an id, from whichever source answered — **callers do not branch on the source**, which is what
+    /// makes the floor invisible to every consumer and the two paths interchangeable.
+    pub fn facts_for(&self, id: &str) -> Option<&crate::catalogue::Facts> {
+        match self {
+            Served::Cache(rows) => rows.get(id),
+            Served::Floor => crate::catalogue::slice().facts_for(id),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Served::Cache(rows) => rows.len(),
+            Served::Floor => crate::catalogue::slice().len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// **THE READ PATH, AS A PURE FUNCTION**: a cached value (or none), the clock, and the answer.
+///
+/// Five outcomes, and every one of them either serves something usable or falls back — **there is no error arm,
+/// because a catalogue that cannot be read is not an error the caller can act on**. A stale entry, an unparseable
+/// one, a value from the future: all of them are the floor, which is slightly old and always present.
+pub fn served_from(cached: Option<&str>, now: i64) -> Served {
+    let Some(text) = cached else {
+        return Served::Floor;
+    };
+    let Some(parsed) = crate::catalogue::read_cache(text) else {
+        return Served::Floor;
+    };
+    if source_for(Some(parsed.fetched_at), now) == Source::Cache {
+        Served::Cache(parsed.slice())
+    } else {
+        Served::Floor
+    }
+}
+
 /// **WHO IS ASKING TO WRITE A ROW'S LIFECYCLE.** The distinction is the plan's fifth review focus, and it is not
 /// about permissions: it is about what an answer MEANS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +192,59 @@ pub fn source_for(cached_at: Option<i64>, now: i64) -> Source {
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE PLAN'S FIRST TEST, AS A FUNCTION**: with nothing cached — a catalogue that cannot be reached — the
+    /// committed slice answers. Every id the slice carries is still served, so nothing is hidden by an outage.
+    #[test]
+    fn an_unreachable_catalogue_serves_the_committed_slice() {
+        let served = served_from(None, 1_000);
+        assert_eq!(served, Served::Floor);
+        assert!(
+            served.len() >= 100,
+            "the floor is the committed slice, not an empty map"
+        );
+        assert!(
+            served.facts_for("og/mimo-v2.6-pro").is_some(),
+            "and it answers for the models the repo advertises"
+        );
+    }
+
+    /// A fresh cache is served; an EXPIRED one, a CORRUPT one and one from the FUTURE are all the floor — the three
+    /// ways a cache can be useless without being an error.
+    #[test]
+    fn only_a_fresh_readable_cache_is_served() {
+        let fresh = crate::catalogue::CachedCatalogue {
+            fetched_at: 1_000,
+            rows: vec![crate::catalogue::CachedRow {
+                id: "og/example".into(),
+                context: Some(131_072),
+                ..Default::default()
+            }],
+        };
+        let text = serde_json::to_string(&fresh).unwrap();
+        match served_from(Some(&text), 1_000) {
+            Served::Cache(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows["og/example"].context, Some(131_072));
+            }
+            Served::Floor => panic!("a fresh cache must be served"),
+        }
+        assert_eq!(
+            served_from(Some(&text), 1_000 + TTL_SECS),
+            Served::Floor,
+            "expired"
+        );
+        assert_eq!(
+            served_from(Some(&text), 1_000 - 1),
+            Served::Floor,
+            "from the future"
+        );
+        assert_eq!(
+            served_from(Some("{not json"), 1_000),
+            Served::Floor,
+            "corrupt"
+        );
+    }
 
     /// **AN UNREACHABLE CATALOGUE IS AN INCONCLUSIVE RUN, NOT A MASS RETIREMENT.** This is the plan's first test and
     /// the reason the floor exists: `fetched = None` must write nothing and break any streak.

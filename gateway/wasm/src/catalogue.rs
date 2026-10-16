@@ -51,8 +51,11 @@ pub struct CachedCatalogue {
     pub rows: Vec<CachedRow>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// **`Default` IS HERE FOR TESTS AND FOR A READER THAT ADDS A FIELD LATER** — a row written by an older build has
+/// no `vision` key, and `#[serde(default)]` on every optional field is what makes it readable rather than a refusal.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct CachedRow {
+    #[serde(default)]
     pub id: String,
     #[serde(default)]
     pub input_cost: Option<f64>,
