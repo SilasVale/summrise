@@ -544,3 +544,38 @@ their jobs are large, not because they repeat themselves.
 **AND WHAT THAT MEANS FOR THE NEXT PERSON**: stop looking for the biggest file. Ask what a file DOES — how many
 unrelated jobs, and whether two of its parts are the same thing — and only then measure its size.
 
+## THE REAL BAR IS 61 GATES, AND "LOCAL GREEN" IS NOT "CI GREEN" (rounds 189-196)
+
+**`scripts/test/all-gates.bash` RUNS EVERY GATE `ci.yml` INVOKES, AND ITS LIST IS DERIVED FROM THE WORKFLOW RATHER
+THAN RESTATED** — which is the whole point, because AGENTS.md's table lists the PER-DIRECTORY test commands and NOT the
+forty-odd gate scripts the `pack-chain` job runs one step at a time. Its header cites the cost that bought it: round 41
+had `contract-vocabulary-check` fail CI over a test fixture **while every command in the table was green**. **This
+session went ten rounds before running it**, which means every "all green" claim made from the table's commands was
+made against a subset. First run: **60 ok, 1 failed of 61**.
+
+**AND THE MIRROR OF ROUND 41 IS ALSO TRUE — THE TWO HALVES PROVE DIFFERENT THINGS.** That one failed gate was
+`cargo test --manifest-path proxies/zen-go-proxy/worker/Cargo.toml`, whose
+`the_port_is_byte_identical_to_the_recorded_shipping_answers` **fails HERE and passes in CI**: a crate this session
+never touched, with every pushed tip green. **So "local green" is not evidence of "CI green", and "CI green" is not
+evidence of "local green"** — the check is only the same check when it runs on the same tree with the same command. The
+other thing the first run proved is narrower and more useful: **`cargo fmt --check` prints NOTHING when the tree is
+formatted**, and the script's rule is that *a gate which exits 0 having printed nothing has proved nothing* — so its
+exception list had two hand-written entries, and a third fmt step (`gateway/wasm`) had gone into `ci.yml` without one.
+**A list of exceptions maintained BY HAND, checked against a list DERIVED from the workflow, is always one crate behind
+the workflow** — the exact drift the file's header refuses for its gate list. The fix is one pattern
+(`cargo:…cargo fmt …-- --check`), and the same reasoning applies to the next exception anyone is tempted to write.
+
+**AND THREE TIMES IN SIX ROUNDS I MUTED A COMMAND THAT WAS TRYING TO TELL ME SOMETHING** — each time while holding the
+rule "read the exit code, not the output" as if it were the whole discipline:
+
+  * `git commit --amend … 2>/dev/null` hid that it was rewriting an existing MERGE commit, and put a twin of it on
+    `main` (the pre-commit hook had correctly refused the first attempt, and named the `main-only-by-merge` rule — the
+    repository's check worked while mine was silenced);
+  * `bash all-gates.bash | tail -6` threw away the NAME of the one failing gate, leaving a number to guess at;
+  * `bash all-gates.bash | grep …` without `--line-buffered` turned a per-gate progress stream into one lump at the end.
+
+**THE EXECUTABLE SHAPE**: when you need per-line state, **do not pipe the command that produces it**; if you must
+filter, `grep --line-buffered` (or `stdbuf -oL`); and **discarding stderr is almost always wrong** — a tool that fails
+tells you why on the stream people delete first. **Read the exit code AND the output, and never wrap a talking command
+in something that stops it talking.**
+
