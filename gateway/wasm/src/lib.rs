@@ -483,6 +483,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
 }
 
 pub mod lifecycle;
+pub mod catalogue_service;
 pub mod catalogue;
 pub mod access;
 pub mod admin_routes;
