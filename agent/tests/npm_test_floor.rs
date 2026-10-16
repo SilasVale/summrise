@@ -48,6 +48,24 @@
 //! suite cannot run at all fails this test with the command that fixes it, rather than declaring itself
 //! inapplicable.
 
+//!
+//! ── ONE UNEXPLAINED FAILURE, RECORDED HERE BECAUSE A FLAKE NOBODY WROTE DOWN IS A FLAKE EVERYONE RE-LEARNS ──
+//!
+//! **MEASURED 2026-10-16, DURING THE DSH EXTRACTION (round 112): this gate failed ONCE, and the failure could not be
+//! attributed.** Five subsequent consecutive runs were green, including a verbatim replay of the sequence that
+//! preceded it, and the package whose suite it spawns was independently green (70/70) at the time. What is known: the
+//! subject packages are derived from `git ls-files`, so a partially-staged tree changes WHICH packages are floored —
+//! and that run was made while new files had been `git add`ed but not committed, which is exactly that condition.
+//!
+//! **THAT IS A HYPOTHESIS, NOT A FINDING, AND IT IS WRITTEN DOWN AS ONE.** The next occurrence should settle it, and
+//! this gate is already built to make that possible: the failure message names the package, its failing test names,
+//! the output HEAD (where a load error appears) and the tail. **So the instruction for whoever sees it next is to
+//! copy that message into a commit message rather than re-running until it passes** — which is what happened here, and
+//! what made an observed failure survive only as a sentence in a report instead of a fact in the repository.
+//!
+//! (Not raised into a gate of its own: a single observation with no reproducer does not justify one, and a test that
+//! asserts "this has never flaked" is the class of check this repository calls a step nobody reads.)
+
 mod common;
 
 use common::{git_ls_files_all, repo, Spawn};
