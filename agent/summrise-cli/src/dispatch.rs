@@ -943,7 +943,6 @@ mod tests {
 
     /// The UPDATE path marks its own swap with the reason that makes the next start say "replaced"
     /// instead of "crashed" — its timing cannot be told from a crash, because the gaps overlap.
-    #[test]
     /// **THE PREFIX IS THE ONE THAT EXISTS, AND THE CURRENT ONE WINS WHEN BOTH DO.**
     ///
     /// This is the whole of what the operator was being asked to compute by hand
