@@ -438,6 +438,29 @@ pub async fn probe(
 #[cfg(test)]
 mod tests {
 
+    /// **AN EMPTY LISTING IS EVIDENCE ONLY WHEN THE BODY IS A LISTING.** This is the guard's whole job: `offered_ids`
+    /// answers `[]` for a shape it does not recognise, and passing that on would make **a renamed dialect look like
+    /// "the provider retired everything"** — the failure `conclusive` exists to prevent, arriving one layer earlier
+    /// than `conclusive` can see it.
+    #[test]
+    fn only_a_listing_shaped_body_can_be_empty_and_still_be_evidence() {
+        // A provider that genuinely serves nothing: evidence, and `conclusive` will read it as such.
+        assert!(payload_looks_like_a_listing(
+            &serde_json::json!({"data": []})
+        ));
+        assert!(payload_looks_like_a_listing(&serde_json::json!([])));
+        // A body that is NOT a listing: a failed fetch, whatever it says.
+        assert!(!payload_looks_like_a_listing(
+            &serde_json::json!({"error": "rate limited"})
+        ));
+        assert!(
+            !payload_looks_like_a_listing(&serde_json::json!({"object": "list"})),
+            "a shape we do not know is not an empty catalogue"
+        );
+        assert!(!payload_looks_like_a_listing(&serde_json::json!("nope")));
+        assert!(!payload_looks_like_a_listing(&serde_json::Value::Null));
+    }
+
     /// **THE THREE ANSWERS, AND THE TWO THAT MATTER ARE THE NEGATIVE ONES.** A demotion is decided by absence, so a
     /// listing that is empty — or that carries none of our rows — must be `false`, or one bad upstream response
     /// retires the catalogue.
