@@ -232,14 +232,21 @@ test("a slot cannot be built without its host — the factory REFUSES, and it na
   assert.throws(() => mod.embeddedSlot({ ...dshConfig(shell, []), goneChannel: "" }), /embedded-slot: goneChannel is missing/);
 });
 
-test("a refused construction builds NOTHING — the leaked-view shape the old seam had is unreachable", () => {
-  // WHAT THIS CASE PINNED BEFORE THE UNIFICATION: the old seam read the window AFTER assigning the view,
-  // so a loud refusal left a fully built view in the module's state — a view no window ever showed, whose
-  // crash handler was live and whose `reload()` reached an orphan. A FACTORY cannot have that shape: the
-  // config is checked before anything is constructed, so the refusal cannot half-build a slot. The
-  // property (a refused slot leaves no orphan behind) is the same; the code that could violate it is gone.
+test("an unbound slot creates NOTHING and leaves NO state — the refusal precedes every construction", () => {
+  // WHAT THIS CASE USED TO PIN, AND WHAT WAS WRONG WITH IT: it proved a refused CONSTRUCTION builds
+  // nothing, and its own comment claimed the leaked-view shape the old seam had was "unreachable — the
+  // config is checked before anything is constructed". THAT CLAIM WAS FALSE. The window getter is a host
+  // dependency read at USE time, and `ensure()` read it AFTER `view = built`, so a getter that REFUSED —
+  // an unbound host, `deps().win()` on a slot whose bind never ran — still left a fully built view in the
+  // slot's state: no window ever showed it, its crash handler was live, a later `state()`/`reload()`
+  // answered about it, and a SECOND `ensure()` returned it without reading the window at all. The host is
+  // now read BEFORE the build, which is a DELIBERATE BEHAVIOUR CHANGE ON THE UNBOUND PATH ONLY (a bound
+  // host's getter is called once and returns exactly what it returned before), and this case is
+  // re-expressed to require the property it used to claim. NOTHING IS DELETED: the construction refusal
+  // below stays — it is still true — and the use-time refusal is what makes the claim true at last.
   const shell = fakeShell();
   const mod = loadSlotModule(shell.electron);
+  // ── A REFUSED CONSTRUCTION BUILDS NOTHING ─────────────────────────────────────────────────────────
   for (const missing of ["win", "door", "popupTarget", "recoverUrl", "stateUrl"]) {
     const broken = dshConfig(shell, []);
     delete broken[missing];
@@ -248,6 +255,34 @@ test("a refused construction builds NOTHING — the leaked-view shape the old se
   }
   assert.throws(() => mod.embeddedSlot(), /embedded-slot:/);
   assert.deepEqual(shell.views, [], "and the config-less refusal builds nothing either");
+  // ── ...AND NEITHER DOES A REFUSED `ensure()` — THE PATH THAT COULD LEAK ────────────────────────────
+  const asked = [];
+  let refuse = false;
+  const slot = mod.embeddedSlot(dshConfig(shell, asked, {
+    win: () => { if (refuse) throw new Error("dshViewBind() was never called"); return shell.win; },
+  }));
+  refuse = true;
+  const LOUD = /dshViewBind\(\) was never called/;
+  assert.throws(() => slot.ensure(), LOUD, "the refusal is still LOUD: a slot with no host does not fall back");
+  assert.deepEqual(shell.views, [], "and it built NOTHING — no view is constructed before the host is read");
+  assert.throws(() => slot.ensure(), LOUD, "a second call refuses AGAIN rather than returning the view the first one built");
+  assert.deepEqual(shell.views, [], "so there is still no view to return");
+  // NO STATE BEHIND IT: the reads answer from an empty slot, exactly as they do before a view exists, and
+  // the record describes no view rather than an orphan nobody ever showed.
+  assert.deepEqual(slot.reload(), { ok: false }, "reload has no view to reach");
+  assert.deepEqual(
+    slot.state(),
+    { ok: true, url: policy.shownUrl(undefined, ""), title: "", visible: false },
+    "and the record is the empty one — not a description of a view that was never attached",
+  );
+  assert.equal(shell.win.attached.length, 0, "nor did any view reach the window's contentView");
+  // EVERY ENTRY POINT THAT BUILDS REFUSES THE SAME WAY, and not one of them leaves a view behind.
+  assert.throws(() => slot.place({ x: 0, y: 0, width: 800, height: 600 }), LOUD, "place() dies on the same refusal");
+  assert.throws(() => open(slot), LOUD, "navigate() too: the door runs, then ensure() refuses");
+  assert.throws(() => slot.recover(), LOUD, "and so does the operation whose whole job is to BUILD a view");
+  assert.deepEqual(shell.views, [], "place(), navigate() and recover() each built nothing");
+  assert.equal(shell.win.attached.length, 0, "and attached nothing");
+  assert.deepEqual(shell.win.sent, [], "and pushed nothing");
 });
 
 test("the hide does not wait on the window: a getter that refuses still leaves the dead view hidden", () => {
