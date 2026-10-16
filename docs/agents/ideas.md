@@ -488,3 +488,26 @@ modules extracted, the last two unified into one factory. The other five surface
     tools; "how many unrelated jobs does this file do" pointed at the real problem.** That is the question worth asking
     first.
 
+## FOUR INSTRUMENTS THAT ANSWERED THE WRONG QUESTION (rounds 115-169)
+
+**EVERY ONE OF THESE WAS A GREP OR A COUNT, AND EVERY ONE MATCHED THE SHAPE I EXPECTED RATHER THAN THE SUBJECT.** Each
+was caught only by reading the output — a count never explains itself, and three of the four were "confirmed" twice
+before anyone looked.
+
+| instrument | the answer it gave | the truth |
+|---|---|---|
+| "the latest CI run" (`runs?per_page=1`) | **failure** — so I reported a red `main` | that run was **a day old**; `main` was green. **A run list is not a promise about which commit a run belongs to** — re-runs, scheduled runs and older pushes all appear. Select by `head_sha`, and read `updated_at`: `in_progress` with a frozen timestamp means QUEUED, not running |
+| `find -path "*/tests/*"` | `proxies/` has **3 test files** — "thin" | **93 `#[test]`/`#[tokio::test]` attributes across 11 files.** This repository puts tests IN the file (`sweep_judge.rs` 13, `summrise-shell-policy/src/tests.rs` 56 cases). **Count test ATTRIBUTES; a file count measured the directory layout, not the coverage** |
+| `grep '\|' ` over `run:` blocks | **50** steps with pipelines | it matched the `run: \|` **block markers themselves**. The command has to skip the marker and look at command lines |
+| "pipelines without `pipefail`" | **8** in `ci.yml` | **`\|\|` is not a pipe.** Four of the five I read were `cmd \|\| true` / `cmd \|\| { … }`. The two real ones (`$(grep … \| awk …)`, `$(npm pack \| tail -n 1)`) are both already defended — one by a `test -n "$TOKEN" \|\| exit 1` on the very next line, one by a `tar` that fails loudly two lines later, and the workflow's own comment states the rule: *"it is never the last command in this step"* |
+
+**A FIFTH WAS NOT A TOOL BUG BUT A SCOPE GAP, AND IT IS THE ONE THAT MATTERED MOST**: `find … -printf "%s %p" | sort -rn
+| head` surveys only what it is pointed at, and I pointed it at the shell, the panel, `index/`, `mail/`, `relay/` and
+`proxies/` — **never at `agent/src/`**, the largest Rust tree in the repository, where `web/mod.rs` is **9888 lines**.
+Size-ordering would not have found it either: what found it was asking **"how many unrelated jobs does this file do"**
+and measuring **lines per top-level item** (225 there, against 37 and 54 in the two large-but-healthy files).
+
+**THE RULE FOR WHOEVER DRIVES THIS REPOSITORY WITH GREPS**: *when a count does not match what you expected, suspect the
+instrument before the subject* — and then **read the lines it selected**, because every one of the four above was
+obvious the moment its output was read, and invisible while its number was trusted.
+
