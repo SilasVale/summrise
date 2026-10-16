@@ -23,7 +23,7 @@ const OPENCODE: &str = include_str!("catalogue/opencode.json");
 const OPENCODE_GO: &str = include_str!("catalogue/opencode-go.json");
 
 /// One row's facts, as the slice carries them.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct Facts {
     pub input_cost: Option<f64>,
     pub output_cost: Option<f64>,
@@ -33,6 +33,76 @@ pub struct Facts {
     pub status: Option<String>,
     /// Does it accept an image? From `modalities.input`.
     pub vision: bool,
+}
+
+/// **THE CACHED CATALOGUE — THE SAME ROW SHAPE THE COMMITTED FILES USE, PLUS WHEN IT WAS TAKEN.**
+///
+/// It is deliberately not a new format: a cache value is written by the same extraction that writes the slice files,
+/// so a reader here and a reader of `catalogue/opencode.json` agree by construction. `fetched_at` is what
+/// `catalogue_service::source_for` decides freshness from.
+///
+/// **`read_cache` REFUSES A VALUE IT CANNOT BELIEVE, AND THAT IS THE PLAN'S FOURTH REVIEW FOCUS.** A KV entry can
+/// be HALF-WRITTEN (a run killed mid-put) or written by an older build, and either would be a catalogue that looks
+/// real and is not. Refusing means the caller serves the committed floor instead — **degrading to slightly-old facts
+/// rather than to wrong ones.**
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CachedCatalogue {
+    pub fetched_at: i64,
+    pub rows: Vec<CachedRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CachedRow {
+    pub id: String,
+    #[serde(default)]
+    pub input_cost: Option<f64>,
+    #[serde(default)]
+    pub output_cost: Option<f64>,
+    #[serde(default)]
+    pub context: Option<i64>,
+    #[serde(default)]
+    pub output: Option<i64>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub vision: bool,
+}
+
+impl CachedRow {
+    pub fn facts(&self) -> Facts {
+        Facts {
+            input_cost: self.input_cost,
+            output_cost: self.output_cost,
+            context: self.context,
+            output: self.output,
+            status: self.status.clone(),
+            vision: self.vision,
+        }
+    }
+}
+
+/// **PARSE A CACHED VALUE, OR SAY NOTHING.** `None` for anything that does not look like a catalogue we wrote: not
+/// JSON, no `rows`, a row without an `id`. **A cache is an optimisation, so failing to read one must never be an
+/// error the caller has to handle** — it falls back to the floor.
+pub fn read_cache(text: &str) -> Option<CachedCatalogue> {
+    let parsed: CachedCatalogue = serde_json::from_str(text).ok()?;
+    if parsed.rows.is_empty() {
+        return None;
+    }
+    if parsed.rows.iter().any(|row| row.id.is_empty()) {
+        return None;
+    }
+    Some(parsed)
+}
+
+impl CachedCatalogue {
+    /// The rows, as a lookup — the same shape `slice()` answers with, so callers do not care which source they got.
+    pub fn slice(&self) -> std::collections::BTreeMap<String, Facts> {
+        self.rows
+            .iter()
+            .map(|row| (row.id.clone(), row.facts()))
+            .collect()
+    }
 }
 
 /// Why an adoption was refused. Each variant is a fact the operator must supply rather than something this code may
@@ -185,6 +255,51 @@ pub fn slice() -> &'static Slice {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A HALF-WRITTEN OR FOREIGN VALUE IS REFUSED, NOT GUESSED** — the plan's fourth review focus. Each of these
+    /// would otherwise be a catalogue that looks real: an empty run's put, a value from a build that never wrote
+    /// `rows`, a truncation mid-JSON, and a row with no id.
+    #[test]
+    fn a_cache_value_that_cannot_be_believed_is_refused() {
+        assert!(read_cache("").is_none());
+        assert!(read_cache("{\"fetched_at\":1}").is_none(), "no rows key");
+        assert!(
+            read_cache("{\"fetched_at\":1,\"rows\":[]}").is_none(),
+            "an empty catalogue is not one"
+        );
+        assert!(
+            read_cache("{\"fetched_at\":1,\"rows\":[{\"id\":").is_none(),
+            "truncated mid-JSON"
+        );
+        assert!(
+            read_cache("{\"fetched_at\":1,\"rows\":[{\"id\":\"\"}]}").is_none(),
+            "a row with no id"
+        );
+    }
+
+    /// A value this code wrote round-trips, and its rows answer the same facts the committed slice would.
+    #[test]
+    fn a_cache_value_round_trips() {
+        let written = CachedCatalogue {
+            fetched_at: 1_785_000_000,
+            rows: vec![CachedRow {
+                id: "og/example".into(),
+                input_cost: Some(0.5),
+                output_cost: Some(1.5),
+                context: Some(262_144),
+                output: Some(32_768),
+                status: Some("free".into()),
+                vision: true,
+            }],
+        };
+        let text = serde_json::to_string(&written).unwrap();
+        let read = read_cache(&text).expect("a value this code wrote reads back");
+        assert_eq!(read.fetched_at, 1_785_000_000);
+        let facts = read.slice().remove("og/example").expect("the row is there");
+        assert_eq!(facts.context, Some(262_144));
+        assert!(facts.vision);
+        assert_eq!(facts.status.as_deref(), Some("free"));
+    }
 
     /// **THE REFUSAL THE LIVE DOCUMENT MAKES COMMON**: nothing in `models.dev` says whether a row answers
     /// `completions` or `responses`, so a row adopted on the catalogue's word alone cannot be placed on an arm.
