@@ -318,7 +318,9 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
     // a shell that dies with `Cannot find module` — the defect landing 6 recorded, which is why the
     // four names of that era are six here and `summrise-cli`'s `swap.rs` stages the same set.
     // `embedded-view.js` joined them for exactly that reason: `main.js` requires `./embedded-view` since
-    // the embedded browser view became a module of its own, so the shell is a pair there too.
+    // the embedded browser view became a module of its own, so the shell is a pair there too — and
+    // `browser-sessions.js` joined it when the browser-session cluster became one, which is the same
+    // argument a third time (`main.js` requires `./browser-sessions`).
     //
     // NAMED AS WELL AS DERIVED (the loop below): naming is what fails when a file leaves BOTH lists,
     // and the derivation is what fails when a NEW shell file joins `files[]` and nobody adds it to the
@@ -326,6 +328,7 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
     for f in [
         "summrise-desktop-electron/src/main.js",
         "summrise-desktop-electron/src/embedded-view.js",
+        "summrise-desktop-electron/src/browser-sessions.js",
         "summrise-desktop-electron/src/preload.js",
         "summrise-desktop-electron/src/summrise_url_policy.js",
         "summrise-desktop-electron/src/summrise_url_policy_bg.wasm",

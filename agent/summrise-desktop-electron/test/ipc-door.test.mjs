@@ -16,12 +16,15 @@
 //     handler cannot appear without a caller or a caller without a handler;
 //   * `sanitizeBrowserUrl` is called exactly ONCE — inside the one load door.
 //
-// **"THE SHELL" IS TWO FILES SINCE THE EMBEDDED VIEW MOVED INTO ITS OWN** (`src/embedded-view.ts`,
-// which holds the view's state and its eight operations; `main.ts` keeps the window, the load door and
-// every `ipcHandle` registration, because the door has to stay the only one). The properties above are
-// about the SHELL, so the scans below read BOTH files: a rule that looked at `main.ts` alone would go
-// blind to a load site or a channel registration moved one file over — the drift these checks exist to
-// catch.
+// **"THE SHELL" IS THREE FILES SINCE THE TWO SECTIONS MOVED INTO MODULES OF THEIR OWN**
+// (`src/embedded-view.ts`, which holds the browser view's state and its eight operations, and
+// `src/browser-sessions.ts`, which holds the session table and the three operations an AI drives).
+// `main.ts` keeps the window, the load door and every `ipcHandle` registration, because the door has to
+// stay the only one. The properties above are about the SHELL, so the scans below read ALL THREE files:
+// a rule that looked at `main.ts` alone would go blind to a load site or a channel registration moved
+// one file over — the drift these checks exist to catch. And the join is why they still hold after the
+// move: `browser-sessions.ts` loads through the bound door, so `sanitizeBrowserUrl` is still called
+// exactly once, in `main.ts`, and no channel is registered outside the door.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -31,6 +34,7 @@ import assert from "node:assert/strict";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAIN = path.join(HERE, "..", "src", "main.ts");
 const VIEW = path.join(HERE, "..", "src", "embedded-view.ts");
+const SESSIONS = path.join(HERE, "..", "src", "browser-sessions.ts");
 const PRELOAD = path.join(HERE, "..", "src", "preload.ts");
 
 /** The source with comments removed — a rule about CODE must not be satisfied or broken by prose
@@ -88,11 +92,11 @@ function functionBody(code, declaration) {
 
 const matches = (code, re) => [...code.matchAll(re)].map((m) => m[1] ?? m[0]);
 
-/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the embedded
- *  view's module. Every property below is about the shell rather than about one file, and the join is
- *  on "\n" so a rule cannot match across the seam. */
+/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the two modules
+ *  it binds and calls into. Every property below is about the shell rather than about one file, and the
+ *  join is on "\n" so a rule cannot match across the seam. */
 function shellSource() {
-  return [MAIN, VIEW].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
+  return [MAIN, VIEW, SESSIONS].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
 }
 
 test("the shell calls ipcMain.handle exactly once — inside the door helper", () => {
@@ -170,9 +174,10 @@ test("the shell decides every raw browser URL in exactly one place", () => {
   );
   const door = functionBody(code, "function loadTarget");
   assert.ok(door.includes("sanitizeBrowserUrl"), "the load door must be the call site of sanitizeBrowserUrl");
-  // The door is USED, not merely declared: its own declaration plus the three load sites — browserOpen
-  // in `main.ts`, and the embedded view's window-open handler and `embeddedNavigate` in its module.
-  // The count is over the SHELL's sources, which is why it is still four after the move.
+  // The door is USED, not merely declared: its own declaration, the bind call in `main.ts`, and the
+  // three load sites — `browserOpen` in `browser-sessions.ts`, and the embedded view's window-open
+  // handler and `embeddedNavigate` in its module. The count is over the SHELL's sources, which is why
+  // it is still five after the browser sessions moved: the call moved with them, through the seam.
   const uses = matches(code, /loadTarget\s*\(/g);
   assert.ok(
     uses.length >= 4,
