@@ -303,3 +303,34 @@ identical posture is asserted by nothing** — no test can import `main.ts`. Uni
 DSH that assertion, and it is also the move that risks weakening both if a shared `webPreferences` is edited casually,
 since adding a `preload` would then affect two views at once.
 
+## A GREEN MAIN READ AS RED, BECAUSE THE "LATEST" RUN WAS YESTERDAY'S (round 115)
+
+**WHAT I DID**: after three landings without a CI check, I asked the API for `runs?per_page=1`, took the first entry as
+the tip's run, found `failure`, and reported a red `main` — then spent a round fetching that run's log and delegating a
+fix for what it named.
+
+**WHAT WAS TRUE**: the log's own timestamps were `2026-10-15T16:44`, a day old. That failure was fixed by `2266a548`
+("fix: the tool-name list is NOT exported — and the exports gate is the one I keep not running"), which
+`git merge-base --is-ancestor 2266a548 HEAD` confirms is an ancestor of `main`. **`main` was green the whole time**, as
+re-measured on the current tree: `exports_check` -> `319 exports across both UIs, every one used outside the file that
+declares it`; the contract freshness test -> a committed file that equals a fresh render, byte for byte; the panel ->
+`116 files / 935 tests passed`.
+
+**THE TRAP, NAMED SO IT IS NOT RE-ENTERED**: *the run list is not a guarantee about which COMMIT a run belongs to.* A
+re-run, a scheduled run, or a run of an older push can be the newest entry — so **a run must be selected by `head_sha`,
+and a log must be read with its own timestamps checked before it is believed.** This is the same shape as the two
+mistakes this session already recorded (`cmd | grep | head` returning `head`'s status, and reading clippy's COUNT
+instead of its names): **a check read at one remove from the thing it describes.** Here the removal was one API
+listing; there it was a pipe.
+
+**AND THE DELEGATION IS WHAT CAUGHT IT, WHICH IS THE PART WORTH KEEPING.** The brief said "the main branch is red right
+now and this is the failure", and the first thing that came back was *"the premise is stale — here is the commit that
+fixed it, and here is the ancestor check"*. **A subagent that verifies the premise it is handed is worth more than one
+that executes it quickly**, and a brief that quotes its evidence (as this one did, verbatim from the log) is what made
+the check possible at all.
+
+**ONE MORE THING THAT ROUND TURNED UP, WORTH KNOWING BEFORE TRUSTING ANY "THE GATE GOES RED" EVIDENCE**:
+`agent/build.rs` fails the build when `resources/panel-react/src` is NEWER than the built panel bundle — so a mutation
+that touches a file's mtime can exit 101 **without the test you aimed at ever running**. The tool gate hiding the test
+gate, by design and by mtime.
+
