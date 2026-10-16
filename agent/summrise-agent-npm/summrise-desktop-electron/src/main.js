@@ -94,6 +94,13 @@ const embedded_view_1 = require("./embedded-view");
 // `ipcMain.handle` door, and the loopback control server and the panel's `target=_blank` handler are
 // this file's routers, not the module's.
 const browser_sessions_1 = require("./browser-sessions");
+// THE DSH VIEW IS THE THIRD MODULE OF THE SAME SHAPE. It owns the view, its state and its seven
+// operations; this file owns the window it is attached to, the ONE load door every address it
+// navigates to goes through, and the url policy's own answers about the DSH — all four lent to it in
+// one `dshViewBind` call below. Its section's header records why the door, the port pin and the
+// harness-door read STAYED here. The IPC registrations stay HERE too: this file holds the ONE
+// `ipcMain.handle` door.
+const dsh_view_1 = require("./dsh-view");
 const K = JSON.parse((0, summrise_shell_policy_1.shellConstants)());
 // The handful the shell reads often enough that `K.` at every use site would be noise. They are still the
 // table's values — destructuring a copy of the parse, not a second declaration.
@@ -425,9 +432,26 @@ ipcHandle("embedded-browser:state", () => (0, embedded_view_1.embeddedState)());
 //
 // A SECOND view, not a re-use of the browser one: the browser view is a single-tab internet
 // browser an AI drives over CDP, and navigating it to the DSH would throw that session away.
-let dshView = null;
-let dshVisible = false;
-let dshBounds = null;
+//
+// ── THE VIEW IS A MODULE OF ITS OWN NOW (`src/dsh-view.ts`); THIS IS ITS HOST HALF ──────────
+// The view's state and its seven operations moved out whole. Its own header records why the move
+// happened and what the seam carries; what matters HERE is the three functions below it that
+// DELIBERATELY DID NOT GO, because they belong to the boot and the host rather than to the view:
+//   * `bootDshPort` — the boot's port pin, the twin of `bootAgentPort` below: called once, from
+//     `app.whenReady()`, as the argument to `setDshPort`, which feeds the url policy's port state
+//     that this file owns. No operation of the view calls it.
+//   * `dshTargetFor` — the ONE load door for that view, and a door is the HOST's: this file owns
+//     the load door of every view it lends one to (`loadTarget` above is the same shape for the
+//     other two modules), and it is where this file evaluates the url-policy predicate
+//     `isDshUrl` — the rule the import block above states for both crates. It is LENT to the module
+//     in the `dshViewBind` call below, never re-declared there.
+//   * `loadHarnessDoors` — the boot's ONE read of the agent's harness table: it MUTATES the url
+//     policy's own port list (`addDshPort`), fetches with the device token (`authHeaders`) and is
+//     bounded by the boot table's `HARNESS_FETCH_MS`. The view never calls it, so lending this
+//     module a credential and a boot number for a caller it does not have would be dependency
+//     surface bought for nothing.
+// `WebContentsView` left this file's electron import with the view: nothing here names the type
+// any more, and a surface no reader can act on is the rule the child_process import above cites.
 /** The DSH's port. Env first (a deployment may move it), else the component's default — the range test
  *  and the fallback are the policy crate's, the env read is this file's. */
 function bootDshPort() {
@@ -473,133 +497,26 @@ function loadHarnessDoors() {
     })
         .finally(() => clearTimeout(timer));
 }
-function dshViewEnsure() {
-    if (dshView && !dshView.webContents.isDestroyed())
-        return dshView;
-    const view = new electron_1.WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            // No preload: the DSH SPA needs no Node surface, and a view that cannot reach one cannot
-            // be talked into using one.
-        },
-    });
-    view.setVisible(false);
-    dshVisible = false;
-    // The DSH opens links (docs, the operator's own pages) with target=_blank. Deny the POPUP but
-    // keep the click meaningful where the door allows it — and the door allows one origin, so in
-    // practice an external link is simply dropped rather than silently navigating this view away
-    // from the harness.
-    view.webContents.setWindowOpenHandler(({ url }) => {
-        const decided = (0, summrise_shell_policy_1.dshPopupTarget)(url, (0, summrise_url_policy_1.isDshUrl)(url));
-        if (decided !== undefined)
-            dshNavigate(decided);
-        return { action: "deny" };
-    });
-    view.webContents.on("render-process-gone", (_e, details) => {
-        try {
-            view.setVisible(false);
-        }
-        catch { /* already gone */ }
-        dshVisible = false;
-        // The SAME signal the browser view sends, for the same reason (round-256 there): without it
-        // the pane shows "starting…" forever over a view that will never paint, and the operator has
-        // no way to tell a slow load from a dead renderer.
-        if (win && !win.isDestroyed()) {
-            win.webContents.send("embedded-dsh:gone", { reason: details.reason, exitCode: details.exitCode });
-        }
-    });
-    dshView = view;
-    if (win)
-        win.contentView.addChildView(view);
-    return view;
-}
-function dshNavigate(url) {
-    const target = dshTargetFor(url);
-    const view = dshViewEnsure();
-    view.webContents.loadURL(target).catch(() => { });
-    return { ok: true, url: target };
-}
-/** Open (or re-focus) the DSH at its configured address. Idempotent.
- *
- *  `dshHome` is the policy crate's and it was spelled TWICE in this file before the port — here and in
- *  `dshRecover` — which is exactly the pair that must not drift: a crash recovery that lands somewhere
- *  other than the harness is a view the operator did not ask for. */
-function dshOpen() {
-    return dshNavigate((0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)()));
-}
-/** Place the view over the SPA's slot. Empty bounds hide it (the same contract as the browser). */
-function dshPlace(bounds) {
-    const view = dshViewEnsure();
-    if (!win)
-        return;
-    // The SAME predicate the browser view uses — one `MIN_SLOT_PX`, two call sites, before the port.
-    if ((0, summrise_shell_policy_1.slotTooSmall)(bounds)) {
-        view.setVisible(false);
-        dshVisible = false;
-        return;
-    }
-    dshBounds = bounds;
-    view.setBounds(bounds);
-    view.setVisible(true);
-    dshVisible = true;
-    win.contentView.addChildView(view);
-}
-function dshReload() {
-    const view = dshView;
-    if (!view || view.webContents.isDestroyed())
-        return { ok: false };
-    try {
-        view.webContents.reload();
-        return { ok: true };
-    }
-    catch {
-        return { ok: false };
-    }
-}
-/** Recover after a renderer crash: a dead webContents never recovers, so re-create the view. */
-function dshRecover() {
-    try {
-        if (dshView && !dshView.webContents.isDestroyed())
-            dshView.webContents.close({ waitForBeforeUnload: false });
-        if (dshView) {
-            try {
-                win?.contentView.removeChildView(dshView);
-            }
-            catch { /* already gone */ }
-            dshView = null;
-        }
-    }
-    catch { /* fall through to ensure() */ }
-    const view = dshViewEnsure();
-    if (!view || view.webContents.isDestroyed())
-        return { ok: false };
-    view.webContents.loadURL((0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)())).catch(() => { });
-    if (dshVisible && win && dshBounds) {
-        view.setBounds(dshBounds);
-        view.setVisible(true);
-        win.contentView.addChildView(view);
-    }
-    return { ok: true };
-}
-function dshState() {
-    const view = dshView;
-    const wc = view && !view.webContents.isDestroyed() ? view.webContents : null;
-    return { ok: true, url: wc ? wc.getURL() : "", title: wc ? wc.getTitle() : "", visible: dshVisible && !!wc };
-}
-ipcHandle("embedded-dsh:open", () => dshOpen());
+// THE DSH VIEW'S SEAM, bound ONCE here (module load) and never re-bound. The window is a getter
+// because it does not exist yet and is nulled when it closes; `targetFor` is the load door above;
+// `admitted` and `base` are the url policy's `isDshUrl` and `dshBase`. They travel as FUNCTIONS
+// rather than as values for the reason the crate's own docs give — "the BASE arrives from the
+// host, which is the only thing that can read the configured DSH port" — and because `setDshPort`
+// runs at `whenReady`, so a snapshot taken here would pin the port list before the agent's
+// harness table has even been read.
+(0, dsh_view_1.dshViewBind)({ win: () => win, targetFor: dshTargetFor, admitted: summrise_url_policy_1.isDshUrl, base: summrise_url_policy_1.dshBase });
+ipcHandle("embedded-dsh:open", () => (0, dsh_view_1.dshOpen)());
 ipcHandle("embedded-dsh:place", (bounds) => {
-    dshPlace(bounds);
+    (0, dsh_view_1.dshPlace)(bounds);
     return { ok: true };
 });
-ipcHandle("embedded-dsh:state", () => dshState());
+ipcHandle("embedded-dsh:state", () => (0, dsh_view_1.dshState)());
 // SELECT A HOST: `dshNavigate` already refuses anything `isDshUrl` does not admit, so this channel can
 // only reach a door the agent configured — and it answers with the address it actually loaded, which for a
 // refusal is `about:blank`. The pane shows that rather than pretending the switch worked.
-ipcHandle("embedded-dsh:go", (url) => dshNavigate(String(url)));
-ipcHandle("embedded-dsh:reload", () => dshReload());
-ipcHandle("embedded-dsh:recover", () => dshRecover());
+ipcHandle("embedded-dsh:go", (url) => (0, dsh_view_1.dshNavigate)(String(url)));
+ipcHandle("embedded-dsh:reload", () => (0, dsh_view_1.dshReload)());
+ipcHandle("embedded-dsh:recover", () => (0, dsh_view_1.dshRecover)());
 // Desktop-app settings (auto-launch) — the Settings page toggles this. We
 // manage a per-user scheduled task ("SummriseDesktop", onlogon) instead of
 // Electron's setLoginItemSettings: in dev mode (electron .) the login-item

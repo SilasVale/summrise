@@ -16,15 +16,17 @@
 //     handler cannot appear without a caller or a caller without a handler;
 //   * `sanitizeBrowserUrl` is called exactly ONCE — inside the one load door.
 //
-// **"THE SHELL" IS THREE FILES SINCE THE TWO SECTIONS MOVED INTO MODULES OF THEIR OWN**
-// (`src/embedded-view.ts`, which holds the browser view's state and its eight operations, and
-// `src/browser-sessions.ts`, which holds the session table and the three operations an AI drives).
-// `main.ts` keeps the window, the load door and every `ipcHandle` registration, because the door has to
-// stay the only one. The properties above are about the SHELL, so the scans below read ALL THREE files:
-// a rule that looked at `main.ts` alone would go blind to a load site or a channel registration moved
-// one file over — the drift these checks exist to catch. And the join is why they still hold after the
-// move: `browser-sessions.ts` loads through the bound door, so `sanitizeBrowserUrl` is still called
-// exactly once, in `main.ts`, and no channel is registered outside the door.
+// **"THE SHELL" IS FOUR FILES SINCE THE THREE SECTIONS MOVED INTO MODULES OF THEIR OWN**
+// (`src/embedded-view.ts`, which holds the browser view's state and its eight operations,
+// `src/browser-sessions.ts`, which holds the session table and the three operations an AI drives, and
+// `src/dsh-view.ts`, which holds the DSH view's state, its seven operations and the seam `main.ts`
+// binds for it). `main.ts` keeps the window, the load doors and every `ipcHandle` registration, because
+// the door has to stay the only one. The properties above are about the SHELL, so the scans below read
+// ALL FOUR files: a rule that looked at `main.ts` alone would go blind to a load site or a channel
+// registration moved one file over — the drift these checks exist to catch. And the join is why they
+// still hold after the moves: `browser-sessions.ts` loads through the bound door and `dsh-view.ts`
+// through its own bound `targetFor`, so `sanitizeBrowserUrl` is still called exactly once, in `main.ts`,
+// and no channel is registered outside the door.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -35,6 +37,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAIN = path.join(HERE, "..", "src", "main.ts");
 const VIEW = path.join(HERE, "..", "src", "embedded-view.ts");
 const SESSIONS = path.join(HERE, "..", "src", "browser-sessions.ts");
+const DSH = path.join(HERE, "..", "src", "dsh-view.ts");
 const PRELOAD = path.join(HERE, "..", "src", "preload.ts");
 
 /** The source with comments removed — a rule about CODE must not be satisfied or broken by prose
@@ -92,11 +95,11 @@ function functionBody(code, declaration) {
 
 const matches = (code, re) => [...code.matchAll(re)].map((m) => m[1] ?? m[0]);
 
-/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the two modules
- *  it binds and calls into. Every property below is about the shell rather than about one file, and the
- *  join is on "\n" so a rule cannot match across the seam. */
+/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the three
+ *  modules it binds and calls into. Every property below is about the shell rather than about one file,
+ *  and the join is on "\n" so a rule cannot match across the seam. */
 function shellSource() {
-  return [MAIN, VIEW, SESSIONS].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
+  return [MAIN, VIEW, SESSIONS, DSH].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
 }
 
 test("the shell calls ipcMain.handle exactly once — inside the door helper", () => {

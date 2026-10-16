@@ -51,6 +51,7 @@ GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped co
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
 GENERATED | agent/summrise-desktop-electron/src/embedded-view.js | tsc output of embedded-view.ts | agent/summrise-desktop-electron/src/embedded-view.ts
 GENERATED | agent/summrise-desktop-electron/src/browser-sessions.js | tsc output of browser-sessions.ts | agent/summrise-desktop-electron/src/browser-sessions.ts
+GENERATED | agent/summrise-desktop-electron/src/dsh-view.js | tsc output of dsh-view.ts | agent/summrise-desktop-electron/src/dsh-view.ts
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.js | wasm-bindgen's glue for the shell's URL/cert policy | agent/summrise-url-policy
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.d.ts | wasm-bindgen's types for the shell's URL/cert policy | agent/summrise-url-policy
@@ -209,7 +210,7 @@ BOUNDARY | agent/summrise-desktop-electron/src/ | the Electron shell's HOST: win
 # DECISION — the shape of the forbidden-frame refusal, `{ok: false, error: "forbidden frame"}`, which the
 # SPA reads — moved to `agent/summrise-shell-policy/src/tests.rs` in landing 6b, and what the `.mjs` case
 # keeps is the count: the refusal is built once, from the policy, and the literal is not restated here.
-BOUNDARY | agent/summrise-desktop-electron/test/ | the DIRECTORY rule, and it now names no count on purpose: the tests of the HOST's own wiring — call-site counts across the shell's sources and the preload's bridge names — plus two executed-module suites that carry their own per-file rules below. A count here went false twice (it said "the two tests" while a third and then a fourth arrived), so the number is the per-file rules' business. The decision tests that used to live here are `agent/summrise-shell-policy`'s
+BOUNDARY | agent/summrise-desktop-electron/test/ | the DIRECTORY rule, and it now names no count on purpose: the tests of the HOST's own wiring — call-site counts across the shell's sources and the preload's bridge names — plus the executed-module suites, which carry their own per-file rules below. A count here went false twice (it said "the two tests" while a third and then a fourth arrived), so the number is the per-file rules' business. The decision tests that used to live here are `agent/summrise-shell-policy`'s
 # **A THIRD TEST IN THAT DIRECTORY IS NOT COVERED BY THAT RULE, AND THIS ONE IS WHY**: the rule above used
 # to say "the two tests", which stayed TRUE only while the third had a longer rule of its own. `embedded-view.test.mjs`
 # is not a text scan — it EXECUTES the committed `src/embedded-view.js` against a stubbed Electron and the
@@ -233,6 +234,21 @@ BOUNDARY | agent/summrise-desktop-electron/test/embedded-view.test.mjs | it EXEC
 # a destroyed window is skipped for reuse but still counts, eviction is `destroy()` and never the vetoable
 # `close()`, and `before-quit`'s sweep empties the table.
 BOUNDARY | agent/summrise-desktop-electron/test/browser-sessions.test.mjs | it EXECUTES the committed src/browser-sessions.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the shell policy crate rather than restated, so it decides nothing the crate has not already decided — the same posture as `embedded-view.test.mjs` above
+# **AND THE FIFTH IS THE THIRD MODULE'S, AND IT ARRIVES BEFORE THE UNIFICATION ON PURPOSE.** A
+# function-by-function comparison found the DSH cluster in `main.ts` to be a near-copy of `embedded-view.ts`, so
+# the two are to become ONE parametrised slot. That cannot happen while the cluster has no tests, and it cannot
+# have tests while it lives in `main.ts` — no suite here can import that file, because importing it starts the
+# whole application — so the extraction came first and this file is what it was FOR: it executes the committed
+# `src/dsh-view.js` against a stub Electron and the real policy wasm, and every expected VALUE (the harness
+# home, the slot minimum, the popup drop rule, the door's refusal) is asked of the two policy crates rather
+# than restated, so it decides nothing they have not already decided. What it adds over `ipc-door.test.mjs`'s
+# counts is the DSH pane's own wiring: `open()` builds the view LAZILY and loads the harness home through the
+# bound door, a refused popup is DROPPED without blanking the page while an admitted one moves the same view,
+# a crashed renderer hides the dead view and pushes `gone` with its reason and exit code, `recover()` closes
+# the dead webContents and re-creates the view (leaving it hidden — a PRE-EXISTING branch the case names),
+# `state()` carries no history because the DSH has no back/fwd, an unbound module refuses loudly from every
+# operation that needs the host, and a destroyed window is sent nothing.
+BOUNDARY | agent/summrise-desktop-electron/test/dsh-slot.test.mjs | it EXECUTES the committed src/dsh-view.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as `embedded-view.test.mjs` and `browser-sessions.test.mjs` above, one module over
 BOUNDARY | gateway/src/store.ts | **A PURE RE-EXPORT SHIM — MEASURED, NOT ASSUMED (2026-10-12).** Its entire
 #   non-comment body is `export * from "./store/<domain>.ts"` lines and nothing else: no condition, no default,
 #   no table. It decides NOTHING; the implementation is `src/store/<domain>.ts`, which this rule keeps as LOGIC. A

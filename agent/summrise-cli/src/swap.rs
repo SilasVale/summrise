@@ -44,11 +44,17 @@ use crate::update::{
 };
 use std::path::{Path, PathBuf};
 
-/// The EIGHT sources `stageDesktopShell` ships, and the two icons beside them.
+/// The NINE sources `stageDesktopShell` ships, and the two icons beside them.
 ///
 /// A LIST, because the swap script's own desktop loop copies the same files in the same order: the
 /// staging and the swap have to agree about what "the desktop shell's files" means, and the only way
 /// to make that structural is to have one list.
+///
+/// **IT IS NINE AND NOT EIGHT SINCE THE DSH VIEW BECAME A MODULE, AND THIS IS THE SAME FAILURE A THIRD
+/// TIME.** The shell's `main.js` requires `./dsh-view` — the harness view's state, its seven operations
+/// and the seam `main.ts` binds (the window, the load door, and the url policy's admission and base) —
+/// so the swap has to carry that file too: a shell that received the new `main.js` and not
+/// `dsh-view.js` dies on the device with `Cannot find module './dsh-view'`.
 ///
 /// **IT IS EIGHT AND NOT SEVEN SINCE THE BROWSER SESSIONS BECAME A MODULE.** The shell's `main.js`
 /// requires `./browser-sessions` now — the session table and the three operations an AI drives over IPC
@@ -68,10 +74,11 @@ use std::path::{Path, PathBuf};
 /// `summrise_shell_policy.js` (6b), each requiring its own `.wasm`. A file that is staged but never
 /// copied into the shell's `src/` is a shell that dies on the device with
 /// `Cannot find module './summrise_shell_policy'`, so the two names have to travel together.
-pub const DESK_SHELL_SOURCES: [&str; 8] = [
+pub const DESK_SHELL_SOURCES: [&str; 9] = [
     "main.js",
     "embedded-view.js",
     "browser-sessions.js",
+    "dsh-view.js",
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",

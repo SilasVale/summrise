@@ -42,6 +42,13 @@
 # `Cannot find module './browser-sessions'`. The seven files of that earlier list are eight now, and
 # `swap.rs`'s `DESK_SHELL_SOURCES` names the same set.
 #
+# AND THE NINTH WHEN THE DSH VIEW BECAME A MODULE: `main.js` requires `./dsh-view` (the harness view's
+# state, its seven operations, and the seam `main.ts` binds for its window, its load door and the url
+# policy's two answers about the DSH), so `summrise-desktop-electron/src/dsh-view.js` is required here
+# for the same reason the eighth is — a shell that received the new main.js and not this module dies
+# with `Cannot find module './dsh-view'`. The eight files of that earlier list are nine now, and
+# `swap.rs`'s `DESK_SHELL_SOURCES` names the same set.
+#
 # THE SECOND PAIR ARRIVED IN LANDING 6b AND IS NOT OPTIONAL: `main.js` requires
 # `./summrise_shell_policy` on its first line of policy, and that glue requires
 # `summrise_shell_policy_bg.wasm`. The two crates deliberately do NOT depend on each other — wasm-bindgen
@@ -55,6 +62,7 @@ bin/summrise.exe
 summrise-desktop-electron/src/main.js
 summrise-desktop-electron/src/embedded-view.js
 summrise-desktop-electron/src/browser-sessions.js
+summrise-desktop-electron/src/dsh-view.js
 summrise-desktop-electron/src/preload.js
 summrise-desktop-electron/src/summrise_url_policy.js
 summrise-desktop-electron/src/summrise_url_policy_bg.wasm
