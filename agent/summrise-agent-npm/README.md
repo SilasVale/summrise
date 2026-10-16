@@ -47,6 +47,11 @@ npm i -g --prefix (Split-Path (Get-Command summrise).Source) https://agent.saisi
 summrise update
 ```
 
+**YOU DO NOT HAVE TO COMPUTE THAT PREFIX — THE CLI PRINTS IT.** When `summrise update` refuses because the running
+CLI is older than the release channel, it answers with the exact command for THIS device, prefix included, computed from
+where the CLI is running (`Split-Path (Get-Command summrise).Source`, asked of the process that IS that binary). The
+`--prefix` in the block above is what it prints; the paragraph below is why it matters.
+
 **The `--prefix` is not optional on a device that is already set up.** Plain
 `npm i -g <url>` installs into npm's DEFAULT global prefix, which is not where
 `summrise` lives when the agent runs as SYSTEM. On a real device the two prefixes
