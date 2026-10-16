@@ -134,11 +134,14 @@ fn is_clock(name: &str) -> bool {
 /// one — which is what the crate's own suite could not say, because seven of the seventeen were noticed by no
 /// test at all.
 ///
-/// A NOTE IS NOT A FINDING, and two clauses inside the JavaScript push to `report.notes` instead. That
-/// array is WRITTEN AND NEVER READ — no adapter prints it, and `grep` finds no reader anywhere in
-/// `agent/scripts/`. The port keeps the writes, in a vector nobody reads, so that "this note was
-/// deliberately not shown" stays visible here rather than being silently dropped; see the report beside
-/// this change for the defect finding.
+/// A NOTE IS NOT A FINDING, and two clauses inside the JavaScript push to `report.notes` instead of
+/// printing. That array is WRITTEN AND NEVER READ — no adapter prints it, and `grep` finds no reader
+/// anywhere in `agent/scripts/` — so both notes were measurements somebody asked for and nobody could see.
+/// **THE PORT PRINTS THEM**, on the same `note:` stream every other measurement this judge makes already
+/// leaves by; the writes themselves, the `notes` parameter they go through, and the order they are pushed
+/// in are the JavaScript's, unchanged. THAT IS A DELIBERATE ADDITION TO THE JS'S OUTPUT: the sentences are
+/// byte-identical, but these two lines appear on stdout where the JavaScript printed nothing, and it is a
+/// divergence rather than a fidelity claim, so it is named here instead of left to be found.
 pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<Finding> {
     let mut findings: Vec<Finding> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
@@ -146,8 +149,8 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
     // ── THE JUDGEMENTS, IN THE ORDER THEY ARE MADE ──────────────────────────────────────────────────
     // THE ORDER IS THE OUTPUT. A judge returns a LIST and its caller prints it in this order, so each
     // clause below is called exactly where the JavaScript pushed its findings and nothing here sorts.
-    // Every one of them appends to `findings` — or to `notes`, which nothing reads — and writes its own
-    // `note:` lines as it goes. The body of each clause is the function named after it, below.
+    // Every one of them appends to `findings` — or to `notes`, which the flush at the bottom prints — and
+    // writes its own `note:` lines as it goes. The body of each clause is the function named after it, below.
     judge_surfaces(report, opts, &mut findings, &mut notes);
     judge_accessible_names(report, &mut findings);
     judge_provenance(report, out, &mut findings);
@@ -164,7 +167,24 @@ pub fn judge_report(report: &Value, opts: &JudgeOpts<'_>, out: &mut Out) -> Vec<
     judge_hover(report, &mut findings);
     judge_delivered_push(report, &mut findings);
     judge_reflow(report, out, &mut findings);
-    judge_exemptions(opts, out, &findings)
+    let kept = judge_exemptions(opts, out, &findings);
+
+    // ── THE NOTES REACH A READER HERE, AND THIS IS THE ONLY PLACE THEY ARE PRINTED ──────────────────
+    // `out` is this crate's outcome channel for everything that is measured and not filed: the ack numbers,
+    // the mark-coverage notes and the set-aside lines all leave by `Out::note`, the CLI writes that stream to
+    // stdout, and a capturing caller reads it back with `Out::notes()`. The two clauses above gather into a
+    // vector instead of printing as they push — the JavaScript's own shape, kept so `report.notes` stays
+    // visible as a thing that was once written and thrown away — and the single flush closes that gap.
+    //
+    // WHY NOT A FIELD ON AN OUTCOME STRUCT, which is what the twin does: the judge in
+    // `agent/summrise-command-core` (package `summrise-agent-core`) is a PURE function with no `Out`, so its
+    // `JudgeOutcome::report_notes` has to return everything it cannot print. This judge already prints,
+    // through a parameter it already takes; adding a second type to carry two strings past a stream that is
+    // already wired would be two mechanisms for one job.
+    for note in &notes {
+        out.note(&format!("note: {note}"));
+    }
+    kept
 }
 
 /// The surface's own claims — headings, landmarks, overflow, the prose measure, the mark language, the
@@ -285,9 +305,10 @@ fn judge_surfaces(
         }
         // A COLOUR THE PROBE COULD NOT READ IS A FAILURE, not a skip: every comparison against NaN is
         // false, so an unreadable background used to pass every guard and be counted as loud (rounds 18-56).
-        // REPORTED, NOT FAILED — for now: a NOTE is the honest severity, and the count rides in the summary
-        // so it cannot be ignored. (The note is pushed into `report.notes` and never printed; see the
-        // function's own comment.)
+        // REPORTED, NOT FAILED — for now: a NOTE is the honest severity. THE JAVASCRIPT'S NEXT SENTENCE
+        // ("the count rides in the summary so it cannot be ignored") WAS FALSE — `reportSummary` never reads
+        // `report.notes` — and the port copied it; the count now reaches a reader by the route that exists
+        // (see `judge_report`'s flush), which is what makes the claim true here rather than inherited.
         if truthy(get(s, "loudUnreadable")) {
             let samples = arr(get(s, "loudUnreadableSamples"))
                 .iter()
@@ -853,7 +874,9 @@ fn judge_read_failure_claims(report: &Value, out: &mut Out, findings: &mut Vec<F
 }
 
 /// DOM mutations on a settled page under static fixtures: a blind observer is a finding, and so is a
-/// repaint of unchanged output. Live durations are exempt by name and land in `notes`.
+/// repaint of unchanged output. Live durations are exempt by name and land in `notes` — which
+/// [`judge_report`] flushes to the `note:` stream, so an exemption is a measurement a reader can audit
+/// rather than a silent skip.
 fn judge_idle_repaint(report: &Value, findings: &mut Vec<Finding>, notes: &mut Vec<String>) {
     // ── IDLE REPAINT (round 64) ──────────────────────────────────────────────────────────────────────
     // The objective lists it among the things a claim is verified by, and the measurement is DOM mutations
@@ -1776,6 +1799,27 @@ mod tests {
         assert_eq!(
             run(&busy).0,
             ["panel/light/Terminal: 3 DOM mutation(s) in 6s while idle — nothing changed under static fixtures, so this is a repaint of unchanged output (div.totals x3)"]
+        );
+    }
+
+    /// A NOTE IS NOT SWALLOWED: the idle clause's exempted live durations reach the reader.
+    ///
+    /// The JavaScript pushed these into `report.notes` and NOTHING EVER READ THAT ARRAY, so the clause's own
+    /// sentence — "Live durations are exempt by name and land in `notes`" — described a measurement nobody
+    /// could see. This is the plumbing's own pin: the note is on the `note:` stream, and it names the exempt
+    /// targets WITH their mutation counts, which is what makes an exemption auditable rather than invisible.
+    /// (`tests/report_golden.rs` pins the same line in the corpus; this test names the behaviour.)
+    #[test]
+    fn the_exempted_live_durations_reach_the_reader() {
+        let report = json!({"surfaces": [], "idle": [
+            {"density": "panel", "theme": "dark", "page": "Terminal", "seconds": 6, "mutations": 4,
+             "byTarget": {"__probe": 1, "span.approval-left": 3}},
+        ]});
+        let (findings, notes) = run(&report);
+        assert!(findings.is_empty());
+        assert_eq!(
+            notes,
+            ["note: panel/dark/Terminal: span.approval-left x3 changed while idle — a live duration, exempt by name with its reason in CLOCKS"]
         );
     }
 
