@@ -294,6 +294,36 @@ fn with_cors(
     Ok(res)
 }
 
+/// **THE SCHEDULED OBSERVATION — THE ONLY WRITER OF A ROW'S STATUS.**
+///
+/// `wrangler.jsonc` declares one Cron (`17 */7 * * *`), and this is what it triggers: for each channel that publishes
+/// a listing this worker can read (`models_probe::listable_prefixes`), ask it what it serves and hand the answer to
+/// `catalogue_service::observe`. **`Caller::Timer` is what makes the write legitimate** — the console's probe asks
+/// the same upstream the same question and may not record the answer, because its answer depends on an operator's own
+/// key and on the moment they pressed a button.
+///
+/// **THE FETCH HAPPENS HERE, NOT INSIDE `observe`**, which is why the whole judgement is testable in-process: a
+/// function that fetched its own listing could only be tested against a network.
+///
+/// A failure in one channel must not stop the others: each is independent, and a run that died on the first
+/// unreachable provider would stop observing every channel behind it.
+#[event(scheduled)]
+async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    let env_json = crate::probe::env_value(&env);
+    let run_id = format!("cron-{}", crate::device_store::now_ms() / 1000);
+    for prefix in crate::models_probe::listable_prefixes() {
+        let listing = crate::models_probe::fetch_listing_for(&env_json, prefix).await;
+        let _ = crate::catalogue_service::observe(
+            &env,
+            crate::catalogue_service::Caller::Timer,
+            prefix,
+            &run_id,
+            listing,
+        )
+        .await;
+    }
+}
+
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
@@ -482,9 +512,6 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     not_found()
 }
 
-pub mod lifecycle;
-pub mod catalogue_service;
-pub mod catalogue;
 pub mod access;
 pub mod admin_routes;
 pub mod auth;
@@ -492,7 +519,9 @@ pub mod auth_routes;
 pub mod auto_route;
 pub mod body_scan;
 pub mod byok;
+pub mod catalogue;
 pub mod catalogue_file;
+pub mod catalogue_service;
 pub mod cors;
 pub mod decision_client;
 pub mod decisions;
@@ -503,6 +532,7 @@ pub mod device_store;
 pub mod devices;
 pub mod ip_rate_limit;
 pub mod key_lock;
+pub mod lifecycle;
 pub mod mcp;
 pub mod mcp_browser;
 pub mod mcp_errors;

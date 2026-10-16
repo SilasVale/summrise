@@ -73,6 +73,21 @@ pub async fn fetch_listing(env_json: &Value, upstream: &str) -> Option<Vec<Strin
     Some(ids)
 }
 
+/// **THE LISTING FOR ONE OF OUR CHANNELS, ROUTED THE WAY A REQUEST WOULD BE ROUTED.**
+///
+/// The upstream comes from `routing::pick_route` — **the router's own answer, called rather than restated** — so a
+/// scheduled run cannot ask a different URL than the requests it is drawing conclusions about. That is the same rule
+/// the console's probe follows, and for the same reason: two answers to "where does this prefix go" is how a
+/// catalogue ends up describing a channel nobody uses.
+pub async fn fetch_listing_for(env_json: &Value, bare: &str) -> Option<Vec<String>> {
+    let route = crate::routing::pick_route(bare, Some(env_json), None, "");
+    let upstream = route.upstream.clone();
+    if upstream.is_empty() {
+        return None;
+    }
+    fetch_listing(env_json, &upstream).await
+}
+
 /// Does this payload LOOK like a listing, even if it carries no ids? An empty `data: []` is a provider that serves
 /// nothing (evidence); `{"error": "..."}` is not.
 fn payload_looks_like_a_listing(payload: &Value) -> bool {
