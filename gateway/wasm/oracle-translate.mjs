@@ -45,7 +45,6 @@ import {
   wireModelName,
 } from "../src/routing-logic.ts";
 import {
-  MODEL_REGISTRY,
   modelSpec,
   reasoningMaxParsedFor,
   reasoningMaxRawFor,
@@ -119,11 +118,6 @@ const LIVE = {
   },
 
   // ── the channel registry (`channels-logic.ts`, an emission of `registry.rs`) ───────────────────
-  // **`model_registry` IS DELIBERATELY NOT HERE, AND THE MEASUREMENT IS WHY** (2026-10-15). Its recorded rows carry
-  // EVERY key with explicit nulls for absent facets — the shape of the RUST's `ModelSpec` serialization, not the
-  // console's object (which omits absent keys). Replaying it from the live TS reported a difference on every row
-  // and then re-recorded the WRONG SHAPE. **A case whose record is the other end's serialization is not a case
-  // this oracle can own**, and saying so is better than a replay that quietly rewrites the record.
   model_spec: (input) => modelSpec(input),
   wire_spec: (input) => wireSpec(input),
   reasoning_max_raw_for: (input) => reasoningMaxRawFor(input),
@@ -296,33 +290,7 @@ console.error(`oracle-translate: ${fresh.length} case(s) would be ADDED`);
 if (process.argv.includes("--check")) {
   process.exit(moved.length ? 1 : 0);
 }
-// **WRITE MODE RE-RECORDS WHAT IT OWNS AND ADDS WHAT IS NEW — AND STILL DROPS NOTHING.** The first version could
-// only ADD, so a case whose live answer had moved was reported by `--check` and then left stale by the refresh:
-// **a refresher that cannot refresh is a detector wearing a refresher's name** (found the first time a real change
-// moved a recording — the Step-0 `model_registry` case, 2026-10-15).
-//
-// `expected` keeps its SHAPE: a value case stays `{value}`, a throwing case stays `{threw, message}`. Only the
-// answer moves.
-let refreshed = 0;
-for (const c of doc.cases) {
-  if (!owned.has(c.fn)) continue;
-  let got;
-  try {
-    got = encode(LIVE[c.fn](c.input));
-  } catch (error) {
-    got = { threw: true, message: String(error?.message ?? error) };
-  }
-  const want = Object.hasOwn(c.expected, "value") ? c.expected.value : c.expected;
-  if (JSON.stringify(shrink(got, want)) === JSON.stringify(want)) continue;
-  // **THE RECORDING'S SHAPE IS KEPT**: the write is `shrink(live, recorded)` — the SAME projection the check
-  // compares — because a recording whose rows carry explicit nulls for absent facets must keep carrying them.
-  // Writing the raw live value dropped them, and the Rust test said so on the next run.
-  if (Object.hasOwn(c.expected, "value")) c.expected.value = shrink(got, want);
-  else c.expected = shrink(got, want);
-  refreshed += 1;
-}
-if (refreshed) console.error(`oracle-translate: re-recorded ${refreshed} answer(s) that had moved`);
-if (fresh.length || refreshed) {
+if (fresh.length) {
   doc.cases = [...doc.cases, ...fresh];
   writeFileSync(FIXTURE, JSON.stringify(doc, null, 2) + "\n");
   console.error(`oracle-translate: wrote ${doc.cases.length} cases`);

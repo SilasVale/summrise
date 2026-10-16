@@ -138,8 +138,7 @@ export const MODEL_REGISTRY: ModelSpec[] = [
     id: "og/ox-alpha-free",
     ownedBy: "opencode",
     reasoningMax: "parsed",
-    probe: false,
-    probeWhy: "answers 400 upstream; the row is hidden by data (Step 0), not deleted",
+    probe: true,
   },
   {
     id: "og/muse-spark-1.3-contributor",
@@ -265,6 +264,7 @@ export const HEALTH_CHANNELS: { id: string; model: string }[] = [
   { id: "og", model: "og/gpt-5.6-luna" },
   { id: "og", model: "og/mimo-v2.5" },
   { id: "og", model: "og/mimo-v2.6-flash" },
+  { id: "og", model: "og/ox-alpha-free" },
   { id: "og", model: "og/muse-spark-1.3-contributor" },
   { id: "or", model: "or/openai/gpt-5.6-luna:floor[1m]" },
   { id: "or", model: "or/z-ai/glm-5.2:free" },
