@@ -427,3 +427,35 @@ find** — and the same round found two MORE differences that had never been in 
 parameter, and `embeddedUrl` as a fourth per-instance binding), which is what happens when a comparison is measured
 rather than remembered.
 
+## WHERE THE WORK STANDS, AFTER MEASURING RATHER THAN GUESSING (rounds 147-150)
+
+**THE "FIND THE BIGGEST FILE" HEURISTIC IS EXHAUSTED IN THIS REPOSITORY, AND THAT IS A FINDING.** Four surfaces were
+measured the same way — not by size but by WHERE THE LINES GO — and only the first was debt:
+
+| measured | verdict |
+|---|---|
+| `panel-react` — 231 files, 935 tests | maintained: the biggest files are test files, the biggest hook is **220 lines of TYPES** inside 540, the biggest component has **five helpers already extracted above it** and a test of its own |
+| the repository's largest single file — `sweep_judge.rs`, 2145 lines | large but ORDERED: **40 top-level items** (54 lines each, so no god-function), 17% comments, 13 in-file tests — and it is a DEV TOOL, not user-facing |
+| `index/` — 13 + 15 source files, four test files | small and tested; the biggest numbers in it are `build/` and `dist/` ARTIFACTS |
+| `main.ts` — 1368 lines, four state-bearing clusters | **the one real debt**, and it is done: three modules extracted, the last two unified into one factory (rounds 103-145) |
+
+**SO "SIZE" SAID NOTHING UNTIL IT WAS SPLIT INTO TYPES / JSX / LOGIC / ALREADY-EXTRACTED HELPERS.** 36.4 KB of hook was
+220 lines of type declarations; 41.8 KB of component already had five free functions above the component body. **A file
+list sorted by bytes is an index of where to LOOK, never an answer about where the work is.**
+
+**WHAT ACTUALLY REMAINS, IN THREE ITEMS**:
+
+  * **WAITING ON THE OPERATOR** — the front-door cutover observation
+    (`curl -si https://<console>/api/admin/public | grep -i x-summrise-front-door` -> `rust`). After it: delete
+    `plugins/auth.ts`, `plugins/admin.ts`, `plugins/models-probe.ts` by the rehearsed seven-step recipe, and LOGIC goes
+    48 -> 45.
+  * **A PRODUCT DECISION, NOT A BUG TO SWEEP UP** — `browserId(Date.now())` is a bare millisecond stamp, so two
+    `browserOpen` calls in one millisecond collide, the second overwrites the first in the table, and **the cap counts
+    TABLE ROWS while the resource is WINDOWS**: measured with a cap of 8 and 11 URLs, a frozen clock yields **11 live
+    windows and 10 still alive after `browserCloseAll()`**. It is pinned by a test whose name says it is pre-existing.
+    **Two ways to fix it, and they are not equivalent**: give `browserId` a counter or suffix so ids never collide (the
+    table then tracks windows and the cap does what it says), or make the cap count live windows rather than rows (the
+    collision stays, but the limit becomes true). **The first changes what a session id LOOKS like; the second changes
+    what the limit MEANS.** That is the operator's call, not a refactor's.
+  * **DONE** — the code-side migration: LOGIC 48/48.
+
