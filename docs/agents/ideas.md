@@ -186,3 +186,32 @@ person to supply something the process already knows** (a prefix, a path, a dire
 either self-contained or forbidden by a test. **Nothing to fix, which is the answer a sweep should be allowed to
 return** — inventing a change here would be manufacturing work to look busy.
 
+## THE DESKTOP SHELL, MEASURED — ONE SECTION IS ALREADY A MODULE (round 103)
+
+A read-only survey of the surfaces the objective names, by size, because that is where design debt concentrates:
+
+| surface | source files | largest |
+|---|---|---|
+| `agent/resources/panel-react` | **231** | `SettingsPage.tsx` 41.8 KB, `useSessions.ts` 36.9 KB, `useDeviceRead.ts` 36.4 KB |
+| `agent/summrise-desktop-electron` | 8 | **`main.ts` 87.0 KB** |
+| `agent/summrise-command-core` | 6 | `sweep_judge.rs` 94.8 KB (a dev tool, not user-facing) |
+
+**`main.ts` IS BIG BECAUSE IT HAS EIGHT JOBS, NOT BECAUSE IT REPEATS ITSELF** — its own header names three (probe the
+agent's port, load the SPA or offer to start the agent, own window/tray/menu/CDP/sessions) plus a measured rule: *"No
+spawn() of summrise-agent.exe from JS — that was the d1 Chrome-OOM root cause"*. I checked the two embedded-browser
+sections for duplication and found the opposite: **the DSH view is two functions (`bootDshPort`, `dshTargetFor`) that
+reuse the embedded view rather than reimplementing it.**
+
+**AND THE EMBEDDED VIEW IS ALREADY A MODULE IN EVERYTHING BUT ITS FILE BOUNDARY.** Measured over its 208 lines
+(447-655): **0 references to `tray`/`Tray`/`Menu`/`mainWindow`/`ipcMain`**, an eight-function API
+(`embeddedViewEnsure`, `embeddedViewPlace`, `embeddedNavigate`, `embeddedGo`, `embeddedReload`, `embeddedState`,
+`embeddedWireNavEvents`, `embeddedRecover`) and its whole state in four module-level bindings (`embeddedView`,
+`embeddedVisible`, `embeddedUrl`, `embeddedBounds`). **A section with a coherent API and no cross-dependencies is a
+file waiting for someone to say so** — which is the whole of what "确保各个模块完美" asks for here.
+
+**ONE THING TO SETTLE FIRST, AND IT IS WHY THE EXTRACTION IS NOT IN THIS ROUND**: `src/` carries BOTH `.ts` and `.js`
+for the same names (`main.ts` beside `main.js`, `preload.ts` beside `preload.js`), and the package declares
+`"test": "node --test"` with a comment about the shipped artifact. **Whether the `.js` is generated or hand-kept decides
+whether the extraction writes one file or two** — and that is a measurement, not a preference, so the next round takes
+it before touching anything.
+
