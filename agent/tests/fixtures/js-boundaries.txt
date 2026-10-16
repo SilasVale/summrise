@@ -49,6 +49,7 @@ GENERATED | index/public/summrise-agent/ | the emitted probes, written by `--emi
 GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
 GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
+GENERATED | agent/summrise-desktop-electron/src/embedded-view.js | tsc output of embedded-view.ts | agent/summrise-desktop-electron/src/embedded-view.ts
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.js | wasm-bindgen's glue for the shell's URL/cert policy | agent/summrise-url-policy
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.d.ts | wasm-bindgen's types for the shell's URL/cert policy | agent/summrise-url-policy
