@@ -376,6 +376,69 @@ pub fn lifecycle_of(row: &Value) -> Lifecycle {
     }
 }
 
+/// **THE ROW WITH ITS LIFECYCLE WRITTEN ON — the pure half of `set_lifecycle`, and the half worth testing.**
+///
+/// Every field is written, including the ones the caller left unset: the write is the WHOLE lifecycle, so a row that
+/// stops being `ephemeral` stops saying so, and a stale `verifiedAt` cannot survive a new observation. **The one
+/// exception is `assumed`**, which is a LIST: an empty one is written as an empty list, because "nothing was
+/// assumed" is a state the console shows.
+///
+/// The wire names are camelCase (see `Lifecycle`); a row that is not an object is returned untouched, because these
+/// records come from a KV value a person may have written and losing one to a type error would be worse than
+/// carrying it.
+pub fn with_lifecycle(row: &Value, lifecycle: &Lifecycle) -> Value {
+    let Some(object) = row.as_object() else {
+        return row.clone();
+    };
+    let mut out = object.clone();
+    out.insert(
+        "status".into(),
+        Value::String(lifecycle.status.as_str().to_string()),
+    );
+    out.insert("ephemeral".into(), Value::Bool(lifecycle.ephemeral));
+    match lifecycle.verified_at {
+        Some(at) => out.insert("verifiedAt".into(), Value::Number(at.into())),
+        None => out.remove("verifiedAt"),
+    };
+    match lifecycle.verified_by.as_deref() {
+        Some(by) => out.insert("verifiedBy".into(), Value::String(by.to_string())),
+        None => out.remove("verifiedBy"),
+    };
+    out.insert(
+        "assumed".into(),
+        Value::Array(
+            lifecycle
+                .assumed
+                .iter()
+                .map(|a| Value::String(a.clone()))
+                .collect(),
+        ),
+    );
+    Value::Object(out)
+}
+
+/// **WRITE THE LIFECYCLE ONTO THE STORE ROW WITH THIS ID, AND RETURN THE LIST.** One row moves; every other row —
+/// and its order — is untouched, because the listing's order is part of its bytes.
+///
+/// The KV half is deliberately thin: `read_list` + `with_lifecycle` + `write_list`. **Its proof belongs to the admin
+/// corpus**, which is where every other KV write in this worker is recorded (writes and their TTLs), and which
+/// `admin-oracle.mjs` can still record while the console's admin plugin exists.
+pub async fn set_lifecycle(env: &Env, id: &str, lifecycle: &Lifecycle) -> Vec<Value> {
+    let rows = read_list(env, CUSTOM_MODELS_KEY).await;
+    let updated: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            if row.get("id").and_then(|v| v.as_str()) == Some(id) {
+                with_lifecycle(row, lifecycle)
+            } else {
+                row.clone()
+            }
+        })
+        .collect();
+    write_list(env, CUSTOM_MODELS_KEY, &updated).await;
+    updated
+}
+
 /// **THE IDS A LISTING MAY ADVERTISE, FROM THE ROWS THEMSELVES** — and the ONLY thing this drops is a row whose
 /// lifecycle says `deprecated`.
 ///
@@ -877,6 +940,54 @@ pub fn typescript_path() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE WHOLE LIFECYCLE IS WRITTEN, SO NOTHING STALE SURVIVES**: a second observation that has no `verifiedBy`
+    /// must REMOVE the previous one rather than leave it claiming a verification that is no longer true.
+    #[test]
+    fn writing_a_lifecycle_replaces_the_previous_one_entirely() {
+        let row = serde_json::json!({
+            "id": "acme/a",
+            "ownedBy": "acme",
+            "status": "active",
+            "ephemeral": true,
+            "verifiedAt": 1,
+            "verifiedBy": "older-run",
+            "assumed": ["region"],
+        });
+        let written = with_lifecycle(
+            &row,
+            &Lifecycle {
+                status: Status::Deprecated,
+                ephemeral: false,
+                verified_at: None,
+                verified_by: None,
+                assumed: Vec::new(),
+            },
+        );
+        assert_eq!(written["status"], "deprecated");
+        assert_eq!(written["ephemeral"], false);
+        assert!(
+            written.get("verifiedAt").is_none(),
+            "a stale stamp survived"
+        );
+        assert!(
+            written.get("verifiedBy").is_none(),
+            "a stale author survived"
+        );
+        assert_eq!(written["assumed"], serde_json::json!([]));
+        assert_eq!(written["ownedBy"], "acme", "the row's own fields are kept");
+    }
+
+    /// A row that is not an object comes back untouched: these records live in a KV value a person may have written,
+    /// and a type error that DROPPED one would hide a model — the opposite of what a lifecycle is for.
+    #[test]
+    fn a_row_that_is_not_an_object_is_carried_rather_than_lost() {
+        let odd = serde_json::json!("not a row");
+        assert_eq!(with_lifecycle(&odd, &Lifecycle::default()), odd);
+        let written = with_lifecycle(&serde_json::json!({"id": "acme/a"}), &Lifecycle::default());
+        assert_eq!(written["status"], "active");
+        assert_eq!(written["ephemeral"], false);
+    }
 
     /// **A DEPRECATED STORE ROW LEAVES THE LISTING; AN ACTIVE ONE AND AN UNKNOWN-STATUS ONE STAY.** The last case is
     /// the one that matters for safety: a status this build does not know must not hide a model.
