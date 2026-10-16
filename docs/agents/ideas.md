@@ -511,3 +511,36 @@ and measuring **lines per top-level item** (225 there, against 37 and 54 in the 
 instrument before the subject* — and then **read the lines it selected**, because every one of the four above was
 obvious the moment its output was read, and invisible while its number was trusted.
 
+## A CALIBRATED YARDSTICK, AND THE NINE SURFACES IT MEASURED (rounds 165-176)
+
+**TWO QUESTIONS FOUND THE DEBT, AND NEITHER WAS "WHICH FILE IS BIGGEST"**:
+
+  * **"how many unrelated jobs does this file do?"** — `main.ts` held four state-bearing clusters in 1368 lines, and
+    that was the repository's one real architectural debt (now paid: three modules extracted, the last two unified into
+    one factory);
+  * **"are these two the same thing?"** — inside `agent/src/web/mod.rs`, a third of the JSON literals were the same two
+    response envelopes written out 49 times (now `ok_body()`/`error_body()` in `src/web/envelope.rs`, 50 sites
+    absorbed, and the OTHER 116 literals deliberately left alone because they are records, not duplicates).
+
+**THE MEASUREMENT THAT WORKS, AND ITS SCALE, FROM NINE SURFACES**:
+
+  * **lines per TOP-LEVEL ITEM** (`^(pub )?(async )?(fn|struct|enum|impl|const|static|type|trait|mod)`), because a big
+    file of small things is healthy and a medium file of enormous functions is not;
+  * the healthy band observed: **23** (`user_store.rs`) · **34** (`model_store.rs`) · **37** (`api-relay/lib.rs`) ·
+    **54** (`sweep_judge.rs`) · **59** (`psgen.rs`) · **61** (`request_shape.rs`, `dispatch.rs`) · **87**
+    (`mcp_tools.rs`, mostly data). The two files that came in at **154-225** were the ones worth opening — and **even
+    then the composition decides**: `web/mod.rs`'s 225 is 34 HTTP handlers, so it does ONE job and was left alone;
+  * **count `#[test]`/`#[tokio::test]` ATTRIBUTES, never test FILES.** `gateway/wasm` has **295** across 51 files and
+    `summrise-cli` **145** across 24 — and 145 is exactly the number its own suite reports, which is the first time the
+    instrument and reality agreed. A `find -path "*/tests/*"` count said a well-tested line had three tests when it had
+    **93**.
+
+**THE LEDGER**: nine surfaces measured — the desktop shell (the real debt, paid), `panel-react`, `index/`, `mail/`,
+`relay/`, `proxies/`, `agent/src/web/mod.rs`, `gateway/wasm`, `summrise-cli` — **and every one but the first came back
+maintained, with healthy per-item ratios and a substantial in-file test surface.** Not every survey should find
+something, and **a survey that keeps finding nothing is itself the finding**: this repository's files are large because
+their jobs are large, not because they repeat themselves.
+
+**AND WHAT THAT MEANS FOR THE NEXT PERSON**: stop looking for the biggest file. Ask what a file DOES — how many
+unrelated jobs, and whether two of its parts are the same thing — and only then measure its size.
+
