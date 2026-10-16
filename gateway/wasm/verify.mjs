@@ -582,7 +582,21 @@ for (const [i, c] of CASES.entries()) {
       const extra = headers.filter((h) => !c.expected.headers.includes(h));
       if (missing.length) console.log(`          missing: ${JSON.stringify(missing)}`);
       if (extra.length) console.log(`          extra:   ${JSON.stringify(extra)}`);
-      if (body !== c.expected.body) console.log(`          body differs: ${JSON.stringify(body.slice(0, 90))}`);
+      if (body !== c.expected.body) {
+        // **A TRUNCATED DIFF IS NOT A DIAGNOSIS** (2026-10-16). This message used to print the first 90
+        // characters of what came back — and when a frozen answer changes, the first 90 characters are identical
+        // by construction, because the interesting part is where the two DIVERGE. It cost the catalogue
+        // lifecycle's Step 0 three attempts: the truncated note said "body differs", the first 120 characters of
+        // both sides matched, and the actual divergence (a card at offset 404, and two different lengths) was
+        // only visible from a scratch edit to this file. **The message now prints the offset, both lengths, and
+        // the context around the first difference** — the thing a reader needs, at the moment they need it.
+        let at = 0;
+        while (at < Math.min(body.length, c.expected.body.length) && body[at] === c.expected.body[at]) at += 1;
+        const from = Math.max(0, at - 60);
+        console.log(`          body differs at offset ${at} (got ${body.length} B, expected ${c.expected.body.length} B)`);
+        console.log(`            got:      ${JSON.stringify(body.slice(from, at + 80))}`);
+        console.log(`            expected: ${JSON.stringify(c.expected.body.slice(from, at + 80))}`);
+      }
     }
   }
   console.log(`  the front door, through the built worker: ${corpus.cases.length - doorBad}/${corpus.cases.length}`);
