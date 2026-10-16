@@ -574,12 +574,35 @@ async fn admin_model_state(request: &Request, env: &Env) -> Result<Response, Rou
             .map(|m| m.get("id").cloned().unwrap_or(Value::Null))
             .collect()
     };
+    // **THE LIFECYCLE TRAVELS WITH THE MODELS, BECAUSE IT IS A FACT ABOUT A ROW RATHER THAN A SETTING OF ONE.**
+    // `custom` names the rows; this says what a scheduled run concluded about each — `status` (only `Deprecated`
+    // hides a row), `ephemeral` (a limited-time free tier), `verifiedAt`/`verifiedBy` (when a check concluded it, and
+    // whether by the timer or by an adoption) and `assumed` (the facets a person declared because the catalogue
+    // could not derive them). The console shows all four, and the plan's D4 is that it can.
+    let mut lifecycles = serde_json::Map::new();
+    for entry in &custom {
+        let Some(id) = entry.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let lifecycle = crate::model_store::lifecycle_of(entry);
+        lifecycles.insert(
+            id.to_string(),
+            serde_json::json!({
+                "status": lifecycle.status.as_str(),
+                "ephemeral": lifecycle.ephemeral,
+                "verifiedAt": lifecycle.verified_at,
+                "verifiedBy": lifecycle.verified_by,
+                "assumed": lifecycle.assumed,
+            }),
+        );
+    }
     let answer = serde_json::json!({
         "custom": ids(&custom),
         "disabled": disabled,
         "fileModels": file_models,
         "fileOverrides": file_overrides,
         "facets": Value::Object(facets),
+        "lifecycles": Value::Object(lifecycles),
     });
     let text = serde_json::to_string(&answer).map_err(|_| RouteFailure::Threw)?;
     Ok(crate::json(text, 200)?)
