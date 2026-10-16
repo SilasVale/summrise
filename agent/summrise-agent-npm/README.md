@@ -22,6 +22,14 @@ npm i -g https://agent.saisi.online/summrise-agent/summrise-agent-latest.tgz
 summrise setup --reg-key <key-from-console>   # --reg-key is optional (local mode works without it)
 ```
 
+**ON A DEVICE THE INSTALLER SET UP, A HAND INSTALL MUST PASS `--prefix`.** `agent/deploy/summrise-online-setup.ps1`
+does exactly that — `npm install -g --prefix $NpmGlobal $tgz`, where `$NpmGlobal` is `<install dir>\components\npm-global`
+("Layout v2"; it was `tools\npm-global` before that) — and puts that directory on `PATH`. **A bare `npm i -g` lands in
+npm's DEFAULT global prefix instead**, which is not where the running agent looks, so the install succeeds and nothing
+changes. The layout is the one thing to keep in step, and `summrise update` prints the right prefix for an existing
+device rather than making anyone derive it.
+
+
 **Run `setup` from an elevated PowerShell.** The install directory is under `Program Files` and the registry key is
 `HKLM`, so a normal shell fails with `EPERM: operation not permitted, mkdir 'C:\Program Files\Summrise\scripts'` —
 a stack trace where the useful sentence is "run it as administrator".

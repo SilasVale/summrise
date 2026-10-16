@@ -17,6 +17,14 @@ summrise setup --reg-key <key>   # only with --tunnel; the agent self-registers 
 summrise update                  # one-command update
 ```
 
+**ON A DEVICE THE INSTALLER SET UP, A HAND INSTALL MUST PASS `--prefix`.** `agent/deploy/summrise-online-setup.ps1`
+does exactly that — `npm install -g --prefix $NpmGlobal $tgz`, where `$NpmGlobal` is `<install dir>\components\npm-global`
+("Layout v2"; it was `tools\npm-global` before that) — and puts that directory on `PATH`. **A bare `npm i -g` lands in
+npm's DEFAULT global prefix instead**, which is not where the running agent looks, so the install succeeds and nothing
+changes. The layout is the one thing to keep in step, and `summrise update` prints the right prefix for an existing
+device rather than making anyone derive it.
+
+
 - Install dir: registry-first (`HKLM\SOFTWARE\Summrise\Agent\InstallDir`); all
   path resolution goes through `src/paths.rs`.
 - The `SummriseAgent` boot task runs the agent as SYSTEM (no execution-time
