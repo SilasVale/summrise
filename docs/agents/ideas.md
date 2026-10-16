@@ -459,3 +459,32 @@ list sorted by bytes is an index of where to LOOK, never an answer about where t
     what the limit MEANS.** That is the operator's call, not a refactor's.
   * **DONE** — the code-side migration: LOGIC 48/48.
 
+## SIX SURFACES MEASURED, ONE REAL DEBT, AND A YARDSTICK THAT WAS WRONG TWICE (rounds 147-163)
+
+**THE LEDGER**: `main.ts` (1368 lines, four state-bearing clusters) was the ONE real debt, and it is paid — three
+modules extracted, the last two unified into one factory. The other five surfaces were all maintained:
+
+| surface | what the measurement showed |
+|---|---|
+| `panel-react` (231 files) | the biggest files ARE test files; the biggest hook is 220 lines of TYPES inside 540; the biggest component already has five helpers above it, and a test |
+| `sweep_judge.rs` (2145 lines) | 40 top-level items — **54 lines each** — 13 in-file tests, and a dev tool |
+| `index/` (13 + 15 source files) | four test files; its biggest numbers are `build/`/`dist/` artifacts |
+| `mail/` (2 source files) | a Rust worker whose TEST file (12.8 KB) is bigger than its implementation (12.1 KB + 8.4 KB) |
+| `relay/` (7 source files) | differential tests; its biggest number is a build artifact |
+| `proxies/` (11 Rust files) | **93 test attributes**, and the repository's largest single file — 2946 lines — is its MOST fine-grained: **79 items, 37 lines each** |
+
+**THE YARDSTICK, FOR WHOEVER MEASURES THE NEXT ONE**:
+
+  * **COUNT `#[test]` ATTRIBUTES, NOT TEST FILES.** `find -path "*/tests/*"` counts DIRECTORIES, and this repository
+    puts tests IN the file — `sweep_judge.rs` has 13, `summrise-shell-policy/src/tests.rs` has 56 cases, and `proxies/`
+    has **93 across 11 files** where a file count said "3". **That metric was wrong every time this session used it**,
+    and it produced a false alarm about `proxies/` that a single corrected count dissolved.
+  * **SIZE MEANS NOTHING UNTIL IT IS SPLIT**: lines versus TOP-LEVEL ITEMS (37 and 54 lines per item are both healthy;
+    a file with a handful of enormous functions is not), types versus JSX versus logic, and how much is already
+    extracted into free functions above the component. **36.4 KB of hook was 220 lines of type declarations; 41.8 KB of
+    component had five helpers already pulled out.**
+  * **AND THE FIRST MEASUREMENT IS THE ONE THAT FOUND THE DEBT** — a 1368-line file holding four state-bearing clusters
+    — while five later ones found nothing. **"Which file is biggest" pointed at build artifacts and well-organised
+    tools; "how many unrelated jobs does this file do" pointed at the real problem.** That is the question worth asking
+    first.
+
