@@ -609,3 +609,23 @@ second reading would have sent someone to write tests for a module that already 
 count ATTRIBUTES rather than files, and when a count disagrees with what you expect, suspect the instrument before the
 subject.**
 
+## A REAL TWIN IS FORCED TO AGREE BY A CONTRACT; A FALSE ONE ONLY LOOKS ALIKE (rounds 209-210)
+
+**THE DISCRIMINATOR, AND IT COSTS A MINUTE TO APPLY**: before comparing two things, ask whether anything FORCES them to
+agree. Seven comparisons now sit on both sides of that line:
+
+  * **REAL TWINS — a shared contract**: the two judges judge the same report shape, and the wasm boundary is one
+    contract with two sides. These are worth comparing, and comparing them found the only divergence of the seven (the
+    notes channel, fixed once and left standing in the twin) and produced the hardest evidence in this file: **59 wasm
+    exports against 59 JS consumers, zero dead surface, and a MODE OF THREE FILES per export — the `.ts`, the committed
+    `.js`, and a test — so every one of those fifty-nine decisions is named by a test**;
+  * **COMPARABLE, NOT BOUND — same shape, different upstreams**: the two proxy workers serve different providers and
+    both sit inside the healthy band (69 and 27 lines per item), as do the two worker crates (20 test attributes
+    in-file against 13 in `tests/` plus 638 lines). Nothing forces them together, so a difference is not a defect;
+  * **FALSE TWINS — nothing shared at all**: `mail/worker` and `relay/worker` were assumed to share a path-secret
+    convention. Measured: `mail` has a purpose-written `secret_eq` with its own reasoning comment (*"Unequal lengths
+    answer immediately — the length is not the secret"*), **`relay` has no secret comparison anywhere because its
+    routes are public DERP endpoints**, and no constant-time crate is used repository-wide. **The comparison produced
+    nothing because there was nothing to compare — and that is a result worth having, because it takes a minute and it
+    stops an afternoon of "harmonising" two things that were never the same.**
+
