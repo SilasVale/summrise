@@ -267,3 +267,38 @@ by a diff; **merging two implementations means choosing one behaviour where they
 say which differences are load-bearing. The 52 tests are the safety net; they are not a substitute for knowing what
 the two modules disagree about, and finding that out is the next round's first measurement, not a guess to start from.
 
+## THE TWO EMBEDDED SLOTS: UNIFY THE CORE, AND WRITE THE DSH'S TESTS FIRST (round 111)
+
+A function-by-function comparison of `src/embedded-view.ts` against the DSH cluster in `main.ts` (nine paired
+functions, mechanically diffed with identifiers normalised and comments stripped) found **four load-bearing differences
+and five historical ones**, and the load-bearing ones are all parameterisable:
+
+| what differs | why it cannot be merged away |
+|---|---|
+| **the door** — `loadTarget` (admits any http/https) vs `dshTargetFor` (its own loopback origin, or nothing) | forced by the crate split: shell-policy takes the *answer* of url-policy's predicate because the two crates must not depend on each other. **Merging them either exposes the internet to the DSH's `window.open` or confines the browser view to loopback.** |
+| **the recovery target** — last decided URL (`about:blank` fallback) vs always `dshHome(dshBase())` | measured on each side: "recovering a crashed view must not make a request to a search engine to do it" against "a crash recovery that lands somewhere other than the harness is a view the operator did not ask for" |
+| **the lifecycle** — created eagerly at startup, hidden, NEVER navigated (the attached AI always has an `about:blank` CDP target; it used to load `bing.com` on every launch) vs created lazily on the pane's `open()` and navigated home | these are CALLER behaviours, not parameters of `ensure()` |
+| **the channel surface** — nav push + back/forward + zoom vs neither | pinned in FOUR places (the `ipc-door` channel-set equality, the policy crate's renderer-coercion test, the panel's bridge fixture, `embeddedBridge.ts`'s manifests) |
+
+**AND ONE DIFFERENCE IS A SHARED DEFECT RATHER THAN A DIFFERENCE**: both `recover()`s contain a re-show block that
+cannot run (`ensure()` clears the visible flag first). The browser's is pinned as-is by a test; **the DSH's is
+compensated in its pane** (`reportBounds()` after `recover()`). **So unifying silently decides it for both**, and the
+test must be flipped in the same change rather than discovered afterwards.
+
+**THE RECOMMENDATION, WHICH IS THE PLAN**: one factory — `embeddedSlot({ win, door, popupTarget, recoverUrl,
+goneChannel, navChannel? })` — instantiated twice, with `bootDshPort`, `dshTargetFor`, `loadHarnessDoors` and `dshOpen`
+staying in `main.ts` and `go`/`zoom`/`wireNav` staying browser-only (adding them to the DSH would be uncalled surface
+and would fail the preload/channel equality test).
+
+**AND THE ORDER IS TESTS FIRST, BECAUSE THE DSH CLUSTER HAS NONE.** The only thing about it that is checked today is its
+channel NAME set. Before any unification: a DSH-slot suite pinning **today's** behaviour (lazy create-then-home, the
+popup drop, the `gone` payload, recover-to-home, recover leaves it hidden, no `canBack`/`canFwd`), plus the test nobody
+has ever needed because there has only ever been one instance — **two-instance isolation**: `place`/`recover`/`gone` on
+one slot must not touch the other's view, flags, bounds or channel.
+
+**ONE MORE THING THE COMPARISON TURNED UP, WORTH KEEPING**: the browser slot's security posture
+(`contextIsolation`, `nodeIntegration: false`, `sandbox`, no `preload`) is asserted by its suite, and **the DSH's
+identical posture is asserted by nothing** — no test can import `main.ts`. Unification is the only move that gives the
+DSH that assertion, and it is also the move that risks weakening both if a shared `webPreferences` is edited casually,
+since adding a `preload` would then affect two views at once.
+
