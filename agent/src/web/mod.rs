@@ -43,9 +43,12 @@ use tower::Service;
 use crate::plugins::memory::store::MemoryLimits;
 use crate::state::AppState;
 use summrise_agent_core::{DeviceError, EventBus};
+mod envelope;
 mod panel;
 mod parse;
 mod sse;
+
+use envelope::{error_body, ok_body};
 
 pub use panel::WebPanel;
 pub(crate) use panel::{
@@ -1556,14 +1559,7 @@ async fn handle_request_inner(req: Request<Body>, state: Arc<AppState>) -> Respo
             return built_response(
                 status,
                 "application/json",
-                Body::from(
-                    serde_json::json!({
-                        "ok": false,
-                        "error": msg,
-                        "code": code,
-                    })
-                    .to_string(),
-                ),
+                Body::from(error_body(msg, code).to_string()),
             );
         }
     };
@@ -1783,23 +1779,19 @@ async fn dispatch(
 async fn api_call_tool(state: &AppState, tool_name: &str, body: &str) -> serde_json::Value {
     let tool = match state.plugin_registry.find_tool(tool_name) {
         Some(t) => t,
-        None => {
-            return serde_json::json!({"ok": false, "error": format!("unknown tool: {tool_name}"), "code": "invalid_params"})
-        }
+        None => return error_body(format!("unknown tool: {tool_name}"), "invalid_params"),
     };
     let params: serde_json::Value = if body.is_empty() {
         serde_json::json!({})
     } else {
         match serde_json::from_str(body) {
             Ok(v) => v,
-            Err(e) => {
-                return serde_json::json!({"ok": false, "error": format!("invalid JSON body: {e}"), "code": "invalid_params"})
-            }
+            Err(e) => return error_body(format!("invalid JSON body: {e}"), "invalid_params"),
         }
     };
     match tool.handler.call(params).await {
         Ok(result) => serde_json::json!({"ok": true, "result": result}),
-        Err(e) => serde_json::json!({"ok": false, "error": e.to_string(), "code": e.code()}),
+        Err(e) => error_body(e.to_string(), e.code()),
     }
 }
 
@@ -2282,16 +2274,22 @@ async fn api_update(state: &AppState) -> serde_json::Value {
     crate::plugins::update::update_status(channel).await
 }
 
-/// THE HTTP DOOR'S ERROR ENVELOPE, in one place for the add path: a body this surface could read
-/// but not act on is `200 + {"ok":false,"error":<reason>,"code":"invalid_params"}` — the reason
-/// rendered verbatim by the panel, the code the machine routes on (see the note on the dispatch
-/// table: this shape is a contract two clients already compensate for).
+/// THE HTTP DOOR'S ERROR ENVELOPE, for the add path: a body this surface could read but not act on
+/// is `200 + {"ok":false,"error":<reason>,"code":"invalid_params"}` — the reason rendered verbatim
+/// by the panel, the code the machine routes on (see the note on the dispatch table: this shape is a
+/// contract two clients already compensate for).
+///
+/// THE SHAPE ITSELF IS NO LONGER DEFINED HERE. This used to be the only HAND-WRITTEN copy of the
+/// envelope with a name on it; `envelope::error_body` is now the one owner of the shape, and this is
+/// the monitor routes' name for the `invalid_params` case of it. Kept rather than inlined at its four
+/// call sites because it fixes the code, and a code spelled at four call sites is a code that can
+/// drift at one of them.
 ///
 /// THE ENVELOPES DIFFER BY DESIGN, THE RULES DO NOT. The MCP door answers
 /// `DeviceError::InvalidParams { message: <the same reason> }`; that is the transports' difference,
 /// and what both now lack is their own copy of the RULES.
 fn invalid_params(reason: impl Into<String>) -> serde_json::Value {
-    serde_json::json!({"ok": false, "error": reason.into(), "code": "invalid_params"})
+    error_body(reason, "invalid_params")
 }
 
 /// The monitor form's body — `{"host": "...", "port": 22}` plus optional `path`/`expect` — read
@@ -2353,7 +2351,7 @@ fn api_monitor_remove(body: &str) -> serde_json::Value {
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
         .unwrap_or_else(|_| serde_json::json!({}));
     let Some(id) = v.get("id").and_then(|i| i.as_str()) else {
-        return serde_json::json!({"ok": false, "error": "an id is required", "code": "invalid_params"});
+        return error_body("an id is required", "invalid_params");
     };
     // HONEST ABOUT WHAT HAPPENED: removing something that was not watched is reported as such
     // rather than as a success (the panel then refreshes to the truth either way).
@@ -2429,8 +2427,8 @@ impl WorkspaceTarget {
     /// removed the host from the profile by hand; a caller that passes both now gets the registry's answer, which
     /// is the whole point of having one.
     fn from_request(v: &serde_json::Value) -> Result<Self, serde_json::Value> {
-        let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
-        let named = |code: &str, message: String| serde_json::json!({"ok": false, "error": message, "code": code});
+        let bad = |message: &str| error_body(message, "invalid_params");
+        let named = |code: &str, message: String| error_body(message, code);
 
         // `cwd` for exec, `path` for fs — the only fields that name a place.
         let path = v
@@ -2501,7 +2499,7 @@ impl WorkspaceTarget {
     /// password is NOT in that file when it is a secret (the store's own comment records why it belongs in the
     /// keychain). An empty password keeps the meaning it already has at the connect site: use the key.
     fn from_saved(saved: &serde_json::Value) -> Result<Self, serde_json::Value> {
-        let named = |code: &str, message: String| serde_json::json!({"ok": false, "error": message, "code": code});
+        let named = |code: &str, message: String| error_body(message, code);
         let params = saved
             .get("params")
             .and_then(|p| p.as_object())
@@ -2584,19 +2582,14 @@ impl WorkspaceTarget {
         .await
         {
             Ok(Ok(session)) => Ok(session),
-            Ok(Err(e)) => Err(serde_json::json!({
-                "ok": false,
-                "error": format!("connect failed: {e}"),
-                "code": "connect_failed"
-            })),
-            Err(_) => Err(serde_json::json!({
-                "ok": false,
-                "error": format!(
+            Ok(Err(e)) => Err(error_body(format!("connect failed: {e}"), "connect_failed")),
+            Err(_) => Err(error_body(
+                format!(
                     "connecting to {}@{}:{} did not complete within 30s",
                     self.user, self.host, self.port
                 ),
-                "code": "connect_timeout"
-            })),
+                "connect_timeout",
+            )),
         }
     }
 }
@@ -2631,32 +2624,23 @@ async fn api_workspace_mappings() -> serde_json::Value {
 async fn api_workspace_register(body: &str) -> serde_json::Value {
     let v: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
-        Err(e) => {
-            return serde_json::json!({"ok": false, "error": format!("bad json: {e}"), "code": "invalid_params"})
-        }
+        Err(e) => return error_body(format!("bad json: {e}"), "invalid_params"),
     };
     let (Some(path), Some(connection_id)) = (
         v.get("path").and_then(|x| x.as_str()),
         v.get("connection_id").and_then(|x| x.as_str()),
     ) else {
-        return serde_json::json!({
-            "ok": false,
-            "error": "path and connection_id are required",
-            "code": "invalid_params",
-        });
+        return error_body("path and connection_id are required", "invalid_params");
     };
     if crate::tools::terminal::conn_find(connection_id).is_none() {
-        return serde_json::json!({
-            "ok": false,
-            "error": format!("no saved connection {connection_id:?}"),
-            "code": "workspace/unknown-connection",
-        });
+        return error_body(
+            format!("no saved connection {connection_id:?}"),
+            "workspace/unknown-connection",
+        );
     }
     match crate::workspace_mappings::register(path, connection_id) {
-        Ok(()) => serde_json::json!({"ok": true}),
-        Err(e) => {
-            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-        }
+        Ok(()) => ok_body(),
+        Err(e) => error_body(e.to_string(), "invalid_params"),
     }
 }
 
@@ -2666,13 +2650,11 @@ async fn api_workspace_register(body: &str) -> serde_json::Value {
 async fn api_workspace_unregister(body: &str) -> serde_json::Value {
     let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
     let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
-        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+        return error_body("path is required", "invalid_params");
     };
     match crate::workspace_mappings::unregister(path) {
         Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
-        Err(e) => {
-            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-        }
+        Err(e) => error_body(e.to_string(), "invalid_params"),
     }
 }
 
@@ -2708,28 +2690,23 @@ async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
                 v.get("local_port").and_then(|x| x.as_u64()),
                 v.get("remote_port").and_then(|x| x.as_u64()),
             ) else {
-                return serde_json::json!({
-                    "ok": false,
-                    "error": "connection_id, local_port and remote_port are all required",
-                    "code": "invalid_params",
-                });
+                return error_body(
+                    "connection_id, local_port and remote_port are all required",
+                    "invalid_params",
+                );
             };
             match crate::workspace_harnesses::configure(id, local as u16, remote as u16) {
-                Ok(()) => serde_json::json!({"ok": true}),
-                Err(e) => {
-                    serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-                }
+                Ok(()) => ok_body(),
+                Err(e) => error_body(e.to_string(), "invalid_params"),
             }
         }
         "forget" => {
             let Some(id) = v.get("connection_id").and_then(|x| x.as_str()) else {
-                return serde_json::json!({"ok": false, "error": "connection_id is required", "code": "invalid_params"});
+                return error_body("connection_id is required", "invalid_params");
             };
             match crate::workspace_harnesses::forget(id) {
                 Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
-                Err(e) => {
-                    serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-                }
+                Err(e) => error_body(e.to_string(), "invalid_params"),
             }
         }
         // A PROBE IS NOT A CONFIGURATION. It fills in what a measurement found about a row that already
@@ -2738,14 +2715,13 @@ async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
         // quietly reading as "no harnesses".
         "probe" => {
             let Some(id) = v.get("connection_id").and_then(|x| x.as_str()) else {
-                return serde_json::json!({"ok": false, "error": "connection_id is required", "code": "invalid_params"});
+                return error_body("connection_id is required", "invalid_params");
             };
             let Some(h) = crate::workspace_harnesses::get(id) else {
-                return serde_json::json!({
-                    "ok": false,
-                    "error": format!("no harness is configured for {id}"),
-                    "code": "invalid_params",
-                });
+                return error_body(
+                    format!("no harness is configured for {id}"),
+                    "invalid_params",
+                );
             };
             let url = crate::workspace_harnesses::url_for(&h);
             let client = match reqwest::Client::builder()
@@ -2753,9 +2729,7 @@ async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
                 .build()
             {
                 Ok(c) => c,
-                Err(e) => {
-                    return serde_json::json!({"ok": false, "error": format!("client: {e}"), "code": "internal"})
-                }
+                Err(e) => return error_body(format!("client: {e}"), "internal"),
             };
             let (state, sentence) = match client.get(&url).send().await {
                 // ANY status is a page, and that is the whole point: a harness behind a proxy answers 302
@@ -2781,11 +2755,10 @@ async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
                     .unwrap_or(0),
             })
         }
-        other => serde_json::json!({
-            "ok": false,
-            "error": format!("unknown action {other:?} — expected list, configure, probe or forget"),
-            "code": "invalid_params",
-        }),
+        other => error_body(
+            format!("unknown action {other:?} — expected list, configure, probe or forget"),
+            "invalid_params",
+        ),
     }
 }
 
@@ -2795,7 +2768,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
 
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
         .unwrap_or_else(|_| serde_json::json!({}));
-    let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+    let bad = |message: &str| error_body(message, "invalid_params");
 
     let Some(op) = v.get("op").and_then(|x| x.as_str()) else {
         return bad("an op is required (stat, lstat, readText, readBytes, listDir)");
@@ -2850,11 +2823,10 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
     let sftp = match session.sftp_session().await {
         Ok(sftp) => sftp,
         Err(e) => {
-            return serde_json::json!({
-                "ok": false,
-                "error": format!("the workspace host has no sftp subsystem: {e}"),
-                "code": "sftp_unavailable"
-            })
+            return error_body(
+                format!("the workspace host has no sftp subsystem: {e}"),
+                "sftp_unavailable",
+            )
         }
     };
 
@@ -2862,7 +2834,7 @@ async fn api_workspace_fs(body: &str) -> serde_json::Value {
     // text, so a filesystem failure here answers with the seam's OWN token — `FS_TOO_LARGE`,
     // `FS_NOT_TEXT`, `FS_NOT_FOUND` — rather than one code a consumer would have to parse prose to
     // tell apart. The message is for a person, and nothing branches on it.
-    let fs_failed = |e: crate::workspace::FsError| serde_json::json!({"ok": false, "error": e.message, "code": e.code});
+    let fs_failed = |e: crate::workspace::FsError| error_body(e.message, e.code);
     let info_json = |info: &crate::workspace::FsInfo| {
         serde_json::json!({
             "kind": info.kind.as_str(),
@@ -2969,16 +2941,15 @@ async fn api_workspace_harnesses(body: &str) -> serde_json::Value {
             .collect();
         return serde_json::json!({"ok": true, "harnesses": rows});
     }
-    serde_json::json!({
-        "ok": false,
-        "error": "the terminal feature is disabled, so there is no host to point at a harness",
-        "code": "internal",
-    })
+    error_body(
+        "the terminal feature is disabled, so there is no host to point at a harness",
+        "internal",
+    )
 }
 
 #[cfg(not(feature = "terminal"))]
 async fn api_workspace_connections() -> serde_json::Value {
-    serde_json::json!({"ok": false, "error": "the terminal feature is disabled", "code": "internal"})
+    error_body("the terminal feature is disabled", "internal")
 }
 
 #[cfg(not(feature = "terminal"))]
@@ -2996,13 +2967,11 @@ async fn api_workspace_register(body: &str) -> serde_json::Value {
         v.get("path").and_then(|x| x.as_str()),
         v.get("connection_id").and_then(|x| x.as_str()),
     ) else {
-        return serde_json::json!({"ok": false, "error": "path and connection_id are required", "code": "invalid_params"});
+        return error_body("path and connection_id are required", "invalid_params");
     };
     match crate::workspace_mappings::register(path, connection_id) {
-        Ok(()) => serde_json::json!({"ok": true}),
-        Err(e) => {
-            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-        }
+        Ok(()) => ok_body(),
+        Err(e) => error_body(e.to_string(), "invalid_params"),
     }
 }
 
@@ -3010,24 +2979,21 @@ async fn api_workspace_register(body: &str) -> serde_json::Value {
 async fn api_workspace_unregister(body: &str) -> serde_json::Value {
     let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
     let Some(path) = v.get("path").and_then(|x| x.as_str()) else {
-        return serde_json::json!({"ok": false, "error": "path is required", "code": "invalid_params"});
+        return error_body("path is required", "invalid_params");
     };
     match crate::workspace_mappings::unregister(path) {
         Ok(removed) => serde_json::json!({"ok": true, "removed": removed}),
-        Err(e) => {
-            serde_json::json!({"ok": false, "error": e.to_string(), "code": "invalid_params"})
-        }
+        Err(e) => error_body(e.to_string(), "invalid_params"),
     }
 }
 
 #[cfg(not(feature = "terminal"))]
 async fn api_workspace_fs(_body: &str) -> serde_json::Value {
-    serde_json::json!({
-        "ok": false,
-        "error": "this build has no SSH client (the `terminal` feature is off), so it cannot read a \
+    error_body(
+        "this build has no SSH client (the `terminal` feature is off), so it cannot read a \
                   workspace host",
-        "code": "internal"
-    })
+        "internal",
+    )
 }
 
 /// Without the `terminal` feature there is no SSH client, so this build cannot run a command
@@ -3047,23 +3013,18 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
         .filter(|p| !p.is_empty())
     {
         if let Some(entry) = crate::workspace_mappings::resolve(path) {
-            return serde_json::json!({
-                "ok": false,
-                "error": format!(
+            return error_body(format!(
                     "{} is registered to {}, but this build has no SSH client (the `terminal` feature is \
                      off), so it cannot run a command there",
                     entry.path, entry.connection_id
-                ),
-                "code": "internal",
-            });
+                ), "internal");
         }
     }
-    serde_json::json!({
-        "ok": false,
-        "error": "this build has no SSH client (the `terminal` feature is off), so it cannot run a \
+    error_body(
+        "this build has no SSH client (the `terminal` feature is off), so it cannot run a \
                   command on a workspace host",
-        "code": "internal"
-    })
+        "internal",
+    )
 }
 
 /// Run one command on a workspace host, and bring back its streams and its status.
@@ -3085,7 +3046,7 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
 
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
         .unwrap_or_else(|_| serde_json::json!({}));
-    let bad = |message: &str| serde_json::json!({"ok": false, "error": message, "code": "invalid_params"});
+    let bad = |message: &str| error_body(message, "invalid_params");
 
     let target = match WorkspaceTarget::from_request(&v) {
         Ok(target) => target,
@@ -3133,21 +3094,22 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
     let helper_bytes = match std::fs::read(crate::paths::workspace_helper_bin()) {
         Ok(bytes) if !bytes.is_empty() => bytes,
         Ok(_) => {
-            return serde_json::json!({
-                "ok": false,
-                "error": format!("the staged component {} is empty", crate::paths::workspace_helper_bin().display()),
-                "code": "helper_missing"
-            })
+            return error_body(
+                format!(
+                    "the staged component {} is empty",
+                    crate::paths::workspace_helper_bin().display()
+                ),
+                "helper_missing",
+            )
         }
         Err(e) => {
-            return serde_json::json!({
-                "ok": false,
-                "error": format!(
+            return error_body(
+                format!(
                     "the workspace helper component is not staged on this device ({}): {e}",
                     crate::paths::workspace_helper_bin().display()
                 ),
-                "code": "helper_missing"
-            })
+                "helper_missing",
+            )
         }
     };
 
@@ -3159,18 +3121,17 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
     let sftp = match session.sftp_session().await {
         Ok(sftp) => sftp,
         Err(e) => {
-            return serde_json::json!({
-                "ok": false,
-                "error": format!("the workspace host has no sftp subsystem, so the helper cannot be staged: {e}"),
-                "code": "sftp_unavailable"
-            })
+            return error_body(
+                format!(
+                    "the workspace host has no sftp subsystem, so the helper cannot be staged: {e}"
+                ),
+                "sftp_unavailable",
+            )
         }
     };
     let staged = match crate::workspace::ensure_helper(&sftp, &helper_bytes).await {
         Ok(path) => path,
-        Err(e) => {
-            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "staging_failed"})
-        }
+        Err(e) => return error_body(format!("{e}"), "staging_failed"),
     };
     drop(sftp);
 
@@ -3187,18 +3148,15 @@ async fn api_workspace_exec(body: &str) -> serde_json::Value {
     .await
     {
         Ok(Ok(outcome)) => outcome,
-        Ok(Err(e)) => {
-            return serde_json::json!({"ok": false, "error": format!("{e}"), "code": "exec_failed"})
-        }
+        Ok(Err(e)) => return error_body(format!("{e}"), "exec_failed"),
         Err(_) => {
             // Dropping the future drops the channel, which closes it, which is what makes the
             // far side terminate. The status is therefore UNKNOWN, not "killed by us" — this
             // caller cannot see what the target did on its way out.
-            return serde_json::json!({
-                "ok": false,
-                "error": format!("the command did not finish within {timeout_ms} ms"),
-                "code": "exec_timeout"
-            });
+            return error_body(
+                format!("the command did not finish within {timeout_ms} ms"),
+                "exec_timeout",
+            );
         }
     };
 
@@ -3236,7 +3194,7 @@ async fn api_monitor_probe(body: &str) -> serde_json::Value {
     let v: serde_json::Value = serde_json::from_str(if body.is_empty() { "{}" } else { body })
         .unwrap_or_else(|_| serde_json::json!({}));
     let Some(id) = v.get("id").and_then(|i| i.as_str()) else {
-        return serde_json::json!({"ok": false, "error": "an id is required", "code": "invalid_params"});
+        return error_body("an id is required", "invalid_params");
     };
     match crate::monitor::probe_once(id).await {
         Some(p) => {
@@ -3249,9 +3207,7 @@ async fn api_monitor_probe(body: &str) -> serde_json::Value {
             // it comes through — this was a hand-copy of the tool's block until round 217 made them agree.
             crate::monitor::probe_envelope(id, p)
         }
-        None => {
-            serde_json::json!({"ok": false, "error": format!("not watching {id}"), "code": "invalid_params"})
-        }
+        None => error_body(format!("not watching {id}"), "invalid_params"),
     }
 }
 
