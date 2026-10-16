@@ -47,6 +47,69 @@ pub fn push(ring: &[Observation], observation: Observation) -> Vec<Observation> 
     out
 }
 
+/// **WHICH CURATED ROWS A CONCLUSIVE LISTING DID NOT CARRY** — the input a ring entry's `missing` is built from.
+///
+/// The caller has already asked `models_probe::conclusive` whether the listing is evidence at all; **this function
+/// assumes it is** and answers the narrower question. Both sides are normalised by the caller's `normalise`, so a
+/// wire-remapped or differently-cased id is the same row.
+///
+/// It returns them in the order the CURATED list gave, not the listing's, because the result is used to name rows in
+/// a KV write and in a console message — **an order that came from an upstream's response would shuffle a report
+/// every run.**
+pub fn absent_from(
+    curated: &[String],
+    offered: &[String],
+    normalise: impl Fn(&str) -> String,
+) -> Vec<String> {
+    let have: Vec<String> = offered.iter().map(|id| normalise(id)).collect();
+    curated
+        .iter()
+        .filter(|id| !have.iter().any(|seen| *seen == normalise(id)))
+        .cloned()
+        .collect()
+}
+
+/// **THE ROW STATE A VERDICT WRITES** — the one place a `Verdict` becomes a `model_store::Lifecycle`, so the timer,
+/// the admin state and the console's copy cannot disagree about what a verdict means.
+///
+/// The rules, and each exists because its absence would be a lie:
+///
+///   * `Demote` writes `Deprecated` — **and keeps `verifiedAt`/`verifiedBy`**, because the stamp is WHEN the
+///     conclusion was reached and a demotion is a conclusion like any other. A row with no stamp reads as never
+///     checked, which would make the demotion unattributable.
+///   * `Active` writes `Active` with a fresh stamp, which is also what RESTORES a row: the plan's third review focus
+///     is that a row which comes back upstream returns without a human, and this is where that happens.
+///   * `Unchanged` writes **nothing** (`None`) — an inconclusive run must not touch the row at all, because a write
+///     would move `verifiedAt` and make an unknown look like a check.
+///   * **`ephemeral` and `assumed` are CARRIED, never invented**: they are the adoption path's facts (Task 7), and a
+///     scheduled observation has no business changing them. A row that was ephemeral stays ephemeral while it is
+///     demoted, so the console can still say why it was there.
+pub fn lifecycle_for(
+    verdict: Verdict,
+    prior: &crate::model_store::Lifecycle,
+    now: i64,
+    run_id: &str,
+) -> Option<crate::model_store::Lifecycle> {
+    use crate::model_store::{Lifecycle, Status};
+    match verdict {
+        Verdict::Unchanged => None,
+        Verdict::Active => Some(Lifecycle {
+            status: Status::Active,
+            ephemeral: prior.ephemeral,
+            verified_at: Some(now),
+            verified_by: Some(run_id.to_string()),
+            assumed: prior.assumed.clone(),
+        }),
+        Verdict::Demote => Some(Lifecycle {
+            status: Status::Deprecated,
+            ephemeral: prior.ephemeral,
+            verified_at: Some(now),
+            verified_by: Some(run_id.to_string()),
+            assumed: prior.assumed.clone(),
+        }),
+    }
+}
+
 /// What the history says about one id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
@@ -103,6 +166,47 @@ pub fn verdict(ring: &[Observation], id: &str, normalise: impl Fn(&str) -> Strin
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE MISSING LIST IS BUILT FROM THE CURATED ORDER, NOT THE LISTING'S**: it names rows in a KV write and in a
+    /// console message, and an order that came from an upstream's response would shuffle a report every run.
+    #[test]
+    fn the_absent_list_keeps_the_curated_order() {
+        let curated: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let offered: Vec<String> = ["c", "  B "].iter().map(|s| s.to_string()).collect();
+        assert_eq!(absent_from(&curated, &offered, normalise), vec!["a"]);
+        assert!(absent_from(&curated, &curated, normalise).is_empty());
+    }
+
+    /// **A DEMOTION CARRIES ITS STAMP**: the conclusion is attributable, and `Unchanged` writes NOTHING — an
+    /// inconclusive run that touched `verifiedAt` would make an unknown look like a check.
+    #[test]
+    fn only_a_conclusion_writes_a_row_state() {
+        let prior = crate::model_store::Lifecycle {
+            ephemeral: true,
+            assumed: vec!["usEgress".to_string()],
+            ..Default::default()
+        };
+        assert!(lifecycle_for(Verdict::Unchanged, &prior, 7, "run-1").is_none());
+
+        let demoted =
+            lifecycle_for(Verdict::Demote, &prior, 7, "run-1").expect("a demotion writes");
+        assert_eq!(demoted.status, crate::model_store::Status::Deprecated);
+        assert_eq!(demoted.verified_at, Some(7));
+        assert_eq!(demoted.verified_by.as_deref(), Some("run-1"));
+        // The adoption path's facts are CARRIED, never invented by an observation.
+        assert!(demoted.ephemeral);
+        assert_eq!(demoted.assumed, vec!["usEgress".to_string()]);
+
+        let restored =
+            lifecycle_for(Verdict::Active, &demoted, 9, "run-2").expect("a return writes");
+        assert_eq!(restored.status, crate::model_store::Status::Active);
+        assert_eq!(
+            restored.verified_at,
+            Some(9),
+            "a return is a fresh conclusion"
+        );
+        assert!(restored.ephemeral, "a return does not un-mark a free tier");
+    }
     use super::*;
 
     fn observation(conclusive: bool, seen: &[&str], missing: &[&str]) -> Observation {
