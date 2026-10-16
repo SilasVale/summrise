@@ -19,6 +19,29 @@
 //! policy — how long facts are good for, and what happens at the boundary — is testable in-process, while the async
 //! half is left with nothing but plumbing.
 
+/// **WHO IS ASKING TO WRITE A ROW'S LIFECYCLE.** The distinction is the plan's fifth review focus, and it is not
+/// about permissions: it is about what an answer MEANS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Caller {
+    /// The scheduled observation. It asks the upstream the same question for every row, on the same clock, with the
+    /// same floor — so its answer is comparable across runs, which is what a history is made of.
+    Timer,
+    /// The console's probe button, run by an admin with their own BYOK key. **Its answer is not comparable**: it
+    /// asked with a different credential, at a different time, about ONE row, and a key that is out of credit
+    /// answers 401 for a row that is perfectly alive. Recording that as a status would demote a model because an
+    /// operator's key expired.
+    ManualProbe,
+    /// A person editing a row by hand. That is `set_lifecycle`'s business, not an observation's.
+    Admin,
+}
+
+/// **ONLY THE TIMER MAY WRITE STATUS.** A manual probe still ANSWERS a person — it reports what the upstream said —
+/// and that is the whole of what it may do. **A report and an observation look identical in a log and mean opposite
+/// things**: one is evidence, the other is a person asking a question.
+pub fn may_write_status(caller: Caller) -> bool {
+    matches!(caller, Caller::Timer)
+}
+
 /// How long a cached catalogue is served before a run refreshes it. **Six hours**, and the Cron period that refreshes
 /// it is longer (see the header): a period equal to the TTL would race its own reader.
 pub const TTL_SECS: i64 = 6 * 60 * 60;
@@ -47,6 +70,15 @@ pub fn source_for(cached_at: Option<i64>, now: i64) -> Source {
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE PROBE BUTTON MUST NOT DEMOTE A MODEL.** Its answer depends on the operator's own key and on the moment
+    /// they pressed it, so a 401 from an out-of-credit key would otherwise retire a row that is perfectly alive.
+    #[test]
+    fn only_the_timer_may_write_status() {
+        assert!(may_write_status(Caller::Timer));
+        assert!(!may_write_status(Caller::ManualProbe));
+        assert!(!may_write_status(Caller::Admin));
+    }
     use super::*;
 
     /// No entry, or an entry from before the TTL: go and look.
