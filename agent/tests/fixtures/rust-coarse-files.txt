@@ -1,0 +1,80 @@
+# THE COARSE-FILE MANIFEST — every tracked Rust file that is 800+ lines and coarser than 120 lines per
+# top-level item, and what its top-level items actually ARE.
+#
+# One entry per line:  path | lines | items | tests | reason
+#
+#   path    repo-relative, ONE EXACT FILE. Not a pattern and not a directory: this list is seven files, and a
+#           directory rule would swallow the next file that crosses the line SILENTLY — the precise failure the
+#           gate exists to end.
+#   lines   the file's line count, as `wc -l` counts it (a trailing newline is not a line).
+#   items   top-level items under THE PINNED PATTERN, below.
+#   tests   `#[test]` + `#[tokio::test]` attributes in the file — the file's own tripwire for the one deletion
+#           that would lower `lines` without making anything finer-grained.
+#   reason  what the items ARE. Measured, not asserted: a reason that says "34 HTTP handlers" must be a count
+#           somebody took, and the gate refuses an entry whose three numbers are not what it measures.
+#
+# THE GATE IS agent/tests/rust_coarse_inventory.rs, and it enforces BOTH directions: an over-line file that is
+# not named fails, and a name that is no longer over the line fails too. A list that only grows is a list
+# nobody prunes.
+#
+# ── THE PATTERN, PINNED HERE AND IN THE GATE, AND WHY IT IS WRITTEN DOWN TWICE ───────────────────────────────
+#
+#     ^(pub )?(async )?(fn|struct|enum|impl|const|static|type|trait|mod)
+#
+# It is `docs/agents/ideas.md`'s own pattern, from the measurement that found these files (the "calibrated
+# yardstick", rounds 165-176), character for character. THE RATIO MOVES WITH THE PATTERN: `agent/src/web/mod.rs`
+# measures 121.5 lines per item under this one and 156.3 under a `fn`-only reading — both measured on this tree,
+# the same file (9,844 lines; 81 items against 63). A gate whose pattern is implicit drifts, and every number in
+# this file drifts with it, so the gate pins the pattern as data and a test fails if it changes.
+#
+# AND THE 225 THE DESIGN SESSION RECORDED FOR THAT FILE IS NOT RESTATED HERE, BECAUSE IT DOES NOT REPRODUCE: it
+# implies 44 items at the 9,888 lines the file then had, and no reading of this tree answers 44 (34 `async fn`,
+# 63 `fn` at column 0, 223 at any indent, 43 `RouteId` variants). The wide figure reproduces — 125 then, 121.5
+# now — and the narrow one is a finding about the instrument rather than a fact about the file.
+#
+# TWO BLIND SPOTS COME WITH IT, and they are properties of the instrument rather than of the files:
+#
+#   * `^(pub )?` matches neither `pub(crate) fn` NOR `pub(super) fn`. `agent/src/evidence.rs` is on this list at
+#     140.3 and measures 61.4 when its own `pub(crate)` items are counted too (16 items rather than the 7 the
+#     pattern can see), because eight of its twelve top-level fns are `pub(crate)`; and the largest function in
+#     `agent/src/plugins/terminal/tools/exec.rs` — `tool_execute`, 823 lines — is `pub(super) fn`, so the pattern
+#     that produced this file's ratio cannot see it.
+#   * there is no `use` arm, so a file's imports are not items.
+#
+# Fixing either one here would move every number this file records, which is a re-measurement of the whole tree
+# rather than an improvement — so the pattern stays as it was measured, and the reasons below say where it
+# cannot see. **A number without its instrument is a number about somebody else's tree.**
+#
+# ── WHAT THE GATE PRINTS, AND WHAT IT DOES NOT REFUSE ───────────────────────────────────────────────────────
+#
+# It does NOT refuse a coarse file: the rule is that such a file must be NAMED, with a reason, so a human
+# decides. What it prints is the number that separates the two kinds of entry below — each file's ratio with its
+# own test items taken out. A file that falls under the ceiling there is a program plus a large suite; a file
+# that is STILL over it is coarse in its code, and that is the number worth acting on. Test stdout is captured
+# unless it fails, so read the ledger with:
+#
+#     cargo test -p summrise-agent --test rust_coarse_inventory -- --nocapture
+#
+# ── THE SEVEN, WORST FIRST, AND WHAT EACH MEASUREMENT ACTUALLY FOUND ───────────────────────────────────────
+#
+# These are the files the whole-tree scan named on 2026-10-15, five of which no hand-picked sample had ever
+# opened. Every count below was taken from the file it describes; the last number on each reason is the ratio
+# with that file's own test items removed, which is the number that separates coarse CODE from a large suite.
+# Two of the seven are still over the ceiling once their tests are gone (`exec.rs`, `report.rs`); the other five
+# are programs with big suites, and one of those five is not coarse at all — it is on the list because the
+# pinned pattern cannot see its `pub(crate)` items, which is a finding about the INSTRUMENT. The reasons say
+# which is which rather than leaving it to the ratio.
+
+agent/src/tools/terminal/mod.rs | 3779 | 21 | 50 | the terminal tool's SESSION API SURFACE: 8 `mod` declarations (six one-line re-exports, `stub`, and `desktop_impl`), 5 request/response structs, 1 enum, the 58-line `TermBackend` trait, and 6 fns that are all parsers or one-line helpers (the largest, `infer_shell`, is 38 lines). The ratio is ONE ITEM rather than one big function: `mod desktop_impl` (lines 421-2015) is 1,595 lines counted as a SINGLE item because the pattern counts a module and not what is inside it — that module holds 28 items of its own at 57 lines each. 1,764 of the file's lines are `mod tests` (50 attributes). Without its tests 2,015 / 20 = 100.8. VERDICT: not coarse code; the substance is one inline backend module whose internals are fine-grained, and the honest repair (if any) is to make that module a file — at which point the gate would measure IT at 57.
+
+agent/src/plugins/terminal/tools/exec.rs | 1956 | 11 | 24 | the terminal EXECUTE tool, and THE PATTERN CANNOT SEE ITS LARGEST FUNCTION: `tool_execute` (`pub(super) fn`, line 679) is 823 lines and `^(pub )?` does not match it, so the items this ratio was computed from are 5 timing consts, `mod tests`, and the 5 visible fns — `execute_local` (220 lines), `poll_output_chunk` (210), `wait_for_exit` (78), `append_command_newline` (21), `tail_append` (15). With the file's own visibility counted, 12 items = 163.0. 455 lines are `mod tests` (24 attributes). Without its tests 1,501 / 10 = 150.1 — STILL OVER THE CEILING. VERDICT: COARSE IN ITS CODE. One function runs the whole tool — argv parse, session resolution, the busy lock, the approval gate, background mode, the poll loop, output trimming and the audit write — and it is the clearest split candidate on this list.
+
+agent/src/session_log.rs | 2768 | 18 | 29 | the session LOG: 6 byte-cap consts (command, intent, considered, run id), 4 structs (`SessionEvent`, `SessionRow`, `SessionRecord`, `SessionLogger`), 2 statics (`SEQ`, `IDENTITY`), 3 fns (`trim_file` is the largest at 77), and 2 impls — `impl SessionEvent` (312 lines) and `impl SessionLogger`, which is 867 lines holding 31 METHODS, 28 lines per method. That last number is the reason this entry is not a finding: a large impl block of small methods is one job, and the split test is method size, not block size. 1,260 lines are `mod tests` (29 attributes, 46% of the file). Without its tests 1,508 / 17 = 88.7. VERDICT: not coarse; a large file that is 46% suite and whose code is one logger API of small methods.
+
+agent/sweep-judge/src/report.rs | 1752 | 12 | 18 | the design sweeps' REPORT JUDGE, and it is ONE FUNCTION: 3 structs and their 2 impls (`Finding`, `IgnoreRule`, `JudgeOpts`, 51 lines together), 2 floor consts, two small predicates (`nav_loud` 25 lines, `is_clock` 27), `ack_notes` (66), and **`judge_report`, lines 137-1329 = 1,193 lines — 68% of the file in a single function**, sectioned only by comments (SURFACES, ACCESSIBLE NAMES, PROVENANCE, FOCUS, PRESS, ACKNOWLEDGEMENT, TARGET SIZE, READ-FAILURE CLAIMS). 357 lines are `mod tests` (18 attributes). Without its tests 1,395 / 11 = 126.8 — STILL OVER. VERDICT: COARSE IN ITS CODE. NOTE WHAT A SAMPLE WOULD HAVE SAID: the crate's other module, `sweep_judge.rs` (2,145 lines, 40 items, 53.6 lines per item), was measured by hand and called healthy — correctly, and it is why measuring the judge's LARGEST file would never have found this one.
+
+agent/src/evidence.rs | 982 | 7 | 21 | **NOT A COARSE FILE: THIS ENTRY IS AN ARTIFACT OF THE PINNED PATTERN, AND IT IS THE FINDING WORTH KEEPING.** The 7 items the pattern sees are 4 fns, 2 statics and `mod tests`. The pattern's `^(pub )?` misses NINE of the file's declarations — eight `pub(crate) fn` (`actions_path`, `append_action_line`, `recent_actions`, `list_shots`, `shot_name_is_safe`, `prune`, `set_bus`, `notify_changed`) and `pub(crate) struct Pruned` — so the file it measured as 140.3 is 16 items = 61.4 lines per item when counted as it actually is. Its largest function is `owns` at 68 lines, and 598 of its 982 lines (61%) are `mod tests` (21 attributes). Without its tests 384 / 6 = 64.0. VERDICT: the file needs no work; the MANIFEST needs the reason, because the instrument is pinned and a pinned instrument's blind spots must be named where its numbers are read.
+
+agent/src/web/mod.rs | 9844 | 81 | 115 | the DEVICE HTTP SURFACE, ONE JOB, and the largest file in the repository: **34 `async fn` handlers** (26 of them `api_*`, including the `feature = "terminal"` and `not(feature = "terminal")` arms of the workspace routes) dispatched by one `match route_of(method, path)`, plus 29 sync helpers (the largest are `api_settings_put` 96, `api_logs` 45, `api_session_events` 41 — 25 of the 29 are under 30 lines), 4 impls, 2 structs, 6 `mod`s, 5 consts and 1 type. **6,052 of its 9,844 lines are its own test modules** (`mod tests` 5,672 + `mod workspace_registry_tests` 380 — 115 attributes, 61% of the file). Without its tests 3,792 / 79 = 48.0. VERDICT: ONE JOB AND FINE-GRAINED — every handler is a thin projection of a subsystem that lives elsewhere, which is why the ratio moves 2.5x between patterns and why the number alone was never the finding.
+
+agent/src/spawn.rs | 1693 | 14 | 15 | the PROCESS-KILLING layer: 11 fns (the largest are `classify_name_kill` 86, `hidden_std` 71, `windows_kill_by_name` 58 — the taskkill/tasklist argv, the Windows and Unix arms of kill-tree and kill-by-name, and the name-kill classification), 1 `const` (`CREATE_NO_WINDOW`, carrying 48 lines of comment about the console window) and 1 enum (`NameKill`). **1,156 of its 1,693 lines are `mod tests` (15 attributes, 68% — the largest test share on this list)**, and its `pub(crate) mod test_records` at line 487 is invisible to the pattern for the same reason `evidence.rs` is (with it counted, 15 items = 112.9, under the ceiling). Without its tests 537 / 13 = 41.3. VERDICT: the smallest program on this list wearing its largest suite — 41.3 lines per item of actual code.
