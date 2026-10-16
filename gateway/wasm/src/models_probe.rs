@@ -30,6 +30,55 @@ pub fn upstream_models_url(upstream: &str) -> Option<String> {
         .map(|head| format!("{head}/models"))
 }
 
+/// **FETCH A PROVIDER'S LISTING — the one network call a scheduled run makes, and the reason `observe` takes the
+/// listing as a parameter.**
+///
+/// Three outcomes, and the middle one is what the whole lifecycle rests on:
+///
+///   * **`Some(ids)`** — the upstream answered with a listing (which may be empty; `conclusive` decides whether an
+///     empty one is evidence, and it is not);
+///   * **`None`** — the upstream could not be reached, answered with a non-2xx, or sent a body nothing can read.
+///     **This is not an error the run handles: it is an INCONCLUSIVE run**, which breaks any streak and writes no
+///     row state, so an outage can never demote a model;
+///   * and there is no third case — **a fetch that cannot be made is indistinguishable from one that failed, because
+///     the run does the same thing either way.**
+///
+/// The response body is read through the same `offered_ids` the console's probe uses, so a provider that renames a
+/// dialect changes both readers at once rather than one of them silently.
+pub async fn fetch_listing(env_json: &Value, upstream: &str) -> Option<Vec<String>> {
+    let endpoint = upstream_models_url(upstream)?;
+    let headers = worker::Headers::new();
+    let _ = headers.set("accept", "application/json");
+    let init = RequestInit {
+        method: Method::Get,
+        headers,
+        redirect: worker::RequestRedirect::Manual,
+        ..Default::default()
+    };
+    let timeout = crate::reliability::upstream_timeout_ms(Some(env_json)) as u64;
+    let mut response = crate::device::fetch_with_timeout(&endpoint, &init, timeout)
+        .await
+        .ok()?;
+    if !(200..300).contains(&response.status_code()) {
+        return None;
+    }
+    let payload = response.json::<Value>().await.ok()?;
+    let ids = offered_ids(&payload);
+    // **AN UNREADABLE BODY IS A FAILED FETCH, NOT AN EMPTY LISTING.** `offered_ids` answers `[]` for a shape it does
+    // not recognise, and passing that on would make a renamed dialect look like "the provider retired everything" —
+    // the exact failure `conclusive` was written to prevent, arriving one layer too early to be caught by it.
+    if ids.is_empty() && !payload_looks_like_a_listing(&payload) {
+        return None;
+    }
+    Some(ids)
+}
+
+/// Does this payload LOOK like a listing, even if it carries no ids? An empty `data: []` is a provider that serves
+/// nothing (evidence); `{"error": "..."}` is not.
+fn payload_looks_like_a_listing(payload: &Value) -> bool {
+    payload.get("data").and_then(Value::as_array).is_some() || payload.as_array().is_some()
+}
+
 /// **THE PREFIXES THIS CONSOLE CAN ACTUALLY CHECK TODAY, AND THE PIN IS THE POINT.** A scheduled run asks an
 /// upstream for its listing; four of our channels publish one at a URL this worker knows (`og`, `nv`, `gmi`, `cm`),
 /// and the others (`or`, `qw`, `r4`, `amd`) do not — OpenRouter's catalogue is a different API, and the Anthropic
