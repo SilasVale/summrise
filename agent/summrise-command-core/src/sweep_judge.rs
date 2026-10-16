@@ -1950,6 +1950,13 @@ mod tests {
     //! CAPTURED FROM THE JAVASCRIPT JUDGE, and this test asserts the port reproduces it exactly — findings,
     //! printed lines, the report notes, the summary and the mark-coverage notes.
     //!
+    //! THE COVERAGE IS NOT THIS MODULE'S, AND THAT IS WHY THE GOLDEN EXISTS BESIDE IT. Measured, nine of the
+    //! seventeen clauses were noticed only when `design-sweep/axes.json` moved — one fixture holding nine
+    //! clauses is nine clauses that go dark together. `crate::judge_corpus`'s `judge_golden` runs the whole
+    //! corpus (these fixtures, the synthetics and three option sets) against a committed golden file and
+    //! notices all seventeen: every clause's body was emptied in turn and that test went red for each one.
+    //! It is the floor under this module rather than a replacement for it.
+    //!
     //! A fixture whose `expect` is wrong is a fixture that proves nothing, so the block is not hand-written:
     //! it is the JS judge's own output over the same JSON.
     //!
