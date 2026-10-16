@@ -373,3 +373,24 @@ git commit -m "feat(console): adoption derives what it can and refuses what it c
 in two files at once. **A frozen answer is not in one file, and a name that is a key has to move everywhere it is
 held.**
 
+---
+
+## TASK 7'S ROUTE HALF IS DELIBERATELY NOT BUILT, AND THE REASON IS THE CUTOVER (2026-10-16, round 90)
+
+The task reads "the adoption path (`plugins/admin.ts` + `adoptable`)". **`adoptable` exists and is tested** — it is the
+rule, and it refuses three things it must never guess (`UnderivableDialect`, `UndeclaredRegion`, `Curated`). **What has
+no caller is the route**: the console's admin plugin is one of the three files the operator has queued for deletion
+once the front-door cutover is observed, so a Rust endpoint written to be driven by it would have been dead on arrival
+— an endpoint no user, no test and no corpus could reach.
+
+**AND IT COULD NOT BE RECORDED EITHER**: the admin corpus is the SHIPPING CONSOLE'S own answers, which is what makes
+it worth comparing against (round 89 showed exactly how load-bearing that is — the gateway suite stayed green while
+the harness was red, because the suite compares the corpus against the console). A route the console does not have
+cannot enter that corpus without turning it into something else.
+
+**WHAT WOULD REVIVE IT, CONCRETELY**: a caller on THIS side of the cutover — a worker-driven fixture in `verify.mjs`
+(a hand-written request against the built worker, the shape the MCP and CORS sections already use), or a console
+screen that survives the deletion. Until one of those exists, **the rule stays proved in-process and the endpoint
+stays unbuilt**, which is the cheaper of the two mistakes: an unexercised endpoint is a liability, an unused pure
+function with tests is a decision waiting for its caller.
+
