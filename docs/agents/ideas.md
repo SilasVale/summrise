@@ -100,3 +100,20 @@ rule or a security-list entry — and the check is `ss -lunp | grep 41641` on th
 from outside. **Until then the tailnet is silently paying a round trip through Phoenix for a conversation with
 Phoenix.**
 
+**TWO MORE FACTS, SO THE NEXT ROUND DOES NOT RE-DERIVE THEM (round 94)**:
+
+  * **STUN IS FINE, WHICH NARROWS IT TO ONE THING.** `netcheck` completed a STUN round trip and got this box's mapped
+    address (`101.68.143.52:56646`), and the relay answers pings — so the DERP is reachable, its STUN port is
+    reachable, and **what is missing is specifically the direct WireGuard path to `oracle-phx` (UDP 41641)**. That is
+    the Oracle side's inbound rule, not a tailnet configuration and not this box.
+  * **THIS CHECK CANNOT BE AUTOMATED FROM HERE, AND THAT WAS TRIED RATHER THAN ASSUMED**: `ssh ubuntu@132.226.90.175`
+    and `ssh opc@132.226.90.175` both answer `Permission denied (publickey)` — no key for that host on this box. **So
+    it is your command, and the runbook's own list is the recipe**: on `oracle-phx`, `ss -lunp | grep -E "41641|3478"`
+    (is WireGuard listening at all) and then the Oracle console's security list / firewall for **UDP 41641** from the
+    clients' addresses.
+
+**AND THE RUNBOOK ALREADY PREDICTED ALL OF THIS**, which is why it is worth quoting rather than rediscovering: *"a
+node picks its home DERP by measured latency, and a region whose latency cannot be measured is never selected. So a
+DERP that is unreachable for STUN might as well not exist"* — the STUN half is healthy and the **direct** half is not,
+which is precisely the state where every peer homes on the relay and none of them connects directly.
+
