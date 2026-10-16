@@ -1,0 +1,1118 @@
+[
+  {
+    "id": "big-pickle",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 32000,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "cat-jam-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "claude-3-5-haiku",
+    "input_cost": 0.8,
+    "output_cost": 4,
+    "context": 200000,
+    "output": 8192,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "claude-fable-5",
+    "input_cost": 10,
+    "output_cost": 50,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-fable-5-1",
+    "input_cost": 10,
+    "output_cost": 50,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-haiku-4-5",
+    "input_cost": 1,
+    "output_cost": 5,
+    "context": 200000,
+    "output": 64000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-haiku-5-5",
+    "input_cost": 0.1,
+    "output_cost": 0.5,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-4-1",
+    "input_cost": 15,
+    "output_cost": 75,
+    "context": 200000,
+    "output": 32000,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "claude-opus-4-5",
+    "input_cost": 5,
+    "output_cost": 25,
+    "context": 200000,
+    "output": 64000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-4-6",
+    "input_cost": 5,
+    "output_cost": 25,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-4-7",
+    "input_cost": 5,
+    "output_cost": 25,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-4-8",
+    "input_cost": 5,
+    "output_cost": 25,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-5",
+    "input_cost": 5,
+    "output_cost": 25,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-opus-5-5",
+    "input_cost": 4,
+    "output_cost": 20,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-sonnet-4",
+    "input_cost": 3,
+    "output_cost": 15,
+    "context": 1000000,
+    "output": 64000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-sonnet-4-5",
+    "input_cost": 3,
+    "output_cost": 15,
+    "context": 1000000,
+    "output": 64000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-sonnet-4-6",
+    "input_cost": 3,
+    "output_cost": 15,
+    "context": 1000000,
+    "output": 64000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-sonnet-5",
+    "input_cost": 2,
+    "output_cost": 10,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "claude-sonnet-5-5",
+    "input_cost": 2,
+    "output_cost": 10,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "deepseek-v4-flash",
+    "input_cost": 0.14,
+    "output_cost": 0.28,
+    "context": 1000000,
+    "output": 384000,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "deepseek-v4-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 128000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "deepseek-v4-flash-vision-exp",
+    "input_cost": 0.14,
+    "output_cost": 0.28,
+    "context": 1000000,
+    "output": 384000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "deepseek-v4-pro",
+    "input_cost": 1.74,
+    "output_cost": 3.84,
+    "context": 1000000,
+    "output": 384000,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "deepseek-v4.1-flash",
+    "input_cost": 0.3,
+    "output_cost": 1.2,
+    "context": 1000000,
+    "output": 384000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "deepseek-v4.1-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 32000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "exo-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "fledge-alpha-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "gemini-3-flash",
+    "input_cost": 0.5,
+    "output_cost": 3,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3-pro",
+    "input_cost": 2,
+    "output_cost": 12,
+    "context": 1048576,
+    "output": 65536,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "gemini-3.1-pro",
+    "input_cost": 2,
+    "output_cost": 12,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3.5-flash",
+    "input_cost": 1.5,
+    "output_cost": 9,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3.5-flash-lite",
+    "input_cost": 0.3,
+    "output_cost": 2.5,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3.6-flash",
+    "input_cost": 1.5,
+    "output_cost": 7.5,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3.7-flash",
+    "input_cost": 1.5,
+    "output_cost": 7.5,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-3.8-flash",
+    "input_cost": 1.5,
+    "output_cost": 7.5,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gemini-4-argon",
+    "input_cost": 2,
+    "output_cost": 10,
+    "context": 1048576,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "glm-4.6",
+    "input_cost": 0.6,
+    "output_cost": 2.2,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "glm-4.7",
+    "input_cost": 0.6,
+    "output_cost": 2.2,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "glm-4.7-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "glm-5",
+    "input_cost": 1,
+    "output_cost": 3.2,
+    "context": 204800,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "glm-5-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "glm-5.1",
+    "input_cost": 1.4,
+    "output_cost": 4.4,
+    "context": 204800,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "glm-5.2",
+    "input_cost": 1.4,
+    "output_cost": 4.4,
+    "context": 1000000,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "glm-5.3",
+    "input_cost": 1.4,
+    "output_cost": 4.4,
+    "context": 1000000,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "glm-5.3-flash",
+    "input_cost": 0.15,
+    "output_cost": 0.5,
+    "context": 1000000,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5",
+    "input_cost": 1.07,
+    "output_cost": 8.5,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5-codex",
+    "input_cost": 1.07,
+    "output_cost": 8.5,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5-nano",
+    "input_cost": 0.05,
+    "output_cost": 0.4,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.1",
+    "input_cost": 1.07,
+    "output_cost": 8.5,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.1-codex",
+    "input_cost": 1.07,
+    "output_cost": 8.5,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.1-codex-max",
+    "input_cost": 1.25,
+    "output_cost": 10,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.1-codex-mini",
+    "input_cost": 0.25,
+    "output_cost": 2,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.2",
+    "input_cost": 1.75,
+    "output_cost": 14,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.2-codex",
+    "input_cost": 1.75,
+    "output_cost": 14,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.3-codex",
+    "input_cost": 1.75,
+    "output_cost": 14,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.3-codex-spark",
+    "input_cost": 1.75,
+    "output_cost": 14,
+    "context": 128000,
+    "output": 128000,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "gpt-5.4",
+    "input_cost": 2.5,
+    "output_cost": 15,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.4-mini",
+    "input_cost": 0.75,
+    "output_cost": 4.5,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.4-nano",
+    "input_cost": 0.2,
+    "output_cost": 1.25,
+    "context": 400000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.4-pro",
+    "input_cost": 30,
+    "output_cost": 180,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.5",
+    "input_cost": 5,
+    "output_cost": 30,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.5-pro",
+    "input_cost": 30,
+    "output_cost": 180,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.6-luna",
+    "input_cost": 0.2,
+    "output_cost": 1.2,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.6-sol",
+    "input_cost": 4,
+    "output_cost": 20,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-5.6-terra",
+    "input_cost": 2.5,
+    "output_cost": 15,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-6-astra",
+    "input_cost": 10,
+    "output_cost": 50,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-6-luna",
+    "input_cost": 0.1,
+    "output_cost": 0.5,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-6-sol",
+    "input_cost": 2,
+    "output_cost": 10,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "gpt-6.1-sol",
+    "input_cost": 2,
+    "output_cost": 10,
+    "context": 1050000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "grok-4.5",
+    "input_cost": 2,
+    "output_cost": 6,
+    "context": 500000,
+    "output": 500000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "grok-4.6",
+    "input_cost": 2,
+    "output_cost": 6,
+    "context": 500000,
+    "output": 500000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "grok-4.7",
+    "input_cost": 2,
+    "output_cost": 6,
+    "context": 500000,
+    "output": 500000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "grok-build-0.1",
+    "input_cost": 1,
+    "output_cost": 2,
+    "context": 256000,
+    "output": 256000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "grok-code",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 256000,
+    "output": 256000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "hy3-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 190000,
+    "output": 64000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "hy3-preview-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 256000,
+    "output": 64000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "kimi-k2",
+    "input_cost": 0.4,
+    "output_cost": 2.5,
+    "context": 262144,
+    "output": 262144,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "kimi-k2-thinking",
+    "input_cost": 0.4,
+    "output_cost": 2.5,
+    "context": 262144,
+    "output": 262144,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "kimi-k2.5",
+    "input_cost": 0.6,
+    "output_cost": 3,
+    "context": 262144,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "kimi-k2.5-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 262144,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "kimi-k2.6",
+    "input_cost": 0.95,
+    "output_cost": 4,
+    "context": 262144,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "kimi-k2.7-code",
+    "input_cost": 0.95,
+    "output_cost": 4,
+    "context": 262144,
+    "output": 262144,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "kimi-k3",
+    "input_cost": 3,
+    "output_cost": 15,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "laguna-s-2.1-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 256000,
+    "output": 32000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "ling-2.6-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262100,
+    "output": 32800,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "ling-3.0-flash-fin-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 32768,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "ling-3.0-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 32768,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "ling-3.0-tiny-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 32768,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "ling-3.1-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 32768,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "longcat-2.0-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1000000,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "longcat-2.5-preview-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1000000,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "mimo-v2-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 65536,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "mimo-v2-omni-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 64000,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "mimo-v2-pro-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 64000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "mimo-v2.5-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 32000,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "mimo-v2.6-flash-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 32000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "minimax-m2.1",
+    "input_cost": 0.3,
+    "output_cost": 1.2,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "minimax-m2.1-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "minimax-m2.5",
+    "input_cost": 0.3,
+    "output_cost": 1.2,
+    "context": 204800,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "minimax-m2.5-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 204800,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "minimax-m2.7",
+    "input_cost": 0.3,
+    "output_cost": 1.2,
+    "context": 204800,
+    "output": 131072,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "minimax-m3",
+    "input_cost": 0.3,
+    "output_cost": 1.2,
+    "context": 512000,
+    "output": 128000,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "minimax-m3-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 200000,
+    "output": 32000,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "mistral-large-4",
+    "input_cost": 0.68,
+    "output_cost": 2.09,
+    "context": 524288,
+    "output": 262144,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "muse-spark-1.2",
+    "input_cost": 1.25,
+    "output_cost": 4.25,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "muse-spark-1.2-contributor-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "muse-spark-1.3",
+    "input_cost": 1.25,
+    "output_cost": 4.25,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "muse-spark-1.3-contributor-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "nemotron-3-super-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 204800,
+    "output": 128000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "nemotron-3-ultra-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1000000,
+    "output": 128000,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "nemotron-3.5-lightning-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 262144,
+    "status": null,
+    "vision": false
+  },
+  {
+    "id": "nemotron-3.5-super-vl-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "north-mini-code-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 256000,
+    "output": 64000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "qwen3-coder",
+    "input_cost": 0.45,
+    "output_cost": 1.8,
+    "context": 262144,
+    "output": 65536,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "qwen3.5-plus",
+    "input_cost": 0.2,
+    "output_cost": 1.2,
+    "context": 262144,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "qwen3.6-plus",
+    "input_cost": 0.5,
+    "output_cost": 3,
+    "context": 262144,
+    "output": 65536,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "qwen3.6-plus-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262144,
+    "output": 65536,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "qwen3.8-flash",
+    "input_cost": 0.15,
+    "output_cost": 0.47,
+    "context": 1000000,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "qwen3.8-max",
+    "input_cost": 2,
+    "output_cost": 6,
+    "context": 262144,
+    "output": 131072,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "ring-2.6-1t-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 262000,
+    "output": 66000,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "space-bunny-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1048576,
+    "output": 524288,
+    "status": null,
+    "vision": true
+  },
+  {
+    "id": "step-5-preview-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1000000,
+    "output": 65536,
+    "status": "deprecated",
+    "vision": true
+  },
+  {
+    "id": "trinity-large-preview-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 131072,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": false
+  },
+  {
+    "id": "x-preview-f-free",
+    "input_cost": 0,
+    "output_cost": 0,
+    "context": 1000000,
+    "output": 131072,
+    "status": "deprecated",
+    "vision": true
+  }
+]
