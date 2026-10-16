@@ -235,3 +235,35 @@ code, not the output"* presupposes you are reading the exit code of the thing yo
 failure mode is silence is the exact class this repository writes gates against**, and here it was a shell idiom rather
 than a missing gate: nothing to add to `ci.yml`, everything to remember at the prompt.
 
+## THE THIRD EXTRACTION IS THE WRONG MOVE, AND THE MEASUREMENT SAYS WHY (round 110)
+
+Having extracted `embedded-view` and `browser-sessions`, the obvious next step was to extract the remaining
+state-bearing embedding — the DSH view — the same way. **Measuring it first says no**, and this is the measurement:
+
+| `src/embedded-view.ts` (already extracted) | the DSH, still inside `main.ts` |
+|---|---|
+| `embeddedViewEnsure` | `dshViewEnsure` |
+| `embeddedViewPlace` | `dshPlace` |
+| `embeddedNavigate` | `dshNavigate` |
+| `embeddedReload` | `dshReload` |
+| `embeddedRecover` | `dshRecover` |
+| `embeddedState` | `dshState` |
+| (`embeddedGo`, `embeddedWireNavEvents`, `embeddedZoom`) | (`dshOpen`) |
+
+**NINE FUNCTIONS, THE SAME SHAPE, THEIR OWN THREE STATE BINDINGS EACH** (`embeddedView`/`embeddedVisible`/
+`embeddedBounds` and `dshView`/`dshVisible`/`dshBounds`), and the primitive counts match exactly: **11 occurrences of
+`setVisible`/`setBounds`/`addChildView`/`removeChildView` in `main.ts` and 11 in `embedded-view.ts`**. The DSH's half of
+`main.ts` is a near-copy of the module extracted two rounds ago.
+
+**SO A THIRD EXTRACTION WOULD BE THE WRONG ACT** — it would move the copy into a third file and make the duplication
+look like structure. **The right move is the opposite: ONE parametrised embedded-view slot, instantiated twice.** The
+question "is this a module?" was the right one for the first two clusters; for this one the question is "are these two
+the same module?", and the answer is measured rather than felt.
+
+**AND THE UNIFICATION IS DELIBERATELY NOT IN THIS ROUND, BECAUSE IT IS THE FIRST CHANGE IN THIS SERIES THAT TOUCHES
+BEHAVIOUR.** The two extractions were pure moves (bodies byte-identical modulo seam substitutions) and could be proven
+by a diff; **merging two implementations means choosing one behaviour where they differ** — the DSH's policy is its own
+(`dshPopupTarget`, `dshTarget`, `dshHome`, `harnessDoors`, `addDshPort`) and this round has not read enough of it to
+say which differences are load-bearing. The 52 tests are the safety net; they are not a substitute for knowing what
+the two modules disagree about, and finding that out is the next round's first measurement, not a guess to start from.
+
