@@ -579,3 +579,33 @@ filter, `grep --line-buffered` (or `stdbuf -oL`); and **discarding stderr is alm
 tells you why on the stream people delete first. **Read the exit code AND the output, and never wrap a talking command
 in something that stops it talking.**
 
+## TWINS ARE COMPARED ON ONE THING, IN THE SAME COLUMN (rounds 203-207)
+
+**"THE SAME DEFECT, FIXED ONCE AND LEFT STANDING IN THE TWIN" IS REAL HERE, AND COMPARING TWINS IS HOW YOU FIND IT.**
+`agent/summrise-command-core`'s judge (package `summrise-agent-core`) and `agent/sweep-judge`'s are the same seventeen
+clauses over the same report shape, and the SECOND one had already solved a defect the first still carried: its
+outcomes returned `report_notes` and its example printed them, while the other wrote two clock notes into a `Vec` that
+`judge_report` created and dropped — with a doc comment claiming they "land in `notes`". **Fixed once, left standing.**
+The convergence commit (`38205d4a`'s parent) made the two judges' output agree instead of inventing a third
+convention, and the golden pin moved ON ITS OWN (405 committed lines against 413 rendered, no test edited), which is
+what proved the wiring was real rather than assumed.
+
+**FIVE COMPARISONS, AND ONLY ONE DIVERGENCE — WHICH IS THE USEFUL SHAPE OF THIS RESULT**: the judges' clause NAMES are
+identical (18 = 18, `diff` clean); both proxy workers sit inside the healthy band (69 and 27 lines per item); both
+worker crates are covered (20 test attributes in-file against 13 in `tests/` plus 638 lines of them). **So the
+repository's twins are maintained in step, and the one place they were not had a single, findable cause.** Compare
+twins on THE THING THEY SHARE — a clause list, a channel, a contract — and never on size, which differs legitimately
+when the two sides serve different upstreams.
+
+**AND THE INSTRUMENT THAT MEASURES COVERAGE WAS WRONG TWICE, IN THE SAME WAY BOTH TIMES**:
+
+  * `find -path "*/tests/*"` said `proxies/` had **3 test files**; it has **93 test attributes across 11 files**,
+    because this repository writes tests IN the file;
+  * counting `#[test]` in `src/` only said `relay/worker` had **ZERO tests**; it has **13 attributes and 638 lines**
+    of them in `tests/`, including a 330-line differential harness.
+
+**Both times the instrument measured WHERE THE TESTS ARE WRITTEN and I read it as WHETHER THERE ARE TESTS** — and the
+second reading would have sent someone to write tests for a module that already had them. **Count `src/` AND `tests/`,
+count ATTRIBUTES rather than files, and when a count disagrees with what you expect, suspect the instrument before the
+subject.**
+
