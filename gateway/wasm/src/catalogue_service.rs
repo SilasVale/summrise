@@ -345,7 +345,9 @@ mod tests {
         // ── RUN 3: the upstream serves it again. NO HUMAN IS INVOLVED.
         let full = vec!["deepseek-flash".to_string(), "mimo-v2.5".to_string()];
         let (observation, writes) = plan_run(&store, "og", Some(&full), &ring, 3_000, "run-3");
-        ring = crate::lifecycle::push(&ring, observation);
+        // The history is not needed again after the last run, and clippy is right to say so: **assigning a value
+        // nobody reads is how a test comes to look like it checks something it does not.**
+        let _ = crate::lifecycle::push(&ring, observation);
         store = apply_writes(&store, &writes);
         let restored = store
             .iter()
