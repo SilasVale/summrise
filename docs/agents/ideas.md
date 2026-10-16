@@ -334,3 +334,30 @@ the check possible at all.
 that touches a file's mtime can exit 101 **without the test you aimed at ever running**. The tool gate hiding the test
 gate, by design and by mtime.
 
+## THE PANEL, SURVEYED (round 116) — 231 FILES, THOUSANDS OF TESTS, AND THREE BIG FILES
+
+The desktop-shell line is surveyed (rounds 103-115); this is the other large surface the objective names, measured the
+same way:
+
+| area | files | size | largest |
+|---|---|---|---|
+| `src/components` | **52** | 1076 KB | **`SettingsPage.tsx` 41.8 KB** |
+| `src/lib` | 68 | 624 KB | (mostly `*.test.ts` — contrast and pairing suites) |
+| `src/hooks` | 21 | 488 KB | **`useSessions.ts` 36.9 KB**, **`useDeviceRead.ts` 36.4 KB** |
+
+**AND THE HEADLINE IS WHAT IS NOT THERE: THIS IS NOT AN UNTESTED MONOLITH.** The package runs **935 tests across 116
+files** (`vitest run`), the largest files have neighbours in `__tests__/`, and the two biggest `lib` files ARE test
+files. **A survey whose finding is "no emergency" is a legitimate finding**, and it is worth recording precisely because
+the next reader's instinct — as mine was — is to assume a 231-file UI is where the debt is.
+
+**THE NEXT CANDIDATE, WITH ITS REASON**: `src/hooks/useDeviceRead.ts` (36.4 KB) — a HOOK is stateful logic, which is
+exactly the kind that decomposes into pure functions with the hook left as the wiring, **and it already has
+`__tests__/useDeviceRead.test.tsx`**, so a change there is verifiable by running the package's own suite. That is the
+same pairing the desktop shell work relied on: a module with tests around it can be moved safely; one without cannot be
+moved at all — which is why the DSH slot had to become a module before it could be tested rather than the other way
+round (round 112).
+
+**NOT STARTED, AND NOT BECAUSE IT LOOKS HARD**: the same rule that governed `main.ts` applies here — measure the seam
+before moving anything, and prefer unifying two things that are the same over extracting a third thing that is merely
+large.
+
