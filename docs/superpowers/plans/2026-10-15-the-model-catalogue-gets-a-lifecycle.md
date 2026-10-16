@@ -355,3 +355,21 @@ git commit -m "feat(console): adoption derives what it can and refuses what it c
 **Type consistency:** `Lifecycle`/`Status` are defined in Task 2 and used in Tasks 6/7; `Facts`/`Shape` in Task 3, used in 6/7; `Observation`/`Verdict`/`DEMOTE_AFTER` in Task 5, used in 6; `health_model_ids()` in Task 1, used in Task 2's ratchet; `conclusive`/`listing` in Task 4, used in 6.
 
 **Proportion:** seven tasks, each one testable deliverable, and each ends in a commit that works on its own.
+
+---
+
+## PROGRESS, MEASURED (2026-10-16, rounds 55-69)
+
+| task | state |
+|---|---|
+| **Task 1 — Step 0** | **DONE** (`eca00e6b`). The dead card is gone from `HEALTH_CHANNELS` (20 -> 19), the row keeps its place with `probe: false` and a `probeReason`, the twin is re-emitted, and THREE frozen answers moved with it — two in `verify.mjs` (1179 and 1304 bytes) and one in `shipping-answers.json`. **The third one is where three attempts went**: the CORS corpus's `/api/health` case was in my first survey and I read it as a `/v1/models` row. |
+| **Task 2 — the row's lifecycle** | **DONE** (`ad698482`). `Lifecycle`/`Status`, `lifecycle_of`, `is_deprecated`, `advertised_row_ids` (the filter, run on the ROWS before their ids are taken) and `with_lifecycle`/`set_lifecycle` (the whole lifecycle written, so no stale `verifiedAt` survives). Wired at both call sites — `/v1/models` and the admin state. |
+| **Task 3 — the slice and its extractor** | **HALF, AND WAITING ON BYTES.** `scripts/update-model-catalogue.sh` exists with a RESUMABLE fetch and a `--probe` mode. **Measured 2026-10-16: the document is 5,671,659 bytes (2,006,627 when this plan was written) and this box gets ~20 KB/s to that host** — a single `curl` timed out at 4.76 MB having received most of the document and none of a parse. The loop resumes until the size stops moving AND the document parses. **The six-fact mapping is NOT written yet, on purpose: writing it before reading the schema turns a third party's schema change into a silent `null`.** |
+| Tasks 4-7 | not started |
+
+**AND ONE THING THIS PLAN'S OWN STEP 4 GOT WRONG, RECORDED WHERE IT IS READ**: it names "the corpora that carry the
+`/api/health` body" as a closed list. It is not — the same body is frozen in `verify.mjs`'s `HEALTH_ANSWERS`,
+`gateway/wasm/shipping-answers.json` AND `front-door-cors-corpus.json`, and the label `all 39 tools` was a lookup KEY
+in two files at once. **A frozen answer is not in one file, and a name that is a key has to move everywhere it is
+held.**
+
