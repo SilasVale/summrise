@@ -49,9 +49,8 @@ GENERATED | index/public/summrise-agent/ | the emitted probes, written by `--emi
 GENERATED | index/src/landing/ | the landing arms as the index worker imports them | index/landing/build.sh
 GENERATED | agent/summrise-agent-npm/summrise-desktop-electron/ | the shipped copy of the Electron shell's built sources | agent/summrise-desktop-electron
 GENERATED | agent/summrise-desktop-electron/src/main.js | tsc output of main.ts | agent/summrise-desktop-electron/src/main.ts
-GENERATED | agent/summrise-desktop-electron/src/embedded-view.js | tsc output of embedded-view.ts | agent/summrise-desktop-electron/src/embedded-view.ts
+GENERATED | agent/summrise-desktop-electron/src/embedded-slot.js | tsc output of embedded-slot.ts — the ONE embedded-slot factory, instantiated TWICE by main.ts (the browser view and the DSH view). It replaced embedded-view.js and dsh-view.js, which the round-111 comparison measured to be near-copies of this pattern | agent/summrise-desktop-electron/src/embedded-slot.ts
 GENERATED | agent/summrise-desktop-electron/src/browser-sessions.js | tsc output of browser-sessions.ts | agent/summrise-desktop-electron/src/browser-sessions.ts
-GENERATED | agent/summrise-desktop-electron/src/dsh-view.js | tsc output of dsh-view.ts | agent/summrise-desktop-electron/src/dsh-view.ts
 GENERATED | agent/summrise-desktop-electron/src/preload.js | tsc output of preload.ts | agent/summrise-desktop-electron/src/preload.ts
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.js | wasm-bindgen's glue for the shell's URL/cert policy | agent/summrise-url-policy
 GENERATED | agent/summrise-desktop-electron/src/summrise_url_policy.d.ts | wasm-bindgen's types for the shell's URL/cert policy | agent/summrise-url-policy
@@ -203,26 +202,29 @@ BOUNDARY | scripts/test/lib/emitted-pieces.mjs | a FIXTURE READER, not a decisio
 BOUNDARY | agent/summrise-desktop-electron/src/ | the Electron shell's HOST: windows, tray, IPC wiring, the :9333 switch, schtasks spawns, config reads and HTTP requests — platform calls, and every decision they ask about moved to `agent/summrise-shell-policy` (landing 6b) or `agent/summrise-url-policy` (landing 6a). NAMED, because "every decision" is what the previous reason said and it named none of the four groups a reader would not guess: the native MENU TABLE (`menu.rs`), the SCHTASKS argv and the auto-launch create-if-absent / end-and-delete plan (`lifecycle.rs`), the `/api/status` parse and the tray's uptime and clock formatters (`tray.rs`), and the HARNESS-DOOR parse of `answer.harnesses[].local_port` (`lifecycle.rs`, `sessions.rs`) — with the token regex, the port precedence, the loopback control server's route table and CORS decision, the AUMID and the window and slot policy (`sessions.rs`, `boot.rs`) beside them. The one document written here is the wait page, a template plus its own inline script. `preload.ts` must stay dependency-free: the main window runs `sandbox: true`, so requiring wasm there is a risk the design does not need
 # THE SHELL'S TESTS ARE BOUNDARY FOR THE MANIFEST'S OWN REASON — "a test belongs to the code
 # it tests". What they test is the HOST: `ipc-door.test.mjs` counts CALL SITES in the shell's own text
-# (`ipcMain.handle` exactly once, `sanitizeBrowserUrl` exactly once, `loadTarget` used at least five
-# times, the preload's channels equal the door's), and `embedded-bridge.test.mjs` pins the preload's
+# (`ipcMain.handle` exactly once, `sanitizeBrowserUrl` exactly once, the one load door handed to each
+# loader, the preload's channels equal the door's), and `embedded-bridge.test.mjs` pins the preload's
 # exposed member names against the panel's fixture. Both are properties of an Electron boundary that can
-# only be checked by reading the two files, and neither computes anything. THE ONE ASSERTION THAT WAS A
+# only be checked by reading the shell's files, and neither computes anything. THE ONE ASSERTION THAT WAS A
 # DECISION — the shape of the forbidden-frame refusal, `{ok: false, error: "forbidden frame"}`, which the
 # SPA reads — moved to `agent/summrise-shell-policy/src/tests.rs` in landing 6b, and what the `.mjs` case
 # keeps is the count: the refusal is built once, from the policy, and the literal is not restated here.
 BOUNDARY | agent/summrise-desktop-electron/test/ | the DIRECTORY rule, and it now names no count on purpose: the tests of the HOST's own wiring — call-site counts across the shell's sources and the preload's bridge names — plus the executed-module suites, which carry their own per-file rules below. A count here went false twice (it said "the two tests" while a third and then a fourth arrived), so the number is the per-file rules' business. The decision tests that used to live here are `agent/summrise-shell-policy`'s
 # **A THIRD TEST IN THAT DIRECTORY IS NOT COVERED BY THAT RULE, AND THIS ONE IS WHY**: the rule above used
 # to say "the two tests", which stayed TRUE only while the third had a longer rule of its own. `embedded-view.test.mjs`
-# is not a text scan — it EXECUTES the committed `src/embedded-view.js` against a stubbed Electron and the
+# is not a text scan — it EXECUTES the committed `src/embedded-slot.js` against a stubbed Electron and the
 # real policy wasm — and it is BOUNDARY for a reason one step stronger than "a test belongs to the code it
 # tests": every expected VALUE is read back out of `summrise_shell_policy.js`/`summrise_url_policy.js` rather
-# than restated here (the zoom clamp, the minimum slot, the popup drop rule, the recovery URL), so the file
-# pins the WIRING — which platform call, with which argument, at which moment — and decides no policy at all.
-# The values are the crates' Rust tests' business and the platform is a stub; what it adds over the two wasm
-# suites above is the module's own SEQUENCING (the view attached hidden, a crash that hides the dead view and
-# pushes `gone`, the refused popup that must not blank the page, and the recovery the throwaway `/tmp` smoke
-# harness measured once and left outside this repository, where CI could never run it again).
-BOUNDARY | agent/summrise-desktop-electron/test/embedded-view.test.mjs | it EXECUTES the committed src/embedded-view.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as the two wasm suites above, one layer up (the module instead of the artifact)
+# than restated here (the zoom clamp, the minimum slot, the popup drop rule, the shown-url fallback, the
+# recovery URL), so the file pins the WIRING — which platform call, with which argument, at which moment —
+# and decides no policy at all. The values are the crates' Rust tests' business and the platform is a stub;
+# what it adds over the two wasm suites above is the module's own SEQUENCING (the view attached hidden, a
+# crash that hides the dead view and pushes `gone`, the refused popup that must not blank the page, and the
+# recovery the throwaway `/tmp` smoke harness measured once and left outside this repository, where CI could
+# never run it again). **IT NAMES A FILE THAT NO LONGER EXISTS, AND THE NAME IS KEPT ON PURPOSE**: this suite
+# is the BROWSER INSTANCE of the unified slot, `embedded-slot.test.mjs` is the pairing and
+# `dsh-slot.test.mjs` is the other instance, so the three file names locate which instance a failure is in.
+BOUNDARY | agent/summrise-desktop-electron/test/embedded-view.test.mjs | it EXECUTES the committed src/embedded-slot.js (the browser's instance of the one slot factory) with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as the two wasm suites above, one layer up (the module instead of the artifact)
 # **AND THE FOURTH IS THE SAME SHAPE ONE MODULE OVER, WHICH IS WHY IT GETS ITS OWN RULE AND NOT A WIDENED ONE.**
 # The rewrite of the directory rule above would otherwise have been the thing that quietly took this file: a
 # directory rule WIDENED to cover a new kind of file is exactly the drift `classify()`'s "longest pattern wins"
@@ -234,21 +236,30 @@ BOUNDARY | agent/summrise-desktop-electron/test/embedded-view.test.mjs | it EXEC
 # a destroyed window is skipped for reuse but still counts, eviction is `destroy()` and never the vetoable
 # `close()`, and `before-quit`'s sweep empties the table.
 BOUNDARY | agent/summrise-desktop-electron/test/browser-sessions.test.mjs | it EXECUTES the committed src/browser-sessions.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the shell policy crate rather than restated, so it decides nothing the crate has not already decided — the same posture as `embedded-view.test.mjs` above
-# **AND THE FIFTH IS THE THIRD MODULE'S, AND IT ARRIVES BEFORE THE UNIFICATION ON PURPOSE.** A
+# **AND THE FIFTH IS THE OTHER INSTANCE OF THE SLOT, WHICH IS WHY IT ARRIVED BEFORE THE UNIFICATION.** A
 # function-by-function comparison found the DSH cluster in `main.ts` to be a near-copy of `embedded-view.ts`, so
-# the two are to become ONE parametrised slot. That cannot happen while the cluster has no tests, and it cannot
-# have tests while it lives in `main.ts` — no suite here can import that file, because importing it starts the
+# the two were to become ONE parametrised slot. That could not happen while the cluster had no tests, and it could
+# not have tests while it lived in `main.ts` — no suite here can import that file, because importing it starts the
 # whole application — so the extraction came first and this file is what it was FOR: it executes the committed
-# `src/dsh-view.js` against a stub Electron and the real policy wasm, and every expected VALUE (the harness
+# `src/embedded-slot.js` against a stub Electron and the real policy wasm, and every expected VALUE (the harness
 # home, the slot minimum, the popup drop rule, the door's refusal) is asked of the two policy crates rather
 # than restated, so it decides nothing they have not already decided. What it adds over `ipc-door.test.mjs`'s
-# counts is the DSH pane's own wiring: `open()` builds the view LAZILY and loads the harness home through the
-# bound door, a refused popup is DROPPED without blanking the page while an admitted one moves the same view,
-# a crashed renderer hides the dead view and pushes `gone` with its reason and exit code, `recover()` closes
-# the dead webContents and re-creates the view (leaving it hidden — a PRE-EXISTING branch the case names),
-# `state()` carries no history because the DSH has no back/fwd, an unbound module refuses loudly from every
-# operation that needs the host, and a destroyed window is sent nothing.
-BOUNDARY | agent/summrise-desktop-electron/test/dsh-slot.test.mjs | it EXECUTES the committed src/dsh-view.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as `embedded-view.test.mjs` and `browser-sessions.test.mjs` above, one module over
+# counts is the DSH pane's own wiring: the pane's `open()` (the caller's composition — create lazily, then
+# navigate home through the door) builds the view LAZILY and loads the harness home, a refused popup is DROPPED
+# without blanking the page while an admitted one moves the same view, a crashed renderer hides the dead view and
+# pushes `gone` with its reason and exit code, `recover()` closes the dead webContents and re-creates the view
+# (RE-SHOWING it at the slot's last placement — the one behaviour the unification decided, flipped here in the
+# same change), `state()` carries no history because the DSH has no back/fwd, a missing host refuses at
+# CONSTRUCTION, and a destroyed window is sent nothing.
+BOUNDARY | agent/summrise-desktop-electron/test/dsh-slot.test.mjs | it EXECUTES the committed src/embedded-slot.js (the DSH's instance of the one slot factory) with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as `embedded-view.test.mjs` and `browser-sessions.test.mjs` above, one module over
+# **AND THE SIXTH IS THE PROPERTY THE UNIFICATION CREATED, SO IT IS NEW RATHER THAN MOVED.** Until the factory
+# there was only ever ONE instance of each slot — each module held its view, flags and bounds at MODULE scope —
+# so nothing had ever checked that `place`/`recover`/`gone` on one slot cannot touch the other's view, flags,
+# bounds or channel. Both instance suites build exactly one slot each, which means a merge that left a binding at
+# module scope would pass all 38 of their cases and fail only here. It executes the committed `src/embedded-slot.js`
+# twice over ONE stubbed window with the real policy wasm, and asks the crates for every expected value like its
+# two siblings.
+BOUNDARY | agent/summrise-desktop-electron/test/embedded-slot.test.mjs | it EXECUTES the committed src/embedded-slot.js TWICE over one stubbed window and the real policy wasm: TWO-INSTANCE ISOLATION — `place`/`recover`/`gone` on one slot must not move the other's view, flags, bounds or channel, and each slot asks only its own door — with every expected value asked of the two policy crates rather than restated
 BOUNDARY | gateway/src/store.ts | **A PURE RE-EXPORT SHIM — MEASURED, NOT ASSUMED (2026-10-12).** Its entire
 #   non-comment body is `export * from "./store/<domain>.ts"` lines and nothing else: no condition, no default,
 #   no table. It decides NOTHING; the implementation is `src/store/<domain>.ts`, which this rule keeps as LOGIC. A

@@ -69,16 +69,21 @@ use std::path::{Path, PathBuf};
 /// records, one module over: a shell that received the new `main.js` and not `embedded-view.js` dies on
 /// the device with `Cannot find module './embedded-view'`.
 ///
+/// **AND THE UNIFICATION MADE THOSE TWO NAMES ONE, WITHOUT CHANGING THE COUNT.** `embedded-view.js` and
+/// `dsh-view.js` were near-copies of one pattern, and they are `embedded-slot.js` now — the factory
+/// `main.ts` instantiates twice (the browser's view and the DSH's). So the swap carries ONE file where it
+/// carried two, and the rule this list exists for is unchanged: every module `main.js` requires must be in
+/// it, or the device dies with `Cannot find module './embedded-slot'`.
+///
 /// **IT IS SIX AND NOT FOUR SINCE LANDING 6b, AND THE REASON IS THE FAILURE THIS COMMENT WARNS ABOUT.**
 /// The shell's `main.js` requires TWO policy glues now — `summrise_url_policy.js` (landing 6a) and
 /// `summrise_shell_policy.js` (6b), each requiring its own `.wasm`. A file that is staged but never
 /// copied into the shell's `src/` is a shell that dies on the device with
 /// `Cannot find module './summrise_shell_policy'`, so the two names have to travel together.
-pub const DESK_SHELL_SOURCES: [&str; 9] = [
+pub const DESK_SHELL_SOURCES: [&str; 8] = [
     "main.js",
-    "embedded-view.js",
+    "embedded-slot.js",
     "browser-sessions.js",
-    "dsh-view.js",
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",

@@ -323,15 +323,19 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
     // argument a third time (`main.js` requires `./browser-sessions`). `dsh-view.js` joined it a
     // fourth time when the DSH view became a module (`main.js` requires `./dsh-view`), which is the
     // same pair argument again.
+    // **AND THE UNIFICATION MADE TWO OF THOSE ONE: `./embedded-view` and `./dsh-view` are a single
+    // require now — `./embedded-slot`, the factory `main.ts` instantiates twice** — so
+    // `embedded-slot.js` is named here and the two names it replaced are gone from this list because
+    // the files are gone. A tarball still carrying them would be carrying modules nothing requires,
+    // and this list is the thing that notices.
     //
     // NAMED AS WELL AS DERIVED (the loop below): naming is what fails when a file leaves BOTH lists,
     // and the derivation is what fails when a NEW shell file joins `files[]` and nobody adds it to the
     // required list. Neither alone covers the other's case.
     for f in [
         "summrise-desktop-electron/src/main.js",
-        "summrise-desktop-electron/src/embedded-view.js",
+        "summrise-desktop-electron/src/embedded-slot.js",
         "summrise-desktop-electron/src/browser-sessions.js",
-        "summrise-desktop-electron/src/dsh-view.js",
         "summrise-desktop-electron/src/preload.js",
         "summrise-desktop-electron/src/summrise_url_policy.js",
         "summrise-desktop-electron/src/summrise_url_policy_bg.wasm",
