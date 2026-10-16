@@ -117,3 +117,29 @@ node picks its home DERP by measured latency, and a region whose latency cannot 
 DERP that is unreachable for STUN might as well not exist"* — the STUN half is healthy and the **direct** half is not,
 which is precisely the state where every peer homes on the relay and none of them connects directly.
 
+## ROW 29, PINPOINTED — THE UPDATE PATH ASKS THE HUMAN TO COMPUTE WHAT THE CLI ALREADY KNOWS (round 95)
+
+**"安装完后还要我输入一堆命令不太合理"** — and the commands are not merely tedious, they are the ones the README says are
+WRONG on a device that is already set up. `agent/summrise-agent-npm/README.md` measures the failure: plain
+`npm i -g <url>` lands in npm's DEFAULT global prefix, which is not where `summrise` lives when the agent runs as
+SYSTEM; npm printed success, `summrise update` then ran the OLD CLI from the other prefix and staged the OLD exe, and
+**"the device quietly stayed on its previous release with no error anywhere."** The documented workaround is to type
+`--prefix (Split-Path (Get-Command summrise).Source)` — asking the human to compute the running binary's own directory.
+
+**AND `agent/summrise-cli/src/dispatch.rs` HANDS THAT SAME BARE COMMAND BACK AS THE REMEDY.** `update_decision` refuses
+when the CLI is behind the channel (correct — it cannot deliver a version it does not carry) and then prints:
+
+```
+Install the new CLI first, then update again:
+  npm i -g summrise-agent
+  summrise update
+```
+
+**on a device where that command is the documented silent-failure path.** The function's own signature is the proof that
+the fix is available: it already takes `layout: &Layout`, and the running CLI knows where it lives — **that is precisely
+what `Split-Path (Get-Command summrise).Source` asks the machine for, computed by the process that IS that binary.**
+
+**THE FIX, IN ONE SENTENCE**: the remedy must name the prefix the CLI is running from (or perform the install into it),
+so that a device whose CLI is behind can be brought forward by the ONE command it is told to run — and the test that
+already asserts this outcome's text is where the corrected sentence belongs.
+
