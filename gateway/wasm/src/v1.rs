@@ -240,10 +240,10 @@ pub async fn handle(mut req: Request, env: Env) -> Result<Response> {
             .iter()
             .map(|m| m.id)
             .collect();
-        let custom_ids: Vec<String> = custom
-            .iter()
-            .filter_map(|m| m.get("id").and_then(|i| i.as_str()).map(str::to_string))
-            .collect();
+        // **THE STORE ROWS ARE FILTERED BEFORE THEIR IDS ARE TAKEN** (2026-10-16): a row whose lifecycle says
+        // `deprecated` leaves `/v1/models`, and the curated registry ids below are filtered by `models:disabled`
+        // alone — the split the catalogue-lifecycle plan draws. See `model_store::advertised_row_ids`.
+        let custom_ids: Vec<String> = crate::model_store::advertised_row_ids(&custom);
         let provided = crate::store::advertised_provider_models(&providers);
         let provider_ids: Vec<String> = provided
             .iter()

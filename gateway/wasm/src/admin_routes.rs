@@ -152,10 +152,10 @@ pub async fn advertised_ids_for(env: &Env) -> Vec<String> {
             .iter()
             .map(summrise_core::text::js_string)
             .collect::<Vec<_>>(),
-        &custom
-            .iter()
-            .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
-            .collect::<Vec<_>>(),
+        // **THE FILTER RUNS ON THE ROWS, BEFORE THEIR IDS ARE TAKEN** (2026-10-16): a store row whose lifecycle says
+        // `deprecated` leaves the advertised set, and a curated row never comes through here (it is filtered by
+        // `models:disabled` alone). `advertised_row_ids` is that function and its own tests are in `model_store.rs`.
+        &crate::model_store::advertised_row_ids(&custom),
         &crate::store::advertised_provider_models(&providers)
             .iter()
             .map(|m| summrise_core::text::js_string(m.get("id").unwrap_or(&Value::Null)))
