@@ -75,3 +75,28 @@ question about ITS network — `tailscale ping desktop-9vh92bj` from that machin
 that single word decides whether this is a relay-capacity problem or a NAT problem on one Windows box. **Everything
 above was taken from the server side; the symptom lives on the client side.**
 
+### THE SECOND HALF, AND IT EXPLAINS BOTH HALVES (round 93, same box)
+
+`tailscale ping` to the three peers, from the Linux box that serves the console:
+
+| peer | path | RTT |
+|---|---|---|
+| `desktop-cph4kb2` (same LAN) | **direct** `192.168.102.99:41641` | **7 ms** |
+| `oracle-phx` (the relay's OWN host) | **DERP(phx)**, four of four, then `direct connection not established` | **201–217 ms** |
+| `desktop-14rjcr8` | **DERP(phx)**, four of four, `direct connection not established` | **384 ms** |
+
+**`oracle-phx` IS THE HOST OF THE `phx` RELAY** (`netcheck`: *"Nearest DERP: Phoenix (self-hosted, saisi)"*, and
+`status` shows `oracle-phx` offering the exit node). So this box's traffic to that node goes **me -> DERP(phx) ->
+oracle-phx**: the relay is relaying **to itself**, because no direct path exists. `desktop-14rjcr8`'s 384 ms is the
+same hop counted twice.
+
+**SO "oracle 节点访问异常" IS NOT AN ANOMALY IN THE NODE — IT IS THE ABSENCE OF A DIRECT PATH TO IT**, and everything
+that follows from that is the runbook's own warning: a relayed hop carries the whole conversation, and a peer 2 hops
+away from the relay is where a session dies. **The readings are consistent with one cause rather than two.**
+
+**WHAT IS LEFT TO CHECK, AND IT IS ONE PORT ON ONE BOX**: this side is not the problem (`UDP: true`,
+`MappingVariesByDestIP: false`). `oracle-phx` is a cloud VM whose UDP/41641 (WireGuard) is not answering — a firewall
+rule or a security-list entry — and the check is `ss -lunp | grep 41641` on that box plus a TCP/UDP reachability test
+from outside. **Until then the tailnet is silently paying a round trip through Phoenix for a conversation with
+Phoenix.**
+
