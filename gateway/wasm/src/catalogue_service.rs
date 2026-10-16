@@ -89,6 +89,58 @@ pub fn plan_run(
     (observation, writes)
 }
 
+/// Why a run did not happen. **A refusal, not an error**: the caller is a route that must answer somebody.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refused {
+    /// **ONLY THE TIMER MAY WRITE STATUS** — see `may_write_status`. The probe still answers; it just does not record.
+    NotTheTimer,
+}
+
+/// **THE RING FOR ONE CHANNEL**, under its own key: observations are per channel, because a listing is.
+pub fn ring_key(prefix: &str) -> String {
+    format!("models:catalogue:ring:{prefix}")
+}
+
+/// **ONE SCHEDULED RUN, END TO END, WITH THE FETCH DONE BY THE CALLER.**
+///
+/// The listing is a PARAMETER rather than something this function fetches, and that is the whole reason the chain is
+/// testable: `plan_run` (the decision), `apply_writes` (the effect) and `served_from` (the read policy) are all pure
+/// and covered, so what remains here is the KV plumbing a harness can drive with a stub. **A function that fetched
+/// its own listing could only ever be tested against a network.**
+///
+/// The order is deliberate: the REFUSAL comes first (nothing is read for a caller who may not write), then the rows,
+/// then the ring, then the decision, then one write. **A run that fails anywhere leaves the store untouched**: the
+/// rows are written once, from `apply_writes`, never row by row.
+pub async fn observe(
+    env: &worker::Env,
+    caller: Caller,
+    prefix: &str,
+    run_id: &str,
+    fetched: Option<Vec<String>>,
+) -> Result<crate::lifecycle::Observation, Refused> {
+    if !may_write_status(caller) {
+        return Err(Refused::NotTheTimer);
+    }
+    let now = crate::device_store::now_ms() / 1000;
+    let rows = crate::model_store::read_list(env, crate::model_store::CUSTOM_MODELS_KEY).await;
+    let key = ring_key(prefix);
+    let ring: Vec<crate::lifecycle::Observation> = crate::device_store::kv_text(env, &key)
+        .await
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+
+    let (observation, writes) = plan_run(&rows, prefix, fetched.as_deref(), &ring, now, run_id);
+    if !writes.is_empty() {
+        let after = apply_writes(&rows, &writes);
+        crate::model_store::write_list(env, crate::model_store::CUSTOM_MODELS_KEY, &after).await;
+    }
+    let history = crate::lifecycle::push(&ring, observation.clone());
+    if let Ok(text) = serde_json::to_string(&history) {
+        crate::device_store::kv_put(env, &key, &text, None).await;
+    }
+    Ok(observation)
+}
+
 /// **THE KV KEY THE CACHE LIVES UNDER** — beside the store's own (`models:custom`, `models:disabled`), because it is
 /// the same namespace and the same reader: an operator inspecting KV sees the catalogue where they see the rest.
 pub const CATALOGUE_KEY: &str = "models:catalogue";
