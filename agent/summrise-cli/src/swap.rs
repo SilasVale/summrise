@@ -44,14 +44,21 @@ use crate::update::{
 };
 use std::path::{Path, PathBuf};
 
-/// The SEVEN sources `stageDesktopShell` ships, and the two icons beside them.
+/// The EIGHT sources `stageDesktopShell` ships, and the two icons beside them.
 ///
 /// A LIST, because the swap script's own desktop loop copies the same files in the same order: the
 /// staging and the swap have to agree about what "the desktop shell's files" means, and the only way
 /// to make that structural is to have one list.
 ///
+/// **IT IS EIGHT AND NOT SEVEN SINCE THE BROWSER SESSIONS BECAME A MODULE.** The shell's `main.js`
+/// requires `./browser-sessions` now — the session table and the three operations an AI drives over IPC
+/// and the loopback control server, moved out of `main.ts` whole — so the swap has to carry that file
+/// too, for the reason the paragraph below records, one module over: a shell that received the new
+/// `main.js` and not `browser-sessions.js` dies on the device with
+/// `Cannot find module './browser-sessions'`.
+///
 /// **IT IS SEVEN AND NOT SIX SINCE THE EMBEDDED VIEW BECAME A MODULE.** The shell's `main.js` requires
-/// `./embedded-view` now — the embedded browser view's state and its eight operations, moved out of
+/// `./embedded-view` — the embedded browser view's state and its eight operations, moved out of
 /// `main.ts` whole — so the swap has to carry that file too. The failure is the one the paragraph below
 /// records, one module over: a shell that received the new `main.js` and not `embedded-view.js` dies on
 /// the device with `Cannot find module './embedded-view'`.
@@ -61,9 +68,10 @@ use std::path::{Path, PathBuf};
 /// `summrise_shell_policy.js` (6b), each requiring its own `.wasm`. A file that is staged but never
 /// copied into the shell's `src/` is a shell that dies on the device with
 /// `Cannot find module './summrise_shell_policy'`, so the two names have to travel together.
-pub const DESK_SHELL_SOURCES: [&str; 7] = [
+pub const DESK_SHELL_SOURCES: [&str; 8] = [
     "main.js",
     "embedded-view.js",
+    "browser-sessions.js",
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",

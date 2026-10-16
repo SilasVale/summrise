@@ -87,6 +87,13 @@ const summrise_shell_policy_1 = require("./summrise_shell_policy");
 // both to it in one `embeddedViewBind` call below. The IPC registrations stay HERE (see the block
 // above "THE DSH VIEW") because this file holds the ONE `ipcMain.handle` door.
 const embedded_view_1 = require("./embedded-view");
+// THE BROWSER-SESSION WINDOWS ARE THEIR OWN MODULE TOO. It owns the session table and the three
+// operations an AI drives; this file owns the load door every one of them opens through, the window
+// icon they share with the main window, and the cap's number — lent to it in one `browserSessionsBind`
+// call below. The IPC registrations and the three other call sites stay HERE: this file holds the ONE
+// `ipcMain.handle` door, and the loopback control server and the panel's `target=_blank` handler are
+// this file's routers, not the module's.
+const browser_sessions_1 = require("./browser-sessions");
 const K = JSON.parse((0, summrise_shell_policy_1.shellConstants)());
 // The handful the shell reads often enough that `K.` at every use site would be noise. They are still the
 // table's values — destructuring a copy of the parse, not a second declaration.
@@ -240,13 +247,6 @@ let win = null;
 let tray = null;
 /** Whether the hide-to-tray notification has been shown (once per launch). */
 let hideNotified = false;
-const browserSessions = new Map();
-/** Initial target per browser window — reuse matching uses this instead of
- *  webContents.getURL() (which lags during navigation; stage-n). */
-const browserTargets = new Map();
-/** Cap on concurrent browser-session windows — an AI loop opening sessions
- *  repeatedly must not pile up windows on the desktop (stage-n). The number is `K.MAX_BROWSER_WINDOWS`;
- *  the PLAN that applies it (reuse by initial target, then evict the oldest) is the policy crate's. */
 // stage-m: SINGLE-INSTANCE LOCK — a second Summrise window exits immediately.
 // (The agent itself also enforces single-instance via bind-failure exit.)
 const gotTheLock = electron_1.app.requestSingleInstanceLock();
@@ -388,77 +388,15 @@ function loadTarget(raw) {
 // above — the embedded view loads no URL any other way. This call is also why the section below could
 // move at all: those two facts stay this file's, and the view reads them through `deps()`.
 (0, embedded_view_1.embeddedViewBind)({ win: () => win, loadTarget });
-/** Open a browser-session window on a decided load target (loadTarget() is the
- *  ONE load door — the scheme policy lives there). */
-function browserOpen(url) {
-    const target = loadTarget(url);
-    // stage-n: reuse an existing window on the same URL instead of stacking duplicates (AI-driven
-    // browsing opens/closes sessions repeatedly). Match against the window's INITIAL target (stored at
-    // open) — webContents.getURL() lags during navigation (returns about:blank while loading), so a
-    // same-URL reopen right after the first open would otherwise miss the reuse and stack a duplicate.
-    //
-    // THE PLAN IS THE POLICY CRATE'S, in one call: which window to reuse (first non-destroyed match, in
-    // INSERTION order), and — when the cap is reached — which one to evict (the OLDEST, not the least
-    // recently used). This file only reads the session table and applies the answer. The `destroyed` flag
-    // travels with the row because a destroyed window is skipped for reuse while still COUNTING against
-    // the cap, which is what `browserSessions.size` did.
-    const plan = JSON.parse((0, summrise_shell_policy_1.planBrowserOpen)(JSON.stringify([...browserSessions].map(([id, bw]) => ({ id, target: browserTargets.get(id) ?? "", destroyed: bw.isDestroyed() }))), target, K.MAX_BROWSER_WINDOWS));
-    if (plan.reuse) {
-        const existing = browserSessions.get(plan.reuse);
-        if (existing) {
-            if (existing.isMinimized())
-                existing.restore();
-            existing.show();
-            existing.focus();
-            return { ok: true, id: plan.reuse, url: target, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
-        }
-    }
-    if (plan.evict)
-        browserClose(plan.evict);
-    const id = (0, summrise_shell_policy_1.browserId)(Date.now());
-    const bw = new electron_1.BrowserWindow({
-        width: 1100, height: 750, title: `Summrise Browser — ${target}`,
-        ...(windowIcon() ? { icon: windowIcon() } : {}),
-        // review #6/#7: these windows load ARBITRARY internet pages. contextIsolation
-        // on + nodeIntegration off + NO preload = zero Node/bridge surface (the
-        // default; made explicit). Popups are denied (they would otherwise spawn
-        // unmanaged windows outside the MAX_BROWSER_WINDOWS cap).
-        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-    });
-    bw.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    bw.loadURL(target);
-    bw.on("closed", () => { browserSessions.delete(id); browserTargets.delete(id); });
-    // stage-n: the window title starts as "Summrise Browser — <target>" but a
-    // site's own <title> is more useful after load (and after in-page
-    // navigation); follow it so window managers/taskbar show the real page.
-    bw.webContents.on("page-title-updated", (_e, title) => {
-        if (!bw.isDestroyed() && title)
-            bw.setTitle(`Summrise Browser — ${title}`);
-    });
-    browserSessions.set(id, bw);
-    browserTargets.set(id, target);
-    return { ok: true, id, url: target, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
-}
-function browserClose(id) {
-    const bw = browserSessions.get(id || "");
-    // review #g: close() is vetoable by a page's beforeunload — an arbitrary
-    // remote page could refuse eviction, so the MAX_BROWSER_WINDOWS cap never
-    // freed and browserOpen stalled. destroy() is unconditional (these are
-    // disposable, headless-driven windows).
-    if (bw) {
-        bw.destroy();
-        browserSessions.delete(id || "");
-        browserTargets.delete(id || "");
-    }
-    return { ok: true };
-}
-function browserList() {
-    const list = [...browserSessions.entries()].map(([id, bw]) => ({ id, url: bw.webContents.getURL() }));
-    return { ok: true, sessions: list, cdp: (0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT) };
-}
-ipcHandle("browser-session:open", (url) => browserOpen(url));
-ipcHandle("browser-session:close", (id) => browserClose(id));
-ipcHandle("browser-session:list", () => browserList());
+// The browser-session windows' seam, bound ONCE here (module load) and never re-bound. Three things
+// this file owns and the sessions do not: the ONE load door above (their every URL goes through it),
+// the window icon the main window also uses, and the cap's number from the boot table. `main.ts`
+// requiring the module and the module requiring `main.ts` would be a cycle, so they are lent instead,
+// and `browser-sessions.ts` reads them through its own `deps()`.
+(0, browser_sessions_1.browserSessionsBind)({ loadTarget, windowIcon, maxBrowserWindows: K.MAX_BROWSER_WINDOWS });
+ipcHandle("browser-session:open", (url) => (0, browser_sessions_1.browserOpen)(url));
+ipcHandle("browser-session:close", (id) => (0, browser_sessions_1.browserClose)(id));
+ipcHandle("browser-session:list", () => (0, browser_sessions_1.browserList)());
 // ── THE EMBEDDED VIEW'S IPC — THE REGISTRATIONS STAY HERE ──────────────────────────────────
 // The view itself (its state and its eight operations) is `embedded-view.ts` now. These lines do
 // NOT go with it: this file holds the ONE `ipcMain.handle` door — `ipcHandle` applies the frame
@@ -856,9 +794,9 @@ const httpServer = http.createServer((req, res) => {
         // guard (a POST reaches the same reader), while `/open`, `/close` and `/start-agent` require POST and
         // a GET to one of them falls through to the 404.
         switch ((0, summrise_shell_policy_1.controlRoute)(req.method ?? "", pathname)) {
-            case "browser-open": return send(browserOpen((0, summrise_shell_policy_1.controlQuery)(req.url, "url") || K.ABOUT_BLANK));
-            case "browser-close": return send(browserClose((0, summrise_shell_policy_1.controlQuery)(req.url, "id") || ""));
-            case "browser-list": return send(browserList());
+            case "browser-open": return send((0, browser_sessions_1.browserOpen)((0, summrise_shell_policy_1.controlQuery)(req.url, "url") || K.ABOUT_BLANK));
+            case "browser-close": return send((0, browser_sessions_1.browserClose)((0, summrise_shell_policy_1.controlQuery)(req.url, "id") || ""));
+            case "browser-list": return send((0, browser_sessions_1.browserList)());
             case "start-agent": return (async () => send(await startAgentTask()))();
             case "agent-status": return (async () => send({ ok: true, running: await agentResponds(CONTROL_PROBE_MS) }))();
             case "icon-status": return send({ ok: true, icons: iconReport,
@@ -1013,7 +951,7 @@ if (gotTheLock) {
         // review #7: a target=_blank from the SPA must NOT get a preload-bearing
         // window; route it to a sandboxed browser session instead.
         win.webContents.setWindowOpenHandler(({ url }) => {
-            browserOpen(url);
+            (0, browser_sessions_1.browserOpen)(url);
             return { action: "deny" };
         });
         // stage-n: load /desktop/ only when the agent is actually listening.
@@ -1395,11 +1333,7 @@ electron_1.app.on("before-quit", () => {
     electron_1.app.isQuitting = true;
     // stage-n: close every browser-session window explicitly — app.quit()
     // tears down the main window but independent BrowserWindows with pending
-    // beforeunload handlers can stall or leak on exit.
-    for (const [id, bw] of browserSessions) {
-        if (!bw.isDestroyed())
-            bw.destroy();
-        browserSessions.delete(id);
-        browserTargets.delete(id);
-    }
+    // beforeunload handlers can stall or leak on exit. The sweep itself lives with the
+    // table it walks (`browser-sessions.ts`), which is why this is a call and not a loop.
+    (0, browser_sessions_1.browserCloseAll)();
 });
