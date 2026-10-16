@@ -482,6 +482,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     not_found()
 }
 
+pub mod catalogue;
 pub mod access;
 pub mod admin_routes;
 pub mod auth;

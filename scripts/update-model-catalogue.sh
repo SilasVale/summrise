@@ -66,6 +66,45 @@ if mode == "--probe":
                 if field in one:
                     print(f"      {field} = {json.dumps(one[field])[:160]}")
     sys.exit(0)
-print("extraction is not implemented yet — run with --probe and read the schema first", file=sys.stderr)
-sys.exit(2)
+# ── THE MAPPING, WRITTEN AGAINST THE SCHEMA AS IT WAS READ (2026-10-16) ─────────────────────────────
+#
+# Read from the live document with `--probe`, not from memory: a model carries `cost{input,output,…}`,
+# `limit{context,output,…}`, `modalities{input:[…],output:[…]}`, `status` and a `name`. **THE PLAN'S SIXTH FACT HAS
+# NO SOURCE**: it says "`Shape` from `provider.shape`", and a provider in this document carries `api` (a URL), `doc`,
+# `env`, `id`, `models`, `name`, `npm` (an SDK package) — **there is no shape field**, and neither the provider nor
+# the model says whether a model answers `completions` or `responses`. The slice therefore omits it rather than
+# inventing one, because `None` is what "the source does not say" means and a guessed dialect is how a row gets
+# adopted onto the wrong arm.
+def facts(model):
+    cost = model.get("cost") or {}
+    limit = model.get("limit") or {}
+    modalities = model.get("modalities") or {}
+    inputs = modalities.get("input") or []
+    return {
+        "input_cost": cost.get("input"),
+        "output_cost": cost.get("output"),
+        "context": limit.get("context"),
+        "output": limit.get("output"),
+        "status": model.get("status"),
+        "vision": "image" in inputs,
+    }
+
+out_dir = "gateway/wasm/src/catalogue"
+os.makedirs(out_dir, exist_ok=True)
+for name, provider in providers.items():
+    models = provider.get("models") or {}
+    rows = []
+    for model_id, model in models.items():
+        if not isinstance(model_id, str) or not model_id or "/" in model_id or model_id.startswith("."):
+            continue
+        row = {"id": model_id}
+        row.update(facts(model))
+        rows.append(row)
+    rows.sort(key=lambda r: r["id"])
+    path = os.path.join(out_dir, f"{name}.json")
+    with open(path, "w", encoding="utf8") as handle:
+        json.dump(rows, handle, indent=2, ensure_ascii=True, sort_keys=False)
+        handle.write("\n")
+    size = os.path.getsize(path)
+    print(f"{path}: {len(rows)} rows, {size} bytes")
 PY
