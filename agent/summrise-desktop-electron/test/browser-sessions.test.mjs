@@ -148,15 +148,24 @@ function loadBrowserSessions(electron) {
  *  policy's `sanitizeBrowserUrl`, wrapped so the test can see the RAW string the module handed it, and
  *  `windowIcon` is a stub this test chooses per case.
  *
- *  `Date.now` IS STUBBED FOR THE DURATION OF THE CALL, AND THAT IS NOT CONVENIENCE. The module stamps
+ *  `Date.now` IS STUBBED FOR THE DURATION OF EVERY CALL, AND THAT IS NOT CONVENIENCE. The module stamps
  *  each window's id with `browserId(Date.now())`, and the crate answers `browser-<ms>` — so two opens
  *  inside ONE millisecond collide on one id and the second overwrites the first in the session table.
  *  A test that opened eight windows in a tight loop therefore measured a table of ONE and proved
- *  nothing about the cap (the failure this file's first draft had). The clock below hands out a fresh
- *  millisecond per open, which is what a real operator's opens do, and the collision itself is pinned
- *  deliberately in its own case at the end rather than left to decide the others. The patch is restored
- *  in a `finally`, so no other test in the run can observe it. */
-function boundModule({ icon = "", clock = true } = {}) {
+ *  nothing about the cap (the failure this file's first draft had). The patch is restored in a
+ *  `finally`, so no other test in the run can observe it.
+ *
+ *  THE CLOCK IS A MODE, AND NO MODE LEAVES THE REAL CLOCK IN PLACE — that absence is the point.
+ *  `"step"` (the default) hands a fresh millisecond to each open, which is what a real operator's opens
+ *  do, and it is what the cap and eviction cases need: they measure the CAP, not the collision, and a
+ *  clock that let two of their opens collide would shrink the table they are counting. `"frozen"` hands
+ *  the SAME millisecond to every open in the case, which FORCES the collision the last case is named
+ *  for. The mode this replaced was a boolean whose `false` ran on the real clock, and the collision case
+ *  took it — so whether the two opens shared a millisecond was decided by how long `browserOpen` took to
+ *  run. That held on a warm local process and failed in CI (`browser-…588` against `…589`, a real
+ *  millisecond apart). A case whose subject is a collision has to MAKE one; the real clock is not an
+ *  instrument. An unknown mode throws here rather than falling through to it. */
+function boundModule({ icon = "", clock = "step" } = {}) {
   const shell = fakeElectron();
   const mod = loadBrowserSessions(shell.electron);
   const asked = [];
@@ -165,18 +174,26 @@ function boundModule({ icon = "", clock = true } = {}) {
     windowIcon: () => icon,
     maxBrowserWindows: CAP,
   });
+  if (clock !== "step" && clock !== "frozen") {
+    throw new Error(`unknown clock mode ${JSON.stringify(clock)} — "step" and "frozen" are the only two, and neither leaves the real clock in place`);
+  }
+  const real = Date.now;
+  // Read ONCE from the real clock, so a frozen id still looks like one a device minted rather than a
+  // number this file invented. It is the value the `"frozen"` case asserts against, which is what makes
+  // that case's guard a claim about the module rather than about its own arithmetic.
+  const FROZEN_MS = real.call(Date);
   let tick = 0;
+  // STRICTLY INCREASING, and seeded from the real clock so the id still looks like one a device would
+  // mint. A counter that merely added 1 to its own previous value could not move forward twice inside
+  // one real millisecond, which is exactly the collision this mode exists to step around.
+  const stamp = clock === "frozen"
+    ? () => FROZEN_MS
+    : () => { tick = Math.max(tick + 1, real.call(Date) + 1); return tick; };
   const open = (url) => {
-    if (!clock) return mod.browserOpen(url);
-    const real = Date.now;
-    // STRICTLY INCREASING, and seeded from the real clock so the id still looks like one a device would
-    // mint. A counter that merely added 1 to its own previous value could not move forward twice inside
-    // one real millisecond, which is exactly the collision this clock exists to step around.
-    tick = Math.max(tick + 1, real.call(Date) + 1);
-    Date.now = () => tick;
+    Date.now = stamp;
     try { return mod.browserOpen(url); } finally { Date.now = real; }
   };
-  return { ...shell, mod, asked, open };
+  return { ...shell, mod, asked, open, FROZEN_MS };
 }
 
 test("an unbound module throws from the operation that needs the host, and still answers reads of an empty table", () => {
@@ -422,9 +439,17 @@ test("two opens inside ONE millisecond collide on the crate's id, and the sweep 
   // the second `set()` overwrites the first, and the first window becomes unreachable: nothing can
   // reuse, close or sweep it. This case PINS TODAY'S BEHAVIOUR rather than endorsing it; the day the id
   // gets a counter or a random suffix, these assertions are the ones to flip, and the name is why.
-  const { mod, open, windows } = boundModule({ clock: false });
+  //
+  // THE MILLISECOND IS FORCED, NOT HOPED FOR. This case used to bind with `clock: false`, i.e. the real
+  // clock, and assert the two ids came out EQUAL — a claim about how fast two `browserOpen` calls run.
+  // It held on this development box and failed in CI, where a millisecond ticked between the opens and
+  // the ids came out `browser-…588` and `…589`. `"frozen"` makes the subject of the case true by
+  // construction, and the `guard:` below proves the frozen millisecond is what stamped BOTH ids, so the
+  // case still cannot pass by measuring nothing.
+  const { mod, open, windows, FROZEN_MS } = boundModule({ clock: "frozen" });
   const first = open("https://example.com/a");
   const second = open("https://example.com/b");
+  assert.equal(first.id, policy.browserId(FROZEN_MS), "guard: the crate stamps the id from the millisecond the clock held still on, so the two opens really do share one");
   assert.equal(first.id, second.id, "the collision is the crate's id being millisecond-stamped and nothing else");
   assert.equal(windows.length, 2, "two windows really were built — the collision is in the TABLE, not in BrowserWindow");
   assert.equal(mod.browserList().sessions.length, 1, "so the table keeps the newer window and silently drops the older");
