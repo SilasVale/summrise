@@ -351,12 +351,56 @@ fn nav_loud(entry: &str) -> bool {
 ///
 /// `report` is `&Value` rather than `&mut Value` on purpose: the JS judge writes into `report.notes` and
 /// nothing reads it (see the module header), so this hands those lines back instead of mutating its input.
+///
+/// THE BODY IS NOW THE LIST OF JUDGEMENTS IT MAKES, IN ORDER. Every `// ── NAME ──` section this function
+/// used to hold is a clause function of its own ([`judge_surfaces`] … [`judge_exemptions`]), called here
+/// exactly where the JavaScript pushed its findings — THE ORDER IS THE OUTPUT, so nothing below sorts and
+/// nothing may be reordered. Each clause takes explicit parameters IN A CANONICAL ORDER (`report`, `opts`,
+/// `lines`, `findings`, `report_notes`) that keep the EXACT NAMES of the locals they replace, so every
+/// clause body is the code that stood here, byte for byte. A context struct would have bought nothing and
+/// hidden which clause touches what — the same reason the sibling `agent/sweep-judge/src/report.rs` used
+/// explicit parameters rather than a `JudgeCx`.
 pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
     let mut findings: Vec<String> = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     let mut report_notes: Vec<String> = Vec::new();
-    let mut suppressed: Vec<(String, String)> = Vec::new();
 
+    // ── THE JUDGEMENTS, IN THE ORDER THEY ARE MADE ───────────────────────────────────────────────────
+    // Every clause appends to `findings` — or to `report_notes`, which nothing prints — and writes its own
+    // `note:` lines as it goes. The body of each clause is the function named after it, below.
+    judge_surfaces(report, opts, &mut findings, &mut report_notes);
+    judge_accessible_names(report, &mut findings);
+    judge_provenance(report, &mut lines, &mut findings);
+    judge_focus(report, &mut lines, &mut findings);
+    judge_press(report, &mut lines, &mut findings);
+    judge_acknowledgement(report, &mut lines, &mut findings);
+    judge_target_size(report, &mut lines, &mut findings);
+    judge_read_failure_claims(report, &mut lines, &mut findings);
+    judge_idle_repaint(report, &mut findings, &mut report_notes);
+    judge_reduced_motion(report, &mut findings);
+    judge_unstyled(report, opts, &mut lines, &mut findings);
+    judge_type_floor(report, &mut findings);
+    judge_unmeasurable_floor(report, opts, &mut findings);
+    judge_hover(report, &mut findings);
+    judge_delivered_push(report, &mut findings);
+    judge_reflow(report, &mut lines, &mut findings);
+    let kept = judge_exemptions(opts, &mut lines, &findings);
+
+    JudgeOutcome {
+        findings: kept,
+        lines,
+        report_notes,
+    }
+}
+
+/// The surface's own claims: headings, landmarks, navigation, overflow, the prose measure, the
+/// mark language, the unreadable-colour note and the one-focal-point ceiling.
+fn judge_surfaces(
+    report: &Value,
+    opts: &JudgeOptions,
+    findings: &mut Vec<String>,
+    report_notes: &mut Vec<String>,
+) {
     // ── SURFACES ─────────────────────────────────────────────────────────────────────────────────────
     for s in list(report.get("surfaces")) {
         let where_ = if truthy(s.get("width")) {
@@ -478,7 +522,10 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// Controls with NO accessible name, and controls named only by `title`.
+fn judge_accessible_names(report: &Value, findings: &mut Vec<String>) {
     // ── ACCESSIBLE NAMES ─────────────────────────────────────────────────────────────────────────────
     for n in list(report.get("names")) {
         let where_ = format!(
@@ -507,7 +554,11 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// WHICH HARNESS GENERATION WAS MEASURED: the build stamp, the delivered entry checked against
+/// it, and the stale-fixture finding that says every measurement below is of another panel.
+fn judge_provenance(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── PROVENANCE ───────────────────────────────────────────────────────────────────────────────────
     // WHICH HARNESS GENERATION WAS MEASURED. A fixture older than the build it should match reports
     // findings that look live, so the stamp travels in the report and is printed here.
@@ -551,7 +602,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             jsf(report.get("expectedHarnessBuild"))
         ));
     }
+}
 
+/// Focus, judged against the pixels: the note where paint overruled computed style, focus
+/// candidates the check could not confirm, Tab stops with no visible ring, and a walk that
+/// landed nowhere.
+fn judge_focus(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── FOCUS ────────────────────────────────────────────────────────────────────────────────────────
     let focus = list(report.get("focus"));
     let paint_total: f64 = focus
@@ -616,7 +672,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// A press that renders nothing on a control the pointer REACHED (a row it never reached is not
+/// a control that ignored a press), the pass's own notes, and the floor under how many controls
+/// it measured — derived from what the page HAD rather than from a constant.
+fn judge_press(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── THE PRESS ────────────────────────────────────────────────────────────────────────────────────
     // A PRESS THAT RENDERS NOTHING IS A CONTROL THAT DOES NOT ANSWER — and ONLY WHERE THE POINTER
     // ARRIVED: a row the pass could not deliver a press to is not a control that ignored one, which is the
@@ -700,7 +761,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// IMMEDIATE FEEDBACK HAS A BUDGET: the page with no request counter (an unmeasured premise is
+/// a failure, not a footnote), the rows that asked the device nothing, the acknowledgement window
+/// and a pass that saw none of them acknowledge.
+fn judge_acknowledgement(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── THE ACKNOWLEDGEMENT ──────────────────────────────────────────────────────────────────────────
     // IMMEDIATE FEEDBACK HAS A BUDGET, and the clause belongs to the REPORT SHAPE rather than to a UI: it
     // lived in the panel's sweep once, so the console's rows — a third of that sweep's runtime — were
@@ -780,7 +846,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// TARGET SIZE, IN ONE PLACE (WCAG 2.5.8): the spacing clause, the full rule, and the nested
+/// targets NAMED in a note rather than enforced — a nested control's circle is inside its
+/// container by construction, which is a different question.
+fn judge_target_size(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── TARGET SIZE, IN ONE PLACE (WCAG 2.5.8) ───────────────────────────────────────────────────────
     // It lived in THREE judges with three slightly different sentences, so one page judged by two sweeps
     // got two verdicts. THE TWO HALVES, and why containment is not one of them: `passesBySpacing` is
@@ -851,7 +922,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// A surface may not claim a read failed when the fixture ANSWERED every call — and a report
+/// that declares nothing about what it served is not judged on this axis at all, which it says
+/// once.
+fn judge_read_failure_claims(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── A SURFACE MAY NOT CLAIM A READ FAILED WHEN THE FIXTURE ANSWERED EVERY CALL ───────────────────
     // THE PREMISE HAS TO HOLD BEFORE THE CLAUSE APPLIES: a claim is only FALSE where a fixture ANSWERED.
     // The console has no backend at all — its sweep serves a static build, every API call fails for real,
@@ -911,7 +987,12 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             lines.push(format!("  {w}"));
         }
     }
+}
 
+/// DOM mutations on a settled page: the observer's own probe mutation (a blind instrument
+/// reports a still panel forever), the clocks exempt by name with their reason, and the repaints
+/// of unchanged output, which are the finding.
+fn judge_idle_repaint(report: &Value, findings: &mut Vec<String>, report_notes: &mut Vec<String>) {
     // ── IDLE REPAINT ─────────────────────────────────────────────────────────────────────────────────
     // DOM mutations on a settled page under STATIC fixtures: React writes to the DOM only when the output
     // differs, so nothing changing means nothing written. The observer proves it is alive by seeing one
@@ -975,7 +1056,11 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             }
         }
     }
+}
 
+/// REDUCED MOTION IS A CONTRACT, NOT A COURTESY: elements that still animate under the
+/// preference, and a check that found nothing to suppress, which proves nothing.
+fn judge_reduced_motion(report: &Value, findings: &mut Vec<String>) {
     // ── REDUCED MOTION IS A CONTRACT, NOT A COURTESY ─────────────────────────────────────────────────
     for m in list(report.get("motion")) {
         let still = if truthy(m.get("stillAnimating")) {
@@ -998,7 +1083,17 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// A class the page renders that no rule styles: the ones declared unstyled by design, the
+/// live ones (on screen, matched by nothing), the sheets that could not be read, the floor under
+/// the scan, and the declared exemptions this run never needed.
+fn judge_unstyled(
+    report: &Value,
+    opts: &JudgeOptions,
+    lines: &mut Vec<String>,
+    findings: &mut Vec<String>,
+) {
     // ── A CLASS THE PAGE RENDERS THAT NO RULE STYLES ─────────────────────────────────────────────────
     let declared_implicit: Vec<&String> = opts.implicit_states.iter().map(|(c, _)| c).collect();
     let mut seen_implicit: Vec<&String> = Vec::new();
@@ -1083,7 +1178,11 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             }
         }
     }
+}
 
+/// THE TYPE FLOOR, IN THE RENDERED PAGE: a row under 10px that is not a graphic. A token being
+/// 10px and the rendered text being 10px are different claims.
+fn judge_type_floor(report: &Value, findings: &mut Vec<String>) {
     // ── THE TYPE FLOOR, IN THE RENDERED PAGE ─────────────────────────────────────────────────────────
     // A token being 10px and the rendered text being 10px are different claims, and only the second one is
     // what a reader experiences.
@@ -1113,10 +1212,19 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
+
+/// A SCAN THAT COULD NOT READ MOST OF THE PAGE IS NOT A CLEAN SCAN: the share of rows the probe
+/// could not measure at all, against the caller's floor (10% when it states none).
+fn judge_unmeasurable_floor(report: &Value, opts: &JudgeOptions, findings: &mut Vec<String>) {
     // A SCAN THAT COULD NOT READ MOST OF THE PAGE IS NOT A CLEAN SCAN. Rows the probe cannot measure are
     // excluded from judgement — correctly, since guessing at them is how a probe starts lying — but an
     // excluded row must not be able to make a report exit 0 while having judged almost nothing.
     {
+        // `rows` is read off the report again rather than carried across the seam: `list` is a
+        // lookup on the report, so this is the same slice the type-floor clause walked, and both
+        // clauses stay functions of the report alone.
+        let rows = list(report.get("rows"));
         let blind = rows
             .iter()
             .filter(|r| match r.get("cr") {
@@ -1138,6 +1246,11 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
+
+/// The hover axis: an entry this judge cannot read is REFUSED rather than skipped (a stale
+/// report must not read as a clean one), and the rows under their entry's own rule are named.
+fn judge_hover(report: &Value, findings: &mut Vec<String>) {
     for h in list(report.get("hover")) {
         let where_ = format!("{}/{}", or_q(h.get("density")), or_q(h.get("theme")));
         // A REPORT IN THE OLD SHAPE IS REFUSED, NOT SKIPPED, exactly as the standalone judge refuses it:
@@ -1160,10 +1273,20 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// THE HARNESS DELIVERED THE PUSH, OR THE MEASUREMENT IS OF ANOTHER PANEL: the rows rendering
+/// "Sessions unavailable" on a surface whose fixture did not report the failure, and the SSE
+/// streams the harness never opened.
+fn judge_delivered_push(report: &Value, findings: &mut Vec<String>) {
     // ── THE HARNESS DELIVERED THE PUSH, OR THE MEASUREMENT IS OF ANOTHER PANEL ───────────────────────
     // Two signals, one fact: the flag says what the fixture did, and the panel's own sentence says what it
     // concluded from it — so a fixture that lies about itself would have to lie in both places.
+    // `rows` and `sse` are read off the report again rather than carried across the seam: both are
+    // lookups on the report, so these are the same slices the type-floor and read-failure clauses
+    // judged, and every clause stays a function of the report alone.
+    let rows = list(report.get("rows"));
+    let sse = list(report.get("sse"));
     for row in rows {
         if !jsf(row.get("text"))
             .to_lowercase()
@@ -1195,7 +1318,11 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// 1.4.10 reflow at each width: the document scrolling sideways, what widens it, what spills out
+/// of its own box, what is clipped with no way to reach it, and the terminal grid behind them.
+fn judge_reflow(report: &Value, lines: &mut Vec<String>, findings: &mut Vec<String>) {
     // ── REFLOW ───────────────────────────────────────────────────────────────────────────────────────
     for r in list(report.get("reflow")) {
         let width = jsf(r.get("width"));
@@ -1254,14 +1381,24 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
             ));
         }
     }
+}
 
+/// WHICH EXEMPTIONS THIS RUN ACTUALLY NEEDED: the findings that survive, in push order, the
+/// entries that matched nothing (undeclared ones are weight and say so; dormant ones are
+/// reported as declared), and one line per finding that was set aside.
+fn judge_exemptions(
+    opts: &JudgeOptions,
+    lines: &mut Vec<String>,
+    findings: &[String],
+) -> Vec<String> {
     // ── EXEMPTIONS: WHICH ONES THIS RUN ACTUALLY NEEDED ──────────────────────────────────────────────
     // An exemption nothing needs is weight in the one list a reader consults, and the panel spent rounds
     // discovering that the hard way (a waiver for `/^div\.rail-dot$/` had matched nothing since a selector
     // changed). Counted here because this is the only place that knows.
+    let mut suppressed: Vec<(String, String)> = Vec::new();
     let mut used: Vec<usize> = Vec::new();
     let mut kept: Vec<String> = Vec::new();
-    for f in &findings {
+    for f in findings {
         let rule = opts
             .ignore
             .iter()
@@ -1310,12 +1447,7 @@ pub fn judge_report(report: &Value, opts: &JudgeOptions) -> JudgeOutcome {
     for (finding, reason) in &suppressed {
         lines.push(format!("note: set aside ({reason}) — {finding}"));
     }
-
-    JudgeOutcome {
-        findings: kept,
-        lines,
-        report_notes,
-    }
+    kept
 }
 
 /// How a sweep reports its result, so three tools read the same way.
