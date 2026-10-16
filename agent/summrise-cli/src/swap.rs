@@ -44,19 +44,26 @@ use crate::update::{
 };
 use std::path::{Path, PathBuf};
 
-/// The SIX sources `stageDesktopShell` ships, and the two icons beside them.
+/// The SEVEN sources `stageDesktopShell` ships, and the two icons beside them.
 ///
 /// A LIST, because the swap script's own desktop loop copies the same files in the same order: the
 /// staging and the swap have to agree about what "the desktop shell's files" means, and the only way
 /// to make that structural is to have one list.
+///
+/// **IT IS SEVEN AND NOT SIX SINCE THE EMBEDDED VIEW BECAME A MODULE.** The shell's `main.js` requires
+/// `./embedded-view` now — the embedded browser view's state and its eight operations, moved out of
+/// `main.ts` whole — so the swap has to carry that file too. The failure is the one the paragraph below
+/// records, one module over: a shell that received the new `main.js` and not `embedded-view.js` dies on
+/// the device with `Cannot find module './embedded-view'`.
 ///
 /// **IT IS SIX AND NOT FOUR SINCE LANDING 6b, AND THE REASON IS THE FAILURE THIS COMMENT WARNS ABOUT.**
 /// The shell's `main.js` requires TWO policy glues now — `summrise_url_policy.js` (landing 6a) and
 /// `summrise_shell_policy.js` (6b), each requiring its own `.wasm`. A file that is staged but never
 /// copied into the shell's `src/` is a shell that dies on the device with
 /// `Cannot find module './summrise_shell_policy'`, so the two names have to travel together.
-pub const DESK_SHELL_SOURCES: [&str; 6] = [
+pub const DESK_SHELL_SOURCES: [&str; 7] = [
     "main.js",
+    "embedded-view.js",
     "preload.js",
     "summrise_url_policy.js",
     "summrise_url_policy_bg.wasm",

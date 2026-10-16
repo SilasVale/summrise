@@ -12,9 +12,16 @@
 //   * `ipcMain.handle` is called exactly ONCE — inside the door helper, which applies the frame check;
 //   * a forbidden frame gets ONE refusal shape, `{ ok: false, error: "forbidden frame" }` — never the
 //     bare `{ ok: false }` the SPA cannot tell apart from a dead view;
-//   * the channels the preload invokes and the channels main.ts registers are the SAME set, so a
+//   * the channels the preload invokes and the channels the SHELL registers are the SAME set, so a
 //     handler cannot appear without a caller or a caller without a handler;
 //   * `sanitizeBrowserUrl` is called exactly ONCE — inside the one load door.
+//
+// **"THE SHELL" IS TWO FILES SINCE THE EMBEDDED VIEW MOVED INTO ITS OWN** (`src/embedded-view.ts`,
+// which holds the view's state and its eight operations; `main.ts` keeps the window, the load door and
+// every `ipcHandle` registration, because the door has to stay the only one). The properties above are
+// about the SHELL, so the scans below read BOTH files: a rule that looked at `main.ts` alone would go
+// blind to a load site or a channel registration moved one file over — the drift these checks exist to
+// catch.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -23,6 +30,7 @@ import assert from "node:assert/strict";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAIN = path.join(HERE, "..", "src", "main.ts");
+const VIEW = path.join(HERE, "..", "src", "embedded-view.ts");
 const PRELOAD = path.join(HERE, "..", "src", "preload.ts");
 
 /** The source with comments removed — a rule about CODE must not be satisfied or broken by prose
@@ -80,13 +88,20 @@ function functionBody(code, declaration) {
 
 const matches = (code, re) => [...code.matchAll(re)].map((m) => m[1] ?? m[0]);
 
-test("main.ts calls ipcMain.handle exactly once — inside the door helper", () => {
-  const code = codeOnly(readFileSync(MAIN, "utf8"));
+/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the embedded
+ *  view's module. Every property below is about the shell rather than about one file, and the join is
+ *  on "\n" so a rule cannot match across the seam. */
+function shellSource() {
+  return [MAIN, VIEW].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
+}
+
+test("the shell calls ipcMain.handle exactly once — inside the door helper", () => {
+  const code = shellSource();
   const handles = matches(code, /ipcMain\.handle\s*\(/g);
   assert.equal(
     handles.length,
     1,
-    `main.ts must call ipcMain.handle exactly ONCE (found ${handles.length}) — a handler registered outside the door does its own frame check, or none, silently`,
+    `the shell must call ipcMain.handle exactly ONCE (found ${handles.length}) — a handler registered outside the door does its own frame check, or none, silently`,
   );
   // The frame check exists in TWO code places, and both are the door: the predicate's definition and
   // its single call. A third use would mean a handler gated itself.
@@ -132,9 +147,11 @@ test("main.ts calls ipcMain.handle exactly once — inside the door helper", () 
 
 test("the channels the preload invokes are exactly the channels the door registers", () => {
   const preload = codeOnly(readFileSync(PRELOAD, "utf8"));
-  const main = codeOnly(readFileSync(MAIN, "utf8"));
+  // The shell, not `main.ts` alone: the registrations live in `main.ts` today, but a rule that named
+  // one file would silently stop covering them the day one moves.
+  const shell = shellSource();
   const invoked = matches(preload, /ipcRenderer\.invoke\(\s*"([^"]+)"/g);
-  const handled = matches(main, /ipcHandle\(\s*"([^"]+)"/g);
+  const handled = matches(shell, /ipcHandle\(\s*"([^"]+)"/g);
   assert.ok(invoked.length > 0, "the preload must invoke at least one channel");
   assert.deepEqual(
     handled.slice().sort(),
@@ -143,18 +160,19 @@ test("the channels the preload invokes are exactly the channels the door registe
   );
 });
 
-test("main.ts decides every raw browser URL in exactly one place", () => {
-  const code = codeOnly(readFileSync(MAIN, "utf8"));
+test("the shell decides every raw browser URL in exactly one place", () => {
+  const code = shellSource();
   const calls = matches(code, /sanitizeBrowserUrl\s*\(/g);
   assert.equal(
     calls.length,
     1,
-    `main.ts must call sanitizeBrowserUrl exactly ONCE (found ${calls.length}) — the load door owns the policy, so a new load site cannot pick a weaker one`,
+    `the shell must call sanitizeBrowserUrl exactly ONCE (found ${calls.length}) — the load door owns the policy, so a new load site cannot pick a weaker one`,
   );
   const door = functionBody(code, "function loadTarget");
   assert.ok(door.includes("sanitizeBrowserUrl"), "the load door must be the call site of sanitizeBrowserUrl");
-  // The door is USED, not merely declared: its own declaration plus the three load sites
-  // (browserOpen, the embedded view's window-open handler, embeddedNavigate).
+  // The door is USED, not merely declared: its own declaration plus the three load sites — browserOpen
+  // in `main.ts`, and the embedded view's window-open handler and `embeddedNavigate` in its module.
+  // The count is over the SHELL's sources, which is why it is still four after the move.
   const uses = matches(code, /loadTarget\s*\(/g);
   assert.ok(
     uses.length >= 4,
