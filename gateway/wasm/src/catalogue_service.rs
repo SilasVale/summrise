@@ -141,6 +141,34 @@ pub fn served_from(cached: Option<&str>, now: i64) -> Served {
     }
 }
 
+/// **APPLY A RUN'S WRITES TO THE STORE ROWS — the pure half of the timer's only side effect.**
+///
+/// Three rules, and each is about what a run is NOT allowed to do:
+///
+///   * **a write for an id the store does not carry is IGNORED**, not appended. An observation may conclude about a
+///     row that exists; it may not CREATE one, because the catalogue slice is a third party's data and the store is
+///     what an operator approved. (Adoption is the path that adds rows, and it goes through `catalogue::adoptable`.)
+///   * **the order is the store's**, because the listing's order is part of its bytes — a run that reordered the
+///     store would change `/v1/models` while claiming to have changed nothing.
+///   * **everything else about a row is carried**, which is `with_lifecycle`'s job: the run writes the lifecycle and
+///     touches no other field, so a row's `ownedBy`, its `wire` and anything a person put there survive.
+pub fn apply_writes(
+    rows: &[serde_json::Value],
+    writes: &[(String, crate::model_store::Lifecycle)],
+) -> Vec<serde_json::Value> {
+    rows.iter()
+        .map(|row| {
+            let Some(id) = row.get("id").and_then(|v| v.as_str()) else {
+                return row.clone();
+            };
+            match writes.iter().find(|(written, _)| written == id) {
+                Some((_, lifecycle)) => crate::model_store::with_lifecycle(row, lifecycle),
+                None => row.clone(),
+            }
+        })
+        .collect()
+}
+
 /// **WHO IS ASKING TO WRITE A ROW'S LIFECYCLE.** The distinction is the plan's fifth review focus, and it is not
 /// about permissions: it is about what an answer MEANS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +220,51 @@ pub fn source_for(cached_at: Option<i64>, now: i64) -> Source {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A RUN WRITES THE LIFECYCLE AND NOTHING ELSE, IN THE STORE'S OWN ORDER** — and it cannot invent a row.
+    #[test]
+    fn a_run_updates_the_rows_it_knows_and_adds_none() {
+        let rows = serde_json::json!([
+            {"id": "og/a", "ownedBy": "opencode", "wire": "a"},
+            {"id": "og/b", "ownedBy": "opencode"},
+            {"odd": "no id at all"},
+        ]);
+        let writes = vec![
+            (
+                "og/b".to_string(),
+                crate::model_store::Lifecycle {
+                    status: crate::model_store::Status::Deprecated,
+                    verified_at: Some(5),
+                    verified_by: Some("run-1".to_string()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "og/never-seen".to_string(),
+                crate::model_store::Lifecycle {
+                    status: crate::model_store::Status::Deprecated,
+                    ..Default::default()
+                },
+            ),
+        ];
+        let after = apply_writes(rows.as_array().unwrap(), &writes);
+        assert_eq!(after.len(), 3, "a write must never append a row");
+        assert_eq!(after[0]["id"], "og/a", "the store's order is kept");
+        assert!(
+            after[0].get("status").is_none(),
+            "an unwritten row is untouched"
+        );
+        assert_eq!(after[1]["status"], "deprecated");
+        assert_eq!(after[1]["verifiedBy"], "run-1");
+        assert_eq!(
+            after[1]["ownedBy"], "opencode",
+            "the row's own fields survive"
+        );
+        assert_eq!(
+            after[2]["odd"], "no id at all",
+            "a row with no id is carried"
+        );
+    }
 
     /// **THE PLAN'S FIRST TEST, AS A FUNCTION**: with nothing cached — a catalogue that cannot be reached — the
     /// committed slice answers. Every id the slice carries is still served, so nothing is hidden by an outage.
