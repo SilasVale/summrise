@@ -130,6 +130,18 @@ pub fn build(crate_dir: &Path) {
                  this build has no main to drive. Install it: cargo install worker-build --locked"
             )
         });
+    // IF THIS PANICS WITH `duplicate symbol: __wbg_…`, THE CAUSE IS ALMOST CERTAINLY A SHARED
+    // `CARGO_TARGET_DIR`, NOT YOUR CHANGE. MEASURED 2026-10-16: `zen-go-proxy/worker` and
+    // `zen-us-proxy/worker` are BOTH crates named `worker`, `worker-build` selects the rlib by globbing
+    // `libworker-*` in the target directory, and with two of them present it links one crate's
+    // wasm-bindgen symbols against the other's — `rust-lld: error: duplicate symbol:
+    // __wbg_containerstartupoptions_free_…`, dozens of them, and `error: could not compile
+    // `summrise_zen_go` (lib)`. CI never sees it because CI gives every crate its own target directory.
+    // **So run these two tests WITHOUT a shared target**: `env -u CARGO_TARGET_DIR cargo test
+    // --manifest-path proxies/zen-go-proxy/worker/Cargo.toml` — measured green in 3.45s that way,
+    // `zen-go verify: 17 case(s) byte-identical`, after failing every time under a shared one.
+    // A red light that has to be re-diagnosed from scratch is a cost of its own, which is why this
+    // paragraph is here rather than in a commit message nobody will read while staring at the panic.
     assert!(
         status.success(),
         "worker-build failed in {}",
