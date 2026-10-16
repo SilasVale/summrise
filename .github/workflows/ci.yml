@@ -1180,7 +1180,7 @@ jobs:
           (cd summrise-agent-npm && npm install --no-save --ignore-scripts --force typescript@5.9.3 @types/node@22)
           (cd summrise-agent-npm && ./node_modules/.bin/tsc -p ../summrise-desktop-electron/tsconfig.json \
             --typeRoots ./node_modules/@types --outDir /tmp/electron-fresh --noCheck)
-          for F in main.js embedded-view.js browser-sessions.js dsh-view.js preload.js; do
+          for F in main.js embedded-slot.js browser-sessions.js preload.js; do
             if ! cmp -s "/tmp/electron-fresh/${F}" "summrise-desktop-electron/src/${F}"; then
               echo "::error::summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output"
               exit 1
@@ -1193,7 +1193,7 @@ jobs:
           # NOTE: step working-directory is agent/, so both paths are
           # agent-relative (a ../ prefix here escapes the repo and
           # false-fails on a missing file — caught live on first run).
-          for F in main.js embedded-view.js browser-sessions.js dsh-view.js preload.js; do
+          for F in main.js embedded-slot.js browser-sessions.js preload.js; do
             if ! cmp -s "summrise-desktop-electron/src/${F}" "summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
               echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync (tsc emit) and commit both"
               exit 1

@@ -437,7 +437,7 @@ if [ "$CLI_TS" -lt "$PKG_TS" ]; then
   exit 1
 fi
 echo "CLI artifact OK (bin/summrise.exe == $CLI_BUILD; newer than its inputs and than package.json)"
-# The tsc block below is the ELECTRON gate's (main.js/embedded-view.js/browser-sessions.js/dsh-view.js/preload.js),
+# The tsc block below is the ELECTRON gate's (main.js/embedded-slot.js/browser-sessions.js/preload.js),
 # and only that: no
 # shipped file is
 # tsc output of a `.ts` in THIS package any more. tsc comes from the repo's own
@@ -472,7 +472,7 @@ echo "electron src committed-clean OK"
 # the Rust crate agent/summrise-url-policy, built to wasm — its two shipped files are NOT tsc output and
 # are compared by the (d) loop below and by scripts/test/url-policy-wasm-freshness.bash, which rebuilds
 # them from the crate.
-for F in main.js embedded-view.js browser-sessions.js dsh-view.js preload.js; do
+for F in main.js embedded-slot.js browser-sessions.js preload.js; do
   if ! cmp -s "/tmp/electron-fresh-pub/${F}" "$NPM_DIR/summrise-desktop-electron/src/${F}"; then
     echo "::error::$NPM_DIR/summrise-desktop-electron/src/${F} is stale (ts source changed without recompiling) — run tsc and commit the fresh output" >&2
     rm -rf /tmp/electron-fresh-pub
@@ -494,7 +494,7 @@ echo "electron src freshness check OK (fresh tsc emit + cmp)"
 # THE COPY, so a drift here ships a policy nobody tested. Landing 6b added the second pair: `main.js`
 # requires BOTH glues, so a copy without it is a shell that cannot start. The `.d.ts` files are
 # deliberately absent: they are not packed and not staged.
-for F in main.js embedded-view.js browser-sessions.js dsh-view.js preload.js summrise_url_policy.js summrise_url_policy_bg.wasm summrise_shell_policy.js summrise_shell_policy_bg.wasm; do
+for F in main.js embedded-slot.js browser-sessions.js preload.js summrise_url_policy.js summrise_url_policy_bg.wasm summrise_shell_policy.js summrise_shell_policy_bg.wasm; do
   if ! cmp -s "agent/summrise-desktop-electron/src/${F}" "agent/summrise-agent-npm/summrise-desktop-electron/src/${F}"; then
     echo "::error::electron src copy drift: agent/summrise-desktop-electron/src/${F} != agent/summrise-agent-npm/summrise-desktop-electron/src/${F} — sync them (tsc emit) and commit both" >&2
     exit 1

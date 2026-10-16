@@ -16,17 +16,18 @@
 //     handler cannot appear without a caller or a caller without a handler;
 //   * `sanitizeBrowserUrl` is called exactly ONCE — inside the one load door.
 //
-// **"THE SHELL" IS FOUR FILES SINCE THE THREE SECTIONS MOVED INTO MODULES OF THEIR OWN**
-// (`src/embedded-view.ts`, which holds the browser view's state and its eight operations,
-// `src/browser-sessions.ts`, which holds the session table and the three operations an AI drives, and
-// `src/dsh-view.ts`, which holds the DSH view's state, its seven operations and the seam `main.ts`
-// binds for it). `main.ts` keeps the window, the load doors and every `ipcHandle` registration, because
-// the door has to stay the only one. The properties above are about the SHELL, so the scans below read
-// ALL FOUR files: a rule that looked at `main.ts` alone would go blind to a load site or a channel
-// registration moved one file over — the drift these checks exist to catch. And the join is why they
-// still hold after the moves: `browser-sessions.ts` loads through the bound door and `dsh-view.ts`
-// through its own bound `targetFor`, so `sanitizeBrowserUrl` is still called exactly once, in `main.ts`,
-// and no channel is registered outside the door.
+// **"THE SHELL" IS THREE FILES SINCE THE TWO EMBEDDED SLOTS BECAME ONE MODULE**
+// (`src/embedded-slot.ts`, which holds the ONE embedded-slot pattern and is instantiated twice by
+// `main.ts` — the browser view and the DSH view — and `src/browser-sessions.ts`, which holds the session
+// table and the three operations an AI drives). Before the unification this scan read FOUR files, because
+// the pattern lived in two modules (`src/embedded-view.ts` and `src/dsh-view.ts`) that were near-copies of
+// each other. `main.ts` keeps the window, the load doors and every `ipcHandle` registration, because the
+// door has to stay the only one. The properties above are about the SHELL, so the scans below read ALL
+// THREE files: a rule that looked at `main.ts` alone would go blind to a load site or a channel
+// registration moved one file over — the drift these checks exist to catch. And the join is why they still
+// hold after the moves: `browser-sessions.ts` loads through the bound door and the slot loads through the
+// door its config was handed, so `sanitizeBrowserUrl` is still called exactly once, in `main.ts`, and no
+// channel is registered outside the door.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -35,9 +36,8 @@ import assert from "node:assert/strict";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAIN = path.join(HERE, "..", "src", "main.ts");
-const VIEW = path.join(HERE, "..", "src", "embedded-view.ts");
+const SLOT = path.join(HERE, "..", "src", "embedded-slot.ts");
 const SESSIONS = path.join(HERE, "..", "src", "browser-sessions.ts");
-const DSH = path.join(HERE, "..", "src", "dsh-view.ts");
 const PRELOAD = path.join(HERE, "..", "src", "preload.ts");
 
 /** The source with comments removed — a rule about CODE must not be satisfied or broken by prose
@@ -95,11 +95,11 @@ function functionBody(code, declaration) {
 
 const matches = (code, re) => [...code.matchAll(re)].map((m) => m[1] ?? m[0]);
 
-/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the three
- *  modules it binds and calls into. Every property below is about the shell rather than about one file,
+/** The SHELL's main-process sources, comment-stripped and joined: `main.ts` first, then the two modules
+ *  it binds and calls into. Every property below is about the shell rather than about one file,
  *  and the join is on "\n" so a rule cannot match across the seam. */
 function shellSource() {
-  return [MAIN, VIEW, SESSIONS, DSH].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
+  return [MAIN, SLOT, SESSIONS].map((f) => codeOnly(readFileSync(f, "utf8"))).join("\n");
 }
 
 test("the shell calls ipcMain.handle exactly once — inside the door helper", () => {
@@ -177,13 +177,22 @@ test("the shell decides every raw browser URL in exactly one place", () => {
   );
   const door = functionBody(code, "function loadTarget");
   assert.ok(door.includes("sanitizeBrowserUrl"), "the load door must be the call site of sanitizeBrowserUrl");
-  // The door is USED, not merely declared: its own declaration, the bind call in `main.ts`, and the
-  // three load sites — `browserOpen` in `browser-sessions.ts`, and the embedded view's window-open
-  // handler and `embeddedNavigate` in its module. The count is over the SHELL's sources, which is why
-  // it is still five after the browser sessions moved: the call moved with them, through the seam.
-  const uses = matches(code, /loadTarget\s*\(/g);
+  // THE DOOR IS USED, NOT MERELY DECLARED, and HOW it is used changed with the unification. It used to be
+  // reached by NAME at three load sites (`deps().loadTarget(…)` inside the two modules that held them); the
+  // ONE slot module now takes its door as a PARAMETER, so the module cannot name the policy at all — it can
+  // only call the function object it was handed. So the count below is over the HAND-OFFS (the declaration
+  // and the two seams) plus the two bindings that name it, and the two seams are asserted by shape:
+  // strictly stronger than the call-site count it replaces, because a module that does not hold the door
+  // cannot reach around it — and `sanitizeBrowserUrl` is still called exactly once, above.
+  const references = matches(code, /loadTarget\b/g).length;
   assert.ok(
-    uses.length >= 4,
-    `the three load sites must reach the policy through loadTarget() (found ${uses.length} uses including the declaration)`,
+    references >= 3,
+    `the door must be handed to every loader (found ${references} references) — the declaration, the browser slot's config and the browser-session bind`,
+  );
+  assert.match(code, /door:\s*loadTarget\b/, "the browser slot's `door` must BE the one load door, not a second one");
+  assert.match(
+    code,
+    /browserSessionsBind\(\{\s*loadTarget\b/,
+    "and the browser-session windows must open through the same door",
   );
 });

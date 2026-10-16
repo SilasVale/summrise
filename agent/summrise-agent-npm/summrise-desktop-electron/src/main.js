@@ -82,11 +82,14 @@ const http = __importStar(require("http"));
 // this file, which holds exactly one instance of each glue, evaluates it.
 const summrise_url_policy_1 = require("./summrise_url_policy");
 const summrise_shell_policy_1 = require("./summrise_shell_policy");
-// THE EMBEDDED REAL-RENDER BROWSER VIEW IS ITS OWN MODULE. It owns the view and its state; this file
-// owns the window it is attached to and the ONE load door every URL it loads goes through, and lends
-// both to it in one `embeddedViewBind` call below. The IPC registrations stay HERE (see the block
-// above "THE DSH VIEW") because this file holds the ONE `ipcMain.handle` door.
-const embedded_view_1 = require("./embedded-view");
+// THE TWO EMBEDDED VIEWS ARE ONE MODULE NOW. `embedded-slot.ts` holds the pattern the browser's view and
+// the DSH's view each used to spell out (`embedded-view.ts` and `dsh-view.ts`, near-copies that a
+// function-by-function comparison measured), and this file builds BOTH instances from it — one slot per
+// view, with the differences that are load-bearing (the load door, the popup decision, the recovery
+// target, the state's url fallback, the `gone` channel, and the browser-only nav channel) passed in as
+// configuration. Every `ipcHandle` registration stays HERE (see the block below "THE EMBEDDED VIEW'S IPC"),
+// because this file holds the ONE `ipcMain.handle` door.
+const embedded_slot_1 = require("./embedded-slot");
 // THE BROWSER-SESSION WINDOWS ARE THEIR OWN MODULE TOO. It owns the session table and the three
 // operations an AI drives; this file owns the load door every one of them opens through, the window
 // icon they share with the main window, and the cap's number — lent to it in one `browserSessionsBind`
@@ -94,13 +97,6 @@ const embedded_view_1 = require("./embedded-view");
 // `ipcMain.handle` door, and the loopback control server and the panel's `target=_blank` handler are
 // this file's routers, not the module's.
 const browser_sessions_1 = require("./browser-sessions");
-// THE DSH VIEW IS THE THIRD MODULE OF THE SAME SHAPE. It owns the view, its state and its seven
-// operations; this file owns the window it is attached to, the ONE load door every address it
-// navigates to goes through, and the url policy's own answers about the DSH — all four lent to it in
-// one `dshViewBind` call below. Its section's header records why the door, the port pin and the
-// harness-door read STAYED here. The IPC registrations stay HERE too: this file holds the ONE
-// `ipcMain.handle` door.
-const dsh_view_1 = require("./dsh-view");
 const K = JSON.parse((0, summrise_shell_policy_1.shellConstants)());
 // The handful the shell reads often enough that `K.` at every use site would be noise. They are still the
 // table's values — destructuring a copy of the parse, not a second declaration.
@@ -385,16 +381,35 @@ function buildMenu() {
  *  cannot quietly reach for a weaker policy of its own.
  *
  *  Callers keep their own about:blank semantics: browserOpen() opens a blank
- *  window, embeddedNavigate() loads it, and the embedded view's window-open
+ *  window, the browser slot's navigate() loads it, and that slot's window-open
  *  handler REFUSES it (an external link must not blank the page being read). */
 function loadTarget(raw) {
     return (0, summrise_url_policy_1.sanitizeBrowserUrl)(raw);
 }
-// The embedded view's seam, bound ONCE here (module load) and never re-bound: the window is a getter
-// because it does not exist yet and is nulled when it closes, and the door is the function object
-// above — the embedded view loads no URL any other way. This call is also why the section below could
-// move at all: those two facts stay this file's, and the view reads them through `deps()`.
-(0, embedded_view_1.embeddedViewBind)({ win: () => win, loadTarget });
+// ── THE BROWSER SLOT: THE FIRST INSTANCE OF `embedded-slot.ts` ─────────────────────────────
+// Built ONCE here (module load), the way the bind call it replaces was. Everything the slot needs is
+// either a function object this file owns (the window getter and the ONE load door above) or a policy
+// answer only THIS view may use — and the two that must not be merged into the module are the popup
+// decision and the recovery target, because they are what keeps this view a general browser while the
+// DSH's is confined to its own loopback origin (see `embedded-slot.ts`'s header).
+const browserSlot = (0, embedded_slot_1.embeddedSlot)({
+    // A GETTER, not the value: the window does not exist yet and is nulled when it closes.
+    win: () => win,
+    door: loadTarget,
+    // `target=_blank` through the ONE load door: its argument is the DECIDED target, and a refused scheme
+    // answers `undefined` — DROPPED rather than collapsed to `about:blank`, so an external link cannot
+    // erase the page the operator is reading.
+    popupTarget: (raw) => (0, summrise_shell_policy_1.embeddedPopupTarget)(loadTarget(raw)),
+    // The last DECIDED url, or the crate's blank fallback: recovering a crashed view must not fetch a
+    // third-party home page to do it.
+    recoverUrl: (lastDecided) => (0, summrise_shell_policy_1.embeddedRecoverUrl)(lastDecided),
+    // This state feeds the SPA's ADDRESS BAR, which must never go blank: a view that cannot answer reports
+    // the last url the door decided for it. (The DSH's record does the opposite — see its instance below.)
+    stateUrl: (live, lastDecided) => (0, summrise_shell_policy_1.shownUrl)(live, lastDecided),
+    goneChannel: "embedded-browser:gone",
+    // THE BROWSER-ONLY SURFACE: nav pushes, canBack/canFwd, and go/zoom. The DSH instance has none of it.
+    navChannel: "embedded-browser:nav",
+});
 // The browser-session windows' seam, bound ONCE here (module load) and never re-bound. Three things
 // this file owns and the sessions do not: the ONE load door above (their every URL goes through it),
 // the window icon the main window also uses, and the cap's number from the boot table. `main.ts`
@@ -405,21 +420,21 @@ ipcHandle("browser-session:open", (url) => (0, browser_sessions_1.browserOpen)(u
 ipcHandle("browser-session:close", (id) => (0, browser_sessions_1.browserClose)(id));
 ipcHandle("browser-session:list", () => (0, browser_sessions_1.browserList)());
 // ── THE EMBEDDED VIEW'S IPC — THE REGISTRATIONS STAY HERE ──────────────────────────────────
-// The view itself (its state and its eight operations) is `embedded-view.ts` now. These lines do
-// NOT go with it: this file holds the ONE `ipcMain.handle` door — `ipcHandle` applies the frame
-// check — and `test/ipc-door.test.mjs` pins the channels registered behind that door against the
-// ones `preload.ts` invokes. A handler registered in the module would be a second door.
-ipcHandle("embedded-browser:recover", () => (0, embedded_view_1.embeddedRecover)());
-ipcHandle("embedded-browser:navigate", (url) => (0, embedded_view_1.embeddedNavigate)(String(url || "")));
-ipcHandle("embedded-browser:back", () => (0, embedded_view_1.embeddedGo)(-1));
-ipcHandle("embedded-browser:fwd", () => (0, embedded_view_1.embeddedGo)(1));
-ipcHandle("embedded-browser:reload", () => (0, embedded_view_1.embeddedReload)());
-ipcHandle("embedded-browser:zoom", (factor) => (0, embedded_view_1.embeddedZoom)(factor));
+// The slot itself (its state and its operations) is `embedded-slot.ts`. These lines do NOT go with it:
+// this file holds the ONE `ipcMain.handle` door — `ipcHandle` applies the frame check — and
+// `test/ipc-door.test.mjs` pins the channels registered behind that door against the ones `preload.ts`
+// invokes. A handler registered in the module would be a second door.
+ipcHandle("embedded-browser:recover", () => browserSlot.recover());
+ipcHandle("embedded-browser:navigate", (url) => browserSlot.navigate(String(url || "")));
+ipcHandle("embedded-browser:back", () => browserSlot.go(-1));
+ipcHandle("embedded-browser:fwd", () => browserSlot.go(1));
+ipcHandle("embedded-browser:reload", () => browserSlot.reload());
+ipcHandle("embedded-browser:zoom", (factor) => browserSlot.zoom(factor));
 ipcHandle("embedded-browser:place", (bounds) => {
-    (0, embedded_view_1.embeddedViewPlace)(bounds);
+    browserSlot.place(bounds);
     return { ok: true };
 });
-ipcHandle("embedded-browser:state", () => (0, embedded_view_1.embeddedState)());
+ipcHandle("embedded-browser:state", () => browserSlot.state());
 // ── THE DSH VIEW: the harness's own UI, embedded in summrise ────────────────────────────────
 //
 // WHY LOOPBACK AND NOT THE PUBLIC HOSTNAME. The DSH runs on THIS machine (127.0.0.1:18081), and
@@ -433,18 +448,18 @@ ipcHandle("embedded-browser:state", () => (0, embedded_view_1.embeddedState)());
 // A SECOND view, not a re-use of the browser one: the browser view is a single-tab internet
 // browser an AI drives over CDP, and navigating it to the DSH would throw that session away.
 //
-// ── THE VIEW IS A MODULE OF ITS OWN NOW (`src/dsh-view.ts`); THIS IS ITS HOST HALF ──────────
-// The view's state and its seven operations moved out whole. Its own header records why the move
-// happened and what the seam carries; what matters HERE is the three functions below it that
-// DELIBERATELY DID NOT GO, because they belong to the boot and the host rather than to the view:
+// ── THE DSH SLOT IS THE SECOND INSTANCE OF THE SAME MODULE; THIS IS ITS HOST HALF ──────────
+// The view's state and its operations are `embedded-slot.ts` now, built from the same factory as the
+// browser's. What matters HERE is the three functions below it that DELIBERATELY DID NOT GO INTO IT,
+// because they belong to the boot and the host rather than to the view:
 //   * `bootDshPort` — the boot's port pin, the twin of `bootAgentPort` below: called once, from
 //     `app.whenReady()`, as the argument to `setDshPort`, which feeds the url policy's port state
 //     that this file owns. No operation of the view calls it.
 //   * `dshTargetFor` — the ONE load door for that view, and a door is the HOST's: this file owns
 //     the load door of every view it lends one to (`loadTarget` above is the same shape for the
 //     other two modules), and it is where this file evaluates the url-policy predicate
-//     `isDshUrl` — the rule the import block above states for both crates. It is LENT to the module
-//     in the `dshViewBind` call below, never re-declared there.
+//     `isDshUrl` — the rule the import block above states for both crates. It is LENT to the slot in
+//     the `embeddedSlot` call below, never re-declared there.
 //   * `loadHarnessDoors` — the boot's ONE read of the agent's harness table: it MUTATES the url
 //     policy's own port list (`addDshPort`), fetches with the device token (`authHeaders`) and is
 //     bounded by the boot table's `HARNESS_FETCH_MS`. The view never calls it, so lending this
@@ -497,26 +512,50 @@ function loadHarnessDoors() {
     })
         .finally(() => clearTimeout(timer));
 }
-// THE DSH VIEW'S SEAM, bound ONCE here (module load) and never re-bound. The window is a getter
-// because it does not exist yet and is nulled when it closes; `targetFor` is the load door above;
-// `admitted` and `base` are the url policy's `isDshUrl` and `dshBase`. They travel as FUNCTIONS
-// rather than as values for the reason the crate's own docs give — "the BASE arrives from the
-// host, which is the only thing that can read the configured DSH port" — and because `setDshPort`
-// runs at `whenReady`, so a snapshot taken here would pin the port list before the agent's
-// harness table has even been read.
-(0, dsh_view_1.dshViewBind)({ win: () => win, targetFor: dshTargetFor, admitted: summrise_url_policy_1.isDshUrl, base: summrise_url_policy_1.dshBase });
-ipcHandle("embedded-dsh:open", () => (0, dsh_view_1.dshOpen)());
+// THE DSH INSTANCE, built ONCE here (module load) from the SAME factory as the browser slot. The window
+// is a getter because it does not exist yet and is nulled when it closes; `door` is the load door above;
+// and the DSH's own answers travel as FUNCTIONS rather than as values for the reason the crate's docs
+// give — "the BASE arrives from the host, which is the only thing that can read the configured DSH
+// port" — and because `setDshPort` runs at `whenReady`, so a snapshot taken here would pin the port list
+// before the agent's harness table has even been read.
+//
+// THE LIFECYCLE IS THE CALLER'S, NOT A PARAMETER: this slot is created LAZILY (nothing calls `ensure()`
+// until the pane's `open()` navigates), where the browser's is created eagerly at startup. `ensure` is on
+// the slot's surface for both instances; only the browser's caller asks for it early.
+const dshSlot = (0, embedded_slot_1.embeddedSlot)({
+    win: () => win,
+    door: dshTargetFor,
+    // The DSH's own popup decision: over its own door, and only the harness's origin is admitted — an
+    // external `target=_blank` link is dropped rather than navigating this pane away from the harness.
+    popupTarget: (raw) => (0, summrise_shell_policy_1.dshPopupTarget)(raw, (0, summrise_url_policy_1.isDshUrl)(raw)),
+    // Always the harness home: a crash recovery that lands somewhere other than the harness is a view the
+    // operator did not ask for.
+    recoverUrl: () => (0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)()),
+    // This record describes the LIVE view and nothing else — a dead webContents reports blank rather than
+    // its last url (the browser slot's address bar is the opposite case; see its instance above).
+    stateUrl: (live) => (0, summrise_shell_policy_1.shownUrl)(live, ""),
+    goneChannel: "embedded-dsh:gone",
+    // NO navChannel: the DSH pane has no address bar and no back/fwd buttons.
+});
+/** Open (or re-focus) the DSH at its configured address. Idempotent — and the `open` OPERATION stays in
+ *  this file because the lifecycle is the caller's: this is the call that CREATES the DSH's view (the
+ *  slot builds it lazily inside `navigate`), and navigates it home through the ONE door above. */
+function dshOpen() {
+    return dshSlot.navigate((0, summrise_shell_policy_1.dshHome)((0, summrise_url_policy_1.dshBase)()));
+}
+ipcHandle("embedded-dsh:open", () => dshOpen());
 ipcHandle("embedded-dsh:place", (bounds) => {
-    (0, dsh_view_1.dshPlace)(bounds);
+    dshSlot.place(bounds);
     return { ok: true };
 });
-ipcHandle("embedded-dsh:state", () => (0, dsh_view_1.dshState)());
-// SELECT A HOST: `dshNavigate` already refuses anything `isDshUrl` does not admit, so this channel can
-// only reach a door the agent configured — and it answers with the address it actually loaded, which for a
-// refusal is `about:blank`. The pane shows that rather than pretending the switch worked.
-ipcHandle("embedded-dsh:go", (url) => (0, dsh_view_1.dshNavigate)(String(url)));
-ipcHandle("embedded-dsh:reload", () => (0, dsh_view_1.dshReload)());
-ipcHandle("embedded-dsh:recover", () => (0, dsh_view_1.dshRecover)());
+ipcHandle("embedded-dsh:state", () => dshSlot.state());
+// SELECT A HOST: the slot's `navigate` already refuses anything `isDshUrl` does not admit, so this
+// channel can only reach a door the agent configured — and it answers with the address it actually
+// loaded, which for a refusal is `about:blank`. The pane shows that rather than pretending the switch
+// worked.
+ipcHandle("embedded-dsh:go", (url) => dshSlot.navigate(String(url)));
+ipcHandle("embedded-dsh:reload", () => dshSlot.reload());
+ipcHandle("embedded-dsh:recover", () => dshSlot.recover());
 // Desktop-app settings (auto-launch) — the Settings page toggles this. We
 // manage a per-user scheduled task ("SummriseDesktop", onlogon) instead of
 // Electron's setLoginItemSettings: in dev mode (electron .) the login-item
@@ -1088,14 +1127,17 @@ if (gotTheLock) {
         // attached playwright/AI ALWAYS has its own dedicated page to drive —
         // without it, playwright grabbed the MAIN window (now tripwired) or the
         // user had to open the Browser page first. The view is hidden until the
-        // SPA's Browser page reports bounds (embeddedViewPlace shows it).
+        // SPA's Browser page reports bounds (the slot's place() shows it).
         // NO EAGER NAVIGATION: this used to loadURL("https://www.bing.com"), i.e. a
         // request to a third party on EVERY launch before anyone asked for a page.
         // The view is still created — about:blank is a first-class CDP target (the
         // reason it exists here is that a target be available, not that a page be
         // loaded), and the user/AI navigates it next (loadTarget is the one door).
+        // THIS CALL IS THE BROWSER SLOT'S LIFECYCLE AND IT LIVES HERE ON PURPOSE: the browser's view is
+        // created eagerly, the DSH's is created lazily by its pane's open() — a difference between two
+        // CALLERS, so it is these lines rather than a parameter of the shared slot.
         try {
-            (0, embedded_view_1.embeddedViewEnsure)();
+            browserSlot.ensure();
         }
         catch { /* non-fatal */ }
         console.log(`[summrise] CDP endpoint: ${(0, summrise_shell_policy_1.cdpEndpoint)(K.CDP_PORT)} (playwright connectOverCDP)`);

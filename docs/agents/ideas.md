@@ -361,3 +361,35 @@ round (round 112).
 before moving anything, and prefer unifying two things that are the same over extracting a third thing that is merely
 large.
 
+## THREE MEASUREMENTS THAT ONLY EVER LIVED IN A REPORT (rounds 119-122, written down here)
+
+**1. THE MILLISECOND-STAMPED ID MAKES THE WINDOW CAP COUNT THE WRONG THING.** `browserId(Date.now())`
+(`summrise-shell-policy/src/sessions.rs`) is a bare millisecond stamp — no counter, no suffix — so two `browserOpen`
+calls inside one millisecond produce the SAME id, the second overwrites the first in the table, and the first window
+becomes unreachable. Measured with `MAX_BROWSER_WINDOWS` = 8 and 11 distinct URLs:
+
+| clock | table rows | live windows | alive after `browserCloseAll()` |
+|---|---|---|---|
+| frozen (one millisecond) | 1 | **11** | **10** |
+| stepping | 8 | 8 | 0 |
+
+**So the cap is enforced over TABLE ROWS while the resource is WINDOWS**: a same-millisecond burst builds past the cap
+and the `before-quit` sweep leaks what it built. **And it corrects an earlier claim of mine** — the orphan is NOT caused
+by `browserCloseAll` being "a plain `for…of` that deletes during iteration": deleting the current key while iterating a
+`Map` is well defined and the sweep does reach every entry (8/8 under the step clock). **The orphan survives because it
+is absent from the table.** Pinned by a test; not fixed, because a test fix must not carry a behaviour change.
+
+**2. "FLAKE" WAS THE WRONG WORD, AND THE MESSAGE SAID SO.** The collision case asserted two ids were EQUAL while
+running on the real clock — it required the wall clock to stand still between two calls. It does on a development box
+and does not on a CI runner (`actual 'browser-…588'`, `expected 'browser-…589'` — one millisecond apart, printed by CI
+in the message that was then called unattributable). **Reproduced: 2 failures in 20 full runs, 40/40 when the case runs
+cold.** The repair makes the collision a fact (`clock: "frozen"`, an unknown mode throws) rather than a hope, and the
+proof for a timing bug is ten consecutive runs, not one green one.
+
+**3. TWO COUNTS IN THE ROUND-111 COMPARISON WERE WRONG, AND THE CORRECTIONS MATTER.** The two slots have **EIGHT**
+twinned operations, not nine (the "nine" was the browser's nine OPERATIONS, a phrase inherited from its own suite), and
+the browser slot owns **FOUR** per-instance bindings, not three — `embeddedUrl` is the last decided URL, which is
+exactly the state behind the "recovery target" parameter. **So the unified slot owns four bindings per instance and
+only the recovery target FUNCTION differs.** A count that is a descriptor in one file becomes a specification in
+another, which is how both of these travelled.
+
