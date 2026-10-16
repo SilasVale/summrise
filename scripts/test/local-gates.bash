@@ -70,11 +70,17 @@ plant gateway/wasm/src/mcp_tools.rs
 check "a wasm crate change runs the crate's tests" "wasm: tests"
 check "a wasm crate change runs the wasm32 clippy pass" "clippy (wasm32)"
 
+plant gateway/wasm/verify.mjs
+check "a harness change runs the byte comparisons" "byte comparisons (the harness)"
+
+plant gateway/wasm/fixtures/models-corpus.json
+check "a fixture change runs the byte comparisons too" "byte comparisons (the harness)"
+
 plant core/summrise-core/src/lib.rs
 check "a core change runs the shared core's gates" "core: tests"
 
 plant agent/summrise-agent-core/src/lib.rs
 check "a core crate change runs THAT crate's tests" "tests -p summrise-agent-core"
 
-[ "$fail" = 0 ] && echo "local-gates: 11 case(s), routing proven in both directions"
+[ "$fail" = 0 ] && echo "local-gates: 13 case(s), routing proven in both directions"
 exit "$fail"
