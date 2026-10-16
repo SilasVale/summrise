@@ -170,3 +170,19 @@ the CLI will look (the current README already points at the tgz for exactly this
 can complete with the single command it is shown. **Anything still asking a person to type a path is a layout problem
 wearing a documentation problem's clothes.**
 
+## THE "MAKE THE HUMAN COMPUTE IT" CLASS, SWEPT (round 102) — ROW 29 WAS THE WHOLE OF IT
+
+The question after rounds 98-101 was whether the same defect exists elsewhere in the CLI: **a message that asks a
+person to supply something the process already knows** (a prefix, a path, a directory). Swept every string literal in
+`agent/summrise-*/src/*.rs` for instructions naming a path, `npm`, `--prefix` or `Split-Path`:
+
+| finding | verdict |
+|---|---|
+| `dispatch.rs:562` — `"THIS DEVICE IS BEHIND ... run 'summrise update'"` | **clean** — self-contained, and that command now prints its own prefix (round 98) |
+| `psgen.rs:226,279,644` — `Split-Path $log`, `Join-Path (Split-Path $node -Parent) …` | **clean** — generated PowerShell, executed by the machine, not instructions to a person. **The same words in a script and in a message are different things, and the sweep has to tell them apart.** |
+| `components.rs:495` — `"reinstall the package (npm i -g summrise-agent) to stage"` | **clean, and better than clean**: it is a NEGATIVE ASSERTION — `!STAGE_ADVICE.contains("…")` — a test that FORBIDS the CLI from advising a reinstall for a component the package does not carry (the oracle cited is `cli.test.mjs:3142`) |
+
+**SO THE CLASS IS CLOSED**: the defect existed exactly where row 29 named it, and the CLI's remaining instructions are
+either self-contained or forbidden by a test. **Nothing to fix, which is the answer a sweep should be allowed to
+return** — inventing a change here would be manufacturing work to look busy.
+
