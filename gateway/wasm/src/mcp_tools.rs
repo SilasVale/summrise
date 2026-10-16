@@ -74,6 +74,7 @@ use serde_json::{Map, Value};
 
 /// One tool as the console advertises it. FIELD ORDER IS THE WIRE FORMAT, which is why this is a struct and not
 /// a `Value`: `name`, `description`, `inputSchema` — the order `tools/list` serializes.
+#[derive(Clone)]
 pub struct Tool {
     pub name: &'static str,
     pub description: &'static str,
@@ -82,9 +83,10 @@ pub struct Tool {
     pub schema: &'static str,
 }
 
-/// THE TABLE. `gateway/src/mcp-tools.ts` is emitted from it, and `agent/spec-tools.json` is the device's own
-/// catalogue that `gateway/test/mcp-handler.test.mjs` holds this list against.
-pub const TOOLS: &[Tool] = &[
+/// **THE CURATED ENTRIES** — the tools this table described by hand, with per-property descriptions and enums
+/// that the device's spec does not carry. **IT IS NO LONGER THE WHOLE TABLE**: `all_tools()` returns these plus
+/// every device tool the spec declares, and the two together are what `tools/list` puts on the wire.
+pub const CURATED: &[Tool] = &[
     Tool {
         name: "terminal_open",
         description: "Open a terminal connection. Kind: 'pty' (local shell; target optional — blank = default shell), 'ssh' (target=user@host:port), or 'serial' (target=port_name, optional ?baud=N&parity=E&data=8&stop=1 e.g. /dev/ttyUSB0?baud=9600&parity=even&data=8&stop=1, default 115200 8N1). THE DEVICE HAS A SESSION CAP: opening one when it is reached EVICTS the idle-longest session, so a session you opened earlier can disappear — expect a later call on it to fail, and check terminal_list before assuming it is still there. Returns session ID.",
@@ -996,14 +998,123 @@ pub const TOOLS: &[Tool] = &[
     },
 ];
 
+/// **THE DEVICE'S OWN CATALOGUE, EMBEDDED AT COMPILE TIME** — `agent/spec-tools.json` is written by the agent from
+/// its `ToolDef`s, and `include_str!` is what makes the console's list a VIEW of it rather than a copy. A tool the
+/// device adds appears in `tools/list` with no edit here.
+const DEVICE_SPEC: &str = include_str!("../../../agent/spec-tools.json");
+
+/// The spec carries a `//` comment header; the JSON starts below it.
+fn device_spec_tools() -> Vec<serde_json::Value> {
+    let body: String = DEVICE_SPEC
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let doc: serde_json::Value =
+        serde_json::from_str(&body).expect("agent/spec-tools.json is a JSON array");
+    doc.as_array().cloned().unwrap_or_default()
+}
+
+/// `{ "type": "object", "properties": {…}, "required": […] }` from the spec's `params`/`param_types`/`required`.
+///
+/// **THE STRUCTURE IS THE DEVICE'S; THE PROSE IS NOT.** A curated entry keeps its per-property descriptions and
+/// enums — the spec has no room for them — and a GENERATED entry gets the parameter names and types, which is
+/// what a client needs to build a call. `required` is emitted only when the device requires something: an empty
+/// array is not the same wire bytes as an absent key.
+fn schema_from_spec(tool: &serde_json::Value) -> String {
+    let mut properties = serde_json::Map::new();
+    let types = tool["param_types"].as_object().cloned().unwrap_or_default();
+    for name in tool["params"].as_array().cloned().unwrap_or_default() {
+        let Some(name) = name.as_str() else { continue };
+        let ty = types
+            .get(name)
+            .and_then(|v| v.as_str())
+            .unwrap_or("string");
+        properties.insert(
+            name.to_string(),
+            serde_json::json!({ "type": ty }),
+        );
+    }
+    let mut schema = serde_json::Map::new();
+    schema.insert("type".into(), serde_json::json!("object"));
+    schema.insert("properties".into(), serde_json::Value::Object(properties));
+    let required = tool["required"].as_array().cloned().unwrap_or_default();
+    if !required.is_empty() {
+        schema.insert("required".into(), serde_json::Value::Array(required));
+    }
+    serde_json::to_string(&serde_json::Value::Object(schema)).unwrap_or_default()
+}
+
+/// **EVERY TOOL THE CONSOLE OFFERS** — the curated entries above, plus every device tool the spec declares that
+/// they do not already cover, plus the browser bridge's own names (which the spec cannot know: the bridge answers
+/// them, not the device).
+///
+/// **WHY THIS EXISTS, IN THE OPERATOR'S OWN WORDS**: the console's catalogue was 24 tools short of the device's
+/// (round 54's measurement — `memory_*`, `system_*`, `mcp_client_*`, `page_view`, `agent_update`,
+/// `terminal_secret_*`, `sftp`), and the module header already recorded the same failure once — *"21 of the agent's
+/// 49 tools were invisible AND uncalled with every gate green"* (round 554). **The device's registry is the
+/// contract, so the catalogue is now a view of it** (decision taken 2026-10-15).
+///
+/// **THE STRINGS ARE LEAKED ON PURPOSE, ONCE**: `Tool` holds `&'static str` because that is what the wire builder
+/// and the emitter want, and the generated entries come from a file parsed at runtime. Leaking a few dozen bounded
+/// strings at first use is the honest price of not rewriting the 39 curated entries into owned data; the table is
+/// a process-lifetime constant either way.
+pub fn all_tools() -> &'static [Tool] {
+    use std::sync::OnceLock;
+    // The SLICE is what is stored, not the `Vec`: `Tool` borrows `&'static str`, so the table must live as long
+    // as the process anyway, and leaking it once is what makes the signature honest.
+    static ALL: OnceLock<&'static [Tool]> = OnceLock::new();
+    ALL.get_or_init(|| {
+        let mut all: Vec<Tool> = CURATED.to_vec();
+        let mut have: std::collections::BTreeSet<String> =
+            CURATED.iter().map(|t| t.name.to_string()).collect();
+        for tool in device_spec_tools() {
+            let Some(name) = tool["name"].as_str() else { continue };
+            if !have.insert(name.to_string()) {
+                continue;
+            }
+            // **THE POLICY DECIDES WHAT A MODEL MAY SEE, AND IT DECIDED FIRST.** `tool_policy::WITHHELD_TOOLS`
+            // names the tools the MCP surface does not offer — `panel: true` means "the device PROXY may still
+            // reach it because a panel component calls it today", `panel: false` means "no door". Generating the
+            // catalogue from the device's spec does not override a decision the repository already made and
+            // gates (`the_proxy_withholds_nothing_the_mcp_surface_exposes`); it inherits it.
+            if let Some((_, policy)) = crate::tool_policy::WITHHELD_TOOLS
+                .iter()
+                .find(|(withheld, _)| *withheld == name)
+            {
+                if !policy.panel {
+                    continue;
+                }
+            }
+            let description = tool["description"].as_str().unwrap_or("");
+            all.push(Tool {
+                name: Box::leak(name.to_string().into_boxed_str()),
+                description: Box::leak(description.to_string().into_boxed_str()),
+                schema: Box::leak(schema_from_spec(&tool).into_boxed_str()),
+            });
+        }
+        Box::leak(all.into_boxed_slice())
+    })
+}
+
+/// **DOES THE DEVICE DECLARE THIS TOOL?** — the predicate `mcp::is_device_direct_tool` asks, answered from the
+/// embedded spec rather than from a prefix list. It reads the SPEC, not the catalogue, because the two differ by
+/// exactly the tools `tool_policy` withholds: a withheld tool is still the DEVICE's to serve if the caller is the
+/// relay rather than a model.
+pub fn device_declares(name: &str) -> bool {
+    device_spec_tools()
+        .iter()
+        .any(|t| t["name"].as_str() == Some(name))
+}
+
 /// The tool, by name — `allMcpTools().find(t => t.name === name)`.
 pub fn find(name: &str) -> Option<&'static Tool> {
-    TOOLS.iter().find(|t| t.name == name)
+    all_tools().iter().find(|t| t.name == name)
 }
 
 /// `{ tools: allMcpTools() }` — the `tools/list` result, with each tool's key order preserved.
 pub fn tools_result() -> Value {
-    let tools: Vec<Value> = TOOLS
+    let tools: Vec<Value> = all_tools()
         .iter()
         .map(|t| {
             let mut tool = Map::new();
@@ -1100,7 +1211,7 @@ fn indent_after_first(text: &str, spaces: usize) -> String {
 /// is a byte comparison against it.
 pub fn render_typescript() -> String {
     let mut out = String::from(TS_HEADER);
-    for (i, tool) in TOOLS.iter().enumerate() {
+    for (i, tool) in all_tools().iter().enumerate() {
         if i > 0 {
             out.push('\n');
         }
@@ -1180,7 +1291,7 @@ fn every_tool_the_console_offers_is_served_by_the_device_or_the_bridge() {
 
     let mut ghosts = Vec::new();
     let mut checked = 0;
-    for tool in TOOLS {
+    for tool in all_tools() {
         checked += 1;
         if device.contains(tool.name) {
             continue;
@@ -1233,7 +1344,7 @@ mod tests {
     #[test]
     fn every_name_is_unique_and_the_schemas_parse() {
         let mut seen = std::collections::BTreeSet::new();
-        for tool in TOOLS {
+        for tool in all_tools() {
             assert!(seen.insert(tool.name), "duplicate tool name {}", tool.name);
             let schema: Value = serde_json::from_str(tool.schema)
                 .unwrap_or_else(|e| panic!("{}'s schema does not parse: {e}", tool.name));
@@ -1257,9 +1368,13 @@ mod tests {
                 }
             }
         }
+        // **THE RATCHET MOVED WITH THE TABLE, ONCE, DELIBERATELY** (2026-10-16): 39 was the CURATED table's size,
+        // and the catalogue is generated from the device's own spec now — 46 entries, which is 63 declarations
+        // less the 17 `tool_policy` withholds from the MCP surface with `panel: false`. **A size assertion is a
+        // ratchet, so it is updated by a deliberate edit with a reason rather than by a refresh.**
         assert_eq!(
-            TOOLS.len(),
-            39,
+            all_tools().len(),
+            46,
             "the table changed size — see the module header"
         );
     }
@@ -1270,7 +1385,7 @@ mod tests {
     /// through the playwright bridge (`mcp_browser.rs`), and there is no third answer.
     #[test]
     fn every_tool_has_a_route() {
-        for tool in TOOLS {
+        for tool in all_tools() {
             let direct = crate::mcp::is_device_direct_tool(tool.name);
             let bridged = tool.name.starts_with("browser_");
             assert!(
@@ -1295,10 +1410,18 @@ mod tests {
         assert!(crate::mcp::is_device_direct_tool("monitor_add"));
         assert!(crate::mcp::is_device_direct_tool("browser_pw_info"));
         assert!(crate::mcp::is_device_direct_tool("browser_run_script"));
+        // **THE PART THE SPEC ADDED (2026-10-16)**: these reach the device because the DEVICE declares them, and
+        // the prefix list never covered them — they were invisible to every model until the catalogue was
+        // generated from `agent/spec-tools.json`.
+        assert!(crate::mcp::is_device_direct_tool("memory_save"));
+        assert!(crate::mcp::is_device_direct_tool("mcp_client_list"));
+        assert!(crate::mcp::is_device_direct_tool("agent_update"));
+        assert!(crate::mcp::is_device_direct_tool("page_view"));
+        assert!(crate::mcp::is_device_direct_tool("system_file_list"));
         assert!(!crate::mcp::is_device_direct_tool("browser_open"));
         assert!(!crate::mcp::is_device_direct_tool("browser_close"));
         // Every browser_* name that is NOT one of the two runner tools goes through the bridge.
-        for tool in TOOLS.iter().filter(|t| t.name.starts_with("browser_")) {
+        for tool in all_tools().iter().filter(|t| t.name.starts_with("browser_")) {
             let expected = tool.name == "browser_pw_info" || tool.name == "browser_run_script";
             assert_eq!(
                 crate::mcp::is_device_direct_tool(tool.name),
