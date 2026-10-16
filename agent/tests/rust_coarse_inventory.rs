@@ -8,9 +8,11 @@
 //! **WHY THIS GATE EXISTS, AND IT IS NOT "BIG FILES ARE BAD".** Nine surfaces were measured by hand in the
 //! session recorded in `docs/agents/ideas.md` ("a calibrated yardstick", rounds 165-176), and exactly ONE was
 //! real debt. The same measurement run over the WHOLE tree — every tracked `.rs` file of 800 lines or more —
-//! named SEVEN files, five of which no hand-picked sample had ever opened. **A sample concludes "there is
-//! nothing more" because it only contains what was picked**; this gate is the whole-tree scan, so that sentence
-//! can never again be reached by looking at a list somebody chose.
+//! named SEVEN files (SIX are named today: the manifest records `agent/sweep-judge/src/report.rs` leaving the
+//! list when splitting its 1,193-line `judge_report` took the file inside the ceiling), five of which no
+//! hand-picked sample had ever opened. **A sample concludes "there is nothing more" because it only contains
+//! what was picked**; this gate is the whole-tree scan, so that sentence can never again be reached by looking
+//! at a list somebody chose.
 //!
 //! **THE ITEM PATTERN IS PINNED BELOW, AND PINNED BY A TEST, BECAUSE THE RATIO MOVES WITH IT.** It is
 //! `docs/agents/ideas.md`'s pattern, character for character (see `ITEM_KEYWORDS`). `agent/src/web/mod.rs`
@@ -37,7 +39,7 @@
 //!
 //! **THE MANIFEST'S PATTERNS ARE EXACT PATHS, UNLIKE ITS JAVASCRIPT SIBLING'S.** `js-boundaries.txt` is
 //! per-directory with named exceptions because its list runs to hundreds of files that every UI change rewrites
-//! (it prints its own count, which is the only number about it worth quoting); this list is seven files, and a
+//! (it prints its own count, which is the only number about it worth quoting); this list is six files, and a
 //! directory rule here would swallow the next file that crosses the line SILENTLY — which is the precise failure
 //! this gate exists to end.
 //!
@@ -493,12 +495,15 @@ fn every_coarse_rust_file_is_named_and_every_name_is_still_coarse() {
 /// **THE TEST-ATTRIBUTE FLOOR, AND WHY IT IS A FLOOR RATHER THAN ONE MORE CAP.**
 ///
 /// The ratio above has a cheapest fix that is not a fix: DELETE THE TESTS. Measured on the tree that carries
-/// this gate, the manifest's seven files hold **11,642 of their 22,774 lines inside their own test modules** —
+/// this gate, the manifest's SIX files hold **11,285 of their 21,022 lines inside their own test modules** —
 /// 6,052 of `web/mod.rs`'s 9,844, 1,764 of `terminal/mod.rs`'s 3,779, 1,260 of `session_log.rs`'s 2,768, 1,156
-/// of `spawn.rs`'s 1,693, 598 of `evidence.rs`'s 982, 455 of `exec.rs`'s 1,956, 357 of `report.rs`'s 1,752 — so a
-/// file can be brought under a lines-per-item ceiling by deleting the tests that made it big, and a gate that
-/// cannot see that has a hole in the shape of its own subject. **The gate prints this share on its passing
-/// path**, because a number that lives only in a comment is a number nothing enforces.
+/// of `spawn.rs`'s 1,693, 598 of `evidence.rs`'s 982 and 455 of `exec.rs`'s 1,956 — so a file can be brought
+/// under a lines-per-item ceiling by deleting the tests that made it big, and a gate that cannot see that has a
+/// hole in the shape of its own subject. **The gate prints this share on its passing path**, because a number
+/// that lives only in a comment is a number nothing enforces. (The SEVENTH file of that measurement,
+/// `report.rs`, held 357 of its 1,752; it left the manifest when the split took it inside the ceiling, so the
+/// arithmetic above is the six the manifest names today, and the reason it carried is in the manifest's own
+/// record beside them.)
 ///
 /// **IN ATTRIBUTES, NOT FILES**, because that is the instrument this repository paid for: a file count said
 /// `proxies/` had 3 tests where 11 files carry 93. **WHOLE-TREE, NOT PER-FILE**, because tests MOVE here (the
