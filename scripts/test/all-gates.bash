@@ -232,9 +232,17 @@ for cmd in "${gates[@]}"; do
       # hand is not the check the other end runs**, which is the sentence AGENTS.md already carries, and the
       # lesson here is narrower and worth keeping: the one-command list has RULES of its own (this one) that a
       # hand-run command does not exercise.
+      # **AND THE LIST IS A PATTERN NOW, BECAUSE A THIRD ONE ARRIVED (2026-10-16, round 191).** The two entries
+      # below were hand-written, one at a time, each after CI taught this file that its own RULES are stricter
+      # than a hand-run command. A third fmt step (`gateway/wasm`) went into `ci.yml` the same way and was called
+      # a FAIL here for the same reason: **a list of exceptions maintained by hand, checked against a list
+      # derived from the workflow, will always be one crate behind the workflow.** That is the exact drift this
+      # file's header refuses for its GATE list ("THE LIST IS DERIVED, NOT RESTATED"), so its own exception list
+      # now follows the same rule: every `cargo fmt … --check` is silent by design, because rustfmt prints
+      # nothing when the tree is formatted, and there is no version of that command for which silence is a
+      # failure.
       case "$cmd" in
-        "cargo:cargo fmt --all -- --check" | \
-        "cargo:cargo fmt --manifest-path core/summrise-core/Cargo.toml --all -- --check")
+        "cargo:"*"cargo fmt "*"-- --check")
           ok=$((ok + 1))
           printf '  ok    %s (silent by design: rustfmt prints nothing when the tree is formatted)\n' "$cmd"
           continue
