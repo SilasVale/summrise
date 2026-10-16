@@ -160,9 +160,13 @@ mod tests {
     /// state, in one call.
     #[test]
     fn two_runs_that_do_not_see_a_row_demote_it() {
+        // **A CURATED ROW, NOT A CUSTOM ONE, AND THE DISTINCTION IS THE RULE**: the observation judges the
+        // REGISTRY's rows, because a listing can only be evidence about ids the upstream was ever asked for. A
+        // custom row (`og/another`) is never in an upstream listing, so judging it would demote every custom model
+        // on the first conclusive run.
         let rows = serde_json::json!([
             {"id": "og/deepseek-v4.1-flash"},
-            {"id": "og/another"},
+            {"id": "og/mimo-v2.5"},
         ]);
         let listing = vec!["deepseek-flash".to_string()]; // one curated row present, so the run is evidence
         let (first, writes) = plan_run(
@@ -177,7 +181,19 @@ mod tests {
             first.conclusive,
             "one of our rows was there, so the listing is evidence"
         );
-        assert!(writes.is_empty(), "one miss is a blip");
+        // **"ONE MISS IS A BLIP" MEANS NOTHING IS DEMOTED — NOT THAT NOTHING IS WRITTEN.** A conclusive run also
+        // stamps every row it SAW (that is how a returned row is restored), so the assertion is about the demotion
+        // and not about the write count. **The test has now been corrected twice for the same reason: an expectation
+        // narrower than the rule**, which is the failure mode a test is supposed to catch rather than cause.
+        let demoted_on_first: Vec<&String> = writes
+            .iter()
+            .filter(|(_, l)| l.status == crate::model_store::Status::Deprecated)
+            .map(|(id, _)| id)
+            .collect();
+        assert!(
+            demoted_on_first.is_empty(),
+            "one miss is a blip — nothing is demoted, but {demoted_on_first:?} was"
+        );
 
         let history = crate::lifecycle::push(&[], first);
         let (_, writes) = plan_run(
@@ -188,15 +204,52 @@ mod tests {
             2_000,
             "run-2",
         );
+        // **EVERY CURATED ROW THE LISTING DID NOT CARRY IS MISSING, AND THAT IS THE RULE RATHER THAN A BUG**: a
+        // listing carrying ONE of our rows is evidence, so the rest really are absent upstream. The test's first
+        // version expected a single write; **the assertion was narrower than the rule**, and the run said so.
         let demoted: Vec<&String> = writes.iter().map(|(id, _)| id).collect();
-        assert_eq!(
-            demoted,
-            vec!["og/another"],
-            "the row nobody serves is the one demoted"
+        assert!(
+            demoted.iter().any(|id| *id == "og/mimo-v2.5"),
+            "the curated row nobody serves must be among those demoted: {demoted:?}"
         );
-        let (_, lifecycle) = &writes[0];
+        let (_, lifecycle) = writes
+            .iter()
+            .find(|(id, _)| id == "og/mimo-v2.5")
+            .expect("og/mimo-v2.5 has a write");
         assert_eq!(lifecycle.status, crate::model_store::Status::Deprecated);
         assert_eq!(lifecycle.verified_by.as_deref(), Some("run-2"));
+    }
+
+    /// **A CUSTOM ROW IS NEVER JUDGED BY AN OBSERVATION** — the upstream was never asked about it, so its absence
+    /// from a listing is not evidence of anything. Judging it would demote every custom model on the first
+    /// conclusive run, which is the loudest way this design could fail.
+    #[test]
+    fn a_custom_row_is_not_judged() {
+        let rows = serde_json::json!([
+            {"id": "og/deepseek-v4.1-flash"},
+            {"id": "og/not-in-the-registry"},
+        ]);
+        let listing = vec!["deepseek-flash".to_string()];
+        let (observation, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&listing),
+            &[],
+            1_000,
+            "run-1",
+        );
+        assert!(
+            !observation
+                .missing
+                .iter()
+                .any(|m| m == "not-in-the-registry"),
+            "a custom id is not the observation's business: {:?}",
+            observation.missing
+        );
+        assert!(
+            !writes.iter().any(|(id, _)| id == "og/not-in-the-registry"),
+            "and it is never written by one"
+        );
     }
 
     /// **A ROW THAT COMES BACK IS RESTORED ON THE NEWEST RUN** — the plan's third review focus, end to end.
