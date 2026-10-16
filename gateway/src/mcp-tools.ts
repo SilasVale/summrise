@@ -985,6 +985,140 @@ const TOOLS: McpTool[] = [
       ]
     },
   },
+
+  {
+    name: "agent_update",
+    description: "Check the release server for a newer summrise-agent and install it on this device. On a newer version (or force:true) the installer runs silently and the agent restarts — MCP disconnects briefly and reconnects ~1 minute later on the new build. Returns up_to_date when already current. Fails explicitly when no update channel is configured (platform.download_url unset).",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "force": {
+          "type": "boolean"
+        }
+      }
+    },
+  },
+
+  {
+    name: "memory_delete",
+    description: "Soft-delete a memory entry by id (it stays recoverable via memory_update deleted=false until compaction). Returns success or an error when the id is unknown.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+  },
+
+  {
+    name: "memory_export",
+    description: "Export all memory entries (including soft-deleted, flagged) as JSONL text — for backup, migration, or human review. Optionally scoped to a namespace.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string"
+        }
+      }
+    },
+  },
+
+  {
+    name: "memory_list",
+    description: "List memory entries (newest-first), optionally filtered by namespace and tag. Use to enumerate what is stored on this device.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "include_deleted": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
+      }
+    },
+  },
+
+  {
+    name: "memory_save",
+    description: "Save a knowledge entry to the device-local memory store, shared across all AI clients and sessions on this device. Title is required and should be a short unique summary; content is the knowledge body (sanitized: credential-shaped values are redacted); tags help later discovery; namespace defaults to 'shared'. Returns the new entry id. Pass the id run_begin gave you as run_id so this entry is attributable to the execution that learned it; omit it (never send a placeholder) when you are not working inside a declared run.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "title"
+      ]
+    },
+  },
+
+  {
+    name: "memory_search",
+    description: "Search the device-local memory store (shared across clients/sessions) by case-insensitive substring over title, content, and tags. Returns entries newest-first with content truncated to a 4KB snippet. Use before starting work to recall prior knowledge, and after work to confirm what was stored.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+  },
+
+  {
+    name: "terminal_secret_delete",
+    description: "Delete a stored secret for a target host.",
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+  },
 ];
 
 export function allMcpTools(): McpTool[] {

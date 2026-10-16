@@ -78,7 +78,19 @@ pub fn in_family(_method: &Method, path: &str) -> bool {
 /// is safe because the DEVICE's registry is the contract: a `run_*` or `monitor_*` name the device does not
 /// serve fails AT THE DEVICE, which is the honest place for it to fail.
 pub fn is_device_direct_tool(name: &str) -> bool {
-    name.starts_with("terminal_")
+    // **THE DEVICE'S REGISTRY IS THE CONTRACT, AND NOW IT IS THE ONLY RULE.** This was a prefix list — `terminal_`,
+    // `secret_`, `system_`, `run_`, `monitor_` plus two `browser_*` names — which was the best a reader could do
+    // while the console kept its own copy of the tool table. **The table is generated from `agent/spec-tools.json`
+    // now** (round 61), so the honest predicate is the one the device already answers: does it declare this tool?
+    // A name it declares is device-direct; anything else is the browser bridge's business, and the bridge refuses
+    // what it does not know.
+    // **AND THE PREFIX LIST STAYS, AS A FALLBACK RATHER THAN AS THE RULE.** The device's registry is the
+    // authority, but it is a SNAPSHOT (`agent/spec-tools.json` is generated, and a device whose build enables a
+    // feature the snapshot predates serves tools the file does not name). The old comment's reason still holds for
+    // those: *"a `run_*` name the device does not serve fails AT THE DEVICE, which is the honest place for it to
+    // fail"* — sending it to the browser bridge instead would fail at the wrong end with a worse message.
+    crate::mcp_tools::device_declares(name)
+        || name.starts_with("terminal_")
         || name.starts_with("secret_")
         || name.starts_with("system_")
         || name.starts_with("run_")

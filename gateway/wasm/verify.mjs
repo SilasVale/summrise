@@ -6082,7 +6082,11 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
 
   const CASES = [
     // ---- the transport, and who may use it ----
-    { name: "tools/list — THE TABLE, all 39 tools, byte for byte", ...rpc("tools/list") },
+    // **THE LABEL IS PART OF THE KEY.** It said "all 39 tools" while the table became 46 (the catalogue is generated
+        // from the device's spec now), so the recorded answer was looked up by a name nothing carried — the harness
+        // said so in as many words: `no recorded answer for case "… all 39 tools …"`. **A name that is a key must
+        // move with the thing it names**, and this one is asserted in two files.
+        { name: "tools/list — THE TABLE, all 46 tools, byte for byte", ...rpc("tools/list") },
     { name: "tools/list with no Authorization at all", ...rpc("tools/list"), token: null },
     { name: "tools/list with an unknown token", ...rpc("tools/list"), token: "not-a-token" },
     { name: "tools/list with a USER-role token", ...rpc("tools/list"), token: USER_TOKEN },
