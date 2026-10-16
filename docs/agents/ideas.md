@@ -215,3 +215,23 @@ for the same names (`main.ts` beside `main.js`, `preload.ts` beside `preload.js`
 whether the extraction writes one file or two** — and that is a measurement, not a preference, so the next round takes
 it before touching anything.
 
+## A GUARD THAT COULD NOT FAIL, WALKED INTO ON PURPOSE (round 105)
+
+Chaining a verification to a merge is a habit this repository encourages:
+
+```bash
+cargo test … | grep "test result: ok" && git checkout main && git merge --no-ff <branch> && git push
+```
+
+**IT DOES NOT GUARD ANYTHING.** A pipeline's exit status is the LAST command's — `head -3` here, `grep` in general —
+so the `&&` fires whether the tests passed, failed, or never ran. This round it fired when `cargo` had not even found a
+`Cargo.toml` (`error: could not find Cargo.toml in /home/zss/summrise-main`), and the merge and push went out with the
+suite unverified. **The run afterwards was green by luck, not by discipline**: `cargo test -p summrise-cli` ->
+**145 passed, 0 failed**.
+
+**THE REPAIR IS ONE WORD, AND IT IS THE SAME REPAIR EVERY TIME**: `set -o pipefail` (or read the exit code instead of
+the output, which is what `AGENTS.md` already says and what this round proves is not enough on its own — *"read the exit
+code, not the output"* presupposes you are reading the exit code of the thing you think you are). **A guard whose
+failure mode is silence is the exact class this repository writes gates against**, and here it was a shell idiom rather
+than a missing gate: nothing to add to `ci.yml`, everything to remember at the prompt.
+
