@@ -26,7 +26,7 @@
 # decisions live in TWO Rust crates built to wasm, and `main.js` requires BOTH glues, each of which
 # requires its module. `src/url-policy.js` left this list when the TypeScript it named was deleted; the
 # four `summrise_*_policy*` entries are what the swap stages in its place (`agent/summrise-cli/src/swap.rs`'s `DESK_SHELL_SOURCES` names
-# the same seven files), because a device that received the new main.js and not a module would fail to
+# the same files), because a device that received the new main.js and not a module would fail to
 # start the shell at all.
 #
 # AND THE SEVENTH ARRIVED WHEN THE EMBEDDED VIEW BECAME A MODULE: `main.js` requires `./embedded-view`
@@ -39,8 +39,12 @@
 # session table and the three operations an AI drives over IPC and the loopback control server), so
 # `summrise-desktop-electron/src/browser-sessions.js` is required here for the same reason the seventh
 # is — a shell that received the new main.js and not this module dies with
-# `Cannot find module './browser-sessions'`. The seven files of that earlier list are eight now, and
-# `swap.rs`'s `DESK_SHELL_SOURCES` names the same set.
+# `Cannot find module './browser-sessions'`.
+#
+# **AND THIS LIST KEEPS GROWING, SO IT CARRIES NO TOTAL.** It said "the seven files are eight now" until the ninth
+# arrived, and a sentence whose number is a fact about how many modules have been extracted so far goes stale every
+# time one is. What matters is not the count but the RULE: `swap.rs`'s `DESK_SHELL_SOURCES` names the same set, and
+# that is the thing to check when a module is added.
 #
 # AND THE NINTH WHEN THE DSH VIEW BECAME A MODULE: `main.js` requires `./dsh-view` (the harness view's
 # state, its seven operations, and the seam `main.ts` binds for its window, its load door and the url

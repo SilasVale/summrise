@@ -253,7 +253,8 @@ state-bearing embedding — the DSH view — the same way. **Measuring it first 
 **NINE FUNCTIONS, THE SAME SHAPE, THEIR OWN THREE STATE BINDINGS EACH** (`embeddedView`/`embeddedVisible`/
 `embeddedBounds` and `dshView`/`dshVisible`/`dshBounds`), and the primitive counts match exactly: **11 occurrences of
 `setVisible`/`setBounds`/`addChildView`/`removeChildView` in `main.ts` and 11 in `embedded-view.ts`**. The DSH's half of
-`main.ts` is a near-copy of the module extracted two rounds ago.
+`main.ts` was a near-copy of the module extracted two rounds ago — **and it is `src/dsh-view.ts` now** (round 112), so
+this paragraph describes the state that MOTIVATED the extraction rather than the state of the tree.
 
 **SO A THIRD EXTRACTION WOULD BE THE WRONG ACT** — it would move the copy into a third file and make the duplication
 look like structure. **The right move is the opposite: ONE parametrised embedded-view slot, instantiated twice.** The
