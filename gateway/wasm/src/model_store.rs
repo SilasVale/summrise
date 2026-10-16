@@ -376,6 +376,24 @@ pub fn lifecycle_of(row: &Value) -> Lifecycle {
     }
 }
 
+/// **THE IDS A LISTING MAY ADVERTISE, FROM THE ROWS THEMSELVES** — and the ONLY thing this drops is a row whose
+/// lifecycle says `deprecated`.
+///
+/// **WHY IT IS HERE RATHER THAN IN `advertised_ids`**: that function takes ids, and an id cannot carry a status.
+/// The rows are read one layer up (`catalogue_file::custom_models`, the KV-plus-file merge), so the filter runs
+/// before the ids are taken — **a filter downstream of the information it needs is a filter that cannot see it**,
+/// which is what the plan's "only store rows are filtered by status" means in practice.
+///
+/// **CURATED ROWS NEVER COME THROUGH HERE**: the registry's ids go to `advertised_ids` directly and are filtered by
+/// `models:disabled` alone, so a curated row keeps its place whatever its status says. Order is preserved because
+/// the listing's order is part of its bytes.
+pub fn advertised_row_ids(rows: &[Value]) -> Vec<String> {
+    rows.iter()
+        .filter(|row| !is_deprecated(row))
+        .map(|row| summrise_core::text::js_string(row.get("id").unwrap_or(&Value::Null)))
+        .collect()
+}
+
 /// **THE ONE PREDICATE THAT HIDES A ROW**, so that "deprecated" is spelled once and the store filter, the admin
 /// state and any later reader ask the same question.
 pub fn is_deprecated(row: &Value) -> bool {
@@ -859,6 +877,37 @@ pub fn typescript_path() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A DEPRECATED STORE ROW LEAVES THE LISTING; AN ACTIVE ONE AND AN UNKNOWN-STATUS ONE STAY.** The last case is
+    /// the one that matters for safety: a status this build does not know must not hide a model.
+    #[test]
+    fn only_a_deprecated_row_leaves_the_advertised_ids() {
+        let rows = serde_json::json!([
+            {"id": "acme/a"},
+            {"id": "acme/b", "status": "active"},
+            {"id": "acme/c", "status": "deprecated"},
+            {"id": "acme/d", "status": "retired-next-year"},
+            {"id": "acme/e", "status": "beta", "ephemeral": true},
+        ]);
+        assert_eq!(
+            advertised_row_ids(rows.as_array().unwrap()),
+            vec!["acme/a", "acme/b", "acme/d", "acme/e"]
+        );
+    }
+
+    /// **A ROW WITH NO `id` CONTRIBUTES THE STRING `"null"`, AND THIS TEST PINS THAT RATHER THAN FIXING IT.** That is
+    /// what the console does — `String(undefined)`/`String(null)` in the source this module was ported from — and
+    /// **a lifecycle task that also changed how a malformed row is advertised would be two changes wearing one
+    /// commit**. The measurement was taken the honest way: the first version of this test asserted the empty string
+    /// was dropped, the run failed with `left: ["null", "acme/ok"]`, and the source won.
+    #[test]
+    fn a_row_without_an_id_keeps_the_sources_spelling() {
+        let rows = serde_json::json!([{"id": ""}, {"ownedBy": "acme"}, {"id": "acme/ok"}]);
+        assert_eq!(
+            advertised_row_ids(rows.as_array().unwrap()),
+            vec!["", "null", "acme/ok"]
+        );
+    }
 
     /// **ABSENT IS ACTIVE, AND SO IS A STATUS THIS BUILD DOES NOT KNOW.** The first case is a row written before the
     /// field existed; the second is a row a NEWER console wrote — and both must stay advertised, because
