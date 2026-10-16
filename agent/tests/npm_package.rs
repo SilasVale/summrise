@@ -320,7 +320,9 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
     // `embedded-view.js` joined them for exactly that reason: `main.js` requires `./embedded-view` since
     // the embedded browser view became a module of its own, so the shell is a pair there too — and
     // `browser-sessions.js` joined it when the browser-session cluster became one, which is the same
-    // argument a third time (`main.js` requires `./browser-sessions`).
+    // argument a third time (`main.js` requires `./browser-sessions`). `dsh-view.js` joined it a
+    // fourth time when the DSH view became a module (`main.js` requires `./dsh-view`), which is the
+    // same pair argument again.
     //
     // NAMED AS WELL AS DERIVED (the loop below): naming is what fails when a file leaves BOTH lists,
     // and the derivation is what fails when a NEW shell file joins `files[]` and nobody adds it to the
@@ -329,6 +331,7 @@ fn the_desktop_shells_sources_and_icons_are_shipped() {
         "summrise-desktop-electron/src/main.js",
         "summrise-desktop-electron/src/embedded-view.js",
         "summrise-desktop-electron/src/browser-sessions.js",
+        "summrise-desktop-electron/src/dsh-view.js",
         "summrise-desktop-electron/src/preload.js",
         "summrise-desktop-electron/src/summrise_url_policy.js",
         "summrise-desktop-electron/src/summrise_url_policy_bg.wasm",
