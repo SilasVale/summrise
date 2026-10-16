@@ -289,6 +289,107 @@ pub fn source_for(cached_at: Option<i64>, now: i64) -> Source {
 #[cfg(test)]
 mod tests {
 
+    /// **THE WHOLE STORY, IN ONE TEST: two conclusive runs that do not see a row demote it, and the next run that
+    /// does see it brings it back — with the store carried between runs the way `observe` carries it.**
+    ///
+    /// This is the plan's D3 and its third review focus end to end, and it is deliberately an integration test of the
+    /// two halves rather than a unit test of either: **`plan_run` and `apply_writes` are each covered above, and what
+    /// was never covered is the CHAIN** — that what one run writes is what the next run reads.
+    #[test]
+    fn two_runs_demote_a_row_and_the_next_run_that_sees_it_restores_it() {
+        use crate::model_store::{lifecycle_of, Status};
+        let rows = serde_json::json!([
+            {"id": "og/deepseek-v4.1-flash"},
+            {"id": "og/mimo-v2.5"},
+        ]);
+        // A listing that carries one curated row and not the other: conclusive, and `mimo-v2.5` is absent.
+        let partial = vec!["deepseek-flash".to_string()];
+        let mut store = rows.as_array().unwrap().clone();
+        let mut ring: Vec<crate::lifecycle::Observation> = Vec::new();
+
+        // ── RUN 1: a blip. Nothing is demoted.
+        let (observation, writes) = plan_run(&store, "og", Some(&partial), &ring, 1_000, "run-1");
+        ring = crate::lifecycle::push(&ring, observation);
+        store = apply_writes(&store, &writes);
+        assert!(
+            store
+                .iter()
+                .all(|row| lifecycle_of(row).status != Status::Deprecated),
+            "one miss must not demote anything"
+        );
+
+        // ── RUN 2: the same absence, one run later. Now it is a pattern.
+        let (observation, writes) = plan_run(&store, "og", Some(&partial), &ring, 2_000, "run-2");
+        ring = crate::lifecycle::push(&ring, observation);
+        store = apply_writes(&store, &writes);
+        let demoted = store
+            .iter()
+            .find(|row| row["id"] == "og/mimo-v2.5")
+            .expect("the row is still there");
+        assert_eq!(lifecycle_of(demoted).status, Status::Deprecated);
+        assert_eq!(
+            lifecycle_of(demoted).verified_at,
+            Some(2_000),
+            "and attributable"
+        );
+        let kept = store
+            .iter()
+            .find(|row| row["id"] == "og/deepseek-v4.1-flash")
+            .expect("the seen row");
+        assert_eq!(
+            lifecycle_of(kept).status,
+            Status::Active,
+            "a row the upstream still serves is not touched by a neighbour's absence"
+        );
+
+        // ── RUN 3: the upstream serves it again. NO HUMAN IS INVOLVED.
+        let full = vec!["deepseek-flash".to_string(), "mimo-v2.5".to_string()];
+        let (observation, writes) = plan_run(&store, "og", Some(&full), &ring, 3_000, "run-3");
+        ring = crate::lifecycle::push(&ring, observation);
+        store = apply_writes(&store, &writes);
+        let restored = store
+            .iter()
+            .find(|row| row["id"] == "og/mimo-v2.5")
+            .expect("the row");
+        assert_eq!(
+            lifecycle_of(restored).status,
+            Status::Active,
+            "a row that comes back is restored on the newest run"
+        );
+        assert_eq!(
+            lifecycle_of(restored).verified_at,
+            Some(3_000),
+            "with a fresh stamp"
+        );
+
+        // ── AND AN OUTAGE IN BETWEEN WOULD HAVE BROKEN THE STREAK: run 1 + an inconclusive run + run 2 leaves the
+        //    row alone, which is the property that keeps an upstream's bad afternoon from retiring a model.
+        let mut streak: Vec<crate::lifecycle::Observation> = Vec::new();
+        let (o1, _) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&partial),
+            &streak,
+            1_000,
+            "r1",
+        );
+        streak = crate::lifecycle::push(&streak, o1);
+        let (o2, _) = plan_run(rows.as_array().unwrap(), "og", None, &streak, 2_000, "r2");
+        streak = crate::lifecycle::push(&streak, o2);
+        let (_, writes) = plan_run(
+            rows.as_array().unwrap(),
+            "og",
+            Some(&partial),
+            &streak,
+            3_000,
+            "r3",
+        );
+        assert!(
+            writes.iter().all(|(_, l)| l.status != Status::Deprecated),
+            "the outage between the two misses means the streak is one run, not two"
+        );
+    }
+
     /// **A RUN WRITES THE LIFECYCLE AND NOTHING ELSE, IN THE STORE'S OWN ORDER** — and it cannot invent a row.
     #[test]
     fn a_run_updates_the_rows_it_knows_and_adds_none() {
