@@ -394,3 +394,76 @@ screen that survives the deletion. Until one of those exists, **the rule stays p
 stays unbuilt**, which is the cheaper of the two mistakes: an unexercised endpoint is a liability, an unused pure
 function with tests is a decision waiting for its caller.
 
+---
+
+# WHERE THIS WORKSTREAM ENDS (rounds 91-154) — ONE ENTRY POINT
+
+Everything below is measured; the details live in the commits that name them and in `docs/agents/ideas.md`'s dated
+sections. This is the single place to read first.
+
+## THE PLAN'S SEVEN TASKS
+
+**Done**: Task 1 (Step 0) · Task 2 (the row's lifecycle: `Lifecycle`/`Status`, `lifecycle_of`, `is_deprecated`,
+`advertised_row_ids` wired at both call sites, `with_lifecycle`/`set_lifecycle`) · Task 3 (the committed slice + its
+extractor, with a RESUMABLE fetch — the document is 5.7 MB and this link delivers ~20 KB/s) · Task 4 (`conclusive` +
+`listable_prefixes`) · Task 5 (the observation ring: a verdict READ, never incremented) · Task 6 (the cache value, the
+read path, one run as a pure function, `observe`, the Cron in `wrangler.jsonc`, the admin state's `lifecycles` map with
+its two frozen bodies re-recorded FROM THE WORKER) · Task 7's rule (`adoptable` + three refusals).
+
+**Deliberately not built**: Task 7's ROUTE. The console's admin plugin is one of the three files queued for deletion
+after the cutover, and the admin corpus is the SHIPPING CONSOLE's answers — so a route the console does not have can
+neither be driven nor recorded. A worker-driven fixture in `verify.mjs`, or a console screen that survives the
+deletion, is what would revive it.
+
+**And one fact the plan asserted that the document does not support**: "`Shape` from `provider.shape`" — a provider
+carries `api` (a URL), `doc`, `env`, `id`, `models`, `name`, `npm` and nothing that says whether a model answers
+`completions` or `responses`. The slice omits it rather than inventing one, which makes `UnderivableDialect` the common
+adoption refusal rather than a rare one.
+
+## THE REST OF THE OBJECTIVE
+
+**The Rust migration is finished**: LOGIC 48 of 48.
+
+**The desktop shell was the one real architectural debt, and it is paid**: `main.ts` was 1368 lines holding four
+state-bearing clusters. Three were extracted verbatim (`embedded-view` 20 tests, `browser-sessions` 18, `dsh-view` 18)
+and the last two — measured to be near-copies of one pattern — were **unified into ONE factory instantiated twice**
+(`embedded-slot`), landed with CI green at 6.6 minutes. The package went from 14 tests to 75.
+
+**The panel is NOT debt, and that took four measurements to establish**: its biggest files are test files; its biggest
+hook is 220 lines of TYPES inside 540; its biggest component already has five free functions extracted above it and a
+test of its own. Likewise `index/` (small, four test files, and its biggest numbers are `build/`/`dist/` artifacts) and
+the repository's largest single file (`sweep_judge.rs`, 2145 lines, but 40 top-level items — 54 lines each — and a dev
+tool). **"Find the biggest file" is exhausted here**: it found one real debt and then a series of maintained
+complexities.
+
+**CI is stable and was never the bottleneck**: 6.2-7.4 minutes across the window that added 61 tests, with the single
+failure in it being a flake of MY OWN making — a test that asserted two ids were equal while running on the real clock,
+so it required the wall clock to stand still. Fixed by making the collision a MODE (`clock: "frozen"`, an unknown mode
+throws), proven by ten consecutive runs rather than one, and the message that named it exactly had been called
+"unattributable" because its `actual`/`expected` were read in the wrong order.
+
+## WHAT REMAINS
+
+1. **WAITING ON THE OPERATOR**: the front-door cutover observation
+   (`curl -si https://<console>/api/admin/public | grep -i x-summrise-front-door` -> `rust`), after which
+   `plugins/auth.ts`, `plugins/admin.ts` and `plugins/models-probe.ts` are deleted by the rehearsed recipe and LOGIC
+   goes 48 -> 45.
+2. **A PRODUCT DECISION**: `browserId(Date.now())` is a bare millisecond stamp, so two opens in one millisecond collide
+   and the cap counts TABLE ROWS while the resource is WINDOWS — measured, a frozen clock with the cap at 8 and 11 URLs
+   leaves **11 live windows and 10 still alive after `browserCloseAll()`**. Give the id a counter (ids stop colliding;
+   the table tracks windows) or count live windows (the collision stays; the limit becomes true). **The first changes
+   what a session id looks like, the second what the limit means.**
+
+## THE METHOD THAT DID THE WORK, FOR WHOEVER PICKS UP THE NEXT FILE
+
+  * **measure the seam with the COMPILER, not with grep** — compiling a cluster alone makes `Cannot find name` the
+    complete free-identifier set, and it catches type-position names a grep misses and globals a grep mistakes for
+    dependencies;
+  * **"is this a module?" and "are these two the same module?" are different questions**, and the second one stopped a
+    third extraction that would have turned duplication into structure;
+  * **a behaviour merge must NAME its choices** — the unification carried four, and found two more differences
+    (`stateUrl`, and a fourth per-instance binding) that had never been in any plan;
+  * **a gate that reads `git ls-files` cannot be driven by a worker forbidden to commit** — recorded rather than gated,
+    because the enforceable form ("no untracked source file in a scanned directory") would fire on legitimate scratch
+    files, and a gate that cries wolf is the thing this repository refuses to add.
+
