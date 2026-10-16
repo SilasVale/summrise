@@ -1,4 +1,14 @@
 {
+  // **THE SCHEDULED OBSERVATION — Task 6 of the catalogue-lifecycle plan, and the ONLY writer of a row's status.**
+  //
+  // `catalogue_service::TTL_SECS` is six hours and this period is SEVEN, which is the plan's constraint rather than a
+  // round number: **a period equal to the TTL races its own reader** — the run may read the entry it is about to
+  // replace, and a reader arriving in the same second may get either. Longer than the TTL means every run finds
+  // spent facts and does real work. `catalogue_service`'s tests pin the number; the wiring that CALLS the timer is
+  // Task 6's remaining half.
+  "triggers": {
+    "crons": ["17 */7 * * *"]
+  },
   // **THE NAME AND THE DOMAINS MOVED TOGETHER, AND THE ORDER IS THE WHOLE POINT — MEASURED 2026-10-08.**
   //
   // The paragraph this replaces is why the order matters. On 2026-10-05 this file was renamed to `summrise-gate`
