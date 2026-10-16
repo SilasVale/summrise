@@ -389,7 +389,7 @@ function kvEnv() {
   };
 }
 
-test("probeRateLimited: 前 60 次放行, 第 61 次限流, 换时间桶后放行", async () => {
+test("probeRateLimited: the first 60 pass, the 61st is rate-limited, and a new time bucket lets it through", async () => {
   const now = 1785000000000;
   const clock = freezeClock(now);
   const { env } = kvEnv();
@@ -431,7 +431,7 @@ test("probeRateLimited: writes bucket back to KV (F2 coverage)", async () => {
   }
 });
 
-test("probeRateLimited: KV 错误时 fail-open（不拦请求）", async () => {
+test("probeRateLimited: fails open on a KV error (does not block requests)", async () => {
   const env = {
     KEYS: {
       get: async () => { throw new Error("kv down"); },

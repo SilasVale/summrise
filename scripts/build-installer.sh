@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# Summrise Windows 自包含安装包构建脚本 — Linux 上产出 setup.exe。
+# Summrise Windows self-contained installer build script — produces setup.exe on Linux.
 #
 #   ./scripts/build-installer.sh <1.2.N> [--no-deploy]
 #
-# 自包含：pinned tgz（summrise-agent-<ver>.tgz）File 进安装包，ps1 优先用内嵌
-# 包安装（-LocalTgz）——无网络、老版本被 prune 照样能装；装完即删tgz。
-# 产物: index/public/summrise-agent/SummriseAgent-Setup-<ver>.exe (+ SummriseAgent-Setup.exe 别名)
-# 默认随 index worker 一起 deploy 到 CDN；--no-deploy 只 stage 不 deploy
-# （给 publish-release.sh 编排单次 deploy 用）。
+# Self-contained: the pinned tgz (summrise-agent-<ver>.tgz) is File'd into the installer and the
+# ps1 installs from the bundled copy first (-LocalTgz) — so it installs with no network, and even
+# when an old version has been pruned; the tgz is deleted right after the install.
+# Artifact: index/public/summrise-agent/SummriseAgent-Setup-<ver>.exe (+ the SummriseAgent-Setup.exe alias)
+# By default it is deployed to the CDN together with the index worker; --no-deploy only stages
+# it (so publish-release.sh can orchestrate a single deploy).
 #
-# 前置：index/public/summrise-agent/summrise-agent-<ver>.tgz 必须已存在（publish
-# 先 pack+stage tgz，再打安装器；顺序反了就地失败，不打半吊子包）。
+# Prerequisite: index/public/summrise-agent/summrise-agent-<ver>.tgz must already exist (publish
+# packs+stages the tgz FIRST and builds the installer after it; the wrong order fails in place
+# rather than shipping a half-baked package).
 #
-# 工具链：NSIS 3.12 从源码编译（userspace，无需 sudo；apt 只做 download +
-# dpkg-deb -x，gcc10-root 同款手法）。首次运行约 10 分钟（含下载），
-# 之后复用 $HOME/nsis-dist 的 makensis，秒级。
-# 注意：不要 apt 装 nsis（focal 只有 3.05，缺 3.11/3.12 的提权修复）。
+# Toolchain: NSIS 3.12 compiled from source (userspace, no sudo needed; apt is only used for
+# download + dpkg-deb -x, the same trick as gcc10-root). The first run takes about 10 minutes
+# (including the downloads); after that the makensis in $HOME/nsis-dist is reused and it takes
+# seconds.
+# NOTE: do NOT apt-install nsis (focal only has 3.05, which lacks the 3.11/3.12 privilege fix).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -90,13 +93,14 @@ build_toolchain() {
   local tmp; tmp="$(mktemp -d)"
   ( cd "$tmp" && timeout 280 apt-get download mingw-w64 binutils-mingw-w64-x86-64 binutils-mingw-w64-i686 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-i686 mingw-w64-x86-64-dev mingw-w64-i686-dev mingw-w64-common libz-mingw-w64-dev scons )
   for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$NSIS_ROOT"; done
-  # Debian alternatives 生成的无后缀驱动名在 userspace 下不存在，补软链。
+  # The unsuffixed driver names Debian alternatives generate do not exist in this userspace
+  # tree, so add symlinks for them.
   mkdir -p "$NSIS_ROOT/bin"
   ( cd "$NSIS_ROOT/bin" && for a in x86_64-w64-mingw32 i686-w64-mingw32; do
       for t in gcc g++ cpp windres ar ranlib dlltool strip objcopy objdump; do
         if [[ ! -e "$a-$t" ]]; then
           src="$(ls "$NSIS_ROOT/usr/bin/$a-$t"-* 2>/dev/null | head -1)"
-          # -f: alternatives 留下的悬空链接必须覆盖掉
+          # -f: the dangling links alternatives leaves behind MUST be overwritten
           [[ -n "$src" ]] && ln -sfn "$src" "$a-$t"
         fi
       done
@@ -106,8 +110,8 @@ build_toolchain() {
       "https://sourceforge.net/projects/nsis/files/NSIS%203/3.12/nsis-3.12-src.tar.bz2/download" --max-time 180
     tar xjf "$tmp/nsis-src.tar.bz2" -C "$HOME/nsis-src"
   fi
-  # scons 构建（apport 钩子在这台机器上是坏的，用 runner 绕开；NSIS_SCONS_GNU_ENVPATHHACK
-  # 让交叉 env 继承 PATH，否则 windres 找不到）
+  # The scons build (the apport hook is broken on this machine, so a runner works around it;
+  # NSIS_SCONS_GNU_ENVPATHHACK makes the cross env inherit PATH, or windres is not found)
   cat > "$tmp/runscons.py" <<'EOF'
 import sys
 sys.excepthook = sys.__excepthook__
@@ -145,7 +149,8 @@ cp agent/deploy/summrise-setup.nsi agent/deploy/summrise-online-setup.ps1 agent/
 mkdir -p "$STAGE/lib"
 cp agent/deploy/lib/SummriseIntegrity.ps1 "$STAGE/lib/"
 cp agent/deploy/res/header.bmp agent/deploy/res/welcome.bmp "$STAGE/res/"
-# 自包含前置：pinned tgz 必须已 stage（publish 先 pack，顺序反了就地失败）。
+# Self-contained prerequisite: the pinned tgz must already be staged (publish packs it first; the
+# wrong order fails in place).
 TGZ_SRC="index/public/summrise-agent/summrise-agent-$VER.tgz"
 [[ -f "$TGZ_SRC" ]] || { echo "::error::missing $TGZ_SRC — pack+stage the tgz first (publish-release.sh does this before the installer)" >&2; exit 1; }
 cp "$TGZ_SRC" "$STAGE/summrise-agent-$VER.tgz"
@@ -170,11 +175,13 @@ EXE="$STAGE/SummriseAgent-Setup-$VER.exe"
 # (manifest installer_sha256, smoke) covers the final shipped bytes.
 sign_exe "$EXE"
 SIZE=$(stat -c %s "$EXE")
-# 自包含证明：成品必须比内嵌的 tgz 还大（stub+lzma 开销）。在线包时代的
-# 150KB 门已作废——一个 200KB 的"自包含"包一定是 tgz 没打进去。
+# The self-contained proof: the finished exe must be LARGER than the tgz embedded in it (stub +
+# lzma overhead). The 150KB gate from the online-package era is void — a 200KB "self-contained"
+# package always means the tgz never made it in.
 [[ "$SIZE" -gt "$TGZ_SIZE" ]] || { echo "::error::exe ($SIZE bytes) not larger than bundled tgz ($TGZ_SIZE bytes) — payload missing?" >&2; exit 1; }
-# 版本号已编进文件名（OutFile SummriseAgent-Setup-$VER.exe 即校验）；
-# payload 经 lzma 压缩，exe 内 grep 不到明文，不做内容 grep 门。
+# The version number is already compiled into the file name (OutFile SummriseAgent-Setup-$VER.exe
+# is the check); the payload is lzma-compressed, so no plaintext can be grepped out of the exe and
+# there is no content-grep gate.
 echo "built $EXE ($SIZE bytes, self-contained with $TGZ_SIZE-byte tgz)"
 
 echo "== publish to CDN staging =="
@@ -219,4 +226,4 @@ esac
 echo "== done =="
 echo "  versioned: $CDN_BASE/summrise-agent/SummriseAgent-Setup-$VER.exe"
 echo "  latest:    $CDN_BASE/summrise-agent/SummriseAgent-Setup.exe"
-echo "  next: 在 Windows 沙盒机上跑一遍安装验证（见 agent/deploy/README-installer.md），再更新 index 下载页。"
+echo "  next: run one install verification on the Windows sandbox machine (see agent/deploy/README-installer.md), then update the index download page."
