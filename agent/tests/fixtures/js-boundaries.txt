@@ -209,6 +209,18 @@ BOUNDARY | agent/summrise-desktop-electron/src/ | the Electron shell's HOST: win
 # SPA reads — moved to `agent/summrise-shell-policy/src/tests.rs` in landing 6b, and what the `.mjs` case
 # keeps is the count: the refusal is built once, from the policy, and the literal is not restated here.
 BOUNDARY | agent/summrise-desktop-electron/test/ | the two tests of the HOST's own wiring — call-site counts in main.ts and the preload's bridge names. The decision tests that used to live here are `agent/summrise-shell-policy`'s
+# **A THIRD TEST IN THAT DIRECTORY IS NOT COVERED BY THAT RULE, AND THIS ONE IS WHY**: the rule above says
+# "the two tests", which stays TRUE only while the third has a longer rule of its own. `embedded-view.test.mjs`
+# is not a text scan — it EXECUTES the committed `src/embedded-view.js` against a stubbed Electron and the
+# real policy wasm — and it is BOUNDARY for a reason one step stronger than "a test belongs to the code it
+# tests": every expected VALUE is read back out of `summrise_shell_policy.js`/`summrise_url_policy.js` rather
+# than restated here (the zoom clamp, the minimum slot, the popup drop rule, the recovery URL), so the file
+# pins the WIRING — which platform call, with which argument, at which moment — and decides no policy at all.
+# The values are the crates' Rust tests' business and the platform is a stub; what it adds over the two wasm
+# suites above is the module's own SEQUENCING (the view attached hidden, a crash that hides the dead view and
+# pushes `gone`, the refused popup that must not blank the page, and the recovery the throwaway `/tmp` smoke
+# harness measured once and left outside this repository, where CI could never run it again).
+BOUNDARY | agent/summrise-desktop-electron/test/embedded-view.test.mjs | it EXECUTES the committed src/embedded-view.js with a stub electron and the real policy wasm: the host's WIRING, with every expected value asked of the two policy crates rather than restated, so it decides nothing they have not already decided — the same posture as the two wasm suites above, one layer up (the module instead of the artifact)
 BOUNDARY | gateway/src/store.ts | **A PURE RE-EXPORT SHIM — MEASURED, NOT ASSUMED (2026-10-12).** Its entire
 #   non-comment body is `export * from "./store/<domain>.ts"` lines and nothing else: no condition, no default,
 #   no table. It decides NOTHING; the implementation is `src/store/<domain>.ts`, which this rule keeps as LOGIC. A
