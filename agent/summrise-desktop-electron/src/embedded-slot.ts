@@ -186,6 +186,17 @@ export function embeddedSlot(config: SlotConfig): EmbeddedSlot | EmbeddedNavSlot
 
   function ensure(): WebContentsView {
     if (view && !view.webContents.isDestroyed()) return view;
+    // ── THE HOST IS READ BEFORE ANYTHING IS BUILT, AND BEFORE ANY STATE IS SET ─────────────────────
+    // An UNBOUND slot is one whose window getter refuses (`deps().win()` on a host whose `bind()` never
+    // ran), and a refusal must leave the slot exactly as it was: nothing built, nothing assigned, no
+    // handler wired. The read used to sit AFTER `view = built` — the order BOTH modules had before the
+    // unification — so the loud throw left a fully built view in the slot's state that no window ever
+    // showed: its crash handler was live, a later `state()`/`reload()` answered about it, and a second
+    // `ensure()` returned it without reading the window again. Nothing below needs the window to BUILD a
+    // view; the read is only about WHERE to attach one, so it happens first and a refusal creates
+    // nothing. This is a deliberate behaviour change on the UNBOUND path only: a bound host's getter
+    // returns exactly what it returned before, and reads it exactly once.
+    const w = win();
     const built = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -237,13 +248,10 @@ export function embeddedSlot(config: SlotConfig): EmbeddedSlot | EmbeddedNavSlot
       session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
       session.defaultSession.setPermissionCheckHandler(() => false);
     } catch { /* non-fatal (already set at app ready, or a session that does not exist) */ }
-    // THE ASSIGNMENT PRECEDES THE WINDOW READ, which is what it did on both sides before the unification
-    // (and what `dsh-slot.test.mjs` pinned as the seam's own shape): a window getter that refuses leaves
-    // the built view in the slot's state rather than discarding it.
     view = built;
-    // Attach to the main window's content view once the window exists. The view is added HIDDEN and only
-    // shown when the SPA's page is active and reports its placeholder bounds.
-    const w = win();
+    // Attach to the main window's content view once the window exists — THE WINDOW READ AT THE TOP of
+    // this function, not a second read: the same one getter call, moved ahead of the build. The view is
+    // added HIDDEN and only shown when the SPA's page is active and reports its placeholder bounds.
     if (w) w.contentView.addChildView(built);
     return built;
   }

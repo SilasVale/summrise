@@ -195,7 +195,7 @@ function boundModule(options) {
   return { ...shell, mod, asked, slot: mod.embeddedSlot(config) };
 }
 
-test("a slot cannot be built without its host — the factory REFUSES, and it names the missing piece", () => {
+test("an unbound slot creates NOTHING and leaves NO state — the refusal precedes every construction", () => {
   const shell = fakeShell();
   const mod = loadSlotModule(shell.electron);
   const asked = [];
@@ -216,6 +216,51 @@ test("a slot cannot be built without its host — the factory REFUSES, and it na
   assert.throws(() => mod.embeddedSlot({ ...config, goneChannel: "" }), /embedded-slot: goneChannel is missing/);
   assert.throws(() => mod.embeddedSlot({ ...config, navChannel: "" }), /embedded-slot: navChannel is present but is not a channel name/);
   assert.deepEqual(shell.views, [], "a refused construction builds NOTHING — there is no view left to leak");
+  // ── ...AND NEITHER DOES A REFUSED `ensure()`, WHICH IS THE PATH THAT COULD LEAK ─────────────────────
+  // THE WINDOW GETTER IS A HOST DEPENDENCY READ AT USE TIME, and it was read AFTER `view = built`, so the
+  // "no view left to leak" claim above held only for a refused CONSTRUCTION. A getter that REFUSES — an
+  // unbound host, which is the case the loud throw exists for — left a fully built view in the slot's
+  // state: never attached to any window, its crash handler live, reachable through `reload()`/`go()`/
+  // `zoom()` (none of which call `ensure()` first), and returned by a SECOND `ensure()` without the window
+  // being read again. The host is now read BEFORE the build. This is a DELIBERATE BEHAVIOUR CHANGE ON THE
+  // UNBOUND PATH ONLY — a bound host's getter is called once and answers exactly as it did — and the case
+  // is re-expressed to require what it claimed, on the one path where the claim could be violated.
+  let refuse = false;
+  const slot = mod.embeddedSlot({
+    ...config,
+    win: () => { if (refuse) throw new Error("embeddedViewBind() was never called"); return shell.win; },
+  });
+  refuse = true;
+  const LOUD = /embeddedViewBind\(\) was never called/;
+  assert.throws(() => slot.ensure(), LOUD, "the refusal is still LOUD: a slot with no host does not fall back");
+  assert.deepEqual(shell.views, [], "and it built NOTHING — no view is constructed before the host is read");
+  assert.throws(() => slot.ensure(), LOUD, "a second call refuses AGAIN rather than returning the view the first one built");
+  assert.deepEqual(shell.views, [], "so there is still no view to return");
+  assert.deepEqual(shell.attached, [], "and nothing was attached to the window");
+  // NO STATE BEHIND IT: the reads answer from an empty slot. `go`/`zoom` are the sharpest form of the old
+  // leak — they reach the view DIRECTLY, so an orphan in the slot's state was drivable through them.
+  assert.deepEqual(slot.reload(), { ok: false }, "reload has no view to reach");
+  assert.deepEqual(slot.go(-1), { ok: false }, "go has no view to drive");
+  assert.deepEqual(slot.zoom(1.5), { ok: false }, "nor zoom");
+  assert.deepEqual(
+    slot.state(),
+    {
+      ok: true,
+      url: policy.shownUrl(undefined, "about:blank"),
+      canBack: false,
+      canFwd: false,
+      title: "",
+      visible: false,
+    },
+    "and the record is the empty one — not a description of a view that was never attached",
+  );
+  // EVERY ENTRY POINT THAT BUILDS REFUSES THE SAME WAY, and not one of them leaves a view behind.
+  assert.throws(() => slot.place({ x: 0, y: 0, width: 800, height: 600 }), LOUD, "place() dies on the same refusal");
+  assert.throws(() => slot.navigate("https://example.com/"), LOUD, "navigate() too: the door runs, then ensure() refuses");
+  assert.throws(() => slot.recover(), LOUD, "and so does the operation whose whole job is to BUILD a view");
+  assert.deepEqual(shell.views, [], "place(), navigate() and recover() each built nothing");
+  assert.deepEqual(shell.attached, [], "and attached nothing");
+  assert.deepEqual(shell.sent, [], "and pushed nothing");
 });
 
 test("the factory exports ONE function, and the browser instance's surface is these eight", () => {
