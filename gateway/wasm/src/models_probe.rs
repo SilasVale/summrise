@@ -30,6 +30,64 @@ pub fn upstream_models_url(upstream: &str) -> Option<String> {
         .map(|head| format!("{head}/models"))
 }
 
+/// **THE PREFIXES THIS CONSOLE CAN ACTUALLY CHECK TODAY, AND THE PIN IS THE POINT.** A scheduled run asks an
+/// upstream for its listing; four of our channels publish one at a URL this worker knows (`og`, `nv`, `gmi`, `cm`),
+/// and the others (`or`, `qw`, `r4`, `amd`) do not — OpenRouter's catalogue is a different API, and the Anthropic
+/// passthroughs have no `/models` at all. **Widening the scope later is a deliberate edit with a reason**, not a
+/// side effect of a loop that happens to iterate every prefix.
+pub fn listable_prefixes() -> &'static [&'static str] {
+    &["og", "nv", "gmi", "cm"]
+}
+
+/// **THE UPSTREAM SPELLINGS OF ONE PREFIX'S CURATED ROWS** — the bare names the provider's own listing would carry,
+/// which is NOT the registry id: `og/deepseek-v4.1-flash` is `deepseek-flash` upstream (`OG_WIRE_REMAP`, and the
+/// `wire` facet when a row has one). **A comparison that used the registry id would conclude that every model had
+/// vanished**, which is the loudest possible way to be wrong.
+pub fn upstream_spellings(prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for model in crate::registry::MODEL_REGISTRY {
+        if !model.id.starts_with(prefix) {
+            continue;
+        }
+        let bare = model.wire.unwrap_or_else(|| {
+            model
+                .id
+                .split_once('/')
+                .map(|(_, rest)| rest)
+                .unwrap_or(model.id)
+        });
+        out.push(bare.to_string());
+    }
+    out
+}
+
+/// **IS A LISTING EVIDENCE?** — the floor the whole lifecycle rests on, because a demotion is decided by ABSENCE.
+///
+/// Three answers, and the first two are the ones that matter:
+///
+///   * **an empty (or unrecognised) listing is NOT conclusive** — a 200 with an empty body, or a body whose shape
+///     changed under us, must hide nothing. This is the plan's first review focus, and it is the failure mode that
+///     would demote every model on a provider whose API answered a stub.
+///   * **a listing carrying NONE of the curated rows is not conclusive either** — the listing we received is then
+///     not the list we think we are reading (a renamed dialect, a proxy's error page that parsed as JSON, the wrong
+///     provider). Absence of everything is not evidence that one thing is gone.
+///   * **one curated row present makes it conclusive**, and only then: from that point, a curated row's ABSENCE
+///     means the upstream really does not serve it, which is what a demotion is allowed to act on.
+///
+/// The comparison is NORMALISED (`upstream_spellings` provides the right side) and case-insensitive on the wire,
+/// because a provider that renames `DeepSeek-V4` to `deepseek-v4` has not retired anything.
+pub fn conclusive(offered: &[String], prefix: &str, curated: &[&str]) -> bool {
+    if offered.is_empty() {
+        return false;
+    }
+    let normal = |s: &str| s.trim().to_ascii_lowercase();
+    let wanted: Vec<String> = curated.iter().map(|c| normal(c)).collect();
+    let _ = prefix;
+    offered
+        .iter()
+        .any(|id| wanted.iter().any(|c| *c == normal(id)))
+}
+
 /// `offeredIds(payload)` — upstream ids from either dialect we speak: an OpenAI-style `{data:[{id}]}`, an
 /// Anthropic-style one (the same shape), or a bare array. Anything else is not a list.
 ///
@@ -295,6 +353,62 @@ pub async fn probe(
 
 #[cfg(test)]
 mod tests {
+
+    /// **THE THREE ANSWERS, AND THE TWO THAT MATTER ARE THE NEGATIVE ONES.** A demotion is decided by absence, so a
+    /// listing that is empty — or that carries none of our rows — must be `false`, or one bad upstream response
+    /// retires the catalogue.
+    #[test]
+    fn an_empty_or_unrelated_listing_is_not_conclusive() {
+        let curated = ["deepseek-flash", "mimo-v2.5"];
+        assert!(
+            !conclusive(&[], "og", &curated),
+            "an empty 200 is evidence of nothing"
+        );
+        let offered = vec!["something-new".to_string(), "another".to_string()];
+        assert!(
+            !conclusive(&offered, "og", &curated),
+            "a listing with none of our rows is not the list we think we are reading"
+        );
+    }
+
+    /// One curated row present, and the listing becomes evidence — which is what lets an absence mean something.
+    #[test]
+    fn one_curated_row_makes_a_listing_conclusive() {
+        let curated = ["deepseek-flash", "mimo-v2.5"];
+        let offered = vec!["something-new".to_string(), "deepseek-flash".to_string()];
+        assert!(conclusive(&offered, "og", &curated));
+        // Case and padding are not a retirement.
+        let offered = vec!["  DeepSeek-Flash ".to_string()];
+        assert!(conclusive(&offered, "og", &curated));
+    }
+
+    /// **THE UPSTREAM SPELLING IS NOT THE REGISTRY ID**, and a comparison that forgot it would report every model
+    /// as vanished: `og/deepseek-v4.1-flash` answers to `deepseek-flash` upstream.
+    #[test]
+    fn the_upstream_spellings_are_the_wire_names() {
+        let og = upstream_spellings("og");
+        assert!(
+            og.iter().any(|s| s == "deepseek-flash"),
+            "the wire remap was lost: {og:?}"
+        );
+        assert!(
+            !og.iter().any(|s| s.starts_with("og/")),
+            "a registry id leaked into the listing names"
+        );
+        assert!(upstream_spellings("nothing-claims-this").is_empty());
+    }
+
+    /// The scope pin: four prefixes are checkable today and the rest are not.
+    #[test]
+    fn only_four_prefixes_are_listable_today() {
+        assert_eq!(listable_prefixes(), &["og", "nv", "gmi", "cm"]);
+        for unlistable in ["or", "qw", "r4", "amd"] {
+            assert!(
+                !listable_prefixes().contains(&unlistable),
+                "{unlistable} is not checkable and must not be probed by a timer"
+            );
+        }
+    }
     use super::*;
     use serde_json::json;
 
