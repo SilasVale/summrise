@@ -8,6 +8,12 @@ pub mod events;
 /// divergence from the JavaScript it was ported from).
 pub mod sweep_judge;
 
+/// THE DIFFERENTIAL CORPUS for `sweep_judge::judge_report`, and the golden test that pins it. `#[doc(hidden)]`
+/// because it is test material rather than API, and a library module rather than `#[cfg(test)]` because
+/// `examples/judge-diff.rs` is not compiled with `cfg(test)` and has to read the SAME corpus the pin does.
+#[doc(hidden)]
+pub mod judge_corpus;
+
 pub use config::Config;
 pub use error::DeviceError;
 pub use events::{AgentEvent, AppEventBus, EventBus};
