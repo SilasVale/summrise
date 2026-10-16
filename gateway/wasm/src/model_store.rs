@@ -298,6 +298,90 @@ pub fn is_built_in(registry_ids: &[&str], id: &str) -> bool {
     registry_ids.contains(&id)
 }
 
+/// **A ROW'S LIFECYCLE — THE FIELDS THAT LET AN ADVERTISED ROW BE DEMOTED RATHER THAN DELETED.**
+///
+/// A store row could only be `models:disabled`d, which is an operator's decision about a row they looked at. **A
+/// ROW THAT ANSWERS 400 UPSTREAM IS NOT A DECISION, IT IS AN OBSERVATION**, and the catalogue lifecycle plan puts
+/// the observation on the row: `status` is what a scheduled check concluded, `verifiedAt`/`verifiedBy` say when and
+/// by what, `ephemeral` marks a free tier that can vanish without notice, and `assumed` records the facets adoption
+/// could not derive (`usEgress`, a region policy) so the console can show what was guessed.
+///
+/// **THE WIRE NAMES ARE camelCase AND THAT IS FIXED BY THE PLAN** (`status`, `ephemeral`, `verifiedAt`,
+/// `verifiedBy`, `assumed`) because the console reads them; the Rust field names are snake_case and the mapping is
+/// in `lifecycle_of`.
+///
+/// **ABSENT MEANS ACTIVE, AND AN UNKNOWN STATUS DOES TOO.** A row written before this field existed is a row that is
+/// still advertised, so `Active` is the only honest default; and a status string this build does not know (a newer
+/// console wrote it) must not silently hide a row — **hiding is what `Deprecated` means, and it is the one value
+/// that can make a model disappear**, so it is only ever set by a value that says so explicitly.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Lifecycle {
+    pub status: Status,
+    /// A limited-time free tier: advertised, but the console says so.
+    pub ephemeral: bool,
+    pub verified_at: Option<i64>,
+    pub verified_by: Option<String>,
+    /// Facets adoption could not derive and a human has not yet declared.
+    pub assumed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Status {
+    #[default]
+    Active,
+    Alpha,
+    Beta,
+    Deprecated,
+}
+
+impl Status {
+    /// The wire spelling — the same strings the console switches on.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Active => "active",
+            Status::Alpha => "alpha",
+            Status::Beta => "beta",
+            Status::Deprecated => "deprecated",
+        }
+    }
+
+    fn from_wire(value: &str) -> Status {
+        match value {
+            "alpha" => Status::Alpha,
+            "beta" => Status::Beta,
+            "deprecated" => Status::Deprecated,
+            _ => Status::Active,
+        }
+    }
+}
+
+/// **THE ROW'S LIFECYCLE, READ FROM THE ROW** — one place, so the filter, the admin state and the console's copy
+/// cannot disagree about what a field means. A missing `status` is `Active` (see the type's note).
+pub fn lifecycle_of(row: &Value) -> Lifecycle {
+    let status = row["status"].as_str().unwrap_or("");
+    Lifecycle {
+        status: Status::from_wire(status),
+        ephemeral: row["ephemeral"].as_bool().unwrap_or(false),
+        verified_at: row["verifiedAt"].as_i64(),
+        verified_by: row["verifiedBy"].as_str().map(str::to_string),
+        assumed: row["assumed"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// **THE ONE PREDICATE THAT HIDES A ROW**, so that "deprecated" is spelled once and the store filter, the admin
+/// state and any later reader ask the same question.
+pub fn is_deprecated(row: &Value) -> bool {
+    lifecycle_of(row).status == Status::Deprecated
+}
+
 /// `putCustomModel`'s upsert: the record with this id is dropped and the new one APPENDED — which is the
 /// source's `[...cur.filter((m) => m.id !== spec.id), spec]`, and it means an update MOVES the record to the end
 /// of the list rather than replacing it in place.
@@ -775,6 +859,58 @@ pub fn typescript_path() -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+
+    /// **ABSENT IS ACTIVE, AND SO IS A STATUS THIS BUILD DOES NOT KNOW.** The first case is a row written before the
+    /// field existed; the second is a row a NEWER console wrote — and both must stay advertised, because
+    /// `Deprecated` is the one value that makes a model disappear from `/v1/models`.
+    #[test]
+    fn a_row_without_lifecycle_fields_is_active() {
+        assert_eq!(
+            lifecycle_of(&serde_json::json!({"id": "og/x"})).status,
+            Status::Active
+        );
+        assert_eq!(
+            lifecycle_of(&serde_json::json!({"id": "og/x", "status": "retired-next-year"})).status,
+            Status::Active
+        );
+        assert!(!is_deprecated(&serde_json::json!({"id": "og/x"})));
+    }
+
+    /// **THE WIRE NAMES ARE THE PLAN'S**, and they are camelCase on purpose: the console reads `verifiedAt` and
+    /// `verifiedBy`, so a snake_case read here would silently always be `None` — the failure mode this test exists
+    /// to make impossible.
+    #[test]
+    fn every_lifecycle_field_round_trips_from_its_wire_name() {
+        let row = serde_json::json!({
+            "id": "og/x",
+            "status": "beta",
+            "ephemeral": true,
+            "verifiedAt": 1785000000,
+            "verifiedBy": "catalogue-service",
+            "assumed": ["usEgress", "region"],
+        });
+        let l = lifecycle_of(&row);
+        assert_eq!(l.status, Status::Beta);
+        assert!(l.ephemeral);
+        assert_eq!(l.verified_at, Some(1785000000));
+        assert_eq!(l.verified_by.as_deref(), Some("catalogue-service"));
+        assert_eq!(
+            l.assumed,
+            vec!["usEgress".to_string(), "region".to_string()]
+        );
+        assert!(!is_deprecated(&row));
+    }
+
+    /// A deprecated row is the only one the filter may hide, and the status spellings are the console's.
+    #[test]
+    fn deprecated_is_the_only_hiding_status() {
+        assert!(is_deprecated(&serde_json::json!({"status": "deprecated"})));
+        for s in [Status::Active, Status::Alpha, Status::Beta] {
+            assert!(!is_deprecated(&serde_json::json!({"status": s.as_str()})));
+        }
+        assert_eq!(Status::default(), Status::Active);
+        assert_eq!(Status::Deprecated.as_str(), "deprecated");
+    }
     use super::*;
     use serde_json::json;
 
