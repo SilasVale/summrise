@@ -47,12 +47,22 @@ pub enum ReasoningMax {
 /// **THIS TABLE WAS MIRRORED TWICE AND COMPARED NOWHERE.** `lib.rs` said of its copy "MIRRORING
 /// `gateway/src/channels.ts`'s `HEALTH_CHANNELS` verbatim", and the console had the original; the only thing
 /// standing between them was `/api/health`'s fixture, **which is a SNAPSHOT rather than a comparison** — so a
+/// **THE CARD MODELS, IN ORDER — the list Task 2's ratchet reads.**
+///
+/// A card is a LABEL, and a label for a row `/v1/models` does not advertise is a lie the channel registry would
+/// keep serving: `og/ox-alpha-free` answered 400 upstream and was still being probed as a health card until
+/// 2026-10-15. The ratchet in `model_store.rs` asserts every id here is a CURATED row, so a card can only name
+/// something the device actually offers.
+pub fn health_model_ids() -> Vec<&'static str> {
+    HEALTH_CHANNELS.iter().map(|(_, m)| *m).collect()
+}
+
 /// card edited on one side would have left the probe asking about a model the other side retired. It is the same
 /// gap `CHANNEL_CARDS` closed, and it is closed the same way: one table, emitted back to the console.
 ///
 /// **THE DUPLICATE IDS ARE DELIBERATE**: `build_health` asks the og circuit once per og card, and `recommended`
 /// takes the FIRST card of a priority id.
-pub const HEALTH_CHANNELS: [(&str, &str); 20] = [
+pub const HEALTH_CHANNELS: [(&str, &str); 19] = [
     ("qw", "qw/qwen3.8-max-preview"),
     ("qw", "qw/qwen3.8-flash"),
     ("qw", "qw/deepseek-v4.1-flash"),
@@ -60,7 +70,6 @@ pub const HEALTH_CHANNELS: [(&str, &str); 20] = [
     ("og", "og/gpt-5.6-luna"),
     ("og", "og/mimo-v2.5"),
     ("og", "og/mimo-v2.6-flash"),
-    ("og", "og/ox-alpha-free"),
     ("og", "og/muse-spark-1.3-contributor"),
     ("or", "or/openai/gpt-5.6-luna:floor[1m]"),
     ("or", "or/z-ai/glm-5.2:free"),
@@ -241,8 +250,13 @@ pub const MODEL_REGISTRY: [ModelSpec; 24] = [
         reasoning_effort: None,
         context_window: None,
         max_tokens: None,
-        probe: Some(true),
-        probe_why: None,
+        // **THE CARD WENT, SO THE FACET FOLLOWS IT** (2026-10-15, the catalogue lifecycle's Step 0): this row
+        // answered 400 upstream and was still being probed as a health card. `probe:false` REQUIRES a reason —
+        // `test/model-registry.test.mjs` refuses a silent one — and the reason is the plan's own Step 5: the row
+        // leaves `/v1/models` by DATA (the admin disable route), not by code, so the registry keeps the entry and
+        // states why nothing probes it.
+        probe: Some(false),
+        probe_why: Some("answers 400 upstream; the row is hidden by data (Step 0), not deleted"),
     },
     ModelSpec {
         id: "og/muse-spark-1.3-contributor",
