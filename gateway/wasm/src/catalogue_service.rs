@@ -89,6 +89,22 @@ pub fn plan_run(
     (observation, writes)
 }
 
+/// **THE KV KEY THE CACHE LIVES UNDER** — beside the store's own (`models:custom`, `models:disabled`), because it is
+/// the same namespace and the same reader: an operator inspecting KV sees the catalogue where they see the rest.
+pub const CATALOGUE_KEY: &str = "models:catalogue";
+
+/// **THE CATALOGUE, FROM WHEREVER IT CAN BE HAD** — three lines of plumbing over `served_from`, which is where the
+/// policy lives and where it is tested. **There is no branch here on purpose**: an async shell with a decision in it
+/// is a decision that cannot be tested without a KV.
+///
+/// The KV read is the UNcached one (`device_store::kv_text`): a cached read would add a second TTL on top of this
+/// module's, and two expiry rules for one value is how a stale catalogue survives its own refresh.
+pub async fn facts(env: &worker::Env) -> Served {
+    let cached = crate::device_store::kv_text(env, CATALOGUE_KEY).await;
+    let now_secs = crate::device_store::now_ms() / 1000;
+    served_from(cached.as_deref(), now_secs)
+}
+
 /// **WHERE A CALLER'S FACTS CAME FROM** — the answer to "what did we serve", which the console shows and a test can
 /// assert.
 #[derive(Debug, Clone, PartialEq)]
