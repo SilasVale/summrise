@@ -90,25 +90,35 @@ jobs:
       # where the decisions are tested, and wasm32, where the entry point is checked. The dev
       # dependency on `wasm-bindgen` makes the second one build.
       #
-      # There is deliberately NO `cargo fmt --check` here: it fails at `main` today on six pre-existing
-      # files (`reliability.rs`, `request_shape.rs`, `routing.rs`, `store.rs`, `v1.rs`, `vision.rs`), and
-      # a step that is red before the change it guards is a step nobody reads. Formatting those six is
-      # its own commit, with nothing else in it.
+      # **AND ITS `cargo fmt --check` IS BACK, BECAUSE THE FACT THAT EXEMPTED IT IS GONE (2026-10-16).** The
+      # exemption read "it fails at `main` today on six pre-existing files (`reliability.rs`,
+      # `request_shape.rs`, `routing.rs`, `store.rs`, `v1.rs`, `vision.rs`)" — true when it was written, and no
+      # longer true: five of them were formatted as those files were touched, and the sixth (`mcp_tools.rs`) is
+      # formatted in the commit that removes this paragraph. Measured before removing it: `cargo fmt
+      # --manifest-path gateway/wasm/Cargo.toml --all -- --check` -> **0 diffs**, and re-running `cargo fmt` moved
+      # exactly one file.
+      #
+      # **AN EXEMPTION IS A FACT WITH A DATE ON IT.** The rule this repository states is that a step which is red
+      # before the change it guards is a step nobody reads — and the moment that stops being true, the exemption is
+      # what nobody reads. So the paragraph goes and the check arrives in the same commit, and the check is what
+      # keeps the next file from drifting.
       - name: Rust (translation + health route)
         run: cargo test --manifest-path gateway/wasm/Cargo.toml
       - name: Rust lint, both targets the crate has (host + wasm32)
         run: |
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --all-targets -- -D warnings
           cargo clippy --manifest-path gateway/wasm/Cargo.toml --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - name: Rust formatting (the exemption is gone — see the note above)
+        run: cargo fmt --manifest-path gateway/wasm/Cargo.toml --all -- --check
       # THE SHARED CORE (2026-10-13). `summrise-core` is a NEW CRATE and no job would have built it — and a
       # crate whose tests no job invokes is a crate whose tests are decoration, which is the sentence the step
       # above was added for. It is checked HERE rather than in a job of its own because this job already builds
       # it: `gateway/wasm` depends on it by path, so these three commands reuse the checkout, the toolchain and
       # the compiled dependency graph rather than paying for a second runner.
       #
-      # AND ITS `cargo fmt --check` IS SAFE WHERE THE WASM CRATE'S IS NOT: the exemption above is a fact about
-      # `gateway/wasm`'s six pre-existing files, not a policy against checking formatting. This crate is pure
-      # Rust with no bindings and a `debug = 0`-sized build, which is why it is the fastest gate here.
+      # AND IT IS THE FASTEST GATE HERE: pure Rust with no bindings and a `debug = 0`-sized build. Its
+      # `cargo fmt --check` used to be contrasted with the wasm crate's exemption; that exemption is gone as of
+      # 2026-10-16, so BOTH crates are now checked and there is one rule rather than a rule and an exception.
       - name: Rust (the shared core, and the guards the worker reads from it)
         run: |
           cargo test --manifest-path core/summrise-core/Cargo.toml
