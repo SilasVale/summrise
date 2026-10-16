@@ -426,9 +426,50 @@ fn the_open_plan_crosses_as_json_with_both_keys_always_present() {
 }
 
 #[test]
-fn the_window_id_is_the_epoch_millisecond_and_the_cdp_endpoint_is_the_contract_port() {
-    assert_eq!(browser_id(1_759_123_456_789.0), "browser-1759123456789");
+fn the_window_id_carries_the_epoch_millisecond_and_the_cdp_endpoint_is_the_contract_port() {
+    // THE STAMP STAYS AND THE COUNTER IS APPENDED. This case used to assert the bare literal
+    // `browser-1759123456789`, which WAS the collision: the millisecond was the whole id, so two opens
+    // inside one produced one id and one reachable window, and this literal pinned that as the format.
+    // What is pinned here is the half that must not be lost — a support log can still read when the
+    // session opened — and uniqueness is the case below, because one call cannot show it.
+    let id = browser_id(1_759_123_456_789.0);
+    assert!(
+        id.starts_with("browser-1759123456789-"),
+        "the id must still carry the millisecond it was minted at, got {id}"
+    );
     assert_eq!(cdp_endpoint(9333), "http://127.0.0.1:9333");
+}
+
+#[test]
+fn two_ids_minted_inside_one_millisecond_are_two_ids() {
+    // THE DEFECT THIS PINS, MEASURED BEFORE THE FIX: `browserId(Date.now())` answered `browser-<ms>`, so
+    // a burst of opens inside one millisecond answered the SAME id every time. The session table is a
+    // `Map` keyed by it, so every window but the last was overwritten and became unreachable — nothing
+    // could reuse it, close it or sweep it — and the cap counted TABLE ROWS while the resource is
+    // WINDOWS: with the cap at 8, 11 distinct URLs under a frozen clock built 11 live windows and left
+    // 10 of them alive after `browserCloseAll()`. The counter is what makes the table track windows.
+    let ids: Vec<String> = (0..11).map(|_| browser_id(1_759_123_456_789.0)).collect();
+    let mut unique = ids.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "eleven ids minted in ONE millisecond must be eleven ids, got {ids:?}"
+    );
+    assert!(
+        ids.iter()
+            .all(|id| id.starts_with("browser-1759123456789-")),
+        "and every one of them still names the millisecond it was minted at, got {ids:?}"
+    );
+    // NOT `previous + 1` EACH TIME: the counter is process-wide and `cargo test` runs these cases on
+    // several threads, so what is guaranteed is that a value is never REUSED, not that this case's calls
+    // are consecutive. Never-reused is the property the table needs.
+    let later = browser_id(1_759_123_456_789.0);
+    assert!(
+        !ids.contains(&later),
+        "an id minted later must not repeat an earlier one, got {later}"
+    );
 }
 
 #[test]
