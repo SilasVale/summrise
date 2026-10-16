@@ -629,3 +629,29 @@ agree. Seven comparisons now sit on both sides of that line:
     nothing because there was nothing to compare — and that is a result worth having, because it takes a minute and it
     stops an afternoon of "harmonising" two things that were never the same.**
 
+## THREE CONTRACTS, THREE FORMS OF PROOF, ALL THREE HELD (rounds 203-212)
+
+**WHERE A CONTRACT EXISTS IN THIS REPOSITORY, THE TWO SIDES AGREE — AND EACH AGREEMENT IS PROVEN A DIFFERENT WAY.** The
+three real twins measured here, and what "clean" looked like in each:
+
+  * **THE TWO JUDGES — clause names, 18 = 18.** `summrise-agent-core`'s judge and `summrise-sweep-judge`'s judge the
+    same report shape with the same seventeen clauses, and `diff` of their clause names is empty. Proof form: a SET
+    COMPARISON. **This is also the pair that produced the one divergence found in eight comparisons** — a defect fixed
+    once and left standing in the twin (clock notes written into a `Vec` that was created and dropped, while the
+    sibling already returned and printed them) — so real twins are both the safest and the most productive things to
+    compare;
+  * **THE WASM BOUNDARY — 59 exports, 59 consumers, zero dead surface.** Proof form: A JOIN ACROSS THE BOUNDARY, and the
+    shape of the join is the interesting part: the MODE is THREE FILES per export — the `.ts` that calls it, the
+    committed `.js` beside it, and a test — **so every one of those fifty-nine decisions is named by a test**, not
+    merely referenced by production code;
+  * **RUST SOURCE -> COMMITTED ARTIFACT -> SHIPPED COPY — byte for byte.** `agent/summrise-shell-policy/build.sh
+    --check` reports *"3 files rebuilt and compared byte for byte, 2 of them against the shipped copy"*, and
+    `git ls-files "*.wasm"` shows NINE committed artifacts of which three come in pairs (`summrise_shell_policy`,
+    `summrise_url_policy`, `ui_logic`) — **the pairs ARE the shipped copies**, the same parity this repository's JS
+    boundary maintains with its committed `.js` files and five `cmp` loops. Proof form: A REBUILD AND A BYTE COMPARISON.
+
+**AND THE HONEST SHAPE OF THE RESULT**: eight comparisons, six agreements, one false twin that had nothing to compare,
+and one real divergence — **in a real twin**. The yield comes from comparing things a contract forces to agree, and the
+cheap minute spent checking that a pair is real is what keeps a survey from turning into "harmonising" two things that
+were never the same.
+
