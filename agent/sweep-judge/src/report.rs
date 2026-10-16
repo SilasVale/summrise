@@ -129,6 +129,11 @@ fn is_clock(name: &str) -> bool {
 
 /// The shared verdict. Returns the findings that SURVIVED the caller's exemptions, in push order.
 ///
+/// PINNED BY `tests/report_golden.rs`: the seventeen clauses below, over a corpus x four option sets, against
+/// a committed golden file. MEASURED, every clause's body was emptied in turn and that test went red for each
+/// one — which is what the crate's own suite could not say, because seven of the seventeen were noticed by no
+/// test at all.
+///
 /// A NOTE IS NOT A FINDING, and two clauses inside the JavaScript push to `report.notes` instead. That
 /// array is WRITTEN AND NEVER READ — no adapter prints it, and `grep` finds no reader anywhere in
 /// `agent/scripts/`. The port keeps the writes, in a vector nobody reads, so that "this note was
