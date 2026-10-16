@@ -250,8 +250,13 @@ pub const MODEL_REGISTRY: [ModelSpec; 24] = [
         reasoning_effort: None,
         context_window: None,
         max_tokens: None,
-        probe: Some(true),
-        probe_why: None,
+        // **THE CARD WENT, SO THE FACET FOLLOWS IT** (2026-10-15, the catalogue lifecycle's Step 0): this row
+        // answered 400 upstream and was still being probed as a health card. `probe:false` REQUIRES a reason —
+        // `test/model-registry.test.mjs` refuses a silent one — and the reason is the plan's own Step 5: the row
+        // leaves `/v1/models` by DATA (the admin disable route), not by code, so the registry keeps the entry and
+        // states why nothing probes it.
+        probe: Some(false),
+        probe_why: Some("answers 400 upstream; the row is hidden by data (Step 0), not deleted"),
     },
     ModelSpec {
         id: "og/muse-spark-1.3-contributor",

@@ -3895,7 +3895,8 @@
             "reasoningEffort": null,
             "contextWindow": null,
             "maxTokens": null,
-            "probe": true,
+            "probe": false,
+            "probeWhy": "answers 400 upstream; the row is hidden by data (Step 0), not deleted",
             "probeWhy": null
           },
           {

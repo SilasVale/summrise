@@ -138,7 +138,8 @@ export const MODEL_REGISTRY: ModelSpec[] = [
     id: "og/ox-alpha-free",
     ownedBy: "opencode",
     reasoningMax: "parsed",
-    probe: true,
+    probe: false,
+    probeWhy: "answers 400 upstream; the row is hidden by data (Step 0), not deleted",
   },
   {
     id: "og/muse-spark-1.3-contributor",
