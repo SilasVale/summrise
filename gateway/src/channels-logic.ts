@@ -264,7 +264,6 @@ export const HEALTH_CHANNELS: { id: string; model: string }[] = [
   { id: "og", model: "og/gpt-5.6-luna" },
   { id: "og", model: "og/mimo-v2.5" },
   { id: "og", model: "og/mimo-v2.6-flash" },
-  { id: "og", model: "og/ox-alpha-free" },
   { id: "og", model: "og/muse-spark-1.3-contributor" },
   { id: "or", model: "or/openai/gpt-5.6-luna:floor[1m]" },
   { id: "or", model: "or/z-ai/glm-5.2:free" },
