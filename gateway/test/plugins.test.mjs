@@ -874,6 +874,31 @@ const meReq = (env, cookie, path, method, body) =>
     env,
   );
 
+test("me/keys DELETE: 401 unauth, 400 unknown name, deletes by query param", async () => {
+  __clearCaches();
+  const env = meEnv();
+  const del = (cookie, qs) =>
+    worker.fetch(
+      new Request(`https://x/api/me/keys${qs}`, {
+        method: "DELETE",
+        headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}) },
+      }),
+      env,
+    );
+  assert.equal((await del(null, "?name=OPENROUTER_API_KEY")).status, 401);
+  const bob = await issueSessionToken("pw", "bob", "user");
+  assert.equal((await del(bob, "?name=NOPE_KEY")).status, 400);
+  await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENROUTER_API_KEY: "or-secret" }));
+  const res = await del(bob, "?name=OPENROUTER_API_KEY");
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(await env.KEYS.get("ukeys:bob")), {});
+});
+
+// **THE `test` AND `usage` ARMS OF THIS FILE LEFT WITH THEIR ROUTES (2026-10-17)** — both are
+// `gateway/wasm/src/key_probe.rs`'s now, and their pins are that module's own tests (the eight arms, the
+// envelope, the completeness check that got STRICTER there: `R4_API_KEY` has no arm, which the deleted
+// TypeScript test's "probes to a Response" claim accepted). The DELETE route above stays TypeScript, and this
+// test is the block it shared with them.
 test("usproxy: 401 unauth, 403 non-admin, admin toggle roundtrips", async () => {
   __clearCaches();
   const env = meEnv();
@@ -972,129 +997,6 @@ test("getAdminPassword: migrates ADMIN_PASSWORD to a hashed KV record", async ()
 
 // round-444 (coverage-driven): DELETE /api/me/keys had ZERO route pins
 // (store-level deleteUserKey covered, handler not).
-test("me/keys DELETE: 401 unauth, 400 unknown name, deletes by query param", async () => {
-  __clearCaches();
-  const env = meEnv();
-  const del = (cookie, qs) =>
-    worker.fetch(
-      new Request(`https://x/api/me/keys${qs}`, {
-        method: "DELETE",
-        headers: { ...(cookie ? { cookie: `ag_session=${cookie}` } : {}) },
-      }),
-      env,
-    );
-  assert.equal((await del(null, "?name=OPENROUTER_API_KEY")).status, 401);
-  const bob = await issueSessionToken("pw", "bob", "user");
-  assert.equal((await del(bob, "?name=NOPE_KEY")).status, 400);
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENROUTER_API_KEY: "or-secret" }));
-  const res = await del(bob, "?name=OPENROUTER_API_KEY");
-  assert.equal(res.status, 200);
-  assert.deepEqual(JSON.parse(await env.KEYS.get("ukeys:bob")), {});
-});
-
-// round-446 (coverage-driven): POST /api/me/keys/test had ZERO route pins
-// — the per-provider live-probe arms (incl. the og SSE first-chunk read).
-test("me/keys/test: 401/400 gates, missing key, provider ok/fail shapes", async () => {
-  __clearCaches();
-  const env = meEnv();
-  const post = (cookie, body) =>
-    worker.fetch(
-      new Request("https://x/api/me/keys/test", {
-        method: "POST",
-        headers: {
-          ...(cookie ? { cookie: `ag_session=${cookie}` } : {}),
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }),
-      env,
-    );
-  assert.equal((await post(null, { name: "DEEPSEEK_API_KEY" })).status, 401);
-  const bob = await issueSessionToken("pw", "bob", "user");
-  assert.equal((await post(bob, { name: "NOPE_KEY" })).status, 400);
-  assert.deepEqual(await (await post(bob, { name: "DEEPSEEK_API_KEY" })).json(), {
-    ok: false,
-    name: "DEEPSEEK_API_KEY",
-    detail: "Key not configured",
-  });
-  await env.KEYS.put(
-    "ukeys:bob",
-    JSON.stringify({ DEEPSEEK_API_KEY: "ds-k", AMD_API_KEY: "amd-k" }),
-  );
-  __clearCaches();
-  const real = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes("api.deepseek.com")) return new Response("{}", { status: 200 });
-    if (u.includes("radeon"))
-      return new Response(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }), { status: 200 });
-    return new Response("no", { status: 401 });
-  };
-  try {
-    const ds = await (await post(bob, { name: "DEEPSEEK_API_KEY" })).json();
-    assert.deepEqual(ds, {
-      ok: true,
-      name: "DEEPSEEK_API_KEY",
-      status: 200,
-      detail: "DeepSeek auth OK",
-    });
-    const amd = await (await post(bob, { name: "AMD_API_KEY" })).json();
-    assert.equal(amd.ok, true);
-    assert.ok(amd.detail.includes("2 models: m1, m2"), `model list surfaced: ${amd.detail}`);
-    const or = await (await post(bob, { name: "OPENROUTER_API_KEY" })).json();
-    assert.deepEqual(or, { ok: false, name: "OPENROUTER_API_KEY", detail: "Key not configured" });
-  } finally {
-    globalThis.fetch = real;
-  }
-});
-
-test("me/keys/test: og SSE arm ok on first data chunk, fail without it; throw is safe", async () => {
-  __clearCaches();
-  const env = meEnv();
-  const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENCODE_GO_API_KEY: "og-k" }));
-  __clearCaches();
-  const post = (body) =>
-    worker.fetch(
-      new Request("https://x/api/me/keys/test", {
-        method: "POST",
-        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-      env,
-    );
-  const real = globalThis.fetch;
-  const sse = (chunk) =>
-    new Response(chunk, { status: 200, headers: { "content-type": "text/event-stream" } });
-  globalThis.fetch = async () => sse('data: {"x":1}\n\n');
-  try {
-    const ok = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
-    assert.equal(ok.ok, true);
-    assert.equal(ok.detail, "OpenCode Go auth OK");
-  } finally {
-    globalThis.fetch = real;
-  }
-  globalThis.fetch = async () => sse(": comment only\n\n");
-  try {
-    const bad = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
-    assert.equal(bad.ok, false);
-    assert.ok(bad.detail.includes("no stream data"), bad.detail);
-  } finally {
-    globalThis.fetch = real;
-  }
-  globalThis.fetch = async () => {
-    throw new Error("boom");
-  };
-  try {
-    const err = await (await post({ name: "OPENCODE_GO_API_KEY" })).json();
-    assert.equal(err.ok, false);
-    assert.ok(err.detail.includes("Test failed"), err.detail);
-  } finally {
-    globalThis.fetch = real;
-  }
-});
-
-// round-445 (coverage-driven): GET/PUT /api/me/route had ZERO route pins.
 test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effective", async () => {
   __clearCaches();
   const env = meEnv();
@@ -1149,123 +1051,6 @@ test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effectiv
 // the locked re-read races corrupt.
 // round-450 (coverage-driven): the remaining testKey provider arms
 // (CMD/GMI/NV/QWEN) had ZERO pins.
-test("me/keys/test: cmd/gmi/nv/qwen probes shape ok and upstream failures", async () => {
-  __clearCaches();
-  const env = meEnv();
-  const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put(
-    "ukeys:bob",
-    JSON.stringify({
-      CMD_API_KEY: "cm-k",
-      GMI_API_KEY: "gmi-k",
-      NVAPI_KEY: "nv-k",
-      QWEN_API_KEY: "qw-k",
-    }),
-  );
-  __clearCaches();
-  const post = (name) =>
-    worker.fetch(
-      new Request("https://x/api/me/keys/test", {
-        method: "POST",
-        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-        body: JSON.stringify({ name }),
-      }),
-      env,
-    );
-  const real = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes("commandcode")) return new Response("{}", { status: 200 });
-    if (u.includes("gmi-serving")) return new Response("{}", { status: 401 });
-    if (u.includes("nvidia")) return new Response("{}", { status: 200 });
-    if (u.includes("aliyuncs")) return new Response("{}", { status: 200 });
-    return new Response("{}", { status: 500 });
-  };
-  try {
-    assert.deepEqual(await (await post("CMD_API_KEY")).json(), {
-      ok: true,
-      name: "CMD_API_KEY",
-      status: 200,
-      detail: "Command Code auth OK",
-    });
-    assert.deepEqual(await (await post("GMI_API_KEY")).json(), {
-      ok: false,
-      name: "GMI_API_KEY",
-      status: 401,
-      detail: "Upstream 401",
-    });
-    assert.deepEqual(await (await post("NVAPI_KEY")).json(), {
-      ok: true,
-      name: "NVAPI_KEY",
-      status: 200,
-      detail: "NVIDIA NIM auth OK",
-    });
-    assert.deepEqual(await (await post("QWEN_API_KEY")).json(), {
-      ok: true,
-      name: "QWEN_API_KEY",
-      status: 200,
-      detail: "Qwen MaaS auth OK",
-    });
-  } finally {
-    globalThis.fetch = real;
-  }
-});
-
-// round-455 (coverage-driven): the testKey OpenRouter live-probe arms,
-// the og !ok arm, and the usage-probe throw arm had ZERO pins.
-test("me/keys/test: openrouter probe ok/fail; og non-ok is safe", async () => {
-  __clearCaches();
-  const env = meEnv();
-  const bob = await issueSessionToken("pw", "bob", "user");
-  await env.KEYS.put(
-    "ukeys:bob",
-    JSON.stringify({ OPENROUTER_API_KEY: "or-k", OPENCODE_GO_API_KEY: "og-k" }),
-  );
-  __clearCaches();
-  const post = (name) =>
-    worker.fetch(
-      new Request("https://x/api/me/keys/test", {
-        method: "POST",
-        headers: { cookie: `ag_session=${bob}`, "content-type": "application/json" },
-        body: JSON.stringify({ name }),
-      }),
-      env,
-    );
-  const real = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const u = String(url);
-    if (u.includes("openrouter")) return new Response("{}", { status: 200 });
-    return new Response("no", { status: 401 });
-  };
-  try {
-    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(), {
-      ok: true,
-      name: "OPENROUTER_API_KEY",
-      status: 200,
-      detail: "OpenRouter auth OK",
-    });
-    assert.deepEqual(await (await post("OPENCODE_GO_API_KEY")).json(), {
-      ok: false,
-      name: "OPENCODE_GO_API_KEY",
-      status: 401,
-      detail: "Upstream 401",
-    });
-  } finally {
-    globalThis.fetch = real;
-  }
-  globalThis.fetch = async () => new Response("{}", { status: 500 });
-  try {
-    assert.deepEqual(await (await post("OPENROUTER_API_KEY")).json(), {
-      ok: false,
-      name: "OPENROUTER_API_KEY",
-      status: 500,
-      detail: "Upstream 500",
-    });
-  } finally {
-    globalThis.fetch = real;
-  }
-});
-
 test("decide: a decision that ran is returned, and null is a VALUE", async () => {
   const env = { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: true, value: null })) } };
   const answeredNull = await decide(env, "upstream_models_url", { upstream: "https://x/v1/messages" });

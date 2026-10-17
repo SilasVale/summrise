@@ -124,6 +124,14 @@ function workerRoutes() {
     const p = raw.startsWith('"') ? raw.slice(1, -1) : BASES[raw];
     if (p) out.add(`${m[1].toUpperCase()} ${p}`);
   }
+  // 7. **THE RUST FAMILIES' DISPATCH ARMS (2026-10-17)**: `(Method::Post, "/api/me/keys/usage") => …`.
+  //    This is the shape `auth_routes.rs` declares its route table in, and it went unread until the key
+  //    diagnostics moved there — the two paths the console requests were then reported as 404s by a worker
+  //    that answers them, which is the false finding this file exists to prevent, a THIRD declaration style
+  //    over. (`method == Method::X && path == …` is the devices family's shape and is read above.)
+  for (const m of SRC.matchAll(/\bMethod::([A-Za-z]+)\s*,\s*"([^"]*)"\s*\)/g)) {
+    out.add(`${m[1].toUpperCase()} ${m[2]}`);
+  }
   return out;
 }
 

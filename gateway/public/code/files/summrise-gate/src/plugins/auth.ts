@@ -45,10 +45,7 @@ import {
   clearSessionCookieHeader,
   SESSION_COOKIE,
 } from "../auth.ts";
-import { fetchWithTimeout } from "../reliability.ts";
 import { createIpRateLimiter } from "../lib/ratelimit.ts";
-import { OG_ZEN_CHAT, usProxyBase } from "../channels.ts";
-import { opencodeSessionHeader } from "../upstream.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import type { PluginContext } from "./registry.ts";
 import { resolveAutoModel } from "../model-route.ts";
@@ -439,14 +436,6 @@ async function meDeleteKeys(request: Request, env: any, url: URL): Promise<Respo
   return jsonOk({ ok: true, name });
 }
 
-async function meTestKeys(request: Request, env: any): Promise<Response> {
-  const r = await sessionAndKeyName(request, env, USER_KEY_NAMES);
-  if (r instanceof Response) return r;
-  const { user, name } = r;
-  const ukeys = await getUserKeys(env, user.id);
-  return testKey(env, name, ukeys[name]);
-}
-
 // ── THE USAGE ROUTE IS `gateway/wasm/src/key_probe.rs`'S NOW (2026-10-17) ────────────────────────
 //
 // `POST /api/me/keys/usage`, its `usageQuery` skeleton, its three mappings (`mapOpenRouterUsage`,
@@ -459,171 +448,19 @@ async function meTestKeys(request: Request, env: any): Promise<Response> {
 //
 // **WHAT IS *NOT* HERE ANY MORE IS THE FALLBACK, AND THAT IS DELIBERATE**: a deployment without `WASM_GATE`
 // answers the front door's 404 for this path, the same end state `/mcp` and `/api/admin/models/probe` reached.
-// `sessionAndKeyName` stays — `meRevealKey`, `mePutKeys` and `meTestKeys` still share it.
+// `sessionAndKeyName` stays — `meRevealKey` and `mePutKeys` still share it.
 
-/* ---- Connectivity tests ---- */
-
-/// testKey probe response: {ok, name, status} plus a per-provider success
-/// text or the upstream status on failure. The six probe branches used to
-/// each inline this jsonOk shape.
-// Exported for direct pins (SOLID Round-32; additive — handlers untouched).
-export function keyProbeResult(name: string, res: Response, okText: string): Response {
-  return jsonOk({
-    ok: res.ok,
-    name,
-    status: res.status,
-    detail: res.ok ? okText : `Upstream ${res.status}`,
-  });
-}
-
-// Exported for direct pins (SOLID Round-32; additive — handlers untouched).
-export async function testKey(env: any, name: string, key: string): Promise<Response> {
-  if (!key) return jsonOk({ ok: false, name, detail: "Key not configured" });
-  try {
-    if (name === "DEEPSEEK_API_KEY") {
-      const res = await fetchWithTimeout("https://api.deepseek.com/models", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      return keyProbeResult(name, res, "DeepSeek auth OK");
-    }
-    if (name === "OPENROUTER_API_KEY") {
-      const res = await fetchWithTimeout("https://openrouter.ai/api/v1/auth/key", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      return keyProbeResult(name, res, "OpenRouter auth OK");
-    }
-    if (name === "OPENCODE_GO_API_KEY") {
-      // Do not send the literal "[1m]" suffix — zen rejects it with 401
-      // Honor the US_PROXY switch: when on, probe via the US proxy (measured: chat/completions
-      // via proxy 1-3s vs direct 12-13s); when off, probe directly.
-      const usProxy = await getGlobalSetting(env, "US_PROXY");
-      const probeUrl = usProxy
-        ? `${usProxyBase(env)}/api/zen?target=og&path=${encodeURIComponent("/v1/chat/completions")}`
-        : OG_ZEN_CHAT;
-      const res = await fetchWithTimeout(probeUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          // zen/go requires x-opencode-session (2026-09-05+); this is the
-          // worker-level key probe, so use the anonymous digest.
-          ...opencodeSessionHeader(undefined, "key-probe"),
-        },
-        body: JSON.stringify({
-          // zen/go's V4.1 lane slug (the wire name behind og/deepseek-v4.1-flash).
-          // The old V4 slug was retired 2026-09-10; probing the live lane keeps
-          // this a real auth + model check.
-          model: "deepseek-flash",
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 1,
-          stream: true,
-        }),
-      });
-      if (!res.ok) {
-        return jsonOk({ ok: false, name, status: res.status, detail: `Upstream ${res.status}` });
-      }
-      // Streaming probe: deemed connected as soon as the first SSE data chunk arrives (auth OK + connection
-      // established), without waiting for thinking to finish (non-streaming waits for a full response ~10s). Cancel early to release the connection.
-      const firstChunk = await (async () => {
-        const reader = res.body!.getReader();
-        const { value } = await reader.read();
-        await reader.cancel().catch(() => {});
-        return new TextDecoder().decode(value || new Uint8Array());
-      })();
-      const ok = firstChunk.includes("data:");
-      return jsonOk({
-        ok,
-        name,
-        status: res.status,
-        detail: ok ? "OpenCode Go auth OK" : "OpenCode Go auth FAILED (no stream data)",
-      });
-    }
-    if (name === "CMD_API_KEY") {
-      // Command Code Provider API — the Anthropic /v1/messages endpoint
-      // serves claude-* only, so probe the OpenAI chat/completions endpoint
-      // (meters a micro-request against the plan credits).
-      const res = await fetchWithTimeout(
-        "https://api.commandcode.ai/provider/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${key}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            // V4.1 slug — the V4 entry was retired 2026-09-10 (RETIRED_MODELS).
-            model: "deepseek/deepseek-v4.1-flash",
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-          }),
-        },
-      );
-      return keyProbeResult(name, res, "Command Code auth OK");
-    }
-    if (name === "GMI_API_KEY") {
-      // GMI Cloud Inference Engine — GET /v1/models is a cheap auth check.
-      const res = await fetchWithTimeout("https://api.gmi-serving.com/v1/models", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      return keyProbeResult(name, res, "GMI Cloud auth OK");
-    }
-    if (name === "AMD_API_KEY") {
-      // AMD Radeon Cloud — GET /v1/models is a cheap auth check (it also tells
-      // which models this key can see; the free pool's catalog is small).
-      const res = await fetchWithTimeout("https://developer.amd.com.cn/radeon/api/v1/models", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      let models: string[] = [];
-      try {
-        const payload: any = await res.json();
-        models = (payload?.data || []).map((m: any) => m?.id).filter(Boolean);
-      } catch {
-        /* non-JSON error body */
-      }
-      return jsonOk({
-        ok: res.ok,
-        name,
-        status: res.status,
-        detail: res.ok
-          ? `AMD Radeon Cloud auth OK (${models.length} models: ${models.join(", ")})`
-          : `Upstream ${res.status}`,
-      });
-    }
-    if (name === "NVAPI_KEY") {
-      // NVIDIA NIM — GET /v1/models is a cheap auth check.
-      const res = await fetchWithTimeout("https://integrate.api.nvidia.com/v1/models", {
-        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-      });
-      return keyProbeResult(name, res, "NVIDIA NIM auth OK");
-    }
-    if (name === "QWEN_API_KEY") {
-      const res = await fetchWithTimeout(
-        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${key}`,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "qwen3.8-max-preview",
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-          }),
-        },
-      );
-      return keyProbeResult(name, res, "Qwen MaaS auth OK");
-    }
-  } catch (e: any) {
-    return jsonOk({ ok: false, name, detail: "Test failed: " + e.message });
-  }
-  // Reachable only for an allowlisted name with no probe arm (meTestKeys
-  // gates unknown names earlier): a distinct message so the drift reads as
-  // drift, not as a caller typo. Round-60: the probe-coverage gate fails
-  // first at test time; this is the runtime backstop.
-  return jsonError(400, `No probe for key name: ${name}`, "invalid_request");
-}
+// ── THE KEY PROBE IS `gateway/wasm/src/key_probe.rs`'S NOW (2026-10-17) ─────────────────────────
+//
+// `POST /api/me/keys/test`, `keyProbeResult` and `testKey`'s eight arms (deepseek, openrouter,
+// opencode-go with its US-proxy switch and SSE first-chunk read, command code, gmi, amd with its model
+// list, nvidia, qwen) all left this file. **THE COMPLETENESS CHECK LEFT WITH THEM AND GOT STRICTER**: the
+// deleted `key-probe.test.mjs` asserted that every `USER_KEY_NAMES` entry "probes to a Response", which the
+// backstop's `400 No probe for key name` satisfied — so it held while `R4_API_KEY` had no arm at all. The
+// Rust check names that gap instead of accepting it (`key_probe.rs`'s `every_managed_key_has_an_arm`).
+//
+// **THE FALLBACK GOES WITH THE ROUTE**, as `/mcp`, `/api/admin/models/probe` and `/api/me/keys/usage`
+// established: a deployment without `WASM_GATE` answers the front door's 404 for this path.
 
 export default {
   name: "auth",
@@ -661,7 +498,6 @@ export default {
     add("PUT", `${ME_BASE}/usproxy`, mePutUsproxy);
     add("PUT", `${ME_BASE}/keys`, mePutKeys);
     add("DELETE", `${ME_BASE}/keys`, meDeleteKeys);
-    add("POST", `${ME_BASE}/keys/test`, meTestKeys);
     add("POST", `${ME_BASE}/keys/reveal`, meRevealKey);
   },
 };
