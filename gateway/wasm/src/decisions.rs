@@ -50,15 +50,12 @@ type Decision = fn(&Value) -> std::result::Result<Value, String>;
 /// WHEN ITS LAST TYPESCRIPT CALLER DOES**, which is the half that keeps the table honest: `upstream_models_url`
 /// and `offered_ids` stood here until `plugins/models-probe.ts` was deleted, and they were that file's private
 /// wire — `models_probe.rs` calls the two functions DIRECTLY, in-process, so the row was a public name for
-/// something nobody asked for any more. The four left are `plugins/auth.ts`'s (the three usage mappers and the
-/// provider projection), and they leave the day that file does — which is also the day this route has no client
-/// and can go with them. **A TABLE THAT CANNOT SHRINK IS A LIST, AND A LIST OF ONE-CONSUMER WIRES GOES STALE.**
-const DECISIONS: [(&str, Decision); 4] = [
-    ("map_openrouter_usage", map_openrouter_usage),
-    ("map_amd_usage", map_amd_usage),
-    ("map_og_usage", map_og_usage),
-    ("public_provider", public_provider),
-];
+/// something nobody asked for any more. **THE THREE USAGE MAPPERS LEFT THE SAME WAY, ONE LANDING LATER**: the
+/// route around them is `key_probe.rs`'s now, so it calls them in-process too, and only `public_provider` is
+/// still asked for over the wire — by `store/providers.ts`, whose host half is console-side. When that call
+/// goes, the route has no client at all and this table, this dispatch and the client in `gate.ts` can all die
+/// together. **A TABLE THAT CANNOT SHRINK IS A LIST, AND A LIST OF ONE-CONSUMER WIRES GOES STALE.**
+const DECISIONS: [(&str, Decision); 1] = [("public_provider", public_provider)];
 
 /// The dispatcher. `Ok(None)` is "not this family". **NO `Env` PARAMETER — see the module header.**
 pub async fn handle(mut request: Request) -> Result<Option<Response>, RouteFailure> {
@@ -172,7 +169,7 @@ fn js_string(value: &Value) -> String {
 /// A field passes through only when it is `null`, a string or a number — **a bool or an object is DROPPED, not
 /// coerced**, and the numbers are cloned rather than converted to `f64` (which would answer `5.0` where the source
 /// answers `5`).
-fn map_openrouter_usage(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn map_openrouter_usage(args: &Value) -> std::result::Result<Value, String> {
     let data = args
         .get("payload")
         .and_then(|p| p.get("data"))
@@ -213,7 +210,7 @@ fn map_openrouter_usage(args: &Value) -> std::result::Result<Value, String> {
 /// an absent cap is a null cap rather than an absent key. And `label`'s org falls back on JAVASCRIPT FALSINESS, not
 /// on absence: `payload.organization_id || "radeon"` answers `"radeon"` for `0` and `""` too, which is why the check
 /// is on the value rather than on the string it becomes.
-fn map_amd_usage(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn map_amd_usage(args: &Value) -> std::result::Result<Value, String> {
     let payload = args.get("payload").cloned().unwrap_or(Value::Null);
     let mut out = serde_json::Map::new();
     if let Some(v) = payload.get("daily_cost_used_usd").filter(|v| v.is_number()) {
@@ -264,7 +261,7 @@ fn map_amd_usage(args: &Value) -> std::result::Result<Value, String> {
 /// **`"limit" in payload` IS A KEY CHECK, NOT A VALUE CHECK**, and it is the one place the source asks whether a key
 /// EXISTS: a `limit` of `null` is carried through as `null`, while an absent `limit` adds nothing. The multi-window
 /// shape keeps its own insertion order for the same reason the outer map does.
-fn map_og_usage(args: &Value) -> std::result::Result<Value, String> {
+pub(crate) fn map_og_usage(args: &Value) -> std::result::Result<Value, String> {
     let payload = args.get("payload").cloned().unwrap_or(Value::Null);
     let mut out = serde_json::Map::new();
     if let Some(p) = Some(&payload).filter(|v| v.is_object()) {
@@ -405,6 +402,24 @@ pub(crate) fn public_provider(args: &Value) -> std::result::Result<Value, String
 mod tests {
     use super::*;
 
+    /// **THE THREE USAGE MAPPERS ARE CALLED DIRECTLY, NOT THROUGH `call`** — they left the decision table when
+    /// their route moved into `key_probe.rs` (2026-10-17), and a test that still went through the wire would be
+    /// testing a name nothing serves. **THE ARGUMENT IS THE SOURCE'S `{ payload }` ENVELOPE, TAKEN AS GIVEN**: the
+    /// call sites below are the ones that used to go through `call`, and they already wrap their payload, so a
+    /// helper that wrapped again would test `{payload:{payload:…}}` — which is exactly the empty answer this
+    /// repository's `left: {"limit":null}` failure said out loud on the first run.
+    fn map_openrouter_usage_args(args: Value) -> Value {
+        map_openrouter_usage(&args).expect("a payload")
+    }
+
+    fn map_amd_usage_args(args: Value) -> Value {
+        map_amd_usage(&args).expect("a payload")
+    }
+
+    fn map_og_usage_args(args: Value) -> Value {
+        map_og_usage(&args).expect("a payload")
+    }
+
     fn call(name: &str, args: Value) -> Value {
         let (_, decision) = DECISIONS
             .iter()
@@ -490,8 +505,7 @@ mod tests {
     /// RESULT:   the string assertion fails while every value assertion still passes.
     #[test]
     fn the_openrouter_map_keeps_the_sources_key_order() {
-        let got = call(
-            "map_openrouter_usage",
+        let got = map_openrouter_usage_args(
             json!({"payload": {"data": {"label": "free", "usage": 1, "limit": null, "is_free_tier": true,
                                         "rate_limit": {"limit": 5, "interval": "day"}}}}),
         );
@@ -507,18 +521,14 @@ mod tests {
     /// RESULT:   `extra` (a bool) and `obj` (an object) appear in the answer, and the source's own shape is lost.
     #[test]
     fn the_openrouter_map_drops_the_field_types_the_source_drops() {
-        let got = call(
-            "map_openrouter_usage",
+        let got = map_openrouter_usage_args(
             json!({"payload": {"data": {"label": true, "usage": {"a": 1}, "limit": "x"}}}),
         );
         assert_eq!(got.to_string(), r#"{"limit":"x"}"#);
         // And a payload with no object `data` is the source's throw, which the route answers as a refusal.
-        let (_, decision) = DECISIONS
-            .iter()
-            .find(|(n, _)| *n == "map_openrouter_usage")
-            .unwrap();
+        // **THE FUNCTION, NOT THE TABLE**: the row left with the route (2026-10-17).
         assert_eq!(
-            decision(&json!({"payload": {"data": 7}})).unwrap_err(),
+            map_openrouter_usage(&json!({"payload": {"data": 7}})).unwrap_err(),
             "Invalid upstream response"
         );
     }
@@ -532,15 +542,12 @@ mod tests {
     #[test]
     fn the_amd_map_always_carries_a_limit() {
         assert_eq!(
-            call("map_amd_usage", json!({"payload": {}})).to_string(),
+            map_amd_usage_args(json!({"payload": {}})).to_string(),
             r#"{"limit":null}"#
         );
         assert_eq!(
-            call(
-                "map_amd_usage",
-                json!({"payload": {"daily_cost_used_usd": 1.5, "rpm_limit": 60}})
-            )
-            .to_string(),
+            map_amd_usage_args(json!({"payload": {"daily_cost_used_usd": 1.5, "rpm_limit": 60}}))
+                .to_string(),
             r#"{"usage":1.5,"limit":null,"rateLimit":{"limit":60,"interval":"minute"}}"#
         );
     }
@@ -553,8 +560,7 @@ mod tests {
     #[test]
     fn the_amd_label_falls_back_on_falsiness() {
         let label = |org: Value| {
-            call(
-                "map_amd_usage",
+            map_amd_usage_args(
                 json!({"payload": {"all_time": {"requests": 2, "total_tokens": 9},
                                                      "organization_id": org}}),
             )["label"]
@@ -575,19 +581,13 @@ mod tests {
     #[test]
     fn the_og_map_carries_a_null_limit_but_not_an_absent_one() {
         assert_eq!(
-            call("map_og_usage", json!({"payload": {"limit": null}})).to_string(),
+            map_og_usage_args(json!({"payload": {"limit": null}})).to_string(),
             r#"{"limit":null}"#
         );
+        assert_eq!(map_og_usage_args(json!({"payload": {}})).to_string(), "{}");
         assert_eq!(
-            call("map_og_usage", json!({"payload": {}})).to_string(),
-            "{}"
-        );
-        assert_eq!(
-            call(
-                "map_og_usage",
-                json!({"payload": {"used": 3, "plan": "go", "balance": 1}})
-            )
-            .to_string(),
+            map_og_usage_args(json!({"payload": {"used": 3, "plan": "go", "balance": 1}}))
+                .to_string(),
             r#"{"usage":3,"balance":1,"label":"go"}"#
         );
     }
@@ -596,8 +596,7 @@ mod tests {
     /// becomes `resetAt`.
     #[test]
     fn the_og_windows_keep_the_four_named_fields() {
-        let got = call(
-            "map_og_usage",
+        let got = map_og_usage_args(
             json!({"payload": {"windows": {"5h": {"used": 1, "limit": null, "remaining": 2,
                                                   "reset_at": "soon", "ignored": true}}}}),
         );
@@ -607,11 +606,7 @@ mod tests {
         );
         // A non-object window is DROPPED, and an object with none of the four becomes `{}` — carried, not skipped.
         assert_eq!(
-            call(
-                "map_og_usage",
-                json!({"payload": {"windows": {"a": 7, "b": {}}}})
-            )
-            .to_string(),
+            map_og_usage_args(json!({"payload": {"windows": {"a": 7, "b": {}}}})).to_string(),
             r#"{"windows":{"b":{}}}"#
         );
     }
@@ -681,7 +676,7 @@ mod tests {
     fn every_row_is_reachable_and_nothing_else_is() {
         assert_eq!(
             DECISIONS.len(),
-            4,
+            1,
             "the table changed — update this count deliberately, and say in the commit WHICH consumer              arrived or left: a row exists for a TypeScript caller, not for symmetry"
         );
         for (name, _) in DECISIONS {

@@ -48,6 +48,7 @@ use crate::device_store::{kv_put, kv_text, now_ms};
 use crate::ip_rate_limit::{check, Counters, IpRateLimiter};
 use crate::session_gate;
 use crate::user_store;
+use summrise_core::text::js_string;
 
 const AUTH_BASE: &str = "/api/auth";
 const ME_BASE: &str = "/api/me";
@@ -109,10 +110,12 @@ pub fn in_family(_method: &Method, path: &str) -> bool {
     if !path.starts_with(&format!("{ME_BASE}/")) {
         return false;
     }
-    !matches!(
-        path,
-        "/api/me/route" | "/api/me/keys/test" | "/api/me/keys/usage"
-    )
+    // **ONE EXCLUSION LESS (2026-10-17)**: `/api/me/keys/usage` is this family's now — the route, its session
+    // gate and its envelope moved to `key_probe.rs`, and the three mappings it calls were already here. The two
+    // that remain are `/api/me/route` (it needs the `ROUTE` Durable Object binding) and `/api/me/keys/test` (the
+    // eight probe arms), and the list SHRINKS as they move: an exclusion is a promise that something is still
+    // elsewhere, so a list that cannot shrink is a list nobody is reading.
+    !matches!(path, "/api/me/route" | "/api/me/keys/test")
 }
 
 /// The dispatcher: an exact `(method, path)` match for every route the plugin registers, in the plugin's order,
@@ -143,6 +146,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Handled {
         (Method::Put, "/api/me/keys") => me_put_keys(&mut request, env).await,
         (Method::Delete, "/api/me/keys") => me_delete_keys(&request, env).await,
         (Method::Post, "/api/me/keys/reveal") => me_reveal_key(&mut request, env).await,
+        (Method::Post, "/api/me/keys/usage") => me_key_usage(&mut request, env).await,
         _ => Ok(crate::json_error(404, "Not Found", "not_found_error")?),
     }
 }
@@ -804,6 +808,46 @@ async fn me_delete_keys(request: &Request, env: &Env) -> Handled {
 }
 
 /// `meRevealKey` — the explicit-intent counterpart to the masked list: one key per click, the caller's OWN.
+/// `meKeyUsage` — `plugins/auth.ts`'s usage route.
+///
+/// **THE PROLOGUE IS THE SOURCE'S `sessionAndKeyName`, CALLED RATHER THAN RESTATED**: session, body, and the
+/// name checked against an allowlist DERIVED from the table (`usage_names()`), which is what made the source's
+/// two spellings of the same list impossible to drift.
+///
+/// **THE MISSING-KEY ARM IS THE ONE PLACE `meTestKeys` AND `meKeyUsage` DIFFER**: both answer
+/// `{ ok: false, name, detail: "Key not configured" }`, but the test route reaches it inside `testKey` while this
+/// one checks before the table lookup — the source's own asymmetry, kept because it is the order the two
+/// envelopes are built in.
+async fn me_key_usage(request: &mut Request, env: &Env) -> Handled {
+    let allowed = crate::key_probe::usage_names();
+    let (user, name, _body) = match session_and_key_name(request, env, &allowed).await? {
+        Ok(triple) => triple,
+        Err(refusal) => return Ok(refusal),
+    };
+    let ukeys = user_store::get_user_keys(env, &user_id(&user)).await;
+    let key = match ukeys.get(&name) {
+        Some(value) if !js_falsy(value) => js_string(value),
+        _ => {
+            return Ok(json_ok(json!({
+                "ok": false,
+                "name": name,
+                "detail": "Key not configured"
+            }))?)
+        }
+    };
+    // Unreachable through the prologue above (same table), kept as the source kept it: a backstop, never a throw.
+    match crate::key_probe::usage_query_for(&name) {
+        Some(row) => Ok(crate::built_response(
+            crate::key_probe::usage_query(row, &key, &name).await,
+        )?),
+        None => Ok(crate::json_error(
+            400,
+            &format!("Unknown key name: {name}"),
+            "invalid_request",
+        )?),
+    }
+}
+
 async fn me_reveal_key(request: &mut Request, env: &Env) -> Handled {
     let allowed = user_store::user_key_names();
     let (user, name, _body) = match session_and_key_name(request, env, &allowed).await? {
@@ -835,7 +879,7 @@ mod tests {
     /// RESULT:   `the_family_is_the_fourteen_routes_plus_the_404s` fails on `/api/me/route`, and the console's
     ///           model-route selection would be answered by an implementation that does not have the catalogue.
     #[test]
-    fn the_family_is_the_fourteen_routes_plus_the_404s() {
+    fn the_family_is_the_fifteen_routes_plus_the_404s() {
         let get = Method::Get;
         for path in [
             "/api/auth/register",
@@ -851,6 +895,10 @@ mod tests {
             "/api/me/usproxy",
             "/api/me/keys",
             "/api/me/keys/reveal",
+            // **JOINED 2026-10-17, AND IT IS THE ONE ROUTE WHOSE METHOD IS NOT `GET`.** `in_family` ignores the
+            // method (the family is a path prefix list; the DISPATCH is what matches verbs), so the membership
+            // is asserted with `GET` here exactly as the source's predicate tests it.
+            "/api/me/keys/usage",
             "/api/me/anything/else",
         ] {
             assert!(in_family(&get, path), "{path} belongs to this worker");
@@ -858,7 +906,6 @@ mod tests {
         for path in [
             "/api/me/route",
             "/api/me/keys/test",
-            "/api/me/keys/usage",
             "/api/meX",
             "/api/authentication",
             "/api/health",

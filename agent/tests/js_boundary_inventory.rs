@@ -889,4 +889,17 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // fixture recorded either name.)
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 44`.
-const MAX_LOGIC: usize = 44;
+// 44 -> 43 ON 2026-10-17, FOR `gateway/test/usage-map.test.mjs` — and the SOURCE file it tested did not leave
+// with it, which is the shape worth naming: the three mappings (`mapOpenRouterUsage`, `mapAmdUsage`,
+// `mapOgUsage`) have been Rust's since `decisions.rs` existed, and the usage ROUTE around them
+// (`POST /api/me/keys/usage`, its session gate, its key lookup, its fetch and its envelope) is
+// `gateway/wasm/src/key_probe.rs`'s now. So the test's subject moved in TWO pieces, one landing apart: the
+// mappings first (they never left Rust), the route second. Six more cases left `plugins.test.mjs` — the same
+// route driven through the TypeScript worker — and 330 -> 318 tests is what that plus this file's own cases
+// come to. **`plugins/auth.ts` IS STILL HERE AND STILL LOGIC** with two exclusions left (`/api/me/route`, which
+// needs the `ROUTE` Durable Object binding, and `/api/me/keys/test`, the eight probe arms), so this is a file
+// leaving the list before its source does — the mirror image of the usual landing, and the reason the count and
+// the tree disagree for one commit.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 43`.
+const MAX_LOGIC: usize = 43;

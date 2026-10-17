@@ -5041,10 +5041,18 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
 // **THREE THINGS THIS SECTION CANNOT SEE, NAMED RATHER THAN IMPLIED:**
 //
 //   * the worker's real KV and runtime glue: `KEYS` is the same stub every other section uses;
-//   * `POST /api/me/keys/test` and `/api/me/keys/usage` — the key DIAGNOSTICS, which dial six providers and
-//     three usage endpoints. They are not identity and are not ported (`auth_routes.rs`'s header names them);
-//     their absence here is why the cutover keeps them on the TypeScript path, which the cutover section
-//     measures;
+//   * **`POST /api/me/keys/usage` IS PORTED AND IS DELIBERATELY NOT DRIVEN HERE (2026-10-17)**, and the honest
+//     statement is narrower than the one this bullet used to make: the route, its session gate, its allowlist and
+//     its envelope are `key_probe.rs`'s, and the three UPSTREAM arms are reached by that route's own tests
+//     (the table, the four-key envelope, the 2xx boundary, the refusal and the throw). What no case here drives
+//     is the WIRING — the session, the `ukeys:` read and the fetch — because every case in this section needs a
+//     recorded shipping answer and this route's answers were recorded while its TypeScript still existed, in the
+//     six `plugins.test.mjs` cases that left with it. **THE GAP IS NAMED RATHER THAN IMPLIED**: the next landing
+//     that touches this route should record those three arms here with an upstream stub, and the `AUTH_RECORD`
+//     machinery is what would do it;
+//   * `POST /api/me/keys/test` — the key PROBE, which dials six providers. It is not identity and is not ported
+//     (`auth_routes.rs`'s header names it); its absence here is why the cutover keeps it on the TypeScript path,
+//     which the cutover section measures;
 //   * `GET|PUT /api/me/route` — the model-route selection, which resolves through the model CATALOGUE and
 //     `RouteDO`. Same reason, same carve-out.
 //
