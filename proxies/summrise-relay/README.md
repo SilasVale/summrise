@@ -52,9 +52,13 @@ GET  /healthz                           per-device summary: {device, agentConnec
 path is opt-in per device. Two devices on one relay cannot see each other's requests: the queue is filtered by
 device before a job is handed out, and an answer is matched by the job's globally unique id.
 
-**`relay_device` MUST MATCH THE NAME THE CONSOLE KNOWS THE DEVICE BY** — the name in the console's device list
-is what a human will type into the address. A device that polls as `workshop-pc` while the console calls it
-`d1` is reachable only by the former.
+**`relay_device` IS THE WHOLE SWITCH, AND IT IS USED TWICE**: the agent polls with that name AND declares it to
+the console when it self-registers (`POST /api/devices/self-register`), which is what makes the console dial
+`/d/<that name>/…` instead of the device's tunnel hostname. **One value, two uses** — so the name the relay sees
+and the name the console dials cannot drift apart. A device with `relay_url` but NO `relay_device` polls the
+relay's default device and stays tunnel-addressed in the console, because "the default device" is not something a
+per-device address can express. Turning the relay off (removing `relay_url`, or the name) is reflected on the
+next registration: the console's record loses its transport and goes back to the tunnel.
 
 ## START IT IN A WAY THAT SURVIVES THE AGENT (learned the hard way)
 

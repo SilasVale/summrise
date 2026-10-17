@@ -680,7 +680,21 @@ pub(crate) async fn run_server(config_path: PathBuf) {
                     .map(|x| x.trim().to_string())
                     .unwrap_or_default();
                 let mut fast_retry = true;
-                if let Some((url, body)) = self_register_plan(console.as_deref(), &token, &hostname)
+                // **THE RELAY NAME TRAVELS WITH THE REGISTRATION, AND ONLY WHEN A RELAY IS CONFIGURED**: a
+                // `relay_device` with no `relay_url` names a relay this device never dials, and declaring it
+                // would have the console address a device through a pipe that does not exist.
+                let relay_device = if cfg
+                    .server
+                    .relay_url
+                    .as_deref()
+                    .is_some_and(|u| !u.trim().is_empty())
+                {
+                    cfg.server.relay_device.as_deref()
+                } else {
+                    None
+                };
+                if let Some((url, body)) =
+                    self_register_plan(console.as_deref(), &token, &hostname, relay_device)
                 {
                     // Capture the STATUS, not just ok: the gateway's 409
                     // (hostname fixed + rotated token, proof impossible from
