@@ -622,6 +622,7 @@ pub mod reliability;
 pub mod request_shape;
 pub mod responses;
 pub mod route_do;
+pub mod route_store;
 pub mod routing;
 pub mod session;
 pub mod session_gate;

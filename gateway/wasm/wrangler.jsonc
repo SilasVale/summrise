@@ -54,7 +54,15 @@
     "run_worker_first": true
   },
   "durable_objects": {
-    "bindings": [{ "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" }]
+    "bindings": [
+      { "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" },
+      // **THE ROUTE STORE, ADDED 2026-10-17 WITH `GET|PUT /api/me/route`** — the last identity route to move,
+      // and it waited on this binding. `script_name` is what makes it the SAME `RouteDO` the console worker
+      // uses: a class defined in THIS script would be a second, EMPTY object, and the user data (`route:{uid}`
+      // → the chosen model) lives in the first one. `route_store.rs` reads it through `idFromName("global")`,
+      // exactly as `store/users.ts` does.
+      { "name": "ROUTE", "class_name": "RouteDO", "script_name": "vale-gate" }
+    ]
   },
   // **THE ONE VAR THE SHIPPING WORKER SETS AND THIS ONE DID NOT, AND IT IS NOT COSMETIC.** `vale-gate`
   // carries `UPSTREAM_TIMEOUT_MS = 120000`; the crate's own default for it is **30 s**
