@@ -53,9 +53,8 @@ import statusPlugin from "./plugins/status.ts";
 export { BreakerDO } from "./reliability.ts";
 export { RouteDO } from "./route-do.ts";
 // **THESE TWO MOVED OUT OF THE DELETED `/v1` HALF.** They were re-exported from `plugins/translate.ts`, which the
-// cutover deleted; `plugins/model-route.ts` is where they have lived since the structure refactor, and the console
+// cutover deleted (the module itself left on 2026-10-17 — see the note above), and the console
 // reads one of them (`plugins/auth.ts` for `GET /api/me/route`), so the path is direct now.
-export { resolveAutoModel, isModelUsable } from "./model-route.ts";
 
 /**
  * Plugin context: built once per isolate with the shared helpers; every
@@ -243,31 +242,28 @@ function isDevicesFamily(method: string, path: string): boolean {
 }
 
 /**
- * THE IDENTITY SURFACE'S CUTOVER — WHICH PATHS THE RUST WORKER SERVES, AND WHICH FOUR IT DOES NOT.
+ * THE IDENTITY SURFACE'S CUTOVER — AND THERE IS NOTHING LEFT TO EXEMPT.
  *
- * What is being cut over (2026-10-09, landing 5 slice 2): the console's session, its callers and their own
+ * What was cut over (2026-10-09, landing 5 slice 2): the console's session, its callers and their own
  * credentials — `POST /api/auth/register|login|reset-password|logout`, `GET /api/me`, the three
  * `/api/me/token/*` routes, `PUT|DELETE /api/me/keys`, `POST /api/me/keys/reveal` and `GET|PUT /api/me/usproxy`.
- * Their decisions are Rust now (`gateway/wasm/src/auth_routes.rs`, `session_gate.rs`, `user_store.rs`,
- * `access.rs`) and are proved case for case against this implementation by `gateway/wasm/verify.mjs` (93 cases:
- * the whole refusal list — no cookie, a forged cookie, a tampered signature, an expired token, a revoked one, a
- * suspended user, a user who does not exist — plus the Access arm on a real RS256 key pair and the two bodies
- * the source THROWS on).
+ * Their decisions are Rust (`gateway/wasm/src/auth_routes.rs`, `session_gate.rs`, `user_store.rs`, `access.rs`)
+ * and are proved case for case against this implementation by `gateway/wasm/verify.mjs` (93 cases: the whole
+ * refusal list — no cookie, a forged cookie, a tampered signature, an expired token, a revoked one, a suspended
+ * user, a user who does not exist — plus the Access arm on a real RS256 key pair and the two bodies the source
+ * THROWS on).
  *
- * **THE FOUR EXCLUSIONS, EACH WITH ITS REASON:**
- *
- *   * `GET|PUT /api/me/route` — the per-user `model=auto` selection. Its handler resolves through
- *     `resolveAutoModel` (`model-route.ts`), which reads the model CATALOGUE (`store/models.ts`) and the
- *     `RouteDO` Durable Object: a different surface with its own corpus, not identity.
- *   * **THE WHOLE SURFACE IS THE WORKER'S NOW (2026-10-17).** The three exclusions this list used to name all
- *     moved, in three landings: `POST /api/me/keys/usage` (its mappings were already Rust's),
- *     `POST /api/me/keys/test` (eight probe arms) and `GET|PUT /api/me/route` (which waited on the `ROUTE`
- *     Durable Object binding). There is nothing left to exempt, and the predicate says so.
+ * **THE FOUR EXCLUSIONS THIS DOCUMENT USED TO ARGUE FOR ARE ALL GONE (2026-10-17).** Each moved when its reason
+ * stopped holding, in four landings: `POST /api/me/keys/usage` (its three mappings were already Rust's),
+ * `POST /api/me/keys/test` (eight probe arms), `GET|PUT /api/me/route` (which waited on the `ROUTE` Durable
+ * Object binding) and the last one before them. **A PREDICATE THAT CARVES NOTHING OUT IS THE STATE THIS
+ * DOCUMENT WAS WRITTEN TO REACH**, and the list is kept in the history above rather than in the code: an
+ * exemption that no longer has a reason is a second implementation waiting to be forgotten.
  *
  * **`/api/auth/<anything>` IS THE FAMILY, INCLUDING THE SHAPES THE PLUGIN DOES NOT REGISTER**, because the
- * worker answers the front door's own 404 for those and the corpus compares one (`GET /api/auth/nonsense`).
- * The predicate is mirrored EXACTLY in Rust (`auth_routes::in_family`), including the three exclusions — a path
- * handed over is a path the worker answers.
+ * worker answers the front door's own 404 for those and the corpus compares one (`GET /api/auth/nonsense`). The
+ * predicate is mirrored EXACTLY in Rust (`auth_routes::in_family`) — a path handed over is a path the worker
+ * answers, and both sides now say "yes" to every path in the family.
  *
  * **AND THE CSRF GATE RUNS BEFORE EITHER IMPLEMENTATION.** `csrfCookieViolation` is checked at the top of
  * `fetch`, so a cookie-carrying cross-site mutation is refused here and never reaches the worker; porting it
