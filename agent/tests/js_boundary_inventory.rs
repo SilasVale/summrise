@@ -965,4 +965,22 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 //     the TypeScript cases were hand-written instances of corpus rows.
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 36`.
-const MAX_LOGIC: usize = 36;
+// 36 -> 30 ON 2026-10-17, FOR THE LAST PLUGIN AND THE FRAMEWORK IT RAN IN: `gateway/src/plugins/status.ts`,
+// `gateway/src/plugins/registry.ts` and four test files that pinned them (`plugin-collaborators.test.mjs`,
+// `registry.test.mjs`, `route-stats.test.mjs`, and `plugins.test.mjs`, whose five surviving cases were the
+// decision client and two store helpers and now live in `gate-and-store.test.mjs` — a name that describes what
+// it holds, since the plugin framework it was named for is gone).
+//
+// **WHAT MOVED, AND WHERE IT LANDED**: `GET /api/plugins/status` is `gateway/wasm/src/status_route.rs`'s. The
+// DEVICE half is the probe the source had (`/api/status` + `/api/update` through the device's own tunnel, a
+// 30 s per-isolate cache the `?fresh=1` button bypasses while still writing, `wireVersion`'s npm-release rule,
+// and the write-bounded `touchDeviceSeen`). The `routes` half is `route_table.rs` — **AND IT IS A DIFFERENT
+// SHAPE, DELIBERATELY**: the console's table held one row by the end (the plugins were gone), so the report now
+// counts the FAMILIES this worker actually dispatches, at the dispatch sites. Coarser, and true.
+//
+// The plugin DIRECTORY CONTRACT tests went with the directory: `gateway/src/plugins/` does not exist any more,
+// and the code-viewer's sync script learned to skip an absent `plugins/` snapshot rather than fail on an
+// `unmatched glob` — a script that errors on a legitimate tree is worse than one that skips a missing directory.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 30`.
+const MAX_LOGIC: usize = 30;

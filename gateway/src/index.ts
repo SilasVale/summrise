@@ -29,21 +29,18 @@
  *   session.ts           requireSession/sessionSecret (single copy)
  *   http.ts              jsonOk/jsonError/readJson/CORS
  *   store.ts             KV persistence (users/tokens/devices/plugin links)
- *   plugins/*            DSH-style route plugins (auth/admin/status)
  */
 
 import { seedAdmin } from "./store.ts";
-import { jsonOk, jsonError, readJson, CORS_HEADERS, corsHeadersFor, withCors } from "./http.ts";
+import { jsonError, corsHeadersFor, withCors } from "./http.ts";
 // **`tooling.ts` IS GONE (2026-10-17), AND THESE WERE ITS LAST IMPORTERS.** `GET /api/health`, the probe and
 // the three installer paths are the Rust worker's now (`gateway/wasm/src/lib.rs`, `tooling.rs`), and there is
 // no TypeScript twin left to fall back to: the family predicate below hands every one of them over, and a
 // deployment without the `WASM_GATE` binding answers the front door's 503 rather than a second implementation.
 // The re-export block that stood here existed for "tests + external tooling"; the tests that used it are
 // deleted with the module (their subject moved), and `agent/tests/*` never imported it.
-import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
 import { wasmGate } from "./gate.ts";
 import { csrfCookieViolation } from "./auth.ts";
-import statusPlugin from "./plugins/status.ts";
 
 // Re-exported for tooling/tests that target the front door surface.
 // BreakerDO/RouteDO must be exported from the entrypoint —
@@ -59,25 +56,20 @@ export { RouteDO } from "./route-do.ts";
  * /api/* route, /mcp and /v1/* lives in a plugin now. Lazy so a reload never
  * re-registers duplicate routes.
  */
-let __pluginCtx: any = null;
-function ensurePluginCtx() {
-  if (__pluginCtx) return __pluginCtx;
-  __pluginCtx = createPluginContext(null, {
-    jsonOk,
-    jsonError: jsonError as (status: number, message: string, code?: string) => Response,
-    readJson,
-    CORS_HEADERS,
-  });
-  // **ONE PLUGIN LEFT (2026-10-17).** `authPlugin` and `adminPlugin` are DELETED: every route they registered is
-  // handed to the Rust worker (`isAuthFamily` now carves nothing out; `isAdminFamily` covers all seventeen admin
-  // paths), so they were fallbacks for a deployment without the `WASM_GATE` binding — the shape `/mcp`, the admin
-  // probe, both key diagnostics, `/api/me/route` and `model-route.ts` already left by. `statusPlugin` STAYS and
-  // is the last one: its route is `GET /api/plugins/status`, whose payload carries the dispatch instrumentation
-  // of THIS registry, and that is a property of the TypeScript route table rather than of a decision that could
-  // move — see the plugin's own header and `isMcpFamily` above.
-  registerPlugins(__pluginCtx, [statusPlugin]);
-  return __pluginCtx;
-}
+/** The one path the plugin registry used to serve, kept as a constant because the console polls it. */
+const PLUGIN_STATUS_PATH = "/api/plugins/status";
+
+/**
+ * **THE PLUGIN REGISTRY IS GONE (2026-10-17), AND SO IS THE LAST PLUGIN.** `plugins/auth.ts`,
+ * `plugins/admin.ts`, `plugins/mcp.ts`, `plugins/translate.ts` and `plugins/status.ts` have all been deleted —
+ * every route they registered is this worker's — so `createPluginContext`/`registerPlugins`/`dispatch` had no
+ * caller left and `plugins/registry.ts` went with them. **A FRAMEWORK WITH NO PLUGINS IS NOT A SEAM, IT IS A
+ * LAYER**, and the one thing it still did (the dead-route report) is `route_table.rs`'s now, where the dispatch
+ * actually happens.
+ *
+ * What that leaves in this file is what a front door is: the host and CSRF gates, the family handovers, the
+ * `/v1` proxy, the static page, and a 404.
+ */
 
 /**
  * THE RUST FRONT DOOR'S BINDING, READ ONCE AND TYPED.
@@ -440,17 +432,12 @@ export default {
         if (isAdminFamily(request.method, path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
-        const pctx = ensurePluginCtx();
-        const hit = dispatch(
-          pctx,
-          request.method,
-          path,
-          request,
-          env,
-          url,
-          url.protocol === "https:",
-        );
-        if (hit !== null) return withCors(request, await hit, env);
+        // **`GET /api/plugins/status` — THE LAST PLUGIN ROUTE, AND WITH IT THE LAST PLUGIN (2026-10-17).** It is
+        // the only path that was ever served by the plugin registry rather than by a family list, so it gets its
+        // own arm beside them; `status_route.rs` answers it, and there is no dispatch left to fall through to.
+        if (request.method === "GET" && path === PLUGIN_STATUS_PATH && wasmGate(env)) {
+          return await frontDoor(request, env, request);
+        }
         return withCors(request, jsonError(404, "Not Found", "not_found_error"), env);
       }
 

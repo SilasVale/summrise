@@ -21,7 +21,7 @@
 // listed at the end rather than silently passed.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -75,7 +75,10 @@ const RUST_DISPATCH = [
 ];
 
 function workerSource() {
-  const dirs = [path.join(ROOT, "src", "plugins"), path.join(ROOT, "src")];
+  // **`src/plugins/` IS GONE (2026-10-17)** — the last plugin and its framework were deleted, and the
+  // directory with them. `existsSync` rather than a try/catch: a walk that skips a directory must say WHICH
+  // absence it is tolerating, and an absent `plugins/` is the tree's current shape rather than a mistake.
+  const dirs = [path.join(ROOT, "src", "plugins"), path.join(ROOT, "src")].filter((d) => existsSync(d));
   let src = "";
   for (const dir of dirs) {
     for (const f of readdirSync(dir)) {

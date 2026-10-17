@@ -392,6 +392,20 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 async fn route(req: Request, env: Env) -> Result<Response> {
     let url = req.url()?;
 
+    // **`GET /api/plugins/status` — THE LAST PLUGIN ROUTE, AND THE ONLY ONE THAT WAS NEVER A FAMILY.** It was
+    // registered into the console worker's plugin registry rather than into a handover list, so it arrives here
+    // with the name it had: the answer is the DEVICE family's probe of every device plus the ROUTE TABLE's own
+    // counter (`status_route.rs`, `route_table.rs`), and the path is left alone because the console polls it.
+    if status_route::in_family(&req.method(), url.path()) {
+        route_table::note("status");
+        return match status_route::handle(&req, &env).await {
+            Ok(Some(response)) => Ok(response),
+            Ok(None) => not_found(),
+            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
+            Err(RouteFailure::Platform(error)) => Err(error),
+        };
+    }
+
     // **THE GLOBAL PREFLIGHT, AND IT IS FIRST FOR TWO REASONS.** The shipping front door does the same in
     // the same place — `if (request.method === "OPTIONS") return new Response(null, { headers:
     // corsHeadersFor(request, env) })` — and a live comparison is what showed it was missing here:
@@ -459,6 +473,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // prefix whose shape the handler's anchored regex rejects gets the front door's 404, exactly as the
     // TypeScript plugin dispatch answers `null` for it.
     if device_proxy::in_family(&req.method(), url.path()) {
+        route_table::note("device_proxy");
         return match device_proxy::handle(req, &env).await {
             Ok(Some(response)) => Ok(response),
             Ok(None) => not_found(),
@@ -473,6 +488,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // `/api/devices` at all, which is why it is its own family rather than an arm of the registry: one path,
     // two verbs, and a body this worker forwards as a stream (`upload.rs`).
     if upload::in_family(&req.method(), url.path()) {
+        route_table::note("upload");
         return match upload::handle(req, &env).await {
             Ok(Some(response)) => Ok(response),
             Ok(None) => not_found(),
@@ -489,6 +505,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // whole story. A THROWING `ASSETS.fetch` is the third case, and it is the front door's `500 Internal
     // error` — the source has no try/catch there either, so it landed in the door's own catch.
     if req.method() == Method::Get && tooling::is_installer_path(url.path()) {
+        route_table::note("tooling");
         let cli = match env.get_binding::<Fetcher>("ASSETS") {
             Ok(assets) => {
                 let request = Request::new("https://assets.local/summrise", Method::Get)?;
@@ -524,6 +541,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // predicate the TypeScript front door uses to decide what to hand over, so a path this worker is given is a
     // path it answers: the routes it serves, and the front door's own 404 for the shapes it does not.
     if devices::in_family(&req.method(), url.path()) {
+        route_table::note("devices");
         return match devices::handle(req, &env).await? {
             Some(response) => Ok(response),
             None => not_found(),
@@ -543,6 +561,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // prefix that no slice serves yet answers this module's 404, which is the front door's answer for a family
     // prefix with no route under it.
     if admin_routes::in_family(&req.method(), url.path()) {
+        route_table::note("admin");
         return match admin_routes::handle(req, &env).await {
             Ok(response) => Ok(response),
             Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
@@ -550,6 +569,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
         };
     }
     if auth_routes::in_family(&req.method(), url.path()) {
+        route_table::note("auth");
         // **THE FAMILY THAT RESOLVES AN IDENTITY IS THE FAMILY THAT MUST HAVE ONE.** `user_store::seed_admin` is
         // the console's `seedAdmin` — the v1 migration, the empty-token backfill and the fresh record — and it is
         // called HERE rather than on every request because this is the only surface that cannot answer without it:
@@ -575,6 +595,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // the TypeScript plugin registry's own dispatch counters, which this worker does not have and must not
     // invent. The harness's cutover section proves that it stays where it is.
     if mcp::in_family(&req.method(), url.path()) {
+        route_table::note("mcp");
         return match mcp::handle(req, &env).await {
             Ok(response) => Ok(response),
             // The one arm the endpoint does not answer itself: the source THREW (a JSON body that is a literal
@@ -623,10 +644,12 @@ pub mod request_shape;
 pub mod responses;
 pub mod route_do;
 pub mod route_store;
+pub mod route_table;
 pub mod routing;
 pub mod session;
 pub mod session_gate;
 pub mod settings_logic;
+pub mod status_route;
 pub mod store;
 pub mod stream;
 pub mod tokens;

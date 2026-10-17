@@ -24,7 +24,7 @@
 //!            → the gateway's own sources (`gateway/src/**`), and NOT the render smokes or the sweep
 //!              table, which are fixtures: a field only they carry renders in a test and answers
 //!              `undefined` against the deployed worker
-//!   gateway  `plugins/status.ts`, `device-fetch.ts`, `wasm/src/devices.rs`
+//!   gateway  `wasm/src/status_route.rs`, `device-fetch.ts`, `wasm/src/devices.rs`
 //!            → the agent's Rust or the shared fixtures
 //!
 //! WHAT IT DOES NOT CHECK: types, values, which endpoint a field arrives on (that is the harness's own
@@ -513,7 +513,18 @@ fn console_check() -> Result<String, String> {
     // first version also accepted the render smokes and the console sweep, which are FIXTURES: a field
     // only they carry renders in a test and answers `undefined` against the deployed worker, which is
     // the `prov-dot`/`verdict:` class this gate exists for.
-    let producers = decommented_corpus(&files_under("gateway/src", &|n| n.ends_with(".ts")));
+    // **AND THE RUST THAT PRODUCES THE SAME WIRE (2026-10-17).** The producer corpus was the console's
+    // TypeScript, because that is where the payload was assembled: `plugins/status.ts`'s `state.update = {…}`
+    // object literal named every field the console reads. The status route is `gateway/wasm/src/status_route.rs`
+    // now and it names them as `.insert("update_available".to_string(), …)` — a shape this scan did not know, so
+    // ELEVEN FIELDS THE CONSOLE READS REPORTED AS PRODUCED BY NOTHING while the worker produced all of them.
+    // **THE ANSWER IS TO FOLLOW THE CODE INTO THE LANGUAGE IT MOVED TO**, which is what block ③ below already
+    // does for the console's own readers; the producers half had never had to.
+    let producers = format!(
+        "{}{}",
+        decommented_corpus(&files_under("gateway/src", &|n| n.ends_with(".ts"))),
+        decommented_corpus(&files_under("gateway/wasm/src", &|n| n.ends_with(".rs"))),
+    );
 
     // The console's readers, excluding its own tests (they assert, they do not parse the wire) and
     // its GENERATED wasm declarations.
@@ -614,14 +625,16 @@ fn console_check() -> Result<String, String> {
 /// `one-derivation-check`'s first run taught about four vocabularies sharing a word: a broad pattern
 /// does not become a rule by matching more.
 ///
-/// **AND THE THIRD CONSUMER IS RUST NOW (2026-10-10).** `plugins/mcp.ts` was deleted at the cutover and
-/// its status half is `plugins/status.ts`; `plugins/devices.ts` was deleted and the family's forwarding
-/// is `wasm/src/devices.rs`. The rule is unchanged — every name the gateway reads off a device answer
+/// **AND THE THIRD CONSUMER IS RUST NOW (2026-10-10), AND THE FIRST JOINED IT (2026-10-17).** `plugins/mcp.ts`
+/// was deleted at the cutover and its status half became `plugins/status.ts`, which then moved into the worker
+/// with the route; `plugins/devices.ts` was deleted and the family's forwarding is `wasm/src/devices.rs`. The rule is unchanged — every name the gateway reads off a device answer
 /// must be a name the agent spells — so the list followed the code, and the scanner gained the shape the
 /// ported half spells that read in (`rust_key_reads`, below). Listing the Rust file WITHOUT that shape
 /// would have been a consumer contributing zero reads: covered-looking and covering nothing.
 const GATEWAY_CONSUMERS: [&str; 3] = [
-    "gateway/src/plugins/status.ts",
+    // **THE FORWARDER MOVED INTO THE WORKER (2026-10-17)**: the status route is `gateway/wasm/src/status_route.rs`
+    // now, and the reads it makes off a device answer are Rust (`rust_key_reads` already reads that shape).
+    "gateway/wasm/src/status_route.rs",
     "gateway/src/device-fetch.ts",
     "gateway/wasm/src/devices.rs",
 ];
