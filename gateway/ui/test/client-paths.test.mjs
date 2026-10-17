@@ -59,7 +59,20 @@ function expand(template, bases) {
  *  to prevent, one language over. The file list is the DISPATCH files and not the directory: a whole-tree
  *  scan would pick up `path == "…"` comparisons from modules that answer nothing and inflate the route set.
  */
-const RUST_DISPATCH = ["devices.rs", "auth_routes.rs", "mcp.rs", "device_proxy.rs", "upload.rs"];
+const RUST_DISPATCH = [
+  "devices.rs",
+  "auth_routes.rs",
+  "mcp.rs",
+  "device_proxy.rs",
+  "upload.rs",
+  // **ADDED 2026-10-17, WHEN THE LAST TYPESCRIPT PLUGIN THAT DECLARED THEM WAS DELETED.** The admin family's
+  // seventeen routes have been `admin_routes.rs`'s since the cutover, but this reader did not need to know: the
+  // deleted `plugins/admin.ts` still SPELLED them in `add(...)` lines, so the check passed while reading the
+  // wrong file. With that plugin gone the gate reported ten console paths as 404s the Rust worker answers —
+  // which is the false finding this file exists to prevent, a THIRD time and a fourth declaration style over
+  // (`(Method::Get, "/api/admin/models") => …` and its `path.starts_with(…)` dynamic arms, both read below).
+  "admin_routes.rs",
+];
 
 function workerSource() {
   const dirs = [path.join(ROOT, "src", "plugins"), path.join(ROOT, "src")];
@@ -147,6 +160,12 @@ function workerPrefixes() {
     const t = expand(m[1], BASES);
     const cut = t.search(/[\[\^$*+?()|\\]/);
     out.add(cut > 0 ? t.slice(0, cut) : t);
+  }
+  // **THE RUST `format!` PREFIXES (2026-10-17)**: `path.starts_with(&format!("{ADMIN_BASE}/users/"))` is how the
+  // admin family matches its two dynamic arms, and a reader that only knew a plain literal reported the
+  // console's `/api/admin/users/` as a 404 the worker answers.
+  for (const m of SRC.matchAll(/(?:starts_with|strip_prefix)\(&format!\("([^"]+)"\)/g)) {
+    out.add(expand(m[1].replace(/\{([A-Z][A-Z0-9_]*)\}/g, "${$1}"), BASES));
   }
   for (const m of SRC.matchAll(/(?:starts_with|strip_prefix)\(\s*("[^"]*"|[A-Z][A-Z0-9_]*)\s*\)/g)) {
     const raw = m[1];
