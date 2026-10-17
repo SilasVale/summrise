@@ -61,11 +61,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/gate-logic.ts",
-      "path": "files/summrise-gate/src/gate-logic.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/gate.ts",
       "path": "files/summrise-gate/src/gate.ts",
       "group": "summrise-gate"
@@ -161,33 +156,8 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/store/file-config-logic.ts",
-      "path": "files/summrise-gate/src/store/file-config-logic.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/store/file-config.ts",
-      "path": "files/summrise-gate/src/store/file-config.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/store/models-logic.ts",
-      "path": "files/summrise-gate/src/store/models-logic.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/store/models.ts",
-      "path": "files/summrise-gate/src/store/models.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/store/providers-logic.ts",
       "path": "files/summrise-gate/src/store/providers-logic.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/store/providers.ts",
-      "path": "files/summrise-gate/src/store/providers.ts",
       "group": "summrise-gate"
     },
     {

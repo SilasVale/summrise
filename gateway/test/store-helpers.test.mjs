@@ -7,11 +7,14 @@
 // decision client plus two store helpers that were only ever here by proximity. The NAME went with the plugins:
 // `plugins.test.mjs` described a framework that no longer exists.
 //
-// **`decide` IS STILL LIVE**: `store/providers.ts` asks it for the `public_provider` decision — the LAST row in
-// `decisions.rs`'s table, and the one whose departure empties it.
+// **`decide` IS GONE (2026-10-17), SO THE THREE CASES THAT PINNED IT WENT WITH IT** — and so did the route, the
+// table and the GENERATED client (`gateway/wasm/src/decision_client.rs`, `decisions.rs`'s dispatch,
+// `gate-logic.ts`). Its last caller was `store/providers.ts`, deleted with the model-store cluster; the decisions
+// themselves are in-process functions in `decisions.rs` now. What is left here is `getUser` and
+// `getAdminPassword`, two `store/` helpers — and the file's name is now half wrong, which is noted rather than
+// renamed mid-landing: `gate.ts` holds only `wasmGate`, and nothing in this file touches it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decide } from "../src/gate.ts";
 import { __clearCaches } from "../src/store.ts";
 import { makeEnv as makeBaseEnv } from "./helpers.mjs";
 
@@ -55,51 +58,3 @@ test("getAdminPassword: migrates ADMIN_PASSWORD to a hashed KV record", async ()
 
 // round-444 (coverage-driven): DELETE /api/me/keys had ZERO route pins
 // (store-level deleteUserKey covered, handler not).
-test("decide: a decision that ran is returned, and null is a VALUE", async () => {
-  const env = { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: true, value: null })) } };
-  const answeredNull = await decide(env, "upstream_models_url", { upstream: "https://x/v1/messages" });
-  assert.equal(answeredNull, null);
-  assert.notEqual(answeredNull, undefined);
-});
-
-test("decide: no gate, a refusal and an unreachable gate are all undefined", async () => {
-  assert.equal(await decide({}, "upstream_models_url", {}), undefined);
-  assert.equal(
-    await decide(
-      { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: false }), { status: 400 }) } },
-      "x",
-      {},
-    ),
-    undefined,
-  );
-  assert.equal(
-    await decide(
-      {
-        WASM_GATE: {
-          fetch: async () => {
-            throw new Error("binding unreachable");
-          },
-        },
-      },
-      "upstream_models_url",
-      {},
-    ),
-    undefined,
-  );
-});
-
-test("decide: POST to the decision path, with the name and args as JSON", async () => {
-  let seen = null;
-  const env = {
-    WASM_GATE: {
-      fetch: async (request) => {
-        seen = { method: request.method, path: new URL(request.url).pathname, body: await request.json() };
-        return new Response(JSON.stringify({ ok: true, value: 1 }));
-      },
-    },
-  };
-  await decide(env, "offered_ids", { payload: ["a"] });
-  assert.equal(seen.method, "POST");
-  assert.equal(seen.path, "/__decision");
-  assert.deepEqual(seen.body, { name: "offered_ids", args: { payload: ["a"] } });
-});
