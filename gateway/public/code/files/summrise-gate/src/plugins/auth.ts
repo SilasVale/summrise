@@ -50,7 +50,6 @@ import { createIpRateLimiter } from "../lib/ratelimit.ts";
 import { OG_ZEN_CHAT, usProxyBase } from "../channels.ts";
 import { opencodeSessionHeader } from "../upstream.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
-import { decide } from "../gate.ts";
 import type { PluginContext } from "./registry.ts";
 import { resolveAutoModel } from "../model-route.ts";
 
@@ -401,9 +400,10 @@ async function mePutKeys(request: Request, env: any): Promise<Response> {
  * should return directly (401 / 400). The body rides along because the
  * request stream is consumed by the read — callers needing more fields
  * (save's `value`) must use this copy, never re-read. The per-handler
- * prologues used to be copy-pasted; meKeyUsage passes its narrower 3-name
- * set. (SOLID Round-91: mePutKeys was the last inline copy; the doc claim
- * above is now true for all four handlers.)
+ * prologues used to be copy-pasted; the usage route passed its narrower
+ * 3-name set until it moved to Rust (2026-10-17), and `meTestKeys`,
+ * `meRevealKey` and `mePutKeys` still share this one. (SOLID Round-91:
+ * mePutKeys was the last inline copy; the claim above is true for all three.)
  */
 async function sessionAndKeyName(
   request: Request,
@@ -447,193 +447,19 @@ async function meTestKeys(request: Request, env: any): Promise<Response> {
   return testKey(env, name, ukeys[name]);
 }
 
-/**
- * Shared usage-query skeleton: GET the provider's usage endpoint with the
- * user's key, map its payload onto the generic usage shape, and return the
- * standard envelope — {ok:false, status, detail} on upstream errors,
- * {ok:false, detail:"Usage query failed"} on network throws. meKeyUsage's
- * three provider branches used to each inline this fetch/error/parse shape;
- * only the URL + payload mapping differ per provider.
- *
- * Exported with the three mappers below for direct pins (SOLID Round-39;
- * additive — meKeyUsage passes the same functions it used to inline).
- */
-export async function usageQuery(
-  url: string,
-  env: any,
-  key: string,
-  name: string,
-  map: (payload: any) => Record<string, unknown>,
-  decision: string,
-): Promise<Response> {
-  try {
-    const res = await fetchWithTimeout(url, {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    if (!res.ok)
-      return jsonOk({ ok: false, name, status: res.status, detail: `Upstream ${res.status}` });
-    const payload: any = await res.json();
-    // **THE MAPPING IS RUST'S NOW, AND `map` IS ONLY THE FALLBACK.** `decide` answers `undefined` when the gate is
-    // absent, refused or unreachable — and NOT when the decision's value is falsy — so a wrong answer from Rust
-    // cannot be silently corrected here. A REFUSAL falls back too, which is deliberate: the twin throws the same
-    // `{detail}` error the source threw, so the error path is unchanged.
-    const fromRust = await decide<Record<string, unknown>>(env, decision, { payload });
-    return jsonOk({
-      ok: true,
-      name,
-      status: res.status,
-      ...(fromRust === undefined ? map(payload) : fromRust),
-    });
-  } catch (e: any) {
-    // A mapper may throw a {detail} error to surface a SPECIFIC upstream
-    // shape problem (e.g. openrouter's missing data object); anything else
-    // is a network/parse failure.
-    return jsonOk({
-      ok: false,
-      name,
-      detail: typeof e?.detail === "string" ? e.detail : "Usage query failed",
-    });
-  }
-}
-
-/** OpenRouter key-info mapping (SOLID Round-39: verbatim extraction for direct pins). */
-export function mapOpenRouterUsage(payload: any): Record<string, unknown> {
-  const data = payload?.data;
-  if (!data || typeof data !== "object") {
-    throw Object.assign(new Error("invalid upstream"), { detail: "Invalid upstream response" });
-  }
-  const out: Record<string, unknown> = {};
-  for (const field of ["label", "usage", "limit"]) {
-    if (
-      field in data &&
-      (data[field] === null || typeof data[field] === "string" || typeof data[field] === "number")
-    )
-      out[field] = data[field];
-  }
-  if (typeof data.is_free_tier === "boolean") out.isFreeTier = data.is_free_tier;
-  if (data.rate_limit && typeof data.rate_limit === "object") {
-    const rateLimit: Record<string, unknown> = {};
-    if (typeof data.rate_limit.limit === "number") rateLimit.limit = data.rate_limit.limit;
-    if (typeof data.rate_limit.interval === "string") rateLimit.interval = data.rate_limit.interval;
-    if (typeof data.rate_limit.reset === "string") rateLimit.reset = data.rate_limit.reset;
-    if (Object.keys(rateLimit).length) out.rateLimit = rateLimit;
-  }
-  return out;
-}
-
-/** AMD spend-cap mapping (SOLID Round-39: verbatim extraction for direct pins). */
-export function mapAmdUsage(payload: any): Record<string, unknown> {
-  // AMD Radeon Cloud (developer.amd.com.cn/radeon) — GET /v1/usage reports
-  // the rolling daily spend cap of the free rc-… key (verified 2026-09-02):
-  // {rpm_limit, daily_cost_limit_usd, daily_cost_used_usd, daily_reset_at,
-  //  all_time:{requests,total_tokens,cost}, by_model:[…]}. Mapped onto the
-  // generic usage shape the console already renders (USD numbers).
-  const out: Record<string, unknown> = {};
-  if (typeof payload?.daily_cost_used_usd === "number") out.usage = payload.daily_cost_used_usd;
-  out.limit =
-    typeof payload?.daily_cost_limit_usd === "number" ? payload.daily_cost_limit_usd : null;
-  if (typeof payload?.rpm_limit === "number") {
-    const rateLimit: Record<string, unknown> = { limit: payload.rpm_limit, interval: "minute" };
-    if (typeof payload.daily_reset_at === "string") rateLimit.reset = payload.daily_reset_at;
-    out.rateLimit = rateLimit;
-  }
-  const all = payload?.all_time;
-  if (all && typeof all === "object") {
-    // The account label the generic renderer shows: org + request/token
-    // totals, so the console says whose key and how much it has carried.
-    const requests = typeof all.requests === "number" ? all.requests : 0;
-    const tokens = typeof all.total_tokens === "number" ? all.total_tokens : 0;
-    out.label = `${payload.organization_id || "radeon"} · ${requests} req · ${tokens} tok`;
-  }
-  return out;
-}
-
-/** OpenCode Go quota mapping, flat + multi-window shapes (SOLID Round-39: verbatim extraction). */
-export function mapOgUsage(payload: any): Record<string, unknown> {
-  // OpenCode Go subscription usage endpoint (undocumented, discovered via
-  // farion1231/cc-switch#6433). Returns three rolling quota windows.
-  const out: Record<string, unknown> = {};
-  if (payload && typeof payload === "object") {
-    // Single-window flat shape: { used, limit, balance, plan }
-    if (typeof payload.used === "number") out.usage = payload.used;
-    if ("limit" in payload && (typeof payload.limit === "number" || payload.limit === null))
-      out.limit = payload.limit;
-    if (typeof payload.balance === "number") out.balance = payload.balance;
-    if (typeof payload.plan === "string") out.label = payload.plan;
-    // Multi-window shape: { windows: { "5h": {...}, weekly: {...}, monthly: {...} } }
-    if (payload.windows && typeof payload.windows === "object") {
-      const windows: Record<string, unknown> = {};
-      for (const [wk, wv] of Object.entries(payload.windows) as [string, any][]) {
-        if (wv && typeof wv === "object") {
-          windows[wk] = {
-            ...(typeof wv.used === "number" ? { used: wv.used } : {}),
-            ...(typeof wv.limit === "number" || wv.limit === null ? { limit: wv.limit } : {}),
-            ...(typeof wv.remaining === "number" ? { remaining: wv.remaining } : {}),
-            ...(typeof wv.reset_at === "string" || wv.reset_at === null
-              ? { resetAt: wv.reset_at }
-              : {}),
-          };
-        }
-      }
-      out.windows = windows;
-    }
-  }
-  return out;
-}
-
-/**
- * Usage-query endpoints per key (SOLID Round-93: OCP table — adding a
- * provider registers one row; the allowlist derives from the same source
- * so the two cannot drift). Exported for direct pins.
- */
-const USAGE_QUERIES: Record<
-  string,
-  { url: string; decision: string; map: (payload: any) => Record<string, unknown> }
-> = {
-  OPENROUTER_API_KEY: {
-    url: "https://openrouter.ai/api/v1/auth/key",
-    decision: "map_openrouter_usage",
-    map: mapOpenRouterUsage,
-  },
-  AMD_API_KEY: {
-    url: "https://developer.amd.com.cn/radeon/api/v1/usage",
-    decision: "map_amd_usage",
-    map: mapAmdUsage,
-  },
-  OPENCODE_GO_API_KEY: {
-    url: "https://opencode.ai/zen/go/v1/usage",
-    decision: "map_og_usage",
-    map: mapOgUsage,
-  },
-};
-
-/** OCP extension point: null for keys without a usage endpoint. */
-export function usageQueryFor(name: string) {
-  return Object.prototype.hasOwnProperty.call(USAGE_QUERIES, name)
-    ? (USAGE_QUERIES[name] as {
-        url: string;
-        decision: string;
-        map: (payload: any) => Record<string, unknown>;
-      })
-    : null;
-}
-
-async function meKeyUsage(request: Request, env: any): Promise<Response> {
-  const r = await sessionAndKeyName(request, env, Object.keys(USAGE_QUERIES));
-  if (r instanceof Response) return r;
-  const { user, name } = r;
-  const ukeys = await getUserKeys(env, user.id);
-  const key = ukeys[name];
-  if (!key) return jsonOk({ ok: false, name, detail: "Key not configured" });
-
-  // Table-driven (SOLID Round-93: three if-branches with the URL re-typed
-  // per arm — a fourth provider needed the allowlist above AND a new arm
-  // below extended in lockstep). Unreachable via the prologue (same keys),
-  // kept as a fail-loud backstop, never a throw.
-  const q = usageQueryFor(name);
-  if (!q) return jsonError(400, `Unknown key name: ${name}`, "invalid_request");
-  return usageQuery(q.url, env, key, name, q.map, q.decision);
-}
+// ── THE USAGE ROUTE IS `gateway/wasm/src/key_probe.rs`'S NOW (2026-10-17) ────────────────────────
+//
+// `POST /api/me/keys/usage`, its `usageQuery` skeleton, its three mappings (`mapOpenRouterUsage`,
+// `mapAmdUsage`, `mapOgUsage`), its `USAGE_QUERIES` table and `usageQueryFor` all left this file. **THE MAPPINGS
+// WERE ALREADY RUST'S** — `decisions.rs` had served them over `POST /__decision` since the decision route
+// existed — so what moved was the half around them: the session gate, the key lookup, the fetch and the
+// envelope. With the route on the Rust side the decision hop is gone for these three (the table shrank to the
+// one row `store/providers.ts` still asks for), and the console's four pins on the envelope live in
+// `key_probe.rs`'s own tests.
+//
+// **WHAT IS *NOT* HERE ANY MORE IS THE FALLBACK, AND THAT IS DELIBERATE**: a deployment without `WASM_GATE`
+// answers the front door's 404 for this path, the same end state `/mcp` and `/api/admin/models/probe` reached.
+// `sessionAndKeyName` stays — `meRevealKey`, `mePutKeys` and `meTestKeys` still share it.
 
 /* ---- Connectivity tests ---- */
 
@@ -836,7 +662,6 @@ export default {
     add("PUT", `${ME_BASE}/keys`, mePutKeys);
     add("DELETE", `${ME_BASE}/keys`, meDeleteKeys);
     add("POST", `${ME_BASE}/keys/test`, meTestKeys);
-    add("POST", `${ME_BASE}/keys/usage`, meKeyUsage);
     add("POST", `${ME_BASE}/keys/reveal`, meRevealKey);
   },
 };

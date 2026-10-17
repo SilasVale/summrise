@@ -606,6 +606,7 @@ pub mod device_store;
 pub mod devices;
 pub mod ip_rate_limit;
 pub mod key_lock;
+pub mod key_probe;
 pub mod lifecycle;
 pub mod mcp;
 pub mod mcp_browser;
