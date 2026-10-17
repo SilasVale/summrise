@@ -28,6 +28,34 @@ Restart the agent. `/api/status` reports `relay: {configured, connected, last_ok
 the panel's status strip shows "relay connected" when it is. The agent's own `device_token` still gates `/mcp`, so a relayed
 caller needs BOTH secrets: a compromised relay does not by itself hand over the machine.
 
+## ONE RELAY, MANY DEVICES
+
+A relay carries a FLEET now. A device names itself when it polls, and a client addresses it by that name:
+
+```yaml
+# config.yaml — the device's own name, and the name clients use
+server:
+  relay_url: https://relay.example.com
+  relay_token: <the same secret>
+  relay_device: workshop-pc
+```
+
+```
+GET  /agent/pull?device=workshop-pc     the agent's poll (an absent ?device= is the DEFAULT device)
+ANY  /d/workshop-pc/mcp                 a client reaches THAT device's own surface at /mcp
+ANY  /d/workshop-pc/panel/state         …and its panel, unchanged: the prefix is ADDRESSING, not payload
+GET  /healthz                           per-device summary: {device, agentConnectedMsAgo, waiting, devices}
+```
+
+**The un-prefixed form still targets the default device** (`--device`, `d1`), and an agent that sends no
+`?device=` is that same device — so a single-device deployment behaves exactly as it always did, and the fleet
+path is opt-in per device. Two devices on one relay cannot see each other's requests: the queue is filtered by
+device before a job is handed out, and an answer is matched by the job's globally unique id.
+
+**`relay_device` MUST MATCH THE NAME THE CONSOLE KNOWS THE DEVICE BY** — the name in the console's device list
+is what a human will type into the address. A device that polls as `workshop-pc` while the console calls it
+`d1` is reachable only by the former.
+
 ## START IT IN A WAY THAT SURVIVES THE AGENT (learned the hard way)
 
 A relay started from a terminal **the agent hosts** inherits Windows' kill-on-close job object and dies the next time the agent

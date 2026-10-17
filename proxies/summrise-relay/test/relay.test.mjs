@@ -24,14 +24,27 @@ async function withRelay(fn) {
 /// `await agent.stop()` waited out the whole window, five times per run: the suite did not finish in 120 s
 /// and its seventh test was cancelled rather than failed (eleventh exploration, round 124). The abort also
 /// exercises something the real agent does — a poll dropped mid-flight — which the relay handles by design.
-function startFakeAgent(base, { delayMs = 0, answer = (f) => ({ status: 200, headers: { "content-type": "text/plain" }, bodyB64: Buffer.from(`echo:${f.path}`).toString("base64") }) } = {}) {
+/// THE SAME AGENT, NAMING ITSELF. `device` is what `/agent/pull?device=` carries — the fleet path's whole input —
+/// and the answer echoes the DEVICE as well as the path, so a test can tell which device answered.
+function startNamedAgent(base, device) {
+  return startFakeAgent(base, {
+    device,
+    answer: (f) => ({
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      bodyB64: Buffer.from(`${device}:${f.path}`).toString("base64"),
+    }),
+  });
+}
+
+function startFakeAgent(base, { delayMs = 0, device = null, answer = (f) => ({ status: 200, headers: { "content-type": "text/plain" }, bodyB64: Buffer.from(`echo:${f.path}`).toString("base64") }) } = {}) {
   let stop = false;
   const ctrl = new AbortController();
   const done = (async () => {
     while (!stop) {
       let pull;
       try {
-        pull = await fetch(`${base}/agent/pull`, {
+        pull = await fetch(`${base}/agent/pull${device ? `?device=${encodeURIComponent(device)}` : ""}`, {
           headers: { authorization: `Bearer ${TOKEN}` },
           signal: ctrl.signal,
         });
@@ -149,5 +162,72 @@ test("the server's error listeners do not grow with requests", async () => {
     assert.equal(relay.server.listenerCount("error"), 1, "one listener before any traffic");
     for (let i = 0; i < 25; i++) await fetch(`${base}/healthz`);
     assert.equal(relay.server.listenerCount("error"), 1, "…and still one after 25 requests");
+  });
+});
+
+// ── ONE RELAY, MANY DEVICES (2026-10-17) ────────────────────────────────────────────────────────────────────────
+//
+// THE DEFECT THESE PIN: the relay served ONE device per process — a single queue, a single parked-poll list, one
+// `agentSeenMs` — so reaching three devices meant three processes and no way to address one by NAME. A device is
+// addressable now (`/d/<device>/…`, `?device=` on the agent's poll), and these cases hold the three properties that
+// make it multiplexing rather than a rename: **NO CROSS-TALK**, the DEFAULT DEVICE unchanged, and a per-device
+// answer when nobody is there.
+
+test("two devices on one relay do not see each other's requests", async () => {
+  await withRelay(async ({ base }) => {
+    const d1 = startNamedAgent(base, "d1");
+    const d2 = startNamedAgent(base, "d2");
+    await new Promise((r) => setTimeout(r, 50)); // let both park
+    const [a, b] = await Promise.all([
+      fetch(`${base}/d/d1/mcp`, { method: "POST", body: "one" }),
+      fetch(`${base}/d/d2/mcp`, { method: "POST", body: "two" }),
+    ]);
+    assert.equal(a.status, 200);
+    assert.equal(b.status, 200);
+    // **THE DEVICE PREFIX IS ADDRESSING, NOT PAYLOAD**: each device sees its OWN path, `/mcp`, with no `/d/…`.
+    assert.equal(await a.text(), "d1:/mcp");
+    assert.equal(await b.text(), "d2:/mcp");
+    await d1.stop();
+    await d2.stop();
+  });
+});
+
+test("the un-prefixed form is still the default device", async () => {
+  await withRelay(async ({ base }) => {
+    // `withRelay` builds the relay with `deviceName: "d1"`, and this agent polls WITHOUT naming itself — which is
+    // what today's agent does, and why the fleet path could be added without breaking a single deployment.
+    const agent = startFakeAgent(base);
+    await new Promise((r) => setTimeout(r, 50));
+    const res = await fetch(`${base}/panel/state`);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "echo:/panel/state");
+    await agent.stop();
+  });
+});
+
+test("a client naming a device nobody answers for gets that device's name back", async () => {
+  await withRelay(async ({ base }) => {
+    const res = await fetch(`${base}/d/ghost/mcp`);
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.ok, false);
+    assert.match(body.error, /"ghost"/);
+  });
+});
+
+test("healthz reports every device that has ever polled", async () => {
+  await withRelay(async ({ base }) => {
+    const d1 = startNamedAgent(base, "d1");
+    const d2 = startNamedAgent(base, "d2");
+    await new Promise((r) => setTimeout(r, 50));
+    const health = await (await fetch(`${base}/healthz`)).json();
+    assert.equal(health.ok, true);
+    // The single-device fields describe the DEFAULT device, which is what an existing probe reads.
+    assert.equal(health.device, "d1");
+    assert.ok(health.agentConnectedMsAgo !== null);
+    assert.deepEqual(Object.keys(health.devices).sort(), ["d1", "d2"]);
+    assert.ok(health.devices.d1.waiting >= 1);
+    await d1.stop();
+    await d2.stop();
   });
 });

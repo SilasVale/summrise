@@ -77,6 +77,13 @@ pub struct ServerConfig {
     pub relay_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_token: Option<String>,
+    /// **THE NAME THIS DEVICE ANSWERS TO ON A SHARED RELAY (2026-10-17).** A relay used to carry ONE device, so a
+    /// poll needed no name; it multiplexes now (`/agent/pull?device=<name>`, addressed by `/d/<name>/…`), and this
+    /// is what the agent puts in that query. **ABSENT MEANS THE RELAY'S DEFAULT DEVICE**, which is exactly what
+    /// every deployment did before this field existed — the fleet path is opt-in, so an upgraded agent talking to
+    /// an upgraded relay behaves as it always did until somebody names the device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_device: Option<String>,
     /// Shared secret for the gateway proxy (round-103): the gateway proxy
     /// sends this as X-Summrise-Auth when proxying /panel/ so the agent can
     /// distinguish a gateway-authenticated request (safe to inject the
@@ -254,6 +261,7 @@ impl Default for ServerConfig {
             device_token: None,
             relay_url: None,
             relay_token: None,
+            relay_device: None,
             proxy_secret: None,
         }
     }
