@@ -899,6 +899,10 @@ test("me/keys DELETE: 401 unauth, 400 unknown name, deletes by query param", asy
 // envelope, the completeness check that got STRICTER there: `R4_API_KEY` has no arm, which the deleted
 // TypeScript test's "probes to a Response" claim accepted). The DELETE route above stays TypeScript, and this
 // test is the block it shared with them.
+// **`me/route` LEFT WITH ITS ROUTE (2026-10-17)** — `GET|PUT /api/me/route` is
+// `gateway/wasm/src/route_store.rs`'s now (the DO wrappers, the legacy-KV migration and the `model=auto`
+// resolution), and its pins are that module's own tests plus `auto_route.rs`'s policy tests. The DELETE route
+// below stays TypeScript, which is why its own case is still here.
 test("usproxy: 401 unauth, 403 non-admin, admin toggle roundtrips", async () => {
   __clearCaches();
   const env = meEnv();
@@ -997,60 +1001,6 @@ test("getAdminPassword: migrates ADMIN_PASSWORD to a hashed KV record", async ()
 
 // round-444 (coverage-driven): DELETE /api/me/keys had ZERO route pins
 // (store-level deleteUserKey covered, handler not).
-test("me/route: 401 unauth; PUT validates whitelist; GET shows stored + effective", async () => {
-  __clearCaches();
-  const env = meEnv();
-  assert.equal((await meReq(env, null, "/api/me/route", "GET")).status, 401);
-  assert.equal(
-    (await meReq(env, null, "/api/me/route", "PUT", { model: "og/deepseek-v4.1-flash" })).status,
-    401,
-  );
-  const bob = await issueSessionToken("pw", "bob", "user");
-  const fresh = await (await meReq(env, bob, "/api/me/route", "GET")).json();
-  assert.equal(fresh.model, null);
-  // round-2026-09-08: with the registry's declared deps now enforced (auth
-  // setup runs AFTER translate's, so resolveRouteModel is wired), a keyless
-  // user with no stored route resolves to the usable-fallback chain's
-  // terminal default — the old "null (no resolver wiring)" assertion pinned
-  // the pre-fix ordering bug.
-  assert.equal(
-    fresh.effective,
-    "cm/deepseek/deepseek-v4.1-flash",
-    "keyless no-route user falls back to the default model",
-  );
-  assert.equal(
-    (await meReq(env, bob, "/api/me/route", "PUT", { model: "nope/model" })).status,
-    400,
-  );
-  const put = await meReq(env, bob, "/api/me/route", "PUT", { model: "og/deepseek-v4.1-flash" });
-  assert.deepEqual(await put.json(), { ok: true, model: "og/deepseek-v4.1-flash" });
-  // Effective resolves the STORED route only when it is usable for this
-  // user — bob needs an og key, else resolveAutoModel falls back (round-68:
-  // never route to a keyless channel). First without the key: fallback.
-  const after = await (await meReq(env, bob, "/api/me/route", "GET")).json();
-  assert.equal(after.model, "og/deepseek-v4.1-flash");
-  assert.equal(
-    after.effective,
-    "cm/deepseek/deepseek-v4.1-flash",
-    "keyless user's stored og route is unusable → default fallback",
-  );
-  await env.KEYS.put("ukeys:bob", JSON.stringify({ OPENCODE_GO_API_KEY: "og-k" }));
-  __clearCaches();
-  const withKey = await (await meReq(env, bob, "/api/me/route", "GET")).json();
-  assert.equal(
-    withKey.effective,
-    "og/deepseek-v4.1-flash",
-    "usable stored route mirrors as effective",
-  );
-  const clear = await meReq(env, bob, "/api/me/route", "PUT", { model: null });
-  assert.deepEqual(await clear.json(), { ok: true, model: null });
-});
-
-// round-448 (coverage-driven): the sweep-lock's corrupt-fresh-read arm
-// (store/plugins.ts) had ZERO pins — first read yields an expired link,
-// the locked re-read races corrupt.
-// round-450 (coverage-driven): the remaining testKey provider arms
-// (CMD/GMI/NV/QWEN) had ZERO pins.
 test("decide: a decision that ran is returned, and null is a VALUE", async () => {
   const env = { WASM_GATE: { fetch: async () => new Response(JSON.stringify({ ok: true, value: null })) } };
   const answeredNull = await decide(env, "upstream_models_url", { upstream: "https://x/v1/messages" });

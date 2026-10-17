@@ -208,6 +208,18 @@ fn truthy_or_null(v: Option<&serde_json::Value>) -> serde_json::Value {
 ///
 /// The fixed shape is the contract: an unknown field in the record is not carried, and a field the record
 /// omits is present as `null` rather than absent.
+/// `CHANNEL_KEY_RULES[prefix]` — the channel's `(userKey, envKey)` for a model's prefix, or `None`.
+///
+/// **THE TABLE IS `BYOK_CHANNELS`, THE SAME ONE `store/byok.ts` IS EMITTED FROM**, so the route selection's
+/// key matrix and `/v1`'s BYOK decisions cannot drift: `model-route.ts` carried its own projection of this
+/// table until this lookup existed.
+pub fn rule_for_prefix(prefix: &str) -> Option<(&'static str, Option<&'static str>)> {
+    BYOK_CHANNELS
+        .iter()
+        .find(|(_, _, _, row_prefix, _)| *row_prefix == prefix)
+        .map(|(_, user_key, env_key, _, _)| (*user_key, *env_key))
+}
+
 pub fn extract_byok_keys(ukeys: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
     const FIELDS: [(&str, &str); 9] = [
         ("deepseek", "DEEPSEEK_API_KEY"),

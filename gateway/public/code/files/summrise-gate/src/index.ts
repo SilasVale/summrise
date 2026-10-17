@@ -259,9 +259,10 @@ function isDevicesFamily(method: string, path: string): boolean {
  *   * `GET|PUT /api/me/route` — the per-user `model=auto` selection. Its handler resolves through
  *     `resolveAutoModel` (`model-route.ts`), which reads the model CATALOGUE (`store/models.ts`) and the
  *     `RouteDO` Durable Object: a different surface with its own corpus, not identity.
- *   * Both key diagnostics LEFT THIS LIST ON 2026-10-17: `POST /api/me/keys/usage` first (its three mappings
- *     were already Rust's) and `POST /api/me/keys/test` a landing later (its eight probe arms are
- *     `gateway/wasm/src/key_probe.rs`'s now). The only exclusion left is `/api/me/route`.
+ *   * **THE WHOLE SURFACE IS THE WORKER'S NOW (2026-10-17).** The three exclusions this list used to name all
+ *     moved, in three landings: `POST /api/me/keys/usage` (its mappings were already Rust's),
+ *     `POST /api/me/keys/test` (eight probe arms) and `GET|PUT /api/me/route` (which waited on the `ROUTE`
+ *     Durable Object binding). There is nothing left to exempt, and the predicate says so.
  *
  * **`/api/auth/<anything>` IS THE FAMILY, INCLUDING THE SHAPES THE PLUGIN DOES NOT REGISTER**, because the
  * worker answers the front door's own 404 for those and the corpus compares one (`GET /api/auth/nonsense`).
@@ -276,12 +277,12 @@ function isAuthFamily(path: string): boolean {
   if (path === "/api/auth" || path.startsWith("/api/auth/")) return true;
   if (path === "/api/me") return true;
   if (!path.startsWith("/api/me/")) return false;
-  // **ONE EXCLUSION LEFT (2026-10-17)**: `/api/me/keys/test` moved with its eight probe arms
-  // (`key_probe.rs`), a landing after `/api/me/keys/usage` did. `/api/me/route` stays because it needs the
-  // `ROUTE` Durable Object binding — and it is the LAST one, so the day it moves this function stops having an
-  // exception list at all. **AN EXCLUSION IS A PROMISE THAT SOMETHING IS STILL ELSEWHERE**; this list may only
-  // shrink, and it is read beside `auth_routes::in_family`'s mirror of it.
-  return path !== "/api/me/route";
+  // **NO EXCLUSIONS LEFT (2026-10-17), AND THAT IS THE POINT OF THE LIST.** The last one was
+  // `/api/me/route`, which waited on the `ROUTE` Durable Object binding; `route_store.rs` has it now, so this
+  // predicate carves nothing out and the whole identity surface is the Rust worker's. **AN EXCLUSION IS A
+  // PROMISE THAT SOMETHING IS STILL ELSEWHERE, AND AN EMPTY LIST KEEPS NO PROMISES** — it is read beside
+  // `auth_routes::in_family`, which is the same predicate in the other language.
+  return true;
 }
 
 /**

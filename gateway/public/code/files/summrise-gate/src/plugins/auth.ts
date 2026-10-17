@@ -10,7 +10,6 @@
  * derived here the same way handleConsole did: url.protocol === "https:".
  */
 
-import { isAdvertised } from "../store/models.ts";
 import {
   createUser,
   getUser,
@@ -29,8 +28,6 @@ import {
   userKeysStatus,
   ADMIN_ID,
   USER_KEY_NAMES,
-  getUserRoute,
-  setUserRoute,
   getGlobalSetting,
   setGlobalSetting,
   globalSettingEnabled,
@@ -48,7 +45,6 @@ import {
 import { createIpRateLimiter } from "../lib/ratelimit.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import type { PluginContext } from "./registry.ts";
-import { resolveAutoModel } from "../model-route.ts";
 
 const AUTH_BASE = "/api/auth";
 const ME_BASE = "/api/me";
@@ -279,33 +275,19 @@ async function meGet(request: Request, env: any): Promise<Response> {
 // Per-user route selection (Claude Code model=auto)
 // resolveAutoModel is imported directly from model-route.ts (module-level
 // so the route handler can call it — handlers don't receive plugin context).
-let resolveRouteModel: ((env: any, uid: string) => Promise<string>) | null = null;
 
-async function meGetRoute(request: Request, env: any): Promise<Response> {
-  const user = await requireSession(request, env);
-  if (!user) return jsonError(401, "Not logged in or session expired", "authentication_error");
-  // effective: the model a model=auto request actually resolves to
-  // (stored route if usable, else the usable fallback). The panel shows
-  // this as "current" so a user without a manual choice still sees what
-  // they're actually using.
-  const model = await getUserRoute(env, user.id);
-  const effective = resolveRouteModel ? await resolveRouteModel(env, user.id) : model;
-  return jsonOk({ model, effective });
-}
-
-async function mePutRoute(request: Request, env: any): Promise<Response> {
-  const user = await requireSession(request, env);
-  if (!user) return jsonError(401, "Not logged in or session expired", "authentication_error");
-  const body = await readJson(request);
-  const model = body?.model ?? null;
-  // ADVERTISED, not merely compiled: a model disabled from the console must not be
-  // settable, or a user could pin a route the gateway will not serve.
-  if (model !== null && !(await isAdvertised(env, model))) {
-    return jsonError(400, `Unknown model: ${model}`, "invalid_request");
-  }
-  await setUserRoute(env, user.id, model);
-  return jsonOk({ ok: true, model });
-}
+// ── `GET|PUT /api/me/route` IS `gateway/wasm/src/route_store.rs`'S NOW (2026-10-17) ──────────────
+//
+// The LAST identity route on this side, and it waited on the one binding the Rust worker lacked: the route
+// store is a Durable Object (`RouteDO`, `route:{uid}` → the chosen model). The worker binds it now
+// (`wrangler.jsonc`, `script_name: vale-gate`), so the route, both wrappers around the DO — with their
+// never-throw postures and the one-time legacy-KV migration — and the `model=auto` resolution behind
+// `effective` are all Rust.
+//
+// **THE FALLBACK IS DELETED WITH IT**, as `/mcp`, the admin probe and both key diagnostics established. And
+// `resolveAutoModel`/`isModelUsable`/`isAdvertised` in `model-route.ts` have no production caller left — only
+// `index.ts`'s re-export for tests and tooling — which makes that module (and its emitted twin) the next file
+// to retire rather than a thing to keep warm.
 
 async function meRegenerateToken(request: Request, env: any): Promise<Response> {
   const user = await requireSession(request, env);
@@ -472,7 +454,6 @@ export default {
     // on answering, with `effective` silently equal to the stored model. `plugins/model-route.ts` is where the
     // function has lived since the structure refactor, and it is imported directly, so a missing export is a build
     // error rather than a quiet null.
-    resolveRouteModel = resolveAutoModel;
     // Exact method+path match, same as the index.js if/else chain (the
     // registry's route() helper does prefix matching — exact here so
     // /api/me never swallows /api/me/route etc.). Order mirrors index.js.
@@ -488,8 +469,6 @@ export default {
     add("POST", `${AUTH_BASE}/reset-password`, authResetPassword);
     add("POST", `${AUTH_BASE}/logout`, withSecure(authLogout));
     add("GET", ME_BASE, meGet);
-    add("GET", `${ME_BASE}/route`, meGetRoute);
-    add("PUT", `${ME_BASE}/route`, mePutRoute);
     add("POST", `${ME_BASE}/token/regenerate`, meRegenerateToken);
     add("POST", `${ME_BASE}/token/relay`, meRotateRelayToken);
     add("DELETE", `${ME_BASE}/token/relay`, meRevokeRelayToken);

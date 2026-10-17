@@ -115,10 +115,12 @@ pub fn in_family(_method: &Method, path: &str) -> bool {
     // that remain are `/api/me/route` (it needs the `ROUTE` Durable Object binding) and `/api/me/keys/test` (the
     // eight probe arms), and the list SHRINKS as they move: an exclusion is a promise that something is still
     // elsewhere, so a list that cannot shrink is a list nobody is reading.
-    // **ONE EXCLUSION LEFT (2026-10-17)**: `/api/me/keys/test` joined the family with the probe arms
-    // (`key_probe.rs`). `/api/me/route` stays because it needs the `ROUTE` Durable Object binding, and it is
-    // the LAST one — when it moves, the TypeScript half of this family is gone.
-    !matches!(path, "/api/me/route")
+    // **NO EXCLUSIONS LEFT (2026-10-17).** `/api/me/route` was the last one, and it stayed behind only because
+    // it needs the `ROUTE` Durable Object binding — which this worker has now (`wrangler.jsonc`, the same
+    // `script_name: vale-gate` shape `BREAKER` uses). The predicate is the source's own: the two bases and
+    // their sub-paths, nothing carved out. **AN EXCEPTION LIST THAT CANNOT EMPTY IS A LIST NOBODY IS READING**,
+    // and this one is empty: the whole identity family is this worker's.
+    true
 }
 
 /// The dispatcher: an exact `(method, path)` match for every route the plugin registers, in the plugin's order,
@@ -151,6 +153,8 @@ pub async fn handle(mut request: Request, env: &Env) -> Handled {
         (Method::Post, "/api/me/keys/reveal") => me_reveal_key(&mut request, env).await,
         (Method::Post, "/api/me/keys/usage") => me_key_usage(&mut request, env).await,
         (Method::Post, "/api/me/keys/test") => me_test_keys(&mut request, env).await,
+        (Method::Get, "/api/me/route") => me_get_route(&request, env).await,
+        (Method::Put, "/api/me/route") => me_put_route(&mut request, env).await,
         _ => Ok(crate::json_error(404, "Not Found", "not_found_error")?),
     }
 }
@@ -854,6 +858,66 @@ async fn me_key_usage(request: &mut Request, env: &Env) -> Handled {
 
 /// `meTestKeys` — `plugins/auth.ts`'s probe route: the eight arms are `key_probe.rs`'s, the prologue is the
 /// same `sessionAndKeyName` its siblings use.
+/// `meGetRoute` — the stored `model=auto` choice AND what it actually resolves to.
+///
+/// **THE TWO FIELDS ARE NOT THE SAME QUESTION**, which is why the console shows both: `model` is what the user
+/// picked (`null` when they never did), and `effective` is what a `model=auto` request would use — the choice
+/// when it is usable, else the ladder's first usable rung, else the default. A user with no manual choice still
+/// sees what they are actually using.
+async fn me_get_route(request: &Request, env: &Env) -> Handled {
+    let user = match session_or_401(request, env).await? {
+        Ok(user) => user,
+        Err(refusal) => return Ok(refusal),
+    };
+    let id = user_id(&user);
+    let model = crate::route_store::get_user_route(env, &id).await;
+    let effective = crate::route_store::resolve_auto_model(env, &id).await;
+    Ok(json_ok(json!({
+        "model": model.map(Value::String).unwrap_or(Value::Null),
+        "effective": effective
+    }))?)
+}
+
+/// `mePutRoute` — set or clear the choice, refusing a model this deployment does not ADVERTISE.
+///
+/// **ADVERTISED, NOT MERELY COMPILED**: a model disabled from the console must not be settable, or a user could
+/// pin a route the gateway will not serve. The refusal's message is the source's (`Unknown model: <id>`), and
+/// the body's `model` is read with `?? null`, so an absent field CLEARS the choice rather than erroring.
+async fn me_put_route(request: &mut Request, env: &Env) -> Handled {
+    let user = match session_or_401(request, env).await? {
+        Ok(user) => user,
+        Err(refusal) => return Ok(refusal),
+    };
+    let body = read_json(request).await;
+    let model = body.get("model").cloned().unwrap_or(Value::Null);
+    let model = match model {
+        Value::Null => None,
+        other => Some(summrise_core::text::js_string(&other)),
+    };
+    if let Some(model) = model.as_deref() {
+        if !crate::route_store::is_advertised(env, model).await {
+            return Ok(crate::json_error(
+                400,
+                &format!("Unknown model: {model}"),
+                "invalid_request",
+            )?);
+        }
+    }
+    // **THE ONE THROW THE STORE HAS** (`config_error: route store unavailable`) is NOT a refusal a caller can
+    // act on: the source raised it out of the handler, so the front door's catch answers 500 — which is what
+    // `RouteFailure::Threw` is for.
+    if crate::route_store::set_user_route(env, &user_id(&user), model.as_deref())
+        .await
+        .is_err()
+    {
+        return Err(crate::RouteFailure::Threw);
+    }
+    Ok(json_ok(json!({
+        "ok": true,
+        "model": model.map(Value::String).unwrap_or(Value::Null)
+    }))?)
+}
+
 async fn me_test_keys(request: &mut Request, env: &Env) -> Handled {
     let allowed = user_store::user_key_names();
     let (user, name, _body) = match session_and_key_name(request, env, &allowed).await? {
@@ -901,7 +965,7 @@ mod tests {
     /// RESULT:   `the_family_is_the_fourteen_routes_plus_the_404s` fails on `/api/me/route`, and the console's
     ///           model-route selection would be answered by an implementation that does not have the catalogue.
     #[test]
-    fn the_family_is_the_sixteen_routes_plus_the_404s() {
+    fn the_family_is_the_whole_identity_surface_with_no_exclusions() {
         let get = Method::Get;
         for path in [
             "/api/auth/register",
@@ -922,12 +986,14 @@ mod tests {
             // is asserted with `GET` here exactly as the source's predicate tests it.
             "/api/me/keys/usage",
             "/api/me/keys/test",
+            // **THE LAST EXCLUSION JOINED ON 2026-10-17** — it needed the `ROUTE` Durable Object binding, and
+            // the predicate now carves nothing out.
+            "/api/me/route",
             "/api/me/anything/else",
         ] {
             assert!(in_family(&get, path), "{path} belongs to this worker");
         }
         for path in [
-            "/api/me/route",
             "/api/meX",
             "/api/authentication",
             "/api/health",

@@ -5056,8 +5056,13 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
 //     session, `ukeys:` read, dial — because every case in this section replays a recorded shipping answer and
 //     this route's were recorded by the four `plugins.test.mjs` cases that left with it. **THE SAME GAP, NAMED
 //     THE SAME WAY**: a landing that touches either key route should record its arms here with an upstream stub;
-//   * `GET|PUT /api/me/route` — the model-route selection, which resolves through the model CATALOGUE and
-//     `RouteDO`. Same reason, same carve-out.
+//   * **`GET|PUT /api/me/route` IS PORTED TOO (2026-10-17) AND IS NOT DRIVEN HERE**: the route, both
+//     wrappers around `RouteDO` (with their never-throw postures and the one-time legacy-KV migration) and the
+//     `model=auto` resolution are `route_store.rs`'s, pinned there and in `auto_route.rs` (the policy) — and
+//     the DIAL to the Durable Object is the harness's business, which would mean stubbing a THIRD binding
+//     (`ROUTE`) in this section. **THE SAME NAMED GAP AS THE TWO KEY ROUTES**: the wiring has no case here,
+//     because this section replays recorded shipping answers and this route's were recorded by the
+//     `me/route` case that left `plugins.test.mjs` with it.
 //
 // **AND THE FRONT DOOR'S CSRF GATE IS NOT DRIVEN HERE EITHER**: `csrfCookieViolation` runs in `index.ts` BEFORE
 // the handover, so no case in this section carries `sec-fetch-site` — a cookie-carrying cross-site mutation is
