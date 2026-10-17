@@ -983,4 +983,17 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `unmatched glob` — a script that errors on a legitimate tree is worse than one that skips a missing directory.
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 30`.
-const MAX_LOGIC: usize = 30;
+// 30 -> 26 ON 2026-10-17, FOR THE MODEL-STORE CLUSTER AND THE DECISION ROUTE IT WAS HOLDING UP: the three TS
+// hosts (`store/providers.ts`, `store/models.ts`, `store/file-config.ts`), three emissions
+// (`providers-logic` stayed — `channels.ts` reads it — while `models-logic.ts`, `file-config-logic.ts` and
+// `gate-logic.ts` left) and three test files. **AND WITH THEM THE MIGRATION'S OWN MACHINERY**: `decide`,
+// `decision_client.rs`, `POST /__decision` and `decisions.rs`'s row table are all deleted, because their last
+// caller was `store/providers.ts`. The table's header said what would happen — "a row leaves when its last
+// TypeScript caller does" — and the last row left when the last caller did.
+//
+// **THE DECISIONS THEMSELVES ARE NOT GONE**: they are in-process functions in `decisions.rs`, called by the
+// routes that need them (`key_probe.rs` for the three usage mappers, `models_probe.rs` for the probe helpers,
+// `store::public_provider_view` for the public projection). That is what the route was a workaround for.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 26`.
+const MAX_LOGIC: usize = 26;

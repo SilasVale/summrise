@@ -310,7 +310,14 @@ GENERATED | gateway/src/store/providers-logic.ts | the provider vocabulary, the 
 #   emitted parser takes the PARSED PARTS and the host hands them over; the refusal ORDER is preserved because the
 #   decision reads `base` only after its prefix/reserved/label refusals. It imports `deviceHostError` from
 #   `device-fetch.ts` rather than restating the private-address list, so the SSRF stack stays one copy.
-BOUNDARY | gateway/src/store/providers.ts | **THE CUSTOM-PROVIDER HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left
+# ── THE HOST IS GONE (2026-10-17) ─────────────────────────────────────────────────────────────────────
+# `BOUNDARY | gateway/src/store/providers.ts | …` stood here until 2026-10-17. No module in the console worker imports the
+# model-store cluster any more (its last consumers were each other), so the three hosts — providers, models and
+# the file layer — their emissions and this rule left together. **THE RULES ARE RUST**: the custom-provider
+# parser, the advertised-id merge, the file layer's precedence and the catalogue projection are all functions in
+# `gateway/wasm/src/` that the worker calls in-process, and the admin corpus replays them case for case. **THE
+# ONE THING THAT KEPT ITS TYPE-SCRIPT TWIN IS `providers-logic.ts`**, which `channels.ts` still imports: the
+# console's channel registry needs the provider vocabulary, so that emission stays and its rule above does too.
 #   is the KV read/write pair (`readList`/`writeList`), the per-isolate cache, the file-layer merge, the record views
 #   (`publicProvider`, `providerKey`, `providerModelVision`), the key resolution, and the `new URL` call the parser is
 #   handed. The vocabulary, the prefix helpers, the record shapes and the parser are `providers-logic.ts`, GENERATED
@@ -355,7 +362,12 @@ BOUNDARY | gateway/src/access.ts | **THE ACCESS HOST, AND ITS DECISIONS ARE EMIT
 #   a numeric `exp`), the email and username derivations, the `access-email:`/`user:`/`token:` key families and
 #   the record a provisioned account is written as are `access-logic.ts`, GENERATED from
 #   `gateway/wasm/src/access.rs`.
-GENERATED | gateway/src/store/models-logic.ts | the model store's rules — the three KV key names, the advertised-id merge, the /v1/models extras, the sort, the two upserts, the facet-override rule, the reasoning chain and the catalogue projection — emitted from Rust | gateway/wasm/src/model_store.rs
+# ── THE EMISSION WENT WITH ITS CONSUMER (2026-10-17) ──────────────────────────────────────────────────
+# `GENERATED | gateway/src/store/models-logic.ts | the model store's rules …` stood here until 2026-10-17. Its only importer was one of the deleted
+# model-store cluster files (`store/providers.ts`, `store/models.ts`, `store/file-config.ts`) — no module in the
+# console worker imports that cluster any more — so the host, the emission and this rule left together. **THE
+# RULES DID NOT MOVE**: they are Rust functions the worker calls in-process, and the admin corpus (82 cases)
+# replays them end to end.
 #   **THE PROJECTION IS THE PART THAT HAD COST THIS REPOSITORY TWICE (round 58 and round 65):** `ROUTE_INFO` holds
 #   BARE names while the advertised set holds FULL ids, so comparing them directly matches NOTHING — the Models
 #   page set the wrong channel and its default card stayed permanently empty. The join is written down once now,
@@ -365,7 +377,14 @@ GENERATED | gateway/src/store/models-logic.ts | the model store's rules — the 
 #   then the custom loop below finds the same card and puts the wire name BACK. The first version of the Rust test
 #   asserted the comment; the port follows the CODE, and the difference between the two is exactly what a port
 #   must not "fix".
-BOUNDARY | gateway/src/store/models.ts | **THE MODEL-STORE HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-14).** What is left is the
+# ── THE HOST IS GONE (2026-10-17) ─────────────────────────────────────────────────────────────────────
+# `BOUNDARY | gateway/src/store/models.ts | …` stood here until 2026-10-17. No module in the console worker imports the
+# model-store cluster any more (its last consumers were each other), so the three hosts — providers, models and
+# the file layer — their emissions and this rule left together. **THE RULES ARE RUST**: the custom-provider
+# parser, the advertised-id merge, the file layer's precedence and the catalogue projection are all functions in
+# `gateway/wasm/src/` that the worker calls in-process, and the admin corpus replays them case for case. **THE
+# ONE THING THAT KEPT ITS TYPE-SCRIPT TWIN IS `providers-logic.ts`**, which `channels.ts` still imports: the
+# console's channel registry needs the provider vocabulary, so that emission stays and its rule above does too.
 #   three KV reads and writes, the per-isolate cache, the file-layer merge, the write-through `cset`, and the two
 #   things only a host can do: flattening the advertised provider models, and parsing each record's `baseURL` for a
 #   card's `host` (`new URL`, whose throw is the source's own — a hand-edited record shows its raw string rather
@@ -399,7 +418,12 @@ GENERATED | gateway/src/store/devices-logic.ts | the WHOLE device registry — t
 BOUNDARY | gateway/src/store/devices.ts | **A PURE RE-EXPORT, AND THE REGISTRY ITSELF IS EMITTED FROM RUST (2026-10-15).** The emitted functions take the same
 #   `env` this file's callers already pass — they are async KV flows, not a sequence needing the platform
 #   injected — so the host has nothing left to hold: the file is one `export *` and its module doc comment.
-GENERATED | gateway/src/store/file-config-logic.ts | the catalogue FILE layer's two pure rules — the merge that gives the file precedence (and the ORDER of its result) and the key sets the console marks as not-locally-editable, where a provider's key is its BARE prefix — emitted from Rust | gateway/wasm/src/catalogue_file.rs
+# ── THE EMISSION WENT WITH ITS CONSUMER (2026-10-17) ──────────────────────────────────────────────────
+# `GENERATED | gateway/src/store/file-config-logic.ts | the catalogue FILE layer's two pure rules …` stood here until 2026-10-17. Its only importer was one of the deleted
+# model-store cluster files (`store/providers.ts`, `store/models.ts`, `store/file-config.ts`) — no module in the
+# console worker imports that cluster any more — so the host, the emission and this rule left together. **THE
+# RULES DID NOT MOVE**: they are Rust functions the worker calls in-process, and the admin corpus (82 cases)
+# replays them end to end.
 #   **THE RUST TWIN EXISTED AND THE CORPUS ALREADY PROVED THE LAYER** (82 admin cases: `/api/admin/catalogue`,
 #   `/api/admin/models`, `/api/admin/public`); what this closes is the half where two spellings could disagree
 #   with NOTHING watching — the merge's precedence and the `"acme/"` → `"acme"` normalisation, each small enough
@@ -537,7 +561,12 @@ GENERATED | gateway/src/device-dial-logic.ts | the device dial's guard stack —
 #   is case-insensitive (`/^[a-z][a-z0-9+.-]*:/i`), so `HTTPS://evil.example` is refused — the assertion that said
 #   otherwise failed, and now pins the case-insensitivity instead.
 BOUNDARY | gateway/src/device-fetch.ts | **THE DIAL HOST, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the env reads (`DEVICE_HOST_SUFFIX`), the parser the plan is handed, `fetchWithTimeout`, and the `Response` rebuilds — the platform's half. The guard stack, its ORDER, the header hygiene, the timeout bound and the 101 shape are `device-dial-logic.ts`, GENERATED from `gateway/wasm/src/device.rs`. **`hostAllowError` KEEPS ITS `(hostname, env)` SIGNATURE** because the registration paths and the direct pins call it that way; the emitted twin takes the suffix VALUE, which is the shape the Rust has.
-GENERATED | gateway/src/gate-logic.ts | the decision route's client half — the path, the address, the content type, the `{name, args}` envelope and the answer's parse rule — emitted from Rust | gateway/wasm/src/decision_client.rs
+# ── THE EMISSION WENT WITH ITS CONSUMER (2026-10-17) ──────────────────────────────────────────────────
+# `GENERATED | gateway/src/gate-logic.ts | the decision route's client half — the path, the address, the content type, the `{name, args}` envelope and the answer's parse rule …` stood here until 2026-10-17. Its only importer was one of the deleted
+# model-store cluster files (`store/providers.ts`, `store/models.ts`, `store/file-config.ts`) — no module in the
+# console worker imports that cluster any more — so the host, the emission and this rule left together. **THE
+# RULES DID NOT MOVE**: they are Rust functions the worker calls in-process, and the admin corpus (82 cases)
+# replays them end to end.
 #   **THE SIXTH EMISSION, AND THE SECOND IN A ROW TO FIND A WIRE SPELLED ON BOTH SIDES (2026-10-13).** `gate.ts`'s
 #   `DECISION_URL` spelled the path while `decisions.rs`'s `in_family` spelled it again; `DECISION_PATH` is one name
 #   now, the server READS it, and `the_path_is_the_one_the_server_refuses_on` fails if the literal comes back. **Two

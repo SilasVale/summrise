@@ -31,75 +31,21 @@ use serde_json::{json, Value};
 // **NO `Env` IN THIS IMPORT LIST, AND THE COMPILER IS WHAT SAYS SO.** The first version imported it out of habit and
 // rustc answered `unused import: Env` — which is this module's whole security argument stated by the toolchain rather
 // than by me: there is no environment here to read.
-use worker::{Method, Request, Response, Result};
 
-use crate::responses::{self, Built};
-use crate::RouteFailure;
+// ── THE ROUTE IS GONE (2026-10-17); THE DECISIONS STAY ───────────────────────────────────────────────
+//
+// `POST /__decision`, its table, its dispatcher and the `gate-logic.ts` client that reached them are deleted:
+// the last TypeScript caller was `store/providers.ts`, which went with the model-store cluster. **THIS MODULE
+// IS NOW WHAT ITS NAME SAYS RATHER THAN WHAT THE MIGRATION NEEDED** — a set of pure decisions, called
+// IN-PROCESS by the routes that need them (`key_probe.rs` for the three usage mappers, `models_probe.rs` for
+// the two probe helpers, `store::public_provider_view` for the public projection). The route existed because
+// the TypeScript twin had to ask another language for an answer; when the twin went, so did the asking.
+//
+// **AND THE SECURITY ARGUMENT THAT SHAPED THE ROUTE IS STILL VISIBLE IN THE SIGNATURES**: every function below
+// takes only `&Value`. There is no environment parameter to thread and therefore no way for a decision to
+// become an oracle for a key — the property the route's missing `Env` was protecting, now stated by the shape
+// of the module itself.
 
-/// `POST /__decision` — POST only, and the EXACT path: a prefix would swallow a neighbour.
-pub fn in_family(method: &Method, path: &str) -> bool {
-    *method == Method::Post && path == crate::decision_client::DECISION_PATH
-}
-
-/// A pure decision: JSON in, JSON out, and **no environment**.
-type Decision = fn(&Value) -> std::result::Result<Value, String>;
-
-/// **THE TABLE — THE DECISIONS TYPESCRIPT STILL ASKS FOR, AND NOTHING ELSE (2026-10-17).**
-///
-/// A decision is added by adding a row, and the TypeScript side needs no change to reach it. **AND A ROW LEAVES
-/// WHEN ITS LAST TYPESCRIPT CALLER DOES**, which is the half that keeps the table honest: `upstream_models_url`
-/// and `offered_ids` stood here until `plugins/models-probe.ts` was deleted, and they were that file's private
-/// wire — `models_probe.rs` calls the two functions DIRECTLY, in-process, so the row was a public name for
-/// something nobody asked for any more. **THE THREE USAGE MAPPERS LEFT THE SAME WAY, ONE LANDING LATER**: the
-/// route around them is `key_probe.rs`'s now, so it calls them in-process too, and only `public_provider` is
-/// still asked for over the wire — by `store/providers.ts`, whose host half is console-side. When that call
-/// goes, the route has no client at all and this table, this dispatch and the client in `gate.ts` can all die
-/// together. **A TABLE THAT CANNOT SHRINK IS A LIST, AND A LIST OF ONE-CONSUMER WIRES GOES STALE.**
-const DECISIONS: [(&str, Decision); 1] = [("public_provider", public_provider)];
-
-/// The dispatcher. `Ok(None)` is "not this family". **NO `Env` PARAMETER — see the module header.**
-pub async fn handle(mut request: Request) -> Result<Option<Response>, RouteFailure> {
-    let url = request.url().map_err(|_| RouteFailure::Threw)?;
-    if !in_family(&request.method(), url.path()) {
-        return Ok(None);
-    }
-    Ok(Some(reply(run(&mut request).await)))
-}
-
-/// The protocol, in one place.
-async fn run(request: &mut Request) -> Built {
-    let text = request.text().await.unwrap_or_default();
-    let body: Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return refusal("body must be JSON"),
-    };
-    let Some(name) = body.get("name").and_then(Value::as_str) else {
-        return refusal("body must carry a `name`");
-    };
-    let args = body.get("args").cloned().unwrap_or_else(|| json!({}));
-    let Some((_, decision)) = DECISIONS.iter().find(|(n, _)| *n == name) else {
-        return refusal(&format!("unknown decision: {name}"));
-    };
-    match decision(&args) {
-        Ok(value) => responses::json_ok(&json!({ "ok": true, "value": value }), &[]),
-        Err(error) => refusal(&error),
-    }
-}
-
-/// Every refusal is the same shape, so a caller has one arm to write.
-fn refusal(message: &str) -> Built {
-    responses::json_error(400, message, "invalid_request")
-}
-
-fn reply(built: Built) -> Response {
-    crate::json(built.body, built.status).unwrap_or_else(|_| Response::error("", 500).unwrap())
-}
-
-/* ─────────────────────────── the decisions ─────────────────────────── */
-
-/// `upstreamModelsUrl(upstream)` — `gateway/src/plugins/models-probe.ts`.
-///
-/// `upstream.endsWith("/chat/completions") ? upstream.slice(0, -len) + "/models" : null`
 pub(crate) fn upstream_models_url(args: &Value) -> std::result::Result<Value, String> {
     const SUFFIX: &str = "/chat/completions";
     let upstream = args
@@ -420,27 +366,10 @@ mod tests {
         map_og_usage(&args).expect("a payload")
     }
 
-    fn call(name: &str, args: Value) -> Value {
-        let (_, decision) = DECISIONS
-            .iter()
-            .find(|(n, _)| *n == name)
-            .unwrap_or_else(|| panic!("no decision named {name}"));
-        decision(&args).unwrap_or_else(|e| panic!("{name} refused: {e}"))
-    }
-
-    /// **THE FAMILY IS POST AND THE EXACT PATH.** A prefix would let `__decision_x` reach the table.
-    ///
-    /// MUTATION: `==` -> `starts_with`.
-    /// RESULT:   the third assertion fails, and nothing else notices.
-    #[test]
-    fn the_family_is_post_and_the_exact_path() {
-        // **THE PATH IS READ FROM THE MODULE THAT OWNS THE WIRE** (`decision_client`), because the CLIENT spells it
-        // too: a second literal here is how the two sides drift, and `decision_client`'s own test pins the value.
-        let path = crate::decision_client::DECISION_PATH;
-        assert!(in_family(&Method::Post, path));
-        assert!(!in_family(&Method::Get, path));
-        assert!(!in_family(&Method::Post, &format!("{path}_x")));
-    }
+    // **THE WIRE'S TWO TESTS LEFT WITH THE WIRE (2026-10-17)**: `the_family_is_post_and_the_exact_path` pinned
+    // `in_family` against `decision_client::DECISION_PATH`, and `call` was the helper that reached a decision
+    // through the table. Both are deleted; the functions below are called directly by the tests that follow,
+    // which is how the routes call them too.
 
     /// `upstreamModelsUrl` — the suffix is the decision, and a URL without it is `null` rather than a guess.
     ///
@@ -621,13 +550,11 @@ mod tests {
     /// RESULT:   the serialized-string assertion fails while every value assertion still passes.
     #[test]
     fn public_provider_masks_the_key_and_keeps_the_sources_key_order() {
-        let got = call(
-            "public_provider",
-            json!({"p": {"prefix": "acme/", "label": "Acme", "baseURL": "https://acme.example/v1",
-                          "api": "openai", "apiKeyEnv": "ACME_KEY",
+        let got = public_provider(&json!({"p": {"prefix": "acme/", "label": "Acme",
+                          "baseURL": "https://acme.example/v1", "api": "openai", "apiKeyEnv": "ACME_KEY",
                           "models": [{"id": "foo", "name": "Foo"}]},
-                    "resolved": "sk-abcdef123"}),
-        );
+                    "resolved": "sk-abcdef123"}))
+        .expect("a projection");
         assert_eq!(got["keyReady"], json!(true));
         assert_eq!(got["keyMasked"], json!("sk-\u{2026}f123"));
         assert_eq!(got["keyEnv"], json!("ACME_KEY"));
@@ -646,15 +573,15 @@ mod tests {
     fn public_provider_reports_an_unresolved_key() {
         let spec = json!({"p": {"prefix": "acme/", "label": "Acme", "baseURL": "https://x",
                                  "api": "openai", "models": []}, "resolved": ""});
-        let got = call("public_provider", spec);
+        let got = public_provider(&spec).expect("a projection");
         assert_eq!(got["keyMasked"], json!(""));
         assert_eq!(got["keyReady"], json!(false));
         // `"0"` IS READY — a non-empty string is truthy, and the source says `!!resolved`.
-        let zero = call(
-            "public_provider",
-            json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x", "api": "openai",
-                          "models": []}, "resolved": "0"}),
-        );
+        let zero = public_provider(
+            &json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x",
+                          "api": "openai", "models": []}, "resolved": "0"}),
+        )
+        .expect("a projection");
         assert_eq!(zero["keyReady"], json!(true));
     }
 
@@ -662,25 +589,15 @@ mod tests {
     /// and a model with no id at all becomes the prefix alone.
     #[test]
     fn public_provider_coerces_a_numeric_model_id() {
-        let got = call(
-            "public_provider",
-            json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x", "api": "openai",
-                          "models": [{"id": 5}, {}]}, "resolved": ""}),
-        );
+        let got = public_provider(
+            &json!({"p": {"prefix": "acme/", "label": "A", "baseURL": "https://x",
+                          "api": "openai", "models": [{"id": 5}, {}]}, "resolved": ""}),
+        )
+        .expect("a projection");
         assert_eq!(got["advertised"], json!(["acme/5", "acme/"]));
     }
 
-    /// **THE TABLE IS THE ONLY WAY IN, AND AN UNKNOWN NAME IS A REFUSAL.** The mutation this guards is the one that
-    /// would matter: a fallback that answered `null` for an unknown name would make a typo look like a decision.
-    #[test]
-    fn every_row_is_reachable_and_nothing_else_is() {
-        assert_eq!(
-            DECISIONS.len(),
-            1,
-            "the table changed — update this count deliberately, and say in the commit WHICH consumer              arrived or left: a row exists for a TypeScript caller, not for symmetry"
-        );
-        for (name, _) in DECISIONS {
-            assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
-        }
-    }
+    // **THE TABLE'S TEST LEFT WITH THE TABLE (2026-10-17)**: `every_row_is_reachable_and_nothing_else_is`
+    // counted rows and refused an unknown name, which were properties of `POST /__decision`. With the route
+    // gone there is no "way in" to guard — the functions are reached by name at their call sites, in Rust.
 }

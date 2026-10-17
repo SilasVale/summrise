@@ -441,17 +441,12 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     }
 
     // **THE DECISION ROUTE, AND IT IS HANDED NO `Env`.** It is publicly reachable — this worker also serves `/v1`
-    // — so a decision that cannot read the environment cannot become an oracle for a key. **The signature is the
-    // defence**: `decisions::handle` has no environment parameter to thread, so the mutation that would leak a key
-    // is a change to that signature rather than a line someone can slip in.
-    if decisions::in_family(&req.method(), url.path()) {
-        return match decisions::handle(req).await {
-            Ok(Some(response)) => Ok(response),
-            Ok(None) => not_found(),
-            Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
-            Err(RouteFailure::Platform(error)) => Err(error),
-        };
-    }
+    // **`POST /__decision` IS GONE (2026-10-17).** The route let the TypeScript twin ask this worker for a
+    // decision by name; the last caller was `store/providers.ts`, deleted with the model-store cluster, so the
+    // route, its table and its client retired together and the decisions are called in-process where they are
+    // needed. **THE TABLE WAS THE MIGRATION'S OWN MACHINERY AND IT RETIRED ITSELF**, which was the plan from the
+    // day it was written: a row left when its last TypeScript caller did, and the last row left when the last
+    // caller did.
 
     // `path === "/api/health"` — an EXACT match, which is what `index.ts` compares. A prefix match
     // here would answer for paths the deployed front door does not route to this handler.
@@ -618,7 +613,6 @@ pub mod catalogue;
 pub mod catalogue_file;
 pub mod catalogue_service;
 pub mod cors;
-pub mod decision_client;
 pub mod decisions;
 pub mod device;
 pub mod device_proxy;

@@ -524,7 +524,14 @@ fn every_coarse_rust_file_is_named_and_every_name_is_still_coarse() {
 ///             that names the file whose tests left — a floor lowered in silence is a floor that no longer
 ///             means anything.
 ///           Restoring the tests returns it to green.
-const MIN_TEST_ATTRIBUTES: usize = 1999;
+// 1999 -> 1990 ON 2026-10-17, AND THE FILES NAMED AS THE GATE ASKS: the model-store cluster's retirement took
+// four Rust test modules with it — `decision_client::emission` (the whole module, with `gate-logic.ts`),
+// `catalogue_file::emission`, `model_store::emission` (each emission's freshness check, whose committed file is
+// gone) and `decisions`' two WIRE tests plus the row table's own (`the_family_is_post_and_the_exact_path`,
+// `every_row_is_reachable_and_nothing_else_is` — properties of `POST /__decision`, which has no client left).
+// **THE DECISION TESTS THEMSELVES STAY**: they call the functions directly now, which is how the routes call
+// them, and that is a bigger suite than the wire's was.
+const MIN_TEST_ATTRIBUTES: usize = 1990;
 
 #[test]
 fn the_test_attribute_floor_holds() {
