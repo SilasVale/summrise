@@ -469,7 +469,13 @@ BOUNDARY | gateway/src/http.ts | **THE REQUEST/RESPONSE HALF, AND ITS DECISIONS 
 #   WAS DEAD**: grepped across every tracked source (`.ts`/`.tsx`/`.js`/`.mjs`/`.cjs`/`.rs`) its only occurrence was
 #   its own definition, while its subject is live in `responses.rs` (`error_type_for_status`, three callers in that
 #   module) — the same "is it USED" measurement that found `grants.ts` and `store/regkeys.ts`.
-GENERATED | gateway/src/model-route-logic.ts | the auto-model decisions — the channel key rule, `og`'s breaker leg, the default, the ladder and the fallback policy — emitted from Rust | gateway/wasm/src/auto_route.rs
+# ── THE EMISSION THAT WENT WITH ITS CONSUMER (2026-10-17) ─────────────────────────────────────────────
+# `GENERATED | gateway/src/model-route-logic.ts | the auto-model decisions … | gateway/wasm/src/auto_route.rs`
+# stood here until 2026-10-17. Its only importer was `gateway/src/model-route.ts`, which lost its last
+# production caller when `GET|PUT /api/me/route` moved to `gateway/wasm/src/route_store.rs` — so the module,
+# the emission, the render in `auto_route.rs` and this rule all left together. **THE DECISIONS DID NOT MOVE
+# WITH THEM**: `pick_auto_route`, `channel_usable` and the ladder are still `auto_route.rs`'s, called
+# in-process, and their pins are that module's own tests.
 #   **THE FOURTH EMISSION, AND THE FIRST WHOSE SOURCE MODULE DID NOT EXIST BEFORE IT (2026-10-13).** The other three
 #   emitted decisions the Rust worker already made for ITSELF; **this one had to be PORTED FIRST**, because
 #   `GET|PUT /api/me/route` stays on the TypeScript path (`auth_routes.rs` says why: the handler resolves through the
@@ -484,7 +490,12 @@ GENERATED | gateway/src/model-route-logic.ts | the auto-model decisions — the 
 #   **AND THE EMITTED RULE TAKES THE CHANNEL RULE AS AN ARGUMENT, WHICH IS WHAT KEEPS THE EXTENSION POINT ALIVE**:
 #   `registerChannelKey` writes into the TypeScript table, so a rule that looked the rule up in Rust could not be
 #   extended from there — **deriving must not quietly remove an extension point**, the same rule `byok.rs` carries.
-BOUNDARY | gateway/src/model-route.ts | **THE IO HALF, AND ITS DECISIONS ARE EMITTED FROM RUST (2026-10-13).** What is left is the reads the decisions are made FROM — `isAdvertised` (the catalogue), `getUserKeys` (the user's blob), `getUserRoute` (the stored choice), `isChannelDegraded` (the breaker) — plus `CHANNEL_KEY_RULES` (DERIVED from the emitted `store/byok.ts`, and deliberately MUTABLE for `registerChannelKey`) and the re-exports that keep every existing import working. The key rule, `og`'s breaker leg, the default, the ladder and the fallback policy are `model-route-logic.ts`, GENERATED from `gateway/wasm/src/auto_route.rs`.
+# ── AND THE MODULE THE BOUNDARY RULE DESCRIBED IS GONE (2026-10-17) ───────────────────────────────────
+# `BOUNDARY | gateway/src/model-route.ts | THE IO HALF, AND ITS DECISIONS ARE EMITTED FROM RUST …` stood here
+# until 2026-10-17. The IO half lost its last production caller when `GET|PUT /api/me/route` moved to
+# `gateway/wasm/src/route_store.rs`, so the module, its GENERATED twin and this rule left together — a
+# BOUNDARY rule whose file no longer exists is a rule describing a tree that is not this one, which is exactly
+# what the gate's own `no_rule_matches_nothing` says.
 GENERATED | gateway/src/route-do-logic.ts | the Durable Object's auth gate, its route dispatch and the bodies' strings — emitted from Rust | gateway/wasm/src/route_do.rs
 #   **THE FIFTH EMISSION, AND THE FIRST WHOSE "HOST" IS A DURABLE OBJECT (2026-10-13).** A DO class IS its runtime —
 #   `state.storage` and `fetch` come from the platform, and there is no Durable Object in the Rust worker's world — so

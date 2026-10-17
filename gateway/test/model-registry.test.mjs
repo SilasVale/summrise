@@ -38,7 +38,6 @@ import {
   isResponsesOnlyModel,
   routeModelsFor,
 } from "../src/channels.ts";
-import { AUTO_FALLBACK_LADDER, DEFAULT_ROUTE_MODEL } from "../src/model-route.ts";
 
 const channelOf = (id) => id.slice(0, id.indexOf("/"));
 const strippedOf = (id) => id.slice(id.indexOf("/") + 1);
@@ -360,28 +359,3 @@ test("ROUTE_INFO[].models is DERIVED — the console cannot drift from the catal
   );
 });
 
-test("the `auto` fallback ladder is a subset of the catalogue", () => {
-  // NOT derived from MODELS: the ORDER is the meaning (default channel first,
-  // then alternatives), so it stays an explicit list. What it must be is a
-  // SUBSET — a ladder entry that is not advertised (a typo, or a model dropped
-  // from the catalogue) is a fallback `isModelUsable` can never accept, and
-  // the loop would skip it in SILENCE while `auto` quietly picked something
-  // else.
-  const advertised = new Set(MODEL_REGISTRY.map((m) => m.id));
-  for (const m of AUTO_FALLBACK_LADDER) {
-    assert.ok(advertised.has(m), `${m} is in the fallback ladder but not advertised`);
-  }
-  // The default must be the FIRST rung — the ladder's own contract.
-  assert.equal(
-    AUTO_FALLBACK_LADDER[0],
-    DEFAULT_ROUTE_MODEL,
-    "the default channel must lead the ladder",
-  );
-  assert.ok(advertised.has(DEFAULT_ROUTE_MODEL), "the default must be advertised");
-  // Every rung is distinct: a duplicate wastes a probe and hides a gap.
-  assert.equal(
-    new Set(AUTO_FALLBACK_LADDER).size,
-    AUTO_FALLBACK_LADDER.length,
-    "the ladder has a duplicate rung",
-  );
-});

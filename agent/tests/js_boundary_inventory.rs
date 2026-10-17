@@ -922,4 +922,14 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // SAYING OUT LOUD RATHER THAN RAISING A NUMBER TO LOOK LIKE PROGRESS**: the migration's unit here was a ROUTE,
 // not a file, and the file leaves when its last route does. (The three test cases that left `plugins.test.mjs`
 // are cases, not files.)
-const MAX_LOGIC: usize = 42;
+// 42 -> 41 ON 2026-10-17, FOR `gateway/test/model-route.test.mjs` — AND THE SOURCE FILE LEFT WITH IT, which is
+// the ordinary shape this time rather than the route-shaped landing before it. `gateway/src/model-route.ts`
+// lost its last production caller when `GET|PUT /api/me/route` moved to `route_store.rs`, so the module, its
+// GENERATED twin (`model-route-logic.ts` — not counted here, but its rule left the manifest) and this test all
+// went together. **WHAT THE TEST COVERED IS NOT LOST**: the per-prefix key matrix is `byok::BYOK_CHANNELS` +
+// `auto_route::channel_usable` (both with their own tests), the ladder policy is `auto_route.rs`'s, and the
+// `isAdvertised` assertions it shared with `model-catalogue-store.test.mjs` stayed there — that file reads
+// `store/models.ts`, not the module that left.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 41`.
+const MAX_LOGIC: usize = 41;
