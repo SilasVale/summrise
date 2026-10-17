@@ -122,6 +122,155 @@ impl<'a> DialInit<'a> {
     }
 }
 
+/// **WHERE A DEVICE IS REACHED — AND IT IS NOT ALWAYS A HOSTNAME (2026-10-17).**
+///
+/// A device has two transports, and until this function existed the console knew one: `device_fetch` dials
+/// `https://{hostname}…`, which is the CLOUDFLARE TUNNEL's shape — the device is a public server and the console
+/// is its client. The other is the agent's OUTBOUND RELAY (`proxies/summrise-relay`, `agent/src/relay.rs`): the
+/// device dials out and the relay carries whole requests to it, so nothing inbound is ever opened. A relay device
+/// is addressed BY NAME on a relay the DEPLOYMENT configures:
+///
+/// ```text
+/// {RELAY_URL}/d/{device}/{path}        Authorization: Bearer {RELAY_TOKEN}
+/// ```
+///
+/// **THE BASE COMES FROM THE ENV AND NEVER FROM THE DEVICE RECORD, and that is this function's security
+/// property**: `device_fetch`'s guards exist because the record supplies the HOST (a record that named an
+/// internal address would be an SSRF primitive, which is why the hostname equality, the private-IP blocklist and
+/// the suffix allowlist are there). A relay record supplies only a NAME, which is a path segment on a URL the
+/// operator set — so the worst a hostile record can do is address another device on the SAME relay, and the
+/// relay's own token decides whether it may.
+///
+/// **A NAMED DEVICE WITH NO RELAY CONFIGURED IS A DEPLOYMENT MISTAKE, NOT A ROUTING ONE**: the answer is the
+/// same `502`-shaped unreachable dial the tunnel path uses, carrying a sentence an operator can read.
+pub async fn device_fetch_via(
+    env: &Env,
+    device: &serde_json::Value,
+    rest_path: &str,
+    init: DialInit<'_>,
+) -> DeviceDial {
+    if !is_relay_device(device) {
+        return device_fetch(
+            env,
+            &crate::device_registry::js_to_string_of(device.get("hostname")),
+            &crate::device_registry::js_to_string_of(device.get("token")),
+            rest_path,
+            init,
+        )
+        .await;
+    }
+    let base = env
+        .var("RELAY_URL")
+        .ok()
+        .map(|v| v.to_string())
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().trim_end_matches('/').to_string());
+    let Some(base) = base else {
+        return DeviceDial::refusal(502, &device_unreachable("RELAY_URL is not configured"));
+    };
+    // `init.headers`' hygiene is the tunnel dial's: `host` and `cookie` are dropped and `Authorization` is set
+    // LAST, so no caller can smuggle a credential past this dial. **THE RELAY'S TOKEN REPLACES THE DEVICE'S**,
+    // which is the honest shape — the relay authenticates the pipe, and the device's own token still gates
+    // `/mcp` on the far side, so a relayed caller needs both.
+    let name = crate::device_registry::js_to_string_of(device.get("name"));
+    if name.is_empty() {
+        return DeviceDial::refusal(
+            502,
+            &device_unreachable("a relay device has no name to address"),
+        );
+    }
+    let url = format!(
+        "{base}/d/{}{}",
+        encode_path_segment(&name),
+        dial_path(rest_path)
+    );
+    let headers = Headers::new();
+    for (header, value) in &init.headers {
+        let _ = headers.set(header, value);
+    }
+    let _ = headers.delete("host");
+    let _ = headers.delete("cookie");
+    if let Ok(token) = env.var("RELAY_TOKEN") {
+        let _ = headers.set("Authorization", &format!("Bearer {token}"));
+    }
+    // **A RELAY THAT REDIRECTS IS NOT FOLLOWED**: `redirect: manual` is the tunnel dial's rule, and following one
+    // would let a relay aim this worker at an address the operator never configured.
+    let mut request_init = RequestInit::new();
+    request_init.with_method(init.method.clone());
+    request_init.with_headers(headers);
+    request_init.with_redirect(RequestRedirect::Manual);
+    let body = match init.body {
+        DialBody::Text(text) => Some(JsValue::from_str(text)),
+        // **A STREAM BODY IS NOT CARRIED HERE, AND IT IS A REFUSAL RATHER THAN A SILENT EMPTY BODY.** The tunnel
+        // dial's stream arm needs `duplex: "half"` (a platform call); a relayed upload would need the same one,
+        // and answering 502 with a sentence is the honest alternative to sending a body-less request the device
+        // would answer as a different request entirely.
+        DialBody::Stream(_) => {
+            return DeviceDial::refusal(
+                502,
+                &device_unreachable("a relayed dial cannot carry a stream body"),
+            )
+        }
+        DialBody::None => None,
+    };
+    request_init.with_body(body);
+    let request = match Request::new_with_init(&url, &request_init) {
+        Ok(request) => request,
+        Err(error) => {
+            return DeviceDial::refusal(502, &device_unreachable(&thrown_message(&error)))
+        }
+    };
+    match fetch_request_with_timeout(request, init.timeout_ms).await {
+        Ok(response) => {
+            let status = response.status_code();
+            DeviceDial {
+                status,
+                ok: (200..300).contains(&status),
+                resp: Some(response),
+                error: None,
+                threw: None,
+            }
+        }
+        Err(message) => DeviceDial {
+            status: 502,
+            ok: false,
+            resp: None,
+            error: Some(device_unreachable(&message)),
+            threw: None,
+        },
+    }
+}
+
+/// **IS THIS DEVICE REACHED THROUGH THE RELAY?** — one field, one value, and the value is matched EXACTLY:
+/// `"relay"` means the relay, and anything else (`"tunnel"`, a typo, an absent field) is the tunnel, which is the
+/// transport every existing record has and therefore the safe default. A record that said `"Relay"` would be
+/// dialled at its hostname rather than silently addressed on a relay it never joined.
+pub fn is_relay_device(device: &serde_json::Value) -> bool {
+    device.get("via").and_then(serde_json::Value::as_str) == Some("relay")
+}
+
+/// `encodeURIComponent` for ONE path segment: `/` must be encoded, or a device name would name a path.
+fn encode_path_segment(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'!'
+            | b'~'
+            | b'*'
+            | b'\''
+            | b'('
+            | b')' => (b as char).to_string(),
+            other => format!("%{other:02X}"),
+        })
+        .collect()
+}
+
 /// `deviceFetch(env, device, restPath, init)` — the guard stack, then the bounded fetch.
 ///
 /// The order is the source's: the authority-prefix rejection, the URL build (which may THROW), the parsed
@@ -780,5 +929,48 @@ mod oracle_corpus {
             checked += 1;
         }
         assert!(checked >= 30, "the device corpus shrank to {checked} cases");
+    }
+}
+
+#[cfg(test)]
+mod dial_target_tests {
+    //! **THE TWO PURE PIECES OF THE TRANSPORT CHOICE.** The dial itself needs an `Env` and a live fetch, which is
+    //! the harness's business; what can be wrong here is which transport a record selects and how a name becomes a
+    //! path segment — and a name that is not encoded addresses a DIFFERENT DEVICE, which is the failure mode worth
+    //! a test.
+
+    use super::{encode_path_segment, is_relay_device};
+    use serde_json::json;
+
+    #[test]
+    fn only_an_exact_relay_marker_selects_the_relay() {
+        assert!(is_relay_device(&json!({"via": "relay"})));
+        // Every other spelling is the TUNNEL — the transport every existing record has.
+        for record in [
+            json!({}),
+            json!({"via": "tunnel"}),
+            json!({"via": "Relay"}),
+            json!({"via": ""}),
+            json!({"via": null}),
+            json!({"via": 1}),
+        ] {
+            assert!(!is_relay_device(&record), "{record} must dial its hostname");
+        }
+    }
+
+    #[test]
+    fn a_device_name_becomes_one_path_segment() {
+        assert_eq!(encode_path_segment("d1"), "d1");
+        assert_eq!(
+            encode_path_segment("workshop-pc.local"),
+            "workshop-pc.local"
+        );
+        // **A SLASH MUST NOT SURVIVE**: `/d/a/b/mcp` would address a device called `a` at a path of `/b/mcp`.
+        assert_eq!(encode_path_segment("a/b"), "a%2Fb");
+        // …and neither may the characters a query or a fragment would start on.
+        assert_eq!(encode_path_segment("a b"), "a%20b");
+        assert_eq!(encode_path_segment("a?b"), "a%3Fb");
+        assert_eq!(encode_path_segment("a#b"), "a%23b");
+        assert_eq!(encode_path_segment("дом"), "%D0%B4%D0%BE%D0%BC");
     }
 }

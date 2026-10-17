@@ -112,22 +112,13 @@ pub async fn cached_device_probe(env: &Env, device: &Value, fresh: bool) -> (Val
     // The two dials read the device row's own host and token, through the same guard stack the device proxy
     // uses (`device_fetch`): the authority check, the hostname equality, the private-IP blocklist, the suffix
     // allowlist, the header hygiene and `redirect: manual`.
-    let hostname = device
-        .get("host")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let token = device
-        .get("token")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-
     let mut state = Map::new();
     let mut tunnel = false;
     let mut agent = false;
-    let dial =
-        crate::device::device_fetch(env, &hostname, &token, "/api/status", DialInit::get()).await;
+    // **THE PROBE HONOURS THE DEVICE'S TRANSPORT** (`device_fetch_via`): a relay device is reached by name on the
+    // deployment's relay. Without this the fleet card showed a relay device as DOWN while it was answering — the
+    // console asking the wrong address and reporting the silence as the device's fault.
+    let dial = crate::device::device_fetch_via(env, device, "/api/status", DialInit::get()).await;
     // **THE REFUSALS (`400`) ARE NOT "UNREACHABLE"**: the source's `res.status !== undefined` test admits both
     // a refusal and an answer, and only the throw-shaped failure carries the unreachable sentence.
     if !dial.threw.is_some() {
@@ -168,9 +159,7 @@ pub async fn cached_device_probe(env: &Env, device: &Value, fresh: bool) -> (Val
     // A SECOND CALL, AND ONLY WHEN THE FIRST ANSWERED: a device that is down, or older than `/api/update`,
     // costs one request rather than two.
     if agent {
-        let up =
-            crate::device::device_fetch(env, &hostname, &token, "/api/update", DialInit::get())
-                .await;
+        let up = crate::device::device_fetch_via(env, device, "/api/update", DialInit::get()).await;
         if up.ok {
             if let Some(mut resp) = up.resp {
                 let body: Value = resp

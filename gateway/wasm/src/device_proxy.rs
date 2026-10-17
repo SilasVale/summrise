@@ -34,7 +34,7 @@ use worker::*;
 use summrise_core::text::is_js_space;
 
 use crate::auth::parse_cookie;
-use crate::device::{device_fetch, DialBody, DialInit};
+use crate::device::{DialBody, DialInit};
 use crate::device_registry as registry;
 use crate::device_store as store;
 use crate::devices::decode_device_name;
@@ -305,14 +305,9 @@ async fn proxy_device(
         headers,
         timeout_ms,
     };
-    let dial = device_fetch(
-        env,
-        &registry::js_to_string_of(device.get("hostname")),
-        &registry::js_to_string_of(device.get("token")),
-        &dial_path,
-        init,
-    )
-    .await;
+    // **THE TRANSPORT IS THE DEVICE'S, NOT THIS MODULE'S** (`device_fetch_via`): a record with `via: relay` is
+    // reached through the deployment's relay by NAME, and everything else is dialled at its tunnel hostname.
+    let dial = crate::device::device_fetch_via(env, device, &dial_path, init).await;
     // `new URL(…)` sits OUTSIDE the source's try, so an unparseable upstream propagates a TypeError to the
     // front door's catch rather than answering 400 here. `device_fetch` models that arm as `threw`.
     if dial.threw.is_some() {

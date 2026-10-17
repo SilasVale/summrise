@@ -57,6 +57,35 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST https://api.saisi.online/api/a
 The last one is the CSRF gate, and it is the one worth running by hand: it is the only step whose failure is a
 SECURITY answer rather than a broken page.
 
+## THE SECOND TRANSPORT: A DEVICE WITH NO CLOUDFLARE AT ALL
+
+A device can be reached two ways, and the console honours the device's own choice
+(`gateway/wasm/src/device.rs`'s `device_fetch_via`):
+
+| the record | where the console dials | what it needs |
+|---|---|---|
+| `hostname: d1.example` (the default) | `https://d1.example/…` | the device's cloudflared tunnel + DNS |
+| `via: relay` | `{RELAY_URL}/d/<name>/…` | the device polled the relay; **no inbound port, no tunnel, no DNS** |
+
+```
+# the worker's vars (a secret for the token)
+RELAY_URL    https://relay.example.com     # the base; NEVER taken from the device record
+RELAY_TOKEN  <the relay's shared secret>   # secret put, not a var, if the relay is public
+```
+
+**`RELAY_URL` IS READ FROM THE ENV AND NEVER FROM THE DEVICE RECORD, AND THAT IS THE SECURITY PROPERTY**: the
+tunnel dial's guards (hostname equality, private-IP blocklist, suffix allowlist) exist because the record supplies
+the HOST, and a record that named an internal address would be an SSRF primitive. A relay record supplies only a
+NAME, which becomes one percent-encoded path segment on a URL the operator set — so the worst a hostile record can
+do is address another device on the SAME relay, and the relay's token decides whether it may.
+
+**AND THE DEVICE SIDE IS TWO LINES** (`proxies/summrise-relay/README.md`): `server.relay_url`,
+`server.relay_token` and — for a fleet — `server.relay_device: <the name the console knows this device by>`.
+
+**A RELAYED UPLOAD IS REFUSED, NOT SILENTLY EMPTIED**: a stream body needs `duplex: "half"`, a platform call the
+relay dial does not make, so it answers `502` with a sentence rather than sending a body-less request the device
+would answer as a different request entirely.
+
 ## THE ROLLBACK, AND IT IS ONE API CALL
 
 Move the two custom domains back to `summrise-gate`. **No redeploy of either worker is needed**: the console

@@ -31,7 +31,7 @@ use std::time::Duration;
 use serde_json::{json, Map, Value};
 use worker::*;
 
-use crate::device::{device_fetch, DialInit};
+use crate::device::DialInit;
 use crate::device_registry::{js_falsy, js_to_string, js_to_string_of, js_truthy};
 use crate::device_store::{get_device, list_devices};
 use crate::mcp_errors::{
@@ -517,16 +517,11 @@ async fn call_terminal_tool_once(
     // float prints as a whole number), which is the crate's existing answer to the same question.
     let payload = crate::responses::stringify_like_json(&Value::Object(body));
 
-    let hostname = js_to_string_of(device.get("hostname"));
-    let token = js_to_string_of(device.get("token"));
-    let dial = device_fetch(
-        env,
-        &hostname,
-        &token,
-        &tool_path,
-        DialInit::post_json(&payload),
-    )
-    .await;
+    // **A RELAY DEVICE IS REACHED BY NAME THROUGH THE DEPLOYMENT'S RELAY** — the same dial the console's proxy
+    // and its status probe use, so an MCP tool call and a panel request cannot disagree about where a device is.
+    let dial =
+        crate::device::device_fetch_via(env, device, &tool_path, DialInit::post_json(&payload))
+            .await;
     // The source's `new URL` throw, which is not a refusal and carries no code.
     if let Some(message) = dial.threw {
         return Err(ToolFailure::Plain(message));
