@@ -4,7 +4,7 @@
 // live. The keystone pin is COMPLETENESS: every USER_KEY_NAMES entry must
 // resolve to a real probe Response (Round-60 correction: the fallthrough
 // is a graceful 400 "No probe", not undefined — the COMPLETENESS test
-// locks the Response contract; the probe-coverage gate in health.test.mjs
+// locks the Response contract; the probe-coverage gate that stood in health.test.mjs
 // is what fails first on drift).
 // Upstream traffic runs against the shared withFetch stub — zero network.
 import test from "node:test";

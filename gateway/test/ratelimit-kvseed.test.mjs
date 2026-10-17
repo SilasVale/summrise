@@ -56,11 +56,11 @@ function limiterOptions(rel) {
  *  decision: "kvSeed IS NOT PORTED, AND THAT IS A DECISION RATHER THAN AN OMISSION … the devices plugin
  *  instantiates the memory-only one". So memory-only is not a flag left unset here — the struct has no KV field
  *  at all, and `kvSeed` below is that field's ABSENCE, which is what the assertion refuses to let appear. */
-function rustLimiter(rel) {
+function rustLimiter(rel, konstName = "PUBLIC_RATE") {
   const src = readFileSync(join(ROOT, rel), "utf8");
-  const konst = /pub const PUBLIC_RATE:\s*IpRateLimiter\s*=\s*IpRateLimiter\s*\{([\s\S]*?)\};/.exec(
-    src,
-  );
+  const konst = new RegExp(
+    `pub const ${konstName}:\\s*IpRateLimiter\\s*=\\s*IpRateLimiter\\s*\\{([\\s\\S]*?)\\};`,
+  ).exec(src);
   if (!konst) return null;
   const struct = /pub struct IpRateLimiter\s*\{([\s\S]*?)\}/.exec(src);
   return {
@@ -70,13 +70,23 @@ function rustLimiter(rel) {
   };
 }
 
+/** Does the probe's ROUTE reach the seed? — the Rust's replacement for the deleted `kvSeed: true`. */
+function probeRouteSeeds() {
+  const src = readFileSync(join(ROOT, "wasm/src/probe.rs"), "utf8");
+  return (
+    src.includes("ip_rate_limit::needs_seed") &&
+    src.includes("device_store::kv_put") &&
+    src.includes("ip_rate_limit::seed_ttl_secs")
+  );
+}
+
 test("ratelimit: only the probe limiter seeds its counter from KV", () => {
-  const probe = limiterOptions("src/tooling.ts");
+  const probe = rustLimiter("wasm/src/ip_rate_limit.rs", "PROBE_RATE");
   const auth = limiterOptions("src/plugins/auth.ts");
   const devices = rustLimiter("wasm/src/ip_rate_limit.rs");
 
   for (const [label, o] of [
-    ["src/tooling.ts", probe],
+    ["wasm/src/ip_rate_limit.rs PROBE_RATE", probe],
     ["src/plugins/auth.ts", auth],
     ["wasm/src/ip_rate_limit.rs", devices],
   ]) {
@@ -84,11 +94,11 @@ test("ratelimit: only the probe limiter seeds its counter from KV", () => {
       `move it in the ledger and in src/lib/ratelimit.ts's enumeration too`);
   }
 
-  assert.equal(
-    probe.kvSeed,
-    true,
-    "src/tooling.ts's probe limiter must KEEP kvSeed: true — the doc says that bucket's " +
-      "first sight per IP reads and persists KV so a new isolate inherits the budget",
+  assert.ok(
+    probeRouteSeeds(),
+    "the probe's route no longer reads/persists its bucket — `probe.rs` must reach `needs_seed`, " +
+      "`seed_ttl_secs` and a KV write. That bucket's first sight per IP reads and persists KV so a new " +
+      "isolate inherits the budget, and dropping it silently makes the ceiling per-isolate (round-F2).",
   );
 
   assert.equal(
@@ -114,7 +124,7 @@ test("ratelimit: only the probe limiter seeds its counter from KV", () => {
 
 test("ratelimit: the three named buckets are the ones the doc enumerates", () => {
   const names = [
-    limiterOptions("src/tooling.ts").name,
+    rustLimiter("wasm/src/ip_rate_limit.rs", "PROBE_RATE").name,
     limiterOptions("src/plugins/auth.ts").name,
     rustLimiter("wasm/src/ip_rate_limit.rs").name,
   ].sort();

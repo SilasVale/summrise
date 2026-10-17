@@ -22,11 +22,14 @@
 //! standing rule against (AGENTS.md, "A status says what was CHECKED"). The binding is declared in
 //! `wrangler.jsonc` with `script_name`, which is what makes it the SAME Durable Object.
 //!
-//! WHAT IS DELIBERATELY NOT HERE: `withCors`'s per-request `Access-Control-Allow-Origin` stamp. That
-//! is dispatch-layer work in `index.ts` (it is applied to every route's response, not to this one),
-//! and moving it means moving the front door's CORS decision — a second route, with its own proof.
-//! The STATIC `CORS_HEADERS` that `jsonOk` itself sets ARE here, because those are the route's own
-//! bytes.
+//! WHAT IS *NOT* HERE, AND WHAT CHANGED ABOUT IT: `withCors`'s per-request `Access-Control-Allow-Origin`
+//! stamp USED to be dispatch-layer work left to `index.ts`. It is not any more — measured 2026-10-06, this
+//! door stamped nothing, and a reader comparing the two implementations is the reason `fetch` below now
+//! applies the same stamp to every response (`with_cors`, from `cors.rs`'s rule). **THE ONE FAMILY THAT IS
+//! DELIBERATELY NOT STAMPED IS THE PUBLIC INSTALLERS** (`tooling::is_installer_path`), because their 200 arm
+//! FORCES `Access-Control-Allow-Origin: *` and a stamp would delete it; that carve-out is written at the one
+//! place it takes effect. The STATIC `CORS_HEADERS` that `jsonOk` itself sets are here either way, because
+//! those are the route's own bytes.
 
 use std::sync::Mutex;
 
@@ -210,6 +213,23 @@ fn empty_with_headers(headers: Vec<(String, String)>) -> Result<Response> {
     Ok(Response::empty()?.with_status(200).with_headers(h))
 }
 
+/// A `Built` sent as-is: the status, and EXACTLY the headers it lists.
+///
+/// **THIS IS NOT `json`.** `json()` is `jsonOk`'s shape — a JSON content type plus the static CORS pair — and
+/// every JSON route wants exactly that. The public installers do not: their 200 arm is `text/plain` with a
+/// forced wildcard, and `json()` would overwrite both. The distinction is the whole reason this function
+/// exists rather than a fifth caller of `json`.
+pub(crate) fn built_response(built: responses::Built) -> Result<Response> {
+    let mut response = Response::from_body(ResponseBody::Body(built.body.into_bytes()))?;
+    for (name, value) in &built.headers {
+        response.headers_mut().set(name, value)?;
+    }
+    if built.status != 200 {
+        response = response.with_status(built.status);
+    }
+    Ok(response)
+}
+
 /// **WHY A ROUTE STOPPED WITHOUT A RESPONSE OF ITS OWN — THE ONE TYPE EVERY HANDLER'S ERROR IS.**
 ///
 /// It exists because the two arms are answered by DIFFERENT LEVELS: `Threw` is the source raising
@@ -324,10 +344,12 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     }
 }
 
-#[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
-    // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
+/// The three inputs the CORS rule takes, read off a request and the environment — `withCors`'s own three.
+///
+/// **ONE READER, TWO CALLERS, AND THE SECOND IS WHY IT IS A FUNCTION.** The door's stamp and the installer
+/// family's 404 arm both need `(origin, host, configured)`; a second inline copy is how the two would come to
+/// disagree about what "the caller's origin" means.
+fn cors_inputs(req: &Request, env: &Env) -> (String, Option<String>, Option<String>) {
     let origin = req
         .headers()
         .get("origin")
@@ -339,7 +361,31 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .ok()
         .and_then(|u| u.host_str().map(|h| h.to_string()));
     let configured = env.var("CONSOLE_ORIGINS").ok().map(|v| v.to_string());
+    (origin, host, configured)
+}
+
+#[event(fetch)]
+async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+    // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
+    // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
+    let (origin, host, configured) = cors_inputs(&req, &env);
+    // **THE PUBLIC INSTALLER FAMILY IS CARVED OUT OF THE DOOR'S STAMP, AND THE CARVE-OUT IS THE SOURCE'S
+    // SHAPE RATHER THAN A CONVENIENCE.** `index.ts` returned these three routes BEFORE its dispatch and its
+    // `withCors`, forcing `Access-Control-Allow-Origin: *` because the payloads are public installers a
+    // browser-hosted helper may fetch from anywhere. The stamp would DELETE that wildcard for a caller the
+    // allowlist does not know — so the family carries its own headers (`tooling::installer_response`) and the
+    // door leaves it alone. A 404 from the same family is stamped by the handler instead, because the source's
+    // `jsonError` path DOES fall through `withCors`.
+    let public_installer = req.method() == Method::Get
+        && req
+            .url()
+            .ok()
+            .map(|u| tooling::is_installer_path(u.path()))
+            .unwrap_or(false);
     let res = route(req, env).await?;
+    if public_installer {
+        return Ok(res);
+    }
     with_cors(res, &origin, host.as_deref(), configured.as_deref())
 }
 
@@ -433,6 +479,34 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
             Err(RouteFailure::Platform(error)) => Err(error),
         };
+    }
+
+    // **THE PUBLIC INSTALLER FAMILY — `GET /api/summrise-cli` AND THE TWO ONE-LINERS, the last of the public
+    // CLI surface `tooling.ts` held.** What is left of that module is `probe_env_key_name`, the base64 helper
+    // and the two templates; this arm is the I/O it never had: one `ASSETS` read, then `installer_response`
+    // decides the bytes for all three paths. **THE SOURCE'S TWO ARMS ARE ONE HERE**: `serveAssetText` returns
+    // `null` for an absent binding and for a non-ok asset, and both answer the same 404, so the `Option` is the
+    // whole story. A THROWING `ASSETS.fetch` is the third case, and it is the front door's `500 Internal
+    // error` — the source has no try/catch there either, so it landed in the door's own catch.
+    if req.method() == Method::Get && tooling::is_installer_path(url.path()) {
+        let cli = match env.get_binding::<Fetcher>("ASSETS") {
+            Ok(assets) => {
+                let request = Request::new("https://assets.local/summrise", Method::Get)?;
+                match device::service_fetch(&assets, &request).await {
+                    Ok(mut response) if response.status_code() == 200 => {
+                        Some(response.text().await?)
+                    }
+                    // `serveAssetText`'s own "not ok → null": any non-200 is the 404 arm.
+                    Ok(_) => None,
+                    Err(_) => return json_error(500, "Internal error", "api_error"),
+                }
+            }
+            Err(_) => None,
+        };
+        let (origin, host, configured) = cors_inputs(&req, &env);
+        let cors = cors::cors_headers_for(&origin, host.as_deref(), configured.as_deref());
+        let built = tooling::installer_response(cli.as_deref(), url.path(), cors);
+        return built_response(built);
     }
 
     // **THE PUBLIC PROBE — AND THE ONE ROUTE WHOSE GUARD MUST TRAVEL WITH IT.** `ip_rate_limit` was

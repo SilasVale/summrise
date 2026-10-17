@@ -164,7 +164,7 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
   // HARD-CODED `KEY_NAMES` array that nothing compared to anything. The console
   // is a fifth consumer of this vocabulary, and the only one that is a UI.
   //
-  // Its twin is health.test.mjs's "probe coverage spans every USER_KEY_NAMES
+  // Its twin WAS health.test.mjs's "probe coverage spans every USER_KEY_NAMES
   // entry": a key the console cannot RENDER is a key the operator cannot fix,
   // and a key the probe cannot SPEND leaves `summrise check` blind. Both are the
   // same question asked of a different consumer.

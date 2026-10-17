@@ -840,4 +840,36 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `core/summrise-core/src/provider_spec.rs` into `store/providers-logic.ts`. **THE FIRST EMISSION PRODUCED BY THE PURE
 // CORE RATHER THAN BY THE WORKER**, which is what the one-core plan's row 2 asked for. Measured with this constant
 // forced to 0 on the landed tree: `LOGIC files: 58`.
-const MAX_LOGIC: usize = 48;
+// 48 -> 45 ON 2026-10-17, FOR THE PUBLIC TOOLING FAMILY — three files in one landing, and the family is why
+// they go together. `gateway/src/tooling.ts` held the LAST routes the console worker served itself:
+// `GET /api/health`, the probe's limiter and body, `GET /api/summrise-cli` and the two installer one-liners
+// (and the `ASSETS` read behind them). Its decisions are `gateway/wasm/src/{lib,tooling,probe}.rs` now — the
+// two templates byte-compared against the shipping TypeScript by ten new corpus cases (`posix_installer`,
+// `ps_installer`), the routes proved by `verify.mjs` against the committed artifact plus those recordings.
+//
+// **AND THE EMISSION WENT WITH ITS CONSUMER, WHICH IS WHY THIS IS THREE AND NOT TWO.** `gateway/src/
+// tooling-logic.ts` was GENERATED (not counted here) from `tooling.rs`, and it existed for exactly one reason:
+// `tooling.ts`'s callers needed `encodeBase64Utf8`/`probeEnvKeyName`/the two installer functions. With the
+// module deleted there is no consumer left, so the render, its freshness test, the committed twin and the
+// manifest rule all leave in the same landing — a twin nobody reads is a second copy waiting to drift.
+//
+// **AND THE TWO TEST FILES LEFT WITH THEIR SUBJECT, WHICH IS THE RULE THIS MANIFEST STATES.**
+// `health.test.mjs` tested the health body, the probe, the templates, `probeEnvKeyName` and the limiter —
+// every one of them already Rust before this landing, and the health route was ALREADY proved without its
+// TypeScript (`verify.mjs` compares the worker against two FROZEN answers, captured on a run where both sides
+// agreed byte for byte). Its `resolveAutoModel`/`isModelUsable` tail was covered in Rust (`auto_route.rs`) and
+// by `model-route.test.mjs`. `install-chain.test.mjs` ran the installer end to end, and that check MOVED rather
+// than died: `tooling.rs`'s `installer_runs` executes the real artifact through `/bin/sh`, because a byte
+// comparison against a recording cannot tell you that the script runs. The two coverage checks that were NOT
+// byte comparisons (every health channel probes with its own key; every console-managed key is probeable) moved
+// into `tooling.rs` beside them.
+//
+// **ONE TEST WAS REPOINTED RATHER THAN DELETED**, and it is the interesting one: `ratelimit-kvseed.test.mjs`
+// read `src/tooling.ts` as TEXT to assert that only the probe's bucket seeds from KV. The probe's limiter is
+// `ip_rate_limit.rs`'s `PROBE_RATE` now and the flag is not a flag — the seeding is two pure decisions
+// (`needs_seed`, `seed_ttl_secs`) reached from `probe.rs` — so the assertion follows the decision into Rust
+// instead of reading a file that no longer exists. **A LEDGER THAT NAMES A DELETED FILE IS A LEDGER NOBODY
+// READS.**
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 45`.
+const MAX_LOGIC: usize = 45;
