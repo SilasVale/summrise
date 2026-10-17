@@ -145,11 +145,12 @@ function stampRust(response: Response): Response {
  * `DELETE /api/admin/providers/` with an EMPTY prefix is a route that answers its own 400 rather than a
  * path the family does not claim.
  *
- * **THE ROLLBACK IS THE BINDING.** `plugins/admin.ts` and `plugins/models-probe.ts` are unchanged and still
+ * **THE ROLLBACK IS THE BINDING, AND IT IS ONE PLUGIN NOW.** `plugins/admin.ts` is unchanged and still
  * registered, so a deployment without `WASM_GATE` — a local `wrangler dev`, a test env, a deployment whose
- * binding was removed — serves every one of these routes from TypeScript exactly as it did before. That is the
- * same rule the device, identity and MCP families already follow, and deleting the two plugins is the step AFTER
- * the deploy that proves the worker serves this family.
+ * binding was removed — serves these routes from TypeScript exactly as it did before. **THE PROBE IS THE
+ * EXCEPTION (2026-10-17)**: `plugins/models-probe.ts` is deleted, so `/api/admin/models/probe` answers the front
+ * door's 404 without the binding — the same end state `/mcp` reached when its plugin left, and the proof is the
+ * same kind (the admin family's 82-case corpus drives this route in the Rust worker).
  *
  * **AND THE UNGATED ROUTE IS WHY THE HANDOVER IS NOT A SESSION GATE**: `GET /api/admin/public` answers the
  * console's channel cards with NO session at all (`/api/admin/public` is the family's only ungated path, in the
@@ -430,7 +431,8 @@ export default {
         // **THE ADMIN FAMILY GOES TO THE SAME PLACE, BY THE SAME RULE** — the last family, and the one that
         // makes the seventeen ported routes live. Same placement, same reasons: after `seedAdmin` (the front
         // door's job, which the worker does not do) and after the CSRF gate above, and with `plugins/admin.ts`
-        // and `plugins/models-probe.ts` as the rollback when the binding is absent — see `isAdminFamily`.
+        // as the rollback when the binding is absent — see `isAdminFamily`, which names the one route that has
+        // no fallback left (`/api/admin/models/probe`, whose plugin is deleted).
         if (isAdminFamily(request.method, path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }

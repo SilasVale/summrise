@@ -52,7 +52,6 @@ import {
 import { RESERVED_PREFIXES, ROUTE_INFO, type ModelSpec } from "../channels.ts";
 import { jsonOk, jsonError, readJson } from "../http.ts";
 import { requireAdmin } from "../session.ts";
-import { adminProbeModels } from "./models-probe.ts";
 import { fileDeclaredKeys, loadCatalogueFile } from "../store/file-config.ts";
 import type { PluginContext } from "./registry.ts";
 
@@ -591,9 +590,13 @@ export default {
         m === "PUT" && p.startsWith(`${ADMIN_BASE}/models/`) && p.endsWith("/enabled"),
       handler: (req: Request, env: Env) => adminEnableModel(req, env, request_admin_model_id(req)),
     });
-    // Ask the upstream what it serves and diff it against what we advertise.
-    // Admin-only like every other write-adjacent route here: it spends a credential.
-    add("POST", `${ADMIN_BASE}/models/probe`, adminProbeModels);
+    // **`POST /api/admin/models/probe` IS NOT REGISTERED HERE ANY MORE (2026-10-17).** Its handler
+    // (`plugins/models-probe.ts`) is deleted: the route is the Rust worker's (`admin_routes.rs` →
+    // `models_probe::probe`), its decisions have been Rust's for longer (`decisions.rs` served
+    // `upstream_models_url`/`offered_ids` to the TypeScript twin), and the admin family's 82-case corpus proves
+    // the whole surface case for case. **A ROLLBACK THAT ONLY ROLLS BACK ONE ROUTE IS NOT A ROLLBACK** — a
+    // deployment without `WASM_GATE` now answers the front door's 404 for this path, exactly as it already does
+    // for `/mcp` (whose plugin left the same way), while the other twelve routes keep the fallback below.
     add("GET", `${ADMIN_BASE}/providers`, adminListProviders);
     add("POST", `${ADMIN_BASE}/providers`, adminAddProvider);
     // Dynamic: DELETE /api/admin/providers/{prefix}. The prefix ends in a slash

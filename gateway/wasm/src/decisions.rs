@@ -9,6 +9,9 @@
 //! This is the second way. `POST /__decision` takes a NAME and its JSON ARGS and answers with the decision's value,
 //! so a pure decision can be ported one row at a time and the TypeScript caller keeps its route.
 //!
+//! **AND THE TABLE IS A MEASURE OF WHAT IS LEFT (2026-10-17).** Its rows are exactly the decisions TypeScript still
+//! asks for, so it shrinks as the console does and dies with the last route that needs it — see `DECISIONS`.
+//!
 //! **THE HANDLER TAKES NO `Env`, AND THAT IS THE WHOLE SECURITY ARGUMENT.** This worker also serves `/v1` on a public
 //! host, so this route is publicly reachable. A decision that CANNOT READ `env` cannot become an oracle for a key, and
 //! the signature is what enforces it rather than a comment: `handle(request)` has no environment to leak. **A decision
@@ -41,10 +44,16 @@ pub fn in_family(method: &Method, path: &str) -> bool {
 /// A pure decision: JSON in, JSON out, and **no environment**.
 type Decision = fn(&Value) -> std::result::Result<Value, String>;
 
-/// **THE TABLE.** A decision is added by adding a row, and the TypeScript side needs no change to reach it.
-const DECISIONS: [(&str, Decision); 6] = [
-    ("upstream_models_url", upstream_models_url),
-    ("offered_ids", offered_ids),
+/// **THE TABLE — THE DECISIONS TYPESCRIPT STILL ASKS FOR, AND NOTHING ELSE (2026-10-17).**
+///
+/// A decision is added by adding a row, and the TypeScript side needs no change to reach it. **AND A ROW LEAVES
+/// WHEN ITS LAST TYPESCRIPT CALLER DOES**, which is the half that keeps the table honest: `upstream_models_url`
+/// and `offered_ids` stood here until `plugins/models-probe.ts` was deleted, and they were that file's private
+/// wire — `models_probe.rs` calls the two functions DIRECTLY, in-process, so the row was a public name for
+/// something nobody asked for any more. The four left are `plugins/auth.ts`'s (the three usage mappers and the
+/// provider projection), and they leave the day that file does — which is also the day this route has no client
+/// and can go with them. **A TABLE THAT CANNOT SHRINK IS A LIST, AND A LIST OF ONE-CONSUMER WIRES GOES STALE.**
+const DECISIONS: [(&str, Decision); 4] = [
     ("map_openrouter_usage", map_openrouter_usage),
     ("map_amd_usage", map_amd_usage),
     ("map_og_usage", map_og_usage),
@@ -424,28 +433,18 @@ mod tests {
     /// RESULT:   the first assertion fails: the URL would read `…/chat/completions/models`.
     #[test]
     fn upstream_models_url_swaps_the_suffix() {
+        // THE FUNCTION, NOT THE ROUTE — the row that exposed this name left the table with its TypeScript
+        // caller, and the transport is still exercised by the four rows that remain.
+        let url = |upstream: &str| {
+            upstream_models_url(&json!({ "upstream": upstream })).expect("a string argument")
+        };
         assert_eq!(
-            call(
-                "upstream_models_url",
-                json!({"upstream": "https://x/v1/chat/completions"})
-            ),
+            url("https://x/v1/chat/completions"),
             json!("https://x/v1/models")
         );
-        assert_eq!(
-            call(
-                "upstream_models_url",
-                json!({"upstream": "https://x/v1/messages"})
-            ),
-            Value::Null
-        );
+        assert_eq!(url("https://x/v1/messages"), Value::Null);
         // The suffix is the WHOLE tail, so a URL that merely contains it is not one.
-        assert_eq!(
-            call(
-                "upstream_models_url",
-                json!({"upstream": "https://x/chat/completions/9"})
-            ),
-            Value::Null
-        );
+        assert_eq!(url("https://x/chat/completions/9"), Value::Null);
     }
 
     /// `offeredIds` — three dialects, and the empty ones are dropped AFTER the trim.
@@ -455,26 +454,15 @@ mod tests {
     ///           assertion on the whitespace row fails.
     #[test]
     fn offered_ids_reads_all_three_dialects() {
+        let ids = |payload: Value| offered_ids(&json!({ "payload": payload })).expect("a payload");
+        assert_eq!(ids(json!(["a", "b"])), json!(["a", "b"]));
         assert_eq!(
-            call("offered_ids", json!({"payload": ["a", "b"]})),
+            ids(json!({"data": [{"id": "a"}, {"id": " b "}]})),
             json!(["a", "b"])
         );
-        assert_eq!(
-            call(
-                "offered_ids",
-                json!({"payload": {"data": [{"id": "a"}, {"id": " b "}]}})
-            ),
-            json!(["a", "b"])
-        );
-        assert_eq!(
-            call("offered_ids", json!({"payload": {"object": "list"}})),
-            json!([])
-        );
+        assert_eq!(ids(json!({"object": "list"})), json!([]));
         // A whitespace-only id trims to empty and is DROPPED, not returned.
-        assert_eq!(
-            call("offered_ids", json!({"payload": ["a", "   ", ""]})),
-            json!(["a"])
-        );
+        assert_eq!(ids(json!(["a", "   ", ""])), json!(["a"]));
     }
 
     /// **JAVASCRIPT'S COERCION IS REPRODUCED, NOT APPROXIMATED** — `String(r?.id ?? "")`.
@@ -484,22 +472,14 @@ mod tests {
     #[test]
     fn a_non_string_id_is_coerced_the_way_javascript_does() {
         assert_eq!(
-            call("offered_ids", json!({"payload": [{"id": 5}]})),
+            offered_ids(&json!({"payload": [{"id": 5}]})).expect("a payload"),
             json!(["5"])
         );
-        assert_eq!(
-            call("offered_ids", json!({"payload": [{"id": true}]})),
-            json!(["true"])
-        );
-        assert_eq!(
-            call("offered_ids", json!({"payload": [{"id": null}]})),
-            json!([])
-        );
-        assert_eq!(call("offered_ids", json!({"payload": [{}]})), json!([]));
-        assert_eq!(
-            call("offered_ids", json!({"payload": [{"id": {"a": 1}}]})),
-            json!(["[object Object]"])
-        );
+        let ids = |payload: Value| offered_ids(&json!({ "payload": payload })).expect("a payload");
+        assert_eq!(ids(json!([{"id": true}])), json!(["true"]));
+        assert_eq!(ids(json!([{"id": null}])), json!([]));
+        assert_eq!(ids(json!([{}])), json!([]));
+        assert_eq!(ids(json!([{"id": {"a": 1}}])), json!(["[object Object]"]));
     }
 
     /// **THE KEY ORDER IS THE BYTES, SO THE ASSERTION IS THE SERIALIZED STRING.** `jsonOk(out)` writes
@@ -701,8 +681,8 @@ mod tests {
     fn every_row_is_reachable_and_nothing_else_is() {
         assert_eq!(
             DECISIONS.len(),
-            6,
-            "the table changed — update this count deliberately"
+            4,
+            "the table changed — update this count deliberately, and say in the commit WHICH consumer              arrived or left: a row exists for a TypeScript caller, not for symmetry"
         );
         for (name, _) in DECISIONS {
             assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_'));

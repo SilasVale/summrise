@@ -872,4 +872,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // READS.**
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 45`.
-const MAX_LOGIC: usize = 45;
+// 45 -> 44 ON 2026-10-17, FOR `gateway/src/plugins/models-probe.ts` — AND IT IS THE FIRST FILE OF THE TAIL TO
+// LEAVE BY BEING A *ROLLBACK* RATHER THAN A PORT. The route it answered (`POST /api/admin/models/probe`) has been
+// the Rust worker's since the admin family went live (`admin_routes.rs` -> `models_probe::probe`), its decisions
+// were Rust's before that (`decisions.rs` served `upstream_models_url` and `offered_ids` to this twin), and the
+// family's 82-case corpus drives the route case for case. So the file was the fallback for a deployment with no
+// `WASM_GATE` binding — and `/mcp`'s plugin set the precedent for deleting one of those instead of keeping it
+// warm. **A ROLLBACK THAT ONLY ROLLS BACK ONE ROUTE IS NOT A ROLLBACK**: `plugins/admin.ts` still answers for the
+// other twelve admin routes without the binding, and this one path answers the front door's 404, which the commit
+// says out loud rather than leaving to be discovered.
+//
+// **AND THE DECISION TABLE SHRANK WITH IT, WHICH IS THE HALF THAT KEEPS THAT ROUTE HONEST**: two rows left
+// `decisions.rs` because their only TypeScript caller was this file. The table is now the four decisions
+// `plugins/auth.ts` asks for, and it dies with that file — a table that cannot shrink is a list, and a list of
+// one-consumer wires goes stale. (Nothing byte-compared changed: the route serves names, not behaviour, and no
+// fixture recorded either name.)
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 44`.
+const MAX_LOGIC: usize = 44;

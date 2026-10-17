@@ -1537,8 +1537,9 @@ test("me/keys/usage: amd/og throw is safe; amd test tolerates non-JSON", async (
 //
 // **THIS TEST LIVES IN THIS FILE BECAUSE THE MANIFEST'S RATCHET REFUSES A NEW LOGIC FILE**, and that
 // refusal is right: `gateway/test/` follows its subjects, and a file added for one helper is a file the
-// cap has to move for. The subject here is `plugins/models-probe.ts`'s `decide`, which is the only
-// TypeScript that speaks the decision route.
+// cap has to move for. The subject here is `gate.ts`'s `decide` — **THE ONLY TYPESCRIPT THAT SPEAKS THE
+// DECISION ROUTE, AND IT MOVED THERE FROM `plugins/models-probe.ts`**, which was deleted on 2026-10-17 with the
+// route whose probe it drove.
 //
 // MUTATION: make `decide` answer `undefined` for a decision whose value is `null` (i.e. `return body.value`).
 // RESULT:   the `null` assertion fails, and in production a decision that answered null would silently take

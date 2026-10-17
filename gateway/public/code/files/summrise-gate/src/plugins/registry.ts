@@ -16,9 +16,10 @@
  * the duplicated PluginContext type let plugins drift between two contracts.)
  *
  * DIRECTORY CONTRACT (layering review 2026-09-06): plugins/ holds (1) the
- * route plugins themselves, (2) this framework, and (3) each plugin's
- * models-probe.ts (admin only). A module with two live consumers is NOT a
- * private collaborator: it belongs in src/ as foundation.
+ * route plugins themselves, (2) this framework, and (3) the private
+ * collaborators they keep beside them (derived, never listed here by hand —
+ * `test/plugin-collaborators.test.mjs` reads this directory). A module with two
+ * live consumers is NOT a private collaborator: it belongs in src/ as foundation.
  *
  * **AND THE RULE MOVED A MODULE AT THE CUTOVER (2026-10-07), WHICH IS THE FIRST TIME IT HAS.** `model-route.ts` was
  * listed here as "translate only"; when the TypeScript `/v1` half was deleted it gained a second live consumer
