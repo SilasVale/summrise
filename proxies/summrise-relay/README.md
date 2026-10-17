@@ -16,12 +16,24 @@ node relay.mjs --listen 127.0.0.1:18990 --token <a long secret> [--device d1]
 not terminate TLS — put Caddy, nginx or a tunnel in front of it before real credentials cross it (RFC 6750 requires TLS for
 bearer tokens, and nothing endorses "public URL + static token" as a complete posture).
 
-Then, in the agent's `config.yaml`:
+Then, on the device — **the CLI writes the config for you** (it edits only those keys and keeps every comment):
+
+```bash
+summrise connect https://relay.example.com --token <the same secret> --name workshop-pc
+summrise restart
+```
+
+`--name` is optional; without it the device polls the relay's DEFAULT device, which the console cannot address
+per device. `summrise disconnect` removes the three keys again, so a relay host that moves is a config change
+rather than a trap.
+
+By hand, the same thing (the CLI's `connect` writes exactly this):
 
 ```yaml
 server:
   relay_url: https://relay.example.com     # or http://127.0.0.1:18990 on the same machine
   relay_token: <the same secret>
+  relay_device: workshop-pc                # optional; the name the console dials
 ```
 
 Restart the agent. `/api/status` reports `relay: {configured, connected, last_ok_ms, consecutive_failures, last_error}`, and

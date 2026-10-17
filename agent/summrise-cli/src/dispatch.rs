@@ -27,7 +27,7 @@ use std::path::Path;
 /// The verbs, in the order the help prints them — derived from ONE list so the help cannot promise a
 /// verb the dispatcher does not have. (`report` and `watch` were still advertised after their
 /// removal; a usage line is a contract, and one that lies is worse than none.)
-pub const VERBS: [&str; 13] = [
+pub const VERBS: [&str; 15] = [
     "setup",
     "monitor",
     "desktop",
@@ -38,6 +38,11 @@ pub const VERBS: [&str; 13] = [
     "autostart",
     "update",
     "rollback",
+    // **THE RELAY SWITCH (2026-10-17).** `proxies/summrise-relay/README.md` and `relay.mjs`'s own header have
+    // documented `summrise connect <relay-url>` since the relay was written, and the verb did not exist — the
+    // only way onto a relay was to hand-edit `config.yaml` and know three key names.
+    "connect",
+    "disconnect",
     "uninstall",
     "run",
     "tunnel",
@@ -840,6 +845,8 @@ pub fn dispatch(host: &dyn Host, args: &[String]) -> Outcome {
         "uninstall" => crate::uninstall::uninstall_decision(host, &layout, rest),
         "run" => crate::swap::run_decision(host, &layout, rest),
         "tunnel" => crate::tunnel::tunnel_decision(host, &layout, rest),
+        "connect" => crate::relay::connect_decision(host, &layout, rest),
+        "disconnect" => crate::relay::disconnect_decision(host, &layout),
         "desktop" => desktop_decision(host, &layout),
         // UNREACHABLE BY CONSTRUCTION: `VERBS` is the list the guard above matched, so a verb added
         // there without an arm here is a compile error rather than a run-time surprise.
