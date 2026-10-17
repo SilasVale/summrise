@@ -974,3 +974,36 @@ mod dial_target_tests {
         assert_eq!(encode_path_segment("дом"), "%D0%B4%D0%BE%D0%BC");
     }
 }
+
+#[cfg(test)]
+mod relay_name_tests {
+    //! **WHICH NAME GOES IN THE PATH SEGMENT.** `relayDevice` is the agent's own declaration and `name` is the
+    //! console's label for the device; a record may carry both, and dialling the wrong one reaches a device the
+    //! relay has never heard of.
+
+    use serde_json::json;
+
+    /// The choice, exactly as `device_fetch_via` makes it.
+    fn segment_for(device: &serde_json::Value) -> String {
+        let declared = crate::device_registry::js_falsy_string(device.get("relayDevice"));
+        if declared.is_empty() {
+            crate::device_registry::js_falsy_string(device.get("name"))
+        } else {
+            declared
+        }
+    }
+
+    #[test]
+    fn the_declared_relay_name_wins_and_the_console_label_is_the_fallback() {
+        assert_eq!(
+            segment_for(&json!({"name": "d1", "relayDevice": "workshop-pc"})),
+            "workshop-pc",
+            "the name the agent POLLS with is the one the relay knows"
+        );
+        // A record written before declarations existed, or by hand, still dials something.
+        assert_eq!(segment_for(&json!({"name": "d1"})), "d1");
+        assert_eq!(segment_for(&json!({"name": "d1", "relayDevice": ""})), "d1");
+        // And a record with neither is refused rather than dialled at `/d//`.
+        assert_eq!(segment_for(&json!({})), "");
+    }
+}

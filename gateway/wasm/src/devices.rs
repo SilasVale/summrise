@@ -392,6 +392,7 @@ async fn register_claimed(env: &Env, body: &Value, key: &str) -> Result<Response
     if let Some(secret) = probe_proxy_secret(env, &device.hostname, &device.token).await {
         record.insert("proxySecret".to_string(), Value::String(secret));
     }
+    apply_transport(&mut record, device.relay_device.as_deref());
     record.insert(
         "registeredAt".to_string(),
         Value::Number(store::now_ms().into()),
@@ -407,6 +408,23 @@ async fn register_claimed(env: &Env, body: &Value, key: &str) -> Result<Response
     store::delete_reg_key(env, key).await; // one-time — consumed only after success
     store::delete_reg_grant(env, key).await;
     json_ok(json!({ "ok": true, "device": { "name": device.name, "hostname": device.hostname } }))
+}
+
+/// **THE RECORD'S TRANSPORT FIELDS, IN ONE PLACE** — `via: "relay"` plus the name the relay knows the device by,
+/// or neither. Kept as a function because BOTH arms of the self-register handler write it and a new-device record
+/// that disagreed with a refreshed one would be a device that is dialled one way on the day it registers and
+/// another way on the day after.
+pub fn apply_transport(record: &mut Map<String, Value>, relay_device: Option<&str>) {
+    match relay_device {
+        Some(name) => {
+            record.insert("via".to_string(), Value::String("relay".to_string()));
+            record.insert("relayDevice".to_string(), Value::String(name.to_string()));
+        }
+        None => {
+            record.remove("via");
+            record.remove("relayDevice");
+        }
+    }
 }
 
 /// `POST /api/devices/self-register` — the npm-installed agent registering with its OWN device token.
@@ -511,6 +529,11 @@ async fn handle_self_register(request: &mut Request, env: &Env) -> Result<Respon
             record.insert("proxySecret".to_string(), secret);
         }
         record.insert("registeredAt".to_string(), registered_at);
+        // **THE TRANSPORT IS REFRESHED ON EVERY REGISTRATION, INCLUDING TO "NONE".** A device whose operator
+        // turned its relay off in `config.yaml` must stop being dialled through a relay that no longer carries
+        // it — so the two fields are WRITTEN when declared and REMOVED when not, which is what makes the config
+        // file the switch rather than a one-way door.
+        apply_transport(&mut record, device.relay_device.as_deref());
         store::upsert_device(env, Value::Object(record)).await;
         return json_ok(json!({
             "ok": true,
@@ -531,6 +554,7 @@ async fn handle_self_register(request: &mut Request, env: &Env) -> Result<Respon
     if let Some(secret) = probe_proxy_secret(env, &device.hostname, &device.token).await {
         record.insert("proxySecret".to_string(), Value::String(secret));
     }
+    apply_transport(&mut record, device.relay_device.as_deref());
     record.insert(
         "registeredAt".to_string(),
         Value::Number(store::now_ms().into()),

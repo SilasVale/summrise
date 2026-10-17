@@ -75,6 +75,15 @@ pub struct DeviceFields {
     pub name: String,
     pub hostname: String,
     pub token: String,
+    /// **THE NAME THE RELAY KNOWS THIS DEVICE BY, OR `None` FOR THE TUNNEL (2026-10-17).** The agent declares it
+    /// at registration when it is configured to poll a relay (`agent/src/register.rs`), and it is the SAME value
+    /// it polls with — a device that polls as one name and registers another is reachable by nobody, because the
+    /// console would dial a name the relay never sees.
+    ///
+    /// **ANY NON-EMPTY NAME IS ACCEPTED** (trimmed): it becomes ONE PERCENT-ENCODED PATH SEGMENT on the
+    /// deployment's relay URL (`device.rs`'s `device_fetch_via`), so a name this worker cannot make sense of is
+    /// still a name the RELAY may know — refusing it here would turn a working device into an unreachable one.
+    pub relay_device: Option<String>,
 }
 
 /// **THE COERCIONS LIVE IN `summrise-core::text` NOW (2026-10-13), AND THESE NAMES ARE RE-EXPORTS**, so every
@@ -110,6 +119,14 @@ pub fn validate_device(body: &Value) -> Result<DeviceFields, String> {
         name,
         hostname,
         token,
+        relay_device: {
+            let declared = js_falsy_string(get("relayDevice")).trim().to_string();
+            if declared.is_empty() {
+                None
+            } else {
+                Some(declared)
+            }
+        },
     })
 }
 
@@ -493,7 +510,8 @@ mod tests {
             Ok(DeviceFields {
                 name: "d1".into(),
                 hostname: "d1.agent.test".into(),
-                token: "0123456789abcdef".into()
+                token: "0123456789abcdef".into(),
+                relay_device: None
             })
         );
         // Trims first, then tests.

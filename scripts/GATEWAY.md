@@ -80,7 +80,13 @@ NAME, which becomes one percent-encoded path segment on a URL the operator set �
 do is address another device on the SAME relay, and the relay's token decides whether it may.
 
 **AND THE DEVICE SIDE IS TWO LINES** (`proxies/summrise-relay/README.md`): `server.relay_url`,
-`server.relay_token` and — for a fleet — `server.relay_device: <the name the console knows this device by>`.
+`server.relay_token` and `server.relay_device: <the name this device answers to>`.
+
+**NOBODY EDITS KV BY HAND**: a device that has a relay DECLARES it at self-registration (`relayDevice` in the
+body), and `devices.rs` writes `via: relay` + `relayDevice` into the record — refreshing it on EVERY registration,
+including to *none*, so removing `relay_url` from `config.yaml` moves the device back to the tunnel on its next
+registration rather than leaving a record that dials a relay nobody carries. The declared name is what the
+console dials; the console's own label for the device is only a fallback for records written before this existed.
 
 **A RELAYED UPLOAD IS REFUSED, NOT SILENTLY EMPTIED**: a stream body needs `duplex: "half"`, a platform call the
 relay dial does not make, so it answers `502` with a sentence rather than sending a body-less request the device
