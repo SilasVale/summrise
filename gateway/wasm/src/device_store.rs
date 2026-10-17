@@ -168,6 +168,29 @@ async fn save_devices(env: &Env, devices: &[Value]) {
     kv_put(env, DEVICES_KEY, &text, None).await;
 }
 
+/// `touchDeviceSeen`'s WRITE HALF — the lock, the fresh read, the row update, the save.
+///
+/// **THE DECISION IS NOT HERE** (`status_route::touch_device_seen`: version changed, or the last write is over
+/// an hour old). This is only the write the decision permits, under the same lock every other device mutation
+/// takes, and it is in this module because the raw list and the save are this module's.
+pub async fn touch_seen(env: &Env, name: &str, now: i64, version: Option<&str>) {
+    let _guard = DEVICES_LOCK.lock().await;
+    let mut devices = read_devices_fresh(env).await;
+    let Some(row) = devices
+        .iter_mut()
+        .find(|d| d.get("name").and_then(Value::as_str) == Some(name))
+    else {
+        return;
+    };
+    if let Some(object) = row.as_object_mut() {
+        object.insert("lastSeenAt".to_string(), Value::from(now));
+        if let Some(version) = version.filter(|v| !v.is_empty()) {
+            object.insert("lastVersion".to_string(), Value::from(version));
+        }
+    }
+    save_devices(env, &devices).await;
+}
+
 /// `upsertDevice` — lock, FRESH read, merge, save.
 pub async fn upsert_device(env: &Env, device: Value) -> Value {
     let _guard = DEVICES_LOCK.lock().await;

@@ -44,7 +44,10 @@ use std::fs;
 
 const LINKS: [(&str, &str); 3] = [
     (
-        "gateway/src/plugins/status.ts",
+        // **THE FIRST LINK MOVED INTO THE WORKER (2026-10-17)**, with the route it belongs to: the forwarding
+        // is `status_route.rs`'s `device_update`, where the same field-by-field spread-guards are Rust
+        // (`worker_forwards` below reads the `state.update` shape in that file now).
+        "gateway/wasm/src/status_route.rs",
         "the worker FORWARDS the device's verdict into the console's payload",
     ),
     (
@@ -67,10 +70,22 @@ struct Streams {
 /// field (spread-guarded, so an absent value is ABSENT rather than empty); the first version of this
 /// pattern looked for a shape the code never had and reported a link that is intact.
 ///
-/// IT IS `worker_forwards` AND NOT `mcp_forwards` SINCE THE CUTOVER: the file it reads is
-/// `plugins/status.ts` (the route `plugins/mcp.ts` used to own), so the old name pointed at a file that
-/// no longer exists — the same stale-prose shape this landing keeps finding.
+/// IT IS `worker_forwards` AND NOT `mcp_forwards` SINCE THE CUTOVER: the file it reads was
+/// `plugins/status.ts` (the route `plugins/mcp.ts` used to own) and is `gateway/wasm/src/status_route.rs`
+/// since the route moved into the worker — each rename because the old name pointed at a file that no longer
+/// exists, which is the same stale-prose shape this gate keeps finding.
 fn worker_forwards(t: &str) -> bool {
+    // **THE RUST SHAPE, ADDED 2026-10-17 WITH THE ROUTE.** The forwarding is `status_route.rs`'s now, and it
+    // spells the same fact in Rust: `device_update` builds the object FIELD BY FIELD with a guard per optional
+    // (an absent value is ABSENT, not empty), and the caller inserts it as `state.insert("update", …)`.
+    // **THE MARKER IS THE BUILD, NOT THE NAME** — a file containing `update_available` in a comment would
+    // satisfy a weaker test, which is the trap this gate's own header records.
+    if t.contains("fn device_update(")
+        && t.contains(r#""update_available".to_string()"#)
+        && t.contains(r#""update".to_string(), update"#)
+    {
+        return true;
+    }
     let c = chars(t);
     let mut from = 0;
     while let Some(i) = find_seq(&c, "state.update", from) {
@@ -328,5 +343,5 @@ fn a_missing_link_is_a_failure_with_its_own_sentence() {
     assert!(!out.stderr.contains("is missing"), "{}", out.stderr);
     assert!(out
         .stdout
-        .contains("gateway/src/plugins/status.ts: the worker FORWARDS"));
+        .contains("gateway/wasm/src/status_route.rs: the worker FORWARDS"));
 }

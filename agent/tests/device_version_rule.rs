@@ -3,7 +3,7 @@
 //! "Which of the device's two version fields wins" is implemented on BOTH sides:
 //!
 //!   panel    agent/resources/panel-logic/src/version.rs            release_version()
-//!   gateway  gateway/src/plugins/status.ts                         wireVersion()
+//!   gateway  gateway/wasm/src/status_route.rs                       wire_version()
 //!
 //! They cannot share code — different packages, different deploy targets — and BOTH have been broken:
 //! round-304 on the gateway side (the console read the frozen Cargo `version`, showed v1.0.145 forever,
@@ -37,10 +37,12 @@ use std::fs;
 /// subject of this gate follows the rule, which is the same move `wire_fields.rs` made when a console
 /// family left the TypeScript.
 const PANEL: &str = "agent/resources/panel-logic/src/version.rs";
-/// THE GATEWAY'S HALF MOVED WITH ITS ROUTE (2026-10-10): `plugins/mcp.ts` was deleted at the cutover and
-/// `wireVersion` is in `plugins/status.ts` now — the plugin that serves the route `plugins/mcp.ts`'s status
-/// half owned, registering nothing else. The rule did not change; the file that carries it did.
-const GATEWAY: &str = "gateway/src/plugins/status.ts";
+/// THE GATEWAY'S HALF MOVED WITH ITS ROUTE, TWICE: `plugins/mcp.ts` was deleted at the cutover and the rule
+/// went to `plugins/status.ts` (2026-10-10); **THEN THE ROUTE ITSELF MOVED INTO THE RUST WORKER (2026-10-17)**
+/// and the rule went with it to `gateway/wasm/src/status_route.rs`, where `wire_version` is a plain function
+/// rather than a re-exported one. The rule did not change either time; the file that carries it did — and this
+/// gate is the reason both moves were mechanical.
+const GATEWAY: &str = "gateway/wasm/src/status_route.rs";
 
 struct Streams {
     stdout: String,
@@ -162,9 +164,9 @@ fn check() -> Streams {
             "{PANEL}: `release_version` is gone — the panel's half of the rule has no name."
         ));
     }
-    if !gateway.contains("export function wireVersion(") {
+    if !gateway.contains("pub fn wire_version(") {
         problems.push(format!(
-            "{GATEWAY}: `wireVersion` is gone. This was two inline lines until round 236; without a name the \
+            "{GATEWAY}: `wire_version` is gone. This was two inline lines until round 236; without a name the \
              console's half of the rule cannot be pointed at, tested, or found by the other side."
         ));
     }
@@ -174,7 +176,7 @@ fn check() -> Streams {
     //    forever.
     for (src, name, label) in [
         (&panel, "release_version", PANEL),
-        (&gateway, "wireVersion", GATEWAY),
+        (&gateway, "wire_version", GATEWAY),
     ] {
         let body = body_of(src, name);
         let first = first_version_branch(&body);
@@ -188,10 +190,10 @@ fn check() -> Streams {
 
     // 3. Each side must NAME the other. This is the part that was missing, and the only part that makes
     //    a change on one side visible from the other without a shared module.
-    if !panel_raw.contains("gateway/src/plugins/status.ts") {
+    if !panel_raw.contains("gateway/wasm/src/status_route.rs") {
         problems.push(format!(
-            "{PANEL}: no longer names `gateway/src/plugins/status.ts`. The console applies the same rule to the same \
-             device; if this file does not say so, the next change here is invisible from there."
+            "{PANEL}: no longer names `gateway/wasm/src/status_route.rs`. The console applies the same rule to the \
+             same device; if this file does not say so, the next change here is invisible from there."
         ));
     }
     if !gateway_raw.contains("agent/resources/panel-logic/src/version.rs") {

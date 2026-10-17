@@ -126,16 +126,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/plugins/registry.ts",
-      "path": "files/summrise-gate/src/plugins/registry.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/status.ts",
-      "path": "files/summrise-gate/src/plugins/status.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/store/admin-logic.ts",
       "path": "files/summrise-gate/src/store/admin-logic.ts",
       "group": "summrise-gate"

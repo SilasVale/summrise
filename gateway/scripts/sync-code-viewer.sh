@@ -21,8 +21,15 @@ mkdir -p "$DEST/summrise-gate/src" "$DEST/summrise-gate/public"
 cp "$PWD"/src/*.ts "$DEST/summrise-gate/src/"
 # The TS migration removed the re-export .js shims; tolerate their absence.
 cp "$PWD"/src/*.js "$DEST/summrise-gate/src/" 2>/dev/null || true
-mkdir -p "$DEST/summrise-gate/src/plugins"
-cp "$PWD"/src/plugins/*.ts "$DEST/summrise-gate/src/plugins/"
+# **`src/plugins/` WENT WITH THE LAST PLUGIN (2026-10-17)**, so the snapshot's own `plugins/` directory is
+# created only when there is something to put in it: `cp` on an unmatched glob is an ERROR, and a script that
+# fails on a legitimate tree is worse than one that skips an absent directory.
+if compgen -G "$PWD/src/plugins/*.ts" > /dev/null; then
+  mkdir -p "$DEST/summrise-gate/src/plugins"
+  cp "$PWD"/src/plugins/*.ts "$DEST/summrise-gate/src/plugins/"
+else
+  rm -rf "$DEST/summrise-gate/src/plugins"
+fi
 cp "$PWD"/src/plugins/*.js "$DEST/summrise-gate/src/plugins/" 2>/dev/null || true
 # Subdirectory domains (structure refactors): src/store/ (split from store.ts)
 # and src/lib/ (ratelimit factory). The old top-level-only copy silently

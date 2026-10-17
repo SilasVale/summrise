@@ -89,14 +89,13 @@ test("the freshness claim in deviceState.ts still matches the worker's probe TTL
   // and a reason that is FALSE is worse than no reason, in the one file four different checks point a reader at.
   // This pins the number to the mirror so the note cannot rot: change the TTL and this fails, and the note gets
   // corrected with it.
-  // THE SUBJECT MOVED, NOT DIED: the probe's TTL is in `plugins/status.ts` now — the plugin that serves the route
-  // `plugins/mcp.ts`'s status half owned, deleted by the cutover. The mirror followed it (the sync script re-copies
-  // `src/` wholesale), so this reads the same fact at its new path rather than the file that no longer exists.
-  const mirror = readFileSync(
-    path.join(HERE, "..", "..", "public", "code", "files", "summrise-gate", "src", "plugins", "status.ts"),
-    "utf8",
-  );
-  const ttl = /DEVICE_PROBE_TTL_MS\s*=\s*([0-9_]+)/.exec(mirror);
+  // **THE SUBJECT MOVED TWICE, NOT DIED, AND THE SECOND MOVE LEFT THE MIRROR (2026-10-17)**: the probe's TTL
+  // was `plugins/status.ts`'s, and that plugin is deleted with the route in `gateway/wasm/src/status_route.rs`
+  // — which the code viewer does NOT mirror (it publishes the console's `src/`, not the worker's). So this
+  // reads the WORKER'S OWN SOURCE at its real path, which is where the number lives and where a reader of
+  // `deviceState.ts` is pointed.
+  const worker = readFileSync(path.join(HERE, "..", "..", "wasm", "src", "status_route.rs"), "utf8");
+  const ttl = /PROBE_TTL_MS:\s*i64\s*=\s*([0-9_]+)/.exec(worker);
   assert.ok(ttl, "the probe TTL moved or was renamed — deviceState.ts cites it by name, so this check needs updating");
   const seconds = Number(ttl[1].replace(/_/g, "")) / 1000;
   const note = readFileSync(path.join(HERE, "..", "src", "lib", "deviceState.ts"), "utf8");
