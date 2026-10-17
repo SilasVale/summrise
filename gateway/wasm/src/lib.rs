@@ -496,6 +496,33 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     with_cors(res, &origin, host.as_deref(), configured.as_deref())
 }
 
+/// **IS THIS A CONSOLE HOST? — the front door's host isolation, as a pure function.**
+///
+/// The console (its static page AND its API) lives only on the hosts `CONSOLE_HOST` names, plus `localhost` and
+/// `127.0.0.1` for `wrangler dev`. Every other host gets `/v1` and the public tooling endpoints and nothing else.
+/// **`CONSOLE_ORIGINS` IS A DIFFERENT VAR** — origins carry a scheme, and the preflight's comparison is against
+/// those; passing the origins here would match nothing, which is the defect this file's CORS comment records.
+///
+/// The list is comma-split and trimmed, and an empty entry is dropped: a var that is set but blank must mean
+/// "no console hosts" rather than "a host with an empty name".
+pub fn page_host(hostname: &str, configured: &str) -> bool {
+    if hostname == "localhost" || hostname == "127.0.0.1" {
+        return true;
+    }
+    configured
+        .split(',')
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .any(|h| h == hostname)
+}
+
+/// `env.CONSOLE_HOST`, or `""`.
+fn console_host_var(env: &Env) -> String {
+    env.var("CONSOLE_HOST")
+        .map(|v| v.to_string())
+        .unwrap_or_default()
+}
+
 async fn route(req: Request, env: Env) -> Result<Response> {
     let url = req.url()?;
 
@@ -696,6 +723,16 @@ async fn route(req: Request, env: Env) -> Result<Response> {
     // plugin's OTHER route (`GET /api/plugins/status`) is deliberately NOT in the family: its response carries
     // the TypeScript plugin registry's own dispatch counters, which this worker does not have and must not
     // invent. The harness's cutover section proves that it stays where it is.
+    let is_page_host = page_host(url.host_str().unwrap_or_default(), &console_host_var(&env));
+    let page_path = url.path().to_string();
+    // **THE TAIL THAT NEEDS THE REQUEST HAS ITS OWN COPY OF WHAT IT NEEDS**: every arm above consumes `req`, so
+    // the method and headers are taken here — before the first family — for the page arm below. A `Request` is
+    // not `Clone` (its body is a stream), and the page arm only ever serves a read, so rebuilding it from the
+    // URL, the method and the headers is exactly what `ASSETS.fetch(request)` needs.
+    let page_method = req.method().clone();
+    let page_headers = req.headers().clone();
+    let page_url = url.as_str().to_string();
+
     if mcp::in_family(&req.method(), url.path()) {
         route_table::note("mcp");
         return match mcp::handle(req, &env).await {
@@ -705,6 +742,36 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             Err(RouteFailure::Threw) => json_error(500, "Internal error", "api_error"),
             Err(RouteFailure::Platform(error)) => Err(error),
         };
+    }
+    // **THE STATIC PAGE — THE LAST ARM, AND THE ONE THAT MAKES THIS WORKER A WEB SERVER RATHER THAN AN API.**
+    // The source's shape, in its order: a `/v1/` path never reaches here (that arm answers above), a NON-console
+    // host answers the door's 404, and a console host serves the page through the `ASSETS` binding — which this
+    // worker already binds for the installers, with `run_worker_first: true` so this dispatch runs before the
+    // asset handler. **AN ABSENT BINDING IS THE SAME 404 AS A MISSING ASSET**, which is what the source's
+    // `env.ASSETS && typeof env.ASSETS.fetch === "function"` collapses to.
+    // **AN UNCLAIMED `/api/*` PATH IS THE DISPATCH'S 404, NEVER THE PAGE.** The source's API block is entered
+    // for `isPageHost && (path.startsWith("/api/") || path === "/mcp")` and its own dispatch answers 404 for a
+    // path no plugin claimed — so the static arm below NEVER sees an API path. Without this arm a console host
+    // would answer an unknown API path with the console's `index.html`, which is a 200 where the corpus and every
+    // client expect a 404.
+    if page_path.starts_with("/api/") || page_path == "/mcp" {
+        return not_found();
+    }
+    if !page_path.starts_with("/v1/") {
+        if !is_page_host {
+            return not_found();
+        }
+        if let Ok(assets) = env.get_binding::<Fetcher>("ASSETS") {
+            let mut init = RequestInit::new();
+            init.with_method(page_method);
+            init.with_headers(page_headers);
+            if let Ok(page_request) = Request::new_with_init(&page_url, &init) {
+                if let Ok(response) = device::service_fetch(&assets, &page_request).await {
+                    return Ok(response);
+                }
+            }
+        }
+        return not_found();
     }
     not_found()
 }
@@ -762,3 +829,44 @@ pub mod user_store;
 pub mod v1;
 pub mod vision;
 pub mod webcrypto;
+
+#[cfg(test)]
+mod page_host_tests {
+    //! The host isolation's own pins. **THE ARM AROUND IT IS THE HARNESS'S** (`verify.mjs` drives the built
+    //! worker, and the corpus's paths are all API paths, which this decision never sees); what can be wrong here
+    //! is the LIST's parsing, and that is what these hold.
+
+    use super::page_host;
+
+    #[test]
+    fn localhost_is_a_console_host_without_being_configured() {
+        assert!(page_host("localhost", ""));
+        assert!(page_host("127.0.0.1", ""));
+        // **AND NOTHING ELSE IS**: a lookalike must not inherit the dev allowance.
+        assert!(!page_host("localhost.evil.example", ""));
+        assert!(!page_host("127.0.0.2", ""));
+    }
+
+    #[test]
+    fn the_configured_list_is_split_trimmed_and_compared_exactly() {
+        let configured = " console.example , ai.example ,, ";
+        assert!(page_host("console.example", configured));
+        assert!(page_host("ai.example", configured));
+        // The empty entries are dropped rather than becoming a host with an empty name.
+        assert!(!page_host("", configured));
+        // Exact, not a suffix or a prefix match.
+        assert!(!page_host("evil-console.example", configured));
+        assert!(!page_host("console.example.evil", configured));
+        assert!(
+            !page_host("CONSOLE.EXAMPLE", configured),
+            "hostnames are compared as given"
+        );
+    }
+
+    #[test]
+    fn an_unset_or_blank_var_means_no_console_hosts() {
+        for blank in ["", " ", ","] {
+            assert!(!page_host("console.example", blank), "{blank:?}");
+        }
+    }
+}
