@@ -136,16 +136,6 @@
       "group": "summrise-gate"
     },
     {
-      "name": "src/tooling-logic.ts",
-      "path": "files/summrise-gate/src/tooling-logic.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/tooling.ts",
-      "path": "files/summrise-gate/src/tooling.ts",
-      "group": "summrise-gate"
-    },
-    {
       "name": "src/upstream.ts",
       "path": "files/summrise-gate/src/upstream.ts",
       "group": "summrise-gate"
@@ -158,11 +148,6 @@
     {
       "name": "src/plugins/auth.ts",
       "path": "files/summrise-gate/src/plugins/auth.ts",
-      "group": "summrise-gate"
-    },
-    {
-      "name": "src/plugins/models-probe.ts",
-      "path": "files/summrise-gate/src/plugins/models-probe.ts",
       "group": "summrise-gate"
     },
     {

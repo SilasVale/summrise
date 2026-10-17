@@ -79,7 +79,6 @@ import { hostAllowError } from "../src/device-fetch.ts";
 // `pickRoute` and `resolveRoute` are the CONSOLE's own routing, in `upstream.ts` — the file the worker's
 // `routing.rs` was ported from and which remains the console's live implementation.
 import { pickRoute } from "../src/upstream.ts";
-import { encodeBase64Utf8, probeEnvKeyName } from "../src/tooling-logic.ts";
 
 const FIXTURE = fileURLToPath(new URL("fixtures/translate-corpus.json", import.meta.url));
 const headers = (pairs) => new Headers(pairs ?? {});
@@ -170,9 +169,12 @@ const LIVE = {
   host_allow_error: (input) => hostAllowError(input.hostname, { DEVICE_HOST_SUFFIX: input.suffix }),
   is_channel_down_failure: (input) => isChannelDownFailure(input.detail),
 
-  // ── tooling (`tooling-logic.ts`) ───────────────────────────────────────────────────────────────
-  encode_base64_utf8: (input) => encodeBase64Utf8(input),
-  probe_env_key_name: (input) => probeEnvKeyName(input),
+  // ── tooling: GONE FROM THIS ORACLE (2026-10-17), WITH THE TYPESCRIPT IT READ ──────────────────
+  // `encode_base64_utf8` and `probe_env_key_name` were recorded here from `tooling-logic.ts`; that module and
+  // `tooling.ts` are deleted, and the two functions are `tooling.rs`'s. The cases they produced are committed
+  // in the corpus and replayed there — re-recording them would need a TypeScript implementation that no
+  // longer exists, which is what deleting the module means. The route-level bytes are `verify.mjs`'s install
+  // section, against the artifact itself.
 };
 
 /** Cases this oracle ADDS, in the recorded shape. Appended only when the name is not already there. */

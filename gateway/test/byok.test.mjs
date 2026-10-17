@@ -26,19 +26,11 @@ test("byok: NO ENV FALLBACK is expressible — the fact a flattened merge would 
   assert.equal(BYOK_CHANNELS.filter((c) => c.envKey !== null).length, 7);
 });
 
-test("byok: models-probe DERIVES its table — a re-typed copy fails this", async () => {
-  // The acceptance test round 189 named, in the only form that is mutation-proof: the
-  // values must not appear in the consumer at all. If someone re-types the table (the exact
-  // way the four-copy drift started), this goes red — and it does so without needing the
-  // private BYOK_KEY_FOR_KIND exported, which is what round 188 measured as the cost of the
-  // alternative. Rewired round 191; the other three consumers are still their own copies.
-  const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../src/plugins/models-probe.ts", import.meta.url), "utf8");
-  const leaked = BYOK_CHANNELS.map((c) => c.userKey).filter((k) => src.includes(`"${k}"`));
-  assert.deepEqual(leaked, [], `models-probe must not re-type these: ${leaked.join(", ")}`);
-  assert.match(src, /BYOK_CHANNELS\.map/, "and it must derive them from the shared source");
-});
-
+// **THE `models-probe` DERIVATION TEST LEFT WITH ITS SUBJECT (2026-10-17).** It read
+// `src/plugins/models-probe.ts` as text and asserted the consumer did not re-type `BYOK_CHANNELS` — the round-189
+// acceptance test, and mutation-proof because it needed no private export. The FILE is deleted (its route is the
+// Rust worker's, and `byok.rs` derives the same table inside Rust), so the assertion has no consumer to guard.
+// The sibling below still guards the one that remains, and the Rust side derives its table the same way.
 test("byok: USER_KEY_NAMES IS the source — set-equal, and absent from the consumer", async () => {
   // The strongest form, available because this consumer is EXPORTED (round 188 measured that
   // the other two are not). Two assertions, because they catch different things: set-equality
@@ -164,7 +156,7 @@ test("byok: the console key page renders EVERY managed key — the FIFTH consume
   // HARD-CODED `KEY_NAMES` array that nothing compared to anything. The console
   // is a fifth consumer of this vocabulary, and the only one that is a UI.
   //
-  // Its twin is health.test.mjs's "probe coverage spans every USER_KEY_NAMES
+  // Its twin WAS health.test.mjs's "probe coverage spans every USER_KEY_NAMES
   // entry": a key the console cannot RENDER is a key the operator cannot fix,
   // and a key the probe cannot SPEND leaves `summrise check` blind. Both are the
   // same question asked of a different consumer.

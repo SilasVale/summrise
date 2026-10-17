@@ -33,6 +33,26 @@
   // `UPSTREAM_TIMEOUT_MS` (see below), one binding over — and the same id as the console worker, because the
   // two must read the SAME KV: the records the console writes are what this worker routes on.
   "kv_namespaces": [{ "binding": "KEYS", "id": "a1fb10da621b411caeda6d98c060bbea" }],
+  // **THE ASSETS BINDING (2026-10-17) — THE PUBLIC INSTALLER FAMILY READS `public/summrise` THROUGH IT.**
+  //
+  // `GET /api/summrise-cli`, `/api/summrise-install` and `/api/summrise-install.ps1` were the last routes
+  // `gateway/src/tooling.ts` served: the first hands back the committed CLI artifact, the other two embed it
+  // base64 in a `curl|sh` / `irm|iex` one-liner. The templates are Rust now (`src/tooling.rs`, byte-compared
+  // against the shipping TypeScript by `fixtures/translate-corpus.json`), and the ONE thing left that only the
+  // platform can do is read the artifact — which is this binding, spelled exactly as the console worker spells
+  // it (`gateway/wrangler.jsonc`), because both deploys must serve the same bytes from the same directory.
+  //
+  // **IT DOES NOT MAKE THIS WORKER A WEB SERVER.** `workers_dev: false` and no `routes` still stand, so nothing
+  // on the internet reaches it; a service binding is the only way in, and the assets are readable only from
+  // inside, through `env.ASSETS`. The directory is not duplicated in the repository — it is the same
+  // `gateway/public` the console worker uploads — so a deploy of this worker after a CLI update serves the new
+  // artifact.
+  "assets": {
+    "directory": "../public",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
   "durable_objects": {
     "bindings": [{ "name": "BREAKER", "class_name": "BreakerDO", "script_name": "vale-gate" }]
   },

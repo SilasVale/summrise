@@ -18,11 +18,13 @@
 // the new route — not "it works", the bytes. So this runs BOTH, on the same request, and compares
 // status, headers and the response BODY as bytes.
 //
-//   old — `gateway/src/tooling.ts`'s `buildHealth`, the TypeScript the deployed `vale-gate` runs,
-//         wrapped in `http.ts`'s `jsonOk` exactly as `index.ts` wraps it (`jsonOk(await
-//         buildHealth(env))`). The `withCors` stamp is applied by the DISPATCH layer to every
-//         route's response, not by this route, so it is on neither side here — see the module
-//         header of src/lib.rs for why that boundary is the honest one.
+//   was — `gateway/src/tooling.ts`'s `buildHealth`, the TypeScript the deployed `vale-gate` ran,
+//         wrapped in `http.ts`'s `jsonOk` exactly as `index.ts` wrapped it (`jsonOk(await
+//         buildHealth(env))`). **THAT SIDE IS GONE (2026-10-17)**: the module is deleted and the route
+//         is handed over unconditionally, so this section compares the worker against the FROZEN
+//         answers captured while both sides still existed — see below. The `withCors` stamp was applied
+//         by the DISPATCH layer to every route's response, not by this route, so it was on neither side
+//         here — see the module header of src/lib.rs for why that boundary is the honest one.
 //   new — `gateway/wasm/build/index.js`, the module `worker-build --release` produced, executed
 //         through its real `fetch` entrypoint with the same env and the same request URL.
 //
@@ -200,6 +202,134 @@ for (const [i, c] of CASES.entries()) {
     }
   } else {
     console.log(`      body is byte-identical to the frozen answer (${rsBody.length} bytes), and so are status and headers`);
+  }
+}
+
+// ── THE PUBLIC INSTALLER FAMILY: THE WASM AGAINST THE SHIPPING TEMPLATES ─────────────────────────
+//
+// **THE SAME SHAPE AS THE HEALTH SECTION ABOVE, AND FOR THE SAME REASON**: these three routes were
+// `gateway/src/tooling.ts`'s last ones, and that module is deleted, so there is no left-hand side to run
+// live any more. What is left is the strongest thing that survives the TypeScript:
+//
+//   * `/api/summrise-cli` is compared against the COMMITTED ARTIFACT ITSELF (`gateway/public/summrise`),
+//     which is a better oracle than a recording — the bytes on disk are what the route must serve.
+//   * the two one-liners are compared against the shipping TEMPLATES, which are not duplicated here: they
+//     are read out of `fixtures/translate-corpus.json`, the same recording the Rust's unit test replays
+//     (`tooling::oracle_corpus`), with the artifact's base64 slotted into the recorded placeholder.
+//
+// **THE ONE THING THIS CANNOT SEE, SAID RATHER THAN IMPLIED**: the corpus is the recorded oracle, so a
+// change to a TEMPLATE made deliberately in Rust and re-recorded in the corpus would pass here. What that
+// would still have to get past is `tooling::oracle_corpus`'s byte equality against the same recording, and a
+// human reading the diff — the corpus is committed and its own header says it was generated from the shipping
+// TypeScript. A recording is only as good as the run it came from; this one came from a run where the two
+// sides were the same code.
+const CLI_ARTIFACT = readFileSync(
+  fileURLToPath(new URL("../public/summrise", import.meta.url)),
+  "utf8",
+);
+const TOOLING_CORPUS = JSON.parse(
+  readFileSync(fileURLToPath(new URL("fixtures/translate-corpus.json", import.meta.url)), "utf8"),
+);
+const recordedTemplate = (fn) => {
+  const hit = TOOLING_CORPUS.cases.find((c) => c.fn === fn && c.input === "__B64__");
+  if (!hit) throw new Error(`the corpus no longer records ${fn}("__B64__")`);
+  return hit.expected.value;
+};
+const b64 = (text) => Buffer.from(text, "utf8").toString("base64");
+const INSTALLER_HEADERS = [
+  "access-control-allow-headers: *",
+  "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+  "access-control-allow-origin: *",
+  "content-type: text/plain; charset=utf-8",
+];
+const MISSING_HEADERS = [
+  "access-control-allow-headers: *",
+  "access-control-allow-methods: GET,POST,OPTIONS,DELETE,PUT",
+  "content-type: application/json",
+];
+const MISSING_BODY = JSON.stringify({
+  type: "error",
+  error: { type: "not_found_error", message: "summrise CLI not found" },
+});
+const INSTALLER_ANSWERS = {
+  "/api/summrise-cli": { status: 200, headers: INSTALLER_HEADERS, body: CLI_ARTIFACT },
+  "/api/summrise-install": {
+    status: 200,
+    headers: INSTALLER_HEADERS,
+    body: recordedTemplate("posix_installer").replace("__B64__", b64(CLI_ARTIFACT)),
+  },
+  "/api/summrise-install.ps1": {
+    status: 200,
+    headers: INSTALLER_HEADERS,
+    body: recordedTemplate("ps_installer").replace("__B64__", b64(CLI_ARTIFACT)),
+  },
+};
+
+// The `ASSETS` stub, and it must be NAMED `Fetcher` — `workers-rs`' `EnvBinding::get` duck-types on
+// `obj.constructor().name`, so a binding called anything else is unreachable from the Rust side and a stub
+// that was silently never called would report two identical answers for a route that never read anything.
+class Fetcher {
+  constructor(serves) {
+    this.serves = serves;
+  }
+  async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (this.serves && path === "/summrise") {
+      return new Response(CLI_ARTIFACT, { status: 200, headers: { "content-type": "text/plain" } });
+    }
+    return new Response("not found", { status: 404 });
+  }
+}
+
+{
+  // The three routes, the 404 arm (an asset that is not there) and the absent-binding arm — which is the
+  // SAME answer as the 404, because `serveAssetText` returned `null` for both.
+  const cases = [
+    ...Object.keys(INSTALLER_ANSWERS).map((path) => ({
+      label: `GET ${path} — the artifact, through the binding`,
+      path,
+      env: { ASSETS: new Fetcher(true) },
+      want: INSTALLER_ANSWERS[path],
+    })),
+    {
+      label: "GET /api/summrise-cli — the asset 404s (the refusal arm)",
+      path: "/api/summrise-cli",
+      env: { ASSETS: new Fetcher(false) },
+      want: { status: 404, headers: MISSING_HEADERS, body: MISSING_BODY },
+    },
+    {
+      label: "GET /api/summrise-cli — no ASSETS binding at all (the same 404)",
+      path: "/api/summrise-cli",
+      env: {},
+      want: { status: 404, headers: MISSING_HEADERS, body: MISSING_BODY },
+    },
+  ];
+  for (const [i, c] of cases.entries()) {
+    const worker = await import(`${pathToFileURL(BUILT).href}?installer=${i}`);
+    const instance = new worker.default();
+    instance.env = { ...envFor("0"), ...c.env };
+    instance.ctx = {};
+    const res = await instance.fetch(new Request(`https://console.test${c.path}`));
+    const body = Buffer.from(await res.arrayBuffer()).toString("utf8");
+    const rows = [
+      ["status", String(c.want.status), String(res.status)],
+      ["headers", c.want.headers.join(" | "), pairs(res.headers).join(" | ")],
+      ["body bytes", String(Buffer.byteLength(c.want.body, "utf8")), String(Buffer.byteLength(body, "utf8"))],
+      ["body", c.want.body, body],
+    ];
+    const differs = rows.filter(([, w, got]) => w !== got);
+    console.log(`  ${c.label}`);
+    console.log(
+      `      ${differs.length ? "FAIL" : "ok  "} ${c.path} — ${Buffer.byteLength(body, "utf8")} bytes, status ${res.status}`,
+    );
+    if (differs.length) {
+      bad++;
+      for (const [what, w, got] of differs) {
+        console.log(`      ${what} DIFFERS`);
+        console.log(`        expected: ${JSON.stringify(w).slice(0, 300)}`);
+        console.log(`        wasm    : ${JSON.stringify(got).slice(0, 300)}`);
+      }
+    }
   }
 }
 

@@ -13,11 +13,12 @@
  *                      the Rust worker does not (see src/plugins/)
  *   frontDoor()        /v1/* -> the Rust worker's service binding (the TypeScript impl is deleted)
  *
- * The public CLI-facing tooling surface (GET /api/health, POST
- * /api/summrise-probe + its rate limiter — RUST since the route moved with its guard,
- * the /api/summrise-* installer payloads)
- * lives in tooling.ts — index.ts routes to it and re-exports it for the
- * historical import path.
+ * The public CLI-facing tooling surface — `GET /api/health`, `POST /api/summrise-probe` and its rate
+ * limiter, `GET /api/summrise-cli` and the two installer payloads — is THE RUST WORKER'S as of
+ * 2026-10-17, together with `ASSETS` (the one platform read they need). The `tooling.ts` module that held
+ * them is deleted rather than reduced: its decisions are `gateway/wasm/src/{lib,tooling,probe}.rs`, and
+ * `verify.mjs` proves the four routes against the frozen answers and the committed artifact. The module doc
+ * here keeps the map honest below — a file that no longer exists is not a module of this worker.
  *
  * Module map:
  *   channels.ts          channel registry (MODELS/ROUTE_INFO/HEALTH + og endpoints)
@@ -28,31 +29,17 @@
  *   session.ts           requireSession/sessionSecret (single copy)
  *   http.ts              jsonOk/jsonError/readJson/CORS
  *   store.ts             KV persistence (users/tokens/devices/plugin links)
- *   tooling.ts           public CLI surface (health/probe/installers)
  *   plugins/*            DSH-style route plugins (auth/admin/status)
  */
 
 import { seedAdmin } from "./store.ts";
 import { jsonOk, jsonError, readJson, CORS_HEADERS, corsHeadersFor, withCors } from "./http.ts";
-import {
-  buildHealth,
-  probeRateLimited,
-  summriseProbe,
-  encodeBase64Utf8,
-  posixInstaller,
-  psInstaller,
-  serveAssetText,
-} from "./tooling.ts";
-// Re-export the public tooling surface: tests + external tooling import it
-// from the front-door module (historical path).
-export {
-  buildHealth,
-  probeRateLimited,
-  summriseProbe,
-  encodeBase64Utf8,
-  posixInstaller,
-  psInstaller,
-} from "./tooling.ts";
+// **`tooling.ts` IS GONE (2026-10-17), AND THESE WERE ITS LAST IMPORTERS.** `GET /api/health`, the probe and
+// the three installer paths are the Rust worker's now (`gateway/wasm/src/lib.rs`, `tooling.rs`), and there is
+// no TypeScript twin left to fall back to: the family predicate below hands every one of them over, and a
+// deployment without the `WASM_GATE` binding answers the front door's 503 rather than a second implementation.
+// The re-export block that stood here existed for "tests + external tooling"; the tests that used it are
+// deleted with the module (their subject moved), and `agent/tests/*` never imported it.
 import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
 import { wasmGate } from "./gate.ts";
 import authPlugin from "./plugins/auth.ts";
@@ -158,11 +145,12 @@ function stampRust(response: Response): Response {
  * `DELETE /api/admin/providers/` with an EMPTY prefix is a route that answers its own 400 rather than a
  * path the family does not claim.
  *
- * **THE ROLLBACK IS THE BINDING.** `plugins/admin.ts` and `plugins/models-probe.ts` are unchanged and still
+ * **THE ROLLBACK IS THE BINDING, AND IT IS ONE PLUGIN NOW.** `plugins/admin.ts` is unchanged and still
  * registered, so a deployment without `WASM_GATE` — a local `wrangler dev`, a test env, a deployment whose
- * binding was removed — serves every one of these routes from TypeScript exactly as it did before. That is the
- * same rule the device, identity and MCP families already follow, and deleting the two plugins is the step AFTER
- * the deploy that proves the worker serves this family.
+ * binding was removed — serves these routes from TypeScript exactly as it did before. **THE PROBE IS THE
+ * EXCEPTION (2026-10-17)**: `plugins/models-probe.ts` is deleted, so `/api/admin/models/probe` answers the front
+ * door's 404 without the binding — the same end state `/mcp` reached when its plugin left, and the proof is the
+ * same kind (the admin family's 82-case corpus drives this route in the Rust worker).
  *
  * **AND THE UNGATED ROUTE IS WHY THE HANDOVER IS NOT A SESSION GATE**: `GET /api/admin/public` answers the
  * console's channel cards with NO session at all (`/api/admin/public` is the family's only ungated path, in the
@@ -372,59 +360,39 @@ export default {
         consoleHosts.includes(url.hostname);
       const path = url.pathname;
 
-      // ---- Public tooling endpoints (any host) ----
-      if (path === "/api/health") {
-        return withCors(request, jsonOk(await buildHealth(env)), env);
-      }
-      // **THE PROBE GOES TO THE SAME PLACE, BY THE SAME RULE.** The route, its limiter and the guard's
-      // counters are one Rust module now (`wasm/src/probe.rs`), because the limiter and what it guards
-      // belong together: a guard in one language and a route in another lets the route change without
-      // the guard knowing. The TypeScript fallback stays for a deployment with no WASM_GATE binding —
-      // the shape the devices family uses one branch down.
-      if (request.method === "POST" && path === "/api/summrise-probe" && wasmGate(env)) {
-        return await frontDoor(request, env, request);
-      }
-      if (request.method === "POST" && path === "/api/summrise-probe") {
-        if (await probeRateLimited(env, request)) {
-          return withCors(
-            request,
-            jsonError(429, "probe rate limit exceeded", "rate_limit_error"),
-            env,
-          );
-        }
-        const body = await readJson(request);
-        return withCors(request, await summriseProbe(env, String(body.model || "")), env);
-      }
+      // ---- Public tooling endpoints (any host) — THE RUST WORKER'S, ALL FOUR (2026-10-17) ----
+      //
+      // **THIS WHOLE BLOCK IS ONE HANDOVER NOW, AND THE TYPESCRIPT IMPLEMENTATIONS ARE DELETED.** `tooling.ts`
+      // held them (health, the probe's limiter and body, the two installer templates, the ASSETS read); every
+      // decision in it is `gateway/wasm/src/{lib,tooling,probe}.rs`, and the three separate handovers that used
+      // to sit here are one predicate with the same shape the device and MCP families use.
+      //
+      // **WHY THEY COULD NOT BE DELETED BEFORE, AND WHY THEY CAN NOW.** The health route's proof stopped
+      // depending on the TypeScript first: `verify.mjs` compares the worker against a FROZEN answer (the two
+      // recorded bodies, captured on a run where both sides agreed byte for byte), so retiring `buildHealth`
+      // removes nothing that was still checking it. The installers' proof is the same shape one landing later —
+      // the committed artifact plus the corpus's recorded templates (`tooling::oracle_corpus`).
+      //
+      // **THE PROBE'S `wasmGate(env)` CONDITION IS GONE WITH ITS FALLBACK, AND THAT IS THE POINT RATHER THAN A
+      // TIDY-UP**: a conditional handover existed because there WAS a second implementation to catch the case
+      // where the binding was missing. There is not one any more, so `frontDoor` answers its loud 503 — a
+      // deployment that cannot serve the API says so, which is what the deleted `/v1` fallback already does.
+      //
+      // **AND THE CORS SPLIT IS PRESERVED RATHER THAN FLATTENED.** `withCors` here would DELETE the installers'
+      // forced `Access-Control-Allow-Origin: *` for an unknown origin (that is what `stampCors`'s else-branch
+      // does), so the Rust worker stamps its own responses: the door's stamp, minus this family
+      // (`lib.rs`'s carve-out), with the 404 arm carrying the per-request pair instead.
       if (
+        path === "/api/health" ||
         path === "/api/summrise-cli" ||
         path === "/api/summrise-install" ||
-        path === "/api/summrise-install.ps1"
+        path === "/api/summrise-install.ps1" ||
+        // POST only, which is `probe::in_family`'s own rule: a GET probe would cost an upstream call with no
+        // body to name a channel, and the Rust answers the front door's 404 for the verb it does not serve —
+        // handing a GET over would answer from a different place than the dispatch does today.
+        (request.method === "POST" && path === "/api/summrise-probe")
       ) {
-        const cli = await serveAssetText(env, "/summrise");
-        if (cli === null)
-          return withCors(
-            request,
-            jsonError(404, "summrise CLI not found", "not_found_error"),
-            env,
-          );
-        // Genuinely-public installer payloads (curl|sh / irm|iex — CORS-
-        // irrelevant non-browser clients): KEEP the ACAO:* wildcard so any
-        // browser-hosted install helper keeps working. No session, no secret.
-        const publicCors = { "Access-Control-Allow-Origin": "*" };
-        if (path === "/api/summrise-cli") {
-          return new Response(cli, {
-            headers: {
-              "Content-Type": "text/plain; charset=utf-8",
-              ...CORS_HEADERS,
-              ...publicCors,
-            },
-          });
-        }
-        const b64 = encodeBase64Utf8(cli);
-        const body = path === "/api/summrise-install" ? posixInstaller(b64) : psInstaller(b64);
-        return new Response(body, {
-          headers: { "Content-Type": "text/plain; charset=utf-8", ...CORS_HEADERS, ...publicCors },
-        });
+        return await frontDoor(request, env, request);
       }
 
       await seedAdmin(env);
@@ -463,7 +431,8 @@ export default {
         // **THE ADMIN FAMILY GOES TO THE SAME PLACE, BY THE SAME RULE** — the last family, and the one that
         // makes the seventeen ported routes live. Same placement, same reasons: after `seedAdmin` (the front
         // door's job, which the worker does not do) and after the CSRF gate above, and with `plugins/admin.ts`
-        // and `plugins/models-probe.ts` as the rollback when the binding is absent — see `isAdminFamily`.
+        // as the rollback when the binding is absent — see `isAdminFamily`, which names the one route that has
+        // no fallback left (`/api/admin/models/probe`, whose plugin is deleted).
         if (isAdminFamily(request.method, path) && wasmGate(env)) {
           return await frontDoor(request, env, request);
         }
