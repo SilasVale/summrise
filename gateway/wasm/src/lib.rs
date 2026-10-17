@@ -364,11 +364,118 @@ fn cors_inputs(req: &Request, env: &Env) -> (String, Option<String>, Option<Stri
     (origin, host, configured)
 }
 
+/// **THE FRONT DOOR'S OWN GATES, PORTED (2026-10-17).** These four ran in `gateway/src/index.ts` before it
+/// handed a request over — the CSRF refusal, the HTTPS redirect, the OPTIONS preflight and the OpenAI alias —
+/// and each of them is a thing that would silently disappear the moment a caller reached this worker directly,
+/// which is what the cutover makes true. **NONE OF THEM IS A SECOND COPY OF A DECISION**: the CSRF rule is
+/// `auth::csrf_cookie_violation` (already the single source, emitted into `auth-logic.ts`), the preflight's
+/// headers are `cors::cors_headers_for`, and the redirect is the same 308 the front door answers.
+fn front_gates(req: &Request, env: &Env) -> Option<Response> {
+    let url = match req.url() {
+        Ok(url) => url,
+        Err(_) => return None,
+    };
+    // 1. **THE CSRF GATE, AND IT IS THE ONE THAT MATTERS**: a cookie-carrying cross-site mutation is refused
+    //    here — 403 `Cross-site request blocked` — before any family sees it. Bearer clients carry no cookie
+    //    and are untouched, which is the rule's own shape rather than a carve-out.
+    let cookie = req
+        .headers()
+        .get("cookie")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let site = req.headers().get("sec-fetch-site").ok().flatten();
+    if crate::auth::csrf_cookie_violation(req.method().as_ref(), &cookie, site.as_deref()) {
+        return Some(
+            crate::json_error(403, "Cross-site request blocked", "csrf_error").unwrap_or_else(
+                |_| {
+                    Response::from_body(ResponseBody::Body(Vec::new()))
+                        .unwrap_or_else(|_| unreachable!())
+                },
+            ),
+        );
+    }
+    // 2. **FORCE HTTPS**: the session cookie is `Secure`, so on plain http the browser drops it and a login
+    //    "succeeds then bounces". Cloudflare normalizes `url.protocol`, which is why the header is what is read.
+    let proto = req
+        .headers()
+        .get("x-forwarded-proto")
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !proto.is_empty() && proto != "https" {
+        let target = format!(
+            "https://{}{}{}",
+            url.host_str().unwrap_or_default(),
+            url.path(),
+            match url.query() {
+                Some(q) => format!("?{q}"),
+                None => String::new(),
+            }
+        );
+        // `Response::redirect` takes a `Url` and is 302 by default; the front door answers **308**, which is
+        // what keeps a POST a POST across the upgrade, so the status is set rather than the helper's default.
+        if let Ok(url) = Url::parse(&target) {
+            return Response::redirect(url).ok().map(|r| r.with_status(308));
+        }
+        return None;
+    }
+    // 3. **THE PREFLIGHT** — reflect-if-allowlisted plus `Vary`, and NO `Access-Control-Allow-Origin`
+    //    otherwise. A 200 with those headers and no body, which is what `new Response(null, {headers})` is.
+    if req.method() == Method::Options {
+        let (origin, host, configured) = cors_inputs(req, env);
+        let mut response = Response::from_body(ResponseBody::Body(Vec::new())).ok()?;
+        for (name, value) in
+            crate::cors::cors_headers_for(&origin, host.as_deref(), configured.as_deref())
+        {
+            let _ = response.headers_mut().set(&name, &value);
+        }
+        return Some(response);
+    }
+    None
+}
+
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Read off the request BEFORE it is moved into the routing below: the stamp needs the Origin and the host,
     // and the allowlist needs the var — the same three inputs `withCors` takes in the source.
     let (origin, host, configured) = cors_inputs(&req, &env);
+    // **THE FRONT DOOR'S GATES FIRST, IN THE SOURCE'S ORDER.** `index.ts` checked the CSRF rule at the top of
+    // `fetch` (before the HTTPS redirect and the preflight), and the order is kept: a cross-site mutation is
+    // refused even over plain http, which is the answer the corpus's CSRF case recorded.
+    if let Some(refusal) = front_gates(&req, &env) {
+        return Ok(refusal);
+    }
+    // **THE OPENAI ALIAS — `/models` AND `/chat/completions` GO TO `/v1`'S OWN HANDLER.** The front door did
+    // this by REWRITING THE REQUEST and re-entering itself; here the path is rewritten and the `/v1` arm below
+    // answers, which is the same implementation with one less hop. Two spellings of one call must not answer
+    // from two implementations — the divergence this migration exists to remove.
+    let alias_path = req.url().map(|u| u.path().to_string()).unwrap_or_default();
+    if matches!(alias_path.as_str(), "/models" | "/chat/completions")
+        && req.method() != Method::Options
+    {
+        let mut rewritten = req;
+        if let Ok(url) = rewritten.url() {
+            let mut target = url.clone();
+            target.set_path(&format!("/v1{}", url.path()));
+            let mut init = RequestInit::new();
+            init.with_method(rewritten.method().clone());
+            init.with_headers(rewritten.headers().clone());
+            let body = rewritten.text().await.ok();
+            if let Some(body) = body {
+                init.with_body(Some(worker::wasm_bindgen::JsValue::from_str(&body)));
+            }
+            if let Ok(next) = Request::new_with_init(target.as_str(), &init) {
+                return route(next, env).await;
+            }
+        }
+        return route(rewritten, env).await;
+    }
     // **THE PUBLIC INSTALLER FAMILY IS CARVED OUT OF THE DOOR'S STAMP, AND THE CARVE-OUT IS THE SOURCE'S
     // SHAPE RATHER THAN A CONVENIENCE.** `index.ts` returned these three routes BEFORE its dispatch and its
     // `withCors`, forcing `Access-Control-Allow-Origin: *` because the payloads are public installers a
