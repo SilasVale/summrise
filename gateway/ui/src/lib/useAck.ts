@@ -13,7 +13,9 @@
 //   2. IT CLEARS ON EVERY EXIT, including a throw — `finally` is the only place that is true of.
 //
 // `aria-busy` travels with `data-busy` because they answer different readers: `data-busy` is what the design sweep reads
-// (alongside `aria-busy` and `disabled`), and `aria-busy` is what assistive tech announces.
+// (alongside `aria-busy`, `disabled` and — since 2026-10-17 — **`aria-expanded`**, which is how a TOGGLE acknowledges a
+// press: it has no busy window, so the state it announces IS its acknowledgement), and `aria-busy` is what assistive tech
+// announces.
 import { useCallback, useState } from "react";
 
 interface Ack {

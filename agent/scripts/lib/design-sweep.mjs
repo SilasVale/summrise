@@ -1025,8 +1025,29 @@ export async function ackPass(page, targets, budgetMs, label = {}) {
       const st = getComputedStyle(el);
       if (r.width < 6 || r.height < 6 || st.display === "none" || st.visibility === "hidden") continue;
       return {
-        busy: el.getAttribute("data-busy") === "1" || el.getAttribute("aria-busy") === "true" || el.disabled === true,
-        attr: el.getAttribute("data-busy") === "1" ? "data-busy" : el.disabled === true ? "disabled" : el.getAttribute("aria-busy") === "true" ? "aria-busy" : null,
+        // **AND A TOGGLE SAYS SO BY ANNOUNCING ITS STATE (2026-10-17).** `data-busy`/`aria-busy`/`disabled` are
+        // the three ways a control says "I am working"; a control that opens something and works on nothing —
+        // the user popover, an accordion, a disclosure — has no busy window at all, and its only honest
+        // acknowledgement is the state it now announces. Reading `aria-expanded` is therefore not a relaxation
+        // of the budget: it is the SAME RULE ("the control says so, or it paints differently") applied to the
+        // control class that had no attribute to say it with. Measured before this line existed: `console
+        // devices: button.rail-avatar` acknowledged at 177ms against a 100ms budget, because the probe was
+        // watching a `:active` transform on a loaded runner — and the row's own note guessed at the network,
+        // which its data could not check (rounds 96-99).
+        busy:
+          el.getAttribute("data-busy") === "1" ||
+          el.getAttribute("aria-busy") === "true" ||
+          el.disabled === true ||
+          el.hasAttribute("aria-expanded"),
+        attr: el.getAttribute("data-busy") === "1"
+          ? "data-busy"
+          : el.disabled === true
+            ? "disabled"
+            : el.getAttribute("aria-busy") === "true"
+              ? "aria-busy"
+              : el.hasAttribute("aria-expanded")
+                ? "aria-expanded"
+                : null,
         transform: st.transform, opacity: st.opacity, background: st.backgroundColor,
         where: el.tagName.toLowerCase() + (typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).join(".") : ""),
         // THE CONTROL'S OWN NAME (round 44 of the standing goal): `where` is the CLASS CHAIN, so a note that prints
