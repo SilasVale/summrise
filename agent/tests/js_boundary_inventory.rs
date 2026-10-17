@@ -948,4 +948,21 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // **THE COUNT IS THE SMALLEST IT HAS BEEN**: 39, from 107 at the start of the tail.
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 39`.
-const MAX_LOGIC: usize = 39;
+// 39 -> 36 ON 2026-10-17, FOR `gateway/src/upstream.ts` AND ITS TWO TEST FILES — the third landing in a row
+// whose subject is the ROUTING half of the API, and the first whose file had NO IMPORTERS AT ALL: the plugins
+// that imported it were deleted one landing ago, so `grep 'from "../upstream.ts"'` returned nothing and the
+// module was a 397-line library nobody linked.
+//
+// **EVERY CLAIM ITS TESTS CARRIED IS PINNED IN RUST, AND THAT WAS CHECKED RATHER THAN ASSUMED** — this is the
+// part of such a deletion that has to be done by hand:
+//   * "the default route does NOT strip a prefix, whatever the caller passed" — that is a BUG-CLASS guard
+//     (`model.slice(prefix.length + 1)` on a bare name yields `""`), and it is now
+//     `routing.rs::the_default_route_does_not_strip_a_prefix_whatever_the_caller_passed`, added in this landing;
+//   * the drift pin between the route list and `RESERVED_PREFIXES` is `routing.rs::the_built_in_prefixes_are_the_route_tables`;
+//   * "BUILT-INS WIN over a record that claims their prefix" is that test's reservation half;
+//   * the custom-provider resolution AND the unroutable-record-is-an-error case are
+//     `routing.rs::the_custom_providers_match_the_shipping_chain` replaying `fixtures/provider-corpus.json` —
+//     the TypeScript cases were hand-written instances of corpus rows.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 36`.
+const MAX_LOGIC: usize = 36;

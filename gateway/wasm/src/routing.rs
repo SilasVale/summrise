@@ -933,6 +933,7 @@ mod emission {
 
 #[cfg(test)]
 mod tests {
+
     //! **PINNED BY HAND, WITH THE REASON.** `pickRoute` is exported and pure, so its differential is a
     //! straight oracle replay — and the oracle attempt this round was reverted rather than half-landed after
     //! a name collision in that file cost more than the round had left. The pins below are the facts a port
@@ -1380,5 +1381,30 @@ mod tests {
             "{}",
             empty.upstream
         );
+    }
+}
+
+/// **THE DEFAULT ROUTE'S `strip_prefix: false` IS A BUG-CLASS GUARD, NOT A STYLE CHOICE (moved here
+/// 2026-10-17).** It was pinned by `gateway/test/default-route-strip-prefix.test.mjs`, which drove the
+/// TypeScript `resolveRoute` — a function that has since lost every caller, so the file and its subject left
+/// together. What the claim protects is worth restating where the data lives: the translate paths strip a
+/// model's prefix with `model.slice(prefix.length + 1)`, and for a BARE model name that slice is one past the
+/// end and yields `""` — **the only thing stopping every unprefixed request from asking its upstream for the
+/// empty model name is this flag**, and the slice sites have no guard of their own.
+#[test]
+fn the_default_route_does_not_strip_a_prefix_whatever_the_caller_passed() {
+    let unknown = pick_route("a-model-name-that-is-not-a-prefix", None, None, CHAT_PATH);
+    assert!(
+            !unknown.strip_prefix,
+            "the fall-through must NOT strip: `a-model-name-that-is-not-a-prefix` would become an empty model id"
+        );
+    assert_eq!(
+        unknown.kind, "commandgoat",
+        "the fall-through is the default channel"
+    );
+    // And the bare names the deleted test enumerated survive the expression unchanged.
+    for bare in ["minimax-m3", "gpt-5", "claude-sonnet-4"] {
+        let route = pick_route(bare, None, None, CHAT_PATH);
+        assert!(!route.strip_prefix, "{bare} must survive verbatim");
     }
 }

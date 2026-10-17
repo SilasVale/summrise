@@ -1,5 +1,10 @@
-// Custom PROVIDERS as DATA — `store/providers.ts`, plus the routing contract
-// `resolveRoute` implements on top of it (upstream.ts).
+// Custom PROVIDERS as DATA — `store/providers.ts`.
+//
+// **ITS TWO ROUTING CONTRACT CASES LEFT ON 2026-10-17, WITH `upstream.ts` ITSELF.** That module lost every
+// caller (the plugins that imported it are deleted), and the two claims it was the vehicle for are
+// `gateway/wasm/src/routing.rs`'s own tests now: the drift pin between the route list and
+// `RESERVED_PREFIXES` is that file's `is_built_in_prefix` test, and "a built-in wins over a provider that
+// claims its prefix" is the reservation half it carries beside it.
 //
 // The model catalogue had a store and a test; the layer under it — the channels
 // themselves — was still code. These are the pins for the registry that makes a
@@ -34,7 +39,6 @@ const {
   publicProvider,
   SUPPORTED_PROVIDER_APIS,
 } = await import("../src/store/providers.ts");
-const { resolveRoute, ROUTE_TABLE, pickRoute } = await import("../src/upstream.ts");
 const { RESERVED_PREFIXES } = await import("../src/channels.ts");
 
 /** A fresh isolate per test: the store caches KV reads in a process-global map. */
@@ -64,19 +68,6 @@ function mustParse(body) {
 }
 
 /* ---------------- reservation (shadowing) ---------------- */
-
-test("RESERVED_PREFIXES is exactly the built-in route table plus the none sentinel", () => {
-  // DRIFT PIN. The reservation list is spelled out in channels.ts while the
-  // routes live in upstream.ts, so the two can only be kept equal by a test:
-  // a channel added to ROUTE_TABLE without a reservation would become a
-  // SHADOWABLE prefix — a provider could claim `ds/` and be advertised while
-  // every ds/ request still rode the built-in route.
-  assert.deepEqual(
-    [...RESERVED_PREFIXES].sort(),
-    [...Object.keys(ROUTE_TABLE), "none"].sort(),
-    "channels.ts's RESERVED_PREFIXES no longer matches upstream.ts's ROUTE_TABLE",
-  );
-});
 
 test("a reserved prefix is REFUSED at creation, with the collision named (409)", () => {
   for (const reserved of RESERVED_PREFIXES) {
@@ -298,70 +289,3 @@ test("a malformed RECORD cannot break the advertised listing", async () => {
 
 /* ---------------- resolution order ---------------- */
 
-test("resolveRoute: BUILT-INS WIN over a record that claims their prefix", async () => {
-  // The shadowing case, as it would actually arrive: a record written by hand, or
-  // written before the built-in channel existed. Routing must not follow it —
-  // every existing og/ route (and the user's OpenCode key) would go to a third
-  // party.
-  const shadow = {
-    prefix: "og/",
-    label: "shadow",
-    baseURL: "https://evil.example.com",
-    api: "openai-completions",
-    apiKey: "sk-shadow-key-1234",
-    models: [{ id: "mimo-v2.5" }],
-  };
-  const env = freshEnv({ "providers:custom": JSON.stringify([shadow]) });
-
-  const route = await resolveRoute(env, "og", null, "/v1/messages");
-  assert.equal(route.kind, "opencode", "a stored record re-pointed a built-in prefix");
-  assert.equal(
-    route.upstream,
-    pickRoute("og", env, null, "/v1/messages").upstream,
-    "the built-in route changed",
-  );
-  assert.equal(route.provider, undefined, "the built-in route picked up a provider record");
-});
-
-test("resolveRoute: a custom prefix resolves to its provider; unknown ones still default", async () => {
-  const env = freshEnv();
-  await putCustomProvider(env, mustParse(SUMMRISE_LIKE));
-
-  const custom = await resolveRoute(env, "my", null, "/v1/chat/completions");
-  assert.equal(custom.kind, "custom", "the custom prefix did not resolve to the provider");
-  assert.equal(custom.upstream, "https://api.example.com/chat/completions");
-  assert.equal(custom.type, "translate", "a custom provider must ride the translate machinery");
-  assert.equal(custom.stripPrefix, true);
-  assert.equal(custom.provider?.prefix, "my/");
-
-  // US_PROXY must not wrap a custom provider: the operator's endpoint is not one
-  // of the relay's targets, and its key must not be handed to the egress.
-  const proxied = await resolveRoute(env, "my", "1", "/v1/chat/completions");
-  assert.equal(proxied.upstream, "https://api.example.com/chat/completions");
-
-  // The no-prefix and genuinely-unknown cases keep the historical default.
-  assert.equal((await resolveRoute(env, "", null)).kind, "commandgoat");
-  assert.equal((await resolveRoute(env, "nope", null)).kind, "commandgoat");
-});
-
-test("an unroutable record is an ERROR route — never a silent fall-through to the default", async () => {
-  // Hand-edited KV with a dialect this build dropped. Falling through would dial
-  // Command Code under the caller's DeepSeek key for a model the operator
-  // pointed somewhere else entirely.
-  const env = freshEnv({
-    "providers:custom": JSON.stringify([
-      {
-        prefix: "my/",
-        label: "bogus",
-        baseURL: "https://api.example.com",
-        api: "google-generative-ai",
-        apiKey: "sk-bogus-key-1234",
-        models: [{ id: "m" }],
-      },
-    ]),
-  });
-  const route = await resolveRoute(env, "my", null, "/v1/chat/completions");
-  assert.equal(route.type, "error", "an unroutable provider fell through to a real channel");
-  assert.match(String(route.reason), /cannot be routed/);
-  assert.equal(route.upstream, "", "an error route must not carry a dialable upstream");
-});

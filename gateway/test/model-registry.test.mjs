@@ -165,7 +165,7 @@ test("every derived table agrees with the registry it derives from", () => {
 });
 
 test("a `wire` facet is only meaningful on og/ — anywhere else it is ignored", () => {
-  // wireModelName() (upstream.ts) consults OG_WIRE_REMAP for prefix "og" and
+  // wireModelName() (routing-logic.ts, the emission) consults OG_WIRE_REMAP for prefix "og" and
   // passes everything else through untouched. A wire on another channel would
   // be DEAD DATA that reads as if it did something — the exact trap this
   // registry is supposed to close.
