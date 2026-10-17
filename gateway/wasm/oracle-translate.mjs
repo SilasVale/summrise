@@ -76,9 +76,6 @@ import {
 } from "../src/cors-logic.ts";
 import { deviceHostError } from "../src/device-dial-logic.ts";
 import { hostAllowError } from "../src/device-fetch.ts";
-// `pickRoute` and `resolveRoute` are the CONSOLE's own routing, in `upstream.ts` — the file the worker's
-// `routing.rs` was ported from and which remains the console's live implementation.
-import { pickRoute } from "../src/upstream.ts";
 
 const FIXTURE = fileURLToPath(new URL("fixtures/translate-corpus.json", import.meta.url));
 const headers = (pairs) => new Headers(pairs ?? {});
@@ -105,18 +102,12 @@ const LIVE = {
   opencode_session_header: (input) => opencodeSessionHeader(headers(input.headers), input.uid),
   strip_bracket: (input) => stripBracket(input),
   wire_model_name: (input) => wireModelName(input.prefix, input.stripped),
-  // The routing decision's own convention, copied from the RUST test that reads the same 45 cases.
-  pick_route: (input) => {
-    const env = {};
-    if (input.usProxy != null) env.US_PROXY = input.usProxy;
-    if (input.base != null) env.US_PROXY_BASE = input.base;
-    const got = pickRoute(input.prefix ?? "", env, input.usProxy ?? null, input.requestPath ?? "");
-    // **THE RUST STRUCT'S FIELD IS NOT THE TYPESCRIPT'S**: the worker's `RouteInfo` carries `is_translate`, while
-    // the console's carries a `type` STRING. Reading the wrong one made every case look like a passthrough — the
-    // replay said so on the first run, which is the whole reason it replays instead of trusting an adapter.
-    return { type: got.type, kind: got.kind, stripPrefix: got.stripPrefix, upstream: got.upstream };
-  },
-
+  // **`pick_route` IS DELIBERATELY NOT HERE ANY MORE (2026-10-17), AND THE LIVE PEER IS WHY.** This row replayed
+  // the corpus through `gateway/src/upstream.ts`'s `pickRoute` — the console's own routing, which is what the
+  // worker's `routing.rs` was ported from. That module lost every importer (the plugins that imported it were
+  // deleted) and was retired, so THERE IS NO LIVE TYPESCRIPT LEFT TO COMPARE AGAINST: the cases stay in
+  // `fixtures/translate-corpus.json` and `routing.rs` reads them as its own pins — the same end state
+  // `model_registry` reached above, and the reason this table is a table rather than a list.
   // ── the channel registry (`channels-logic.ts`, an emission of `registry.rs`) ───────────────────
   // **`model_registry` IS DELIBERATELY NOT HERE, AND THE MEASUREMENT IS WHY** (2026-10-15). Its recorded rows carry
   // EVERY key with explicit nulls for absent facets — the shape of the RUST's `ModelSpec` serialization, not the
