@@ -7,11 +7,17 @@ do not. It is not a spec, not a scratch pad, and it carries no implementation de
 ## The surfaces
 
 **Summrise Gate**:
-The AI gateway console — login, admin/user roles, invite codes — running on a Cloudflare Worker. It is the front door.
+The AI gateway console — login, admin/user roles, invite codes — running on Cloudflare Workers. **TWO WORKERS, AND THE
+DISTINCTION IS LOAD-BEARING**: the **worker** (`gateway/wasm`, Rust) serves every API route, `/v1`, the console's static
+page and its own front-door gates; the **console worker** (`gateway/src`, TypeScript) is the Durable Object host — a DO
+class cannot be defined in Rust — and serves nothing else once the domains move to the worker (`scripts/GATEWAY.md`).
+"The gate" unqualified means the first one.
 _Avoid_: the server, the backend, the gateway (unqualified).
 
 **Summrise Agent**:
-The headless MCP server on the Windows machine, exposed through a Cloudflare Tunnel, one subdomain per machine.
+The headless MCP server on the Windows machine. It opens **NO INBOUND PORT**: it is reached either through a Cloudflare
+Tunnel (one subdomain per machine) or by dialling OUT to an **outbound relay**, and which one is the device's own
+declaration — see **Transport** below.
 _Avoid_: the server, the daemon, the client.
 
 **Console**:
@@ -27,6 +33,29 @@ _Avoid_: the UI, the terminal page — it is more than a terminal.
 A Windows machine running a Summrise Agent and registered with the Gate. It is the unit an operator adds, names, and
 reaches.
 _Avoid_: machine, host, node, box.
+
+**Transport** (of a device):
+**HOW THE GATE REACHES A DEVICE, WHICH IS THE DEVICE'S OWN ANSWER AND NOT THE OPERATOR'S CHOICE.** Two exist: the
+**tunnel** (`hostname` on the record — the device is a public server and the Gate is its client) and the **outbound
+relay** (`via: relay` — the device polls out and the Gate dials the relay by name, opening nothing inbound). A device
+declares which one it is at self-registration, from its own config, so removing `relay_url` on the device moves it back
+to the tunnel. **NOT TO BE CONFUSED WITH "TRANSPORT LANE" BELOW**, which is about a session's backend inside one device —
+this word is about the wire between two machines.
+_Avoid_: connection (the panel has saved connections for WORKSPACE HOSTS), channel (that is a model provider).
+
+**Outbound relay**:
+The process a NAT'd device dials out to (`proxies/summrise-relay`), which then carries whole HTTP requests to it. It is
+one relay for MANY devices: a device polls with its own name and a client reaches it at `/d/<name>/…`. **`summrise
+connect <relay-url>` on the device is what configures it, `summrise disconnect` is what undoes it.**
+_Avoid_: **"relay" unqualified — THE WORD IS NOW SHARED BY THREE THINGS, and the runbooks name them apart**: this one
+(HTTP, carries a device's API), **DERP relay** below (the network layer, carries a tailnet's packets) and **Relay pair**
+below (the file tools). They share a word because each moves something between two machines, and they share nothing else.
+
+**DERP relay**:
+Tailscale's own fallback relay, for when a direct path between two tailnet peers dies. **Self-hosted on the same box as
+the exit node**, because the public one was carrying the whole internet for an exit-node user at relayed latency; the
+runbook with the measurements is `scripts/DERP.md`. It moves PACKETS and knows nothing about Summrise.
+_Avoid_: **outbound relay** above — a different layer, a different program, and no traffic of ours is HTTP to it.
 
 ## Workspaces
 
@@ -73,6 +102,22 @@ _Avoid_: task, job, batch, invocation.
 The objective a session is pursuing, set by the OPERATOR. It is not a run's goal: one goal can span several runs — a retry
 after a failure is the same goal in a new run — and a run can carry no goal at all.
 _Avoid_: using "goal" for both without saying which.
+
+## Change
+
+**Corpus**:
+A committed set of recorded inputs and the ANSWERS THE SHIPPING IMPLEMENTATION GAVE, replayed against the port. It is what
+makes "the same" a measurement rather than a claim: a route is cut over when its corpus is green, and a corpus case that
+a port cannot satisfy is a finding, not an obstacle. **A CASE WHOSE LIVE PEER NO LONGER EXISTS BECOMES A PIN** — the
+recording stays and the behaviour is asserted directly, rather than the case being deleted with the code it compared
+against.
+_Avoid_: fixture (that is the file; the corpus is the practice), test (a corpus REPLAYS, it does not invent).
+
+**Cutover**:
+Moving a surface's live traffic from one implementation to the other, after the corpus that compares them is green. **A
+LANDING IS NOT A CUTOVER** — a landing ports a route and hands it over; the cutover is the deploy, and it is the
+operator's call.
+_Avoid_: migration (that word covers the whole port, of which a cutover is one step), release.
 
 ## State
 
