@@ -110,22 +110,22 @@ test("cross-site cookie-authed mutation 403s at the front door", async () => {
     }),
     csrfEnv(),
   );
-  // **THE CSRF ASSERTION ABOVE IS THE TEST'S SUBJECT AND IT STILL PASSES; THE 401 IS THE ROUTING, AND IT MOVED
-  // BACK WHEN THE ROLLBACK DID.** `csrfEnv()` builds the NO-BINDING configuration on purpose (see its comment),
-  // and `index.ts`'s three `wasmGate(env)` conditions send a binding-less request to the TypeScript plugins —
-  // the rollback `index.ts` describes in its own words and the cascade had removed (restoring it was worth 35
-  // failures at once). So a same-origin login falls through to `plugins/auth.ts` and is refused at AUTH, which
-  // is what this 401 means. The 503 this assertion carried between e726b88b and here belongs to a tree whose
-  // handover was unconditional AND whose fallback was deleted; that tree is not this one, and the count caught
-  // the difference (401 !== 503) rather than hiding it.
-  assert.equal(same.status, 401, "same-origin passes the gate, fails at auth instead");
+  // **THE CSRF ASSERTION IS THE TEST'S SUBJECT; THE DOWNSTREAM STATUS IS THE ROUTING, AND THE ROUTING MOVED
+  // (2026-10-17).** `csrfEnv()` builds the NO-BINDING configuration on purpose, and `plugins/auth.ts` — the
+  // fallback that used to answer 401 here — is deleted with the rest of the family. So a same-origin login now
+  // reaches the front door's dispatch with no route to answer it: the assertion is that the gate LET IT THROUGH
+  // (not 403), which is the gate's own claim, and the 404 is where it landed.
+  assert.notEqual(same.status, 403, "same-origin must pass the CSRF gate");
+  assert.equal(same.status, 404, "and with no plugin left, the front door's 404 is the answer");
   const get = await worker.fetch(
     new Request("https://x/api/me", { headers: { cookie: "ag_session=abc", "sec-fetch-site": "cross-site" } }),
     csrfEnv(),
   );
-  // Same reading as above: the gate does not apply to reads (which is the claim), and the answer behind it is
-  // the rollback plugin's refusal of a bogus cookie.
-  assert.equal(get.status, 401, "reads are never CSRF-gated, and the fallback refuses the bogus cookie");
+  // **THE CLAIM IS "A READ IS NOT CSRF-GATED", AND THE ANSWER BEHIND IT MOVED (2026-10-17)**: the 401 here was
+  // `plugins/auth.ts` refusing the bogus cookie, and that file is deleted — so the read falls through to the
+  // front door's 404, exactly like the same-origin login above.
+  assert.notEqual(get.status, 403, "reads are never CSRF-gated");
+  assert.equal(get.status, 404, "and with no plugin left, the front door's 404 is the answer");
 });
 
 // round-476 (coverage-driven): the static-asset branch arms had ZERO pins.
@@ -202,15 +202,16 @@ test("a path the family does not claim is NOT handed over", async () => {
   }
 });
 
-test("WITHOUT the binding the admin family falls back to the TypeScript plugin", async () => {
-  // **THE ROLLBACK, AND IT IS THE BINDING'S ABSENCE.** `plugins/admin.ts` is unchanged and still registered, so
-  // a local `wrangler dev` or a deployment whose binding was removed serves the family as it did before. The
-  // assertion is that the request reached a TypeScript handler at all — a session-gated route answers 401 there,
-  // where an unbound handover would have reached no one.
+test("WITHOUT the binding the admin family has NO fallback — the front door's own 404", async () => {
+  // **THE ROLLBACK IS DELETED (2026-10-17), SO THIS CASE REVERSED.** It used to assert a 401 from
+  // `plugins/admin.ts` — the TypeScript implementation standing by for a deployment without a binding — and that
+  // file is gone: its seventeen paths are the worker's, and a deployment that cannot reach the worker answers
+  // the front door's 404 rather than a second implementation nobody has exercised since the cutover. The same
+  // end state `/mcp` reached when its plugin left.
   const e = env();
   delete e.WASM_GATE;
   const res = await worker.fetch(new Request("https://x/api/admin/users"), e);
-  assert.equal(res.status, 401, "the plugin's own session gate, not a routing 404");
+  assert.equal(res.status, 404, "no plugin, no worker, no route — the front door's 404");
   assert.deepEqual(e._frontDoor, [], "nothing may reach a worker that is not bound");
 });
 
@@ -224,9 +225,12 @@ test("a hand-off is STAMPED, because the two answers are identical by design", a
   assert.equal(res.headers.get("x-summrise-front-door"), "rust");
   assert.deepEqual(e._frontDoor, ["GET /api/admin/public"], "and it is the worker that answered");
 
-  // The rollback path: no binding, no stamp — the TypeScript plugin answered.
+  // **AND WITH NO BINDING THERE IS NO ANSWER TO STAMP (2026-10-17).** This tail used to read "the TypeScript
+  // plugin answered" — that plugin is deleted, so the stamp's absence now goes with a 404, which is the same
+  // thing the case above asserts from the other side.
   const e2 = env();
   delete e2.WASM_GATE;
   const res2 = await worker.fetch(new Request("https://x/api/admin/public"), e2);
-  assert.equal(res2.headers.get("x-summrise-front-door"), null);
+  assert.equal(res2.status, 404);
+  assert.equal(res2.headers.get("x-summrise-frontdoor"), null);
 });

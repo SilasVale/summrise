@@ -58,8 +58,11 @@ function limiterOptions(rel) {
  *  at all, and `kvSeed` below is that field's ABSENCE, which is what the assertion refuses to let appear. */
 function rustLimiter(rel, konstName = "PUBLIC_RATE") {
   const src = readFileSync(join(ROOT, rel), "utf8");
+  // **`pub const` OR A PLAIN `static`** — the three instances are declared two ways, and the first version of
+  // this reader only knew the first: `PROBE_RATE`/`PUBLIC_RATE` are `pub const`s in `ip_rate_limit.rs`, while
+  // `auth_routes.rs` keeps its own as a `static` beside the counter table it locks.
   const konst = new RegExp(
-    `pub const ${konstName}:\\s*IpRateLimiter\\s*=\\s*IpRateLimiter\\s*\\{([\\s\\S]*?)\\};`,
+    `(?:pub )?(?:const|static) ${konstName}:\\s*IpRateLimiter\\s*=\\s*IpRateLimiter\\s*\\{([\\s\\S]*?)\\};`,
   ).exec(src);
   if (!konst) return null;
   const struct = /pub struct IpRateLimiter\s*\{([\s\S]*?)\}/.exec(src);
@@ -82,12 +85,15 @@ function probeRouteSeeds() {
 
 test("ratelimit: only the probe limiter seeds its counter from KV", () => {
   const probe = rustLimiter("wasm/src/ip_rate_limit.rs", "PROBE_RATE");
-  const auth = limiterOptions("src/plugins/auth.ts");
+  // **THE AUTH LIMITER IS RUST'S NOW (2026-10-17)**: `plugins/auth.ts` is deleted, and its per-IP gate is
+  // `auth_routes.rs`'s `AUTH_RATE` — the same three parameters, read the same way `PROBE_RATE` and
+  // `PUBLIC_RATE` are, with `kv_seed`'s absence from the STRUCT as the memory-only verdict.
+  const auth = rustLimiter("wasm/src/auth_routes.rs", "AUTH_RATE");
   const devices = rustLimiter("wasm/src/ip_rate_limit.rs");
 
   for (const [label, o] of [
     ["wasm/src/ip_rate_limit.rs PROBE_RATE", probe],
-    ["src/plugins/auth.ts", auth],
+    ["wasm/src/auth_routes.rs AUTH_RATE", auth],
     ["wasm/src/ip_rate_limit.rs", devices],
   ]) {
     assert.ok(o, `${label} no longer creates an IP rate limiter — if a call site moved, ` +
@@ -104,7 +110,7 @@ test("ratelimit: only the probe limiter seeds its counter from KV", () => {
   assert.equal(
     auth.kvSeed,
     false,
-    `src/plugins/auth.ts's limiter gained \`kvSeed: true\`. Those two endpoints already cost 2-3 KV ` +
+    `wasm/src/auth_routes.rs's AUTH_RATE gained a KV-seed field. Those two endpoints already cost 2-3 KV ` +
       `writes per attempt themselves, so a per-request KV write here lets an attacker ` +
       `exhaust the Free-plan daily KV write quota — that is round-104's finding, and ` +
       `src/lib/ratelimit.ts records the per-isolate ceiling as the ACCEPTED trade. ` +
@@ -125,7 +131,7 @@ test("ratelimit: only the probe limiter seeds its counter from KV", () => {
 test("ratelimit: the three named buckets are the ones the doc enumerates", () => {
   const names = [
     rustLimiter("wasm/src/ip_rate_limit.rs", "PROBE_RATE").name,
-    limiterOptions("src/plugins/auth.ts").name,
+    rustLimiter("wasm/src/auth_routes.rs", "AUTH_RATE").name,
     rustLimiter("wasm/src/ip_rate_limit.rs").name,
   ].sort();
   assert.deepEqual(

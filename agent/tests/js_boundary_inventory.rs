@@ -932,4 +932,20 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // `store/models.ts`, not the module that left.
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 41`.
-const MAX_LOGIC: usize = 41;
+// 41 -> 39 ON 2026-10-17, FOR `gateway/src/plugins/auth.ts` AND `gateway/src/plugins/admin.ts` — the two
+// FALLBACK PLUGINS, deleted together because they were the same kind of thing: every route each registered is
+// handed to the Rust worker (`isAuthFamily` now carves nothing out; `isAdminFamily` covers all seventeen admin
+// paths), so they answered only for a deployment WITHOUT the `WASM_GATE` binding — the shape `/mcp`, the admin
+// probe, both key diagnostics, `/api/me/route` and `model-route.ts` already left by. **AND THE PROOF THAT THEY
+// WERE UNREACHABLE IS THE FRONT DOOR'S OWN TESTS**, reversed in this landing: without the binding the admin
+// family now answers the front door's 404, and the CSRF case's downstream status moved from the plugin's 401 to
+// the same 404. A ROLLBACK NOBODY HAS EXERCISED SINCE THE CUTOVER IS NOT A ROLLBACK — it is a second
+// implementation, and the corpora (93 identity cases, 82 admin cases) prove the first one case for case.
+//
+// **WHAT STAYS AND WHY**: `plugins/status.ts` is the last plugin, because its one route
+// (`GET /api/plugins/status`) reports THIS registry's dispatch instrumentation — a property of the TypeScript
+// route table rather than a decision that could move — and `plugins/registry.ts` is the framework it needs.
+// **THE COUNT IS THE SMALLEST IT HAS BEEN**: 39, from 107 at the start of the tail.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 39`.
+const MAX_LOGIC: usize = 39;

@@ -42,9 +42,7 @@ import { jsonOk, jsonError, readJson, CORS_HEADERS, corsHeadersFor, withCors } f
 // deleted with the module (their subject moved), and `agent/tests/*` never imported it.
 import { createPluginContext, registerPlugins, dispatch } from "./plugins/registry.ts";
 import { wasmGate } from "./gate.ts";
-import authPlugin from "./plugins/auth.ts";
 import { csrfCookieViolation } from "./auth.ts";
-import adminPlugin from "./plugins/admin.ts";
 import statusPlugin from "./plugins/status.ts";
 
 // Re-exported for tooling/tests that target the front door surface.
@@ -70,7 +68,14 @@ function ensurePluginCtx() {
     readJson,
     CORS_HEADERS,
   });
-  registerPlugins(__pluginCtx, [authPlugin, adminPlugin, statusPlugin]);
+  // **ONE PLUGIN LEFT (2026-10-17).** `authPlugin` and `adminPlugin` are DELETED: every route they registered is
+  // handed to the Rust worker (`isAuthFamily` now carves nothing out; `isAdminFamily` covers all seventeen admin
+  // paths), so they were fallbacks for a deployment without the `WASM_GATE` binding — the shape `/mcp`, the admin
+  // probe, both key diagnostics, `/api/me/route` and `model-route.ts` already left by. `statusPlugin` STAYS and
+  // is the last one: its route is `GET /api/plugins/status`, whose payload carries the dispatch instrumentation
+  // of THIS registry, and that is a property of the TypeScript route table rather than of a decision that could
+  // move — see the plugin's own header and `isMcpFamily` above.
+  registerPlugins(__pluginCtx, [statusPlugin]);
   return __pluginCtx;
 }
 
