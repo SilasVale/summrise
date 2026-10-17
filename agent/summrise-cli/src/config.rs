@@ -65,6 +65,53 @@ fn port_line(line: &str) -> Option<u32> {
 
 /// The device token, read the same way: a line scan, no YAML dependency. Absent means "cannot talk
 /// to the device API", which the callers report as a state rather than as a crash.
+/// `server.relay_url` — the base the agent polls, or `None`.
+pub fn parse_relay_url(yaml: &str) -> Option<String> {
+    server_string(yaml, "relay_url")
+}
+
+/// `server.relay_token` — the relay's shared secret, or `None`.
+pub fn parse_relay_token(yaml: &str) -> Option<String> {
+    server_string(yaml, "relay_token")
+}
+
+/// `server.relay_device` — the name this device polls with, or `None`.
+pub fn parse_relay_device(yaml: &str) -> Option<String> {
+    server_string(yaml, "relay_device")
+}
+
+/// **ONE READER FOR THE THREE RELAY KEYS, BECAUSE THREE COPIES WOULD DRIFT.** It reads the `server:` section
+/// only: a `relay_url` under another section is a different setting that happens to share a word, and the
+/// section ends at the next top-level key. A quoted value loses its quotes — the config is written by hand as
+/// often as by this CLI, and `relay_url: "https://x"` is the same URL.
+fn server_string(yaml: &str, key: &str) -> Option<String> {
+    let mut in_section = false;
+    for raw in yaml.lines() {
+        let line = raw.trim_end();
+        if line == "server:" || line.starts_with("server: ") {
+            in_section = true;
+            continue;
+        }
+        if !line.starts_with(' ') && !line.trim().is_empty() {
+            in_section = false;
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix(&format!("{key}:")) else {
+            continue;
+        };
+        let value = rest.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(value.to_string());
+    }
+    None
+}
+
 pub fn parse_device_token(yaml: &str) -> Option<String> {
     let mut in_server = false;
     for raw in yaml.split('\n') {

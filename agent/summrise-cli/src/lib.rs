@@ -51,6 +51,7 @@ pub mod monitors;
 pub mod paths;
 pub mod ps;
 pub mod psgen;
+pub mod relay;
 pub mod rollback;
 pub mod setup;
 pub mod sha256;
