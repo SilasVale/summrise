@@ -115,7 +115,10 @@ pub fn in_family(_method: &Method, path: &str) -> bool {
     // that remain are `/api/me/route` (it needs the `ROUTE` Durable Object binding) and `/api/me/keys/test` (the
     // eight probe arms), and the list SHRINKS as they move: an exclusion is a promise that something is still
     // elsewhere, so a list that cannot shrink is a list nobody is reading.
-    !matches!(path, "/api/me/route" | "/api/me/keys/test")
+    // **ONE EXCLUSION LEFT (2026-10-17)**: `/api/me/keys/test` joined the family with the probe arms
+    // (`key_probe.rs`). `/api/me/route` stays because it needs the `ROUTE` Durable Object binding, and it is
+    // the LAST one — when it moves, the TypeScript half of this family is gone.
+    !matches!(path, "/api/me/route")
 }
 
 /// The dispatcher: an exact `(method, path)` match for every route the plugin registers, in the plugin's order,
@@ -147,6 +150,7 @@ pub async fn handle(mut request: Request, env: &Env) -> Handled {
         (Method::Delete, "/api/me/keys") => me_delete_keys(&request, env).await,
         (Method::Post, "/api/me/keys/reveal") => me_reveal_key(&mut request, env).await,
         (Method::Post, "/api/me/keys/usage") => me_key_usage(&mut request, env).await,
+        (Method::Post, "/api/me/keys/test") => me_test_keys(&mut request, env).await,
         _ => Ok(crate::json_error(404, "Not Found", "not_found_error")?),
     }
 }
@@ -848,6 +852,24 @@ async fn me_key_usage(request: &mut Request, env: &Env) -> Handled {
     }
 }
 
+/// `meTestKeys` — `plugins/auth.ts`'s probe route: the eight arms are `key_probe.rs`'s, the prologue is the
+/// same `sessionAndKeyName` its siblings use.
+async fn me_test_keys(request: &mut Request, env: &Env) -> Handled {
+    let allowed = user_store::user_key_names();
+    let (user, name, _body) = match session_and_key_name(request, env, &allowed).await? {
+        Ok(triple) => triple,
+        Err(refusal) => return Ok(refusal),
+    };
+    let ukeys = user_store::get_user_keys(env, &user_id(&user)).await;
+    // **THE SOURCE PASSES THE RAW VALUE AND `testKey` DECIDES FALSINESS** — so a stored `0` or `false` reaches
+    // the same "Key not configured" envelope an empty string does, which is why this is `js_string` of the
+    // value rather than a string check here.
+    let key = ukeys.get(&name).map(js_string).unwrap_or_default();
+    Ok(crate::built_response(
+        crate::key_probe::test_key(env, &name, &key).await,
+    )?)
+}
+
 async fn me_reveal_key(request: &mut Request, env: &Env) -> Handled {
     let allowed = user_store::user_key_names();
     let (user, name, _body) = match session_and_key_name(request, env, &allowed).await? {
@@ -879,7 +901,7 @@ mod tests {
     /// RESULT:   `the_family_is_the_fourteen_routes_plus_the_404s` fails on `/api/me/route`, and the console's
     ///           model-route selection would be answered by an implementation that does not have the catalogue.
     #[test]
-    fn the_family_is_the_fifteen_routes_plus_the_404s() {
+    fn the_family_is_the_sixteen_routes_plus_the_404s() {
         let get = Method::Get;
         for path in [
             "/api/auth/register",
@@ -899,13 +921,13 @@ mod tests {
             // method (the family is a path prefix list; the DISPATCH is what matches verbs), so the membership
             // is asserted with `GET` here exactly as the source's predicate tests it.
             "/api/me/keys/usage",
+            "/api/me/keys/test",
             "/api/me/anything/else",
         ] {
             assert!(in_family(&get, path), "{path} belongs to this worker");
         }
         for path in [
             "/api/me/route",
-            "/api/me/keys/test",
             "/api/meX",
             "/api/authentication",
             "/api/health",

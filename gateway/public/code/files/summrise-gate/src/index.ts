@@ -259,10 +259,9 @@ function isDevicesFamily(method: string, path: string): boolean {
  *   * `GET|PUT /api/me/route` — the per-user `model=auto` selection. Its handler resolves through
  *     `resolveAutoModel` (`model-route.ts`), which reads the model CATALOGUE (`store/models.ts`) and the
  *     `RouteDO` Durable Object: a different surface with its own corpus, not identity.
- *   * `POST /api/me/keys/test` — the key PROBE. It dials six providers; the decisions in it are the providers'
- *     wire shapes, not the caller's identity. (**`POST /api/me/keys/usage` LEFT THIS LIST ON 2026-10-17**: the
- *     route, its session gate and its envelope are `gateway/wasm/src/key_probe.rs`'s now, and the three mappings
- *     it calls were already Rust's.)
+ *   * Both key diagnostics LEFT THIS LIST ON 2026-10-17: `POST /api/me/keys/usage` first (its three mappings
+ *     were already Rust's) and `POST /api/me/keys/test` a landing later (its eight probe arms are
+ *     `gateway/wasm/src/key_probe.rs`'s now). The only exclusion left is `/api/me/route`.
  *
  * **`/api/auth/<anything>` IS THE FAMILY, INCLUDING THE SHAPES THE PLUGIN DOES NOT REGISTER**, because the
  * worker answers the front door's own 404 for those and the corpus compares one (`GET /api/auth/nonsense`).
@@ -277,11 +276,12 @@ function isAuthFamily(path: string): boolean {
   if (path === "/api/auth" || path.startsWith("/api/auth/")) return true;
   if (path === "/api/me") return true;
   if (!path.startsWith("/api/me/")) return false;
-  // **TWO EXCLUSIONS LEFT (2026-10-17)**: `/api/me/keys/usage` moved to `key_probe.rs` — the route, its session
-  // gate and its envelope — so the list is one shorter. `/api/me/route` needs the `ROUTE` Durable Object binding
-  // and `/api/me/keys/test` is the eight probe arms; **AN EXCLUSION IS A PROMISE THAT SOMETHING IS STILL
-  // ELSEWHERE**, so the list may only shrink, and it is read beside `auth_routes::in_family`'s mirror of it.
-  return !(path === "/api/me/route" || path === "/api/me/keys/test");
+  // **ONE EXCLUSION LEFT (2026-10-17)**: `/api/me/keys/test` moved with its eight probe arms
+  // (`key_probe.rs`), a landing after `/api/me/keys/usage` did. `/api/me/route` stays because it needs the
+  // `ROUTE` Durable Object binding — and it is the LAST one, so the day it moves this function stops having an
+  // exception list at all. **AN EXCLUSION IS A PROMISE THAT SOMETHING IS STILL ELSEWHERE**; this list may only
+  // shrink, and it is read beside `auth_routes::in_family`'s mirror of it.
+  return path !== "/api/me/route";
 }
 
 /**

@@ -902,4 +902,17 @@ fn the_most_specific_rule_wins_regardless_of_order() {
 // the tree disagree for one commit.
 //
 // MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 43`.
-const MAX_LOGIC: usize = 43;
+// 43 -> 42 ON 2026-10-17, FOR `gateway/test/key-probe.test.mjs` — the second of the two key diagnostics, and
+// the same shape as the first: `POST /api/me/keys/test`'s eight arms (deepseek, openrouter, opencode-go with
+// its US-proxy switch and first-chunk stream read, command code, gmi, amd with its model list, nvidia, qwen)
+// are `gateway/wasm/src/key_probe.rs`'s now, and the route is in the identity family with one exclusion left
+// (`/api/me/route`, which needs the `ROUTE` Durable Object binding).
+//
+// **AND THE COMPLETENESS CHECK GOT STRICTER RATHER THAN MOVING VERBATIM, WHICH FOUND A REAL GAP.** The deleted
+// test asserted "every `USER_KEY_NAMES` entry probes to a Response" — and `R4_API_KEY` answered the backstop's
+// `400 No probe for key name`, which IS a Response, so the claim held while the console's own key test refused
+// an r4 key. The Rust check (`every_managed_key_has_an_arm`) names that key as a gap instead of accepting it;
+// adding the arm needs a measurement of a cheap r4 auth endpoint, not a guess.
+//
+// MEASURED with this constant forced to 0 on the landed tree: `LOGIC files: 42`.
+const MAX_LOGIC: usize = 42;

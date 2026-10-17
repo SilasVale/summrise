@@ -5050,9 +5050,12 @@ const FROZEN_BOB_HASH = "fedcba9876543210:f4feaddc0b966e656a29f9f5a8063b44c19345
 //     six `plugins.test.mjs` cases that left with it. **THE GAP IS NAMED RATHER THAN IMPLIED**: the next landing
 //     that touches this route should record those three arms here with an upstream stub, and the `AUTH_RECORD`
 //     machinery is what would do it;
-//   * `POST /api/me/keys/test` — the key PROBE, which dials six providers. It is not identity and is not ported
-//     (`auth_routes.rs`'s header names it); its absence here is why the cutover keeps it on the TypeScript path,
-//     which the cutover section measures;
+//   * **`POST /api/me/keys/test` IS PORTED TOO (2026-10-17) AND IS NOT DRIVEN HERE, for the reason above it**:
+//     the eight arms are `key_probe.rs`'s, pinned there (the arm table, the bodies, the envelope, the two
+//     non-table arms, the AMD model list, the completeness check). What no case here drives is the WIRING —
+//     session, `ukeys:` read, dial — because every case in this section replays a recorded shipping answer and
+//     this route's were recorded by the four `plugins.test.mjs` cases that left with it. **THE SAME GAP, NAMED
+//     THE SAME WAY**: a landing that touches either key route should record its arms here with an upstream stub;
 //   * `GET|PUT /api/me/route` — the model-route selection, which resolves through the model CATALOGUE and
 //     `RouteDO`. Same reason, same carve-out.
 //
