@@ -22,6 +22,28 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt as _;
 
+/// **THE DEVICE QUERY, OR NOTHING.** A relay used to carry one device; it multiplexes now, and a named device is
+/// addressed by its own name. **AN ABSENT NAME SENDS NO QUERY AT ALL** rather than `?device=` — the relay treats a
+/// blank as the default device, but sending nothing is the shape every pre-fleet agent already has, and a URL that
+/// is byte-identical to yesterday's is one thing that cannot be the cause of a new failure.
+fn device_query(device: Option<&str>) -> String {
+    match device.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(name) => {
+            let mut out = String::from("?device=");
+            for byte in name.bytes() {
+                match byte {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        out.push(byte as char)
+                    }
+                    other => out.push_str(&format!("%{other:02X}")),
+                }
+            }
+            out
+        }
+        None => String::new(),
+    }
+}
+
 /// A panel or MCP response is capped at 8 MiB by the relay; refuse to build anything larger on this side.
 const MAX_BODY: usize = 8 * 1024 * 1024;
 
@@ -117,6 +139,7 @@ pub async fn serve_job(app: &Router, job: Job) -> Answer {
 pub fn spawn(
     url: String,
     token: String,
+    device: Option<String>,
     app: Router,
     state: SharedRelayState,
     ct: CancellationToken,
@@ -149,7 +172,7 @@ pub fn spawn(
             if ct.is_cancelled() {
                 return;
             }
-            match pull(&client, &base, &token).await {
+            match pull(&client, &base, &token, device.as_deref()).await {
                 Ok(Some(job)) => {
                     backoff_ms = 500; // an answer proves the path is healthy
                     if let Ok(mut st) = state.lock() {
@@ -192,9 +215,14 @@ pub fn spawn(
     })
 }
 
-async fn pull(client: &reqwest::Client, base: &str, token: &str) -> Result<Option<Job>, String> {
+async fn pull(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    device: Option<&str>,
+) -> Result<Option<Job>, String> {
     let resp = client
-        .get(format!("{base}/agent/pull"))
+        .get(format!("{base}/agent/pull{}", device_query(device)))
         .bearer_auth(token)
         .send()
         .await
@@ -317,5 +345,37 @@ mod tests {
         j.headers.insert("x-good".into(), "y".into());
         let out = serve_job(&app(), j).await;
         assert_eq!(out.status, 200, "one bad header must not lose the request");
+    }
+}
+
+#[cfg(test)]
+mod device_query_tests {
+    //! **THE ONE THING A NAMED DEVICE CAN GET WRONG IS THE URL.** The relay multiplexes by the query's value, so a
+    //! name that is not percent-encoded would either truncate at a reserved character or address a different device.
+
+    use super::device_query;
+
+    #[test]
+    fn an_absent_or_blank_name_sends_no_query_at_all() {
+        // **BYTE-IDENTICAL TO YESTERDAY'S URL**, which is the migration's whole safety argument.
+        assert_eq!(device_query(None), "");
+        assert_eq!(device_query(Some("")), "");
+        assert_eq!(device_query(Some("   ")), "");
+    }
+
+    #[test]
+    fn a_plain_name_is_passed_through_and_a_reserved_one_is_encoded() {
+        assert_eq!(device_query(Some("d1")), "?device=d1");
+        assert_eq!(
+            device_query(Some("workshop-pc.local")),
+            "?device=workshop-pc.local"
+        );
+        // A space, an ampersand and a slash all have to survive: the relay splits the query, and a slash would
+        // otherwise read as another path segment.
+        assert_eq!(device_query(Some("a b")), "?device=a%20b");
+        assert_eq!(device_query(Some("a&b")), "?device=a%26b");
+        assert_eq!(device_query(Some("a/b")), "?device=a%2Fb");
+        // A name is trimmed before it is judged blank, and the trimmed value is what is sent.
+        assert_eq!(device_query(Some(" d1 ")), "?device=d1");
     }
 }

@@ -497,6 +497,7 @@ pub(crate) fn unknown_key_warnings(config_path: &Path) -> Vec<String> {
                 // every section the agent writes while never writing these three.
                 "relay_url",
                 "relay_token",
+                "relay_device",
                 "proxy_secret",
             ],
         ),

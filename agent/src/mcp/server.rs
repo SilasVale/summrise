@@ -263,7 +263,14 @@ pub async fn bind(
             if token.is_empty() {
                 tracing::warn!("relay: relay_url is set but relay_token is empty — the relay will refuse every poll");
             }
-            crate::relay::spawn(url, token, mcp_app.clone(), relay_state.clone(), ct.clone());
+            crate::relay::spawn(
+                url,
+                token,
+                snapshot.server.relay_device.clone(),
+                mcp_app.clone(),
+                relay_state.clone(),
+                ct.clone(),
+            );
             if let Ok(mut st) = relay_state.lock() {
                 st.configured = true;
             }
