@@ -72,3 +72,41 @@ not ready.**
 - A "big bang" cutover of the fleet. One canary, then the operator's own machines, then anything else.
 - Keeping both runtimes installed indefinitely. Two updaters on one device is the failure this project
   started with; the overlap window is 30 days, not forever.
+
+## Where the canary actually stands (2026-10-22)
+
+Written after the first working week. The matrix above was a plan; this is the ledger. A row is
+`done` only when the evidence exists on a device, not when the code exists.
+
+| Gate 1 item | Status | Evidence |
+|---|---|---|
+| one stable update | **done ×2** | `applied 0.2.6` on two machines, `/api/health` 0.2.6 |
+| one canary update | **done** | `applied 0.2.6` from a canary document, then 0.3.0 |
+| one update the device chose itself | **done** | `update.json` written, no command run; supervisor applied 0.3.0, `lastVerdict: updated to 0.3.0` |
+| one rollback | **done** | the first canary update rolled back on a sharing violation; `swap.result.json` named the digest and the guard refused a retry until `--force-reinstall` |
+| one deleted-exe repair | **not yet** | needs a canary session that deletes `baseline/current` |
+| one PTY session | **not yet** | the lane drives PTYs; the canary has not |
+| one browser session | **done** | Playwright on the device drove the console: login → grant → `/mcp` → `state.get` answered with the device's own state |
+| one SSH session | **not yet** | |
+| one serial session | **not yet** | needs hardware on the canary |
+| one remote MCP call through the console | **done ×2** | grants minted on `desktop-9vh92bj`, the call answered for both machines over the tailnet |
+
+What changed in the matrix itself:
+
+- **`remote access`**: the device now links `summrise-mesh` (`--mesh-broker/--mesh-relay/--mesh-stun`),
+  and the console channel carries a grant-verified frame today. The row's "no mesh client yet" is
+  stale; the console is deployed on the tailnet and two machines are registered.
+- **`panel / desktop shell`**: still `no`, and still the one open decision. The console page is the
+  operator surface now; a desktop shell is a port-or-drop call nobody has made.
+- **`file transfer`**: unchanged (separate worker) — and the device's relay upload currently answers
+  404, so the canary moves files by HTTP from a host. That is a workaround, not parity.
+- **installer**: the Windows setup is built and **self-tested in CI** (it installs itself on the
+  runner, reads `/api/health`, uninstalls) and installs on real machines. It is not the old
+  script-and-task path.
+
+Gate 2 (rollback in ten minutes) has a measured piece: an installer re-run restores the shipped
+version and rotates the previous generation, which took under two minutes on the canary. The
+"return to `1.2.513`" half is untested.
+
+Gate 3 (the console is the operator's daily path) is **not yet**: the operator has not used it for a
+week; this session used it through a browser and the API.
