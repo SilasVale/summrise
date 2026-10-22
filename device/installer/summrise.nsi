@@ -31,7 +31,10 @@ Unicode true
 !define PRODUCT "Summrise Device Runtime"
 !define COMPANY "Summrise"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Summrise"
-!define DATA_DIR "$COMMONAPPDATA\Summrise"
+; With `SetShellVarContext all`, `$APPDATA` is the machine's ProgramData. NSIS has no
+; `$COMMONAPPDATA` constant: writing one compiles to a literal path and puts the data
+; directory in the wrong place.
+!define DATA_DIR "$APPDATA\Summrise"
 
 Name "${PRODUCT} ${VERSION}"
 OutFile "SummriseSetup-${VERSION}.exe"
@@ -62,6 +65,7 @@ FunctionEnd
 
 Section "Summrise runtime" SecRuntime
   SectionIn RO
+  SetShellVarContext all
   SetOutPath "$INSTDIR"
   File /oname=summrise-launch.exe "${SOURCE}\summrise-launch.exe"
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
@@ -97,6 +101,7 @@ Section "Summrise runtime" SecRuntime
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext all
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service --service-name ${SERVICE}'
   Pop $0
   Pop $1
