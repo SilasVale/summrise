@@ -1216,7 +1216,11 @@ pub fn ensure_baseline(
                 app.display()
             ));
         }
-        if inspect_generation(install, Generation::Current).is_ok() {
+        // A fresh install is a seed, not a replacement: saying "replaced" with nothing to rotate
+        // would be the kind of log line that sends an operator looking for a previous generation
+        // that never existed.
+        let had_current = inspect_generation(install, Generation::Current).is_ok();
+        if had_current {
             let previous = generation_dir(install, PREVIOUS_DIR);
             let _ = fs::remove_dir_all(&previous);
             let current = generation_dir(install, CURRENT_DIR);
@@ -1230,7 +1234,11 @@ pub fn ensure_baseline(
         }
         install_generation_pair(install, &app, &sidecar)
             .map_err(|error| format!("cannot replace the baseline: {error}"))?;
-        return Ok(BaselineInstall::Replaced);
+        return Ok(if had_current {
+            BaselineInstall::Replaced
+        } else {
+            BaselineInstall::Seeded
+        });
     }
 
     if inspect_generation(install, Generation::Current).is_ok() {
@@ -4471,5 +4479,29 @@ mod tests {
         let error = ensure_baseline(&install, None, &test_pubkey_hex(), true)
             .expect_err("a replacement needs the sidecar that names the new generation");
         assert!(error.contains("--replace-baseline"), "{error}");
+    }
+
+    #[test]
+    fn a_replace_on_a_fresh_tree_is_a_seed_not_a_replacement() {
+        let tmp = TempDir::new("ensure-replace-fresh");
+        let install = install_dir(&tmp, "install");
+        fs::write(app_exe(&install), b"fresh app bytes").unwrap();
+        let seed = tmp.path().join("seed.json");
+        save_sidecar(
+            &seed,
+            &sidecar_for("1.0.0", b"fresh app bytes", &signing_key()),
+        )
+        .unwrap();
+        let outcome = ensure_baseline(&install, Some(&seed), &test_pubkey_hex(), true)
+            .expect("a fresh tree with the installer's pair seeds");
+        assert_eq!(
+            outcome,
+            BaselineInstall::Seeded,
+            "there was no generation to replace, so the log must not claim one was rotated"
+        );
+        assert!(
+            !generation_dir(&install, PREVIOUS_DIR).exists(),
+            "a fresh install leaves no previous generation behind"
+        );
     }
 }
