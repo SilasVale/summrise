@@ -23,6 +23,9 @@ concurrency:
   group: installer-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   windows-installer:
     name: the Windows installer
@@ -120,3 +123,19 @@ jobs:
           name: SummriseSetup-${{ env.VERSION }}
           path: device/installer/SummriseSetup-*.exe
           if-no-files-found: error
+
+      # A TAG RELEASE CARRIES THE INSTALLER. The artifact above is for the run; the release is what
+      # an operator downloads months later. `gh` is on the runner and the workflow token already has
+      # `contents: write`, so no third-party action is needed for two commands.
+      - name: attach the installer to the tag release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --notes "Summrise runtime $tag"
+          fi
+          gh release upload "$tag" device/installer/SummriseSetup-*.exe --clobber

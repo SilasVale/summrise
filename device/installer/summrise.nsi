@@ -117,12 +117,15 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
 
+  ; `--install-service` starts the service when it is not running; a second start then answers 1056
+  ; ("already running"), which is success, not a warning.
   nsExec::ExecToStack 'sc.exe start ${SERVICE}'
   Pop $0
   Pop $1
   FileWrite $9 "sc start: exit $0$\r$\n$1$\r$\n"
   FileClose $9
   ${If} $0 != "0"
+  ${AndIf} $0 != "1056"
     ${IfNot} ${Silent}
       MessageBox MB_ICONEXCLAMATION "The service was registered but did not start (exit $0).$\r$\n$\r$\n$1"
     ${EndIf}
