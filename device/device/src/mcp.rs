@@ -47,6 +47,11 @@ use crate::capabilities::{browser, files, memory, monitor, runs, ssh, terminal};
 use crate::config::{Config, Release};
 use crate::store::Store;
 
+/// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
+const BASE64: base64::engine::general_purpose::GeneralPurpose =
+    base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+
 /// The largest payload one `files.read` or `files.write` call moves.
 ///
 /// The surface gives the capability this cap and the capability enforces it — a read from
@@ -541,25 +546,37 @@ impl DeviceServer {
 
         match handler {
             Handler::FilesRead => {
-                let arguments: PathArgs = parse(arguments, name)?;
+                let arguments: ReadArgs = parse(arguments, name)?;
                 let bytes =
                     files::read(&self.files_root, Path::new(&arguments.path), MAX_FILE_BYTES)
                         .map_err(|error| refused(name, error))?;
-                String::from_utf8(bytes)
-                    .map_err(|_| ToolError::Refused(format!("{name}: the file is not UTF-8 text")))
+                match arguments.encoding {
+                    Encoding::Utf8 => String::from_utf8(bytes).map_err(|_| {
+                        ToolError::Refused(format!(
+                            "{name}: the file is not UTF-8 text; ask for encoding \"base64\""
+                        ))
+                    }),
+                    Encoding::Base64 => Ok(BASE64.encode(&bytes)),
+                }
             }
             Handler::FilesWrite => {
                 let arguments: WriteArgs = parse(arguments, name)?;
+                let bytes = match arguments.encoding {
+                    Encoding::Utf8 => arguments.content.clone().into_bytes(),
+                    Encoding::Base64 => BASE64.decode(&arguments.content).map_err(|_| {
+                        ToolError::Refused(format!("{name}: the content is not valid base64"))
+                    })?,
+                };
                 files::write(
                     &self.files_root,
                     Path::new(&arguments.path),
-                    arguments.content.as_bytes(),
+                    &bytes,
                     MAX_FILE_BYTES,
                 )
                 .map_err(|error| refused(name, error))?;
                 Ok(json!({
                     "path": arguments.path,
-                    "bytes": arguments.content.len(),
+                    "bytes": bytes.len(),
                 })
                 .to_string())
             }
@@ -1237,6 +1254,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "path": {
                     "type": "string",
                     "description": "A path relative to the device's files root, e.g. notes/todo.txt."
+                },
+                "encoding": {
+                    "type": "string",
+                    "enum": ["utf8", "base64"],
+                    "description": "How to return the bytes. utf8 (the default) is the file's text and fails on a file that is not text; base64 returns the bytes encoded, for a file that is not text."
                 }
             },
             "required": ["path"],
@@ -1251,7 +1273,12 @@ fn input_schema(definition: &ToolDef) -> Value {
                 },
                 "content": {
                     "type": "string",
-                    "description": "The UTF-8 text to write, at most 1 MiB. It replaces the file's bytes."
+                    "description": "The bytes to write, at most 1 MiB, encoded as the `encoding` says. It replaces the file's bytes."
+                },
+                "encoding": {
+                    "type": "string",
+                    "enum": ["utf8", "base64"],
+                    "description": "How `content` encodes the bytes: utf8 (the default) for text, base64 for anything else. The 1 MiB limit applies to the decoded bytes."
                 }
             },
             "required": ["path", "content"],
@@ -1754,6 +1781,30 @@ struct PathArgs {
 struct WriteArgs {
     path: String,
     content: String,
+    /// How `content` encodes the bytes: text (the default) or base64.
+    #[serde(default)]
+    encoding: Encoding,
+}
+
+/// The two encodings the file tools accept and return.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Encoding {
+    /// UTF-8 text: the default, and what a human-readable file is.
+    #[default]
+    Utf8,
+    /// Base64, for bytes that are not text.
+    Base64,
+}
+
+/// The arguments `files.read` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadArgs {
+    path: String,
+    /// How to return the bytes: text (the default) or base64.
+    #[serde(default)]
+    encoding: Encoding,
 }
 
 /// The arguments `memory.append` takes.
@@ -2160,7 +2211,11 @@ mod tests {
     use tokio::net::TcpListener;
     use tower::ServiceExt;
 
+    use base64::Engine as _;
+
     use summrise_core::CAPABILITIES;
+
+    use super::BASE64;
 
     #[cfg(target_os = "linux")]
     use crate::capabilities::browser;
@@ -2786,6 +2841,38 @@ mod tests {
         assert!(written.get("error").is_none(), "{written}");
         assert_eq!(written["result"]["isError"], false, "{written}");
 
+        // Binary in, binary out: the same path, the bytes carried as base64.
+        let binary = vec![0u8, 159, 146, 150, 0, 255, 10, 13];
+        let encoded = BASE64.encode(&binary);
+        let written = client
+            .call(
+                "files.write",
+                json!({ "path": "notes/blob.bin", "content": encoded, "encoding": "base64" }),
+            )
+            .await;
+        assert!(written.get("error").is_none(), "{written}");
+        let decoded = client
+            .call(
+                "files.read",
+                json!({ "path": "notes/blob.bin", "encoding": "base64" }),
+            )
+            .await;
+        let returned = BASE64
+            .decode(text_of(&decoded))
+            .expect("the answer is base64");
+        assert_eq!(returned, binary, "the bytes survive the round trip");
+
+        // A text read of binary is refused with the remedy in the message, not silently mangled.
+        let refused = client
+            .call("files.read", json!({ "path": "notes/blob.bin" }))
+            .await;
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("base64"),
+            "the refusal names the encoding to ask for: {}",
+            text_of(&refused)
+        );
+
         let read = client
             .call("files.read", json!({ "path": "notes/todo.txt" }))
             .await;
@@ -2793,9 +2880,14 @@ mod tests {
 
         let listed = client.call("files.list", json!({ "path": "notes" })).await;
         let entries: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
-        assert_eq!(entries[0]["name"], "todo.txt");
-        assert_eq!(entries[0]["kind"], "file");
-        assert_eq!(entries[0]["len"], 8);
+        let todo = entries
+            .as_array()
+            .expect("list is an array")
+            .iter()
+            .find(|entry| entry["name"] == "todo.txt")
+            .expect("the text file is listed");
+        assert_eq!(todo["kind"], "file");
+        assert_eq!(todo["len"], 8);
     }
 
     #[tokio::test]
