@@ -26,6 +26,7 @@ canary machines are enrolled. The device dials the console; nothing dials the de
 | 16:07 | a PTY session through the console | `events.jsonl` `terminal.create/write/read` ok |
 | 16:31 | a file written and read through the console | `events.jsonl` `files.write/files.read` ok |
 | 17:45 | an SSH session to a host, command executed | `events.jsonl` `terminal.create/write/read/close` ok |
+| 18:20 | **binary** moved through the console (8 bytes with NUL and high bytes), read back identical | `files.write {"bytes":8}` / `files.read` base64 → `ROUNDTRIP: PASS` |
 
 The current document at the end of the week:
 

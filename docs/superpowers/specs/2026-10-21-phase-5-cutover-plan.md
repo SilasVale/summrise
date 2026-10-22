@@ -22,7 +22,7 @@ whose output can be pasted into the ledger.
 | serial | yes | `terminal.create {kind:"serial"}` | canary (loopback-plug smoke) |
 | panel / desktop shell | Electron | **no** — dropped (`2026-10-22-the-desktop-shell-decision.md`); the console page is the UI and installs as a PWA | closed: decision recorded |
 | MCP keys / grants UI | console TS | **no UI** (CLI/API only) | console SPA |
-| file transfer (R2 relay) | yes | `files.read`/`files.write` through the console, text **and** base64 for binary (≤1 MiB per call) | canary text transfer done; binary is tested, not yet run on a canary; the relay stays for the old agent only |
+| file transfer (R2 relay) | yes | `files.read`/`files.write` through the console, text **and** base64 for binary (≤1 MiB per call) | canary: a text file written and read, then 8 bytes containing NUL, `0x9F 0x92 0x96 0xFF` written as base64 and read back identical (`ROUNDTRIP: PASS`). The relay stays for the old agent only |
 | remote access | cloudflared | console proxy only — the device has **no mesh client** yet | console deployed + canary |
 
 The desktop-shell row is now a decision, not a question: dropped, with the reasoning in

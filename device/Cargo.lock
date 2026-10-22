@@ -3273,6 +3273,7 @@ name = "summrise-device"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "ed25519-dalek",
  "futures-util",
  "nix 0.25.1",
