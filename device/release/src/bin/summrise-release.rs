@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use summrise_release::{
-    hex_encode, now_ms, read_seed, revoke_file, sign_file, sign_sidecar, version_is_plain, Channel,
-    RevokeError, RevokeRequest, SignError, SignRequest,
+    generate_seed, hex_encode, now_ms, read_seed, revoke_file, sign_file, sign_sidecar,
+    version_is_plain, Channel, RevokeError, RevokeRequest, SignError, SignRequest,
 };
 
 const SIGN_USAGE: &str = "usage: summrise-release sign --key-file <hex-seed-file> \
@@ -29,10 +29,13 @@ const SIDECAR_USAGE: &str = "usage: summrise-release sidecar --key-file <hex-see
 
 const PUBKEY_USAGE: &str = "usage: summrise-release pubkey --key-file <hex-seed-file>";
 
+const KEYGEN_USAGE: &str = "usage: summrise-release keygen --out <new-seed-file>";
+
 const USAGE: &str = "usage: summrise-release sign ...   (see --help after the subcommand)\n\
                      usage: summrise-release revoke ...\n\
                      usage: summrise-release sidecar ...\n\
-                     usage: summrise-release pubkey ...";
+                     usage: summrise-release pubkey ...\n\
+                     usage: summrise-release keygen ...";
 
 #[derive(Debug)]
 enum CliError {
@@ -73,13 +76,13 @@ impl CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CliError::MissingCommand => {
-                f.write_str("missing the `sign`, `revoke`, `sidecar` or `pubkey` subcommand")
-            }
+            CliError::MissingCommand => f.write_str(
+                "missing the `sign`, `revoke`, `sidecar`, `pubkey` or `keygen` subcommand",
+            ),
             CliError::UnknownCommand(command) => {
                 write!(
                     f,
-                    "unknown subcommand {command:?}; expected `sign`, `revoke`, `sidecar` or `pubkey`"
+                    "unknown subcommand {command:?}; expected `sign`, `revoke`, `sidecar`, `pubkey` or `keygen`"
                 )
             }
             CliError::NonUnicode => f.write_str("an argument is not valid UTF-8"),
@@ -144,6 +147,7 @@ fn run() -> Result<(), CliError> {
         "revoke" => revoke(args),
         "sidecar" => sidecar(args),
         "pubkey" => pubkey(args),
+        "keygen" => keygen(args),
         "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -243,6 +247,32 @@ where
         document.channel,
         out.display()
     );
+    Ok(())
+}
+
+/// The `keygen` subcommand: a new seed where it will live, and its public half on stdout.
+fn keygen<I>(mut args: I) -> Result<(), CliError>
+where
+    I: Iterator<Item = OsString>,
+{
+    let mut out = None;
+    while let Some(flag) = args.next() {
+        let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
+        match flag {
+            "--out" => set_path(&mut out, next_value(&mut args, "--out")?, "--out")?,
+            "--help" | "-h" => {
+                println!("{KEYGEN_USAGE}");
+                return Ok(());
+            }
+            other if other.starts_with('-') => {
+                return Err(CliError::UnknownFlag(other.to_owned()));
+            }
+            other => return Err(CliError::UnexpectedArgument(other.to_owned())),
+        }
+    }
+    let out = out.ok_or(CliError::MissingFlag("--out"))?;
+    let public = generate_seed(&out).map_err(CliError::Sign)?;
+    println!("{public}");
     Ok(())
 }
 

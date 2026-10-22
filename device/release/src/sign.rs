@@ -352,6 +352,38 @@ fn validate_version(field: VersionField, value: &str) -> Result<(), SignError> {
     }
 }
 
+/// Generate a fresh 32-byte seed at `path` and return its public key.
+///
+/// A key that must never appear in a command line or a log has to be generated where it will live.
+/// The file is created exclusively (no overwrite), 0600 on Unix, and only the public half is
+/// printed — the same discipline as [`read_seed`], in reverse.
+pub fn generate_seed(path: &Path) -> Result<String, SignError> {
+    use rand_core::RngCore as _;
+    use std::io::Write as _;
+    let mut bytes = [0u8; 32];
+    rand_core::OsRng.fill_bytes(&mut bytes);
+    let text = hex_encode(&bytes);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|source| SignError::KeyFile {
+        path: path.to_owned(),
+        source,
+    })?;
+    file.write_all(text.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|source| SignError::KeyFile {
+            path: path.to_owned(),
+            source,
+        })?;
+    let key = SigningKey::from_bytes(&bytes);
+    Ok(hex_encode(key.verifying_key().as_bytes()))
+}
+
 /// The first-generation sidecar the launcher verifies before it seeds `baseline/current`.
 ///
 /// The message is the older one the launcher already checks — `"{version}\n{channel}\n{sha256}"` —
@@ -670,5 +702,40 @@ mod tests {
         let mut request = request("2.0.3", "2.0.0");
         request.artifact_url = "http://127.0.0.1:8080/summrise-device.exe";
         assert!(sign_document(&key, b"the release bytes", &request).is_ok());
+    }
+
+    #[test]
+    fn a_generated_seed_is_a_new_key_every_time_and_the_file_is_private() {
+        let dir = TestDir::new("keygen");
+        let first = dir.path().join("grant.seed");
+        let first_pub = generate_seed(&first).expect("generate");
+        let second = dir.path().join("grant2.seed");
+        let second_pub = generate_seed(&second).expect("generate again");
+        assert_ne!(first_pub, second_pub, "two generations are two keys");
+        let text = fs::read_to_string(&first).expect("read the seed");
+        assert_eq!(text.len(), 64, "the file holds 64 hex characters");
+        assert!(text.chars().all(|c| c.is_ascii_hexdigit()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&first).expect("metadata").permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o600,
+                "a seed file is private from the moment it exists"
+            );
+        }
+        // The printed public half is the one the seed actually carries.
+        let key = read_seed(&first).expect("read it back");
+        assert_eq!(first_pub, hex_encode(key.verifying_key().as_bytes()));
+    }
+
+    #[test]
+    fn a_generated_seed_never_overwrites_an_existing_file() {
+        let dir = TestDir::new("keygen-existing");
+        let path = dir.path().join("grant.seed");
+        fs::write(&path, "existing").expect("write");
+        let error = generate_seed(&path).expect_err("an existing seed is not replaced");
+        assert!(matches!(error, SignError::KeyFile { .. }), "{error:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "existing");
     }
 }
