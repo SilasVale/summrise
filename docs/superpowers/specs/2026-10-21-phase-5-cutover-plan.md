@@ -20,13 +20,14 @@ whose output can be pasted into the ledger.
 | browser | Playwright (Node) | `browser.*` (CDP, Rust) | canary |
 | files / memory / monitor / runs | yes | yes | canary |
 | serial | yes | `terminal.create {kind:"serial"}` | canary (loopback-plug smoke) |
-| panel / desktop shell | Electron | **no** (browser-first; WebView2 deferred) | decide: port or drop |
+| panel / desktop shell | Electron | **no** — dropped (`2026-10-22-the-desktop-shell-decision.md`); the console page is the UI and installs as a PWA | closed: decision recorded |
 | MCP keys / grants UI | console TS | **no UI** (CLI/API only) | console SPA |
 | file transfer (R2 relay) | yes | unchanged (separate worker) | no change |
 | remote access | cloudflared | console proxy only — the device has **no mesh client** yet | console deployed + canary |
 
-One row is still a decision: **the desktop shell**. Serial is implemented and tested behind
-`terminal.create {kind:"serial"}`; it needs the canary smoke row, not a port-or-drop decision. The
+The desktop-shell row is now a decision, not a question: dropped, with the reasoning in
+`2026-10-22-the-desktop-shell-decision.md`. Serial is implemented and tested behind
+`terminal.create {kind:"serial"}`; it needs the canary smoke row (hardware). The
 remote-access row names the console proxy alone because `summrise-device` does not link
 `summrise-mesh`; the mesh stays out of this matrix until a device client exists.
 
