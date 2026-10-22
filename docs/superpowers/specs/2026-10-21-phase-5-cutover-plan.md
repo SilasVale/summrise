@@ -84,7 +84,7 @@ Written after the first working week. The matrix above was a plan; this is the l
 | one canary update | **done** | `applied 0.2.6` from a canary document, then 0.3.0 |
 | one update the device chose itself | **done** | `update.json` written, no command run; supervisor applied 0.3.0, `lastVerdict: updated to 0.3.0` |
 | one rollback | **done** | the first canary update rolled back on a sharing violation; `swap.result.json` named the digest and the guard refused a retry until `--force-reinstall` |
-| one deleted-exe repair | **not yet** | needs a canary session that deletes `baseline/current` |
+| one deleted-exe repair | **done** | deleted `baseline/current\summrise-device.exe`, restarted the service: the supervisor booted `previous` and rebuilt `current`, `/api/health` answered 0.3.0, and `repair.log` recorded `{"kind":"repaired","from":"previous","sha256":"db304dd5…"}` |
 | one PTY session | **not yet** | the lane drives PTYs; the canary has not |
 | one browser session | **done** | Playwright on the device drove the console: login → grant → `/mcp` → `state.get` answered with the device's own state |
 | one SSH session | **not yet** | |
@@ -110,3 +110,10 @@ version and rotates the previous generation, which took under two minutes on the
 
 Gate 3 (the console is the operator's daily path) is **not yet**: the operator has not used it for a
 week; this session used it through a browser and the API.
+
+The repair record needed a fix to exist at all: the boot-from-previous path was silent (no
+`repair.log` line, no event, `repairOffset` unchanged), so the gate had a capability and no evidence.
+The launcher now records `"from":"previous"` there, and the app's reader accepts both sources. One
+nuance the canary showed: the *restored* binary is the older generation, so a restored 0.3.0 consumed
+the record but could not name it in `state.json` (its reader predates the change). The record on disk
+is the gate's evidence; the verdict sentence appears once the restored generation is new enough.
