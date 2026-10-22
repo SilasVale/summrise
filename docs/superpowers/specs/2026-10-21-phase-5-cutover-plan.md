@@ -117,3 +117,22 @@ The launcher now records `"from":"previous"` there, and the app's reader accepts
 nuance the canary showed: the *restored* binary is the older generation, so a restored 0.3.0 consumed
 the record but could not name it in `state.json` (its reader predates the change). The record on disk
 is the gate's evidence; the verdict sentence appears once the restored generation is new enough.
+
+### The refusal paths, on the canary
+
+A safety property is only a property when a device enforces it. On 2026-10-22 the canary was asked to
+install a release that a signed revocation list withdraws:
+
+```
+summrise-device --check-update <mirror>/release-0.3.6.json --channel canary --allow-plaintext …
+exit 4
+summrise-device: this device refuses the release: the release 0.3.6
+  (sha256 7301b882…3fd528) is revoked: canary proves the refusal path
+```
+
+The device stayed on 0.3.5 (same pid), and `baseline/pending` was **not created**: the refusal came
+before any byte was written. That is the ordering the design promises — signature, policy,
+revocations, then staging — and it is now evidence from a machine rather than from a test.
+
+The schedule was pointed back at the installed version afterwards, so the canary is quiet rather than
+retrying a withdrawn release every interval.
