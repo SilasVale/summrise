@@ -115,9 +115,9 @@ pub fn entry() -> ExitCode {
             }
         }
         "--install-service" => match parse_install_args(&args[1..]) {
-            Ok((config, seed_sidecar, console)) => {
+            Ok((config, seed_sidecar, console, replace)) => {
                 match persist_console_link(&config, console.as_ref()) {
-                    Ok(()) => exit_for(install(&config, seed_sidecar.as_deref())),
+                    Ok(()) => exit_for(install(&config, seed_sidecar.as_deref(), replace)),
                     Err(error) => fail(&error),
                 }
             }
@@ -150,7 +150,8 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch service [--service-name NAME]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
-  summrise-launch --install-service [--seed-sidecar <path>] [--install DIR] [--data DIR] [--port N]
+  summrise-launch --install-service [--replace-baseline] [--seed-sidecar <path>]
+                      [--install DIR] [--data DIR] [--port N]
                       [--console-url URL --console-token-file PATH]
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch --uninstall-service
@@ -227,12 +228,16 @@ fn absolute(path: &Path) -> PathBuf {
 /// the service's argv carries no remote fact, and its environment is not settable from here.
 fn parse_install_args(
     args: &[String],
-) -> Result<(Config, Option<PathBuf>, Option<ConsoleLink>), String> {
+) -> Result<(Config, Option<PathBuf>, Option<ConsoleLink>, bool), String> {
     let mut launcher_args = Vec::with_capacity(args.len());
     let mut seed_sidecar = None;
+    let mut replace = false;
     let mut index = 0;
     while index < args.len() {
-        if args[index] == "--seed-sidecar" {
+        if args[index] == "--replace-baseline" {
+            replace = true;
+            index += 1;
+        } else if args[index] == "--seed-sidecar" {
             let value = args
                 .get(index + 1)
                 .ok_or_else(|| "--seed-sidecar needs a path".to_string())?;
@@ -245,7 +250,7 @@ fn parse_install_args(
     }
     let (launcher_args, console) = split_console_args(&launcher_args)?;
     let config = config_from_args(&launcher_args)?;
-    Ok((config, seed_sidecar, console))
+    Ok((config, seed_sidecar, console, replace))
 }
 
 /// Parse a `run` argv: the supervisor's flags plus the remote link, which is persisted not
@@ -1597,12 +1602,24 @@ fn random_token_bytes(bytes: &mut [u8; TOKEN_BYTES]) -> Result<(), String> {
 /// would be an install that reported success and served nothing. If no generation can be produced
 /// this returns an error before the service manager is opened, so nothing is registered or
 /// reconfigured.
-pub fn install(config: &Config, seed_sidecar: Option<&Path>) -> Result<(), String> {
-    match ensure_baseline(&config.install, seed_sidecar, LAUNCHER_PUBKEY_HEX)? {
+pub fn install(
+    config: &Config,
+    seed_sidecar: Option<&Path>,
+    replace_baseline: bool,
+) -> Result<(), String> {
+    match ensure_baseline(
+        &config.install,
+        seed_sidecar,
+        LAUNCHER_PUBKEY_HEX,
+        replace_baseline,
+    )? {
         BaselineInstall::Kept => {}
         BaselineInstall::Migrated => eprintln!(
             "launch: migrated the pre-generation baseline into {}",
             generation_dir(&config.install, CURRENT_DIR).display()
+        ),
+        BaselineInstall::Replaced => eprintln!(
+            "launch: replaced baseline/current from the installer's pair; the previous generation is baseline/previous"
         ),
         BaselineInstall::Seeded => eprintln!(
             "launch: seeded {} from {} and the installer's sidecar",

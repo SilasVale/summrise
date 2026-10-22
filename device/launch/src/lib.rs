@@ -1152,6 +1152,23 @@ pub enum BaselineInstall {
     Migrated,
     /// `baseline/current` was seeded from the install's app binary and `--seed-sidecar`.
     Seeded,
+    /// `baseline/current` was replaced by the installer's pair; the old generation is `previous`.
+    Replaced,
+}
+
+/// The one place the first-generation signature is checked, named for the failure it prevents (C1).
+fn verify_seed_signature(sidecar: &Sidecar, pubkey_hex: &str) -> Result<(), String> {
+    let pubkey =
+        parse_pubkey(pubkey_hex).map_err(|error| format!("refusing the seed baseline: {error}"))?;
+    verify_signature(sidecar, &pubkey).map_err(|error| {
+        // C1: one key owns the first generation. Naming the key (and the build-time variable that
+        // carries it) is what turns "signature does not verify" from a key-regeneration session
+        // into "you signed the seed with the release key".
+        format!(
+            "refusing the seed baseline: the seed sidecar must be signed with the launcher key \
+             (SUMMRISE_LAUNCHER_PUBKEY), not the release key: {error}"
+        )
+    })
 }
 
 /// Make sure `baseline/current` is a complete pair **before** the service is registered.
@@ -1176,7 +1193,46 @@ pub fn ensure_baseline(
     install: &Path,
     seed_sidecar: Option<&Path>,
     pubkey_hex: &str,
+    replace: bool,
 ) -> Result<BaselineInstall, String> {
+    // AN INSTALLER UPGRADE REPLACES THE GENERATION. The default keeps a proven current generation so
+    // a re-run cannot clobber a rollback chain; `replace` is the installer saying "the tree I just
+    // wrote is the version this machine should boot". The old generation rotates to `previous`, so
+    // the swap's rollback still has somewhere to go.
+    if replace {
+        let Some(seed_sidecar) = seed_sidecar else {
+            return Err(
+                "--replace-baseline needs --seed-sidecar: the new generation must be signed"
+                    .to_string(),
+            );
+        };
+        let sidecar = load_sidecar(seed_sidecar)
+            .map_err(|error| format!("cannot read the seed sidecar: {error}"))?;
+        verify_seed_signature(&sidecar, pubkey_hex)?;
+        let app = app_exe(install);
+        if !app.is_file() {
+            return Err(format!(
+                "{} is missing; the installer must place the app before it replaces the baseline",
+                app.display()
+            ));
+        }
+        if inspect_generation(install, Generation::Current).is_ok() {
+            let previous = generation_dir(install, PREVIOUS_DIR);
+            let _ = fs::remove_dir_all(&previous);
+            let current = generation_dir(install, CURRENT_DIR);
+            fs::rename(&current, &previous).map_err(|error| {
+                format!(
+                    "cannot rotate {} to {}: {error}",
+                    current.display(),
+                    previous.display()
+                )
+            })?;
+        }
+        install_generation_pair(install, &app, &sidecar)
+            .map_err(|error| format!("cannot replace the baseline: {error}"))?;
+        return Ok(BaselineInstall::Replaced);
+    }
+
     if inspect_generation(install, Generation::Current).is_ok() {
         return Ok(BaselineInstall::Kept);
     }
@@ -1200,17 +1256,7 @@ pub fn ensure_baseline(
     };
     let sidecar = load_sidecar(seed_sidecar)
         .map_err(|error| format!("cannot read the seed sidecar: {error}"))?;
-    let pubkey =
-        parse_pubkey(pubkey_hex).map_err(|error| format!("refusing the seed baseline: {error}"))?;
-    verify_signature(&sidecar, &pubkey).map_err(|error| {
-        // C1: one key owns the first generation. Naming the key (and the build-time variable that
-        // carries it) is what turns "signature does not verify" from a key-regeneration session
-        // into "you signed the seed with the release key".
-        format!(
-            "refusing the seed baseline: the seed sidecar must be signed with the launcher key \
-             (SUMMRISE_LAUNCHER_PUBKEY), not the release key: {error}"
-        )
-    })?;
+    verify_seed_signature(&sidecar, pubkey_hex)?;
     let app = app_exe(install);
     if !app.is_file() {
         return Err(format!(
@@ -2430,6 +2476,7 @@ mod tests {
             &install,
             Some(Path::new("/does/not/exist/seed.json")),
             &test_pubkey_hex(),
+            false,
         )
         .expect("a complete current generation is the first case");
 
@@ -2450,7 +2497,7 @@ mod tests {
         let sidecar = sidecar_for("2.0.3", b"flat bytes", &signing_key());
         save_sidecar(&flat_sidecar(&install), &sidecar).unwrap();
 
-        let outcome = ensure_baseline(&install, None, &test_pubkey_hex())
+        let outcome = ensure_baseline(&install, None, &test_pubkey_hex(), false)
             .expect("the flat pair migrates without a seed");
 
         assert_eq!(outcome, BaselineInstall::Migrated);
@@ -2481,7 +2528,7 @@ mod tests {
         let sidecar = sidecar_for("2.0.3", b"other bytes", &signing_key());
         save_sidecar(&flat_sidecar(&install), &sidecar).unwrap();
 
-        let error = ensure_baseline(&install, None, &test_pubkey_hex())
+        let error = ensure_baseline(&install, None, &test_pubkey_hex(), false)
             .expect_err("a flat pair that does not hash must be refused");
 
         assert!(error.contains("hashes to"), "error: {error}");
@@ -2503,7 +2550,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = ensure_baseline(&install, Some(&seed), &test_pubkey_hex())
+        let outcome = ensure_baseline(&install, Some(&seed), &test_pubkey_hex(), false)
             .expect("the signed seed creates the first generation");
 
         assert_eq!(outcome, BaselineInstall::Seeded);
@@ -2538,7 +2585,7 @@ mod tests {
         )
         .unwrap();
 
-        let error = ensure_baseline(&install, Some(&seed), &test_pubkey_hex())
+        let error = ensure_baseline(&install, Some(&seed), &test_pubkey_hex(), false)
             .expect_err("a release-key-signed seed must not become the baseline");
 
         assert!(
@@ -2558,7 +2605,7 @@ mod tests {
         let install = install_dir(&tmp, "install");
         fs::write(app_exe(&install), b"downloaded app bytes").unwrap();
 
-        let error = ensure_baseline(&install, None, &test_pubkey_hex())
+        let error = ensure_baseline(&install, None, &test_pubkey_hex(), false)
             .expect_err("without a seed there is no pair to create");
 
         assert!(error.contains("--seed-sidecar"), "error: {error}");
@@ -4378,5 +4425,51 @@ mod tests {
         assert!(parse_service_args(&args, "SummriseLaunch").is_err());
         let empty = vec!["--service-name".to_string(), String::new()];
         assert!(parse_service_args(&empty, "SummriseLaunch").is_err());
+    }
+
+    #[test]
+    fn an_installer_upgrade_replaces_the_generation_and_keeps_the_old_one_as_previous() {
+        let tmp = TempDir::new("ensure-replace");
+        let install = install_dir(&tmp, "install");
+        fs::write(app_exe(&install), b"the app bytes").unwrap();
+        let first = tmp.path().join("seed-1.json");
+        save_sidecar(
+            &first,
+            &sidecar_for("0.1.0", b"the app bytes", &signing_key()),
+        )
+        .unwrap();
+        let outcome = ensure_baseline(&install, Some(&first), &test_pubkey_hex(), false)
+            .expect("the first install seeds");
+        assert_eq!(outcome, BaselineInstall::Seeded);
+
+        // The installer wrote a new sidecar for the same bytes and asked for a replacement.
+        let second = tmp.path().join("seed-2.json");
+        save_sidecar(
+            &second,
+            &sidecar_for("0.2.0", b"the app bytes", &signing_key()),
+        )
+        .unwrap();
+        let outcome = ensure_baseline(&install, Some(&second), &test_pubkey_hex(), true)
+            .expect("an installer upgrade replaces the generation");
+        assert_eq!(outcome, BaselineInstall::Replaced);
+
+        let current = load_sidecar(&generation_sidecar(&install, CURRENT_DIR)).unwrap();
+        assert_eq!(
+            current.version, "0.2.0",
+            "current is the version just installed"
+        );
+        let previous = load_sidecar(&generation_sidecar(&install, PREVIOUS_DIR))
+            .expect("the replaced generation is kept as previous, so a rollback has a target");
+        assert_eq!(previous.version, "0.1.0");
+    }
+
+    #[test]
+    fn a_replace_without_a_signed_sidecar_is_refused() {
+        let tmp = TempDir::new("ensure-replace-refused");
+        let install = install_dir(&tmp, "install");
+        fs::write(app_exe(&install), b"the app bytes").unwrap();
+        let error = ensure_baseline(&install, None, &test_pubkey_hex(), true)
+            .expect_err("a replacement needs the sidecar that names the new generation");
+        assert!(error.contains("--replace-baseline"), "{error}");
     }
 }

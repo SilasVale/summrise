@@ -3466,7 +3466,7 @@ fn the_installer_migrates_the_pre_generation_flat_baseline_pair() {
     )
     .expect("write the flat sidecar");
 
-    let outcome = ensure_baseline(&install, None, FIXTURE_LAUNCHER_PUBKEY_HEX)
+    let outcome = ensure_baseline(&install, None, FIXTURE_LAUNCHER_PUBKEY_HEX, false)
         .expect("a flat pair migrates without a seed sidecar");
 
     assert_eq!(outcome, BaselineInstall::Migrated);

@@ -103,7 +103,7 @@ Section "Summrise runtime" SecRuntime
   ReadRegStr $8 HKLM "${UNINST_KEY}" "DisplayVersion"
   FileWrite $9 "registry readback: '$8' (view 64)$\r$\n"
 
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-service --install "$INSTDIR" --data "${DATA_DIR}" --seed-sidecar "$INSTDIR\summrise-device.sidecar.json" --port ${PORT}'
+  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-service --replace-baseline --install "$INSTDIR" --data "${DATA_DIR}" --seed-sidecar "$INSTDIR\summrise-device.sidecar.json" --port ${PORT}'
   Pop $0
   Pop $1
   FileWrite $9 "install-service: exit $0$\r$\n$1$\r$\n"
