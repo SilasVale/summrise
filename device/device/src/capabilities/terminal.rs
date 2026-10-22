@@ -1944,12 +1944,59 @@ pub fn resolve_shell(shell: Option<&str>) -> String {
 pub fn default_shell() -> String {
     #[cfg(windows)]
     {
-        "pwsh".to_owned()
+        // `pwsh` first, because it is the better terminal. But a Windows device without PowerShell 7
+        // is a device that cannot open a terminal at all, which the canary proved: `terminal.create`
+        // answered "cannot start pwsh ... (os error 2)". Windows PowerShell 5.1 re-echoes input and
+        // draws continuation prompts, and `cmd.exe` is worse still — a bad terminal beats no
+        // terminal, and the MCP surface reports the shell it actually started, so the client is
+        // never guessing.
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let directories: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
+        let extensions = [".exe", ".cmd", ".bat", ""];
+        for candidate in ["pwsh.exe", "pwsh", "powershell.exe", "cmd.exe"] {
+            if find_program(candidate, &directories, &extensions).is_some() {
+                return candidate.to_owned();
+            }
+        }
+        "cmd.exe".to_owned()
     }
     #[cfg(not(windows))]
     {
         "bash".to_owned()
     }
+}
+
+/// The first `directories/<name><extension>` that is a file.
+///
+/// Compiled on Windows (where the shell fallback uses it) and in tests (where the rule is tested);
+/// a Unix release has no fallback to make.
+///
+/// A pure function so the fallback rule is testable without a machine that happens to have (or lack)
+/// a given shell: the caller supplies the directories and the extension list.
+#[cfg(any(windows, test))]
+pub fn find_program(
+    name: &str,
+    directories: &[std::path::PathBuf],
+    extensions: &[&str],
+) -> Option<std::path::PathBuf> {
+    if name.contains(std::path::MAIN_SEPARATOR) {
+        let direct = std::path::PathBuf::from(name);
+        return direct.is_file().then_some(direct);
+    }
+    for directory in directories {
+        for extension in extensions {
+            // A name that already carries the extension is not given a second one.
+            let file = if extension.is_empty() || name.ends_with(extension) {
+                directory.join(name)
+            } else {
+                directory.join(format!("{name}{extension}"))
+            };
+            if file.is_file() {
+                return Some(file);
+            }
+        }
+    }
+    None
 }
 
 /// The device's wall clock, in Unix milliseconds.
@@ -3302,5 +3349,44 @@ mod tests {
         }
         validate_size(1, 1).expect("the smallest terminal is legal");
         validate_size(MAX_DIMENSION, MAX_DIMENSION).expect("the largest terminal is legal");
+    }
+
+    #[test]
+    fn the_shell_fallback_finds_the_first_candidate_that_exists() {
+        let root = std::env::temp_dir().join(format!("summrise-shell-{}", std::process::id()));
+        let first = root.join("first");
+        let second = root.join("second");
+        std::fs::create_dir_all(&first).expect("first");
+        std::fs::create_dir_all(&second).expect("second");
+        std::fs::write(second.join("powershell.exe"), b"stub").expect("stub");
+        let directories = [first.clone(), second.clone()];
+
+        assert_eq!(
+            find_program("powershell.exe", &directories, &[".exe", ""]),
+            Some(second.join("powershell.exe")),
+            "a shell that exists in a later directory is found"
+        );
+        assert_eq!(
+            find_program("pwsh.exe", &directories, &[".exe", ""]),
+            None,
+            "a shell that exists nowhere is not invented"
+        );
+
+        // A name that already carries its extension is not given a second one.
+        assert_eq!(
+            find_program("powershell.exe", &directories, &[".exe"]),
+            Some(second.join("powershell.exe"))
+        );
+
+        // A path is checked as given, not searched for.
+        assert_eq!(
+            find_program(
+                &second.join("powershell.exe").to_string_lossy(),
+                &[],
+                &[".exe"]
+            ),
+            Some(second.join("powershell.exe"))
+        );
+        std::fs::remove_dir_all(&root).expect("cleanup");
     }
 }
