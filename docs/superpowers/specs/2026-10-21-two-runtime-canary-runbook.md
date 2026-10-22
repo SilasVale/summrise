@@ -331,3 +331,60 @@ Leave it running for seven days with the operator using the console as the daily
 > `icacls D:\Summrise\data /inheritance:r /grant:r "SYSTEM:(OI)(CI)(F)" "BUILTIN\Administrators:(OI)(CI)(F)"`,
 > then the same for `console-token.json` and `identity.key` without `(OI)(CI)` (or run
 > `--enroll`, which protects them itself).
+
+## 9. The loop as it exists after the first canary week
+
+The sections above are the manual sequence the first canary was built on. What is now the routine is
+shorter, and each step has a command that produces evidence.
+
+**Publishing is one command.** `scripts/publish-canary.bash` builds the runtime for
+`x86_64-pc-windows-msvc`, signs the release document with the release key, signs the first-generation
+sidecar with the launcher key, and builds the Windows installer — into one directory a mirror can
+serve:
+
+```bash
+scripts/publish-canary.bash --version 0.2.7 --channel canary --port 18090 \
+    --mirror http://<mirror-host>:18100 \
+    --launcher-key <launcher.seed> --release-key <release.seed> --out /srv/canary
+```
+
+It emits `summrise-device-<version>.exe`, `release-<version>.json`, `SummriseSetup-<version>.exe`.
+The installer and the document must name the **same** version: a 0.2.1 installer carrying a 0.1.9
+sidecar installed "successfully" and kept reporting 0.1.9, which cost an afternoon to explain.
+
+**The mirror is the release channel.** `raw.githubusercontent.com` is unreachable or slow from the
+canary hosts often enough that a transfer in the middle of an install fails; a Tailscale host serving
+the same directory answered every time. The document advertises the mirror's address (`--mirror`), so
+the device downloads from it and not from the public host that published. `--allow-plaintext` is
+needed on the signing and the update side when that address is plain http; the flag widens the
+scheme and nothing else, and the tailnet is the transport that makes it honest.
+
+**An update is one command, and it prints its verdict.**
+
+```bash
+summrise-device --check-update <mirror>/release-0.2.7.json --channel canary \
+    --data C:\ProgramData\Summrise --install C:\SummriseInstall
+```
+
+`applied 0.2.7` means the supervisor swapped the baseline and the new app answered its health probe
+twice; `/api/health` then reports that version. A 404 revocations list is read as "nothing revoked";
+a stale or badly signed one is a hard refusal.
+
+**The installer is built and tested by CI, not by a laptop.** `installer.yml` derives the compile-time
+public keys from the seeds (`summrise-release pubkey`), builds the setup, then **installs it on the
+runner**: the service must be running, `/api/health` must answer `status: ok`, and the uninstaller
+must remove the service. A tag release carries the setup as a release asset.
+
+**What the canary proved, in the order it happened.**
+
+| evidence | where it comes from |
+|---|---|
+| an installer that upgrades and a fresh one that seeds | `%TEMP%\summrise-setup.log`: `health: ok on port 18090` |
+| the update path, twice, on two machines | `applied 0.2.6`, then `/api/health` `{"version":"0.2.6"}` |
+| the console's control channel across a tailnet | `POST /mcp` with a signed grant returned the other machine's `state` |
+| liveness over time | the device gate's monitor on `/api/health`, `up_pct: 100` |
+
+**The console binds loopback and is reached from the fleet, not the other way round.** A monitor that
+probes a second machine's `/api/health` from a first machine reports DOWN, and that is not an outage:
+the device listens on `127.0.0.1` and the console channel is outbound. Fleet liveness is the console's
+`devices` count and its channels, not a reachable port on each host.
