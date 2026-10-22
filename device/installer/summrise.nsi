@@ -58,7 +58,9 @@ BrandingText "${COMPANY}"
 Function .onInit
   nsExec::Exec 'sc.exe stop ${SERVICE}'
   Pop $0
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service --service-name ${SERVICE}'
+  ; `--install-service`/`--uninstall-service` always act on the launcher's default service name;
+  ; only `service --service-name` selects another one for the SCM's own argv.
+  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
   Pop $0
   Pop $1
 FunctionEnd
@@ -66,6 +68,9 @@ FunctionEnd
 Section "Summrise runtime" SecRuntime
   SectionIn RO
   SetShellVarContext all
+  ; NSIS is a 32-bit process: without this, HKLM writes land under WOW6432Node and the
+  ; "Apps & features" entry is the 32-bit one, not the machine's.
+  SetRegView 64
   SetOutPath "$INSTDIR"
   File /oname=summrise-launch.exe "${SOURCE}\summrise-launch.exe"
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
@@ -84,25 +89,50 @@ Section "Summrise runtime" SecRuntime
 
   ; The one install implementation: seed the baseline, mint the token, harden the data directory,
   ; register the service. A failure aborts the install rather than leaving a half-installed tree.
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-service --service-name ${SERVICE} --install "$INSTDIR" --data "${DATA_DIR}" --seed-sidecar "$INSTDIR\summrise-device.sidecar.json" --port ${PORT}'
+  ;
+  ; A SILENT INSTALL MUST NEVER SHOW A BOX: `/S` has nobody to click OK, so a MessageBox is an
+  ; invisible hang (it held a canary install for minutes with the process alive and no output).
+  ; Silent mode reports through the exit code and the log instead.
+  FileOpen $9 "$TEMP\summrise-install.log" w
+  FileWrite $9 "summrise ${VERSION} install$\r$\n"
+  FileWrite $9 "install: $INSTDIR$\r$\n"
+  FileWrite $9 "data: ${DATA_DIR}$\r$\n"
+  FileWrite $9 "port: ${PORT}$\r$\n"
+  ; DIAGNOSTIC: the uninstall entry is written before this log opens; read it back so the log says
+  ; whether the write landed and in which view.
+  ReadRegStr $8 HKLM "${UNINST_KEY}" "DisplayVersion"
+  FileWrite $9 "registry readback: '$8' (view 64)$\r$\n"
+
+  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-service --install "$INSTDIR" --data "${DATA_DIR}" --seed-sidecar "$INSTDIR\summrise-device.sidecar.json" --port ${PORT}'
   Pop $0
   Pop $1
+  FileWrite $9 "install-service: exit $0$\r$\n$1$\r$\n"
   ${If} $0 != "0"
-    MessageBox MB_ICONSTOP "The device runtime could not be installed (exit $0).$\r$\n$\r$\n$1"
+    FileClose $9
+    ${If} ${Silent}
+      SetErrorLevel 1
+    ${Else}
+      MessageBox MB_ICONSTOP "The device runtime could not be installed (exit $0).$\r$\n$\r$\n$1"
+    ${EndIf}
     Abort
   ${EndIf}
 
   nsExec::ExecToStack 'sc.exe start ${SERVICE}'
   Pop $0
   Pop $1
+  FileWrite $9 "sc start: exit $0$\r$\n$1$\r$\n"
+  FileClose $9
   ${If} $0 != "0"
-    MessageBox MB_ICONEXCLAMATION "The service was registered but did not start (exit $0).$\r$\n$\r$\n$1"
+    ${IfNot} ${Silent}
+      MessageBox MB_ICONEXCLAMATION "The service was registered but did not start (exit $0).$\r$\n$\r$\n$1"
+    ${EndIf}
   ${EndIf}
 SectionEnd
 
 Section "Uninstall"
   SetShellVarContext all
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service --service-name ${SERVICE}'
+  SetRegView 64
+  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
   Pop $0
   Pop $1
 
@@ -115,6 +145,10 @@ Section "Uninstall"
 
   DeleteRegKey HKLM "${UNINST_KEY}"
 
-  MessageBox MB_YESNO|MB_ICONQUESTION "Delete the device data in ${DATA_DIR}?$\r$\n$\r$\nThat directory holds state.json, the install token and the device identity; keeping it lets a reinstall resume where this one stopped." IDNO +2
-  RMDir /r "${DATA_DIR}"
+  ; Silent uninstall keeps the data: nobody can answer the question, and deleting state.json, the
+  ; token and the identity behind an operator's back is the worse default.
+  ${IfNot} ${Silent}
+    MessageBox MB_YESNO|MB_ICONQUESTION "Delete the device data in ${DATA_DIR}?$\r$\n$\r$\nThat directory holds state.json, the install token and the device identity; keeping it lets a reinstall resume where this one stopped." IDNO +2
+    RMDir /r "${DATA_DIR}"
+  ${EndIf}
 SectionEnd
