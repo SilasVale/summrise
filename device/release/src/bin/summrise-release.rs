@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use summrise_release::{
-    now_ms, revoke_file, sign_file, sign_sidecar, version_is_plain, Channel, RevokeError,
-    RevokeRequest, SignError, SignRequest,
+    hex_encode, now_ms, read_seed, revoke_file, sign_file, sign_sidecar, version_is_plain, Channel,
+    RevokeError, RevokeRequest, SignError, SignRequest,
 };
 
 const SIGN_USAGE: &str = "usage: summrise-release sign --key-file <hex-seed-file> \
@@ -27,9 +27,12 @@ const SIDECAR_USAGE: &str = "usage: summrise-release sidecar --key-file <hex-see
                              --artifact <file> --version X.Y.Z --channel stable|canary \
                              --out <path>";
 
+const PUBKEY_USAGE: &str = "usage: summrise-release pubkey --key-file <hex-seed-file>";
+
 const USAGE: &str = "usage: summrise-release sign ...   (see --help after the subcommand)\n\
                      usage: summrise-release revoke ...\n\
-                     usage: summrise-release sidecar ...";
+                     usage: summrise-release sidecar ...\n\
+                     usage: summrise-release pubkey ...";
 
 #[derive(Debug)]
 enum CliError {
@@ -71,12 +74,12 @@ impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CliError::MissingCommand => {
-                f.write_str("missing the `sign`, `revoke` or `sidecar` subcommand")
+                f.write_str("missing the `sign`, `revoke`, `sidecar` or `pubkey` subcommand")
             }
             CliError::UnknownCommand(command) => {
                 write!(
                     f,
-                    "unknown subcommand {command:?}; expected `sign`, `revoke` or `sidecar`"
+                    "unknown subcommand {command:?}; expected `sign`, `revoke`, `sidecar` or `pubkey`"
                 )
             }
             CliError::NonUnicode => f.write_str("an argument is not valid UTF-8"),
@@ -140,6 +143,7 @@ fn run() -> Result<(), CliError> {
         "sign" => sign(args),
         "revoke" => revoke(args),
         "sidecar" => sidecar(args),
+        "pubkey" => pubkey(args),
         "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -239,6 +243,40 @@ where
         document.channel,
         out.display()
     );
+    Ok(())
+}
+
+/// The `pubkey` subcommand: the public half of a seed file, for a build that must embed it.
+///
+/// The workflow derives the compile-time keys from the seeds it already holds, so the build key and
+/// the signing key cannot drift: a second copy of a public key in a workflow file is a copy that
+/// goes stale the day the key is rotated.
+fn pubkey<I>(mut args: I) -> Result<(), CliError>
+where
+    I: Iterator<Item = OsString>,
+{
+    let mut key_file = None;
+    while let Some(flag) = args.next() {
+        let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
+        match flag {
+            "--key-file" => set_path(
+                &mut key_file,
+                next_value(&mut args, "--key-file")?,
+                "--key-file",
+            )?,
+            "--help" | "-h" => {
+                println!("{PUBKEY_USAGE}");
+                return Ok(());
+            }
+            other if other.starts_with('-') => {
+                return Err(CliError::UnknownFlag(other.to_owned()));
+            }
+            other => return Err(CliError::UnexpectedArgument(other.to_owned())),
+        }
+    }
+    let key_file = key_file.ok_or(CliError::MissingFlag("--key-file"))?;
+    let key = read_seed(&key_file).map_err(CliError::Sign)?;
+    println!("{}", hex_encode(key.verifying_key().as_bytes()));
     Ok(())
 }
 

@@ -1,9 +1,12 @@
 name: installer
 
-# THE INSTALLER IS BUILT BY CI, NOT BY A LAPTOP. GitHub's windows-latest ships NSIS at
-# `C:\Program Files (x86)\NSIS`, so the wizard is reproducible and every release can carry one.
-# The sidecar is signed here with the launcher key from the repository secret; without it the job
-# fails closed rather than shipping an installer that cannot seed a baseline.
+# THE INSTALLER IS BUILT BY CI, NOT BY A LAPTOP. GitHub's windows-latest does not ship NSIS any
+# more (it used to), so the job installs it with Chocolatey and calls the path that actually exists.
+#
+# THE COMPILE-TIME KEYS ARE DERIVED FROM THE SEEDS. A binary built without SUMMRISE_*_PUBKEY embeds
+# the phase-1 placeholder and refuses every seed and update — the first CI-built installer failed
+# exactly that way on a real machine. Deriving the public half with `summrise-release pubkey` means
+# the key the build embeds and the key the sidecar is signed with cannot disagree.
 
 on:
   workflow_dispatch:
@@ -11,7 +14,7 @@ on:
       version:
         description: "Release version, X.Y.Z"
         required: true
-        default: "0.1.1"
+        default: "0.1.6"
       channel:
         description: "stable or canary"
         required: true
@@ -37,54 +40,67 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      # The signer is the only binary needed before the keys exist; it is cheap to build on its own.
+      - name: derive the build keys from the seeds
+        shell: bash
+        env:
+          LAUNCHER_SEED: ${{ secrets.SUMMRISE_LAUNCHER_SEED }}
+          RELEASE_SEED: ${{ secrets.SUMMRISE_RELEASE_SEED }}
+        run: |
+          set -euo pipefail
+          for name in launcher release; do
+            case "$name" in
+              launcher) value="${LAUNCHER_SEED:-}" ;;
+              release) value="${RELEASE_SEED:-}" ;;
+            esac
+            if [ -z "$value" ]; then
+              echo "::error::SUMMRISE_${name^^}_SEED is not set: the build needs the public half of the key it embeds"
+              exit 1
+            fi
+            seed="$RUNNER_TEMP/$name.seed"
+            printf '%s' "$value" > "$seed"
+          done
+          cargo build --release --manifest-path device/Cargo.toml -p summrise-release
+          launcher_pub="$(device/target/release/summrise-release.exe pubkey --key-file "$RUNNER_TEMP/launcher.seed")"
+          release_pub="$(device/target/release/summrise-release.exe pubkey --key-file "$RUNNER_TEMP/release.seed")"
+          echo "SUMMRISE_LAUNCHER_PUBKEY=$launcher_pub" >> "$GITHUB_ENV"
+          echo "SUMMRISE_RELEASE_PUBKEY=$release_pub" >> "$GITHUB_ENV"
+          echo "derived launcher=$launcher_pub"
+          echo "derived release=$release_pub"
+
       - name: build the runtime
         shell: bash
+        env:
+          SUMMRISE_CONSOLE_GRANT_KEY: ${{ vars.SUMMRISE_CONSOLE_GRANT_KEY }}
         run: |
           set -euo pipefail
           cargo build --release --manifest-path device/Cargo.toml \
-            -p summrise-launch -p summrise-device -p summrise-console -p summrise-release
+            -p summrise-launch -p summrise-device -p summrise-console
 
       # The sidecar is the launcher key's statement that this exact binary is the first generation.
-      # `summrise-release sidecar` is the product's own signer, so CI cannot drift from the format
-      # the launcher verifies.
       - name: sign the first-generation sidecar
         shell: bash
         env:
-          SUMMRISE_LAUNCHER_SEED: ${{ secrets.SUMMRISE_LAUNCHER_SEED }}
           RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
           CHANNEL: ${{ github.event.inputs.channel || 'canary' }}
         run: |
           set -euo pipefail
-          if [ -z "${SUMMRISE_LAUNCHER_SEED:-}" ]; then
-            echo "::error::SUMMRISE_LAUNCHER_SEED is not set: the launcher's 32-byte hex seed is required to sign the sidecar"
-            exit 1
-          fi
           version="${RAW_VERSION#v}"
           case "$version" in
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "::error::version '$version' is not X.Y.Z"; exit 1 ;;
           esac
-          seed="$RUNNER_TEMP/launcher.seed"
-          printf '%s' "$SUMMRISE_LAUNCHER_SEED" > "$seed"
-          # No icacls here: Git Bash rewrites a leading `/flag` into a path, which made the step
-          # exit 1 with nothing but the shell's message. The file lives in the runner's private temp
-          # directory and the signer reads it once.
           device/target/release/summrise-release.exe sidecar \
-            --key-file "$seed" \
+            --key-file "$RUNNER_TEMP/launcher.seed" \
             --artifact device/target/release/summrise-device.exe \
             --version "$version" --channel "$CHANNEL" \
             --out device/target/release/summrise-device.sidecar.json
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      # NSIS IS NOT ON THE RUNNER ANY MORE. It used to ship at `C:\Program Files (x86)\NSIS`; the
-      # image dropped it, and the job died on a missing path after a successful build. Chocolatey
-      # installs it and puts a `makensis` shim on PATH, which the shell can find without guessing.
       - name: install NSIS
         shell: powershell
         run: |
           choco install nsis --yes --no-progress
-          # Chocolatey deploys to this path and creates no shim this shell can see; the explicit
-          # path is the one fact that does not depend on PATH.
           & 'C:\Program Files (x86)\NSIS\makensis.exe' -VERSION
 
       - name: build the installer
@@ -125,8 +141,7 @@ jobs:
           if-no-files-found: error
 
       # A TAG RELEASE CARRIES THE INSTALLER. The artifact above is for the run; the release is what
-      # an operator downloads months later. `gh` is on the runner and the workflow token already has
-      # `contents: write`, so no third-party action is needed for two commands.
+      # an operator downloads months later.
       - name: attach the installer to the tag release
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash

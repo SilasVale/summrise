@@ -315,7 +315,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 /// Lower-hex encoding, used for the digest and the signature in the document.
-pub(crate) fn hex_encode(bytes: &[u8]) -> String {
+pub fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
 
     let mut text = String::with_capacity(bytes.len() * 2);
