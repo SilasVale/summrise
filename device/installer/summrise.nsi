@@ -123,13 +123,33 @@ Section "Summrise runtime" SecRuntime
   Pop $0
   Pop $1
   FileWrite $9 "sc start: exit $0$\r$\n$1$\r$\n"
-  FileClose $9
-  ${If} $0 != "0"
-  ${AndIf} $0 != "1056"
-    ${IfNot} ${Silent}
-      MessageBox MB_ICONEXCLAMATION "The service was registered but did not start (exit $0).$\r$\n$\r$\n$1"
+
+  ; **THE INSTALL IS NOT DONE UNTIL THE DEVICE ANSWERS.** A registered service that cannot bind its
+  ; port (the legacy agent holds 18080 by default) looks installed and serves nothing. Poll the
+  ; health endpoint the app exposes; the installer's verdict is the device's own answer.
+  StrCpy $7 "0"
+  ${Do}
+    nsExec::ExecToStack 'curl.exe -sf -m 2 http://127.0.0.1:${PORT}/api/health'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+      StrCpy $7 "1"
+    ${Else}
+      Sleep 1000
     ${EndIf}
+  ${LoopUntil} $7 == "1"
+  ${If} $7 != "1"
+    FileWrite $9 "health: no answer on port ${PORT} after 10s$\r$\n"
+    FileClose $9
+    ${If} ${Silent}
+      SetErrorLevel 1
+    ${Else}
+      MessageBox MB_ICONSTOP "The service is registered, but the device does not answer on port ${PORT}.$\r$\n$\r$\nAnother program may be using that port (the pre-1.3 agent holds 18080). Stop it or rebuild the installer with another port."
+    ${EndIf}
+    Abort
   ${EndIf}
+  FileWrite $9 "health: ok on port ${PORT}$\r$\n"
+  FileClose $9
 SectionEnd
 
 Section "Uninstall"
