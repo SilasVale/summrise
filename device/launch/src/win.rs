@@ -29,13 +29,13 @@ use summrise_launch::{
     app_arguments, app_exe, app_pid_file, commit_pending, discard_pending, ensure_baseline,
     generation_dir, install_pending_over_app, install_token, launcher_pid_file, link_to_persist,
     now_ms, parse_config, parse_service_args, read_swap_request, resolve_baseline,
-    restore_current_app, service_launch_arguments, sha256_bytes, split_console_args, stage_pending,
-    staged_exe, staged_sidecar, swap_request, swap_result, token_action, token_text,
-    validate_staged_update, verify_or_restore_at_startup, wait_healthy, write_console_link,
-    write_swap_result, Action, Baseline, BaselineChoice, BaselineInstall, Config, ConsoleLink,
-    RestartBudget, Restore, Sidecar, StagedPair, SwapRequestState, SwapResult, TokenAction,
-    APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR,
-    SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    restore_current_app, restore_from_previous_at_startup, service_launch_arguments, sha256_bytes,
+    split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request, swap_result,
+    token_action, token_text, validate_staged_update, verify_or_restore_at_startup, wait_healthy,
+    write_console_link, write_swap_result, Action, Baseline, BaselineChoice, BaselineInstall,
+    Config, ConsoleLink, RestartBudget, Restore, Sidecar, StagedPair, SwapRequestState, SwapResult,
+    TokenAction, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS,
+    PENDING_DIR, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -691,7 +691,7 @@ fn start_supervised_child(
     let baseline = match resolve_baseline(&config.install) {
         BaselineChoice::Current(baseline) => baseline,
         BaselineChoice::Previous(_) => {
-            let baseline = restore_current_app(&config.install)?;
+            let baseline = restore_from_previous_at_startup(&config.install)?;
             eprintln!(
                 "launch: current baseline was unusable; restored the previous generation ({})",
                 baseline.sidecar.version

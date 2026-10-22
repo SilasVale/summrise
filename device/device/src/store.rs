@@ -311,7 +311,7 @@ impl Store {
             state.last_verdict = LastVerdict {
                 ts: format_utc(record.ts_ms / 1_000),
                 outcome: VerdictOutcome::Repaired,
-                detail: "repaired from baseline".to_owned(),
+                detail: format!("repaired from {}", record.from),
             };
             record_repair_event(&self.data, record);
         }
@@ -571,6 +571,9 @@ fn is_sha256_hex(value: &str) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RepairRecord {
     ts_ms: u64,
+    /// Which generation the bytes came from: `baseline` (the verified current pair) or `previous`
+    /// (the retired pair, booted because `current` was unusable).
+    from: String,
     sha256: String,
 }
 
@@ -615,9 +618,13 @@ fn read_new_repairs(path: &Path, offset: u64) -> io::Result<(Vec<RepairRecord>, 
         let Ok(parsed) = serde_json::from_slice::<RepairLine>(line) else {
             continue;
         };
-        if parsed.kind == "repaired" && parsed.from == "baseline" {
+        // Two sources are repairs this build understands: the verified current pair, and the
+        // retired pair the supervisor booted because `current` was unusable. Anything else is a
+        // record from a newer build or a damaged line, and is skipped rather than guessed at.
+        if parsed.kind == "repaired" && matches!(parsed.from.as_str(), "baseline" | "previous") {
             records.push(RepairRecord {
                 ts_ms: parsed.ts_ms,
+                from: parsed.from,
                 sha256: parsed.sha256,
             });
         }
@@ -660,10 +667,12 @@ pub(crate) fn record_force_reinstall(
 /// The verdict in the state document is the operator-facing record; a failed event write must not
 /// stop the device from starting, but it is loud because the automated evidence would be missing.
 fn record_repair_event(data: &Path, record: &RepairRecord) {
+    // The event name carries the source: a device repaired from the retired generation is a
+    // different fact from one whose app copy was rewritten from the verified pair.
     let line = serde_json::json!({
         "ts_ms": record.ts_ms,
-        "event": "repaired_from_baseline",
-        "from": "baseline",
+        "event": format!("repaired_from_{}", record.from),
+        "from": record.from,
         "sha256": record.sha256,
     });
     let mut text = line.to_string();
@@ -1717,5 +1726,36 @@ mod tests {
             1,
             "a restart does not record the same repair again"
         );
+    }
+
+    /// A device that booted the retired generation says so: the sentence, the event name and the
+    /// source are all the previous generation, not the verified current pair.
+    #[test]
+    fn a_start_that_booted_the_previous_generation_says_previous() {
+        let dir = TempDir::new("repair-ingest-previous");
+        let (store, _) = store_in(&dir);
+        saved(&store);
+        let sha = "cd".repeat(32);
+        let line = serde_json::json!({
+            "ts_ms": 1_700_000_000_000u64,
+            "kind": "repaired",
+            "from": "previous",
+            "sha256": sha,
+        })
+        .to_string()
+            + "\n";
+        append_repairs(&store.repair_log_path(), &line);
+
+        let mut state = store.load().expect("the document loads");
+        assert!(store.ingest_repairs(&mut state).expect("the log is read"));
+        assert_eq!(
+            state.last_verdict.detail, "repaired from previous",
+            "the verdict names the generation that was booted"
+        );
+        let events = fs::read_to_string(dir.join("data").join("events.jsonl"))
+            .expect("the event log is written");
+        let event: serde_json::Value = serde_json::from_str(events.trim()).expect("JSON");
+        assert_eq!(event["event"], "repaired_from_previous");
+        assert_eq!(event["from"], "previous");
     }
 }

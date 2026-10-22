@@ -1510,6 +1510,23 @@ pub fn restore_current_app(install: &Path) -> Result<Baseline, String> {
     }
 }
 
+/// Boot the retired generation and record it: the startup half of "current was unusable".
+///
+/// Returns the generation that was booted after rebuilding `current` from it. The record is written
+/// **before** the caller starts the child, so a device that comes back from the previous generation
+/// always leaves the evidence behind; a record that cannot be written is loud but does not turn a
+/// repaired device into a broken one.
+pub fn restore_from_previous_at_startup(install: &Path) -> Result<Baseline, String> {
+    let baseline = restore_current_app(install)?;
+    if let Err(error) = append_repair_record(install, "previous", &baseline.sidecar.sha256) {
+        eprintln!(
+            "launch: warning: restored the app from the previous generation but cannot append {}: {error}",
+            repair_log(install).display()
+        );
+    }
+    Ok(baseline)
+}
+
 /// Verify the app against a baseline generation; restore it from that generation when it is missing,
 /// empty or corrupt. Never returns before the app either matches the expected hash or a human is
 /// named.
@@ -1598,6 +1615,18 @@ pub fn verify_or_restore_at_startup(install: &Path, baseline: &Baseline) -> Rest
 /// app's reader consumes. `sync_all` makes the evidence durable before the app starts and quotes it:
 /// a record that dies in the page cache is a record the canary cannot show.
 pub fn append_repair_log(install: &Path, sha256: &str) -> io::Result<()> {
+    append_repair_record(install, "baseline", sha256)
+}
+
+/// Append one repair record that names **which generation** the bytes came from.
+///
+/// `baseline` is the normal repair: the app copy no longer matched the verified current generation
+/// and was rewritten from it. `previous` is the boot-time substitution: `current` itself was
+/// unusable, so the supervisor booted the retired generation and rebuilt `current` from it. Before
+/// this existed the second case was silent — the device came back, and nothing on disk said why or
+/// from which build (`2026-10-22`: a deleted `current\summrise-device.exe` was repaired to the
+/// previous generation and left no record at all).
+pub fn append_repair_record(install: &Path, from: &'static str, sha256: &str) -> io::Result<()> {
     #[derive(Serialize)]
     struct RepairRecord<'a> {
         ts_ms: u64,
@@ -1609,7 +1638,7 @@ pub fn append_repair_log(install: &Path, sha256: &str) -> io::Result<()> {
     let record = RepairRecord {
         ts_ms: now_ms(),
         kind: "repaired",
-        from: "baseline",
+        from,
         sha256,
     };
     let mut line = serde_json::to_string(&record).map_err(|error| {
@@ -3055,6 +3084,33 @@ mod tests {
         assert_eq!(baseline.generation, Generation::Current);
         assert_eq!(baseline.sidecar.version, "2.0.2");
         assert_eq!(fs::read(app_exe(&install)).unwrap(), b"previous bytes");
+    }
+
+    /// The observed gap (2026-10-22): the supervisor booted the previous generation after the
+    /// current image was deleted, and **no record said so**. The device came back and the evidence
+    /// gate 1 asks for did not exist.
+    #[test]
+    fn booting_the_previous_generation_records_which_generation_was_booted() {
+        let tmp = TempDir::new("boot-previous-record");
+        let install = install_dir(&tmp, "install");
+        let previous = write_generation(&install, Generation::Previous, "2.0.2", b"previous bytes");
+        write_generation(&install, Generation::Current, "2.0.3", b"current bytes");
+        fs::remove_file(generation_exe(&install, CURRENT_DIR))
+            .expect("the current generation's image is deleted");
+
+        let baseline = restore_from_previous_at_startup(&install).expect("boot previous");
+        assert_eq!(baseline.sidecar.version, "2.0.2");
+
+        let text = fs::read_to_string(repair_log(&install)).expect("a record exists");
+        assert_eq!(text.lines().count(), 1, "one repair, one line: {text}");
+        let record: serde_json::Value =
+            serde_json::from_str(text.trim()).expect("the record is JSON");
+        assert_eq!(record["kind"], "repaired");
+        assert_eq!(
+            record["from"], "previous",
+            "the record says which generation was booted, not just that something happened"
+        );
+        assert_eq!(record["sha256"], previous.sidecar.sha256);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────────
