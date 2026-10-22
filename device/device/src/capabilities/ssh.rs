@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use russh::client::Msg;
 use russh::client::{self, Handle};
 use russh::keys::ssh_key::PublicKey;
-use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg};
+use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf};
 use serde::Deserialize;
 
@@ -194,6 +194,21 @@ impl KnownHosts {
 }
 
 /// The store key for a host:port. A bare IPv6 address is bracketed so the port is unambiguous.
+/// Load an OpenSSH private key, tolerating the line endings a Windows editor writes.
+///
+/// The canary proved this matters: `ssh-keygen` on the same Windows machine the device runs on writes
+/// CRLF, and `russh`'s own loader reads the file itself and refuses the trailing `\r` — so the key an
+/// operator had just generated on that box was the one key the device would not accept. Normalising
+/// the line endings before parsing is the whole fix; the file's bytes stay untouched on disk.
+fn load_private_key(path: &Path) -> Result<PrivateKey, String> {
+    let bytes = std::fs::read(path).map_err(|_| "the key file is not readable".to_owned())?;
+    let text = String::from_utf8(bytes)
+        .map_err(|_| "the key file is not UTF-8 text; an OpenSSH private key is".to_owned())?;
+    let normalized = text.replace("\r\n", "\n");
+    PrivateKey::from_openssh(&normalized)
+        .map_err(|_| "the file is not a readable OpenSSH private key".to_owned())
+}
+
 fn trust_key(host: &str, port: u16) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
@@ -499,9 +514,7 @@ pub async fn connect(
                     message: "the key path is not absolute".to_owned(),
                 });
             }
-            let key = load_secret_key(path, None).map_err(|_| SshError::Key {
-                message: "the file is not a readable OpenSSH private key".to_owned(),
-            })?;
+            let key = load_private_key(path).map_err(|message| SshError::Key { message })?;
             Some(PrivateKeyWithHashAlg::new(Arc::new(key), None))
         }
     };
@@ -1303,5 +1316,20 @@ mod tests {
             "this is not JSON",
             "a failed connection does not rewrite the store"
         );
+    }
+
+    /// A key written with CRLF — which is what `ssh-keygen` on Windows produces — is accepted. The
+    /// canary refused exactly such a key with "not a readable OpenSSH private key".
+    #[test]
+    fn a_key_written_with_windows_line_endings_is_accepted() {
+        let dir = std::env::temp_dir().join(format!("summrise-ssh-key-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("key");
+        let fixture = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACBt73PrmwidvDpkFRqERBt32N10DpRHCdVrn+3JSnTDQgAAAJANTEDWDUxA\n1gAAAAtzc2gtZWQyNTUxOQAAACBt73PrmwidvDpkFRqERBt32N10DpRHCdVrn+3JSnTDQg\nAAAEDgQZV+5PjjydkZGmJv72AZxNt0ZfdW3Yt8XrTZFWwJqG3vc+ubCJ28OmQVGoREG3fY\n3XQOlEcJ1Wuf7clKdMNCAAAAB2ZpeHR1cmUBAgMEBQY=\n-----END OPENSSH PRIVATE KEY-----\n";
+        let crlf = fixture.replace("\n", "\r\n");
+        std::fs::write(&path, crlf.as_bytes()).expect("write the CRLF key");
+        let loaded = load_private_key(&path).expect("a CRLF OpenSSH key loads");
+        assert_eq!(loaded.algorithm(), russh::keys::Algorithm::Ed25519);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
