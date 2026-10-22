@@ -924,7 +924,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // read or write and held for the whole run (dropping it closes the handle, which releases it).
     let _lock = lock::DeviceLock::acquire(&config.data)?;
     let store = Store::new(&config.install, &config.data, config.release());
-    ensure_state(&store)?;
+    // The launcher always passes the release facts; a direct start passes none and claims none.
+    ensure_state(&store, config.release_version.is_some())?;
     // C1: a fresh install has no `<data>/workspace`, and no earlier step creates it. The files
     // capability's root is the device's own directory, created here before anything can call it;
     // otherwise every `files.*` call on a new device is `NotFound` with no MCP tool to fix it.
@@ -1017,11 +1018,18 @@ fn ensure_files_root(config: &Config) -> Result<(), StartupError> {
 /// that can report the corruption, and rewriting the file would destroy the evidence the report is
 /// about. The swap request and result are applied after `refresh_start`, so their phase and verdict
 /// win over "started".
-fn ensure_state(store: &Store) -> std::io::Result<()> {
+fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
     let mut state = if store.exists() {
         match store.load() {
             Ok(mut state) => {
-                store.refresh_start(&mut state);
+                // A start that claims a release replaces the identity facts; a start that claims
+                // nothing refreshes only its own liveness, so a development run cannot rewrite what
+                // the launcher recorded.
+                if claimed {
+                    store.refresh_start(&mut state);
+                } else {
+                    store.refresh_liveness(&mut state);
+                }
                 state
             }
             Err(error) => {
@@ -1260,7 +1268,7 @@ mod tests {
         let dir = TempDir::new("startup-absent");
         let store = store_in(&dir);
 
-        ensure_state(&store).expect("startup can write the initial document");
+        ensure_state(&store, true).expect("startup can write the initial document");
 
         assert!(store.exists());
         let state = store.load().expect("what startup wrote is a document");
@@ -1346,7 +1354,7 @@ mod tests {
         assert_ne!(config.release().version, env!("CARGO_PKG_VERSION"));
         let store = Store::new(dir.join("install"), dir.join("data"), config.release());
 
-        ensure_state(&store).expect("startup can write the initial document");
+        ensure_state(&store, true).expect("startup can write the initial document");
 
         let state = store.load().expect("what startup wrote is a document");
         assert_eq!(state.install.version, "9.9.9");
@@ -1373,7 +1381,7 @@ mod tests {
         state.service.state = ServiceState::Stopped;
         store.save(&state).expect("the fixture is written");
 
-        ensure_state(&store).expect("startup records the new start");
+        ensure_state(&store, true).expect("startup records the new start");
 
         let after = store.load().expect("the document is readable");
         assert_eq!(
@@ -1415,7 +1423,7 @@ mod tests {
         std::fs::write(store.state_path(), "{ not a document").expect("the fixture is written");
         let before = std::fs::read_to_string(store.state_path()).expect("the fixture is readable");
 
-        ensure_state(&store).expect("a corrupt document does not stop the process");
+        ensure_state(&store, true).expect("a corrupt document does not stop the process");
 
         assert_eq!(
             std::fs::read_to_string(store.state_path()).expect("the document is readable"),
@@ -1431,7 +1439,7 @@ mod tests {
     fn a_start_ingests_the_launchers_repair_record() {
         let dir = TempDir::new("startup-repair");
         let store = store_in(&dir);
-        ensure_state(&store).expect("the first start writes the document");
+        ensure_state(&store, true).expect("the first start writes the document");
         let sha = "cd".repeat(32);
         let line = format!(
             r#"{{"ts_ms":1700000000000,"kind":"repaired","from":"baseline","sha256":"{sha}"}}"#
@@ -1441,7 +1449,7 @@ mod tests {
         std::fs::write(store.repair_log_path(), format!("{line}\n"))
             .expect("the launcher's repair log is written");
 
-        ensure_state(&store).expect("the next start ingests the repair");
+        ensure_state(&store, true).expect("the next start ingests the repair");
 
         let state = store.load().expect("the document loads");
         assert_eq!(state.last_verdict.outcome, VerdictOutcome::Repaired);
@@ -2025,7 +2033,7 @@ mod tests {
         )
         .expect("the request is written");
 
-        ensure_state(&store).expect("startup records the pending stage");
+        ensure_state(&store, true).expect("startup records the pending stage");
 
         let state = store.load().expect("the document loads");
         assert_eq!(
@@ -2065,7 +2073,7 @@ mod tests {
         )
         .expect("the request is written");
 
-        ensure_state(&store).expect("startup records both the start and the swap files");
+        ensure_state(&store, true).expect("startup records both the start and the swap files");
 
         let state = store.load().expect("the document loads");
         assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));

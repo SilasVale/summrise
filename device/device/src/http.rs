@@ -741,7 +741,7 @@ mod tests {
             Some("b1946ac92492d2347c6235b4d2611184"),
             Some(Channel::Canary),
         );
-        crate::ensure_state(&fixture.store).expect("startup writes the release facts");
+        crate::ensure_state(&fixture.store, true).expect("startup writes the release facts");
 
         let (status, body) = send(fixture.app(), get("/api/state", Some(&token_hex()))).await;
 
@@ -835,7 +835,8 @@ mod tests {
             .expect("the corrupt fixture is written");
         // The startup path is what serves: a corrupt document must not stop the process (the API
         // is how the corruption gets reported), but it must poison readiness.
-        crate::ensure_state(&fixture.store).expect("a corrupt document does not stop the process");
+        crate::ensure_state(&fixture.store, true)
+            .expect("a corrupt document does not stop the process");
 
         let (status, body) = send(fixture.app(), get("/api/health", None)).await;
 

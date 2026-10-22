@@ -181,6 +181,24 @@ impl Store {
         state.service.started_at = now_rfc3339();
     }
 
+    /// Record this process's start without claiming a release: liveness and the verdict only.
+    ///
+    /// A process started without `--release-version` claims no release pair — it is a development
+    /// run, not the supervised app. It must not overwrite the identity facts the launcher recorded:
+    /// doing so rewrote `state.json` to the crate version with an empty digest, and the next
+    /// scheduled update then judged a release against a version the device does not run. The
+    /// document keeps its install and baseline; only the facts about *this process* change.
+    pub fn refresh_liveness(&self, state: &mut State) {
+        state.last_verdict = LastVerdict {
+            ts: now_rfc3339(),
+            outcome: VerdictOutcome::Ok,
+            detail: format!("started {} (unclaimed start)", state.install.version),
+        };
+        state.service.state = ServiceState::Running;
+        state.service.pid = std::process::id();
+        state.service.started_at = now_rfc3339();
+    }
+
     /// The baseline facts the current release claims: version and digest from the argv, and the
     /// generation path the launcher owns.
     fn baseline_facts(&self) -> Baseline {
@@ -941,6 +959,43 @@ mod tests {
         assert_eq!(
             state.install.channel, "stable",
             "the channel is a release fact and follows the sidecar this start booted"
+        );
+    }
+
+    #[test]
+    fn an_unclaimed_start_keeps_the_identity_the_launcher_recorded() {
+        let dir = TempDir::new("store-unclaimed-start");
+        // The document the launcher's install left behind: 2.0.3 on canary.
+        let recorded = Store::new(
+            dir.join("install"),
+            dir.join("data"),
+            release("2.0.3", "b1946ac92492d2347c6235b4d2611184"),
+        );
+        let mut state = recorded.initial();
+        state.install.channel = "canary".to_owned();
+        state.service.pid = 111;
+        state.service.started_at = "2026-01-01T00:00:00Z".to_owned();
+
+        // A development run: no `--release-version`, so the standalone release claims nothing.
+        let standalone = Store::new(
+            dir.join("install"),
+            dir.join("data"),
+            crate::store::Release::standalone(),
+        );
+        standalone.refresh_liveness(&mut state);
+
+        assert_eq!(state.install.version, "2.0.3", "the identity survives");
+        assert_eq!(state.install.channel, "canary", "the channel survives");
+        assert_eq!(
+            state.baseline.sha256, "b1946ac92492d2347c6235b4d2611184",
+            "the baseline digest survives: a process that claims no release cannot replace it"
+        );
+        assert_ne!(state.service.pid, 111, "the liveness is this process");
+        assert_eq!(state.last_verdict.outcome, VerdictOutcome::Ok);
+        assert!(
+            state.last_verdict.detail.contains("unclaimed"),
+            "the verdict says what kind of start this was: {}",
+            state.last_verdict.detail
         );
     }
 
