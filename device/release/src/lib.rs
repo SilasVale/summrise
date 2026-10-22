@@ -29,4 +29,4 @@ pub use sign::{
     generate_seed, hex_encode, now_ms, read_seed, seed_from_hex, sha256_hex, sign_document,
     sign_file, sign_sidecar, ArtifactSidecar, SignError, SignRequest,
 };
-pub use url::{parse_release_url, UrlError};
+pub use url::{parse_release_url, parse_release_url_allowing_plaintext, UrlError};

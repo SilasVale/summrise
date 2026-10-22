@@ -29,6 +29,7 @@ mod mesh;
 mod remote;
 mod store;
 mod update;
+mod update_source;
 mod updater;
 mod watchdog;
 
@@ -98,6 +99,12 @@ async fn main() -> ExitCode {
             }
         }
         return ExitCode::from(check_update_exit_code(&result));
+    }
+    if args.first().and_then(|argument| argument.to_str()) == Some("--set-update-source") {
+        return set_update_source_from_args(&args[1..]);
+    }
+    if args.first().and_then(|argument| argument.to_str()) == Some("--update-source-clear") {
+        return clear_update_source_from_args(&args[1..]);
     }
     if args.first().and_then(|argument| argument.to_str()) == Some("--enroll") {
         return match enroll::enroll_from_args(&args[1..]).await {
@@ -609,6 +616,122 @@ fn state_facts(path: &Path) -> Result<InstalledRelease, CheckUpdateModeError> {
     })
 }
 
+/// The hidden `--set-update-source` mode: write `<data>/update.json` so the serving app checks on a
+/// schedule.
+///
+/// A device with no source never looks for a release on its own; this is how an operator (or an
+/// installer) gives it one without editing the service's argv. The file is validated here, so a
+/// typo is a usage error at the moment it is written rather than a startup failure later.
+fn set_update_source_from_args(args: &[OsString]) -> ExitCode {
+    let mut url = None;
+    let mut channel = summrise_release::Channel::Stable;
+    let mut interval_s = update_source::DEFAULT_INTERVAL_S;
+    let mut allow_plaintext = false;
+    let mut data = None;
+    let mut arguments = args.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
+            Some("--channel") => match arguments.next().and_then(|value| value.to_str()) {
+                Some(text) => match text.parse::<summrise_release::Channel>() {
+                    Ok(parsed) => channel = parsed,
+                    Err(_) => return usage_update_source(),
+                },
+                None => return usage_update_source(),
+            },
+            Some("--interval") => match arguments.next().and_then(|value| value.to_str()) {
+                Some(text) => match text.parse::<u64>() {
+                    Ok(parsed) => interval_s = parsed,
+                    Err(_) => return usage_update_source(),
+                },
+                None => return usage_update_source(),
+            },
+            Some("--allow-plaintext") => allow_plaintext = true,
+            Some("--data") => match arguments.next() {
+                Some(value) => data = Some(PathBuf::from(value)),
+                None => return usage_update_source(),
+            },
+            Some(flag) if flag.starts_with("--") => return usage_update_source(),
+            _ => match argument.to_str() {
+                Some(text) if url.is_none() => url = Some(text.to_owned()),
+                Some(_) => return usage_update_source(),
+                None => return usage_update_source(),
+            },
+        }
+    }
+    let Some(url) = url else {
+        return usage_update_source();
+    };
+    let data = data.or_else(|| std::env::var_os("SUMMRISE_DATA").map(PathBuf::from));
+    let Some(data) = data else {
+        eprintln!(
+            "summrise-device: --set-update-source needs --data <data> (or SUMMRISE_DATA) naming \
+             the directory that holds state.json"
+        );
+        return ExitCode::from(2);
+    };
+    let source = update_source::UpdateSource {
+        url,
+        channel,
+        interval_s,
+        allow_plaintext,
+    };
+    match update_source::UpdateSource::write(&data, &source) {
+        Ok(path) => {
+            println!("update source written to {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("summrise-device: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The hidden `--update-source-clear` mode: stop checking on a schedule.
+fn clear_update_source_from_args(args: &[OsString]) -> ExitCode {
+    let mut data = None;
+    let mut arguments = args.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
+            Some("--data") => match arguments.next() {
+                Some(value) => data = Some(PathBuf::from(value)),
+                None => return ExitCode::from(2),
+            },
+            _ => return ExitCode::from(2),
+        }
+    }
+    let data = data.or_else(|| std::env::var_os("SUMMRISE_DATA").map(PathBuf::from));
+    let Some(data) = data else {
+        eprintln!("summrise-device: --update-source-clear needs --data <data>");
+        return ExitCode::from(2);
+    };
+    let path = update_source::UpdateSource::path(&data);
+    match std::fs::remove_file(&path) {
+        Ok(()) => {
+            println!("update source removed: {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            println!("no update source at {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("summrise-device: cannot remove {}: {error}", path.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn usage_update_source() -> ExitCode {
+    eprintln!(
+        "summrise-device: --set-update-source needs <url> [--channel stable|canary] \
+         [--interval <seconds>, {min}..{max}] [--allow-plaintext] [--data <data>]",
+        min = update_source::MIN_INTERVAL_S,
+        max = update_source::MAX_INTERVAL_S
+    );
+    ExitCode::from(2)
+}
+
 /// The release this device is running and what it remembers failing, which the update decision
 /// needs.
 ///
@@ -819,6 +942,25 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // the fact rather than a device that silently serves nothing on the mesh. `None` — no
     // `--mesh-broker` — starts nothing.
     let mesh = mesh::MeshLink::from_config(&config)?;
+    // A device told where its releases live checks on its own schedule; a device told nothing is
+    // exactly what it was before this existed. An unreadable source is a startup error naming the
+    // file rather than a device that silently never updates.
+    if let Some(source) = update_source::UpdateSource::load(&config.data)? {
+        // The source's transport choice is the check's transport choice: a scheduler that fetched
+        // with the default (https-only) config would refuse the very mirror the operator named with
+        // `--allow-plaintext`, and every interval would log the same refusal.
+        let update_config = updater::UpdateConfig {
+            allow_plaintext: source.allow_plaintext,
+            ..updater::UpdateConfig::default()
+        };
+        update_source::spawn(
+            store.clone(),
+            config.install.clone(),
+            config.data.clone(),
+            source,
+            update_config,
+        );
+    }
     http::serve(config, store, console, mesh).await?;
     Ok(())
 }

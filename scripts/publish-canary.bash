@@ -77,6 +77,15 @@ case "$mirror" in
     *) echo "publish-canary: --mirror must be http(s)://, not '$mirror'" >&2; exit 2 ;;
 esac
 
+# **THE BUILD KEYS ARE NOT OPTIONAL.** A binary built without them embeds the phase-1 placeholder
+# and refuses every seed and every update — the first CI-built installer did exactly that on a real
+# machine. They are public keys, so they are environment variables that must be present, not flags
+# that can be forgotten: a publish without them is a publish of a device that cannot be trusted.
+: "${SUMMRISE_LAUNCHER_PUBKEY:?SUMMRISE_LAUNCHER_PUBKEY is not set}"
+: "${SUMMRISE_RELEASE_PUBKEY:?SUMMRISE_RELEASE_PUBKEY is not set}"
+: "${SUMMRISE_CONSOLE_GRANT_KEY:?SUMMRISE_CONSOLE_GRANT_KEY is not set}"
+export SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY SUMMRISE_CONSOLE_GRANT_KEY
+
 echo "== building the signer for this host (it is what signs; it never ships to the device)"
 cargo build --release -p summrise-release
 signer="target/release/summrise-release"
