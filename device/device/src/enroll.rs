@@ -60,6 +60,13 @@ pub(crate) struct EnrollInvocation {
     pub(crate) data: PathBuf,
     /// Replace an existing token file instead of refusing.
     pub(crate) force: bool,
+    /// Accept a plaintext console base on a name the operator names explicitly.
+    ///
+    /// The default is https (or plain http to a loopback host) because the one-time code and the
+    /// long-lived channel token cross this connection. A console that lives on a private tunnel
+    /// (Tailscale, WireGuard, an SSH port-forward) is already encrypted underneath; this flag is
+    /// the operator saying so, it is printed once, and it never becomes the default.
+    pub(crate) allow_plaintext: bool,
 }
 
 /// What a successful enrolment wrote.
@@ -206,7 +213,7 @@ impl fmt::Display for EnrollError {
         match self {
             EnrollError::Usage => f.write_str(
                 "--enroll needs <console-url> <code> [--data <data>] [--install <install>] \
-                 [--force]",
+                 [--force] [--allow-plaintext]",
             ),
             EnrollError::BadUrl(url) => write!(
                 f,
@@ -304,7 +311,7 @@ struct ErrorBody {
 
 /// Enrol this device with the console at `invocation.console_url`.
 pub(crate) async fn enroll(invocation: &EnrollInvocation) -> Result<Enrollment, EnrollError> {
-    let url = parse_console_url(&invocation.console_url)?;
+    let url = parse_console_url(&invocation.console_url, invocation.allow_plaintext)?;
     fs::create_dir_all(&invocation.data).map_err(|source| EnrollError::DataDir {
         path: invocation.data.clone(),
         source,
@@ -434,10 +441,22 @@ struct TokenFile<'a> {
 /// enrollment cannot post the one-time code and receive the long-lived channel token in cleartext to
 /// a remote console (review I1). A query or fragment is refused because the route appended below is
 /// `/devices`; userinfo is refused because the base is persisted in `console.json` and printed.
-fn parse_console_url(text: &str) -> Result<Url, EnrollError> {
+fn parse_console_url(text: &str, allow_plaintext: bool) -> Result<Url, EnrollError> {
     let text = text.trim();
-    let url = summrise_release::parse_release_url(text)
-        .map_err(|_| EnrollError::BadUrl(text.to_owned()))?;
+    let url = match summrise_release::parse_release_url(text) {
+        Ok(url) => url,
+        // `--allow-plaintext` widens the scheme, nothing else: an absolute http URL with a host,
+        // no userinfo, query or fragment. Everything the strict rule checks about the shape still
+        // applies, so the flag cannot smuggle in a redirect target or a credential.
+        Err(_) if allow_plaintext => {
+            let url = Url::parse(text).map_err(|_| EnrollError::BadUrl(text.to_owned()))?;
+            if url.scheme() != "http" {
+                return Err(EnrollError::BadUrl(text.to_owned()));
+            }
+            url
+        }
+        Err(_) => return Err(EnrollError::BadUrl(text.to_owned())),
+    };
     if url.query().is_some()
         || url.fragment().is_some()
         || !url.username().is_empty()
@@ -599,6 +618,7 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
     let mut data = None;
     let mut install = None;
     let mut force = false;
+    let mut allow_plaintext = false;
 
     let mut arguments = args.iter();
     while let Some(argument) = arguments.next() {
@@ -612,6 +632,7 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
                 install = Some(PathBuf::from(value));
             }
             Some("--force") => force = true,
+            Some("--allow-plaintext") => allow_plaintext = true,
             Some(flag) if flag.starts_with("--") => return Err(EnrollError::Usage),
             _ => {
                 let text = argument.to_str().ok_or(EnrollError::Usage)?;
@@ -631,7 +652,7 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
     if code.is_empty() {
         return Err(EnrollError::Usage);
     }
-    parse_console_url(&console_url)?;
+    parse_console_url(&console_url, allow_plaintext)?;
 
     let data = data
         .or_else(|| std::env::var_os("SUMMRISE_DATA").map(PathBuf::from))
@@ -652,6 +673,7 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
         code,
         data,
         force,
+        allow_plaintext,
     })
 }
 
@@ -866,6 +888,7 @@ mod tests {
             code: "a".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
 
         let enrollment = enroll(&invocation)
@@ -923,6 +946,7 @@ mod tests {
             code: "a".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
         let first = enroll(&first).await.expect("the first code enrols");
         let token_path = data.join("console-token.json");
@@ -933,6 +957,7 @@ mod tests {
             code: "b".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
         let error = enroll(&second)
             .await
@@ -986,6 +1011,7 @@ mod tests {
             code: "c".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
 
         let error = enroll(&invocation)
@@ -1023,6 +1049,7 @@ mod tests {
             code: "d".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
 
         let error = enroll(&invocation)
@@ -1078,7 +1105,9 @@ mod tests {
             "http://localhost:18082",
         ] {
             assert_eq!(
-                parse_console_url(url).ok().map(|parsed| parsed.to_string()),
+                parse_console_url(url, false)
+                    .ok()
+                    .map(|parsed| parsed.to_string()),
                 Url::parse(url).ok().map(|parsed| parsed.to_string()),
                 "{url} is an allowed console base"
             );
@@ -1093,7 +1122,7 @@ mod tests {
             "https://user:pass@console.example.test",
             "https://user@console.example.test",
         ] {
-            let error = parse_console_url(url).expect_err("this console base is refused");
+            let error = parse_console_url(url, false).expect_err("this console base is refused");
             assert!(
                 matches!(error, EnrollError::BadUrl(_)),
                 "{url}: the refusal is a usage error: {error}"
@@ -1150,6 +1179,7 @@ mod tests {
             code: "9".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
         let error = enroll(&invocation)
             .await
@@ -1185,6 +1215,7 @@ mod tests {
             code: "e".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
 
         let error = enroll(&invocation)
@@ -1224,6 +1255,7 @@ mod tests {
             code: "f".repeat(64),
             data: data.clone(),
             force: false,
+            allow_plaintext: false,
         };
         enroll(&invocation).await.expect("the registration enrols");
 
@@ -1290,5 +1322,25 @@ mod tests {
         let error = parse_enroll_args(&args).expect_err("a code is required");
         assert!(matches!(error, EnrollError::Usage));
         assert_eq!(error.exit_code(), 2);
+    }
+
+    #[test]
+    fn plaintext_http_is_accepted_only_with_the_flag() {
+        let strict = parse_console_url("http://console.example.test:19000", false)
+            .expect_err("plain http is refused by default");
+        assert!(matches!(strict, EnrollError::BadUrl(_)), "{strict:?}");
+        let allowed = parse_console_url("http://console.example.test:19000", true)
+            .expect("the operator can name a trusted tunnel");
+        assert_eq!(allowed.scheme(), "http");
+        assert_eq!(allowed.host_str(), Some("console.example.test"));
+    }
+
+    #[test]
+    fn the_plaintext_flag_widens_the_scheme_and_nothing_else() {
+        assert!(parse_console_url("http://user:pass@host:19000", true).is_err());
+        assert!(parse_console_url("http://host:19000/?next=x", true).is_err());
+        assert!(parse_console_url("http://host:19000/#frag", true).is_err());
+        assert!(parse_console_url("ftp://host:19000", true).is_err());
+        assert!(parse_console_url("host:19000", true).is_err());
     }
 }
