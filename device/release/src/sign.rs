@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use crate::document::{
     artifact_message, canonical_message, version_is_plain, Channel, ReleaseDocument, VersionField,
 };
-use crate::url::{parse_release_url, UrlError};
+use crate::url::{parse_release_url_allowing_plaintext, UrlError};
 
 /// The only mode a key file may have on a platform that exposes Unix modes.
 pub const KEY_FILE_MODE: u32 = 0o600;
@@ -38,6 +38,8 @@ pub struct SignRequest<'a> {
     pub min_version: &'a str,
     /// Millisecond Unix time the document is signed.
     pub issued_at_ms: u64,
+    /// Accept a plaintext artifact host on a tunnel the operator names.
+    pub allow_plaintext: bool,
 }
 
 /// Why the signer refused to produce or write a document.
@@ -202,7 +204,8 @@ pub fn sign_document(
 fn validate_request(request: &SignRequest<'_>) -> Result<(), SignError> {
     validate_version(VersionField::Release, request.version)?;
     validate_version(VersionField::Minimum, request.min_version)?;
-    parse_release_url(request.artifact_url).map_err(SignError::Url)?;
+    parse_release_url_allowing_plaintext(request.artifact_url, request.allow_plaintext)
+        .map_err(SignError::Url)?;
     Ok(())
 }
 
@@ -461,6 +464,7 @@ mod tests {
             artifact_url: "https://example.test/summrise-device.exe",
             min_version,
             issued_at_ms: now_ms(),
+            allow_plaintext: false,
         }
     }
 

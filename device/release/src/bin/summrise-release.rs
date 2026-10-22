@@ -17,7 +17,8 @@ use summrise_release::{
 
 const SIGN_USAGE: &str = "usage: summrise-release sign --key-file <hex-seed-file> \
                           --artifact <file> --version X.Y.Z --channel stable|canary \
-                          --url <url> --min-version X.Y.Z --out <path>";
+                          --url <url> --min-version X.Y.Z --out <path> \
+                          [--allow-plaintext]";
 
 const REVOKE_USAGE: &str = "usage: summrise-release revoke --key-file <hex-seed-file> \
                             (--document <release.json> | --version X.Y.Z --sha256 <hex>) \
@@ -167,10 +168,12 @@ where
     let mut artifact_url = None;
     let mut min_version = None;
     let mut out = None;
+    let mut allow_plaintext = false;
 
     while let Some(flag) = args.next() {
         let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
         match flag {
+            "--allow-plaintext" => allow_plaintext = true,
             "--key-file" => {
                 set_path(
                     &mut key_file,
@@ -238,6 +241,7 @@ where
         artifact_url: &artifact_url,
         min_version: &min_version,
         issued_at_ms: now_ms(),
+        allow_plaintext,
     };
     let document = sign_file(&key_file, &artifact, &request, &out).map_err(CliError::Sign)?;
 

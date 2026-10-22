@@ -63,6 +63,39 @@ pub fn parse_release_url(text: &str) -> Result<Url, UrlError> {
     Ok(url)
 }
 
+/// Parse a URL, allowing plaintext http when the operator says the transport is a tunnel.
+///
+/// The strict rule exists because a document's bytes are trusted by signature, not by transport —
+/// but a device that has been told to fetch from a private mirror must be able to name it. The flag
+/// widens the scheme and nothing else: the address must still be absolute, with a host and without
+/// userinfo, query or fragment.
+pub fn parse_release_url_allowing_plaintext(
+    text: &str,
+    allow_plaintext: bool,
+) -> Result<Url, UrlError> {
+    match parse_release_url(text) {
+        Ok(url) => Ok(url),
+        Err(error) if allow_plaintext => {
+            let url = match Url::parse(text) {
+                Ok(url) => url,
+                Err(_) => return Err(error),
+            };
+            if url.scheme() != "http" || url.host().is_none() {
+                return Err(error);
+            }
+            if !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(error);
+            }
+            Ok(url)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Whether `host` is a loopback host: `127.0.0.1`, `::1`, or the name `localhost`.
 fn is_loopback_host(host: Host<&str>) -> bool {
     match host {
@@ -114,5 +147,21 @@ mod tests {
             parse_release_url("file:///release.json"),
             Err(UrlError::Scheme("file".to_owned()))
         );
+    }
+
+    #[test]
+    fn plaintext_is_an_explicit_widening_of_the_scheme() {
+        let url = "http://mirror.example.test/release.json";
+        assert!(parse_release_url_allowing_plaintext(url, false).is_err());
+        let allowed = parse_release_url_allowing_plaintext(url, true).expect("the flag allows it");
+        assert_eq!(allowed.scheme(), "http");
+        assert!(
+            parse_release_url_allowing_plaintext("http://u:p@mirror.test/r.json", true).is_err()
+        );
+        assert!(
+            parse_release_url_allowing_plaintext("http://mirror.test/r.json?x=1", true).is_err()
+        );
+        assert!(parse_release_url_allowing_plaintext("http://mirror.test/r.json#f", true).is_err());
+        assert!(parse_release_url_allowing_plaintext("ftp://mirror.test/r.json", true).is_err());
     }
 }

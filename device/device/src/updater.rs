@@ -60,6 +60,10 @@ pub struct UpdateConfig {
     pub total_timeout: Duration,
     /// How many redirects one request may follow.
     pub max_redirects: u8,
+    /// Accept a plaintext release host: the operator's statement that a tunnel (Tailscale,
+    /// WireGuard, an SSH forward) is the transport underneath. It widens the scheme and nothing
+    /// else — the document's signature is what makes the bytes trustworthy, not the scheme.
+    pub allow_plaintext: bool,
 }
 
 impl Default for UpdateConfig {
@@ -70,6 +74,7 @@ impl Default for UpdateConfig {
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             total_timeout: DEFAULT_TOTAL_TIMEOUT,
             max_redirects: DEFAULT_MAX_REDIRECTS,
+            allow_plaintext: false,
         }
     }
 }
@@ -398,8 +403,10 @@ pub(crate) async fn check_update_with(
     pubkey: &VerifyingKey,
 ) -> Result<CheckOutcome, UpdateError> {
     let client = build_client(cfg)?;
-    let document_url = http_url(url)?;
-    let explicit_list_url = revocations_url.map(http_url).transpose()?;
+    let document_url = http_url(url, cfg.allow_plaintext)?;
+    let explicit_list_url = revocations_url
+        .map(|url| http_url(url, cfg.allow_plaintext))
+        .transpose()?;
     let document_bytes = get_body(
         &client,
         &document_url,
@@ -422,7 +429,7 @@ pub(crate) async fn check_update_with(
     // 403); every other status and every parse error refuses the update.
     let list_url = match explicit_list_url {
         Some(url) => url,
-        None => sibling_revocations_url(&document.artifact_url)?,
+        None => sibling_revocations_url(&document.artifact_url, cfg.allow_plaintext)?,
     };
     if let Some(list) = fetch_revocations(&client, &list_url, cfg, pubkey).await? {
         if let Some(entry) = list.revoked_release(&document.version, &document.sha256) {
@@ -460,7 +467,7 @@ pub(crate) async fn check_update_with(
         }
     }
 
-    let artifact_url = http_url(&document.artifact_url)?;
+    let artifact_url = http_url(&document.artifact_url, cfg.allow_plaintext)?;
     let artifact = get_body(
         &client,
         &artifact_url,
@@ -541,8 +548,29 @@ fn redirect_refusal(previous: &[Url], next: &Url, max_redirects: u8) -> Option<R
 }
 
 /// Parse a URL this device is allowed to fetch: absolute, https unless loopback, with a host.
-pub(crate) fn http_url(text: &str) -> Result<Url, UpdateError> {
-    summrise_release::parse_release_url(text).map_err(|_| UpdateError::InvalidUrl(text.to_owned()))
+pub(crate) fn http_url(text: &str, allow_plaintext: bool) -> Result<Url, UpdateError> {
+    let parsed = match summrise_release::parse_release_url(text) {
+        Ok(url) => url,
+        Err(_) if allow_plaintext => {
+            let url = Url::parse(text).map_err(|_| UpdateError::InvalidUrl(text.to_owned()))?;
+            if url.scheme() != "http" {
+                return Err(UpdateError::InvalidUrl(text.to_owned()));
+            }
+            url
+        }
+        Err(_) => return Err(UpdateError::InvalidUrl(text.to_owned())),
+    };
+    // The shape the strict rule enforces still applies: an absolute address with a host and no
+    // userinfo, query or fragment.
+    if parsed.host().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(UpdateError::InvalidUrl(text.to_owned()));
+    }
+    Ok(parsed)
 }
 
 /// The default list URL: `revocations.json` in the artifact URL's directory.
@@ -551,8 +579,8 @@ pub(crate) fn http_url(text: &str) -> Result<Url, UpdateError> {
 /// loopback-http exception), and drops any query or fragment. The result is then fetched with the
 /// same client, redirect rule and byte cap as the document, exactly as if the operator had passed it
 /// with `--revocations`.
-fn sibling_revocations_url(artifact_url: &str) -> Result<Url, UpdateError> {
-    let artifact = http_url(artifact_url)?;
+fn sibling_revocations_url(artifact_url: &str, allow_plaintext: bool) -> Result<Url, UpdateError> {
+    let artifact = http_url(artifact_url, allow_plaintext)?;
     artifact
         .join("revocations.json")
         .map_err(|_| UpdateError::InvalidUrl(artifact_url.to_owned()))
@@ -725,6 +753,7 @@ mod tests {
                 artifact_url: &artifact_url,
                 min_version,
                 issued_at_ms: summrise_release::now_ms(),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -894,6 +923,7 @@ mod tests {
                 artifact_url: &artifact_url,
                 min_version: "2.0.0",
                 issued_at_ms: summrise_release::now_ms(),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -1013,6 +1043,7 @@ mod tests {
                 min_version: "2.0.0",
                 issued_at_ms: summrise_release::now_ms()
                     .saturating_sub(summrise_release::MAX_ISSUED_AGE_MS + 1),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -1236,6 +1267,7 @@ mod tests {
                 artifact_url: &artifact_url,
                 min_version: "2.0.0",
                 issued_at_ms: summrise_release::now_ms(),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -1383,7 +1415,7 @@ mod tests {
             "http://127.0.0.1:8080/release.json",
             "http://[::1]:8080/release.json",
         ] {
-            assert!(http_url(url).is_ok(), "{url} must be fetchable");
+            assert!(http_url(url, false).is_ok(), "{url} must be fetchable");
         }
 
         for url in [
@@ -1393,7 +1425,7 @@ mod tests {
             "http://releases.example.test/release.json",
         ] {
             assert!(
-                matches!(http_url(url), Err(UpdateError::InvalidUrl(ref refused)) if refused == url),
+                matches!(http_url(url, false), Err(UpdateError::InvalidUrl(ref refused)) if refused == url),
                 "{url:?} must be refused"
             );
         }
@@ -1486,6 +1518,7 @@ mod tests {
                 artifact_url: &artifact_url,
                 min_version: "2.0.0",
                 issued_at_ms: summrise_release::now_ms(),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -2165,5 +2198,21 @@ mod tests {
         );
         assert_eq!(hits.load(Ordering::SeqCst), 0);
         assert!(!install.exists());
+    }
+
+    #[test]
+    fn a_plaintext_release_host_needs_the_opt_in_and_nothing_else_widens() {
+        let strict = http_url("http://mirror.example.test/release.json", false)
+            .expect_err("plain http is refused by default");
+        assert!(matches!(strict, UpdateError::InvalidUrl(_)), "{strict:?}");
+        let allowed = http_url("http://mirror.example.test/release.json", true)
+            .expect("the operator named a tunnel");
+        assert_eq!(allowed.scheme(), "http");
+
+        assert!(http_url("http://user:pass@mirror.example.test/release.json", true).is_err());
+        assert!(http_url("http://mirror.example.test/release.json?x=1", true).is_err());
+        assert!(http_url("http://mirror.example.test/release.json#f", true).is_err());
+        assert!(http_url("ftp://mirror.example.test/release.json", true).is_err());
+        assert!(http_url("mirror.example.test/release.json", true).is_err());
     }
 }

@@ -445,6 +445,8 @@ enum CheckUpdateModeError {
 struct CheckUpdateInvocation {
     /// The release document to fetch.
     url: String,
+    /// Accept a plaintext release host on a tunnel the operator names.
+    allow_plaintext: bool,
     /// An explicit revocations list URL. `None` reads the artifact's sibling `revocations.json`.
     revocations: Option<String>,
     /// The channel this device follows; `stable` unless the operator says otherwise.
@@ -481,6 +483,7 @@ fn parse_check_update_args(
     let mut data = None;
     let mut force_reinstall = None;
 
+    let mut allow_plaintext = false;
     let mut arguments = args.iter();
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
@@ -494,9 +497,9 @@ fn parse_check_update_args(
             Some("--revocations") => {
                 let value = arguments.next().ok_or(CheckUpdateModeError::Usage)?;
                 let text = value.to_str().ok_or(CheckUpdateModeError::Usage)?;
-                updater::http_url(text).map_err(|_| CheckUpdateModeError::Usage)?;
                 revocations = Some(text.to_owned());
             }
+            Some("--allow-plaintext") => allow_plaintext = true,
             Some("--install") => {
                 let value = arguments.next().ok_or(CheckUpdateModeError::Usage)?;
                 install = Some(PathBuf::from(value));
@@ -529,9 +532,15 @@ fn parse_check_update_args(
     }
 
     let url = url.ok_or(CheckUpdateModeError::Usage)?;
-    updater::http_url(&url).map_err(|_| CheckUpdateModeError::Usage)?;
+    // Validate both URLs after the whole command line is read, so `--allow-plaintext` may appear
+    // before or after the URL it applies to.
+    updater::http_url(&url, allow_plaintext).map_err(|_| CheckUpdateModeError::Usage)?;
+    if let Some(revocations) = &revocations {
+        updater::http_url(revocations, allow_plaintext).map_err(|_| CheckUpdateModeError::Usage)?;
+    }
     Ok(CheckUpdateInvocation {
         url,
+        allow_plaintext,
         revocations,
         channel,
         install,
@@ -658,7 +667,10 @@ async fn check_update_from_args_with_key(
     let installed = installed_release(&invocation, &install)?;
     let pubkey = pubkey
         .map_err(|error| CheckUpdateModeError::Failed(format!("refusing the update: {error}")))?;
-    let cfg = updater::UpdateConfig::default();
+    let cfg = updater::UpdateConfig {
+        allow_plaintext: invocation.allow_plaintext,
+        ..updater::UpdateConfig::default()
+    };
     let policy = updater::ReinstallPolicy {
         rolled_back: &installed.rolled_back,
         force_reinstall: invocation.force_reinstall.as_deref(),
@@ -958,6 +970,7 @@ mod test_support {
                 artifact_url: &artifact_url,
                 min_version,
                 issued_at_ms: summrise_release::now_ms(),
+                allow_plaintext: false,
             },
         )
         .expect("the fixture document signs");
@@ -1949,6 +1962,7 @@ mod tests {
             parsed,
             CheckUpdateInvocation {
                 url: "https://releases.example.test/release.json".to_owned(),
+                allow_plaintext: false,
                 revocations: Some("https://releases.example.test/revocations.json".to_owned()),
                 channel: summrise_release::Channel::Canary,
                 install: Some(PathBuf::from("/opt/summrise")),
@@ -2046,6 +2060,7 @@ mod tests {
         let data = dir.join("data");
         let invocation = || CheckUpdateInvocation {
             url: "https://example.test/release.json".to_owned(),
+            allow_plaintext: false,
             revocations: None,
             channel: summrise_release::Channel::Stable,
             install: Some(install.clone()),
@@ -2130,6 +2145,7 @@ mod tests {
 
         let invocation = CheckUpdateInvocation {
             url: "https://example.test/release.json".to_owned(),
+            allow_plaintext: false,
             revocations: None,
             channel: summrise_release::Channel::Stable,
             install: Some(install.clone()),
@@ -2150,6 +2166,7 @@ mod tests {
         let install = dir.join("install");
         let invocation = CheckUpdateInvocation {
             url: "https://example.test/release.json".to_owned(),
+            allow_plaintext: false,
             revocations: None,
             channel: summrise_release::Channel::Stable,
             install: Some(install.clone()),
