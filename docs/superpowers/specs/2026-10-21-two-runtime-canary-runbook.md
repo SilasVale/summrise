@@ -388,3 +388,20 @@ must remove the service. A tag release carries the setup as a release asset.
 probes a second machine's `/api/health` from a first machine reports DOWN, and that is not an outage:
 the device listens on `127.0.0.1` and the console channel is outbound. Fleet liveness is the console's
 `devices` count and its channels, not a reachable port on each host.
+
+**A device looks for releases on a schedule it was given.** `<data>/update.json` names the mirror,
+the channel and the interval (300 s to 7 days); the serving app reads it at start and checks on that
+schedule with the same verifier the one-shot uses. There is no file on a device that was never told,
+which is the pre-0.2.9 behaviour:
+
+```bash
+# give the device a schedule (an installer or an operator does this once)
+summrise-device --set-update-source http://<mirror>/release-0.3.2.json \
+    --channel canary --interval 21600 --allow-plaintext --data C:\ProgramData\Summrise
+# stop checking on a schedule
+summrise-device --update-source-clear --data C:\ProgramData\Summrise
+```
+
+The first check waits a per-device jitter (up to an hour) so a fleet rebooting together does not
+ask the mirror for the same document in the same second. A refusal is one log line and the next
+interval; the decision itself is never made twice by two code paths.
