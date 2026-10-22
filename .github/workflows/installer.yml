@@ -73,13 +73,21 @@ jobs:
             --out device/target/release/summrise-device.sidecar.json
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      # NSIS IS NOT ON THE RUNNER ANY MORE. It used to ship at `C:\Program Files (x86)\NSIS`; the
+      # image dropped it, and the job died on a missing path after a successful build. Chocolatey
+      # installs it and puts a `makensis` shim on PATH, which the shell can find without guessing.
+      - name: install NSIS
+        shell: powershell
+        run: |
+          choco install nsis --yes --no-progress
+          makensis -VERSION
+
       - name: build the installer
         shell: bash
         run: |
           set -euo pipefail
-          makensis="/c/Program Files (x86)/NSIS/makensis.exe"
           cd device/installer
-          "$makensis" -DVERSION="$VERSION" -DPORT=18080 -DCHANNEL=canary \
+          makensis -DVERSION="$VERSION" -DPORT=18080 -DCHANNEL=canary \
             -DSOURCE="$(cygpath -w ../target/release)" summrise.nsi
           ls -l "SummriseSetup-$VERSION.exe"
 
