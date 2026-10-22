@@ -91,6 +91,7 @@ pub fn entry() -> ExitCode {
     };
 
     match mode {
+        "--self-check" => self_check(&args[1..]),
         "run" => match config_with_console(&args[1..]) {
             Ok((config, console)) => match persist_console_link(&config, console.as_ref()) {
                 Ok(()) => run_console(&config),
@@ -133,6 +134,54 @@ pub fn entry() -> ExitCode {
             usage()
         }
     }
+}
+
+/// `--self-check <install> [--data <data>]`: what the launcher can prove about this install.
+///
+/// Read-only and safe to run while the service runs: it opens files and hashes them, and nothing
+/// else. Exit 0 when every check passes, 1 when one does not — an operator's script can branch on
+/// that without parsing English.
+fn self_check(args: &[String]) -> ExitCode {
+    let mut install: Option<PathBuf> = None;
+    let mut data: Option<PathBuf> = None;
+    let mut arguments = args.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--install" => match arguments.next() {
+                Some(value) => install = Some(PathBuf::from(value)),
+                None => return self_check_usage(),
+            },
+            "--data" => match arguments.next() {
+                Some(value) => data = Some(PathBuf::from(value)),
+                None => return self_check_usage(),
+            },
+            other if other.starts_with("--") => return self_check_usage(),
+            other => {
+                if install.is_none() {
+                    install = Some(PathBuf::from(other));
+                } else {
+                    return self_check_usage();
+                }
+            }
+        }
+    }
+    let Some(install) = install else {
+        return self_check_usage();
+    };
+    let install = absolute(&install);
+    let report = summrise_launch::inspect(&install, data.as_deref());
+    println!("summrise-launch self-check: {}", install.display());
+    print!("{report}");
+    if report.ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn self_check_usage() -> ExitCode {
+    eprintln!("launch: --self-check needs <install> [--data <data>]");
+    ExitCode::from(2)
 }
 
 fn usage() -> ExitCode {

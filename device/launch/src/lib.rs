@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod paths;
+mod self_check;
 
 pub use paths::{
     app_exe, app_pid_file, baseline_dir, baseline_exe, baseline_sidecar, console_link, flat_exe,
@@ -25,6 +26,7 @@ pub use paths::{
     BASELINE_DIR, BASELINE_SIDECAR, CONSOLE_FILE, CURRENT_DIR, FLAT_SIDECAR, LAUNCHER_EXE,
     PENDING_DIR, PREVIOUS_DIR, REPAIR_LOG,
 };
+pub use self_check::{inspect, Check, Report};
 
 use std::fmt;
 use std::fs::{self, File};
@@ -1045,7 +1047,10 @@ pub enum BaselineChoice {
 /// sidecar's sha256. A signature is deliberately not re-checked here: a baseline pair was admitted
 /// by [`validate_staged_pair`] before it was written, and this check must still be able to answer
 /// for an install created by the installer rather than by a swap.
-fn inspect_generation(install: &Path, generation: Generation) -> Result<Baseline, String> {
+pub(crate) fn inspect_generation(
+    install: &Path,
+    generation: Generation,
+) -> Result<Baseline, String> {
     let exe = generation_exe(install, generation.dir_name());
     let sidecar_path = generation_sidecar(install, generation.dir_name());
     let sidecar = load_sidecar(&sidecar_path).map_err(|error| {
