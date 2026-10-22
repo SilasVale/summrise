@@ -880,11 +880,38 @@ fn sync_dir(path: &Path) -> io::Result<()> {
 /// rollback. Twenty 100 ms attempts cover the observed teardown without hiding a real permission
 /// error; on Unix the predicate is false and the rename is attempted exactly once.
 fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+    retry_transient(
+        || fs::rename(from, to),
+        replace_may_be_transient,
+        REPLACE_ATTEMPTS,
+    )
+}
+
+/// The swap's copy, with the same teardown window as the rename: a killed child's image (or an
+/// antivirus filter) can hold the destination — or the freshly written source — for longer than a
+/// single attempt allows, and a ten-second budget is far below the swap's health deadline.
+fn copy_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+    retry_transient(
+        || copy_file_synced(from, to),
+        replace_may_be_transient,
+        REPLACE_ATTEMPTS,
+    )
+}
+
+/// Twenty attempts of one second, in hundred-millisecond steps: the observed teardown window.
+const REPLACE_ATTEMPTS: u32 = 100;
+
+/// Run `op`, retrying while `transient` says the error can pass and attempts remain.
+fn retry_transient<T>(
+    mut op: impl FnMut() -> io::Result<T>,
+    mut transient: impl FnMut(&io::Error) -> bool,
+    attempts: u32,
+) -> io::Result<T> {
     let mut attempt = 0u32;
     loop {
-        match fs::rename(from, to) {
-            Ok(()) => return Ok(()),
-            Err(error) if attempt < 20 && replace_may_be_transient(&error) => {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(error) if attempt < attempts && transient(&error) => {
                 attempt += 1;
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -1326,7 +1353,7 @@ pub fn install_pending_over_app(install: &Path, sidecar: &Sidecar) -> Result<(),
         }
     }
     let app = app_exe(install);
-    copy_file_synced(&pending_exe, &app)
+    copy_with_retry(&pending_exe, &app)
         .map_err(|error| format!("cannot install {}: {error}", app.display()))?;
     match sha256_file(&app) {
         Ok(hash) if hash.eq_ignore_ascii_case(&sidecar.sha256) => Ok(()),
@@ -2108,6 +2135,57 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use std::net::TcpListener;
+
+    #[test]
+    fn a_transient_replace_error_is_retried_until_the_teardown_passes() {
+        let mut calls = 0u32;
+        let value = retry_transient(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(io::Error::from_raw_os_error(32))
+                } else {
+                    Ok(calls)
+                }
+            },
+            |_| true,
+            5,
+        )
+        .expect("the third attempt succeeds");
+        assert_eq!(value, 3, "the operation runs until it succeeds");
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn a_permanent_error_is_not_retried() {
+        let mut calls = 0u32;
+        let error = retry_transient(
+            || -> io::Result<()> {
+                calls += 1;
+                Err(io::Error::from_raw_os_error(32))
+            },
+            |_| false,
+            5,
+        )
+        .expect_err("a non-transient error is returned");
+        assert_eq!(calls, 1, "one attempt, not five");
+        assert_eq!(error.raw_os_error(), Some(32));
+    }
+
+    #[test]
+    fn the_retry_budget_is_finite() {
+        let mut calls = 0u32;
+        let _ = retry_transient(
+            || -> io::Result<()> {
+                calls += 1;
+                Err(io::Error::from_raw_os_error(5))
+            },
+            |_| true,
+            3,
+        )
+        .expect_err("the budget runs out");
+        assert_eq!(calls, 4, "the first attempt plus three retries");
+    }
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // A fixed seed stands in for the release signing key. The production constant is still the
