@@ -26,6 +26,7 @@ pub use revocations::{
     RevokeError, RevokeRequest, RevokedRelease, MAX_REVOCATIONS_AGE_MS,
 };
 pub use sign::{
-    now_ms, read_seed, seed_from_hex, sha256_hex, sign_document, sign_file, SignError, SignRequest,
+    now_ms, read_seed, seed_from_hex, sha256_hex, sign_document, sign_file, sign_sidecar,
+    ArtifactSidecar, SignError, SignRequest,
 };
 pub use url::{parse_release_url, UrlError};

@@ -1,0 +1,108 @@
+name: installer
+
+# THE INSTALLER IS BUILT BY CI, NOT BY A LAPTOP. GitHub's windows-latest ships NSIS at
+# `C:\Program Files (x86)\NSIS`, so the wizard is reproducible and every release can carry one.
+# The sidecar is signed here with the launcher key from the repository secret; without it the job
+# fails closed rather than shipping an installer that cannot seed a baseline.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, X.Y.Z"
+        required: true
+        default: "0.1.1"
+      channel:
+        description: "stable or canary"
+        required: true
+        default: "canary"
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    name: the Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: build the runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --manifest-path device/Cargo.toml \
+            -p summrise-launch -p summrise-device -p summrise-console -p summrise-release
+
+      # The sidecar is the launcher key's statement that this exact binary is the first generation.
+      # `summrise-release sidecar` is the product's own signer, so CI cannot drift from the format
+      # the launcher verifies.
+      - name: sign the first-generation sidecar
+        shell: bash
+        env:
+          SUMMRISE_LAUNCHER_SEED: ${{ secrets.SUMMRISE_LAUNCHER_SEED }}
+          RAW_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          CHANNEL: ${{ github.event.inputs.channel || 'canary' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUMMRISE_LAUNCHER_SEED:-}" ]; then
+            echo "::error::SUMMRISE_LAUNCHER_SEED is not set: the launcher's 32-byte hex seed is required to sign the sidecar"
+            exit 1
+          fi
+          version="${RAW_VERSION#v}"
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version '$version' is not X.Y.Z"; exit 1 ;;
+          esac
+          seed="$RUNNER_TEMP/launcher.seed"
+          printf '%s' "$SUMMRISE_LAUNCHER_SEED" > "$seed"
+          icacls "$seed" /inheritance:r >/dev/null
+          device/target/release/summrise-release.exe sidecar \
+            --key-file "$seed" \
+            --artifact device/target/release/summrise-device.exe \
+            --version "$version" --channel "$CHANNEL" \
+            --out device/target/release/summrise-device.sidecar.json
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: build the installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          makensis="/c/Program Files (x86)/NSIS/makensis.exe"
+          cd device/installer
+          "$makensis" -DVERSION="$VERSION" -DPORT=18080 -DCHANNEL=canary \
+            -DSOURCE="$(cygpath -w ../target/release)" summrise.nsi
+          ls -l "SummriseSetup-$VERSION.exe"
+
+      # Signing is opt-in and shell-guarded: a repository without a certificate still gets an
+      # installer (unsigned, and SmartScreen will say so), and adding the two secrets turns it on
+      # without editing this file.
+      - name: sign the installer, when a certificate is configured
+        shell: bash
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PFX_BASE64:-}" ]; then
+            echo "no signing certificate configured; the installer is unsigned"
+            exit 0
+          fi
+          pfx="$RUNNER_TEMP/signing.pfx"
+          printf '%s' "$PFX_BASE64" | base64 -d > "$pfx"
+          signtool sign /f "$pfx" /p "$PFX_PASSWORD" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 \
+            "device/installer/SummriseSetup-$VERSION.exe"
+          rm -f "$pfx"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SummriseSetup-${{ env.VERSION }}
+          path: device/installer/SummriseSetup-*.exe
+          if-no-files-found: error

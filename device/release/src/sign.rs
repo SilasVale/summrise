@@ -352,6 +352,66 @@ fn validate_version(field: VersionField, value: &str) -> Result<(), SignError> {
     }
 }
 
+/// The first-generation sidecar the launcher verifies before it seeds `baseline/current`.
+///
+/// The message is the older one the launcher already checks — `"{version}\n{channel}\n{sha256}"` —
+/// and it is signed by the **launcher** key, not the release key: the first generation is the root
+/// of trust, and an update key must not be able to mint one. This is the same shape the app writes
+/// for a staged update, which is why the launcher has one verdict for both.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactSidecar {
+    /// The release version, e.g. `0.1.1`.
+    pub version: String,
+    /// The channel the signature was made for.
+    pub channel: Channel,
+    /// Lower-hex SHA-256 of the binary.
+    pub sha256: String,
+    /// Lower-hex ed25519 signature over `"{version}\n{channel}\n{sha256}"`.
+    pub signature: String,
+}
+
+/// Sign an artifact for the first generation, with the launcher key.
+///
+/// The key file is read exactly like [`sign_document`]'s: a 0600 file of 64 hex characters, never an
+/// argument and never printed. The write is the same atomic sibling-and-rename, so a crash leaves the
+/// previous sidecar or a complete new one.
+pub fn sign_sidecar(
+    key_file: &Path,
+    artifact: &Path,
+    version: &str,
+    channel: Channel,
+    out: &Path,
+) -> Result<ArtifactSidecar, SignError> {
+    if !version_is_plain(version) {
+        return Err(SignError::Version {
+            field: VersionField::Release,
+            value: version.to_owned(),
+        });
+    }
+    let key = read_seed(key_file)?;
+    let bytes = fs::read(artifact).map_err(|source| SignError::Artifact {
+        path: artifact.to_owned(),
+        source,
+    })?;
+    let sha256 = sha256_hex(&bytes);
+    let message = format!("{version}\n{}\n{sha256}", channel.as_str());
+    let signature = key.sign(message.as_bytes());
+    let sidecar = ArtifactSidecar {
+        version: version.to_owned(),
+        channel,
+        sha256,
+        signature: hex_encode(&signature.to_bytes()),
+    };
+    let mut bytes = serde_json::to_vec_pretty(&sidecar).map_err(SignError::Serialize)?;
+    bytes.push(b'\n');
+    write_atomic(out, &bytes).map_err(|source| SignError::Write {
+        path: out.to_owned(),
+        source,
+    })?;
+    Ok(sidecar)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,6 +430,118 @@ mod tests {
             min_version,
             issued_at_ms: now_ms(),
         }
+    }
+
+    /// A directory under the system temp root that removes itself, named for this test process.
+    struct TestDir(std::path::PathBuf);
+
+    impl TestDir {
+        fn new(tag: &str) -> TestDir {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "summrise-release-test-{}-{}-{tag}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).expect("create the test directory");
+            TestDir(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Write `bytes` as the artifact and a 0600 key file holding `TEST_SEED`.
+    fn artifact_and_key() -> (TestDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = TestDir::new("sidecar");
+        let artifact = dir.path().join("summrise-device.exe");
+        fs::write(&artifact, b"the artifact bytes").expect("write the artifact");
+        let key_file = dir.path().join("launcher.seed");
+        fs::write(&key_file, hex_encode(&TEST_SEED)).expect("write the seed");
+        set_private(&key_file);
+        (dir, artifact, key_file)
+    }
+
+    fn set_private(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("0600");
+        }
+        #[cfg(not(unix))]
+        let _ = path;
+    }
+
+    #[test]
+    fn a_sidecar_signature_verifies_over_the_documented_message() {
+        let (_dir, artifact, key_file) = artifact_and_key();
+        let out = artifact.with_file_name("summrise-device.sidecar.json");
+        let sidecar = sign_sidecar(&key_file, &artifact, "0.1.1", Channel::Canary, &out)
+            .expect("sign the sidecar");
+        assert_eq!(sidecar.version, "0.1.1");
+        assert_eq!(sidecar.channel, Channel::Canary);
+        assert_eq!(
+            sidecar.sha256,
+            sha256_hex(b"the artifact bytes"),
+            "the digest is the artifact's"
+        );
+        let message = format!("0.1.1\ncanary\n{}", sidecar.sha256);
+        use ed25519_dalek::Verifier;
+        let signature_bytes = hex_decode(&sidecar.signature).expect("the signature is hex");
+        let signature = ed25519_dalek::Signature::from_slice(&signature_bytes).expect("64 bytes");
+        key()
+            .verifying_key()
+            .verify(message.as_bytes(), &signature)
+            .expect(
+                "the signature covers version, channel and digest — the launcher's exact message",
+            );
+        let bytes = fs::read(&out).expect("read the sidecar");
+        let written: ArtifactSidecar = serde_json::from_slice(&bytes).expect("parse");
+        assert_eq!(written, sidecar, "the file is the value that was signed");
+        // The launcher's own type must accept the file: one shape, two readers.
+        let launcher_view: summrise_launch::Sidecar =
+            serde_json::from_slice(&bytes).expect("the launcher parses the sidecar");
+        assert_eq!(launcher_view.version, "0.1.1");
+        assert_eq!(launcher_view.channel, "canary");
+        assert_eq!(launcher_view.sha256, sidecar.sha256);
+    }
+
+    #[test]
+    fn a_changed_digest_breaks_the_sidecar_signature() {
+        let (_dir, artifact, key_file) = artifact_and_key();
+        let out = artifact.with_file_name("sidecar.json");
+        let sidecar =
+            sign_sidecar(&key_file, &artifact, "0.1.1", Channel::Stable, &out).expect("sign");
+        let message = format!("0.1.1\nstable\n{}", "0".repeat(64));
+        use ed25519_dalek::Verifier;
+        let signature =
+            ed25519_dalek::Signature::from_slice(&hex_decode(&sidecar.signature).expect("hex"))
+                .expect("64 bytes");
+        assert!(
+            key()
+                .verifying_key()
+                .verify(message.as_bytes(), &signature)
+                .is_err(),
+            "a different digest must not verify against the signed message"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_needs_a_plain_version() {
+        let (_dir, artifact, key_file) = artifact_and_key();
+        let out = artifact.with_file_name("sidecar.json");
+        let error = sign_sidecar(&key_file, &artifact, "v0.1.1", Channel::Canary, &out)
+            .expect_err("a tag-style version is refused");
+        assert!(matches!(error, SignError::Version { .. }), "{error:?}");
     }
 
     #[test]

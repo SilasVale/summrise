@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use summrise_release::{
-    now_ms, revoke_file, sign_file, version_is_plain, Channel, RevokeError, RevokeRequest,
-    SignError, SignRequest,
+    now_ms, revoke_file, sign_file, sign_sidecar, version_is_plain, Channel, RevokeError,
+    RevokeRequest, SignError, SignRequest,
 };
 
 const SIGN_USAGE: &str = "usage: summrise-release sign --key-file <hex-seed-file> \
@@ -23,8 +23,13 @@ const REVOKE_USAGE: &str = "usage: summrise-release revoke --key-file <hex-seed-
                             (--document <release.json> | --version X.Y.Z --sha256 <hex>) \
                             [--reason <text>] [--from <revocations.json>] --out <path>";
 
+const SIDECAR_USAGE: &str = "usage: summrise-release sidecar --key-file <hex-seed-file> \
+                             --artifact <file> --version X.Y.Z --channel stable|canary \
+                             --out <path>";
+
 const USAGE: &str = "usage: summrise-release sign ...   (see --help after the subcommand)\n\
-                     usage: summrise-release revoke ...";
+                     usage: summrise-release revoke ...\n\
+                     usage: summrise-release sidecar ...";
 
 #[derive(Debug)]
 enum CliError {
@@ -65,11 +70,13 @@ impl CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CliError::MissingCommand => f.write_str("missing the `sign` or `revoke` subcommand"),
+            CliError::MissingCommand => {
+                f.write_str("missing the `sign`, `revoke` or `sidecar` subcommand")
+            }
             CliError::UnknownCommand(command) => {
                 write!(
                     f,
-                    "unknown subcommand {command:?}; expected `sign` or `revoke`"
+                    "unknown subcommand {command:?}; expected `sign`, `revoke` or `sidecar`"
                 )
             }
             CliError::NonUnicode => f.write_str("an argument is not valid UTF-8"),
@@ -132,6 +139,7 @@ fn run() -> Result<(), CliError> {
     match command {
         "sign" => sign(args),
         "revoke" => revoke(args),
+        "sidecar" => sidecar(args),
         "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -229,6 +237,74 @@ where
         "signed {} ({}) -> {}",
         document.version,
         document.channel,
+        out.display()
+    );
+    Ok(())
+}
+
+/// The `sidecar` subcommand: sign an artifact for the first generation, with the launcher key.
+fn sidecar<I>(mut args: I) -> Result<(), CliError>
+where
+    I: Iterator<Item = OsString>,
+{
+    let mut key_file = None;
+    let mut artifact = None;
+    let mut version = None;
+    let mut channel = None;
+    let mut out = None;
+
+    while let Some(flag) = args.next() {
+        let flag = flag.to_str().ok_or(CliError::NonUnicode)?;
+        match flag {
+            "--key-file" => set_path(
+                &mut key_file,
+                next_value(&mut args, "--key-file")?,
+                "--key-file",
+            )?,
+            "--artifact" => set_path(
+                &mut artifact,
+                next_value(&mut args, "--artifact")?,
+                "--artifact",
+            )?,
+            "--out" => set_path(&mut out, next_value(&mut args, "--out")?, "--out")?,
+            "--version" => set_text(
+                &mut version,
+                next_value(&mut args, "--version")?,
+                "--version",
+            )?,
+            "--channel" => {
+                if channel.is_some() {
+                    return Err(CliError::DuplicateFlag("--channel"));
+                }
+                let text = next_text(&mut args, "--channel")?;
+                let parsed = text
+                    .parse::<Channel>()
+                    .map_err(|_| CliError::InvalidChannel(text))?;
+                channel = Some(parsed);
+            }
+            "--help" | "-h" => {
+                println!("{SIDECAR_USAGE}");
+                return Ok(());
+            }
+            other if other.starts_with('-') => {
+                return Err(CliError::UnknownFlag(other.to_owned()));
+            }
+            other => return Err(CliError::UnexpectedArgument(other.to_owned())),
+        }
+    }
+
+    let key_file = key_file.ok_or(CliError::MissingFlag("--key-file"))?;
+    let artifact = artifact.ok_or(CliError::MissingFlag("--artifact"))?;
+    let version = version.ok_or(CliError::MissingFlag("--version"))?;
+    let channel = channel.ok_or(CliError::MissingFlag("--channel"))?;
+    let out = out.ok_or(CliError::MissingFlag("--out"))?;
+
+    let sidecar =
+        sign_sidecar(&key_file, &artifact, &version, channel, &out).map_err(CliError::Sign)?;
+    println!(
+        "signed the sidecar for {} ({}) -> {}",
+        sidecar.version,
+        sidecar.channel,
         out.display()
     );
     Ok(())
