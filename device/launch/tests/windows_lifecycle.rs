@@ -2920,6 +2920,25 @@ fn the_service_mode_serves_and_stops_through_the_scm() {
         service.wait_stopped(Duration::from_secs(30)),
         "the service did not reach STOPPED after sc stop"
     );
+    // A CLEAN STOP MUST LOOK CLEAN. `ServiceSpecific(0)` reports Win32 1066
+    // (ERROR_SERVICE_SPECIFIC_ERROR), the SCM counts that as a failure and runs the configured
+    // recovery actions — the service an operator just stopped starts again by itself. The exit code
+    // is the observable that decides it.
+    assert_eq!(
+        service.win32_exit_code(),
+        Some(0),
+        "a clean stop reports exit code 0, not a service-specific error"
+    );
+    // ...and it stays stopped: no recovery action may resurrect it inside the stop window.
+    std::thread::sleep(Duration::from_secs(5));
+    let later = sc(&["query", SERVICE_TEST_NAME]);
+    assert!(
+        String::from_utf8_lossy(&later.stdout)
+            .to_ascii_uppercase()
+            .contains("STOPPED"),
+        "the recovered service was restarted by the SCM after a clean stop: {}",
+        String::from_utf8_lossy(&later.stdout)
+    );
     // The launcher's control handler kills the app child on the way down; the port going quiet is
     // the evidence, and it is what a restarting device needs.
     fixture.wait_health_down();
@@ -3612,6 +3631,23 @@ struct ScmService {
 }
 
 impl ScmService {
+    /// The service's Win32 exit code as the SCM records it (`sc query`'s WIN32_EXIT_CODE line).
+    fn win32_exit_code(&self) -> Option<u32> {
+        let query = sc(&["query", SERVICE_TEST_NAME]);
+        let text = String::from_utf8_lossy(&query.stdout);
+        let line = text
+            .lines()
+            .find(|line| line.to_ascii_uppercase().contains("WIN32_EXIT_CODE"))?;
+        // sc prints "WIN32_EXIT_CODE    : 0  (0x0)"; the first token after the colon is the code
+        // and the parenthesised hex is sc's own restatement of it.
+        line.split(':')
+            .nth(1)?
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()
+    }
+
     fn wait_stopped(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         loop {

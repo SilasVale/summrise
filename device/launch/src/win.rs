@@ -435,11 +435,16 @@ fn service_main(_arguments: Vec<OsString>) {
     );
 
     let code = supervise(&config, &stop);
-    report(
-        &status_handle,
-        ServiceState::Stopped,
-        ServiceExitCode::ServiceSpecific(code),
-    );
+    // A CLEAN STOP MUST NOT LOOK LIKE A FAILURE. `ServiceSpecific(0)` sets the service's Win32 exit
+    // code to 1066 (ERROR_SERVICE_SPECIFIC_ERROR), which the SCM counts as an error and answers with
+    // the configured failure actions — the service an operator just stopped starts again by itself.
+    // Only a real failure keeps the service-specific code; a zero exit is a plain `Win32(0)`.
+    let exit = if code == 0 {
+        ServiceExitCode::Win32(0)
+    } else {
+        ServiceExitCode::ServiceSpecific(code)
+    };
+    report(&status_handle, ServiceState::Stopped, exit);
 }
 
 /// The service's own arguments: the SCM name `--service-name` selected, and the flags
