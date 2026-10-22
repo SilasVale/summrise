@@ -155,18 +155,26 @@ Section "Summrise runtime" SecRuntime
   ; **THE INSTALL IS NOT DONE UNTIL THE DEVICE ANSWERS.** A registered service that cannot bind its
   ; port (the legacy agent holds 18080 by default) looks installed and serves nothing. Poll the
   ; health endpoint the app exposes; the installer's verdict is the device's own answer.
-  StrCpy $7 "0"
+  ; BOUNDED. The first version looped until the device answered, which on a port held by another
+  ; program meant a setup that never returned: invisible in /S, holding its own file, and every later
+  ; install died with "the file is in use by another process".
+  StrCpy $2 0
+  StrCpy $3 "0"
   ${Do}
+    IntOp $2 $2 + 1
     nsExec::ExecToStack 'curl.exe -sf -m 2 http://127.0.0.1:${PORT}/api/health'
     Pop $0
     Pop $1
     ${If} $0 == "0"
-      StrCpy $7 "1"
-    ${Else}
-      Sleep 1000
+      StrCpy $3 "1"
+      ${ExitDo}
     ${EndIf}
-  ${LoopUntil} $7 == "1"
-  ${If} $7 != "1"
+    ${If} $2 >= 10
+      ${ExitDo}
+    ${EndIf}
+    Sleep 1000
+  ${Loop}
+  ${If} $3 != "1"
     FileWrite $6 "health: no answer on port ${PORT} after 10s$\r$\n"
     FileClose $6
     ${If} ${Silent}
