@@ -82,10 +82,10 @@ Written after the first working week. The matrix above was a plan; this is the l
 |---|---|---|
 | one stable update | **done ×2** | `applied 0.2.6` on two machines, `/api/health` 0.2.6 |
 | one canary update | **done** | `applied 0.2.6` from a canary document, then 0.3.0 |
-| one update the device chose itself | **done** | `update.json` written, no command run; supervisor applied 0.3.0, `lastVerdict: updated to 0.3.0` |
+| one update the device chose itself | **done, re-verified** | 2026-10-22: 0.3.4 running, source at `release-0.3.5.json`, no command after the restart — `state.json` `{"update":{"to":"0.3.5","outcome":"applied"},"lastVerdict":"updated to 0.3.5"}`. The first claim was wrong: the scheduler staged and never asked the supervisor for the swap; the fix is in 0.3.4 |
 | one rollback | **done** | the first canary update rolled back on a sharing violation; `swap.result.json` named the digest and the guard refused a retry until `--force-reinstall` |
 | one deleted-exe repair | **done** | deleted `baseline/current\summrise-device.exe`, restarted the service: the supervisor booted `previous` and rebuilt `current`, `/api/health` answered 0.3.0, and `repair.log` recorded `{"kind":"repaired","from":"previous","sha256":"db304dd5…"}` |
-| one PTY session | **not yet** | the lane drives PTYs; the canary has not |
+| one PTY session | **done** | `terminal.create` through the console answered `{"id":"session-1","kind":"pty","shell":"powershell.exe"}`, `terminal.write` → `{"written":15}`, `terminal.read` returned the console's echo. The default shell fell back from `pwsh` (absent) to `powershell.exe` |
 | one browser session | **done** | Playwright on the device drove the console: login → grant → `/mcp` → `state.get` answered with the device's own state |
 | one SSH session | **not yet** | |
 | one serial session | **not yet** | needs hardware on the canary |
