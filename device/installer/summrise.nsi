@@ -58,6 +58,26 @@ BrandingText "${COMPANY}"
 Function .onInit
   nsExec::Exec 'sc.exe stop ${SERVICE}'
   Pop $0
+  ; THE SERVICE STOPS ASYNCHRONOUSLY, AND THE FILES CANNOT BE REPLACED UNTIL IT HAS. `sc stop`
+  ; returns when the control is accepted, not when the process is gone; copying over a running
+  ; image fails with a sharing violation, which used to abort the install *after* the uninstall step
+  ; and left the machine with neither the old service nor the new files. Wait for the launcher
+  ; process to disappear, bounded, before touching anything.
+  StrCpy $2 0
+  StrCpy $7 "0"
+  ${Do}
+    IntOp $2 $2 + 1
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq summrise-launch.exe" | findstr /I summrise-launch'
+    Pop $0
+    Pop $1
+    ${If} $0 != "0"
+      StrCpy $7 "1"
+    ${ElseIf} $2 >= 45
+      StrCpy $7 "1"
+    ${Else}
+      Sleep 1000
+    ${EndIf}
+  ${LoopUntil} $7 == "1"
   ; `--install-service`/`--uninstall-service` always act on the launcher's default service name;
   ; only `service --service-name` selects another one for the SCM's own argv.
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'

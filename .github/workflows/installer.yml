@@ -140,6 +140,36 @@ jobs:
             "device/installer/SummriseSetup-$VERSION.exe"
           rm -f "$pfx"
 
+      # **THE INSTALLER MUST INSTALL ITSELF.** Every build runs the setup silently on the runner,
+      # then reads the device's own health endpoint and uninstalls. A setup that registers a service
+      # but serves nothing is the failure this catches — and it is a failure no unit test can see.
+      - name: install it on the runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = "device/installer/SummriseSetup-$env:VERSION.exe"
+          $process = Start-Process -FilePath $setup -ArgumentList '/S', '/D=C:\SummriseCI' -Wait -PassThru
+          Write-Host "installer exit: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "the installer failed: $($process.ExitCode)" }
+          $service = Get-Service -Name SummriseLaunch -ErrorAction Stop
+          Write-Host "service: $($service.Status)"
+          if ($service.Status -ne 'Running') { throw "the service is $($service.Status)" }
+          $health = Invoke-RestMethod 'http://127.0.0.1:18080/api/health' -TimeoutSec 10
+          Write-Host "health: $($health | ConvertTo-Json -Compress)"
+          if ($health.status -ne 'ok') { throw "health is not ok: $($health | ConvertTo-Json -Compress)" }
+
+      - name: uninstall it on the runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $process = Start-Process -FilePath 'C:\SummriseCI\uninstall.exe' -ArgumentList '/S' -Wait -PassThru
+          Write-Host "uninstaller exit: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "the uninstaller failed: $($process.ExitCode)" }
+          Start-Sleep -Seconds 2
+          $service = Get-Service -Name SummriseLaunch -ErrorAction SilentlyContinue
+          if ($null -ne $service) { throw "the service survived the uninstall: $($service.Status)" }
+          Write-Host "service is gone"
+
       - uses: actions/upload-artifact@v4
         with:
           name: SummriseSetup-${{ env.VERSION }}
