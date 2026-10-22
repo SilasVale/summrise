@@ -52,3 +52,16 @@ x86_64-pc-windows-msvc` compiles the Windows-only paths from Linux.
 ## License
 
 See `LICENSE`.
+
+## Where to read next
+
+The design is a record, not a wiki page: each document states a decision and what would overturn it.
+
+| Question | Document |
+|---|---|
+| why two runtimes, and what each owns | `docs/superpowers/specs/2026-10-20-the-two-runtime-architecture-design.md` |
+| where the console's TLS lives | `2026-10-22-the-console-transport-decision.md` |
+| why there is no desktop shell | `2026-10-22-the-desktop-shell-decision.md` |
+| how a canary is run, step by step | `2026-10-21-two-runtime-canary-runbook.md` |
+| what the canary actually proved | `2026-10-22-the-canary-observation-report.md` |
+| can the old runtime be retired | `2026-10-22-the-cutover-verdict.md` (verdict: not yet, and what would make it yes) |
