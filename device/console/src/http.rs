@@ -950,6 +950,14 @@ fn failure_for(error: RequestError) -> TransportFailure {
             retry_after_ms: None,
             detail: "device timeout",
         },
+        RequestError::ReplyTimeout => TransportFailure {
+            status: StatusCode::GATEWAY_TIMEOUT,
+            error: "device did not answer",
+            retry_after_ms: None,
+            detail:
+                "the device accepted the request and did not answer inside the console's bound; \
+                     it may still be working on it",
+        },
     }
 }
 
@@ -1075,7 +1083,11 @@ mod tests {
                 "a safe retry names its delay"
             );
         }
-        for error in [RequestError::Disconnected, RequestError::SendTimeout] {
+        for error in [
+            RequestError::Disconnected,
+            RequestError::SendTimeout,
+            RequestError::ReplyTimeout,
+        ] {
             let response = failure_for(error).into_response();
             assert!(
                 !response.headers().contains_key(header::RETRY_AFTER),

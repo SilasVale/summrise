@@ -49,6 +49,13 @@ pub(crate) const MAX_IN_FLIGHT_PER_DEVICE: usize = 32;
 /// How long one socket has to accept a frame before the channel is treated as wedged.
 pub(crate) const SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long a device has to answer a frame the socket accepted.
+///
+/// The console is the operator's proxy, not the device's execution host: a device busy with a PTY or
+/// a slow disk must not hang the operator's request for ever. Thirty seconds is the design's bound on
+/// the proxied call; the answer is a 504 that says the device may still be working.
+pub(crate) const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// What a device can answer a proxied request with.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Reply {
@@ -70,6 +77,13 @@ pub(crate) enum RequestError {
     Busy,
     /// The socket did not accept the frame inside [`SEND_TIMEOUT`]; the channel was closed.
     SendTimeout,
+    /// The socket accepted the frame, but the device did not answer inside [`REPLY_TIMEOUT`].
+    ///
+    /// Without this bound the operator's request waits forever behind a device that took the frame
+    /// and stopped working — the canary hit exactly that: an `/mcp` call that never returned while
+    /// the device's process was wedged. The device may still be working on it, so a blind retry
+    /// could execute the request twice; the answer says so rather than pretending it failed cleanly.
+    ReplyTimeout,
 }
 
 /// The answer a waiter receives: the device's reply, or the reason it will never arrive.
@@ -108,6 +122,7 @@ pub(crate) struct ChannelRegistry {
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
+    reply_timeout: Duration,
 }
 
 impl ChannelRegistry {
@@ -118,6 +133,11 @@ impl ChannelRegistry {
     /// The registry with an injected send bound, so a test can observe a wedged socket without
     /// waiting five seconds.
     pub(crate) fn with_send_timeout(send_timeout: Duration) -> Self {
+        Self::with_timeouts(send_timeout, REPLY_TIMEOUT)
+    }
+
+    /// The registry with both bounds injected: the socket's accept and the device's answer.
+    pub(crate) fn with_timeouts(send_timeout: Duration, reply_timeout: Duration) -> Self {
         Self {
             next_request: AtomicU64::new(0),
             next_generation: AtomicU64::new(0),
@@ -126,6 +146,7 @@ impl ChannelRegistry {
             peak_queued: AtomicUsize::new(0),
             changed: Notify::new(),
             send_timeout,
+            reply_timeout,
         }
     }
 
@@ -231,10 +252,19 @@ impl ChannelRegistry {
 
         match tokio::time::timeout(self.send_timeout, accepted_rx).await {
             // No frame was accepted inside the bound; the serve loop closes the channel itself.
-            Err(_) => Err(RequestError::SendTimeout),
-            Ok(Ok(Ok(()))) => receiver.await.unwrap_or(Err(RequestError::Disconnected)),
-            Ok(Ok(Err(error))) => Err(error),
+            Err(_) => return Err(RequestError::SendTimeout),
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => return Err(error),
             // The serving task ended before it could accept the frame.
+            Ok(Err(_)) => return Err(RequestError::Disconnected),
+        }
+
+        // The answer has its own bound: a device that accepted the frame and then stopped working
+        // must not hold the operator's request open forever.
+        match tokio::time::timeout(self.reply_timeout, receiver).await {
+            Err(_) => Err(RequestError::ReplyTimeout),
+            Ok(Ok(answer)) => answer,
+            // The sender was dropped: the channel closed without answering.
             Ok(Err(_)) => Err(RequestError::Disconnected),
         }
     }
@@ -470,6 +500,37 @@ mod tests {
             1,
             "one frame waited for the wedged socket: the queue is bounded, not unbounded"
         );
+    }
+
+    /// The canary's wedged device: the frame is accepted, the answer never arrives, and the
+    /// operator's request waited for ever. The bound turns that into a 504 that says the device may
+    /// still be working on it (a blind retry could execute twice).
+    #[tokio::test]
+    async fn a_device_that_accepts_and_never_answers_is_a_reply_timeout() {
+        let registry = Arc::new(ChannelRegistry::with_timeouts(
+            Duration::from_millis(50),
+            Duration::from_millis(50),
+        ));
+        let open = registry.open(&device_id());
+        let commands = open.commands;
+        // A device that accepts every frame and answers none.
+        let acceptor = tokio::spawn(async move {
+            let mut commands = commands;
+            while let Some(Outbound::Text { accepted, .. }) = commands.recv().await {
+                let _ = accepted.send(Ok(()));
+            }
+        });
+
+        let result = registry
+            .request(
+                &device_id(),
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+                &grant(),
+            )
+            .await;
+
+        assert_eq!(result, Err(RequestError::ReplyTimeout));
+        acceptor.abort();
     }
 
     #[tokio::test]
