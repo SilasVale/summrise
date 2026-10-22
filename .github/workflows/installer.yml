@@ -145,6 +145,8 @@ jobs:
       # but serves nothing is the failure this catches — and it is a failure no unit test can see.
       - name: install it on the runner
         shell: powershell
+        env:
+          PORT: ${{ github.event.inputs.port || '18080' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = "device/installer/SummriseSetup-$env:VERSION.exe"
@@ -154,7 +156,7 @@ jobs:
           $service = Get-Service -Name SummriseLaunch -ErrorAction Stop
           Write-Host "service: $($service.Status)"
           if ($service.Status -ne 'Running') { throw "the service is $($service.Status)" }
-          $health = Invoke-RestMethod 'http://127.0.0.1:18080/api/health' -TimeoutSec 10
+          $health = Invoke-RestMethod "http://127.0.0.1:$env:PORT/api/health" -TimeoutSec 10
           Write-Host "health: $($health | ConvertTo-Json -Compress)"
           if ($health.status -ne 'ok') { throw "health is not ok: $($health | ConvertTo-Json -Compress)" }
 
