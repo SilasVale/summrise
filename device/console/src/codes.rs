@@ -1,0 +1,178 @@
+//! Enrollment codes: the short-lived proof that lets one device register once.
+//!
+//! The operator mints a code over an authenticated session; the device presents it, together with a
+//! signature over `register\n{id}\n{code}\n{ts_ms}`, when it registers. A code is valid for fifteen
+//! minutes and is spent by the registration that uses it, so a captured code cannot register a
+//! second key and a restart cannot resurrect one already spent.
+//!
+//! Only **sha256(code)** is persisted: the file is a lookup table a registration can spend against,
+//! not a list of usable credentials if another local account reads it. The presented code is hashed
+//! for lookup, the same discipline as the device token registry.
+//!
+//! The file is `<data>/codes.json`, written with the same atomic replacement as the registry and
+//! mode 0600 on Unix. A registration spends the code *before* it writes the device: a crash between
+//! the two loses an unused code (the operator mints another) rather than leaving a code that could be
+//! replayed.
+//!
+//! At most [`MAX_OUTSTANDING_CODES`] codes are live at once. A code past its expiry is not live: it
+//! is pruned when the next code is issued and refused if presented.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::auth::random_32;
+use crate::config::{self, StartupError};
+use crate::hex;
+use crate::store;
+
+/// How long a freshly minted code stays usable.
+pub(crate) const ENROLLMENT_TTL_MS: u64 = 15 * 60 * 1000;
+
+/// How many unspent, unexpired codes may exist at once.
+pub(crate) const MAX_OUTSTANDING_CODES: usize = 16;
+
+/// The codes file's name under the data directory.
+const CODES_FILE: &str = "codes.json";
+
+/// One code on disk: its hash, never the code itself.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StoredCode {
+    /// SHA-256 of the issued code, 64 lowercase hex characters.
+    code_hash: String,
+    /// When the code stops being usable, in Unix milliseconds.
+    expires_at_ms: u64,
+}
+
+/// Why a code could not be issued.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum IssueError {
+    /// Sixteen unspent codes already exist; the caller must wait for one to expire or be spent.
+    TooMany,
+    /// The file could not be written; no code was issued.
+    Storage,
+}
+
+/// Why a code could not be spent.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ConsumeError {
+    /// No such code, or its expiry has passed. The two are one answer on purpose: the wire does not
+    /// distinguish "never existed" from "too late".
+    Unknown,
+    /// The file could not be written; the code is still unspent.
+    Storage,
+}
+
+/// The outstanding codes and the file they are persisted to.
+pub(crate) struct EnrollmentCodes {
+    path: PathBuf,
+    codes: BTreeMap<String, u64>,
+}
+
+impl EnrollmentCodes {
+    /// Load `<data>/codes.json`, creating the data directory if it is absent.
+    pub(crate) fn load(data: &Path) -> Result<EnrollmentCodes, StartupError> {
+        store::create_data_dir(data).map_err(|source| StartupError::DataDirectory {
+            path: data.to_path_buf(),
+            source,
+        })?;
+
+        let path = data.join(CODES_FILE);
+        config::check_private_file("enrollment codes", &path)?;
+        let list: Vec<StoredCode> = match fs::read(&path) {
+            Ok(bytes) => {
+                serde_json::from_slice(&bytes).map_err(|error| StartupError::EnrollmentCodes {
+                    path: path.clone(),
+                    reason: error.to_string(),
+                })?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(source) => {
+                return Err(StartupError::EnrollmentCodes {
+                    path: path.clone(),
+                    reason: source.to_string(),
+                })
+            }
+        };
+
+        let mut codes = BTreeMap::new();
+        for stored in list {
+            if hex::decode_32(&stored.code_hash).is_none() {
+                return Err(StartupError::EnrollmentCodes {
+                    path: path.clone(),
+                    reason: "an entry is not a 32-byte hex code hash".to_owned(),
+                });
+            }
+            if codes
+                .insert(stored.code_hash, stored.expires_at_ms)
+                .is_some()
+            {
+                return Err(StartupError::EnrollmentCodes {
+                    path: path.clone(),
+                    reason: "the same code hash appears twice".to_owned(),
+                });
+            }
+        }
+
+        Ok(EnrollmentCodes { path, codes })
+    }
+
+    /// Mint one code and return it with its expiry.
+    ///
+    /// Expired codes are pruned first, so a console that sat idle for a day does not refuse to mint
+    /// because of sixteen codes nobody can use.
+    pub(crate) fn issue(&mut self, now_ms: u64) -> Result<(String, u64), IssueError> {
+        self.codes
+            .retain(|_, expires_at_ms| *expires_at_ms > now_ms);
+        if self.codes.len() >= MAX_OUTSTANDING_CODES {
+            return Err(IssueError::TooMany);
+        }
+
+        let code = hex::encode(&random_32());
+        let expires_at_ms = now_ms.saturating_add(ENROLLMENT_TTL_MS);
+
+        let mut next = self.codes.clone();
+        next.insert(hash_code(&code), expires_at_ms);
+        self.persist(&next).map_err(|_| IssueError::Storage)?;
+        self.codes = next;
+
+        Ok((code, expires_at_ms))
+    }
+
+    /// Spend `code`, or report that it is unknown/expired. The removal is persisted before the
+    /// caller registers the device, so a crash cannot leave the code usable.
+    pub(crate) fn consume(&mut self, code: &str, now_ms: u64) -> Result<(), ConsumeError> {
+        let code_hash = hash_code(code);
+        match self.codes.get(&code_hash) {
+            Some(expires_at_ms) if *expires_at_ms > now_ms => {}
+            _ => return Err(ConsumeError::Unknown),
+        }
+
+        let mut next = self.codes.clone();
+        next.remove(&code_hash);
+        self.persist(&next).map_err(|_| ConsumeError::Storage)?;
+        self.codes = next;
+
+        Ok(())
+    }
+
+    fn persist(&self, codes: &BTreeMap<String, u64>) -> std::io::Result<()> {
+        let list: Vec<StoredCode> = codes
+            .iter()
+            .map(|(code_hash, expires_at_ms)| StoredCode {
+                code_hash: code_hash.clone(),
+                expires_at_ms: *expires_at_ms,
+            })
+            .collect();
+        store::write_json_atomic(&self.path, &list)
+    }
+}
+
+/// The lookup key for an issued code: the file never holds the code itself.
+fn hash_code(code: &str) -> String {
+    let digest = Sha256::digest(code.as_bytes());
+    hex::encode(&digest)
+}

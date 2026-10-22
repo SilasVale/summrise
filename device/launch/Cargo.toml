@@ -1,0 +1,46 @@
+[package]
+name = "summrise-launch"
+description = "The only process that writes the app binary: verify, restore, supervise, swap."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ed25519-dalek = "2"
+# The operator `--apply` path reads the device's rollback memory from `state.json`, whose shape
+# `summrise-core` owns; the launcher does not get a second definition of the document.
+summrise-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+# The supervisor is a Windows service. Everything behind this line is `cfg(windows)`; the Linux build
+# tests the decisions, the Windows build is the one that gets to touch a device.
+[target.'cfg(windows)'.dependencies]
+summrise-winsec = { path = "../winsec" }
+windows-service = "0.7"
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+# The Windows lifecycle is an integration test against the real binaries, and `/api/state` is
+# asserted by parsing it with the crate that owns the document's shape rather than by counting
+# fields. The test-only edge does not reach the shipped launcher. The MCP round-trip uses rmcp's own
+# client, the same interop the Linux integration test proves; `tokio` only gives that async client a
+# runtime inside the synchronous lifecycle test.
+[target.'cfg(windows)'.dev-dependencies]
+# The Windows lifecycle asserts the descriptor with the same safe API the product uses.
+summrise-winsec = { path = "../winsec" }
+
+[dev-dependencies]
+rmcp = { version = "2", default-features = false, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
+tokio = { version = "1", features = ["rt", "net", "time"] }

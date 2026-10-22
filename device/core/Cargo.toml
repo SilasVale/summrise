@@ -1,0 +1,13 @@
+[package]
+name = "summrise-core"
+description = "The device's decisions as values: no I/O, no platform calls, no clock."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The grant's second signature: the console signs, the device verifies offline. The dependency is
+# pure computation, so `core` still opens no socket, reads no file and asks no clock.
+ed25519-dalek = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

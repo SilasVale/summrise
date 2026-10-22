@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["core", "launch", "device", "mesh", "release", "console", "winsec"]
+
+[workspace.package]
+edition = "2021"
+publish = false
+version = "0.1.0"

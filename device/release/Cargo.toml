@@ -1,0 +1,23 @@
+[package]
+name = "summrise-release"
+description = "The signed release document: one artifact, a policy signature and the stager's."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+ed25519-dalek = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+summrise-core = { path = "../core" }
+# The transport rule is shared with the device, so the signer cannot emit an address the device
+# refuses. `url` is the parser `reqwest` already links; naming it here makes the shared predicate
+# the one parser both ends read.
+url = "2"
+
+# The signer's output is checked by the same parser and signature check the launcher uses on a
+# device. The test constructs the key pair from the seed it wrote to the CLI, so this is the real
+# verification path rather than a second implementation of it.
+[dev-dependencies]
+summrise-launch = { path = "../launch" }

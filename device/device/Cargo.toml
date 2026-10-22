@@ -1,0 +1,98 @@
+[package]
+name = "summrise-device"
+description = "The app runtime: the state file, the health and state API, and the authorization surface."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = "0.7"
+ed25519-dalek = "2"
+# The one new dependency of the downloader. A hand-rolled HTTPS client would be a TLS verifier
+# written from scratch; `reqwest` with `rustls-tls` and no default features is a verified TLS stack
+# and nothing else: no native-tls, no HTTP/2, no proxy discovery, no charset decoding.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# The PTY backend, vendored rather than taken from crates.io. 0.9.0 — the newest published version —
+# still passes PSEUDOCONSOLE_WIN32_INPUT_MODE (0x4) to CreatePseudoConsole, which makes ConPTY echo
+# console OUTPUT back as Win32 INPUT events; PSReadLine then renders a `>>` continuation prompt after
+# every OSC 633 sequence. The vendored 0.8.1 copy drops that flag (node-pty/VS Code parity) and makes
+# its ConPTY reader pollable with PeekNamedPipe, because the output pipe never EOFs while the HPCON
+# lives. See `vendor/portable-pty/README.md` for the patch and its provenance.
+portable-pty = { path = "../vendor/portable-pty" }
+# The SSH backend. `ring` is the crypto backend and nothing else is enabled: no RSA, no SFTP,
+# no agent forwarding. The version matches the Windows agent's client, so both ends of the fleet
+# exercise the same russh line.
+russh = { version = "0.55", default-features = false, features = ["ring"] }
+# The serial backend. Default features are off: the default set is `libudev`, which would make the
+# Linux build depend on a system shared library to enumerate ports. This capability never enumerates
+# or guesses — the caller names the path — so udev's list is not needed. The requirement matches the
+# old Windows agent's backend, so both ends of the fleet speak the same serial line.
+serialport = { version = "4", default-features = false }
+# The MCP surface. Default features are off: the default set includes `base64`, which nothing in this
+# crate uses, and the transport is streamable HTTP, so no TLS stack rides along. `server` brings the
+# model and the handler trait; the transport is the axum-mountable streamable-HTTP service.
+rmcp = { version = "2", default-features = false, features = [
+    "macros",
+    "server",
+    "transport-streamable-http-server",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# One WebSocket client, two uses: the browser capability's loopback CDP endpoint and the device's
+# outbound console channel. The console is a public origin (`wss://`), so the rustls stack is
+# required; it is the same rustls line `reqwest` already brings, and webpki roots are the trust
+# anchors a device has without an operating-system certificate store to consult.
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-webpki-roots",
+] }
+# The sink/stream halves of the WebSocket the CDP client drives. `futures-util` is already in the
+# workspace's lock through rmcp; this states the one feature this crate uses.
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+summrise-core = { path = "../core" }
+# The mesh: the device's Ed25519 identity, its rendezvous registration, and the peer channel a
+# request arrives on. It is the same crate the broker and relay binaries ship from, so a device and
+# the services it meets speak one implementation of the wire.
+summrise-mesh = { path = "../mesh" }
+summrise-release = { path = "../release" }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    # `io-util` is the test servers' read/write half and `time` is reqwest's per-request timeout;
+    # stating them here means the crate does not depend on reqwest's feature list for its own tests.
+    "io-util",
+    "time",
+    # The audit log is appended with `tokio::fs`, so a call never blocks the reactor on a write.
+    "fs",
+] }
+
+# Unix only. portable-pty starts the child with `setsid()`, so the shell is a session and process
+# group leader; closing a session must signal the descendants that job control put in their own
+# process groups. `std::process::Child` can only kill the direct child, and `nix` is the safe wrapper
+# for the two signals this needs (`kill`, `killpg`) — the crate itself stays `#![forbid(unsafe_code)]`.
+# `term` is the serial tests' `openpty`/`ttyname`: a pseudo-terminal is the only serial line a CI box
+# has, and the safe wrapper keeps the test free of `unsafe` like the rest of the crate.
+[target.'cfg(windows)'.dependencies]
+summrise-winsec = { path = "../winsec" }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.25", default-features = false, features = ["signal", "term", "poll"] }
+
+# `oneshot` is how the HTTP tests drive the router without binding a socket. It is the same tower
+# axum builds its services with. `summrise-launch` is a dev-dependency because the sidecar the stager
+# writes is the sidecar the launcher re-verifies; the test parses it with the launcher's own type.
+[dev-dependencies]
+# The integration test's whole point is interop with rmcp's own client, so the client half is
+# test-only: `client` is the handler/service role, and
+# `transport-streamable-http-client-reqwest` is the transport this server speaks. That transport's
+# reqwest is 0.13 while the updater above stays on 0.12; Cargo resolves both, and only the test
+# binary links the client stack.
+rmcp = { version = "2", default-features = false, features = [
+    "client",
+    "transport-streamable-http-client-reqwest",
+] }
+summrise-launch = { path = "../launch" }
+tower = { version = "0.5", features = ["util"] }
