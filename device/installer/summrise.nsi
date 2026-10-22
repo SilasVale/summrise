@@ -56,6 +56,10 @@ BrandingText "${COMPANY}"
 ; An upgrade must stop the old supervisor before its image is replaced: the service is
 ; uninstalled here and re-registered by the install section.
 Function .onInit
+  ; DIAGNOSTIC: a setup that exits 0 without touching anything is the hardest failure to see from
+  ; the outside, so the init path leaves a trace next to the install log.
+  FileOpen $6 "$TEMP\summrise-setup.log" w
+  FileWrite $6 "onInit start (${VERSION}, port ${PORT}) install=$INSTDIR$\r$\n"
   nsExec::Exec 'sc.exe stop ${SERVICE}'
   Pop $0
   ; THE SERVICE STOPS ASYNCHRONOUSLY, AND THE FILES CANNOT BE REPLACED UNTIL IT HAS. `sc stop`
@@ -78,11 +82,14 @@ Function .onInit
       Sleep 1000
     ${EndIf}
   ${LoopUntil} $7 == "1"
+  FileWrite $6 "onInit: launcher waited out after $2 attempt(s)$\r$\n"
   ; `--install-service`/`--uninstall-service` always act on the launcher's default service name;
   ; only `service --service-name` selects another one for the SCM's own argv.
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
   Pop $0
   Pop $1
+  FileWrite $6 "onInit: uninstall-service exit $0$\r$\n"
+  FileClose $6
 FunctionEnd
 
 Section "Summrise runtime" SecRuntime
@@ -91,6 +98,8 @@ Section "Summrise runtime" SecRuntime
   ; NSIS is a 32-bit process: without this, HKLM writes land under WOW6432Node and the
   ; "Apps & features" entry is the 32-bit one, not the machine's.
   SetRegView 64
+  FileOpen $6 "$TEMP\summrise-setup.log" a
+  FileWrite $6 "section: install to $INSTDIR$\r$\n"
   SetOutPath "$INSTDIR"
   File /oname=summrise-launch.exe "${SOURCE}\summrise-launch.exe"
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
@@ -113,22 +122,21 @@ Section "Summrise runtime" SecRuntime
   ; A SILENT INSTALL MUST NEVER SHOW A BOX: `/S` has nobody to click OK, so a MessageBox is an
   ; invisible hang (it held a canary install for minutes with the process alive and no output).
   ; Silent mode reports through the exit code and the log instead.
-  FileOpen $9 "$TEMP\summrise-install.log" w
-  FileWrite $9 "summrise ${VERSION} install$\r$\n"
-  FileWrite $9 "install: $INSTDIR$\r$\n"
-  FileWrite $9 "data: ${DATA_DIR}$\r$\n"
-  FileWrite $9 "port: ${PORT}$\r$\n"
+  FileWrite $6 "section: files written, registry $INSTDIR$\r$\n"
+  FileWrite $6 "install: $INSTDIR$\r$\n"
+  FileWrite $6 "data: ${DATA_DIR}$\r$\n"
+  FileWrite $6 "port: ${PORT}$\r$\n"
   ; DIAGNOSTIC: the uninstall entry is written before this log opens; read it back so the log says
   ; whether the write landed and in which view.
   ReadRegStr $8 HKLM "${UNINST_KEY}" "DisplayVersion"
-  FileWrite $9 "registry readback: '$8' (view 64)$\r$\n"
+  FileWrite $6 "registry readback: '$8' (view 64)$\r$\n"
 
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-service --replace-baseline --install "$INSTDIR" --data "${DATA_DIR}" --seed-sidecar "$INSTDIR\summrise-device.sidecar.json" --port ${PORT}'
   Pop $0
   Pop $1
-  FileWrite $9 "install-service: exit $0$\r$\n$1$\r$\n"
+  FileWrite $6 "install-service: exit $0$\r$\n$1$\r$\n"
   ${If} $0 != "0"
-    FileClose $9
+    FileClose $6
     ${If} ${Silent}
       SetErrorLevel 1
     ${Else}
@@ -142,7 +150,7 @@ Section "Summrise runtime" SecRuntime
   nsExec::ExecToStack 'sc.exe start ${SERVICE}'
   Pop $0
   Pop $1
-  FileWrite $9 "sc start: exit $0$\r$\n$1$\r$\n"
+  FileWrite $6 "sc start: exit $0$\r$\n$1$\r$\n"
 
   ; **THE INSTALL IS NOT DONE UNTIL THE DEVICE ANSWERS.** A registered service that cannot bind its
   ; port (the legacy agent holds 18080 by default) looks installed and serves nothing. Poll the
@@ -159,8 +167,8 @@ Section "Summrise runtime" SecRuntime
     ${EndIf}
   ${LoopUntil} $7 == "1"
   ${If} $7 != "1"
-    FileWrite $9 "health: no answer on port ${PORT} after 10s$\r$\n"
-    FileClose $9
+    FileWrite $6 "health: no answer on port ${PORT} after 10s$\r$\n"
+    FileClose $6
     ${If} ${Silent}
       SetErrorLevel 1
     ${Else}
@@ -168,8 +176,8 @@ Section "Summrise runtime" SecRuntime
     ${EndIf}
     Abort
   ${EndIf}
-  FileWrite $9 "health: ok on port ${PORT}$\r$\n"
-  FileClose $9
+  FileWrite $6 "health: ok on port ${PORT}$\r$\n"
+  FileClose $6
 SectionEnd
 
 Section "Uninstall"
