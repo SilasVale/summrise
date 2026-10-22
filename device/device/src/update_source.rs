@@ -231,7 +231,7 @@ pub(crate) async fn check_once(
         rolled_back: &state.rolled_back,
         force_reinstall: None,
     };
-    updater::check_update_with(
+    let outcome = updater::check_update_with(
         &source.url,
         None,
         source.channel,
@@ -241,8 +241,35 @@ pub(crate) async fn check_once(
         policy,
         &pubkey,
     )
-    .await
-    .map(|_| ())
+    .await?;
+    // **A STAGED RELEASE IS NOT AN UPDATE UNTIL THE SUPERVISOR IS ASKED.** The stager writes the
+    // candidate pair; the supervisor swaps when `swap.request.json` names it. The one-shot CLI has
+    // always written that request and waited for the answer; this scheduler did not, so a device
+    // that checked on a schedule downloaded and verified every release and then sat on it — which
+    // is exactly what the canary showed (2026-10-22: document fetched, verified, nothing applied).
+    // The request is written here, and the app's own watcher folds the supervisor's answer into
+    // `state.json` after the restart the swap causes.
+    if let updater::CheckOutcome::Staged(staged) = outcome {
+        request_swap_after_staging(install, &staged);
+    }
+    Ok(())
+}
+
+/// Ask the supervisor to swap in a release the stager has just written.
+///
+/// Extracted so the step that was missing can be tested without a release server: the stager and
+/// the supervisor each have their own tests, and this is the sentence that connects them.
+pub(crate) fn request_swap_after_staging(install: &Path, staged: &crate::update::StagedRelease) {
+    match crate::update::request_swap(install, staged) {
+        Ok(_) => eprintln!(
+            "summrise-device: staged {} and asked the supervisor for the swap",
+            staged.version
+        ),
+        Err(error) => eprintln!(
+            "summrise-device: staged {} but cannot ask for the swap: {error}",
+            staged.version
+        ),
+    }
 }
 
 /// A stable per-device number for the first delay: the identity file's bytes, or the data path.
@@ -326,6 +353,23 @@ mod tests {
         assert_eq!(first_delay(interval, 7), first_delay(interval, 7));
         assert!(first_delay(interval, 599) < interval);
         assert!(first_delay(interval, 0) < interval);
+    }
+
+    #[test]
+    fn a_staged_release_asks_the_supervisor_for_the_swap() {
+        let dir = tempdir();
+        let staged = crate::update::StagedRelease {
+            version: "2.0.1".to_owned(),
+            sha256: "ab".repeat(32),
+        };
+        request_swap_after_staging(&dir, &staged);
+        let request = std::fs::read(dir.join("swap.request.json"))
+            .expect("the supervisor is asked; a staged release alone is not an update");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&request).expect("the request is JSON");
+        assert_eq!(parsed["version"], "2.0.1");
+        assert_eq!(parsed["sha256"], "ab".repeat(32));
+        assert!(parsed["requested_at_ms"].as_u64().is_some_and(|ms| ms > 0));
     }
 
     /// A directory under the system temp root that removes itself, named for this test process.
