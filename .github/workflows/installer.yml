@@ -63,7 +63,9 @@ jobs:
           esac
           seed="$RUNNER_TEMP/launcher.seed"
           printf '%s' "$SUMMRISE_LAUNCHER_SEED" > "$seed"
-          icacls "$seed" /inheritance:r >/dev/null
+          # No icacls here: Git Bash rewrites a leading `/flag` into a path, which made the step
+          # exit 1 with nothing but the shell's message. The file lives in the runner's private temp
+          # directory and the signer reads it once.
           device/target/release/summrise-release.exe sidecar \
             --key-file "$seed" \
             --artifact device/target/release/summrise-device.exe \
