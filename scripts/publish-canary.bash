@@ -106,6 +106,12 @@ cp "$artifact" "$out/summrise-device-$version.exe"
     --min-version 0.1.0 $plaintext \
     --out "$out/release-$version.json"
 
+# The channel pointer is what a device's `update.json` names: one file per channel that always holds
+# the newest document. Written here so publishing cannot forget it — the alternative was a manual copy
+# that worked exactly until the first publish someone did from another shell.
+cp "$out/release-$version.json" "$out/release-$channel.json"
+echo "== channel pointer: release-$channel.json -> $version"
+
 echo "== signing the first-generation sidecar with the launcher key"
 "$signer_bin" sidecar --key-file "$launcher_key" \
     --artifact "$artifact" --version "$version" --channel "$channel" \
