@@ -11,6 +11,8 @@
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+; `/CONSOLE=` and `/CODE=` are read out of the command line: the optional auto-enrolment below.
+!include "FileFunc.nsh"
 
 !ifndef VERSION
   !error "VERSION is required (-DVERSION=0.1.1)"
@@ -93,6 +95,20 @@ Function .onInit
 FunctionEnd
 
 Section "Summrise runtime" SecRuntime
+  ; Optional auto-enrolment: `/CONSOLE=<console-url> /CODE=<one-time-code>` makes the installer register
+  ; this machine with the console, so "install" is the whole onboarding. Both are absent by default and
+  ; a failure to enrol never fails the install — a device that is installed but not yet enrolled is a
+  ; useful device; an install that aborts because a code expired is not.
+  ${GetOptions} $CMDLINE "/CONSOLE=" $ConsoleUrl
+  ${GetOptions} $CMDLINE "/CODE=" $EnrollCode
+  ${If} $ConsoleUrl != ""
+  ${AndIf} $EnrollCode != ""
+    StrCpy $9 ""
+    StrCpy $8 $ConsoleUrl 7
+    ${If} $8 == "http://"
+      StrCpy $9 "--allow-plaintext"
+    ${EndIf}
+  ${EndIf}
   SectionIn RO
   SetShellVarContext all
   ; NSIS is a 32-bit process: without this, HKLM writes land under WOW6432Node and the
@@ -143,6 +159,16 @@ Section "Summrise runtime" SecRuntime
       MessageBox MB_ICONSTOP "The device runtime could not be installed (exit $0).$\r$\n$\r$\n$1"
     ${EndIf}
     Abort
+  ${EndIf}
+
+  ${If} $ConsoleUrl != ""
+  ${AndIf} $EnrollCode != ""
+    ; The service is installed but not started yet, which is exactly when enrolling is safe: no
+    ; channel is open and no token exists to rotate.
+    nsExec::ExecToStack '"$INSTDIR\summrise-device.exe" --enroll "$ConsoleUrl" "$EnrollCode" $9 --data "${DATA_DIR}" --install "$INSTDIR"'
+    Pop $0
+    Pop $1
+    FileWrite $6 "enroll: exit $0$\r$\n$1$\r$\n"
   ${EndIf}
 
   ; `--install-service` starts the service when it is not running; a second start then answers 1056
