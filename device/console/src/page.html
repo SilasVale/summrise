@@ -270,6 +270,16 @@
         <option value="ssh">ssh — a remote host (fill host, user, auth below)</option>
         <option value="serial">serial — a port on the device</option>
       </select>
+      <div id="terminal-ssh" hidden>
+        <label for="terminal-host">Host (ssh)</label>
+        <input id="terminal-host" type="text" placeholder="host or IP">
+        <label for="terminal-user">User (ssh)</label>
+        <input id="terminal-user" type="text" placeholder="remote user">
+      </div>
+      <div id="terminal-serial" hidden>
+        <label for="terminal-port">Port path (serial)</label>
+        <input id="terminal-port" type="text" placeholder="COM3 or /dev/ttyUSB0">
+      </div>
       <p id="terminal-status" class="status" role="status"></p>
       <pre id="terminal-output" class="terminal">No session.</pre>
       <form id="terminal-form" class="inline">
@@ -509,13 +519,29 @@ async function terminalCall(name, args) {
   return text;
 }
 
+function terminalKindChanged() {
+  const kind = $("terminal-kind").value;
+  $("terminal-ssh").hidden = kind !== "ssh";
+  $("terminal-serial").hidden = kind !== "serial";
+}
+
 async function terminalOpen() {
   if (!lastGrant) return;
   $("terminal-open").disabled = true;
   setStatus($("terminal-status"), "Opening a session…", "");
   try {
     const kind = $("terminal-kind").value;
-    const text = await terminalCall("terminal.create", { kind: kind });
+    const args = { kind: kind };
+    if (kind === "ssh") {
+      args.host = $("terminal-host").value.trim();
+      args.user = $("terminal-user").value.trim();
+      if (!args.host || !args.user) throw new Error("an ssh session needs a host and a user");
+    }
+    if (kind === "serial") {
+      args.port = $("terminal-port").value.trim();
+      if (!args.port) throw new Error("a serial session needs a port path");
+    }
+    const text = await terminalCall("terminal.create", args);
     const created = JSON.parse(text);
     terminalSession = created.id;
     terminalCursor = 0;
@@ -747,6 +773,7 @@ $("grant-form").addEventListener("submit", mintGrant);
 $("read-state").addEventListener("click", readState);
 $("copy-call").addEventListener("click", copyCall);
 $("new-code").addEventListener("click", newCode);
+$("terminal-kind").addEventListener("change", terminalKindChanged);
 $("terminal-open").addEventListener("click", terminalOpen);
 $("terminal-close").addEventListener("click", terminalClose);
 $("terminal-form").addEventListener("submit", terminalSend);
