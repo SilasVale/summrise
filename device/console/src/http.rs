@@ -51,7 +51,7 @@ const BUSY_RETRY_AFTER_MS: u64 = 250;
 ///
 /// The page is one file: its styles and its script are inline, there is no build step, and it holds
 /// no secret. The operator types the token into it, and the token stays in the page's memory.
-const OPERATOR_PAGE: &str = include_str!("page.html");
+const OPERATOR_PAGE: &str = include_str!("../web/dist/index.html");
 
 /// The clock the console reads, in Unix milliseconds.
 ///

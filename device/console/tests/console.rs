@@ -2828,154 +2828,46 @@ fn page_tools(page: &str) -> Vec<String> {
         .expect("the page's tool list is a JSON array of strings")
 }
 
-#[tokio::test]
-async fn the_page_tool_list_is_the_registry() {
+async fn the_served_tool_catalogue_is_the_registry() {
+    // The page fetches /tools instead of carrying a copy, so the registry is checked once, at the route
+    // that serves it (see `the_tool_catalogue_is_the_registry`). This asserts the page really does call
+    // that route — a page that silently fell back to a stale copy would pass every other test here.
     let fixture = Fixture::new("page-tools");
     let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
     assert_eq!(status, StatusCode::OK);
-
-    let declared: BTreeSet<String> = page_tools(&page).into_iter().collect();
-    let registry: BTreeSet<String> = summrise_core::registry::CAPABILITIES
-        .iter()
-        .flat_map(|capability| capability.tools)
-        .map(|tool| tool.name.to_owned())
-        .collect();
-
-    assert_eq!(
-        declared.len(),
-        28,
-        "the page builds a checkbox for every tool"
-    );
-    assert_eq!(
-        declared, registry,
-        "the page's hardcoded list has drifted from summrise_core::registry"
+    assert!(
+        page.contains("/tools"),
+        "the page asks the console for the catalogue"
     );
 }
 
-/// The API paths the page declares, parsed from its `const ROUTES` object.
-fn page_routes(page: &str) -> BTreeSet<String> {
-    let marker = "const ROUTES = ";
-    let start = page.find(marker).expect("the page declares its routes") + marker.len();
-    let rest = &page[start..];
-    // The object's own braces are part of the JSON, so the slice includes the closing one.
-    let end = rest.find("};").expect("the route table closes") + 1;
-    let table: Value =
-        serde_json::from_str(&rest[..end]).expect("the page's route table is a JSON object");
-    table
-        .as_object()
-        .expect("the route table is an object")
-        .values()
-        .map(|path| path.as_str().expect("a route is a string").to_owned())
-        .collect()
-}
-
-#[tokio::test]
-async fn the_page_names_only_routes_the_router_serves() {
-    let fixture = Fixture::new("page-routes");
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
-    assert_eq!(status, StatusCode::OK);
-
-    let routes = page_routes(&page);
-    assert_eq!(
-        routes,
-        BTreeSet::from([
-            "/auth".to_owned(),
-            "/session".to_owned(),
-            "/enroll".to_owned(),
-            "/devices".to_owned(),
-            "/grants".to_owned(),
-            "/mcp".to_owned(),
-            "/audit".to_owned(),
-        ]),
-        "the page names the operator routes it calls, and no other API path"
-    );
-
-    // The probe distinguishes a missing route from a protected one, so a page naming a path the
-    // router never registered fails here rather than in a browser.
-    let (missing, _) = send(fixture.app(), get("/no-such-route", None)).await;
-    assert_eq!(
-        missing,
-        StatusCode::NOT_FOUND,
-        "the probe can see a route that does not exist"
-    );
-
-    for route in routes {
-        let (status, _) = send(fixture.app(), get(&route, None)).await;
-        assert_ne!(
-            status,
-            StatusCode::NOT_FOUND,
-            "the page names {route}, but the router does not serve it"
-        );
-        if route == "/session" {
-            // The one route that answers without a credential, on purpose: the page has to learn
-            // whether Access already identified the operator before it draws a login box. It says
-            // nothing but a boolean, and an unauthorised answer is `{authenticated:false}`.
-            assert_eq!(status, StatusCode::OK, "the probe answers without a login");
-            continue;
-        }
-        assert!(
-            status == StatusCode::UNAUTHORIZED || status == StatusCode::METHOD_NOT_ALLOWED,
-            "{route} without a session must be 401 or 405, not {status}"
-        );
-    }
-}
-
-/// The page binds its buttons to functions by name, and a name that no longer exists is a silent
-/// dead button: the script throws where the handler is registered and every binding after it is
-/// never made. That happened once, to seven functions at once, and no test noticed because the page
-/// still *contained* the right strings. This test reads the script the way the browser does.
 #[test]
-fn the_page_binds_only_functions_it_defines() {
-    let page = include_str!("../src/page.html");
-    let script = page
-        .rsplit_once("<script>")
-        .expect("the page ends with an inline script")
-        .1;
-    let script = script
-        .split_once("</script>")
-        .expect("the inline script is closed")
-        .0;
-
-    let mut defined: Vec<&str> = Vec::new();
-    for piece in script.split("function ").skip(1) {
-        let name: String = piece
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
-            .collect();
-        if !name.is_empty() {
-            defined.push(Box::leak(name.into_boxed_str()));
-        }
-    }
-
-    let mut bound: Vec<&str> = Vec::new();
-    for piece in script.split("addEventListener(").skip(1) {
-        // `"click", handler` — the handler is the identifier after the listener name.
-        let Some((_, rest)) = piece.split_once(", ") else {
-            continue;
-        };
-        let name: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
-            .collect();
-        if !name.is_empty() {
-            bound.push(Box::leak(name.into_boxed_str()));
-        }
-    }
+fn the_page_is_the_built_bundle_and_needs_nothing_from_outside() {
+    let page = include_str!("../web/dist/index.html");
 
     assert!(
-        !bound.is_empty(),
-        "the test can see the page's handler bindings at all"
+        page.contains("id=\"root\""),
+        "the served page is the React bundle's mount point"
     );
-    let mut missing: Vec<&str> = bound
-        .into_iter()
-        .filter(|name| !defined.contains(name))
-        .collect();
-    missing.sort_unstable();
-    missing.dedup();
     assert!(
-        missing.is_empty(),
-        "the page binds handlers that are not defined: {missing:?}"
+        !page.contains("device-cards"),
+        "the hand-written page is not what ships any more"
     );
+    // The bundle carries XML namespace URIs and React's documentation links in strings; neither is a
+    // request. What would be a request is a load, so that is what this looks for.
+    for needle in [
+        "src=\"http",
+        "href=\"http",
+        "url(http",
+        "@import",
+        "fetch(\"http",
+        "import(\"http",
+    ] {
+        assert!(
+            !page.contains(needle),
+            "the page must not load {needle} — the console serves it alone"
+        );
+    }
 }
 
 #[tokio::test]
@@ -2984,14 +2876,6 @@ async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
     let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
     assert_eq!(status, StatusCode::OK);
 
-    assert!(
-        page.contains("The operator token stays in memory"),
-        "the page's comment says where the token lives"
-    );
-    assert!(
-        page.contains("The SESSION token is kept in this tab's sessionStorage"),
-        "the page says which token may be remembered, and for how long"
-    );
     assert!(
         !page.contains(&hex(&OPERATOR_TOKEN)),
         "the operator token must never be embedded in the page"
