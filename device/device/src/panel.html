@@ -69,6 +69,13 @@
   h1 { font-size: 1.15rem; font-weight: 650; margin: 0; letter-spacing: -0.012em; }
   header span { color: var(--ink-faint); font-size: 0.85rem; }
   .lede { color: var(--ink-muted); margin: 0 0 0.25rem; font-size: 0.9rem; }
+  header button {
+    margin-left: auto; font: inherit; font-size: 0.82rem; font-weight: 550;
+    padding: 0.3rem 0.65rem; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+  }
+  header button:hover { border-color: var(--accent); }
+  header button.copied { border-color: var(--ok); color: var(--ok); }
 
   section {
     background: var(--surface); border: 1px solid var(--line);
@@ -143,6 +150,7 @@
   <rect width="48" height="48" rx="11" fill="url(#summrise-sheen)"/>
 </svg>
     <h1>Summrise</h1><span>this machine</span>
+    <button id="copy" type="button">Copy diagnostics</button>
   </header>
   <p class="lede">The device's own panel. Loopback only, no login: if you can read this, you are on the box.</p>
 
@@ -191,6 +199,7 @@ async function refresh() {
     return;
   }
 
+  latest = snapshot;
   const build = document.getElementById("build");
   build.replaceChildren();
   row(build, "Version", snapshot.version || "unknown");
@@ -248,6 +257,70 @@ async function refresh() {
     body.append(tr);
   }
 }
+
+// The panel is the surface that still answers when nothing else does, so it has to be able to hand its
+// facts to someone else: a screenshot is not a bug report.
+let latest = null;
+
+function diagnostics() {
+  if (!latest) return "Summrise device diagnostics: the panel has not read /api/panel yet";
+  const lines = [];
+  lines.push("Summrise device diagnostics");
+  lines.push(`version ${latest.version}  channel ${latest.channel}  sha256 ${latest.sha256}`);
+  lines.push(`pid ${latest.pid}`);
+  const attempt = latest.console_attempt;
+  if (!attempt || !attempt.attempts) {
+    lines.push("console link: connected on the first try");
+  } else {
+    const noun = attempt.attempts === 1 ? "failed attempt" : "failed attempts";
+    lines.push(`console link: reconnected after ${attempt.attempts} ${noun} — ${attempt.reason || "(no reason)"}`);
+  }
+  const verdict = latest.state && latest.state.lastVerdict;
+  if (verdict) lines.push(`last verdict: ${verdict.outcome} ${verdict.detail} at ${verdict.ts}`);
+  lines.push("recent events:");
+  // A tool call writes two lines — `begin` with the tool, `end` with the outcome — and a report that
+  // prints both is a report with half its lines saying "end". The outcome joins its own call.
+  let lastToolLine = -1;
+  for (const event of (latest.events || []).slice(-10)) {
+    const when = new Date(event.at_ms || event.ts_ms).toISOString();
+    if (event.event === "end") {
+      if (lastToolLine >= 0) lines[lastToolLine] += event.ok ? " → ok" : " → failed";
+      continue;
+    }
+    if (event.tool) {
+      lastToolLine = lines.length;
+      lines.push(`  ${when}  ${event.tool} ${event.decision || ""}`.trimEnd());
+    } else {
+      lastToolLine = -1;
+      lines.push(`  ${when}  ${event.event || JSON.stringify(event)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+async function copyDiagnostics() {
+  const button = document.getElementById("copy");
+  const text = diagnostics();
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    // 127.0.0.1 is a secure context, but a browser can still refuse; the fallback is the old one.
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  button.textContent = "Copied";
+  button.classList.add("copied");
+  setTimeout(() => {
+    button.textContent = "Copy diagnostics";
+    button.classList.remove("copied");
+  }, 1600);
+}
+
+document.getElementById("copy").addEventListener("click", copyDiagnostics);
 
 refresh();
 setInterval(refresh, 2000);
