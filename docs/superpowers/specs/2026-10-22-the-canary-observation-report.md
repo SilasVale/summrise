@@ -143,3 +143,23 @@ Two things that a release owes an operator were checked on the machines rather t
 - **The published installer is the one that was tested.** The `v0.3.8` asset was downloaded back
   through the release API: 4,580,778 bytes, sha256 `17e51cdd…a227c3`, identical to the `SHA256SUMS`
   published beside it.
+
+### 2026-10-23 — a torn state document is quarantined, not left to a human
+
+Truncating `state.json` on 0.3.8 left the device answering
+`{"status":"degraded","reason":"state: the state file is corrupt: … EOF while parsing a value"}` — honest,
+and permanent until someone deleted a file. The state is a cache of identity the install can rebuild,
+so 0.3.9 moves the unreadable bytes to `state.json.bad`, records the parse error in the event log, and
+writes the document the install can describe.
+
+Verified on `desktop-14rjcr8`: the same truncation now ends with
+`/api/health → {"version":"0.3.9","pid":20936}`, a fresh `state.json` naming 0.3.9, `state.json.bad`
+holding the old bytes, and this line in `events.jsonl`:
+
+```json
+{"event":"state_quarantined","path":"…\\state.json","quarantined":"…\\state.json.bad",
+ "error":"the state file is corrupt: … EOF while parsing a value at line 1 column 0"}
+```
+
+The degraded path stays for the other half: a document corrupted *while the device runs* is still
+reported as a 503, because inventing a document under a running device would hide data loss.
