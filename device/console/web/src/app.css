@@ -30,15 +30,18 @@ p { margin: 0.35rem 0; }
 .brand span { color: var(--ink-faint); font-size: var(--fs-sm); }
 .session { margin: 0 0 0 auto; color: var(--ink-muted); font-size: var(--fs-sm); display: flex; align-items: center; gap: 0.4rem; }
 
-.shell { min-height: 100vh; display: flex; flex-direction: column; }
-.body { flex: 1; display: flex; min-height: 0; }
-main { flex: 1; max-width: 84rem; margin: 0 auto; padding: 1.1rem 1.25rem 3rem; display: grid; gap: 1rem; align-content: start; min-width: 0; }
+/* An app shell, not a document: the top bar and the status bar stay put and only the middle scrolls.
+   With `min-height: 100vh` the footer sat below the fold, so the one line that says how many devices
+   are online was the line you had to scroll to find. */
+.shell { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.body { display: flex; min-height: 0; }
+main { flex: 1; max-width: 84rem; margin: 0 auto; padding: 1.1rem 1.25rem 2rem; display: grid; gap: 1rem; align-content: start; min-width: 0; overflow: auto; }
 
 /* The rail is the legacy panel's grammar: destinations on the left, connection state at the foot. */
 .rail {
   width: 56px; flex: none; display: flex; flex-direction: column; align-items: center;
   gap: 0.35rem; padding: 0.75rem 0 0.9rem; border-right: 1px solid var(--line);
-  background: var(--surface); position: sticky; top: 0; height: calc(100vh - 3.2rem);
+  background: var(--surface);
 }
 .rail-btn {
   width: 38px; height: 38px; display: grid; place-items: center;
@@ -208,3 +211,16 @@ tr:last-child td { border-bottom: 0; }
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
 .browser-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; }
+
+/* Small screens: the rail becomes a strip of icons at the bottom, the columns collapse, and the cards
+   stop demanding 19rem they do not have. */
+@media (max-width: 56rem) {
+  .body { flex-direction: column-reverse; }
+  .rail { width: 100%; flex-direction: row; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem; }
+  .rail-spacer { display: none; }
+  .rail-dot { margin: 0 0.4rem; }
+  main { padding: 0.9rem 0.9rem 1.2rem; }
+  .cards { grid-template-columns: 1fr; }
+  .topbar-inner { padding: 0.6rem 0.9rem; }
+  .session { width: 100%; margin-left: 0; }
+}

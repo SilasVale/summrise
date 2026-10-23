@@ -70,6 +70,10 @@
     --line: #222c37;
     --line-strong: #2e3a47;
 
+    /* The accent's soft variant is a SURFACE, so it needs a dark value: unoverridden it painted a
+       #ffefe5 block behind the active rail button — a light square on a dark page. */
+    --accent-soft: #2a1c12;
+    --accent-fg: #ffffff;
     --ok: #3fcf7f;
     --ok-soft: #10261a;
     --warn: #e0a44a;
