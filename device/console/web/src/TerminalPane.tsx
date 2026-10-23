@@ -6,6 +6,20 @@ import { callTool, type Grant } from "./terminal";
 
 // The device keeps a session after the page loses it, so this pane attaches to what is there rather
 // than always opening another shell.
+/**
+ * The terminal's colours follow the page's scheme.
+ *
+ * xterm cannot read a CSS variable, so the two palettes are spelled out here — and they are the console's
+ * own: the dark terminal is the page's surface, not a different black, so the pane reads as part of the
+ * page in both themes.
+ */
+function terminalTheme() {
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return dark
+    ? { background: "#0e1319", foreground: "#e7edf4", cursor: "#bf3a0a", selectionBackground: "#2e3a47" }
+    : { background: "#10151c", foreground: "#d5dde6", cursor: "#ff8a4c", selectionBackground: "#2a3540" };
+}
+
 export function TerminalPane({ grant }: { grant: Grant }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -48,7 +62,7 @@ export function TerminalPane({ grant }: { grant: Grant }) {
         cursorBlink: true,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         fontSize: 13,
-        theme: { background: "#10151c" }
+        theme: terminalTheme()
       });
       fit.current = new FitAddon();
       term.current.loadAddon(fit.current);

@@ -207,6 +207,7 @@ tr:last-child td { border-bottom: 0; }
   background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm);
 }
 .term-host { background: #10151c; border-radius: var(--radius); padding: 0.5rem 0.6rem; height: 22rem; overflow: hidden; }
+@media (prefers-color-scheme: dark) { .term-host { background: #0e1319; } }
 
 .session button { margin-left: 0.5rem; padding: 0.2rem 0.55rem; font-size: var(--fs-xs); }
 .browser-pane { display: grid; gap: 0.5rem; }

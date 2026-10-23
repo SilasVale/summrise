@@ -14,9 +14,10 @@ type Props = {
   onSelect: () => void;
   onRename: () => void;
   onRemove: () => void;
+  onDiagnostics: () => void;
 };
 
-export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove }: Props) {
+export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const behind = device.version !== null && newest !== null && device.version !== newest;
   return (
     <article className={"card" + (selected ? " card-selected" : "")}>
@@ -55,6 +56,7 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
 
       <footer>
         <button type="button" className="primary" onClick={onSelect}>Work on this</button>
+        <button type="button" onClick={onDiagnostics}>Diagnostics</button>
         <button type="button" onClick={onRename}>Rename</button>
         <button type="button" className="danger" onClick={onRemove}>Remove</button>
       </footer>

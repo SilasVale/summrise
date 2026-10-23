@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
 import { api, HttpError, setToken, type AuditLine, type Device, type Session } from "./api";
-import { DeviceCard } from "./DeviceCard";
+import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AuditTable } from "./AuditTable";
 import { Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -132,6 +132,40 @@ export function App() {
     }
   };
 
+  // Remote troubleshooting has the same problem as the panel's: a screenshot is not a bug report. The
+  // console can assemble the same facts it can see, and say which of them it can see.
+  const copyDiagnostics = async (device: Device | null) => {
+    if (!device) return;
+    const lines = [
+      "Summrise device diagnostics (from the console)",
+      `device: ${device.name ?? "(unnamed)"} (${device.id})`,
+      `online: ${device.online ? "yes" : "no"}  version: ${device.version ?? "unknown"}  last seen: ${device.last_seen_ms ? new Date(device.last_seen_ms).toISOString() : "never"}`,
+      device.last_attempt && device.last_attempt.attempts > 0
+        ? `console link: ${retrySentence(device.last_attempt.attempts, device.last_attempt.reason)}`
+        : "console link: no failure reported since it last connected",
+      "recent audit for this device:"
+    ];
+    const mine = audit.filter((line) => line.device_id === device.id).slice(0, 8);
+    if (mine.length === 0) lines.push("  (none in the last 20 lines)");
+    for (const line of mine) {
+      lines.push(
+        `  ${new Date(line.ts_ms).toISOString()}  ${line.kind} ${line.tool ?? line.detail ?? ""} ${line.status}`.trimEnd()
+      );
+    }
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.append(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    setNotice("Diagnostics copied for " + (device.name ?? device.id.slice(0, 12)) + ".");
+  };
+
   const mintCode = async () => {
     try {
       setCode(await api.enroll());
@@ -227,6 +261,7 @@ export function App() {
                           setDraftName(device.name ?? "");
                         }}
                         onRemove={() => setRemoving(device)}
+                        onDiagnostics={() => void copyDiagnostics(device)}
                       />
                     ))}
                   </div>
@@ -238,6 +273,9 @@ export function App() {
                   <section className="panel">
                     <div className="panel-head">
                       <h2>Working on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                      <div className="actions">
+                        <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
+                      </div>
                     </div>
                     <p className="hint">
                       Grant what the console may do, then read its state, open a shell, or look at its
