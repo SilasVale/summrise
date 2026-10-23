@@ -9,6 +9,7 @@ export type Device = {
   version: string | null;
   last_seen_ms: number | null;
   registered_at_ms?: number | null;
+  last_attempt?: { attempts: number; reason: string } | null;
 };
 export type AuditLine = {
   ts_ms: number;

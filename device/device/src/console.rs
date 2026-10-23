@@ -198,7 +198,7 @@ impl ConsoleEndpoint {
             .release_version
             .clone()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-        let channel_url = channel_url(url, &device_id, &version)?;
+        let channel_url = channel_url(url, &device_id, &version, None)?;
         Ok(Some(ConsoleEndpoint {
             channel_url,
             device_id,
@@ -244,7 +244,12 @@ fn is_hex_64(text: &str) -> bool {
 }
 
 /// Build the channel URL from the console base and the device id.
-fn channel_url(base: &str, device_id: &str, version: &str) -> Result<String, ConsoleError> {
+fn channel_url(
+    base: &str,
+    device_id: &str,
+    version: &str,
+    retry: Option<&RetryNote>,
+) -> Result<String, ConsoleError> {
     let base = base.trim().trim_end_matches('/');
     let (scheme, rest) = base
         .split_once("://")
@@ -268,10 +273,46 @@ fn channel_url(base: &str, device_id: &str, version: &str) -> Result<String, Con
     let name = host_name()
         .map(|name| format!("&n={}", percent_encode(&name)))
         .unwrap_or_default();
+    // `&a=` and `&e=` say how the PREVIOUS attempt ended. A device cannot report its failures while it
+    // is failing — the connection that would carry the report is the one that is down — so it tells the
+    // console the story the next time it gets through: "this is what it looked like before I arrived".
+    let retry = retry
+        .map(|note| {
+            format!(
+                "&a={}&e={}",
+                note.attempts,
+                percent_encode(&truncate_reason(&note.reason))
+            )
+        })
+        .unwrap_or_default();
     Ok(format!(
-        "{scheme}://{rest}/devices/{device_id}/channel?v={}{name}",
+        "{scheme}://{rest}/devices/{device_id}/channel?v={}{name}{retry}",
         percent_encode(version)
     ))
+}
+
+/// How the attempt before this one ended.
+#[derive(Clone, Debug, Default)]
+pub struct RetryNote {
+    /// How many attempts had failed when this one started (1 means the previous one was the first).
+    pub attempts: u8,
+    /// The last failure in a sentence, as the device would print it.
+    pub reason: String,
+}
+
+/// A reason travels in a query string and is displayed to an operator: one line, bounded, no control
+/// characters.
+fn truncate_reason(reason: &str) -> String {
+    let cleaned: String = reason
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.len() <= 160 {
+        cleaned
+    } else {
+        format!("{}…", &cleaned[..160])
+    }
 }
 
 /// The machine's own name, as the operator would recognise it in a list.
@@ -369,14 +410,21 @@ pub(crate) fn spawn_with_key(
 /// Connect forever: one socket at a time, with a 1 s → 60 s backoff between attempts.
 async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey) {
     let mut attempt: u8 = 1;
+    let mut note: Option<RetryNote> = None;
     loop {
-        match connect(&endpoint).await {
+        match connect(&endpoint, note.as_ref()).await {
             Ok(socket) => {
                 // A connection that opened is a success, but a connection that never served a
                 // frame is not: a console that accepts and immediately drops must back off like
                 // any other failure instead of being retried once a second forever.
                 if serve(socket, &endpoint, &server, &key).await {
                     attempt = 1;
+                    note = None;
+                } else {
+                    note = Some(RetryNote {
+                        attempts: attempt,
+                        reason: "the console accepted the channel and then dropped it".to_owned(),
+                    });
                 }
             }
             Err(ConnectError::Refused(status)) => {
@@ -394,6 +442,10 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey)
                     "summrise-device: cannot reach the console at {}: {error}",
                     endpoint.channel_url
                 );
+                note = Some(RetryNote {
+                    attempts: attempt,
+                    reason: error,
+                });
             }
         }
 
@@ -426,9 +478,22 @@ fn refusal_status(error: &tokio_tungstenite::tungstenite::Error) -> Option<u16> 
 
 async fn connect(
     endpoint: &ConsoleEndpoint,
+    retry: Option<&RetryNote>,
 ) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, ConnectError> {
-    let uri = endpoint
-        .channel_url
+    // The retry note is appended here rather than baked into the endpoint: it changes on every attempt
+    // and the endpoint does not.
+    let mut url = endpoint.channel_url.clone();
+    if let Some(note) = retry {
+        // The note is a parameter like any other. The separator is computed rather than assumed: an
+        // endpoint built by hand (the tests build one) may carry no query string at all.
+        let separator = if url.contains('?') { '&' } else { '?' };
+        url.push_str(&format!(
+            "{separator}a={}&e={}",
+            note.attempts,
+            percent_encode(&truncate_reason(&note.reason))
+        ));
+    }
+    let uri = url
         .parse()
         .map_err(|error| ConnectError::Other(format!("the channel URL is not a URI: {error}")))?;
     let request = ClientRequestBuilder::new(uri)
@@ -846,7 +911,7 @@ mod tests {
                 "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
-            let actual = channel_url(base, "ab", "0.0.0-test").expect(base);
+            let actual = channel_url(base, "ab", "0.0.0-test", None).expect(base);
             assert!(actual.starts_with(expected), "{base}: {actual}");
             // The machine's own name follows the version, encoded so a space or `&` survives.
             if let Some(name) = host_name() {
@@ -866,7 +931,7 @@ mod tests {
             "ws://host/a b",
         ] {
             assert!(
-                channel_url(bad, "ab", "0.0.0-test").is_err(),
+                channel_url(bad, "ab", "0.0.0-test", None).is_err(),
                 "{bad:?} must be refused"
             );
         }
@@ -1420,10 +1485,18 @@ mod tests {
         let second = tokio::time::timeout(Duration::from_secs(3), console.next())
             .await
             .expect("the device reconnects within the backoff");
+        let path = second.uri.split('?').next().unwrap_or_default();
         assert_eq!(
-            second.uri,
+            path,
             format!("/devices/{}/channel", device_id()),
             "the reconnect dials the same channel"
+        );
+        // And it carries the story of the drop: the console can only learn why a channel died from the
+        // attempt that comes after it.
+        assert!(
+            second.uri.contains("a=1") && second.uri.contains("e="),
+            "the reconnect says how the last attempt ended: {}",
+            second.uri
         );
         handle.abort();
     }

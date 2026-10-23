@@ -97,7 +97,10 @@ mkdir -p "$out"
 
 # The console page is a build artifact inside the binary. A publish that embeds yesterday's JavaScript
 # is the one failure this check exists for, and it costs a second.
-"$PWD/scripts/build-web.sh" --check
+"$root/scripts/build-web.sh" --check
+
+# The console reports the version it was BUILT as; a hand-written one drifted once already.
+export SUMMRISE_BUILD_VERSION="$version"
 
 echo "== signing the release document for $version ($channel)"
 signer_bin="$signer"

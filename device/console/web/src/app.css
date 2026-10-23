@@ -224,3 +224,8 @@ tr:last-child td { border-bottom: 0; }
   .topbar-inner { padding: 0.6rem 0.9rem; }
   .session { width: 100%; margin-left: 0; }
 }
+
+.attempt {
+  margin: 0; font-size: var(--fs-xs); color: var(--ink-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

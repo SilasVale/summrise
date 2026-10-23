@@ -25,6 +25,17 @@ pub const DATA_FLAG: &str = "--data";
 pub const BIND_FLAG: &str = "--bind";
 /// The flag naming the label this console reports on `/health`.
 pub const VERSION_FLAG: &str = "--version";
+
+/// The version this console was BUILT as.
+///
+/// `--version` used to be the only source, and it was written by hand into a launcher script — which
+/// drifted: the page said 0.3.17 for a day after 0.3.18 shipped. The build knows the answer, so the
+/// release passes it in and the flag stays only as an override for a hand-run build.
+pub fn default_version() -> String {
+    include_str!(concat!(env!("OUT_DIR"), "/version.txt"))
+        .trim()
+        .to_owned()
+}
 /// The flag naming the team's pinned certificate set, which turns on Access trust.
 pub const ACCESS_JWKS_FLAG: &str = "--access-jwks";
 /// The flag naming the Access application's audience tag.
@@ -178,7 +189,7 @@ impl Config {
             data: data.ok_or(ConfigError::Missing(DATA_FLAG))?,
             bind: bind.unwrap_or(DEFAULT_BIND),
             port: port.unwrap_or(DEFAULT_PORT),
-            version: version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
+            version: version.unwrap_or_else(default_version),
             access: match (access_jwks, access_aud, access_iss) {
                 (None, None, None) => None,
                 (Some(jwks), Some(audience), Some(issuer)) => Some(AccessConfig {

@@ -111,6 +111,15 @@ struct Live {
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
 /// Every live channel, keyed by device id.
+/// How the attempt before a device's current one ended, as that device reported it on connecting.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RetryNote {
+    /// How many attempts had failed before the one that carried this note.
+    pub attempts: u8,
+    /// The failure in a sentence, or empty when the device sent none.
+    pub reason: String,
+}
+
 pub(crate) struct ChannelRegistry {
     next_request: AtomicU64,
     next_generation: AtomicU64,
@@ -123,6 +132,10 @@ pub(crate) struct ChannelRegistry {
     versions: Mutex<HashMap<String, String>>,
     /// The machine name each device announced, for an operator list that reads like a list of machines.
     names: Mutex<HashMap<String, String>>,
+    /// How the attempt before the current channel ended, per device. It arrives ON the next connect:
+    /// a device cannot report a failure over the connection that failed, so the story is one attempt
+    /// behind, and the label in the page says so.
+    retries: Mutex<HashMap<String, RetryNote>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -150,6 +163,7 @@ impl ChannelRegistry {
             peak_queued: AtomicUsize::new(0),
             versions: Mutex::new(HashMap::new()),
             names: Mutex::new(HashMap::new()),
+            retries: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
@@ -167,6 +181,16 @@ impl ChannelRegistry {
     /// the operator's list shows as unknown rather than guessing from the install.
     pub(crate) fn announce_version(&self, device_id: &str, version: &str) {
         lock(&self.versions).insert(device_id.to_owned(), version.to_owned());
+    }
+
+    /// Record how the attempt before this channel ended.
+    pub(crate) fn announce_retry(&self, device_id: &str, note: RetryNote) {
+        lock(&self.retries).insert(device_id.to_owned(), note);
+    }
+
+    /// How the attempt before the last one ended, if the device has said.
+    pub(crate) fn retry(&self, device_id: &str) -> Option<RetryNote> {
+        lock(&self.retries).get(device_id).cloned()
     }
 
     /// Record the name the device announced on its channel URL, when the registry has none.

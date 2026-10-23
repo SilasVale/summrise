@@ -2,7 +2,6 @@
 //! temporary file lives under this test binary's own directory. The device channel is a real
 //! WebSocket, so those tests bind an ephemeral loopback listener and drive it with a fake device.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -2815,19 +2814,7 @@ async fn the_operator_page_is_served_as_html() {
     );
 }
 
-/// The tool names the page declares, parsed from its `const TOOLS` array.
-///
-/// The array is valid JSON on purpose: the page builds its checkboxes from it, and this test reads
-/// exactly the bytes the console serves.
-fn page_tools(page: &str) -> Vec<String> {
-    let marker = "const TOOLS = [";
-    let start = page.find(marker).expect("the page declares its tool list") + marker.len();
-    let rest = &page[start..];
-    let end = rest.find("];").expect("the tool list closes");
-    serde_json::from_str(&format!("[{}]", &rest[..end]))
-        .expect("the page's tool list is a JSON array of strings")
-}
-
+#[tokio::test]
 async fn the_served_tool_catalogue_is_the_registry() {
     // The page fetches /tools instead of carrying a copy, so the registry is checked once, at the route
     // that serves it (see `the_tool_catalogue_is_the_registry`). This asserts the page really does call

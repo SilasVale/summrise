@@ -4,6 +4,7 @@ export type Device = {
   online: boolean;
   version: string | null;
   last_seen_ms: number | null;
+  last_attempt?: { attempts: number; reason: string } | null;
 };
 
 type Props = {
@@ -39,6 +40,19 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
           <dd>{age(device.last_seen_ms)}</dd>
         </div>
       </dl>
+
+      {device.last_attempt && device.last_attempt.attempts > 0 && (
+        // A device cannot report a failure on the connection that failed, so this is what it said the
+        // NEXT time it got through — the label is honest about being one attempt behind. Shown online
+        // as well, because "it flapped twice and came back" is the fact an operator wants before the
+        // next outage, not after it.
+        <p className="attempt" title={device.last_attempt.reason}>
+          {device.online ? "reconnected after " : "last connect: "}
+          {device.last_attempt.attempts} failed attempt
+          {device.last_attempt.attempts === 1 ? "" : "s"}
+          {device.last_attempt.reason ? ` — ${device.last_attempt.reason}` : ""}
+        </p>
+      )}
 
       <p className="mono id">{device.id}</p>
 

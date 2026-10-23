@@ -887,6 +887,22 @@ async fn device_channel(
             app.channels.announce_version(&device_id, version);
         }
     }
+    // How the attempt before this one ended. A device cannot report a failure over the connection that
+    // failed, so it tells the console on the next success — the note is one attempt behind by nature.
+    let attempts = params
+        .get("a")
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(0);
+    let reason = params
+        .get("e")
+        .filter(|value| value.len() <= 200 && !value.chars().any(|c| c.is_control()))
+        .cloned()
+        .unwrap_or_default();
+    if attempts > 0 || !reason.is_empty() {
+        app.channels
+            .announce_retry(&device_id, crate::channels::RetryNote { attempts, reason });
+    }
+
     if let Some(name) = params.get("n") {
         let plausible =
             !name.is_empty() && name.len() <= 64 && !name.chars().any(|c| c.is_control());
@@ -1166,6 +1182,10 @@ async fn rename_device(
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
         name: device.name.or_else(|| app.channels.name(&device.id)),
+        last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
+            attempts: note.attempts,
+            reason: note.reason,
+        }),
         id: device.id,
         public_key: device.public_key,
         registered_at_ms: device.registered_at_ms,
@@ -1181,6 +1201,10 @@ async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<V
         .map(|device| DeviceView {
             online: app.channels.online(&device.id),
             version: app.channels.version(&device.id),
+            last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
+                attempts: note.attempts,
+                reason: note.reason,
+            }),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
             name: device.name.or_else(|| app.channels.name(&device.id)),
@@ -1195,6 +1219,12 @@ async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<V
 
 /// A registered device as the operator's list sees it: the registry's facts plus the channel's.
 #[derive(serde::Serialize)]
+struct RetryView {
+    attempts: u8,
+    reason: String,
+}
+
+#[derive(serde::Serialize)]
 struct DeviceView {
     id: String,
     public_key: String,
@@ -1207,6 +1237,9 @@ struct DeviceView {
     /// The version the device announced on its channel, when it announced one.
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
+    /// How the attempt before the last one ended, when the device has said since.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_attempt: Option<RetryView>,
 }
 
 /// How a transport failure is answered, and whether the operator may retry.

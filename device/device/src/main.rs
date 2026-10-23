@@ -937,6 +937,20 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     store::spawn_swap_result_watcher(store.clone());
     // A configured console link is loaded before serving: an unreadable registration is a startup
     // error naming the file, not a device that silently cannot be reached remotely.
+    // A deployment that cannot pass a code on a command line leaves `<data>/console-bootstrap.json`:
+    // one enrolment, at first start, and the file deletes itself as the receipt. It runs before the
+    // console link is loaded, because a successful enrolment is what writes that link.
+    if let Some(outcome) = enroll::enroll_from_bootstrap(&config.data, &config.install).await {
+        match outcome {
+            Ok(enrollment) => eprintln!(
+                "summrise-device: enrolled {} from the bootstrap file",
+                enrollment.id
+            ),
+            Err(error) => eprintln!(
+                "summrise-device: the bootstrap enrolment failed ({error}); the file is kept for the next start"
+            ),
+        }
+    }
     let console = console::ConsoleEndpoint::from_config(&config)?;
     // The mesh link is built before serving for the same reason: a broker URL the rendezvous
     // cannot speak, or an identity file that is not this device's key, is a startup error naming
