@@ -172,6 +172,21 @@ impl DeviceRegistry {
         Ok(device)
     }
 
+    /// Forget a device: its registration and the token hash that admits it.
+    ///
+    /// `false` means no such device. The file is written before memory changes, so a failed write
+    /// leaves the registry admitting exactly what it admitted before.
+    pub(crate) fn remove(&mut self, id: &str) -> Result<bool, RegisterError> {
+        if !self.devices.contains_key(id) {
+            return Ok(false);
+        }
+        let mut next = self.devices.clone();
+        next.remove(id);
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(true)
+    }
+
     /// Give a device the name the operator knows it by, or clear it.
     ///
     /// The name is the console's label, not the device's claim: a machine that announces
@@ -280,6 +295,34 @@ fn validate(stored: &StoredDevice) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod remove_tests {
+    use super::*;
+
+    /// Revocation is a fact on disk: a console that restarts must not admit a device the operator
+    /// removed, and removing one that is not there is a no-op, not an error.
+    #[test]
+    fn a_removed_device_is_gone_from_memory_and_from_the_file() {
+        let dir = std::env::temp_dir().join(format!("summrise-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let id = hex::encode(&key.verifying_key().to_bytes());
+        registry
+            .register(&id, &id, None, &[3u8; 32], 1_000)
+            .expect("the device registers");
+
+        assert!(registry.remove(&id).expect("the write succeeds"));
+        assert!(DeviceRegistry::load(&dir)
+            .expect("the registry reloads")
+            .list()
+            .is_empty());
+        assert!(!registry.remove(&id).expect("a second removal is a no-op"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
 
 #[cfg(test)]

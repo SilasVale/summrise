@@ -374,7 +374,11 @@ function renderDevices() {
     rename.type = "button";
     rename.textContent = "Rename";
     rename.addEventListener("click", () => renameDevice(device));
-    action.append(use, rename);
+    const revoke = document.createElement("button");
+    revoke.type = "button";
+    revoke.textContent = "Remove";
+    revoke.addEventListener("click", () => removeDevice(device));
+    action.append(use, rename, revoke);
 
     row.append(name, status, id, seen, action);
     rows.append(row);
@@ -606,6 +610,19 @@ async function renameDevice(device) {
     await refreshDevices();
   } catch (error) {
     setStatus($("devices-status"), "Rename failed: " + error.message, "error");
+  }
+}
+
+// Revoking is the operator's answer to a stolen or retired machine: the registration and the token
+// hash that admits it are deleted, and the live channel is closed so the effect is immediate.
+async function removeDevice(device) {
+  if (!window.confirm("Remove " + shortId(device.id) + "? Its token stops working immediately.")) return;
+  try {
+    await api(ROUTES.devices + "/" + encodeURIComponent(device.id), { method: "DELETE" });
+    setStatus($("devices-status"), "Removed.", "ok");
+    await refreshDevices();
+  } catch (error) {
+    setStatus($("devices-status"), "Remove failed: " + error.message, "error");
   }
 }
 

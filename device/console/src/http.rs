@@ -158,6 +158,7 @@ impl Console {
             .route("/enroll", post(enroll))
             .route("/devices", get(list_devices).post(register_device))
             .route("/devices/:id/name", post(rename_device))
+            .route("/devices/:id", axum::routing::delete(remove_device))
             .route("/devices/:id/channel", get(device_channel))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
@@ -927,6 +928,27 @@ async fn proxy_mcp(
             }
         }
     }
+}
+
+/// `DELETE /devices/:id`: revoke a machine. The operator's answer to a stolen or retired box.
+async fn remove_device(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    _: OperatorSession,
+) -> Result<StatusCode, ApiError> {
+    let removed = {
+        let mut devices = lock(&app.devices);
+        devices
+            .remove(&device_id)
+            .map_err(|_| ApiError::bad_request("registry_unwritable"))?
+    };
+    if !removed {
+        return Err(ApiError::not_found("no_such_device"));
+    }
+    // The registration is gone, so the device's next connect is refused; closing the live channel
+    // makes the revocation immediate instead of waiting for a disconnect.
+    app.channels.disconnect(&device_id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `POST /devices/:id/name`: the operator's label for a machine, or `null` to clear it.

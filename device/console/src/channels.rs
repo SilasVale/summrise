@@ -303,6 +303,26 @@ impl ChannelRegistry {
         }
     }
 
+    /// Close a device's live channel, because the operator revoked it.
+    ///
+    /// The socket is asked to close and then removed from the registry, which fails every request
+    /// waiting on it. A device that reconnects is refused by the registry's token check: removing the
+    /// registration is what makes the revocation stick, this is what makes it immediate.
+    pub(crate) fn disconnect(&self, device_id: &str) {
+        let removed = lock(&self.live).remove(device_id);
+        if let Some(live) = removed {
+            // The serve loop treats a full queue as "already wedged" and closes on its own bound.
+            let _ = live
+                .outbound
+                .try_send(Outbound::Close("the operator revoked this device"));
+            for (_, sender) in lock(&live.pending).drain() {
+                let _ = sender.send(Err(RequestError::Offline));
+            }
+        }
+        lock(&self.versions).remove(device_id);
+        lock(&self.names).remove(device_id);
+    }
+
     /// Wait for a live channel and claim a waiter slot on it, or `None` when the bound expires.
     ///
     /// The sender is inserted while the live map is held, so a channel cannot be replaced between
