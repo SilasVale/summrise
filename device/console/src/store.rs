@@ -14,6 +14,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 /// Serialize `value` and atomically replace `path` with it.
@@ -22,7 +23,56 @@ where
     T: Serialize + ?Sized,
 {
     let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+    // The registry is the console's memory of every device it trusts: one lost file would mean
+    // re-enrolling every machine by hand. Keep the previous contents beside it before replacing.
+    if path.exists() {
+        let _ = fs::copy(path, backup_path(path));
+    }
     write_atomic(path, &bytes)
+}
+
+/// `<path>.bak`, the previous complete contents of `path`.
+pub(crate) fn backup_path(path: &Path) -> std::path::PathBuf {
+    path.with_extension("json.bak")
+}
+
+/// Read a JSON file, falling back to its `.bak` when the file is missing or unreadable.
+///
+/// `Ok(None)` means neither version exists (a first start). The fallback is not silent: the caller
+/// is told which file answered, so a start that used the backup can say so.
+pub(crate) fn read_json_with_backup<T: DeserializeOwned>(
+    path: &Path,
+) -> Result<Option<(T, bool)>, String> {
+    match fs::read(path) {
+        Ok(bytes) => match serde_json::from_slice::<T>(&bytes) {
+            Ok(value) => Ok(Some((value, false))),
+            Err(error) => {
+                let backup = backup_path(path);
+                match fs::read(&backup) {
+                    Ok(bytes) => serde_json::from_slice(&bytes)
+                        .map(|value| Some((value, true)))
+                        .map_err(|error| {
+                            format!(
+                                "{} is unreadable ({error}) and its backup {} is too",
+                                path.display(),
+                                backup.display()
+                            )
+                        }),
+                    Err(_) => Err(format!("{} is unreadable: {error}", path.display())),
+                }
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let backup = backup_path(path);
+            match fs::read(&backup) {
+                Ok(bytes) => serde_json::from_slice(&bytes)
+                    .map(|value| Some((value, true)))
+                    .map_err(|error| format!("{} is unreadable: {error}", backup.display())),
+                Err(_) => Ok(None),
+            }
+        }
+        Err(error) => Err(format!("{} is unreadable: {error}", path.display())),
+    }
 }
 
 /// Create the data directory if it is absent.
@@ -73,4 +123,75 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 
     fs::rename(&temporary, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+    struct Item {
+        name: String,
+    }
+
+    fn tempdir(tag: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("summrise-store-{}-{}", std::process::id(), tag));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).expect("temp dir");
+        path
+    }
+
+    /// The registry's memory survives a lost file: the previous complete contents are kept beside it
+    /// and a reader that cannot use the file uses the backup, saying that it did.
+    #[test]
+    fn a_lost_registry_is_read_from_its_backup() {
+        let dir = tempdir("backup");
+        let path = dir.join("devices.json");
+        write_json_atomic(
+            &path,
+            &vec![Item {
+                name: "first".to_owned(),
+            }],
+        )
+        .expect("first write");
+        write_json_atomic(
+            &path,
+            &vec![Item {
+                name: "second".to_owned(),
+            }],
+        )
+        .expect("second write");
+        assert_eq!(
+            read_json_with_backup::<Vec<Item>>(&path).expect("read"),
+            Some((
+                vec![Item {
+                    name: "second".to_owned()
+                }],
+                false
+            )),
+            "the file itself answers while it is readable"
+        );
+
+        fs::remove_file(&path).expect("the file is lost");
+        let (list, from_backup) = read_json_with_backup::<Vec<Item>>(&path)
+            .expect("the backup answers")
+            .expect("a backup exists");
+        assert!(from_backup, "the reader says which file answered");
+        assert_eq!(
+            list,
+            vec![Item {
+                name: "first".to_owned()
+            }]
+        );
+    }
+
+    #[test]
+    fn no_file_and_no_backup_is_a_first_start_not_an_error() {
+        let dir = tempdir("absent");
+        assert_eq!(
+            read_json_with_backup::<Vec<Item>>(&dir.join("devices.json")).expect("absent is fine"),
+            None
+        );
+    }
 }

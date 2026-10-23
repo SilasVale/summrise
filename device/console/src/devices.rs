@@ -83,20 +83,23 @@ impl DeviceRegistry {
 
         let path = data.join(REGISTRY_FILE);
         config::check_private_file("device registry", &path)?;
-        let list: Vec<StoredDevice> = match std::fs::read(&path) {
-            Ok(bytes) => {
-                serde_json::from_slice(&bytes).map_err(|error| StartupError::Registry {
-                    path: path.clone(),
-                    reason: error.to_string(),
-                })?
+        let read = store::read_json_with_backup::<Vec<StoredDevice>>(&path).map_err(|reason| {
+            StartupError::Registry {
+                path: path.clone(),
+                reason,
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(source) => {
-                return Err(StartupError::Registry {
-                    path: path.clone(),
-                    reason: source.to_string(),
-                })
+        })?;
+        let list: Vec<StoredDevice> = match read {
+            Some((list, from_backup)) => {
+                if from_backup {
+                    eprintln!(
+                        "summrise-console: {} was unusable; the registry was read from its backup",
+                        path.display()
+                    );
+                }
+                list
             }
+            None => Vec::new(),
         };
 
         let mut devices = BTreeMap::new();
