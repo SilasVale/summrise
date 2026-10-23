@@ -285,6 +285,24 @@
         <input id="terminal-host" type="text" placeholder="host or IP">
         <label for="terminal-user">User (ssh)</label>
         <input id="terminal-user" type="text" placeholder="remote user">
+        <label for="terminal-port-number">Port (ssh, default 22)</label>
+        <input id="terminal-port-number" type="number" min="1" max="65535" placeholder="22">
+        <label for="terminal-auth-kind">Authentication (ssh)</label>
+        <select id="terminal-auth-kind">
+          <option value="none">none — the agent's own keys</option>
+          <option value="key">key — an OpenSSH private key on the device</option>
+          <option value="password">password — the remote account's password</option>
+        </select>
+        <label for="terminal-key-path">Key path (for key auth)</label>
+        <input id="terminal-key-path" type="text" placeholder="C:\Users\...\id_ed25519" hidden>
+        <label for="terminal-password">Password (for password auth)</label>
+        <input id="terminal-password" type="password" autocomplete="off" hidden>
+        <label for="terminal-host-key">Host key fingerprint (optional, pin it)</label>
+        <input id="terminal-host-key" type="text" placeholder="SHA256:...">
+        <p class="muted">
+          A password is sent to the device through the console channel and is not written to the
+          audit: the audit records the tool, never the arguments.
+        </p>
       </div>
       <div id="terminal-serial" hidden>
         <label for="terminal-port">Port path (serial)</label>
@@ -537,6 +555,13 @@ function terminalKindChanged() {
   const kind = $("terminal-kind").value;
   $("terminal-ssh").hidden = kind !== "ssh";
   $("terminal-serial").hidden = kind !== "serial";
+  terminalAuthChanged();
+}
+
+function terminalAuthChanged() {
+  const kind = $("terminal-auth-kind").value;
+  $("terminal-key-path").hidden = kind !== "key";
+  $("terminal-password").hidden = kind !== "password";
 }
 
 async function terminalOpen() {
@@ -550,6 +575,18 @@ async function terminalOpen() {
       args.host = $("terminal-host").value.trim();
       args.user = $("terminal-user").value.trim();
       if (!args.host || !args.user) throw new Error("an ssh session needs a host and a user");
+      const port = $("terminal-port-number").value.trim();
+      if (port) args.port = Number(port);
+      const authKind = $("terminal-auth-kind").value;
+      if (authKind === "key") {
+        args.auth = { kind: "key", path: $("terminal-key-path").value.trim() };
+        if (!args.auth.path) throw new Error("key authentication needs a path on the device");
+      } else if (authKind === "password") {
+        args.auth = { kind: "password", password: $("terminal-password").value };
+        if (!args.auth.password) throw new Error("password authentication needs the password");
+      }
+      const fingerprint = $("terminal-host-key").value.trim();
+      if (fingerprint) args.host_key = fingerprint;
     }
     if (kind === "serial") {
       args.port = $("terminal-port").value.trim();
@@ -835,6 +872,7 @@ $("read-state").addEventListener("click", readState);
 $("copy-call").addEventListener("click", copyCall);
 $("new-code").addEventListener("click", newCode);
 $("terminal-kind").addEventListener("change", terminalKindChanged);
+$("terminal-auth-kind").addEventListener("change", terminalAuthChanged);
 $("terminal-list").addEventListener("click", terminalList);
 $("terminal-open").addEventListener("click", terminalOpen);
 $("terminal-close").addEventListener("click", terminalClose);
