@@ -81,6 +81,8 @@ struct Inner {
     version: String,
     /// The data directory: the login-code file lives here.
     data: std::path::PathBuf,
+    /// When set, a verified Cloudflare Access JWT is an operator session.
+    access: Option<crate::access::Access>,
 }
 
 impl Console {
@@ -151,6 +153,17 @@ impl Console {
                 started: Instant::now(),
                 version: config.version.clone(),
                 data: config.data.clone(),
+                access: match &config.access {
+                    Some(access) => Some(
+                        crate::access::Access::from_jwks_file(
+                            &access.jwks,
+                            &access.audience,
+                            &access.issuer,
+                        )
+                        .map_err(|error| StartupError::Access(error.to_string()))?,
+                    ),
+                    None => None,
+                },
             }),
         })
     }
@@ -161,6 +174,7 @@ impl Console {
             .route("/", get(operator_page))
             .route("/health", get(health))
             .route("/auth", post(authenticate))
+            .route("/session", get(session_probe))
             .route("/enroll", post(enroll))
             .route("/devices", get(list_devices).post(register_device))
             .route("/devices/:id/name", post(rename_device))
@@ -177,6 +191,30 @@ impl Console {
 type AppState = Arc<Inner>;
 
 impl Inner {
+    /// The operator behind this request: a live session, or a verified Access identity.
+    ///
+    /// Access is checked only when the operator configured it, and a token that does not verify falls
+    /// through to the session check — the feature can let a request in, never let one skip a check.
+    fn operator(&self, headers: &HeaderMap) -> Option<Operator> {
+        if let Some(access) = &self.access {
+            if let Some(token) = crate::access::token_from_headers(headers) {
+                if let Ok(claims) = access.verify(token) {
+                    return Some(Operator {
+                        email: claims.email,
+                        via: "access",
+                    });
+                }
+            }
+        }
+        if self.session_valid(headers) {
+            return Some(Operator {
+                email: None,
+                via: "session",
+            });
+        }
+        None
+    }
+
     /// Whether the request carries a live session token, compared over bytes in constant time.
     fn session_valid(&self, headers: &HeaderMap) -> bool {
         let Some(presented) = bearer_secret(headers) else {
@@ -302,6 +340,14 @@ fn reply_detail(reply: &Reply) -> Option<String> {
     }
 }
 
+/// Who the console believes is asking: a session, or an Access identity.
+struct Operator {
+    /// The verified email, when Access answered.
+    email: Option<String>,
+    /// `"access"` or `"session"`, for the probe and the audit.
+    via: &'static str,
+}
+
 /// An operator session, as an extractor: every route that takes this argument is authenticated
 /// before its body is read.
 pub(crate) struct OperatorSession;
@@ -314,10 +360,9 @@ impl axum::extract::FromRequestParts<AppState> for OperatorSession {
         parts: &mut axum::http::request::Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        if state.session_valid(&parts.headers) {
-            Ok(OperatorSession)
-        } else {
-            Err(state.refuse(None, ApiError::unauthorized()).await)
+        match state.operator(&parts.headers) {
+            Some(_) => Ok(OperatorSession),
+            None => Err(state.refuse(None, ApiError::unauthorized()).await),
         }
     }
 }
@@ -461,6 +506,34 @@ async fn health(State(app): State<AppState>) -> Json<Health> {
 }
 
 /// `POST /auth`: exchange the operator token for a session token.
+/// `GET /session`: whether this request already carries an operator identity.
+///
+/// The page calls it on load: when Access verified the request, there is no token to type, and the
+/// answer says so. It never returns a credential — only whether one is needed.
+#[derive(serde::Serialize)]
+struct SessionProbe {
+    authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    via: Option<&'static str>,
+}
+
+async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<SessionProbe> {
+    match app.operator(&headers) {
+        Some(operator) => Json(SessionProbe {
+            authenticated: true,
+            email: operator.email,
+            via: Some(operator.via),
+        }),
+        None => Json(SessionProbe {
+            authenticated: false,
+            email: None,
+            via: None,
+        }),
+    }
+}
+
 async fn authenticate(
     State(app): State<AppState>,
     Json(request): Json<AuthRequest>,

@@ -15,6 +15,7 @@
 
 #![forbid(unsafe_code)]
 
+mod access;
 mod audit;
 mod auth;
 mod channels;
@@ -29,6 +30,7 @@ mod jsonl;
 mod setup;
 mod store;
 
+pub use access::{Access, AccessError, ACCESS_HEADER};
 pub use config::{Config, ConfigError, StartupError, BIND_FLAG, DEFAULT_BIND, DEFAULT_PORT};
 pub use devices::Device;
 pub use grants::{

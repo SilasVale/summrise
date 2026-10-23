@@ -100,6 +100,7 @@ impl Fixture {
             bind: std::net::Ipv4Addr::LOCALHOST.into(),
             port: 0,
             version: env!("CARGO_PKG_VERSION").to_owned(),
+            access: None,
         };
         let clock = Arc::new(AtomicU64::new(START_MS));
         let reader = clock.clone();
@@ -325,6 +326,7 @@ fn fixture_config(dir: &TempDir, token: Option<&Path>, grant_key: Option<&Path>)
         bind: std::net::Ipv4Addr::LOCALHOST.into(),
         port: 0,
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        access: None,
     }
 }
 
@@ -2878,6 +2880,7 @@ async fn the_page_names_only_routes_the_router_serves() {
         routes,
         BTreeSet::from([
             "/auth".to_owned(),
+            "/session".to_owned(),
             "/enroll".to_owned(),
             "/devices".to_owned(),
             "/grants".to_owned(),
@@ -2903,6 +2906,13 @@ async fn the_page_names_only_routes_the_router_serves() {
             StatusCode::NOT_FOUND,
             "the page names {route}, but the router does not serve it"
         );
+        if route == "/session" {
+            // The one route that answers without a credential, on purpose: the page has to learn
+            // whether Access already identified the operator before it draws a login box. It says
+            // nothing but a boolean, and an unauthorised answer is `{authenticated:false}`.
+            assert_eq!(status, StatusCode::OK, "the probe answers without a login");
+            continue;
+        }
         assert!(
             status == StatusCode::UNAUTHORIZED || status == StatusCode::METHOD_NOT_ALLOWED,
             "{route} without a session must be 401 or 405, not {status}"

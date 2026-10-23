@@ -252,6 +252,7 @@ const TOOLS = [
 // device/console/tests/console.rs asserts each one is served and none is a 404.
 const ROUTES = {
   "auth": "/auth",
+  "session": "/session",
   "enroll": "/enroll",
   "devices": "/devices",
   "grants": "/grants",
@@ -723,6 +724,26 @@ function resume() {
 
 buildToolList();
 resume();
+// Access, when the console trusts it, has already identified the operator: ask once, and skip the
+// token box entirely. `via` says which credential answered, so a diagnostic can tell them apart.
+(async function probeSession() {
+  try {
+    const state = await api(ROUTES.session);
+    if (state && state.authenticated) {
+      $("login").hidden = true;
+      $("console").hidden = false;
+      setStatus(
+        $("session-status"),
+        (state.email ? "Signed in as " + state.email : "Signed in") + " through Cloudflare Access",
+        "ok"
+      );
+      await refreshDevices();
+      await refreshAudit();
+    }
+  } catch (_) {
+    /* no operator identity yet: the token box is the way in */
+  }
+})();
 {
   const params = new URLSearchParams(location.search);
   const code = params.get("code");

@@ -11,6 +11,7 @@ publish.workspace = true
 axum = { version = "0.7", features = ["ws"] }
 # The grant key signs; the grant is verified by the device against a pinned public key.
 ed25519-dalek = "2"
+jsonwebtoken = "9"
 # Session tokens, enrollment codes and device tokens are OS randomness. `rand_core` is the RNG
 # boundary `ed25519-dalek` already speaks, so the console does not carry a second RNG stack.
 rand_core = { version = "0.6", features = ["getrandom"] }
