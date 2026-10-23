@@ -91,6 +91,11 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: 1.1rem 1.25rem 2rem; 
 .panel-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
 .actions { margin-left: auto; display: flex; gap: 0.45rem; }
 
+/* A button inside a grid panel stretches to the column: buttons are controls, not blocks. */
+.panel > button, .grant > button { justify-self: start; }
+
+input[type="checkbox"] { accent-color: var(--accent); }
+
 button {
   font: inherit; font-size: var(--fs-sm); font-weight: 550;
   padding: 0.38rem 0.75rem; border-radius: var(--radius-xs);
