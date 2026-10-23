@@ -53,11 +53,24 @@ paired with something that would fail next time — a test, a check, or a rule i
 6. **A control you cannot reach is not a feature.** Anything that acts on a device lives where the device
    is visible.
 
+## The verification matrix, as it stands
+
+Every cell was captured from the deployed product, not from a local build.
+
+| surface | light 1300 px | dark 1300 px | light 420 px | dark 420 px |
+|---|---|---|---|---|
+| console — devices | ✓ | ✓ | ✓ (overflow 0) | ✓ (overflow 0) |
+| console — grant | ✓ | ✓ | ✓ | ✓ |
+| console — terminal | ✓ | ✓ | — | — |
+| console — browser pane | error path only (no Chrome on the canary) | — | — | — |
+| device panel | ✓ | ✓ | ✓ (overflow 0) | ✓ (overflow 0) |
+
 ## What is still not verified
 
 * **A browser panel against a real page** — the canary has no Chrome, so `browser.*` answers with its own
   refusal ("no Chrome or Chromium was found; set SUMMRISE_CHROME"). The pane is implemented and its error
   path is correct; the happy path has never been seen.
-* **The panel on a phone-sized window** — the console was checked at 420 px, the panel was not.
+* **The terminal at 420 px** — the pane is 22 rem tall and fixed; a phone-sized window would give it a
+  keyboard and almost no room. Nothing here has been tried on a touch device.
 * **A second operator** — every surface assumes one operator; nothing here has been exercised with two
   sessions at once.
