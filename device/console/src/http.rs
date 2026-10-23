@@ -77,6 +77,8 @@ struct Inner {
     mcp_timeout: Duration,
     now: Now,
     started: Instant,
+    /// What `/health` reports as this build.
+    version: String,
 }
 
 impl Console {
@@ -145,6 +147,7 @@ impl Console {
                 mcp_timeout,
                 now: Arc::new(now),
                 started: Instant::now(),
+                version: config.version.clone(),
             }),
         })
     }
@@ -427,6 +430,8 @@ struct Health {
     /// The deepest any per-device outbound queue has been since the console started. It is a bound
     /// an operator can see, not a secret.
     max_queued_frames: usize,
+    /// The label the deploy passed, or the crate version for a development start.
+    version: String,
 }
 
 /// `GET /`: the operator page. It is static HTML with no secret in it; the page asks for the token
@@ -443,6 +448,7 @@ async fn health(State(app): State<AppState>) -> Json<Health> {
         devices: lock(&app.devices).len(),
         uptime_s: app.started.elapsed().as_secs(),
         max_queued_frames: app.channels.peak_queued_frames(),
+        version: app.version.clone(),
     })
 }
 

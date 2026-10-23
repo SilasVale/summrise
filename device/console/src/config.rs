@@ -23,6 +23,8 @@ pub const GRANT_KEY_FLAG: &str = "--grant-key-file";
 pub const DATA_FLAG: &str = "--data";
 /// The flag naming the address to listen on.
 pub const BIND_FLAG: &str = "--bind";
+/// The flag naming the label this console reports on `/health`.
+pub const VERSION_FLAG: &str = "--version";
 /// The flag naming the listening port.
 pub const PORT_FLAG: &str = "--port";
 
@@ -46,6 +48,12 @@ pub struct Config {
     pub bind: IpAddr,
     /// The TCP port to listen on.
     pub port: u16,
+    /// The build label this console reports on `/health`.
+    ///
+    /// A console is deployed by replacing a binary, so "which build is running?" used to be
+    /// unanswerable without a file's timestamp. The deploy passes the label; a bare start reports the
+    /// crate version, which is honest about being a development build.
+    pub version: String,
 }
 
 /// Why a command line could not produce a [`Config`].
@@ -104,6 +112,7 @@ impl Config {
         let mut data = None;
         let mut bind = None;
         let mut port = None;
+        let mut version = None;
 
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
@@ -125,6 +134,7 @@ impl Config {
                         expected: "an IP address (127.0.0.1, 0.0.0.0, ::1, ...)",
                     })?);
                 }
+                Flag::Version => version = Some(value.to_string_lossy().into_owned()),
                 Flag::Port => {
                     let text = value.to_string_lossy();
                     port = Some(text.parse::<u16>().map_err(|_| ConfigError::Invalid {
@@ -143,11 +153,13 @@ impl Config {
             data: data.ok_or(ConfigError::Missing(DATA_FLAG))?,
             bind: bind.unwrap_or(DEFAULT_BIND),
             port: port.unwrap_or(DEFAULT_PORT),
+            version: version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
         })
     }
 }
 
 enum Flag {
+    Version,
     OperatorToken,
     GrantKey,
     Data,
@@ -158,6 +170,7 @@ enum Flag {
 impl Flag {
     fn parse(argument: &str) -> Option<Flag> {
         match argument {
+            VERSION_FLAG => Some(Flag::Version),
             OPERATOR_TOKEN_FLAG => Some(Flag::OperatorToken),
             GRANT_KEY_FLAG => Some(Flag::GrantKey),
             DATA_FLAG => Some(Flag::Data),
@@ -174,6 +187,7 @@ impl Flag {
             Flag::Data => DATA_FLAG,
             Flag::Bind => BIND_FLAG,
             Flag::Port => PORT_FLAG,
+            Flag::Version => VERSION_FLAG,
         }
     }
 }

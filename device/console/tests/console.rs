@@ -99,6 +99,7 @@ impl Fixture {
             data,
             bind: std::net::Ipv4Addr::LOCALHOST.into(),
             port: 0,
+            version: env!("CARGO_PKG_VERSION").to_owned(),
         };
         let clock = Arc::new(AtomicU64::new(START_MS));
         let reader = clock.clone();
@@ -323,6 +324,7 @@ fn fixture_config(dir: &TempDir, token: Option<&Path>, grant_key: Option<&Path>)
         data: dir.join("data"),
         bind: std::net::Ipv4Addr::LOCALHOST.into(),
         port: 0,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
 
@@ -1283,6 +1285,11 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], json!("ok"));
     assert_eq!(body["devices"], json!(0));
+    assert_eq!(
+        body["version"],
+        json!(env!("CARGO_PKG_VERSION")),
+        "the endpoint an operator checks answers which build is running"
+    );
     assert!(
         body["uptime_s"].as_u64().is_some(),
         "uptime is a whole number of seconds: {body}"
