@@ -133,5 +133,13 @@ audience, another issuer, an expired token, an unknown `kid`, an unusable JWKS �
 deployed console a forged header answered `{"authenticated":false}` and `401` on a data route, which is
 the property that matters: the header is what an attacker controls.
 
-The positive path needs a real Access session, which only the operator's browser can produce; it is
-verified by the operator opening the page, not by this session. That is stated here rather than assumed.
+The positive path needed a real Access session, which only the operator's browser can produce. **The
+operator opened `https://console.saisi.online/` on 2026-10-23 and the page came up signed in** — it
+shows `Signed in as 13122231591@163.com through Cloudflare Access`, the device table with both canaries
+(`online`, `v0.3.13`, last seen), and the Add/Rename/Remove/Grant sections with no token box anywhere.
+That is the positive evidence this section was waiting for, and it came from a browser rather than from
+a test.
+
+Two consequences worth knowing: `Sign out` clears the tab's session but cannot end the **Access**
+session (only Cloudflare can, at `…/cdn-cgi/access/logout`), and a browser whose Access session expired
+falls back to the token box rather than to an error.
