@@ -26,6 +26,7 @@ mod grants;
 mod hex;
 mod http;
 mod jsonl;
+mod setup;
 mod store;
 
 pub use config::{Config, ConfigError, StartupError, BIND_FLAG, DEFAULT_BIND, DEFAULT_PORT};
@@ -34,3 +35,4 @@ pub use grants::{
     canonical_message, Grant, GrantEnvelope, MAX_GRANT_LIFETIME_S, MIN_GRANT_LIFETIME_S,
 };
 pub use http::Console;
+pub use setup::{run as setup, Setup, GRANT_SEED_FILE, OPERATOR_TOKEN_FILE};

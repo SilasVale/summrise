@@ -20,6 +20,36 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    // `--setup <data-dir>` is the first run of a deployment: it writes the two secrets the flags
+    // name, once, and never replaces one that exists.
+    let mut arguments = std::env::args_os().skip(1);
+    if let Some(first) = arguments.next() {
+        if first == "--setup" {
+            let data = arguments.next().ok_or("--setup needs <data-dir>")?;
+            let setup = summrise_console::setup(std::path::Path::new(&data))?;
+            eprintln!(
+                "summrise-console: {} (token {}, seed {})",
+                setup.data.display(),
+                if setup.token.is_some() {
+                    "created"
+                } else {
+                    "kept"
+                },
+                if setup.seed_created {
+                    "created"
+                } else {
+                    "kept"
+                },
+            );
+            if let Some(token) = setup.token {
+                // Printed once, on purpose: the file is the copy, and this is how the operator takes
+                // it somewhere safe. Nothing else in this binary ever prints it.
+                println!("{token}");
+            }
+            return Ok(());
+        }
+    }
+
     let config = Config::from_args()?;
     let console = Console::load(&config)?;
 
