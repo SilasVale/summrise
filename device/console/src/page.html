@@ -266,6 +266,7 @@
       <div class="toolbar">
         <h2>Terminal</h2>
         <button id="terminal-open" type="button" disabled>Open session</button>
+        <button id="terminal-list" type="button" disabled>List sessions</button>
         <button id="terminal-close" type="button" disabled>Close</button>
       </div>
       <p class="muted">
@@ -278,6 +279,7 @@
         <option value="ssh">ssh — a remote host (fill host, user, auth below)</option>
         <option value="serial">serial — a port on the device</option>
       </select>
+      <select id="terminal-sessions" hidden></select>
       <div id="terminal-ssh" hidden>
         <label for="terminal-host">Host (ssh)</label>
         <input id="terminal-host" type="text" placeholder="host or IP">
@@ -553,8 +555,15 @@ async function terminalOpen() {
       args.port = $("terminal-port").value.trim();
       if (!args.port) throw new Error("a serial session needs a port path");
     }
-    const created = JSON.parse(await terminalCall("terminal.create", args));
-    terminalSession = created.id;
+    let id;
+    const chosen = $("terminal-sessions");
+    if (!chosen.hidden && chosen.value) {
+      id = chosen.value;
+    } else {
+      const created = JSON.parse(await terminalCall("terminal.create", args));
+      id = created.id;
+    }
+    terminalSession = id;
 
     $("terminal-hint").hidden = true;
     $("terminal-screen").hidden = false;
@@ -588,6 +597,38 @@ async function terminalOpen() {
   } catch (error) {
     setStatus($("terminal-status"), "Could not open: " + error.message, "error");
     $("terminal-open").disabled = false;
+  }
+}
+
+// The device keeps a session after the page loses it (a refresh, a closed tab). Listing is how an
+// operator finds a shell that is still running instead of opening a second one next to it.
+async function terminalList() {
+  if (!lastGrant) return;
+  setStatus($("terminal-status"), "Listing sessions…", "");
+  try {
+    const text = await terminalCall("terminal.list", {});
+    const sessions = JSON.parse(text);
+    const chooser = $("terminal-sessions");
+    chooser.replaceChildren();
+    if (sessions.length === 0) {
+      chooser.hidden = true;
+      setStatus($("terminal-status"), "No open session on this device.", "");
+      return;
+    }
+    for (const session of sessions) {
+      const option = document.createElement("option");
+      option.value = session.id;
+      option.textContent = session.id + " · " + session.kind;
+      chooser.append(option);
+    }
+    chooser.hidden = false;
+    setStatus(
+      $("terminal-status"),
+      sessions.length + (sessions.length === 1 ? " session" : " sessions") + "; pick one and press Open to reattach.",
+      "ok"
+    );
+  } catch (error) {
+    setStatus($("terminal-status"), "List failed: " + error.message, "error");
   }
 }
 
@@ -794,6 +835,7 @@ $("read-state").addEventListener("click", readState);
 $("copy-call").addEventListener("click", copyCall);
 $("new-code").addEventListener("click", newCode);
 $("terminal-kind").addEventListener("change", terminalKindChanged);
+$("terminal-list").addEventListener("click", terminalList);
 $("terminal-open").addEventListener("click", terminalOpen);
 $("terminal-close").addEventListener("click", terminalClose);
 
