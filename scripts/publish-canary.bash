@@ -157,4 +157,8 @@ The device updates with:
       --channel $channel --allow-plaintext   # only when the mirror is plain http
 
 The first generation is seeded by the installer, which carries the sidecar signed above.
+
+Then check that what you published is what is running:
+
+  scripts/verify-release.sh $version --mirror $mirror --console <console-url>
 EOF
