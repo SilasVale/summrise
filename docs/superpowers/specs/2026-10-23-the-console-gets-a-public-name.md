@@ -76,3 +76,30 @@ operator's machine and was left for their word.
   recommended before the name is shared.
 - **The mirror's URL and the console URL are both public now**; neither carries a secret, and both are
   plain HTTPS with a certificate the operator does not manage.
+
+## 2026-10-23 — Cloudflare Access in front of the page, and why the device channel needs no bypass
+
+The console had only its operator token. Access was added the same way the operator's own harness is
+protected (the `allow-me` policy that already guards `zss-dsh.saisi.online`):
+
+```
+app     Summrise Console            console.saisi.online       session 24h
+policy  allow-me                    decision allow             email 13122231591@163.com
+```
+
+`GET https://console.saisi.online/` now answers `302` to `vale-saisi.cloudflareaccess.com`; the page is
+reachable only after the operator's email is verified, and the console's token remains the second
+factor.
+
+**The device channel was the risk, and it was measured rather than assumed.** A bypass app for
+`console.saisi.online/devices` was created first, because a WebSocket upgrade that receives a 302
+instead of a 101 would take every device offline. Then it was deleted and a device was killed twice:
+
+```
+devices:2  (with the bypass)
+devices:2  (without it, after a forced reconnect)
+```
+
+Cloudflare Access does not challenge the channel's upgrade, so the bypass was **inert and is removed** —
+one fewer rule that looks load-bearing. A device that reconnects still reaches the console; what guards
+the channel is the token it registered with, as before.
