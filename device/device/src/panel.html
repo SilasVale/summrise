@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise — this machine</title>
+<style>
+  :root { color-scheme: light dark; --line: #d5dae1; --muted: #5c6875; --bg: #ffffff; --fg: #14181d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --line: #2b323c; --muted: #97a3b1; --bg: #10151c; --fg: #e6ebf1; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2rem 1.25rem; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 52rem; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+  p.sub { color: var(--muted); margin: 0 0 1.5rem; }
+  section { border: 1px solid var(--line); border-radius: .6rem; padding: 1rem; margin-bottom: 1rem; }
+  h2 { font-size: .95rem; margin: 0 0 .75rem; }
+  dl { display: grid; grid-template-columns: 10rem 1fr; gap: .35rem 1rem; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  .none { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Summrise — this machine</h1>
+  <p class="sub">The device's own panel. Loopback only, no login: if you can read this, you are on the box.</p>
+
+  <section>
+    <h2>Build</h2>
+    <dl id="build"><dt>…</dt><dd>reading</dd></dl>
+  </section>
+
+  <section>
+    <h2>State</h2>
+    <dl id="state"><dt>…</dt><dd>reading</dd></dl>
+  </section>
+
+  <section>
+    <h2>Recent events</h2>
+    <table><thead><tr><th>when</th><th>event</th></tr></thead><tbody id="events"></tbody></table>
+    <p class="none" id="no-events" hidden>No event has been recorded on this device.</p>
+  </section>
+</main>
+<script>
+function row(dl, term, value) {
+  const dt = document.createElement("dt");
+  dt.textContent = term;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  dl.append(dt, dd);
+}
+
+function when(ms) {
+  if (typeof ms !== "number") return "";
+  return new Date(ms).toLocaleString();
+}
+
+async function refresh() {
+  let snapshot;
+  try {
+    snapshot = await (await fetch("/api/panel", { cache: "no-store" })).json();
+  } catch (error) {
+    document.getElementById("build").replaceChildren(Object.assign(document.createElement("dt"), { textContent: "unreachable" }));
+    return;
+  }
+  const build = document.getElementById("build");
+  build.replaceChildren();
+  row(build, "Version", snapshot.version || "unknown");
+  row(build, "Channel", snapshot.channel || "unknown");
+  row(build, "Binary sha256", (snapshot.sha256 || "unverified").slice(0, 16));
+  row(build, "Process", "pid " + snapshot.pid);
+
+  const state = document.getElementById("state");
+  state.replaceChildren();
+  const doc = snapshot.state;
+  if (!doc) {
+    row(state, "state.json", "unreadable");
+  } else {
+    for (const [key, value] of Object.entries(doc)) {
+      row(state, key, typeof value === "object" ? JSON.stringify(value) : String(value));
+    }
+  }
+
+  const body = document.getElementById("events");
+  body.replaceChildren();
+  const events = snapshot.events || [];
+  document.getElementById("no-events").hidden = events.length > 0;
+  for (const event of events) {
+    const tr = document.createElement("tr");
+    const ts = document.createElement("td");
+    ts.textContent = when(event.at_ms || event.ts_ms);
+    const what = document.createElement("td");
+    what.textContent = event.event || event.kind || JSON.stringify(event);
+    tr.append(ts, what);
+    body.append(tr);
+  }
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

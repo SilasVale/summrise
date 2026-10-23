@@ -892,6 +892,16 @@ async fn device_channel(
             !name.is_empty() && name.len() <= 64 && !name.chars().any(|c| c.is_control());
         if plausible {
             app.channels.announce_name(&device_id, name);
+            // A machine that has never been renamed should be called what it calls itself, not by a
+            // digest the operator cannot read. An operator's rename always wins: the announcement
+            // only fills a name that is absent.
+            let has_name = lock(&app.devices)
+                .get(&device_id)
+                .map(|device| device.name.is_some())
+                .unwrap_or(true);
+            if !has_name {
+                let _ = lock(&app.devices).rename(&device_id, Some(name.to_owned()));
+            }
         }
     }
 

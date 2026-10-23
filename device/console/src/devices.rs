@@ -229,6 +229,11 @@ impl DeviceRegistry {
     /// Record that the device opened a channel, so the operator's list can say when it was last
     /// heard. In memory only: the file keeps the registration, and a console restart shows the
     /// registration time again rather than inventing a heartbeat it did not persist.
+    /// One device's record, by id.
+    pub(crate) fn get(&self, id: &str) -> Option<&Device> {
+        self.devices.get(id).map(|stored| &stored.device)
+    }
+
     pub(crate) fn touch(&mut self, id: &str, now_ms: u64) {
         if let Some(stored) = self.devices.get_mut(id) {
             stored.device.last_seen_ms = now_ms;

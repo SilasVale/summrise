@@ -10,10 +10,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware;
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,12 @@ fn router_with(
         ));
 
     Router::new()
+        // The device's own panel: the surface a person standing at this machine uses. It needs no
+        // token because it needs no network — the listener is loopback, so "can open it" already
+        // means "is on this machine". Its data route refuses anything that is not loopback, so a
+        // reverse proxy in front of 127.0.0.1 cannot turn it into a remote read.
+        .route("/", get(local_panel))
+        .route("/api/panel", get(panel_snapshot))
         .route("/api/health", get(health))
         .route("/api/state", get(current_state))
         .route("/api/authorize", post(authorize_request))
@@ -110,7 +116,13 @@ pub async fn serve(
     watchdog::spawn(address.port());
 
     eprintln!("summrise-device: listening on http://{address}");
-    axum::serve(listener, app).await
+    // ConnectInfo is what lets `/api/panel` tell a caller standing on this machine from one that
+    // reached it through something else. Without it every request looks equally local.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
 }
 
 fn loopback_addr(port: u16) -> SocketAddr {
@@ -178,6 +190,39 @@ async fn health(State(app): State<AppState>) -> Response {
                 .into_response()
         }
     }
+}
+
+/// `GET /`: the device-local panel.
+async fn local_panel() -> Html<&'static str> {
+    Html(PANEL_PAGE)
+}
+
+/// The panel's page, compiled in: the device has no assets directory to lose.
+const PANEL_PAGE: &str = include_str!("panel.html");
+
+/// `GET /api/panel`: what this machine is doing, for a caller standing on it.
+///
+/// Loopback-only by peer address. The shape is deliberately small and read-only: identity, build,
+/// how long it has been up, whether the console link is live, and the last few events — the questions
+/// `CONTEXT.md` says only the device can answer.
+async fn panel_snapshot(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let state = app.store.load().ok();
+    let events = app.store.tail_events(10).unwrap_or_default();
+    Json(serde_json::json!({
+        "version": app.release.version,
+        "channel": app.release.channel,
+        "sha256": app.release.sha256,
+        "pid": std::process::id(),
+        "state": state,
+        "events": events,
+    }))
+    .into_response()
 }
 
 async fn current_state(State(app): State<AppState>, headers: HeaderMap) -> Response {

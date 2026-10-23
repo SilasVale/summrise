@@ -115,6 +115,8 @@ impl fmt::Display for ConsoleRefusal {
 /// Why the enrolment mode could not complete.
 #[derive(Debug)]
 pub(crate) enum EnrollError {
+    /// `console-bootstrap.json` exists but is not the document this build understands.
+    Bootstrap(String),
     /// The command line is missing an argument or names a URL that is not absolute http(s).
     Usage,
     /// The console URL is not an absolute https URL, a loopback `http` URL, or has userinfo/query.
@@ -192,7 +194,7 @@ impl EnrollError {
     /// The process exit code the mode's contract assigns this refusal.
     pub(crate) fn exit_code(&self) -> u8 {
         match self {
-            EnrollError::Usage | EnrollError::BadUrl(_) => 2,
+            EnrollError::Usage | EnrollError::BadUrl(_) | EnrollError::Bootstrap(_) => 2,
             EnrollError::DataDir { .. }
             | EnrollError::Identity(_)
             | EnrollError::Console { .. }
@@ -211,6 +213,12 @@ impl EnrollError {
 impl fmt::Display for EnrollError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            EnrollError::Bootstrap(detail) => {
+                write!(
+                    f,
+                    "console-bootstrap.json is not readable as a bootstrap: {detail}"
+                )
+            }
             EnrollError::Usage => f.write_str(
                 "--enroll needs <console-url> <code> [--data <data>] [--install <install>] \
                  [--force] [--allow-plaintext]",
@@ -678,6 +686,54 @@ pub(crate) fn parse_enroll_args(args: &[OsString]) -> Result<EnrollInvocation, E
 }
 
 /// The mode the entry point calls: parse the arguments and enrol.
+/// The file a deployment leaves when it cannot pass a code on a command line.
+pub(crate) const BOOTSTRAP_FILE: &str = "console-bootstrap.json";
+
+/// What such a file says.
+#[derive(serde::Deserialize)]
+struct Bootstrap {
+    /// The console's base URL.
+    url: String,
+    /// The one-time code the operator minted for this machine.
+    code: String,
+    /// The operator's statement that the console lives on a trusted plaintext tunnel.
+    #[serde(default)]
+    allow_plaintext: bool,
+    /// Replace an existing registration instead of refusing.
+    #[serde(default)]
+    force: bool,
+}
+
+/// Enrol from `<data>/console-bootstrap.json`, once, when the deployment left one.
+///
+/// A command line is a poor place for a URL: NSIS's own option parser cuts `http://…` at the second
+/// slash, and every deployment tool quotes differently. A file has none of those problems, works the
+/// same for a hand install and a fleet tool, and deletes itself on success so a restart cannot enrol
+/// twice. A failed attempt keeps the file and says why — the code may simply have expired.
+pub(crate) async fn enroll_from_bootstrap(
+    data: &Path,
+    _install: &Path,
+) -> Option<Result<Enrollment, EnrollError>> {
+    let path = data.join(BOOTSTRAP_FILE);
+    let bytes = std::fs::read(&path).ok()?;
+    let parsed: Bootstrap = match serde_json::from_slice(&bytes) {
+        Ok(parsed) => parsed,
+        Err(error) => return Some(Err(EnrollError::Bootstrap(error.to_string()))),
+    };
+    let invocation = EnrollInvocation {
+        console_url: parsed.url,
+        code: parsed.code,
+        data: data.to_path_buf(),
+        force: parsed.force,
+        allow_plaintext: parsed.allow_plaintext,
+    };
+    let outcome = enroll(&invocation).await;
+    if outcome.is_ok() {
+        let _ = std::fs::remove_file(&path);
+    }
+    Some(outcome)
+}
+
 pub(crate) async fn enroll_from_args(args: &[OsString]) -> Result<Enrollment, EnrollError> {
     let invocation = parse_enroll_args(args)?;
     enroll(&invocation).await

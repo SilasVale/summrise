@@ -7,177 +7,230 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #f5f6f8;
+    --bg: #f6f7f9;
     --panel: #ffffff;
-    --ink: #17202a;
-    --muted: #5d6b7a;
-    --line: #d8dee6;
-    --accent: #1f6feb;
+    --panel-soft: #fbfcfd;
+    --ink: #161c24;
+    --muted: #66707d;
+    --faint: #8b94a1;
+    --line: #e3e7ec;
+    --line-strong: #cfd6df;
+    --accent: #3b5bfd;
+    --accent-soft: #eef1ff;
     --accent-ink: #ffffff;
-    --ok: #1a7f37;
-    --error: #b42318;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --ok: #128a4b;
+    --ok-soft: #e7f6ee;
+    --warn: #a8620a;
+    --error: #c02a1b;
+    --error-soft: #fdecea;
+    --term-bg: #0c1116;
+    --term-ink: #d5dde6;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(16, 23, 33, .05), 0 8px 24px -18px rgba(16, 23, 33, .35);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1419;
-      --panel: #161d24;
-      --ink: #e6edf3;
-      --muted: #9aa8b6;
-      --line: #2a3540;
-      --accent: #4c8dff;
-      --accent-ink: #0f1419;
-      --ok: #4ac26b;
-      --error: #ff7b72;
+      --bg: #0c1014;
+      --panel: #121820;
+      --panel-soft: #151c25;
+      --ink: #e7edf4;
+      --muted: #98a5b4;
+      --faint: #7b8794;
+      --line: #222c37;
+      --line-strong: #2e3a47;
+      --accent: #6a86ff;
+      --accent-soft: #1a2340;
+      --accent-ink: #0b1016;
+      --ok: #3fcf7f;
+      --ok-soft: #10261a;
+      --warn: #e0a44a;
+      --error: #ff8b7e;
+      --error-soft: #2a1512;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
     }
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  main, header { max-width: 76rem; margin: 0 auto; padding: 0 1.25rem; }
-  header { padding-top: 1.5rem; }
-  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
-  h2 { font-size: 1.05rem; margin: 0 0 .75rem; }
+  h1, h2, h3 { letter-spacing: -.012em; }
+  h1 { font-size: 1.15rem; font-weight: 650; margin: 0; }
+  h2 { font-size: .95rem; font-weight: 650; margin: 0; }
   p { margin: .35rem 0; }
   .muted { color: var(--muted); }
-  .mono { font-family: var(--mono); font-size: .85rem; overflow-wrap: anywhere; }
-  .status { min-height: 1.4em; margin-top: .5rem; color: var(--muted); }
-  .status.ok { color: var(--ok); }
-  .status.error { color: var(--error); }
-  .chip {
-    display: inline-block;
-    padding: 0 .5rem;
-    border-radius: 999px;
-    font-size: .78rem;
-    font-weight: 600;
-    line-height: 1.6;
+  .mono { font-family: var(--mono); font-size: .82rem; overflow-wrap: anywhere; }
+
+  /* A sticky bar, so "who am I and is this thing alive" never scrolls away. */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: saturate(140%) blur(10px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    border-bottom: 1px solid var(--line);
   }
-  .chip-ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-  .chip-off { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
-  .summary { color: var(--muted); margin: 0 0 .75rem; }
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
-    gap: .9rem;
-  }
-  .card {
-    border: 1px solid var(--line);
-    border-radius: .6rem;
-    padding: .9rem 1rem;
-    background: var(--bg);
-    display: flex;
-    flex-direction: column;
-    gap: .6rem;
-  }
-  .card header {
+  .topbar-inner {
+    max-width: 74rem;
+    margin: 0 auto;
+    padding: .7rem 1.25rem;
     display: flex;
     align-items: center;
-    gap: .5rem;
-    padding: 0;
+    gap: .75rem;
+    flex-wrap: wrap;
   }
-  .card header strong { font-size: 1rem; overflow-wrap: anywhere; }
-  .card header .chip { margin-left: auto; }
-  .dot {
-    width: .6rem;
-    height: .6rem;
-    border-radius: 999px;
-    background: var(--muted);
-    flex: none;
-  }
-  .dot.online { background: var(--ok); }
-  .facts {
-    border: 1px solid var(--line);
-    border-radius: .45rem;
-    padding: .5rem .65rem;
-    display: grid;
-    gap: .25rem;
-  }
-  .fact { display: flex; justify-content: space-between; gap: 1rem; font-size: .88rem; }
-  .fact span:first-child { color: var(--muted); }
-  .card .id { color: var(--muted); margin: 0; }
-  .card footer { display: flex; gap: .5rem; margin-top: auto; }
-  .terminal {
-    background: #10151c;
-    color: #d7e0ea;
-    border-radius: .45rem;
-    padding: .7rem .8rem;
-    max-height: 22rem;
-    overflow: auto;
-    font-family: var(--mono);
-    font-size: .82rem;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .inline { display: flex; gap: .5rem; margin-top: .6rem; }
-  .terminal-host {
-    background: #10151c;
-    border-radius: .45rem;
-    padding: .5rem .6rem;
-    max-height: 24rem;
-    overflow: hidden;
-  }
-  .inline input[type=text] { flex: 1; }
+  .brand { display: flex; align-items: baseline; gap: .6rem; }
+  .brand span { color: var(--faint); font-size: .82rem; }
+  .topbar .status { margin: 0 0 0 auto; min-height: 0; }
+  .topbar button { margin: 0; }
+
+  main { max-width: 74rem; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; display: grid; gap: 1rem; }
+  .lede { color: var(--muted); margin: 0 0 .25rem; }
+
   section {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: .6rem;
-    padding: 1rem 1.1rem;
-    margin: 1rem 0;
+    border-radius: var(--radius);
+    padding: 1.1rem 1.2rem;
+    box-shadow: var(--shadow);
   }
-  label { display: block; font-weight: 600; margin: .6rem 0 .25rem; }
-  input[type=password], input[type=number], select {
+  section > h2, .toolbar h2 { color: var(--ink); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .25rem; }
+  .toolbar button { margin: 0; }
+  .section-hint { color: var(--muted); font-size: .88rem; margin: .3rem 0 .2rem; }
+
+  .summary { color: var(--muted); font-size: .88rem; margin: 0 0 .85rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); gap: .85rem; }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: .95rem 1rem;
+    background: var(--panel-soft);
+    display: flex;
+    flex-direction: column;
+    gap: .65rem;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+  .card header { display: flex; align-items: center; gap: .55rem; padding: 0; }
+  .card header strong { font-size: .98rem; font-weight: 650; overflow-wrap: anywhere; }
+  .card header .chip { margin-left: auto; }
+  .dot { width: .55rem; height: .55rem; border-radius: 999px; background: var(--faint); flex: none; }
+  .dot.online { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+  .facts {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .5rem .65rem;
+    display: grid;
+    gap: .2rem;
+    background: var(--panel);
+  }
+  .fact { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; }
+  .fact span:first-child { color: var(--muted); }
+  .card .id { color: var(--faint); margin: 0; font-size: .76rem; }
+  .card footer { display: flex; gap: .45rem; margin-top: auto; }
+  .card footer button { margin: 0; padding: .3rem .6rem; font-size: .85rem; }
+
+  .chip {
+    display: inline-block;
+    padding: .1rem .5rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+  .chip-ok { background: var(--ok-soft); color: var(--ok); }
+  .chip-off { background: color-mix(in srgb, var(--muted) 12%, transparent); color: var(--muted); }
+
+  label { display: block; font-weight: 550; font-size: .86rem; margin: .7rem 0 .25rem; }
+  input[type=text], input[type=password], input[type=number], select {
     width: 100%;
     max-width: 34rem;
-    padding: .5rem .6rem;
-    border: 1px solid var(--line);
-    border-radius: .35rem;
-    background: var(--bg);
+    padding: .5rem .65rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--panel);
     color: var(--ink);
     font: inherit;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   input[type=number] { max-width: 10rem; }
   button {
     margin-top: .75rem;
-    padding: .45rem .8rem;
-    border: 1px solid var(--line);
-    border-radius: .35rem;
+    padding: .45rem .85rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
     background: var(--panel);
     color: var(--ink);
     font: inherit;
+    font-weight: 550;
     cursor: pointer;
+    transition: background .12s ease, border-color .12s ease;
   }
+  button:hover:not(:disabled) { background: var(--panel-soft); border-color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+  button.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 35%, var(--line-strong)); }
+  button.danger:hover:not(:disabled) { background: var(--error-soft); border-color: var(--error); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
   th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  td button { margin: 0; padding: .2rem .5rem; }
-  #tool-list { border: 1px solid var(--line); border-radius: .35rem; margin: .75rem 0; padding: .5rem .75rem .75rem; }
-  #tool-list legend { font-weight: 600; padding: 0 .25rem; }
-  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .25rem .75rem; }
-  .tool { display: flex; align-items: center; gap: .4rem; font-weight: 400; margin: .1rem 0; font-family: var(--mono); font-size: .85rem; }
-  .tool input { margin: 0; }
-  .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-  .toolbar h2 { margin: 0; }
-  .toolbar button { margin-top: 0; }
-  pre {
-    background: var(--bg);
+  th { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td button { margin: 0; padding: .2rem .55rem; font-size: .82rem; }
+
+  .status { min-height: 1.3em; margin-top: .5rem; color: var(--muted); font-size: .86rem; }
+  .status.ok { color: var(--ok); }
+  .status.error { color: var(--error); }
+
+  #tool-list {
     border: 1px solid var(--line);
-    border-radius: .35rem;
-    padding: .75rem;
+    border-radius: 10px;
+    margin: .75rem 0;
+    padding: .5rem .8rem .8rem;
+    background: var(--panel-soft);
+  }
+  #tool-list legend { font-weight: 600; font-size: .82rem; padding: 0 .3rem; color: var(--muted); }
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: .2rem .8rem; }
+  .tool { display: flex; align-items: center; gap: .45rem; font-weight: 400; margin: .12rem 0; font-family: var(--mono); font-size: .8rem; }
+  .tool input { margin: 0; accent-color: var(--accent); }
+
+  pre {
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .8rem;
     overflow: auto;
     max-height: 30rem;
     font-family: var(--mono);
-    font-size: .82rem;
+    font-size: .8rem;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
   ol.audit { list-style: none; margin: .5rem 0 0; padding: 0; }
-  ol.audit li { padding: .35rem 0; border-bottom: 1px solid var(--line); }
+  ol.audit li { padding: .4rem 0; border-bottom: 1px solid var(--line); font-size: .86rem; }
+  ol.audit li:last-child { border-bottom: 0; }
+
+  .inline { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+  .inline input[type=text] { flex: 1 1 18rem; }
+  .terminal-host {
+    background: var(--term-bg);
+    border-radius: 10px;
+    padding: .5rem .6rem;
+    max-height: 24rem;
+    overflow: hidden;
+  }
+  #browser-shot { max-width: 100%; border: 1px solid var(--line); border-radius: 10px; }
   [hidden] { display: none !important; }
 </style>
 <link rel="stylesheet" href="/assets/xterm.css">
@@ -190,13 +243,18 @@
   (sessionStorage's own rule), and when the server's expiry passes — the page checks `until` before
   resuming. Nothing is written to localStorage or a cookie, and this file contains no secret.
 -->
-<header>
-  <h1>Summrise console</h1>
-  <p class="muted">Sign in, pick a device, mint a grant, and read its state through <span class="mono">/mcp</span>.</p>
-  <p id="session-status" class="status" role="status"></p>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <h1>Summrise</h1>
+      <span>console</span>
+    </div>
+    <p id="session-status" class="status" role="status"></p>
+  </div>
 </header>
 
 <main>
+  <p class="lede">Pick a device, mint a grant, and work on the machine through <span class="mono">/mcp</span>.</p>
   <section id="login">
     <h2>Operator token</h2>
     <form id="login-form">
@@ -315,11 +373,38 @@
 
     <section>
       <div class="toolbar">
+        <h2>Browser</h2>
+        <button id="browser-list" type="button" disabled>List targets</button>
+        <button id="browser-shot-btn" type="button" disabled>Refresh view</button>
+      </div>
+      <p class="muted">
+        The device's browser, as pictures: <span class="mono">browser.screenshot</span> returns a base64
+        PNG, and this page is the display. Not a bundled browser — one image per refresh, on the same
+        audited channel.
+      </p>
+      <select id="browser-targets" hidden></select>
+      <p id="browser-status" class="status" role="status"></p>
+      <img id="browser-shot" alt="" hidden>
+      <form id="browser-type" class="inline">
+        <input id="browser-text" type="text" placeholder="text to type into the focused field">
+        <button id="browser-type-btn" type="submit" disabled>Type</button>
+      </form>
+      <form id="browser-go" class="inline">
+        <input id="browser-url" type="text" placeholder="https://example.test — opens or navigates">
+        <button id="browser-go-btn" type="submit" disabled>Open</button>
+      </form>
+    </section>
+
+    <section>
+      <div class="toolbar">
         <h2>Audit</h2>
         <button id="refresh-audit" type="button">Refresh</button>
       </div>
       <p class="muted">The last 20 operator actions, newest first.</p>
-      <ol id="audit-list" class="audit"></ol>
+      <table class="audit">
+        <thead><tr><th>when</th><th>kind</th><th>device</th><th>tool</th><th>status</th></tr></thead>
+        <tbody id="audit-list"></tbody>
+      </table>
       <p id="audit-status" class="status" role="status"></p>
     </section>
   </div>
@@ -705,6 +790,121 @@ async function terminalClose() {
   await refreshAudit();
 }
 
+// The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
+// answers a base64 PNG, so showing the browser needs no plugin, no native window and no second port.
+async function browserList() {
+  if (!lastGrant) return;
+  setStatus($("browser-status"), "Listing targets…", "");
+  try {
+    const targets = JSON.parse(await terminalCall("browser.list", {}));
+    const chooser = $("browser-targets");
+    chooser.replaceChildren();
+    for (const target of targets) {
+      const option = document.createElement("option");
+      option.value = target.target || target.id;
+      option.textContent = (target.title || target.url || option.value) + " — " + option.value;
+      chooser.append(option);
+    }
+    chooser.hidden = targets.length === 0;
+    setStatus(
+      $("browser-status"),
+      targets.length === 0 ? "No browser is open on this device." : targets.length + " target(s).",
+      ""
+    );
+    if (targets.length > 0) $("browser-shot-btn").disabled = false;
+  } catch (error) {
+    setStatus($("browser-status"), "List failed: " + error.message, "error");
+  }
+}
+
+async function browserShot() {
+  const target = $("browser-targets").value;
+  if (!lastGrant || !target) return;
+  try {
+    const shot = JSON.parse(await terminalCall("browser.screenshot", { target: target }));
+    $("browser-shot").src = "data:image/png;base64," + shot.data;
+    $("browser-shot").hidden = false;
+    setStatus($("browser-status"), "Captured " + shot.bytes + " bytes.", "");
+  } catch (error) {
+    setStatus($("browser-status"), "Screenshot failed: " + error.message, "error");
+  }
+}
+
+async function browserGo(event) {
+  event.preventDefault();
+  const url = $("browser-url").value.trim();
+  if (!lastGrant || !url) return;
+  try {
+    const answer = JSON.parse(await terminalCall("browser.open", { url: url }));
+    $("browser-shot-btn").disabled = false;
+    $("browser-targets").hidden = false;
+    const option = document.createElement("option");
+    option.value = answer.target;
+    option.textContent = url + " — " + answer.target;
+    $("browser-targets").append(option);
+    $("browser-targets").value = answer.target;
+    await browserShot();
+  } catch (error) {
+    setStatus($("browser-status"), "Open failed: " + error.message, "error");
+  }
+}
+
+// Clicking the picture is a DOM click at the page's own coordinates, dispatched with browser.eval.
+// It drives ordinary pages (links, buttons, inputs) and does not pretend to be a native event: a
+// canvas game or a drag would not feel it. Native input dispatch is a later step, and the label says
+// so rather than letting the picture imply more than it does.
+async function browserClick(event) {
+  const target = $("browser-targets").value;
+  const image = $("browser-shot");
+  if (!lastGrant || !target || !image.naturalWidth) return;
+  const box = image.getBoundingClientRect();
+  const x = Math.round(((event.clientX - box.left) / box.width) * image.naturalWidth);
+  const y = Math.round(((event.clientY - box.top) / box.height) * image.naturalHeight);
+  const expression = [
+    "(function(){",
+    "  var el = document.elementFromPoint(" + x + "," + y + ");",
+    "  if (!el) return 'nothing at ' + " + JSON.stringify(x + "," + y) + ";",
+    "  ['mousedown','mouseup','click'].forEach(function(t){",
+    "    el.dispatchEvent(new MouseEvent(t,{clientX:" + x + ",clientY:" + y + ",bubbles:true,cancelable:true,view:window}));",
+    "  });",
+    "  return el.tagName + ' at ' + " + JSON.stringify(x + "," + y) + ";",
+    "})()"
+  ].join("\n");
+  try {
+    const result = JSON.parse(await terminalCall("browser.eval", { target: target, expression: expression }));
+    setStatus($("browser-status"), "Clicked " + (result.value || "the page") + "; refreshing.", "");
+    await browserShot();
+  } catch (error) {
+    setStatus($("browser-status"), "Click failed: " + error.message, "error");
+  }
+}
+
+// Typing goes through the focused element rather than the keyboard: set the value, fire the events a
+// page listens for, and leave focus where it was.
+async function browserType(event) {
+  event.preventDefault();
+  const target = $("browser-targets").value;
+  const text = $("browser-text").value;
+  if (!lastGrant || !target || !text) return;
+  const expression = [
+    "(function(){",
+    "  var el = document.activeElement;",
+    "  if (!el || el === document.body) return 'no field is focused';",
+    "  el.value = (el.value || '') + " + JSON.stringify(text) + ";",
+    "  ['input','change','keyup'].forEach(function(t){ el.dispatchEvent(new Event(t,{bubbles:true})); });",
+    "  return el.tagName + ' now ' + el.value;",
+    "})()"
+  ].join("\n");
+  try {
+    const result = JSON.parse(await terminalCall("browser.eval", { target: target, expression: expression }));
+    setStatus($("browser-status"), String(result.value || "typed"), "");
+    $("browser-text").value = "";
+    await browserShot();
+  } catch (error) {
+    setStatus($("browser-status"), "Type failed: " + error.message, "error");
+  }
+}
+
 async function readState() {
   if (!lastGrant) return;
   $("read-state").disabled = true;
@@ -791,21 +991,40 @@ async function refreshAudit() {
   setStatus($("audit-status"), "Loading audit…", "");
   try {
     const lines = await api(ROUTES.audit + "?limit=20");
-    const list = $("audit-list");
-    list.replaceChildren();
+    const body = $("audit-list");
+    body.replaceChildren();
     if (!Array.isArray(lines) || lines.length === 0) {
-      const item = document.createElement("li");
-      item.className = "muted";
-      item.textContent = "No audit lines yet.";
-      list.append(item);
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 5;
+      cell.className = "muted";
+      cell.textContent = "No audit lines yet.";
+      row.append(cell);
+      body.append(row);
       setStatus($("audit-status"), "0 lines", "ok");
       return;
     }
     for (const line of lines) {
-      const item = document.createElement("li");
-      item.className = "mono";
-      item.textContent = JSON.stringify(line);
-      list.append(item);
+      const row = document.createElement("tr");
+      const when = document.createElement("td");
+      when.className = "mono";
+      when.textContent = line.ts_ms ? new Date(line.ts_ms).toLocaleTimeString() : "";
+      const kind = document.createElement("td");
+      kind.textContent = line.kind || "";
+      const device = document.createElement("td");
+      device.className = "mono";
+      device.textContent = line.device_id ? shortId(line.device_id) : "";
+      const tool = document.createElement("td");
+      tool.className = "mono";
+      tool.textContent = line.tool || line.detail || "";
+      const status = document.createElement("td");
+      const chip = document.createElement("span");
+      const ok = typeof line.status === "number" && line.status < 400;
+      chip.className = "chip " + (ok ? "chip-ok" : "chip-off");
+      chip.textContent = String(line.status ?? "");
+      status.append(chip);
+      row.append(when, kind, device, tool, status);
+      body.append(row);
     }
     setStatus(
       $("audit-status"),
@@ -832,6 +1051,141 @@ function resume() {
   } catch (_) {
     /* a corrupt entry is treated as signed out */
   }
+}
+
+// The device's tool catalogue, as the grant form offers it. It is duplicated here rather than fetched
+// because a grant is what asks the device anything, so there is nothing to ask before one exists.
+const TOOL_NAMES = [
+  "files.read", "files.write", "files.mkdir", "files.list", "files.delete",
+  "memory.search", "memory.append",
+  "terminal.create", "terminal.write", "terminal.read", "terminal.resize", "terminal.list", "terminal.close",
+  "browser.list", "browser.open", "browser.navigate", "browser.eval", "browser.screenshot", "browser.close", "browser.shutdown",
+  "monitor.add", "monitor.remove", "monitor.list", "monitor.probe", "monitor.status",
+  "runs.exec", "runs.list", "runs.get",
+  "state.get"
+];
+
+function buildToolList() {
+  const fieldset = $("tool-list");
+  fieldset.replaceChildren();
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Tools (" + TOOL_NAMES.length + ")";
+  fieldset.append(legend);
+
+  const bulk = document.createElement("div");
+  bulk.className = "inline";
+  for (const [label, select] of [["All", true], ["None", false]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      for (const box of fieldset.querySelectorAll("input[data-tool]")) box.checked = select;
+    });
+    bulk.append(button);
+  }
+  fieldset.append(bulk);
+
+  const grid = document.createElement("div");
+  grid.className = "tool-grid";
+  for (const name of TOOL_NAMES) {
+    const label = document.createElement("label");
+    label.className = "tool";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = name;
+    box.dataset.tool = name;
+    const text = document.createElement("span");
+    text.textContent = name;
+    label.append(box, text);
+    grid.append(label);
+  }
+  fieldset.append(grid);
+}
+
+async function refreshDevices() {
+  try {
+    devices = await api(ROUTES.devices);
+  } catch (error) {
+    setStatus($("session-status"), "Could not read the device list: " + error.message, "error");
+    return;
+  }
+  renderDevices();
+
+  const select = $("grant-device");
+  const previous = select.value;
+  select.replaceChildren();
+  for (const device of devices) {
+    const option = document.createElement("option");
+    option.value = device.id;
+    option.textContent =
+      (device.name || shortId(device.id)) + (device.online ? " — online" : " — offline");
+    select.append(option);
+  }
+  if (previous) select.value = previous;
+}
+
+async function mintGrant(event) {
+  event.preventDefault();
+  const tools = Array.from(
+    $("tool-list").querySelectorAll("input[data-tool]:checked")
+  ).map((box) => box.dataset.tool);
+  if (tools.length === 0) {
+    setStatus($("grant-status"), "Pick at least one tool.", "error");
+    return;
+  }
+  try {
+    const envelope = await api(ROUTES.grants, {
+      method: "POST",
+      body: JSON.stringify({
+        device_id: $("grant-device").value,
+        tools: tools,
+        expires_in_s: Number($("grant-expiry").value),
+        allow_destructive: $("allow-destructive").checked
+      })
+    });
+    lastGrant = { deviceId: $("grant-device").value, envelope: envelope };
+    $("grant-output").hidden = false;
+    $("grant-output").textContent = JSON.stringify(envelope, null, 2);
+    setStatus($("grant-status"), "Grant signed for " + tools.length + " tools.", "ok");
+    for (const id of ["read-state", "copy-call", "terminal-open", "terminal-list", "browser-list", "browser-go-btn", "browser-type-btn"]) {
+      $(id).disabled = false;
+    }
+  } catch (error) {
+    setStatus($("grant-status"), "Could not mint: " + error.message, "error");
+  }
+}
+
+async function newCode() {
+  $("new-code").disabled = true;
+  setStatus($("code-status"), "Minting a code…", "");
+  try {
+    const issued = await api(ROUTES.enroll, { method: "POST" });
+    $("code-output").hidden = false;
+    $("code-output").textContent =
+      "summrise-device --enroll " + location.origin + " " + issued.code +
+      "\n\nexpires " + new Date(issued.expires_at_ms).toLocaleTimeString();
+    setStatus($("code-status"), "Code ready: single use, and it expires.", "ok");
+  } catch (error) {
+    setStatus($("code-status"), "Could not mint a code: " + error.message, "error");
+  } finally {
+    $("new-code").disabled = false;
+  }
+}
+
+function signOut() {
+  session = null;
+  lastGrant = null;
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch (_) {
+    /* storage may be unavailable; the in-memory session is already gone */
+  }
+  $("console").hidden = true;
+  $("login").hidden = false;
+  $("operator-token").value = "";
+  setStatus($("session-status"), "Signed out of this tab.", "");
+  setStatus($("login-status"), "", "");
 }
 
 buildToolList();
@@ -864,6 +1218,42 @@ resume();
     signInWith({ code: code }, "Using the login link…");
   }
 }
+// One way in, two credentials: the operator token typed above, or a one-time code from a login link.
+// Both land on /auth, and both end here, so the page has one place that knows what "signed in" means.
+async function signInWith(credential, message) {
+  setStatus($("login-status"), message || "Signing in\u2026", "");
+  try {
+    const answer = await api(ROUTES.auth, {
+      method: "POST",
+      body: JSON.stringify(credential)
+    });
+    session = answer.token;
+    sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ token: answer.token, until: answer.expires_at_ms })
+    );
+    $("login").hidden = true;
+    $("console").hidden = false;
+    setStatus(
+      $("session-status"),
+      "Session valid until " + new Date(answer.expires_at_ms).toLocaleString(),
+      "ok"
+    );
+    await refreshDevices();
+    await refreshAudit();
+  } catch (error) {
+    setStatus($("login-status"), "Sign-in failed: " + error.message, "error");
+  }
+}
+
+async function connect(event) {
+  event.preventDefault();
+  const token = $("operator-token").value.trim();
+  if (!token) return;
+  await signInWith({ token: token }, "Checking the token\u2026");
+  $("operator-token").value = "";
+}
+
 $("login-form").addEventListener("submit", connect);
 $("refresh-devices").addEventListener("click", refreshDevices);
 $("sign-out").addEventListener("click", signOut);
@@ -875,6 +1265,11 @@ $("terminal-kind").addEventListener("change", terminalKindChanged);
 $("terminal-auth-kind").addEventListener("change", terminalAuthChanged);
 $("terminal-list").addEventListener("click", terminalList);
 $("terminal-open").addEventListener("click", terminalOpen);
+$("browser-list").addEventListener("click", browserList);
+$("browser-shot-btn").addEventListener("click", browserShot);
+$("browser-shot").addEventListener("click", browserClick);
+$("browser-type").addEventListener("submit", browserType);
+$("browser-go").addEventListener("submit", browserGo);
 $("terminal-close").addEventListener("click", terminalClose);
 
 $("refresh-audit").addEventListener("click", refreshAudit);

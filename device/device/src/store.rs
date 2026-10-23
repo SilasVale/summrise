@@ -237,6 +237,30 @@ impl Store {
     /// Only `state.json` is opened. A `.tmp` left by a write that never reached its rename describes
     /// a document that was never committed, so it is not state — treating it as state is how a
     /// half-written file becomes an answer.
+    /// The last `limit` lines of `events.jsonl`, oldest first, each as JSON when it parses as JSON.
+    ///
+    /// Missing file is an empty list, not an error: a device that has never repaired anything has no
+    /// events, and the panel says "none" rather than showing a failure.
+    pub fn tail_events(&self, limit: usize) -> Result<Vec<serde_json::Value>, StoreError> {
+        let text = match std::fs::read_to_string(self.data.join("events.jsonl")) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(StoreError::Io(error)),
+        };
+        let mut events: Vec<serde_json::Value> = text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|_| serde_json::Value::String(line.to_owned()))
+            })
+            .collect();
+        if events.len() > limit {
+            events.drain(..events.len() - limit);
+        }
+        Ok(events)
+    }
+
     pub fn load(&self) -> Result<State, StoreError> {
         let path = self.state_path();
         match fs::read(&path) {

@@ -46,6 +46,10 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 BrandingText "${COMPANY}"
 
+; The two optional auto-enrolment values, read from `/CONSOLE=` and `/CODE=` in the install section.
+Var ConsoleUrl
+Var EnrollCode
+
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY

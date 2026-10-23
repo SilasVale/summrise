@@ -2920,6 +2920,64 @@ async fn the_page_names_only_routes_the_router_serves() {
     }
 }
 
+/// The page binds its buttons to functions by name, and a name that no longer exists is a silent
+/// dead button: the script throws where the handler is registered and every binding after it is
+/// never made. That happened once, to seven functions at once, and no test noticed because the page
+/// still *contained* the right strings. This test reads the script the way the browser does.
+#[test]
+fn the_page_binds_only_functions_it_defines() {
+    let page = include_str!("../src/page.html");
+    let script = page
+        .rsplit_once("<script>")
+        .expect("the page ends with an inline script")
+        .1;
+    let script = script
+        .split_once("</script>")
+        .expect("the inline script is closed")
+        .0;
+
+    let mut defined: Vec<&str> = Vec::new();
+    for piece in script.split("function ").skip(1) {
+        let name: String = piece
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+            .collect();
+        if !name.is_empty() {
+            defined.push(Box::leak(name.into_boxed_str()));
+        }
+    }
+
+    let mut bound: Vec<&str> = Vec::new();
+    for piece in script.split("addEventListener(").skip(1) {
+        // `"click", handler` — the handler is the identifier after the listener name.
+        let Some((_, rest)) = piece.split_once(", ") else {
+            continue;
+        };
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+            .collect();
+        if !name.is_empty() {
+            bound.push(Box::leak(name.into_boxed_str()));
+        }
+    }
+
+    assert!(
+        !bound.is_empty(),
+        "the test can see the page's handler bindings at all"
+    );
+    let mut missing: Vec<&str> = bound
+        .into_iter()
+        .filter(|name| !defined.contains(name))
+        .collect();
+    missing.sort_unstable();
+    missing.dedup();
+    assert!(
+        missing.is_empty(),
+        "the page binds handlers that are not defined: {missing:?}"
+    );
+}
+
 #[tokio::test]
 async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
     let fixture = Fixture::new("page-secret");
