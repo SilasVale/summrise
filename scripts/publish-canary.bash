@@ -9,6 +9,7 @@
 #
 #   scripts/publish-canary.bash --version 0.2.7 \
 #       --channel canary --port 18090 --mirror http://100.85.163.159:18100 \
+#       --console http://127.0.0.1:19000        # optional: verify what the world sees
 #       --launcher-key ~/.keys/launcher.seed --release-key ~/.keys/release.seed \
 #       --out /srv/canary
 #
@@ -33,6 +34,7 @@ mirror=""
 launcher_key=""
 release_key=""
 out=""
+console_url=""
 target="x86_64-pc-windows-msvc"
 
 usage() {
@@ -49,6 +51,7 @@ while [ $# -gt 0 ]; do
         --launcher-key) launcher_key="$2"; shift 2 ;;
         --release-key) release_key="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
+        --console) console_url="$2"; shift 2 ;;
         --target) target="$2"; shift 2 ;;
         --help|-h) usage 0 ;;
         *) echo "publish-canary: unknown argument '$1'" >&2; usage 2 ;;
@@ -145,6 +148,12 @@ if [ -n "$makensis" ]; then
     cp installer/SummriseSetup-"$version".exe "$out/"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
+fi
+
+# The publish is only half the job: what matters is what the world sees. With `--console` the script
+# checks the mirror and the running console against this version before it claims success.
+if [[ -n "$console_url" ]]; then
+    "$root/scripts/verify-release.sh" "$version" --mirror "$mirror" --console "$console_url" --channel "$channel"
 fi
 
 echo "== what a mirror must serve"

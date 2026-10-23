@@ -15,11 +15,13 @@ version="${1:?usage: verify-release.sh <version> [--mirror URL] [--console URL]}
 shift
 mirror=""
 console=""
+console_version=""
 channel="canary"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --mirror) mirror="$2"; shift 2 ;;
         --console) console="$2"; shift 2 ;;
+        --console-version) console_version="$2"; shift 2 ;;
         --channel) channel="$2"; shift 2 ;;
         *) echo "verify-release: unknown argument $1" >&2; exit 2 ;;
     esac
@@ -62,10 +64,14 @@ if [[ -n "$console" ]]; then
         fail "the console does not answer /health"
     else
         reported="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))')"
-        if [[ "$reported" == "$version" ]]; then
-            pass "the console runs $version"
+        # The console has its own build stream: a device release does not redeploy it, so comparing it
+        # to the DEVICE version is only right when the operator says which console build they deployed.
+        if [[ -z "$console_version" ]]; then
+            pass "the console answers, running $reported"
+        elif [[ "$reported" == "$console_version" ]]; then
+            pass "the console runs $console_version"
         else
-            fail "the console runs '$reported', not $version"
+            fail "the console runs '$reported', not $console_version"
         fi
         devices="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("devices",0))')"
         pass "$devices device(s) registered"
