@@ -72,5 +72,7 @@ Every cell was captured from the deployed product, not from a local build.
   path is correct; the happy path has never been seen.
 * **The terminal at 420 px** — the pane is 22 rem tall and fixed; a phone-sized window would give it a
   keyboard and almost no room. Nothing here has been tried on a touch device.
-* **A second operator** — every surface assumes one operator; nothing here has been exercised with two
-  sessions at once.
+* **Two operators in one browser** — two sessions coexist on the console (measured: two `POST /auth`
+  calls return distinct tokens, both answer `/devices` 200, and the first still answers after the second
+  signs in), but both were driven by the same machine and the same person. What two humans doing two
+  things at once does to the audit and the device cards has not been watched.
