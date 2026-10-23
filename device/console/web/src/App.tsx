@@ -24,6 +24,7 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
   const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
+  const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
 
   const newest = useMemo(
     () =>
@@ -39,7 +40,8 @@ export function App() {
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const probe = useCallback(async () => {
-    const state = await api.session();
+    const [state, health] = await Promise.all([api.session(), api.health()]);
+    setConsoleVersion(health.version);
     setSession(state);
     if (!state.authenticated) return;
     const [list, lines] = await Promise.all([api.devices(), api.audit()]);
@@ -393,7 +395,9 @@ export function App() {
         <span className="sep" />
         <span>{session.via === "access" ? "signed in through Cloudflare Access" : "signed in with the operator token"}</span>
         <span className="grow" />
-        <span>console 0.3.17</span>
+        {/* The build's own number, from /health: a label typed into the page drifts exactly like the
+            one that was typed into the launcher script. */}
+        <span>console {consoleVersion ?? "…"}</span>
       </footer>
     </div>
   );
