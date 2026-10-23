@@ -89,7 +89,14 @@
   .topbar .status { margin: 0 0 0 auto; min-height: 0; }
   .topbar button { margin: 0; }
 
-  main { max-width: 74rem; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; display: grid; gap: 1rem; }
+  main { max-width: 84rem; margin: 0 auto; padding: 1.25rem 1.25rem 4rem; display: grid; gap: 1rem; }
+  .columns { display: grid; gap: 1rem; align-items: start; }
+  .col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+  @media (min-width: 68rem) {
+    .columns { grid-template-columns: minmax(22rem, 5fr) minmax(26rem, 7fr); }
+    /* The right column is the working surface: it stays in view while the left one scrolls. */
+    .col:last-child { position: sticky; top: 4.2rem; }
+  }
   .lede { color: var(--muted); margin: 0 0 .25rem; }
 
   section {
@@ -266,6 +273,8 @@
   </section>
 
   <div id="console" hidden>
+    <div class="columns">
+      <div class="col">
     <section>
       <div class="toolbar">
         <h2>Devices</h2>
@@ -309,6 +318,8 @@
       <pre id="grant-output" hidden></pre>
     </section>
 
+      </div>
+      <div class="col">
     <section>
       <div class="toolbar">
         <h2>Device state</h2>
@@ -407,6 +418,8 @@
       </table>
       <p id="audit-status" class="status" role="status"></p>
     </section>
+      </div>
+    </div>
   </div>
 </main>
 
