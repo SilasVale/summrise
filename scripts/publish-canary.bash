@@ -35,6 +35,7 @@ launcher_key=""
 release_key=""
 out=""
 console_url=""
+mirror_dir=""
 target="x86_64-pc-windows-msvc"
 
 usage() {
@@ -52,6 +53,7 @@ while [ $# -gt 0 ]; do
         --release-key) release_key="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
         --console) console_url="$2"; shift 2 ;;
+        --mirror-dir) mirror_dir="$2"; shift 2 ;;
         --target) target="$2"; shift 2 ;;
         --help|-h) usage 0 ;;
         *) echo "publish-canary: unknown argument '$1'" >&2; usage 2 ;;
@@ -148,6 +150,14 @@ if [ -n "$makensis" ]; then
     cp installer/SummriseSetup-"$version".exe "$out/"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
+fi
+
+# The mirror directory is what the public URL serves. Copying here instead of by hand is the difference
+# between a publish that is complete and one that is complete once someone remembers the cp.
+if [[ -n "$mirror_dir" ]]; then
+    cp "$out/SummriseSetup-$version.exe" "$out/summrise-device-$version.exe" \
+       "$out/release-$version.json" "$out/release-$channel.json" "$mirror_dir/"
+    echo "== mirrored to $mirror_dir"
 fi
 
 # The publish is only half the job: what matters is what the world sees. With `--console` the script

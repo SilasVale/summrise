@@ -201,16 +201,19 @@ async function refresh() {
   const link = document.getElementById("console");
   const chip = document.getElementById("console-chip");
   link.replaceChildren();
+  // The same sentence the console uses, in the same order: two surfaces of one product should not make
+  // an operator translate.
   const attempt = snapshot.console_attempt;
   if (!attempt || !attempt.attempts) {
     chip.className = "chip chip-ok";
     chip.textContent = "connected";
-    row(link, "Last attempt", "connected on the first try");
+    row(link, "Link", "connected on the first try");
   } else {
     chip.className = "chip chip-warn";
-    chip.textContent = attempt.attempts + " retries";
-    row(link, "Failed attempts", String(attempt.attempts));
-    row(link, "Last reason", attempt.reason || "(none given)");
+    chip.textContent = "reconnected after " + attempt.attempts;
+    const noun = attempt.attempts === 1 ? "failed attempt" : "failed attempts";
+    row(link, "Link", "reconnected after " + attempt.attempts + " " + noun);
+    row(link, "Reason", attempt.reason || "(none given)");
   }
 
   const state = document.getElementById("state");

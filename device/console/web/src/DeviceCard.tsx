@@ -47,10 +47,7 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
         // as well, because "it flapped twice and came back" is the fact an operator wants before the
         // next outage, not after it.
         <p className="attempt" title={device.last_attempt.reason}>
-          {device.online ? "reconnected after " : "last connect: "}
-          {device.last_attempt.attempts} failed attempt
-          {device.last_attempt.attempts === 1 ? "" : "s"}
-          {device.last_attempt.reason ? ` — ${device.last_attempt.reason}` : ""}
+          {retrySentence(device.last_attempt.attempts, device.last_attempt.reason)}
         </p>
       )}
 
@@ -63,6 +60,18 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
       </footer>
     </article>
   );
+}
+
+/**
+ * The one sentence both surfaces use for a link that came back.
+ *
+ * The panel says it too — same words, same order — because an operator reading one surface and then the
+ * other should not have to translate. "offline" alone is not a diagnosis; this is.
+ */
+export function retrySentence(attempts: number, reason: string): string {
+  const noun = attempts === 1 ? "failed attempt" : "failed attempts";
+  const base = `reconnected after ${attempts} ${noun}`;
+  return reason ? `${base} — ${reason}` : base;
 }
 
 function shortId(id: string): string {
