@@ -35,23 +35,38 @@ export function App() {
     [devices]
   );
 
-  const load = useCallback(async () => {
-    const [state, list, lines] = await Promise.all([api.session(), api.devices(), api.audit()]);
+  // Ask who we are first, then ask for data. Fetching the device list before knowing whether there is
+  // a session earns two 401s on every cold load — visible in the browser console as failures that are
+  // not failures, and exactly the noise that hides a real one later.
+  const probe = useCallback(async () => {
+    const state = await api.session();
     setSession(state);
+    if (!state.authenticated) return;
+    const [list, lines] = await Promise.all([api.devices(), api.audit()]);
     setDevices(list);
     setAudit(lines);
     setError(null);
   }, []);
 
+  const load = useCallback(async () => {
+    if (!session?.authenticated) {
+      await probe();
+      return;
+    }
+    const [list, lines] = await Promise.all([api.devices(), api.audit()]);
+    setDevices(list);
+    setAudit(lines);
+  }, [probe, session?.authenticated]);
+
   useEffect(() => {
-    load().catch((cause) => {
+    probe().catch((cause) => {
       if (cause instanceof HttpError && cause.status === 401) {
         setSession({ authenticated: false });
         return;
       }
       setError(describe(cause));
     });
-  }, [load]);
+  }, [probe]);
 
   // A signed-in session polls; a signed-out one does not. The device list is the thing an operator
   // watches, and a list that is a minute stale is the reason they refresh and lose their selection.

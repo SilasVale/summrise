@@ -77,35 +77,49 @@ const fail = async (reason) => {
 await page.goto(base + '/', { waitUntil: 'load', timeout: 30000 });
 
 // A resumed session and a fresh tab are both normal: sign in only if the box is showing.
-if (await page.locator('#login').isVisible().catch(() => false)) {
-  await page.fill('#operator-token', token);
-  await page.click('#login-form button[type=submit]');
+if (await page.locator('.login').isVisible().catch(() => false)) {
+  await page.fill('#token', token);
+  await page.click('.login button.primary');
 }
 
 try {
-  await page.waitForSelector('#device-cards .card', { timeout: 20000 });
+  await page.waitForSelector('.card', { timeout: 20000 });
 } catch {
   await fail('no device card rendered within 20 s (is the sign-in working?)');
 }
 
-const cards = await page.locator('#device-cards .card').count();
+const cards = await page.locator('.card').count();
 if (cards < expectedCardinals) await fail(`expected at least ${expectedCardinals} card(s), saw ${cards}`);
 
 // A card proves the page rendered; it does not prove a device can be reached. The summary line is
 // where the console says how many channels are live, and a fleet that is all offline is a console
 // that looks fine and is useless.
 if (expectedOnline >= 0) {
-  const summary = await page.locator('#device-summary').innerText();
-  const online = Number((summary.match(/(\d+)\s+online/) || [])[1] ?? -1);
+  // A device reconnects on its own backoff, which is up to a minute — so a check that runs right after
+  // the console restarts must wait for the channels rather than call them broken.
+  let summary = '';
+  let online = -1;
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    await page.click('.panel-head button', { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(5000);
+    summary = await page.locator('.summary').innerText();
+    online = Number((summary.match(/(\d+)\s+online/) || [])[1] ?? -1);
+    if (online >= expectedOnline) break;
+  }
   if (online < expectedOnline) await fail(`expected ${expectedOnline} online, the page says "${summary}"`);
 }
 if (errors.length > 0) await fail('the page logged errors');
 
-// A dead button is the exact failure this script exists for: click the one that only needs a session.
-await page.click('#refresh-audit').catch(() => {});
-await page.waitForTimeout(1500);
-const auditRows = await page.locator('#audit-list tr').count();
-if (auditRows === 0) await fail('the audit table stayed empty after Refresh');
+// A dead button is the exact failure this script exists for: click a control that only needs a session
+// and check the thing it is supposed to change.
+await page.locator('.rail-btn').last().click().catch(() => {});
+await page.waitForTimeout(1200);
+const auditRows = await page.locator('table tbody tr').count();
+if (auditRows === 0) await fail('the audit table stayed empty after opening the audit page');
+
+// The rail and the status bar are the shell: their absence means the page rendered a fragment.
+if ((await page.locator('.rail-btn').count()) === 0) await fail('the rail is missing');
+if ((await page.locator('.statusbar').count()) === 0) await fail('the status bar is missing');
 
 if (shot) await page.screenshot({ path: shot, fullPage: true });
 await browser.close();
