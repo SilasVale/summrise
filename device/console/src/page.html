@@ -306,6 +306,7 @@
 </main>
 
 <script src="/assets/xterm.js"></script>
+<script src="/assets/addon-fit.js"></script>
 <script>
 "use strict";
 
@@ -496,6 +497,7 @@ function renderDevices() {
 let terminalSession = null;
 let terminalTimer = null;
 let terminalTerminal = null;
+let terminalFit = null;
 
 function terminalCall(name, args) {
   if (!lastGrant) return Promise.reject(new Error("mint a grant first"));
@@ -512,6 +514,21 @@ function terminalCall(name, args) {
     if (answer && answer.result && answer.result.isError) throw new Error(text || "the device refused");
     return text;
   });
+}
+
+// Fit the emulator to its container and tell the device, so the PTY's geometry is the one on screen.
+function terminalResize() {
+  if (!terminalTerminal || !terminalFit || !terminalSession) return;
+  try {
+    terminalFit.fit();
+  } catch (_) {
+    return;
+  }
+  terminalCall("terminal.resize", {
+    id: terminalSession,
+    rows: terminalTerminal.rows,
+    cols: terminalTerminal.cols
+  }).catch(() => {});
 }
 
 function terminalKindChanged() {
@@ -541,6 +558,7 @@ async function terminalOpen() {
 
     $("terminal-hint").hidden = true;
     $("terminal-screen").hidden = false;
+    terminalFit = new FitAddon.FitAddon();
     terminalTerminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
@@ -548,6 +566,7 @@ async function terminalOpen() {
       fontSize: 13,
       theme: { background: "#10151c" }
     });
+    terminalTerminal.loadAddon(terminalFit);
     terminalTerminal.open($("terminal-screen"));
     terminalTerminal.focus();
     // Raw keystrokes go to the device's PTY: this is what makes an interactive prompt (sudo, an ssh
@@ -556,6 +575,11 @@ async function terminalOpen() {
       if (!terminalSession) return;
       terminalCall("terminal.write", { id: terminalSession, data: data }).catch(() => {});
     });
+
+    // A terminal whose size is a guess renders vim and top wrong: fit it, then tell the device the
+    // geometry its PTY should have. The window's own resize keeps the two in step.
+    terminalResize();
+    window.addEventListener("resize", terminalResize);
 
     $("terminal-close").disabled = false;
     setStatus($("terminal-status"), "Session " + terminalSession + " is open.", "ok");
@@ -588,9 +612,11 @@ async function terminalClose() {
   } catch (error) {
     /* closing twice is not worth a banner */
   }
+  window.removeEventListener("resize", terminalResize);
   if (terminalTerminal) {
     terminalTerminal.dispose();
     terminalTerminal = null;
+    terminalFit = null;
   }
   $("terminal-screen").hidden = true;
   $("terminal-hint").hidden = false;

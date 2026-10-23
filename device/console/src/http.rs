@@ -185,6 +185,15 @@ impl Console {
                 }),
             )
             .route(
+                "/assets/addon-fit.js",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::FIT,
+                        content_type: "text/javascript; charset=utf-8",
+                    }
+                }),
+            )
+            .route(
                 "/assets/xterm.css",
                 get(|| async {
                     assets::Asset {
@@ -515,6 +524,7 @@ mod assets {
 
     pub(super) const JS: &str = include_str!("../assets/xterm.js");
     pub(super) const CSS: &str = include_str!("../assets/xterm.css");
+    pub(super) const FIT: &str = include_str!("../assets/addon-fit.js");
 
     /// A tiny responder: the bodies are static, and the content types are the two that matter.
     pub(super) struct Asset {
