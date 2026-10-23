@@ -1073,7 +1073,16 @@ fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
     store.ingest_repairs(&mut state)?;
     store.ingest_swap_request(&mut state)?;
     store.apply_swap_result(&mut state)?;
-    store.save(&state)
+    // A start that cannot WRITE the document is a device whose disk is full or whose data directory
+    // was made read-only: the identity facts were read successfully, so the device must serve rather
+    // than exit — exiting takes the console channel with it, exactly when an operator needs it. The
+    // failure is loud because every later write will fail the same way.
+    if let Err(error) = store.save(&state) {
+        eprintln!(
+            "summrise-device: the state document could not be written ({error}); serving with the facts read at start"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1437,6 +1446,30 @@ mod tests {
             after.service.started_at
         );
         assert_eq!(after.service.state, ServiceState::Running);
+    }
+
+    /// A data directory that cannot be written (a full disk, a read-only volume, a permissions
+    /// mishap) must not take the device down: the facts were read, so the device serves and says the
+    /// write failed. Exiting would lose the console channel exactly when it is needed.
+    #[test]
+    #[allow(clippy::permissions_set_readonly_false)]
+    fn a_state_document_that_cannot_be_written_does_not_stop_the_start() {
+        let dir = TempDir::new("startup-readonly");
+        let store = store_in(&dir);
+        std::fs::create_dir_all(dir.join("data")).expect("the data directory is creatable");
+        ensure_state(&store, true).expect("the first start writes the document");
+
+        let mut attributes = std::fs::metadata(store.state_path())
+            .expect("the document exists")
+            .permissions();
+        attributes.set_readonly(true);
+        std::fs::set_permissions(store.state_path(), attributes.clone())
+            .expect("the document is made read-only");
+
+        ensure_state(&store, true).expect("a failed write does not stop the start");
+
+        attributes.set_readonly(false);
+        let _ = std::fs::set_permissions(store.state_path(), attributes);
     }
 
     #[test]
