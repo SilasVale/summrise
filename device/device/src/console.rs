@@ -191,7 +191,14 @@ impl ConsoleEndpoint {
                 path: token_file.clone(),
                 expected: "the registration response ({\"id\",\"token\"}) or `<id> <token>`",
             })?;
-        let channel_url = channel_url(url, &device_id)?;
+        // The release the launcher started us with, not the crate version: a rebuilt binary keeps
+        // CARGO_PKG_VERSION at 0.1.0, while the operator knows this machine by the release the
+        // launcher chose.
+        let version = config
+            .release_version
+            .clone()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        let channel_url = channel_url(url, &device_id, &version)?;
         Ok(Some(ConsoleEndpoint {
             channel_url,
             device_id,
@@ -237,7 +244,7 @@ fn is_hex_64(text: &str) -> bool {
 }
 
 /// Build the channel URL from the console base and the device id.
-fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
+fn channel_url(base: &str, device_id: &str, version: &str) -> Result<String, ConsoleError> {
     let base = base.trim().trim_end_matches('/');
     let (scheme, rest) = base
         .split_once("://")
@@ -254,7 +261,47 @@ fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
     {
         return Err(ConsoleError::BadUrl(base.to_owned()));
     }
-    Ok(format!("{scheme}://{rest}/devices/{device_id}/channel"))
+    // `?v=` and `?n=` tell the console which build and which machine are on the other end, so the
+    // operator's device list can name them without asking the device for a grant first. A console that
+    // ignores the parameters answers exactly as before: they are a query string on a route both sides
+    // already share.
+    let name = host_name()
+        .map(|name| format!("&n={}", percent_encode(&name)))
+        .unwrap_or_default();
+    Ok(format!(
+        "{scheme}://{rest}/devices/{device_id}/channel?v={}{name}",
+        percent_encode(version)
+    ))
+}
+
+/// The machine's own name, as the operator would recognise it in a list.
+///
+/// Windows names a machine with `COMPUTERNAME` (`desktop-9vh92bj`); the variable may also be unset in
+/// a service that inherited nothing, in which case the console shows no name rather than a guess.
+fn host_name() -> Option<String> {
+    for key in ["COMPUTERNAME", "HOSTNAME"] {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Percent-encode the characters a query string cannot carry, so a name with a space or `&` survives.
+fn percent_encode(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            other => encoded.push_str(&format!("%{other:02X}")),
+        }
+    }
+    encoded
 }
 
 /// Parse the compile-time console key, refusing the placeholder by name.
@@ -722,22 +769,31 @@ mod tests {
         for (base, expected) in [
             (
                 "ws://127.0.0.1:8080",
-                "ws://127.0.0.1:8080/devices/ab/channel",
+                "ws://127.0.0.1:8080/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "http://127.0.0.1:8080/",
-                "ws://127.0.0.1:8080/devices/ab/channel",
+                "ws://127.0.0.1:8080/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "https://console.example.test",
-                "wss://console.example.test/devices/ab/channel",
+                "wss://console.example.test/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "wss://console.example.test/console",
-                "wss://console.example.test/console/devices/ab/channel",
+                "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
-            assert_eq!(channel_url(base, "ab").expect(base), expected, "{base}");
+            let actual = channel_url(base, "ab", "0.0.0-test").expect(base);
+            assert!(actual.starts_with(expected), "{base}: {actual}");
+            // The machine's own name follows the version, encoded so a space or `&` survives.
+            if let Some(name) = host_name() {
+                assert_eq!(
+                    actual,
+                    format!("{expected}&n={}", percent_encode(&name)),
+                    "{base}: the name is announced with the version"
+                );
+            }
         }
 
         for bad in [
@@ -747,7 +803,10 @@ mod tests {
             "ws://",
             "ws://host/a b",
         ] {
-            assert!(channel_url(bad, "ab").is_err(), "{bad:?} must be refused");
+            assert!(
+                channel_url(bad, "ab", "0.0.0-test").is_err(),
+                "{bad:?} must be refused"
+            );
         }
     }
 
@@ -819,7 +878,11 @@ mod tests {
         assert_eq!(loaded.token, token());
         assert_eq!(
             loaded.channel_url,
-            format!("wss://console.example.test/devices/{}/channel", device_id())
+            format!(
+                "wss://console.example.test/devices/{}/channel?v={}",
+                device_id(),
+                env!("CARGO_PKG_VERSION")
+            )
         );
 
         config.console_url = None;

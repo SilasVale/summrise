@@ -5,6 +5,7 @@
 //! live in `auth`, `codes`, `devices` and `grants`, and the router only turns refusals into status
 //! codes.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -693,6 +694,7 @@ async fn create_grant(
 async fn device_channel(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
@@ -706,6 +708,28 @@ async fn device_channel(
             )
             .await
             .into_response();
+    }
+
+    lock(&app.devices).touch(&device_id, (app.now)());
+
+    // `?v=` is the device volunteering its version, so the operator's device list can name it
+    // without asking the device for a grant first. Bounded and character-checked: it is displayed.
+    if let Some(version) = params.get("v") {
+        let plausible = !version.is_empty()
+            && version.len() <= 32
+            && version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
+        if plausible {
+            app.channels.announce_version(&device_id, version);
+        }
+    }
+    if let Some(name) = params.get("n") {
+        let plausible =
+            !name.is_empty() && name.len() <= 64 && !name.chars().any(|c| c.is_control());
+        if plausible {
+            app.channels.announce_name(&device_id, name);
+        }
     }
 
     upgrade.on_upgrade(move |socket| async move {
@@ -905,8 +929,39 @@ async fn proxy_mcp(
 }
 
 /// `GET /devices`: the registry, for the operator.
-async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<Device>> {
-    Json(lock(&app.devices).list())
+async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
+    let devices = lock(&app.devices).list();
+    let devices = devices
+        .into_iter()
+        .map(|device| DeviceView {
+            online: app.channels.online(&device.id),
+            version: app.channels.version(&device.id),
+            // A name given at registration wins; the machine's own name is a fallback for the
+            // devices that never gave one, which is all of them so far.
+            name: device.name.or_else(|| app.channels.name(&device.id)),
+            id: device.id,
+            public_key: device.public_key,
+            registered_at_ms: device.registered_at_ms,
+            last_seen_ms: device.last_seen_ms,
+        })
+        .collect();
+    Json(devices)
+}
+
+/// A registered device as the operator's list sees it: the registry's facts plus the channel's.
+#[derive(serde::Serialize)]
+struct DeviceView {
+    id: String,
+    public_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    registered_at_ms: u64,
+    last_seen_ms: u64,
+    /// Whether a channel is open right now.
+    online: bool,
+    /// The version the device announced on its channel, when it announced one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
 }
 
 /// How a transport failure is answered, and whether the operator may retry.

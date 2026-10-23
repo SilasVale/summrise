@@ -36,6 +36,18 @@ pub(crate) fn backup_path(path: &Path) -> std::path::PathBuf {
     path.with_extension("json.bak")
 }
 
+/// Move a file this build cannot read aside, keeping the bytes as evidence.
+///
+/// `None` means the rename failed; the caller still starts with an empty view, because a damaged
+/// file must not be able to stop a process that does not need it.
+pub(crate) fn quarantine(path: &Path) -> Option<std::path::PathBuf> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".bad");
+    let quarantined = std::path::PathBuf::from(name);
+    let _ = fs::remove_file(&quarantined);
+    fs::rename(path, &quarantined).ok().map(|()| quarantined)
+}
+
 /// Read a JSON file, falling back to its `.bak` when the file is missing or unreadable.
 ///
 /// `Ok(None)` means neither version exists (a first start). The fallback is not silent: the caller

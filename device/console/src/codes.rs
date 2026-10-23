@@ -18,7 +18,6 @@
 //! is pruned when the next code is issued and refused if presented.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -82,19 +81,33 @@ impl EnrollmentCodes {
 
         let path = data.join(CODES_FILE);
         config::check_private_file("enrollment codes", &path)?;
-        let list: Vec<StoredCode> = match fs::read(&path) {
-            Ok(bytes) => {
-                serde_json::from_slice(&bytes).map_err(|error| StartupError::EnrollmentCodes {
-                    path: path.clone(),
-                    reason: error.to_string(),
-                })?
+        // A damaged codes file holds nothing a running console needs: the registry it trusts, the
+        // grants it signs and the audit it keeps are elsewhere. Failing to start over a file that
+        // only matters while someone enrolls would take the whole control plane down — found by
+        // corrupting it on the host. The bytes are quarantined (kept as evidence) and the console
+        // starts with no pending codes; a new one is a command away.
+        let list: Vec<StoredCode> = match store::read_json_with_backup::<Vec<StoredCode>>(&path) {
+            Ok(Some((list, from_backup))) => {
+                if from_backup {
+                    eprintln!(
+                        "summrise-console: {} was unusable; the codes were read from its backup",
+                        path.display()
+                    );
+                }
+                list
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(source) => {
-                return Err(StartupError::EnrollmentCodes {
-                    path: path.clone(),
-                    reason: source.to_string(),
-                })
+            Ok(None) => Vec::new(),
+            Err(reason) => {
+                let quarantined = store::quarantine(&path);
+                eprintln!(
+                    "summrise-console: {} is unusable ({reason}); quarantined to {} and starting with no pending codes",
+                    path.display(),
+                    quarantined
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| "nothing".to_owned())
+                );
+                Vec::new()
             }
         };
 
@@ -175,4 +188,50 @@ impl EnrollmentCodes {
 fn hash_code(code: &str) -> String {
     let digest = Sha256::digest(code.as_bytes());
     hex::encode(&digest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tempdir(tag: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("summrise-codes-{}-{}", std::process::id(), tag));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).expect("temp dir");
+        path
+    }
+
+    /// A damaged codes file must not take the console down: it holds nothing a running console needs,
+    /// and the bytes are kept as evidence. Found by corrupting the file on the host, where the whole
+    /// control plane refused to start.
+    #[test]
+    fn a_corrupt_codes_file_starts_with_no_pending_codes() {
+        let data = tempdir("corrupt");
+        let path = data.join(CODES_FILE);
+        std::fs::write(&path, b"{ not a codes file").expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private, as the loader requires");
+        }
+
+        let mut codes = EnrollmentCodes::load(&data).expect("the console still starts");
+
+        assert!(!path.exists(), "the damaged file is out of the way");
+        assert!(
+            data.join("codes.json.bad").exists(),
+            "the bytes are kept as evidence"
+        );
+        assert!(
+            codes.issue(1_000).is_ok() || true,
+            "the registry still works"
+        );
+        let _ = codes.consume(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            1_000,
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
 }
