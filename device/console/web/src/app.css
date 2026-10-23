@@ -200,13 +200,22 @@ tr:last-child td { border-bottom: 0; }
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.15rem 0.8rem; margin-top: 0.35rem; }
 .tool-grid .check { font-size: var(--fs-xs); }
 
-.terminal-pane { display: grid; gap: 0.5rem; }
+.terminal-pane { display: grid; gap: 0.5rem; min-width: 0; }
+/* A select, a list button, an open button and a close button are 500 px of controls on one line: at 420 px
+   they push the page sideways. The row wraps instead. */
+.terminal-pane .actions { flex-wrap: wrap; }
+.terminal-pane .actions select { max-width: 100%; }
 .terminal-pane .actions select,
 .terminal-pane > select {
   padding: 0.35rem 0.5rem; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
   background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm);
 }
-.term-host { background: #10151c; border-radius: var(--radius); padding: 0.5rem 0.6rem; height: 22rem; overflow: hidden; }
+/* The pane follows the window: a fixed 22 rem is taller than a phone's whole viewport once the on-screen
+   keyboard is up, which makes the prompt the part you cannot see. */
+.term-host {
+  background: #10151c; border-radius: var(--radius); padding: 0.5rem 0.6rem;
+  height: clamp(13rem, 52vh, 24rem); overflow: hidden;
+}
 @media (prefers-color-scheme: dark) { .term-host { background: #0e1319; } }
 
 .session button { margin-left: 0.5rem; padding: 0.2rem 0.55rem; font-size: var(--fs-xs); }
