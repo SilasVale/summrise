@@ -1,31 +1,113 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
-import { DeviceCard, type Device } from "./DeviceCard";
-import { AuditTable, type AuditLine } from "./AuditTable";
-
-// A fixture UI while the page is rebuilt: the shapes here are exactly what /devices and /audit
-// answer, so wiring it to the console is an import and a fetch, not a redesign.
-const DEVICES: Device[] = [
-  { id: "4c718d6e44c83388c7e07bd0d811fa0b7cf22e2fced85d35d0021dd26b11f687", name: "canary-one", online: true, version: "0.3.17", last_seen_ms: Date.now() - 12_000 },
-  { id: "8780d0ee9a5a42bccd8b45590ad2af89ea3e9bbb841059a2e6aaba795fdf04a2", name: "DESKTOP-14RJCR8", online: true, version: "0.3.17", last_seen_ms: Date.now() - 20_000 }
-];
-
-const AUDIT: AuditLine[] = [
-  { ts_ms: Date.now() - 60_000, kind: "mcp", device_id: DEVICES[0].id, tool: "terminal.create", status: 200 },
-  { ts_ms: Date.now() - 120_000, kind: "grant", device_id: DEVICES[0].id, detail: "allow_destructive=true", status: 200 },
-  { ts_ms: Date.now() - 180_000, kind: "enroll", status: 200 },
-  { ts_ms: Date.now() - 240_000, kind: "denied", detail: "bad_operator_token", status: 401 }
-];
+import { api, HttpError, setToken, type AuditLine, type Device, type Session } from "./api";
+import { DeviceCard } from "./DeviceCard";
+import { AuditTable } from "./AuditTable";
+import { Rail, type Page } from "./Rail";
 
 export function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [audit, setAudit] = useState<AuditLine[]>([]);
+  const [page, setPage] = useState<Page>("devices");
   const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+
   const newest = useMemo(
-    () => DEVICES.reduce<string | null>((best, device) => (best === null || compareVersions(device.version, best) > 0 ? device.version : best), null),
-    []
+    () =>
+      devices.reduce<string | null>(
+        (best, device) =>
+          device.version && (best === null || compareVersions(device.version, best) > 0) ? device.version : best,
+        null
+      ),
+    [devices]
   );
 
+  const load = useCallback(async () => {
+    const [state, list, lines] = await Promise.all([api.session(), api.devices(), api.audit()]);
+    setSession(state);
+    setDevices(list);
+    setAudit(lines);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    load().catch((cause) => {
+      if (cause instanceof HttpError && cause.status === 401) {
+        setSession({ authenticated: false });
+        return;
+      }
+      setError(describe(cause));
+    });
+  }, [load]);
+
+  // A signed-in session polls; a signed-out one does not. The device list is the thing an operator
+  // watches, and a list that is a minute stale is the reason they refresh and lose their selection.
+  useEffect(() => {
+    if (!session?.authenticated) return;
+    const timer = window.setInterval(() => {
+      load().catch(() => {
+        /* a poll that fails is retried by the next one; the sign-in state decides the rest */
+      });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [session?.authenticated, load]);
+
+  const signIn = async () => {
+    setBusy(true);
+    try {
+      const answer = await api.signIn({ token: tokenInput.trim() });
+      setToken(answer.token);
+      setTokenInput("");
+      await load();
+    } catch (cause) {
+      setError(describe(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (session === null) return <p className="boot">Connecting…</p>;
+
+  if (!session.authenticated) {
+    return (
+      <div className="login-wrap">
+        <section className="panel login">
+          <img src={logoUrl} alt="" width={40} height={40} />
+          <h2>Sign in to the console</h2>
+          <p className="hint">
+            Cloudflare Access signs you in automatically. The operator token is the way in when it does
+            not.
+          </p>
+          <label htmlFor="token">Operator token</label>
+          <input
+            id="token"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={tokenInput}
+            onChange={(event) => setTokenInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && tokenInput.trim()) void signIn();
+            }}
+            placeholder="64 hex characters"
+          />
+          <button className="primary" type="button" disabled={busy || tokenInput.trim().length === 0} onClick={() => void signIn()}>
+            {busy ? "Checking…" : "Sign in"}
+          </button>
+          {error && <p className="error">{error}</p>}
+        </section>
+      </div>
+    );
+  }
+
+  const online = devices.filter((device) => device.online).length;
+  const chosen = devices.find((device) => device.id === selected) ?? null;
+
   return (
-    <>
+    <div className="shell">
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
@@ -34,78 +116,120 @@ export function App() {
             <span>console</span>
           </div>
           <p className="session">
-            <span className="dot dot-ok" /> Signed in until 19:40
+            <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
+            {session.email ? session.email : `${online} of ${devices.length} devices online`}
           </p>
         </div>
       </header>
 
-      <main>
-        <p className="lede">Pick a device below to work on it. Everything that touches a machine goes through one audited channel.</p>
+      <div className="body">
+        <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
-        <div className="columns">
-          <div className="col">
-            <section className="panel">
-              <div className="panel-head">
-                <h2>Devices</h2>
-                <div className="actions">
-                  <button type="button">Refresh</button>
-                  <button type="button">Sign out</button>
-                </div>
+        <main>
+          {page === "devices" && (
+            <div className="columns">
+              <div className="col">
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Devices</h2>
+                    <div className="actions">
+                      <button type="button" onClick={() => void load()}>Refresh</button>
+                    </div>
+                  </div>
+                  <p className="summary">
+                    {devices.length} devices, {online} online
+                  </p>
+                  <div className="cards">
+                    {devices.map((device) => (
+                      <DeviceCard
+                        key={device.id}
+                        device={device}
+                        newest={newest}
+                        selected={selected === device.id}
+                        onSelect={() => {
+                          setSelected(device.id);
+                          setPage("terminal");
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
               </div>
-              <p className="summary">{DEVICES.length} devices, {DEVICES.filter((d) => d.online).length} online</p>
-              <div className="cards">
-                {DEVICES.map((device) => (
-                  <DeviceCard
-                    key={device.id}
-                    device={device}
-                    newest={newest}
-                    selected={selected === device.id}
-                    onSelect={() => setSelected(device.id)}
-                  />
-                ))}
+
+              <div className="col">
+                {chosen ? (
+                  <section className="panel">
+                    <div className="panel-head">
+                      <h2>Working on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                    </div>
+                    <p className="hint">
+                      Grant what the console may do, then read its state, open a shell, or look at its
+                      browser.
+                    </p>
+                  </section>
+                ) : (
+                  <section className="panel empty">
+                    <p>No device selected.</p>
+                    <p className="hint">Choose one on the left and its controls appear here.</p>
+                  </section>
+                )}
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Audit</h2>
+                    <div className="actions">
+                      <button type="button" onClick={() => void load()}>Refresh</button>
+                    </div>
+                  </div>
+                  <AuditTable lines={audit} />
+                </section>
               </div>
+            </div>
+          )}
+
+          {page === "terminal" && (
+            <section className="panel empty">
+              <p>{chosen ? `Terminal for ${chosen.name ?? chosen.id.slice(0, 12)}` : "No device selected."}</p>
+              <p className="hint">The shell lands here — same channel, same grant, same audit.</p>
             </section>
+          )}
 
-            <section className="panel">
-              <div className="panel-head">
-                <h2>Add a device</h2>
-                <div className="actions">
-                  <button type="button">New enrollment code</button>
-                </div>
-              </div>
-              <p className="hint">A code is single-use and expires in minutes. Run the command on the new machine.</p>
+          {page === "browser" && (
+            <section className="panel empty">
+              <p>{chosen ? `Browser on ${chosen.name ?? chosen.id.slice(0, 12)}` : "No device selected."}</p>
+              <p className="hint">The device's browser lands here, one frame per refresh.</p>
             </section>
-          </div>
+          )}
 
-          <div className="col">
-            {selected ? (
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>Working on {DEVICES.find((d) => d.id === selected)?.name}</h2>
-                </div>
-                <p className="hint">Grant what the console may do, then read its state, open a shell, or look at its browser.</p>
-              </section>
-            ) : (
-              <section className="panel empty">
-                <p>No device selected.</p>
-                <p className="hint">Choose one on the left and its controls appear here.</p>
-              </section>
-            )}
-
+          {page === "audit" && (
             <section className="panel">
               <div className="panel-head">
                 <h2>Audit</h2>
                 <div className="actions">
-                  <button type="button">Refresh</button>
+                  <button type="button" onClick={() => void load()}>Refresh</button>
                 </div>
               </div>
-              <AuditTable lines={AUDIT} />
+              <AuditTable lines={audit} />
             </section>
-          </div>
-        </div>
-      </main>
-    </>
+          )}
+        </main>
+      </div>
+
+      <footer className="statusbar">
+        <span>{devices.length} devices</span>
+        <span className="sep" />
+        <span>{online} online</span>
+        <span className="sep" />
+        <span>{session.via === "access" ? "signed in through Cloudflare Access" : "signed in with the operator token"}</span>
+        <span className="grow" />
+        <span>console 0.3.17</span>
+      </footer>
+    </div>
   );
+}
+
+function describe(cause: unknown): string {
+  if (cause instanceof HttpError) return `${cause.status} ${cause.code}`;
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function compareVersions(left: string, right: string): number {
