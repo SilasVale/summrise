@@ -62,13 +62,14 @@ Every cell was captured from the deployed product, not from a local build.
 | console — devices | ✓ | ✓ | ✓ (overflow 0) | ✓ (overflow 0) |
 | console — grant | ✓ | ✓ | ✓ | ✓ |
 | console — terminal | ✓ | ✓ | — | — |
-| console — browser pane | ✓ (example.com, 764×485 capture) | — | — | — |
+| console — browser pane | ✓ (example.com, 764×485 capture) | ✓ | ✓ (image scales to 352 px, overflow 0) | ✓ (overflow 0) |
 | device panel | ✓ | ✓ | ✓ (overflow 0) | ✓ (overflow 0) |
 
 ## What is still not verified
 
-* **The browser pane in dark mode** — it was captured in light only. The pane shows an image, so the theme
-  mostly governs its frame, but "mostly" is not "measured".
+* **The browser pane on a touch device** — the grid itself was measured at 420 px, but tapping a
+  coordinate on the captured image and expecting the remote page to react has never been tried with a
+  finger.
 * **The terminal at 420 px** — the pane is 22 rem tall and fixed; a phone-sized window would give it a
   keyboard and almost no room. Nothing here has been tried on a touch device.
 * **Two operators in one browser** — two sessions coexist on the console (measured: two `POST /auth`
