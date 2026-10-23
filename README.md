@@ -53,6 +53,42 @@ x86_64-pc-windows-msvc` compiles the Windows-only paths from Linux.
 
 See `LICENSE`.
 
+## Install (from a release)
+
+A release carries the installer, the app binary and the signed release document:
+
+| Asset | For |
+|---|---|
+| `SummriseSetup-<version>.exe` | installing on a Windows machine |
+| `summrise-device-<version>.exe` | the updater's artifact (a device fetches it, not a human) |
+| `release-<version>.json` | the signed document the updater verifies |
+| `SHA256SUMS` | checking what you downloaded |
+
+```bat
+:: interactive, or silent into a chosen directory (/D= must be last and unquoted)
+SummriseSetup-0.3.7.exe /S /D=C:\SummriseInstall
+
+:: verify
+curl http://127.0.0.1:18090/api/health
+summrise-launch.exe --self-check C:\SummriseInstall --data C:\ProgramData\Summrise
+```
+
+Defaults: install `%ProgramFiles%\Summrise`, data `%ProgramData%\Summrise`, service
+`SummriseLaunch`, port 18080 (canary builds published so far use 18090 so they can coexist with the
+pre-1.3 agent). Uninstall from Add/Remove Programs or `uninstall.exe /S`; it removes the service and
+asks about the data directory only when interactive.
+
+A device updates itself once it is given a source, and never without a verified document:
+
+```bat
+summrise-device.exe --set-update-source <document-url> --channel canary --interval 21600 ^
+    --data C:\ProgramData\Summrise
+```
+
+`--allow-plaintext` is needed only for a plain-http mirror on a trusted tunnel; a device applies a
+release only after checking the signature, the artifact's SHA-256, the channel and the revocation
+list, and the supervisor rolls back to the previous generation if the new one fails its health probe.
+
 ## Where to read next
 
 The design is a record, not a wiki page: each document states a decision and what would overturn it.
