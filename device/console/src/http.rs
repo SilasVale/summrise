@@ -172,6 +172,27 @@ impl Console {
     pub fn router(&self) -> Router {
         Router::new()
             .route("/", get(operator_page))
+            // The terminal emulator, served from the binary: the page needs a real terminal for
+            // interactive prompts (sudo, ssh host keys), and fetching it from a CDN would make the
+            // console depend on a third party at run time. Two files, no build step.
+            .route(
+                "/assets/xterm.js",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::JS,
+                        content_type: "text/javascript; charset=utf-8",
+                    }
+                }),
+            )
+            .route(
+                "/assets/xterm.css",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::CSS,
+                        content_type: "text/css; charset=utf-8",
+                    }
+                }),
+            )
             .route("/health", get(health))
             .route("/auth", post(authenticate))
             .route("/session", get(session_probe))
@@ -485,6 +506,32 @@ struct Health {
     max_queued_frames: usize,
     /// The label the deploy passed, or the crate version for a development start.
     version: String,
+}
+
+/// The two vendored assets behind `/assets/`.
+mod assets {
+    use axum::http::header;
+    use axum::response::{IntoResponse, Response};
+
+    pub(super) const JS: &str = include_str!("../assets/xterm.js");
+    pub(super) const CSS: &str = include_str!("../assets/xterm.css");
+
+    /// A tiny responder: the bodies are static, and the content types are the two that matter.
+    pub(super) struct Asset {
+        pub(super) body: &'static str,
+        pub(super) content_type: &'static str,
+    }
+
+    impl IntoResponse for Asset {
+        fn into_response(self) -> Response {
+            (
+                [(header::CONTENT_TYPE, self.content_type)],
+                [(header::CACHE_CONTROL, "public, max-age=86400")],
+                self.body,
+            )
+                .into_response()
+        }
+    }
 }
 
 /// `GET /`: the operator page. It is static HTML with no secret in it; the page asks for the token

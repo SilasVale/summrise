@@ -113,6 +113,13 @@
     overflow-wrap: anywhere;
   }
   .inline { display: flex; gap: .5rem; margin-top: .6rem; }
+  .terminal-host {
+    background: #10151c;
+    border-radius: .45rem;
+    padding: .5rem .6rem;
+    max-height: 24rem;
+    overflow: hidden;
+  }
   .inline input[type=text] { flex: 1; }
   section {
     background: var(--panel);
@@ -173,6 +180,7 @@
   ol.audit li { padding: .35rem 0; border-bottom: 1px solid var(--line); }
   [hidden] { display: none !important; }
 </style>
+<link rel="stylesheet" href="/assets/xterm.css">
 </head>
 <body>
 <!--
@@ -281,11 +289,8 @@
         <input id="terminal-port" type="text" placeholder="COM3 or /dev/ttyUSB0">
       </div>
       <p id="terminal-status" class="status" role="status"></p>
-      <pre id="terminal-output" class="terminal">No session.</pre>
-      <form id="terminal-form" class="inline">
-        <input id="terminal-input" type="text" placeholder="type a command and press Enter" disabled>
-        <button id="terminal-send" type="submit" disabled>Send</button>
-      </form>
+      <div id="terminal-screen" class="terminal-host" hidden></div>
+      <p id="terminal-hint" class="muted">No session.</p>
     </section>
 
     <section>
@@ -300,6 +305,7 @@
   </div>
 </main>
 
+<script src="/assets/xterm.js"></script>
 <script>
 "use strict";
 
@@ -484,39 +490,28 @@ function renderDevices() {
   }
 }
 
-// A terminal through the same channel as everything else: the page talks to /mcp, the console proxies
-// to the device, the device runs the shell. Nothing here has a second credential.
+// A terminal through the same channel as everything else: xterm renders, the page talks to /mcp, the
+// console proxies to the device, the device runs the shell. Nothing here has a second credential, and
+// every keystroke is a line in the device's audit.
 let terminalSession = null;
-let terminalCursor = 0;
 let terminalTimer = null;
+let terminalTerminal = null;
 
-// The device sends the raw stream, escapes and all. The pane is a <pre>, not an emulator, so the
-// escape sequences are stripped rather than shown as mojibake.
-function stripEscapes(text) {
-  return text.replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, "").replace(/\u001b\][^\u0007]*\u0007/g, "");
-}
-
-function appendTerminal(text) {
-  const pane = $("terminal-output");
-  if (pane.textContent === "No session.") pane.textContent = "";
-  pane.textContent += stripEscapes(text);
-  pane.scrollTop = pane.scrollHeight;
-}
-
-async function terminalCall(name, args) {
-  if (!lastGrant) throw new Error("mint a grant first");
-  const answer = await api(ROUTES.mcp, {
+function terminalCall(name, args) {
+  if (!lastGrant) return Promise.reject(new Error("mint a grant first"));
+  return api(ROUTES.mcp, {
     method: "POST",
     body: JSON.stringify({
       device_id: lastGrant.deviceId,
       grant: lastGrant.envelope,
       request: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: name, arguments: args } }
     })
+  }).then((answer) => {
+    const content = answer && answer.result && answer.result.content;
+    const text = content && content[0] && content[0].text;
+    if (answer && answer.result && answer.result.isError) throw new Error(text || "the device refused");
+    return text;
   });
-  const content = answer && answer.result && answer.result.content;
-  const text = content && content[0] && content[0].text;
-  if (answer && answer.result && answer.result.isError) throw new Error(text || "the device refused");
-  return text;
 }
 
 function terminalKindChanged() {
@@ -541,18 +536,31 @@ async function terminalOpen() {
       args.port = $("terminal-port").value.trim();
       if (!args.port) throw new Error("a serial session needs a port path");
     }
-    const text = await terminalCall("terminal.create", args);
-    const created = JSON.parse(text);
+    const created = JSON.parse(await terminalCall("terminal.create", args));
     terminalSession = created.id;
-    terminalCursor = 0;
-    $("terminal-output").textContent = "";
-    appendTerminal("[" + kind + " session " + terminalSession + "]\n");
-    $("terminal-input").disabled = false;
-    $("terminal-send").disabled = false;
-    $("terminal-input").focus();
+
+    $("terminal-hint").hidden = true;
+    $("terminal-screen").hidden = false;
+    terminalTerminal = new Terminal({
+      convertEol: true,
+      cursorBlink: true,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      fontSize: 13,
+      theme: { background: "#10151c" }
+    });
+    terminalTerminal.open($("terminal-screen"));
+    terminalTerminal.focus();
+    // Raw keystrokes go to the device's PTY: this is what makes an interactive prompt (sudo, an ssh
+    // host key, a pager) work at all.
+    terminalTerminal.onData((data) => {
+      if (!terminalSession) return;
+      terminalCall("terminal.write", { id: terminalSession, data: data }).catch(() => {});
+    });
+
     $("terminal-close").disabled = false;
     setStatus($("terminal-status"), "Session " + terminalSession + " is open.", "ok");
-    terminalTimer = setInterval(terminalPoll, 900);
+    terminalTimer = setInterval(terminalPoll, 700);
+    await terminalPoll();
   } catch (error) {
     setStatus($("terminal-status"), "Could not open: " + error.message, "error");
     $("terminal-open").disabled = false;
@@ -560,30 +568,12 @@ async function terminalOpen() {
 }
 
 async function terminalPoll() {
-  if (!terminalSession) return;
+  if (!terminalSession || !terminalTerminal) return;
   try {
-    const text = await terminalCall("terminal.read", { id: terminalSession });
-    const read = JSON.parse(text);
-    if (read.data) {
-      appendTerminal(read.data);
-      terminalCursor = read.cursor;
-    }
+    const read = JSON.parse(await terminalCall("terminal.read", { id: terminalSession }));
+    if (read.data) terminalTerminal.write(read.data);
   } catch (error) {
-    /* a poll that fails is a poll that is retried; the session id decides whether it is alive */
-  }
-}
-
-async function terminalSend(event) {
-  event.preventDefault();
-  const input = $("terminal-input");
-  if (!terminalSession || !input.value) return;
-  const line = input.value + "\n";
-  input.value = "";
-  try {
-    await terminalCall("terminal.write", { id: terminalSession, data: line });
-    await terminalPoll();
-  } catch (error) {
-    setStatus($("terminal-status"), "Write failed: " + error.message, "error");
+    /* a failed poll is retried; the session id decides whether the session is alive */
   }
 }
 
@@ -596,11 +586,15 @@ async function terminalClose() {
   try {
     await terminalCall("terminal.close", { id: id });
   } catch (error) {
-    /* the session may already be gone; closing twice is not an error worth a banner */
+    /* closing twice is not worth a banner */
   }
-  appendTerminal("\n[session closed]\n");
-  $("terminal-input").disabled = true;
-  $("terminal-send").disabled = true;
+  if (terminalTerminal) {
+    terminalTerminal.dispose();
+    terminalTerminal = null;
+  }
+  $("terminal-screen").hidden = true;
+  $("terminal-hint").hidden = false;
+  $("terminal-hint").textContent = "No session.";
   $("terminal-close").disabled = true;
   $("terminal-open").disabled = lastGrant === null;
   setStatus($("terminal-status"), "Session closed.", "");
@@ -776,7 +770,7 @@ $("new-code").addEventListener("click", newCode);
 $("terminal-kind").addEventListener("change", terminalKindChanged);
 $("terminal-open").addEventListener("click", terminalOpen);
 $("terminal-close").addEventListener("click", terminalClose);
-$("terminal-form").addEventListener("submit", terminalSend);
+
 $("refresh-audit").addEventListener("click", refreshAudit);
 </script>
 </body>
