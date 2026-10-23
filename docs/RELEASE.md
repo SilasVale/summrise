@@ -74,6 +74,30 @@ C:\SummriseInstall\summrise-device.exe --check-update http://…/release-canary.
 document's signature, fetches the artifact, checks the digest, stages it, and asks the supervisor to swap;
 the supervisor swaps, health-checks, and rolls back if the new build does not answer.
 
+## The browser pane needs a browser on the device
+
+`browser.*` drives a real Chrome/Chromium **on the device**, not in the console. Without one, every call
+answers `no Chrome or Chromium was found; set SUMMRISE_CHROME to its executable` — which is a deployment
+requirement, not a bug, and the pane shows that sentence verbatim.
+
+```
+# on the device, as an administrator
+[Environment]::SetEnvironmentVariable('SUMMRISE_CHROME', 'C:\Chromium\chrome-win\chrome.exe', 'Machine')
+sc stop SummriseLaunch
+sc start SummriseLaunch
+```
+
+Two traps, both measured:
+
+* **The service is `SummriseLaunch`**, not `SummriseDevice`. Stopping the wrong name is a silent no-op and
+  looks like "the variable did not take".
+* **The variable is read when the process starts.** The launcher must be restarted, not just the app: it
+  is the launcher that spawns the app, and a child inherits the launcher's environment.
+* Google's `ChromeStandaloneSetup64.exe` link returns **404** now. The Chromium snapshot
+  (`https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE` then
+  `.../<rev>/chrome-win.zip`, ~369 MB) needs no installer: unzip it anywhere and point `SUMMRISE_CHROME`
+  at `chrome-win\chrome.exe`.
+
 ## Proving it landed
 
 ```bash
