@@ -1033,10 +1033,34 @@ fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
                 state
             }
             Err(error) => {
+                // A torn document must not leave a device degraded until a human deletes a file: the
+                // state is a cache of identity the install can rebuild. The old bytes are kept as
+                // `state.json.bad` and the event log says what happened; the fresh document is the
+                // one this start will use.
+                let quarantined = store.quarantine_state();
+                let events = store.data_dir().join("events.jsonl");
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&events)
+                    .and_then(|mut file| {
+                        use std::io::Write as _;
+                        writeln!(
+                            file,
+                            "{}",
+                            serde_json::json!({
+                                "ts_ms": summrise_release::now_ms(),
+                                "event": "state_quarantined",
+                                "path": store.state_path().display().to_string(),
+                                "quarantined": quarantined.as_ref().map(|path| path.display().to_string()),
+                                "error": error.to_string(),
+                            })
+                        )
+                    });
                 eprintln!(
-                    "summrise-device: the state file is unusable ({error}); /api/state will answer 500 until it is repaired"
+                    "summrise-device: the state file was unreadable ({error}); kept it and rebuilt the document"
                 );
-                return Ok(());
+                store.initial()
             }
         }
     } else {
@@ -1416,19 +1440,29 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_state_file_is_left_for_the_api_to_report() {
+    fn a_corrupt_state_file_is_quarantined_and_the_document_is_rebuilt() {
         let dir = TempDir::new("startup-corrupt");
         let store = store_in(&dir);
         std::fs::create_dir_all(dir.join("data")).expect("the data directory is creatable");
         std::fs::write(store.state_path(), "{ not a document").expect("the fixture is written");
-        let before = std::fs::read_to_string(store.state_path()).expect("the fixture is readable");
 
         ensure_state(&store, true).expect("a corrupt document does not stop the process");
 
+        // The device is not left needing an operator: the unreadable bytes are kept as evidence and
+        // the document the install can describe is written in their place.
+        let quarantined = std::fs::read_to_string(store.state_path().with_extension("json.bad"))
+            .expect("the corrupt bytes are kept");
+        assert_eq!(quarantined, "{ not a document");
+        let rebuilt = store.load().expect("the rebuilt document is readable");
         assert_eq!(
-            std::fs::read_to_string(store.state_path()).expect("the document is readable"),
-            before,
-            "replacing the file would destroy the evidence the 500 is about"
+            rebuilt.install.dir,
+            dir.join("install").display().to_string()
+        );
+        let events = std::fs::read_to_string(store.data_dir().join("events.jsonl"))
+            .expect("the recovery is recorded");
+        assert!(
+            events.contains("state_quarantined"),
+            "the event log says what happened: {events}"
         );
     }
 

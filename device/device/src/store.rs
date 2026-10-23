@@ -122,6 +122,29 @@ impl Store {
         self.state_path().exists()
     }
 
+    /// Move a state document this build cannot read aside, keeping the bytes as evidence.
+    ///
+    /// The state is a cache of identity the install can rebuild, so a torn document must not leave a
+    /// device degraded until an operator deletes a file. The bytes are kept next to the state as
+    /// `state.json.bad` — an earlier `.bad` is replaced, because it is evidence for a previous start.
+    pub fn quarantine_state(&self) -> Option<PathBuf> {
+        let path = self.state_path();
+        let mut name = path.as_os_str().to_owned();
+        name.push(".bad");
+        let quarantined = PathBuf::from(name);
+        let _ = fs::remove_file(&quarantined);
+        match fs::rename(&path, &quarantined) {
+            Ok(()) => Some(quarantined),
+            Err(error) => {
+                eprintln!(
+                    "summrise-device: could not quarantine {} ({error})",
+                    path.display()
+                );
+                None
+            }
+        }
+    }
+
     /// The document a device with no state file starts from.
     ///
     /// The release facts are the launcher's argv (fix design F6): `install.version`, the channel and
@@ -1006,6 +1029,29 @@ mod tests {
             "the verdict says what kind of start this was: {}",
             state.last_verdict.detail
         );
+    }
+
+    /// The recovery a torn document needs: the bytes are kept as evidence, and the next load starts
+    /// from the document the install can rebuild instead of requiring an operator to delete a file.
+    #[test]
+    fn a_corrupt_document_is_quarantined_before_a_fresh_start() {
+        let dir = std::env::temp_dir().join(format!("summrise-store-q-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let store = Store::new(&dir, &dir, Release::standalone());
+        std::fs::write(store.state_path(), b"{broken").expect("write a torn document");
+
+        let quarantined = store.quarantine_state().expect("the file is moved aside");
+        assert!(quarantined.exists(), "the bytes are kept as evidence");
+        assert!(
+            !store.state_path().exists(),
+            "the corrupt document is out of the way"
+        );
+        let fresh = store
+            .load()
+            .expect("a missing document starts from the install's facts");
+        assert_eq!(fresh.install.dir, dir.display().to_string());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

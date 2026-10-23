@@ -405,3 +405,44 @@ summrise-device --update-source-clear --data C:\ProgramData\Summrise
 The first check waits a per-device jitter (up to an hour) so a fleet rebooting together does not
 ask the mirror for the same document in the same second. A refusal is one log line and the next
 interval; the decision itself is never made twice by two code paths.
+
+## 10. The console on a Windows host
+
+The console is a control plane, so "it runs" is not the requirement: it must come back on its own.
+On a Windows host it is a scheduled task, not a service, and the default task settings are hostile —
+Windows stops a task after 72 hours, and restart-on-failure is off by default. Left at the defaults, the
+console dies on the third day and stays dead.
+
+The deployment (as run on `desktop-9vh92bj`):
+
+```
+C:\SummriseConsole\
+  summrise-console.exe      the binary
+  operator.token            the operator's token (one line, 0600-equivalent ACL)
+  grant.seed                the ed25519 seed grants are signed with
+  run-console.cmd           idempotent launcher: exit 0 when the process already runs
+```
+
+The task:
+
+| Setting | Value | Why |
+|---|---|---|
+| actions | `run-console.cmd` | the script refuses to start a second instance |
+| triggers | at startup, **and every 5 minutes** | a killed process is back inside one cycle without a service wrapper |
+| execution time limit | none (`PT0S`) | the default 72-hour limit stops a long-running console |
+| multiple instances | `IgnoreNew` | the tick cannot stack instances |
+| restart on failure | 3 × 1 min | covers a crash the tick would otherwise wait for |
+| user | `SYSTEM` | no interactive session to keep alive |
+
+Verification, on the host:
+
+```bat
+curl http://127.0.0.1:19000/health        :: {"status":"ok","devices":N,...}
+taskkill /F /IM summrise-console.exe      :: then wait one tick
+curl http://127.0.0.1:19000/health        :: ok again, devices reconnected
+```
+
+Observed on 2026-10-23: killed the console (pid 26108), and five minutes later `/health` answered with
+`uptime_s 309` and `devices: 2` — the tick restarted it and both devices re-dialled, with no operator
+action. The first attempt at this deployment had the default 72-hour limit and restart disabled: the
+process did **not** come back, which is why the task is documented here rather than assumed.
