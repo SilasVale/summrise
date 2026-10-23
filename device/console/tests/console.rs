@@ -2871,12 +2871,13 @@ async fn the_page_names_only_routes_the_router_serves() {
         routes,
         BTreeSet::from([
             "/auth".to_owned(),
+            "/enroll".to_owned(),
             "/devices".to_owned(),
             "/grants".to_owned(),
             "/mcp".to_owned(),
             "/audit".to_owned(),
         ]),
-        "the page names the five operator routes and no other API path"
+        "the page names the operator routes it calls, and no other API path"
     );
 
     // The probe distinguishes a missing route from a protected one, so a page naming a path the

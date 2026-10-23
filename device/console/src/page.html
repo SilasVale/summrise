@@ -158,6 +158,16 @@
     </section>
 
     <section>
+      <div class="toolbar">
+        <h2>Add a device</h2>
+        <button id="new-code" type="button">New enrollment code</button>
+      </div>
+      <p class="muted">A code is single-use and expires in minutes. Run the command on the new machine.</p>
+      <p id="code-status" class="status" role="status"></p>
+      <pre id="code-output" hidden></pre>
+    </section>
+
+    <section>
       <h2>Grant</h2>
       <form id="grant-form">
         <label for="grant-device">Device</label>
@@ -242,6 +252,7 @@ const TOOLS = [
 // device/console/tests/console.rs asserts each one is served and none is a 404.
 const ROUTES = {
   "auth": "/auth",
+  "enroll": "/enroll",
   "devices": "/devices",
   "grants": "/grants",
   "mcp": "/mcp",
@@ -532,6 +543,26 @@ async function mintGrant(event) {
   }
 }
 
+// The other half of onboarding: a code from this console, and the one command the new machine runs.
+// The code is single-use and short-lived, which is why showing it in the page is acceptable.
+async function newCode() {
+  $("new-code").disabled = true;
+  setStatus($("code-status"), "Minting a code…", "");
+  try {
+    const issued = await api(ROUTES.enroll, { method: "POST", body: "{}" });
+    const command =
+      "summrise-device.exe --enroll " + location.origin + " " + issued.code + "\n" +
+      "# the code expires at " + new Date(issued.expires_at_ms).toLocaleTimeString();
+    $("code-output").hidden = false;
+    $("code-output").textContent = command;
+    setStatus($("code-status"), "Code minted; it works once and then it is spent.", "ok");
+  } catch (error) {
+    setStatus($("code-status"), "Could not mint a code: " + error.message, "error");
+  } finally {
+    $("new-code").disabled = false;
+  }
+}
+
 async function readState() {
   if (!lastGrant) return;
   $("read-state").disabled = true;
@@ -656,6 +687,7 @@ $("sign-out").addEventListener("click", signOut);
 $("grant-form").addEventListener("submit", mintGrant);
 $("read-state").addEventListener("click", readState);
 $("copy-call").addEventListener("click", copyCall);
+$("new-code").addEventListener("click", newCode);
 $("refresh-audit").addEventListener("click", refreshAudit);
 </script>
 </body>
