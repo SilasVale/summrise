@@ -191,7 +191,14 @@ impl ConsoleEndpoint {
                 path: token_file.clone(),
                 expected: "the registration response ({\"id\",\"token\"}) or `<id> <token>`",
             })?;
-        let channel_url = channel_url(url, &device_id)?;
+        // The release the launcher started us with, not the crate version: a rebuilt binary keeps
+        // CARGO_PKG_VERSION at 0.1.0, while the operator knows this machine by the release the
+        // launcher chose.
+        let version = config
+            .release_version
+            .clone()
+            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        let channel_url = channel_url(url, &device_id, &version)?;
         Ok(Some(ConsoleEndpoint {
             channel_url,
             device_id,
@@ -237,7 +244,7 @@ fn is_hex_64(text: &str) -> bool {
 }
 
 /// Build the channel URL from the console base and the device id.
-fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
+fn channel_url(base: &str, device_id: &str, version: &str) -> Result<String, ConsoleError> {
     let base = base.trim().trim_end_matches('/');
     let (scheme, rest) = base
         .split_once("://")
@@ -263,7 +270,7 @@ fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
         .unwrap_or_default();
     Ok(format!(
         "{scheme}://{rest}/devices/{device_id}/channel?v={}{name}",
-        env!("CARGO_PKG_VERSION")
+        percent_encode(version)
     ))
 }
 
@@ -777,9 +784,8 @@ mod tests {
                 "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
-            let expected = expected.replace("0.0.0-test", env!("CARGO_PKG_VERSION"));
-            let actual = channel_url(base, "ab").expect(base);
-            assert!(actual.starts_with(&expected), "{base}: {actual}");
+            let actual = channel_url(base, "ab", "0.0.0-test").expect(base);
+            assert!(actual.starts_with(expected), "{base}: {actual}");
             // The machine's own name follows the version, encoded so a space or `&` survives.
             if let Some(name) = host_name() {
                 assert_eq!(
@@ -797,7 +803,10 @@ mod tests {
             "ws://",
             "ws://host/a b",
         ] {
-            assert!(channel_url(bad, "ab").is_err(), "{bad:?} must be refused");
+            assert!(
+                channel_url(bad, "ab", "0.0.0-test").is_err(),
+                "{bad:?} must be refused"
+            );
         }
     }
 
