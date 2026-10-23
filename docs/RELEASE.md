@@ -98,6 +98,36 @@ Two traps, both measured:
   `.../<rev>/chrome-win.zip`, ~369 MB) needs no installer: unzip it anywhere and point `SUMMRISE_CHROME`
   at `chrome-win\chrome.exe`.
 
+## Onboarding a machine
+
+The path was walked end to end against the live console, from a throwaway data directory so the installed
+device was untouched:
+
+```
+console: POST /auth   → a session
+console: POST /enroll → a code, 900 s
+device:  summrise-device.exe --enroll http://<console> <code> --allow-plaintext \
+             --data <scratch>/data --install <scratch>/install
+console: GET /devices → the new id is listed
+```
+
+That is the whole onboarding story for a machine the operator can reach: mint a code, run one command.
+The installer's own `/CONSOLE=` and `/CODE=` flags are **not** part of it — `GetOptions` truncates
+`/CONSOLE=http://…` at the `//`, so those flags have never worked and are parked. A deployment that cannot
+run a command line leaves `<data>/console-bootstrap.json` instead; the app reads it once at first start and
+deletes it as the receipt.
+
+## What the public URL exposes
+
+| path | through the tunnel | why |
+|---|---|---|
+| `/` | 302 to Cloudflare Access | the console is the operator's, not the internet's |
+| `/health` | 302 to Cloudflare Access | same: it names the build and the device count |
+| `/devices` | reaches the console, 401 without a session | the device channel uses this path and bypasses Access |
+
+A monitor that needs an unauthenticated health check has to be added to the bypass application — that is a
+deliberate act, not an accident of the configuration.
+
 ## Proving it landed
 
 ```bash
