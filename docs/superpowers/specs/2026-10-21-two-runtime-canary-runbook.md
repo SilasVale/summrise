@@ -446,3 +446,17 @@ Observed on 2026-10-23: killed the console (pid 26108), and five minutes later `
 `uptime_s 309` and `devices: 2` — the tick restarted it and both devices re-dialled, with no operator
 action. The first attempt at this deployment had the default 72-hour limit and restart disabled: the
 process did **not** come back, which is why the task is documented here rather than assumed.
+
+### The registry must survive a lost file
+
+`devices.json` is the console's memory of every device it trusts, and it stores only **token hashes** —
+by design, so the file cannot be used to impersonate a device. The consequence, found by deleting it:
+the console starts with zero devices, every device keeps dialling and is **refused**, and nothing brings
+them back without an operator minting a new enrollment code and reaching each machine.
+
+The writer now keeps the previous complete file as `devices.json.bak`, and the reader falls back to it
+when the file is missing or unparsable (saying so on stderr). Verified on the host with only the backup
+present: a fresh console answered `/health` with `devices: 2`.
+
+What is still true: losing **both** files means re-enrollment. Back the data directory up like the
+asset it is.
