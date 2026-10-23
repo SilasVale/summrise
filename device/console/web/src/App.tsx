@@ -431,7 +431,9 @@ export function App() {
         <span className="sep" />
         <span>{online} online</span>
         <span className="sep" />
-        <span>{session.via === "access" ? "signed in through Cloudflare Access" : "signed in with the operator token"}</span>
+        <span className="identity">
+          {session.via === "access" ? "signed in through Cloudflare Access" : "signed in with the operator token"}
+        </span>
         <span className="grow" />
         {/* The build's own number, from /health: a label typed into the page drifts exactly like the
             one that was typed into the launcher script. */}

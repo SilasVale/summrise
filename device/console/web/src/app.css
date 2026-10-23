@@ -238,6 +238,9 @@ tr:last-child td { border-bottom: 0; }
   .cards { grid-template-columns: 1fr; }
   .topbar-inner { padding: 0.6rem 0.9rem; }
   .session { width: 100%; margin-left: 0; }
+  /* Who you signed in as is the one thing already known while looking at the page; the counts and the
+     build are what the bar exists for. */
+  .statusbar .identity { display: none; }
 }
 
 .attempt {
