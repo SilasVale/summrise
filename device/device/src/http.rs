@@ -829,14 +829,15 @@ mod tests {
     /// a session, so it must not answer `ok` to the launcher's probes or to its own watchdog while
     /// `/api/state` reports the same failure.
     #[tokio::test]
-    async fn a_corrupt_state_file_makes_health_degraded_and_names_the_state_error() {
+    async fn a_corrupt_state_file_at_runtime_makes_health_degraded_and_names_the_state_error() {
         let fixture = fixture("health-degraded", Some(&token_hex()));
+        // A clean start first: at startup a torn document is quarantined and rebuilt (see
+        // `a_corrupt_state_file_is_quarantined_and_rebuilt`). This tests the other half — the
+        // document is corrupted while the device runs, a torn write or a disk that lied — and the
+        // API must say so instead of inventing a document.
+        crate::ensure_state(&fixture.store, true).expect("a clean start writes the document");
         fs::write(fixture.store.state_path(), "{ not a document")
             .expect("the corrupt fixture is written");
-        // The startup path is what serves: a corrupt document must not stop the process (the API
-        // is how the corruption gets reported), but it must poison readiness.
-        crate::ensure_state(&fixture.store, true)
-            .expect("a corrupt document does not stop the process");
 
         let (status, body) = send(fixture.app(), get("/api/health", None)).await;
 
