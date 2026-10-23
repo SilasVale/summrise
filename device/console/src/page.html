@@ -456,6 +456,31 @@ function buildToolList() {
   fieldset.append(grid);
 }
 
+// A `?code=` in the URL is the operator's one-time login link (`--login-link` on the host): it is
+// exchanged here and stripped from the address bar so it does not linger in a bookmark or history.
+async function signInWith(body, note) {
+  setStatus($("login-status"), note || "Signing in…", "");
+  try {
+    const answer = await api(ROUTES.auth, { method: "POST", body: JSON.stringify(body) });
+    session = answer.token;
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: session, until: answer.expires_at_ms }));
+    } catch (_) {}
+    $("operator-token").value = "";
+    $("login").hidden = true;
+    $("console").hidden = false;
+    setStatus(
+      $("session-status"),
+      "Session valid until " + new Date(answer.expires_at_ms).toLocaleString(),
+      "ok"
+    );
+    await refreshDevices();
+    await refreshAudit();
+  } catch (error) {
+    setStatus($("login-status"), "Sign-in failed: " + error.message, "error");
+  }
+}
+
 async function connect(event) {
   event.preventDefault();
   const token = $("operator-token").value.trim();
@@ -698,6 +723,14 @@ function resume() {
 
 buildToolList();
 resume();
+{
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  if (code) {
+    history.replaceState(null, "", location.pathname);
+    signInWith({ code: code }, "Using the login link…");
+  }
+}
 $("login-form").addEventListener("submit", connect);
 $("refresh-devices").addEventListener("click", refreshDevices);
 $("sign-out").addEventListener("click", signOut);

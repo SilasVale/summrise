@@ -35,4 +35,7 @@ pub use grants::{
     canonical_message, Grant, GrantEnvelope, MAX_GRANT_LIFETIME_S, MIN_GRANT_LIFETIME_S,
 };
 pub use http::Console;
-pub use setup::{run as setup, Setup, GRANT_SEED_FILE, OPERATOR_TOKEN_FILE};
+pub use setup::{
+    new_login_code, run as setup, write_login_code, Setup, GRANT_SEED_FILE, OPERATOR_TOKEN_FILE,
+};
+pub use store::LoginCode;

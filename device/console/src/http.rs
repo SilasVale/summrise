@@ -79,6 +79,8 @@ struct Inner {
     started: Instant,
     /// What `/health` reports as this build.
     version: String,
+    /// The data directory: the login-code file lives here.
+    data: std::path::PathBuf,
 }
 
 impl Console {
@@ -148,6 +150,7 @@ impl Console {
                 now: Arc::new(now),
                 started: Instant::now(),
                 version: config.version.clone(),
+                data: config.data.clone(),
             }),
         })
     }
@@ -384,7 +387,12 @@ impl IntoResponse for ApiError {
 
 #[derive(Deserialize)]
 struct AuthRequest {
-    token: String,
+    /// The operator token, typed into the page.
+    #[serde(default)]
+    token: Option<String>,
+    /// A one-time code from `--login-link`, which the page takes from the URL.
+    #[serde(default)]
+    code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -457,15 +465,32 @@ async fn authenticate(
     State(app): State<AppState>,
     Json(request): Json<AuthRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
-    let presented = match hex::decode_32(&request.token) {
-        Some(presented) => presented,
-        None => {
-            return Err(app
-                .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
-                .await)
+    // Two ways in, one outcome: a typed token, or a one-time code the operator printed on the host
+    // (`--login-link`). The code is short-lived and spent on first use, so a link that leaked into a
+    // chat log stops working as soon as it is used or after two minutes.
+    let accepted = if let Some(code) = request.code.as_deref() {
+        let now = (app.now)();
+        match crate::store::spend_login_code(&app.data, code, now) {
+            Ok(()) => true,
+            Err(reason) => {
+                eprintln!("summrise-console: refused a login code: {reason}");
+                return Err(app
+                    .refuse_as(None, ApiError::unauthorized(), "bad_login_code")
+                    .await);
+            }
         }
+    } else {
+        let presented = match request.token.as_deref().and_then(hex::decode_32) {
+            Some(presented) => presented,
+            None => {
+                return Err(app
+                    .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
+                    .await)
+            }
+        };
+        constant_time_eq(&presented, &app.operator_token)
     };
-    if !constant_time_eq(&presented, &app.operator_token) {
+    if !accepted {
         return Err(app
             .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
             .await);
