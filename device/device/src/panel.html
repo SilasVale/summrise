@@ -97,7 +97,18 @@ async function refresh() {
     const ts = document.createElement("td");
     ts.textContent = when(event.at_ms || event.ts_ms);
     const what = document.createElement("td");
-    what.textContent = event.event || event.kind || JSON.stringify(event);
+    // A tool call writes two lines — `begin` with the tool and `end` with the outcome — and the
+    // tool's name is the part an operator reads. Show it, with the event behind it in grey.
+    if (event.tool) {
+      what.append(document.createTextNode(event.tool + " "));
+      const kind = document.createElement("span");
+      kind.className = "none";
+      kind.textContent =
+        event.event === "end" ? (event.ok ? "ok" : "failed") : String(event.decision || event.event);
+      what.append(kind);
+    } else {
+      what.textContent = event.event || event.kind || JSON.stringify(event);
+    }
     tr.append(ts, what);
     body.append(tr);
   }
