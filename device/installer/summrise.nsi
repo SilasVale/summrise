@@ -200,6 +200,14 @@ Section "Uninstall"
   Delete "$INSTDIR\summrise-console.exe"
   Delete "$INSTDIR\summrise-device.sidecar.json"
   Delete "$INSTDIR\uninstall.exe"
+  ; The launcher writes these, so NSIS has no record of them: without this the two generations
+  ; (~30 MB) and the repair record survive an uninstall, and a later install inherits a stale
+  ; baseline. The device's own data directory is NOT here — it is kept above, on purpose.
+  RMDir /r "$INSTDIR\baseline"
+  Delete "$INSTDIR\repair.log"
+  Delete "$INSTDIR\swap.request.json"
+  Delete "$INSTDIR\swap.result.json"
+  Delete "$INSTDIR\*.json.tmp"
   RMDir "$INSTDIR"
 
   DeleteRegKey HKLM "${UNINST_KEY}"
