@@ -183,6 +183,7 @@
       <div class="toolbar">
         <h2>Device state</h2>
         <button id="read-state" type="button" disabled>Call state.get</button>
+        <button id="copy-call" type="button" disabled>Copy as curl</button>
       </div>
       <p class="muted">The call uses the grant above and goes through <span class="mono">/mcp</span>.</p>
       <p id="state-status" class="status" role="status"></p>
@@ -474,6 +475,7 @@ function signOut() {
   $("grant-output").textContent = "";
   $("state-output").textContent = "No state yet.";
   $("read-state").disabled = true;
+  $("copy-call").disabled = true;
 }
 
 async function mintGrant(event) {
@@ -514,6 +516,7 @@ async function mintGrant(event) {
     $("grant-output").hidden = false;
     $("grant-output").textContent = JSON.stringify(envelope, null, 2);
     $("read-state").disabled = false;
+    $("copy-call").disabled = false;
     setStatus(
       $("grant-status"),
       "Signed a grant for " + tools.length + (tools.length === 1 ? " tool." : " tools."),
@@ -551,6 +554,29 @@ async function readState() {
     setStatus($("state-status"), "state.get failed.", "error");
   } finally {
     $("read-state").disabled = lastGrant === null;
+  }
+}
+
+// "Copy as curl" is the equivalent of the old panel's "copy MCP config": a command an operator can
+// paste into a ticket or a shell. The session token is written as $SESSION, never copied: the
+// clipboard is a place secrets leak from, and the grant it carries is already scoped and expiring.
+async function copyCall() {
+  if (!lastGrant) return;
+  const body = JSON.stringify({
+    device_id: lastGrant.deviceId,
+    grant: lastGrant.envelope,
+    request: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "state.get", arguments: {} } }
+  });
+  const command =
+    "curl -sS " + location.origin + "/mcp \\\n" +
+    "  -H \"Authorization: Bearer $SESSION\" -H 'content-type: application/json' \\\n" +
+    "  -d '" + body + "'";
+  try {
+    await navigator.clipboard.writeText(command);
+    setStatus($("state-status"), "Copied a curl that uses $SESSION (take it from /auth).", "ok");
+  } catch (error) {
+    $("state-output").textContent = command;
+    setStatus($("state-status"), "Clipboard refused; the command is below.", "error");
   }
 }
 
@@ -608,6 +634,7 @@ $("refresh-devices").addEventListener("click", refreshDevices);
 $("sign-out").addEventListener("click", signOut);
 $("grant-form").addEventListener("submit", mintGrant);
 $("read-state").addEventListener("click", readState);
+$("copy-call").addEventListener("click", copyCall);
 $("refresh-audit").addEventListener("click", refreshAudit);
 </script>
 </body>
