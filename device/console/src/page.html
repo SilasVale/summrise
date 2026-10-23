@@ -154,6 +154,7 @@
   }
   .chip-ok { background: var(--ok-soft); color: var(--ok); }
   .chip-off { background: color-mix(in srgb, var(--muted) 12%, transparent); color: var(--muted); }
+  .chip-warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
 
   label { display: block; font-weight: 550; font-size: .86rem; margin: .7rem 0 .25rem; }
   input[type=text], input[type=password], input[type=number], select {
@@ -229,6 +230,11 @@
   ol.audit li:last-child { border-bottom: 0; }
 
   .inline { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+  /* The audit is the longest list on the page and the least read per line: it scrolls in place
+     instead of pushing everything below it off the screen. */
+  .scroll { max-height: 17rem; overflow: auto; }
+  .scroll table { margin-top: 0; }
+  .scroll thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
   .inline input[type=text] { flex: 1 1 18rem; }
   .terminal-host {
     background: var(--term-bg);
@@ -412,10 +418,12 @@
         <button id="refresh-audit" type="button">Refresh</button>
       </div>
       <p class="muted">The last 20 operator actions, newest first.</p>
-      <table class="audit">
-        <thead><tr><th>when</th><th>kind</th><th>device</th><th>tool</th><th>status</th></tr></thead>
-        <tbody id="audit-list"></tbody>
-      </table>
+      <div class="scroll">
+        <table class="audit">
+          <thead><tr><th>when</th><th>kind</th><th>device</th><th>tool</th><th>status</th></tr></thead>
+          <tbody id="audit-list"></tbody>
+        </table>
+      </div>
       <p id="audit-status" class="status" role="status"></p>
     </section>
       </div>
@@ -533,9 +541,36 @@ function shortId(id) {
   return typeof id === "string" && id.length > 16 ? id.slice(0, 12) + "…" : String(id);
 }
 
+// Versions are compared as dotted numbers, not strings: "0.3.14" is newer than "0.3.13", and a
+// string compare would say the opposite. A device behind the newest one on this list is marked — the
+// console can only compare what it can see, so the tooltip says exactly that rather than "outdated".
+function versionParts(version) {
+  return version.split(/[.+-]/).map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function compareVersions(left, right) {
+  const a = versionParts(left);
+  const b = versionParts(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const difference = (a[index] || 0) - (b[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function newestVersion(list) {
+  let newest = null;
+  for (const device of list) {
+    if (!device.version) continue;
+    if (newest === null || compareVersions(device.version, newest) > 0) newest = device.version;
+  }
+  return newest;
+}
+
 function renderDevices() {
   const cards = $("device-cards");
   cards.replaceChildren();
+  const newest = newestVersion(devices);
   const online = devices.filter((device) => device.online).length;
   $("device-summary").textContent =
     devices.length === 0
@@ -556,6 +591,10 @@ function renderDevices() {
       const chip = document.createElement("span");
       chip.className = "chip chip-ok";
       chip.textContent = "v" + device.version;
+      if (newest && compareVersions(device.version, newest) < 0) {
+        chip.className = "chip chip-warn";
+        chip.title = "Another device in this list runs " + newest + ".";
+      }
       header.append(chip);
     }
 
