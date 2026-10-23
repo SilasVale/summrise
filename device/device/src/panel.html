@@ -105,6 +105,16 @@
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
   .none { color: var(--ink-muted); font-size: 0.88rem; }
+
+  /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
+     ten characters wide, so the two stack instead. */
+  @media (max-width: 40rem) {
+    body { padding: 1rem 0.85rem 2rem; }
+    dl { grid-template-columns: 1fr; gap: 0.1rem; }
+    dt { margin-top: 0.5rem; }
+    header { flex-wrap: wrap; }
+    header button { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
@@ -239,18 +249,26 @@ async function refresh() {
   body.replaceChildren();
   const events = snapshot.events || [];
   document.getElementById("no-events").hidden = events.length > 0;
+  // A tool call writes two lines — `begin` with the tool, `end` with the outcome — and a table that
+  // prints both has half its rows saying "end". The outcome joins its own call.
+  let lastKind = null;
   for (const event of events) {
+    if (event.event === "end") {
+      if (lastKind) lastKind.textContent = " " + (event.ok ? "ok" : "failed");
+      continue;
+    }
     const tr = document.createElement("tr");
     const ts = document.createElement("td");
     ts.textContent = when(event.at_ms || event.ts_ms);
     const what = document.createElement("td");
     if (event.tool) {
       what.textContent = event.tool;
-      const kind = document.createElement("span");
-      kind.className = "kind";
-      kind.textContent = " " + (event.event === "end" ? (event.ok ? "ok" : "failed") : String(event.decision || event.event));
-      what.append(kind);
+      lastKind = document.createElement("span");
+      lastKind.className = "kind";
+      lastKind.textContent = " " + String(event.decision || event.event);
+      what.append(lastKind);
     } else {
+      lastKind = null;
       what.textContent = event.event || event.kind || JSON.stringify(event);
     }
     tr.append(ts, what);
