@@ -379,7 +379,17 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey)
                     attempt = 1;
                 }
             }
-            Err(error) => {
+            Err(ConnectError::Refused(status)) => {
+                // A refusal is the console's answer, not a network problem: the token this device
+                // registered with is gone (the operator revoked it). Retrying cannot fix that, and a
+                // loop that retried for ever would bury the one sentence the operator needs.
+                eprintln!(
+                    "summrise-device: the console refused this device (HTTP {status}); it will not retry. \
+                     Re-enroll with `summrise-device --enroll <console-url> <code> --force`.",
+                );
+                return;
+            }
+            Err(ConnectError::Other(error)) => {
                 eprintln!(
                     "summrise-device: cannot reach the console at {}: {error}",
                     endpoint.channel_url
@@ -394,22 +404,45 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey)
 }
 
 /// One authenticated WebSocket.
+/// Why a channel could not be opened.
+enum ConnectError {
+    /// The console answered with an authentication refusal: retrying cannot help.
+    Refused(u16),
+    /// Anything else — a network fault, a handshake timeout, a proxy in the way.
+    Other(String),
+}
+
+/// The status of an authentication refusal, if this error is one.
+fn refusal_status(error: &tokio_tungstenite::tungstenite::Error) -> Option<u16> {
+    match error {
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if matches!(response.status().as_u16(), 401 | 403) =>
+        {
+            Some(response.status().as_u16())
+        }
+        _ => None,
+    }
+}
+
 async fn connect(
     endpoint: &ConsoleEndpoint,
-) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, String> {
+) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, ConnectError> {
     let uri = endpoint
         .channel_url
         .parse()
-        .map_err(|error| format!("the channel URL is not a URI: {error}"))?;
+        .map_err(|error| ConnectError::Other(format!("the channel URL is not a URI: {error}")))?;
     let request = ClientRequestBuilder::new(uri)
         .with_header("Authorization", format!("Bearer {}", endpoint.token));
     let connect = connect_async(request);
     match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
-        Err(_) => Err(format!(
+        Err(_) => Err(ConnectError::Other(format!(
             "the handshake did not finish inside {} ms",
             CONNECT_TIMEOUT.as_millis()
-        )),
-        Ok(Err(error)) => Err(error.to_string()),
+        ))),
+        Ok(Err(error)) => match refusal_status(&error) {
+            Some(status) => Err(ConnectError::Refused(status)),
+            None => Err(ConnectError::Other(error.to_string())),
+        },
         Ok(Ok((socket, _response))) => Ok(socket),
     }
 }
@@ -761,6 +794,35 @@ mod tests {
         assert!(
             parse_console_key(Some(&hex(&signing().verifying_key().to_bytes()))).is_ok(),
             "a real key is accepted"
+        );
+    }
+
+    /// A refusal is final; a network fault is not. The classifier is the difference between a device
+    /// that re-enrolls and one that retries a dead token for ever.
+    #[test]
+    fn an_authentication_refusal_is_told_apart_from_a_network_fault() {
+        for status in [401u16, 403] {
+            let response = tokio_tungstenite::tungstenite::http::Response::builder()
+                .status(status)
+                .body(None)
+                .expect("a response builds");
+            let error = tokio_tungstenite::tungstenite::Error::Http(Box::new(response));
+            assert_eq!(refusal_status(&error), Some(status));
+        }
+
+        let response = tokio_tungstenite::tungstenite::http::Response::builder()
+            .status(502)
+            .body(None)
+            .expect("a response builds");
+        let error = tokio_tungstenite::tungstenite::Error::Http(Box::new(response));
+        assert_eq!(
+            refusal_status(&error),
+            None,
+            "a gateway fault is worth retrying"
+        );
+        assert_eq!(
+            refusal_status(&tokio_tungstenite::tungstenite::Error::ConnectionClosed),
+            None
         );
     }
 
