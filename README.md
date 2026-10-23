@@ -89,6 +89,20 @@ summrise-device.exe --set-update-source <document-url> --channel canary --interv
 release only after checking the signature, the artifact's SHA-256, the channel and the revocation
 list, and the supervisor rolls back to the previous generation if the new one fails its health probe.
 
+## Cutting a release
+
+1. **Build and sign**: `scripts/publish-canary.bash --version <v> --channel canary --mirror <url>
+   --launcher-key <seed> --release-key <seed> --out <dir>` builds the launcher and the app, signs both
+   sidecars and the release document, and builds the installer. It fails closed when a public key is
+   missing — an installer built without its keys cannot verify its own seed.
+2. **Prove the installer, not just the build**: run it on a canary machine (`/S /D=<dir>`), then
+   `summrise-launch --self-check <dir> --data <data>` and `curl http://127.0.0.1:<port>/api/health`.
+   Both must pass before the version is called released.
+3. **Tag and publish**: `git tag -a v<v> -m "..." && git push origin v<v>`. `installer.yml` builds the
+   assets, installs its own installer on the runner, and attaches them to the release when Actions can
+   start a job; when it cannot, assemble the release from the local build and say so in the notes.
+4. **Publish the checksums** and point the mirror's README at the new version.
+
 ## Where to read next
 
 The design is a record, not a wiki page: each document states a decision and what would overturn it.
