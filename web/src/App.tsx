@@ -4,6 +4,10 @@ import { api, HttpError, setToken, type AuditLine, type Device, type Session } f
 import { DeviceCard } from "./DeviceCard";
 import { AuditTable } from "./AuditTable";
 import { Rail, type Page } from "./Rail";
+import { Modal } from "./Modal";
+import { GrantForm } from "./GrantForm";
+import { TerminalPane } from "./TerminalPane";
+import { BrowserPane } from "./BrowserPane";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -14,6 +18,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  const [renaming, setRenaming] = useState<Device | null>(null);
+  const [removing, setRemoving] = useState<Device | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
+  const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
 
   const newest = useMemo(
     () =>
@@ -55,6 +65,16 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [session?.authenticated, load]);
 
+  const signOut = () => {
+    setToken(null);
+    setSession({ authenticated: false });
+    setDevices([]);
+    setAudit([]);
+    setSelected(null);
+    setGrant(null);
+    setPage("devices");
+  };
+
   const signIn = async () => {
     setBusy(true);
     try {
@@ -66,6 +86,40 @@ export function App() {
       setError(describe(cause));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const applyRename = async () => {
+    if (!renaming) return;
+    const name = draftName.trim();
+    try {
+      await api.rename(renaming.id, name === "" ? null : name);
+      setRenaming(null);
+      setNotice(name === "" ? "Name cleared; the device's own hostname applies." : `Renamed to ${name}.`);
+      await load();
+    } catch (cause) {
+      setError(describe(cause));
+    }
+  };
+
+  const applyRemove = async () => {
+    if (!removing) return;
+    try {
+      await api.remove(removing.id);
+      setNotice(`${removing.name ?? removing.id.slice(0, 12)} was removed; its channel closed.`);
+      setRemoving(null);
+      if (selected === removing.id) setSelected(null);
+      await load();
+    } catch (cause) {
+      setError(describe(cause));
+    }
+  };
+
+  const mintCode = async () => {
+    try {
+      setCode(await api.enroll());
+    } catch (cause) {
+      setError(describe(cause));
     }
   };
 
@@ -118,6 +172,7 @@ export function App() {
           <p className="session">
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
             {session.email ? session.email : `${online} of ${devices.length} devices online`}
+            <button type="button" onClick={signOut}>Sign out</button>
           </p>
         </div>
       </header>
@@ -150,6 +205,11 @@ export function App() {
                           setSelected(device.id);
                           setPage("terminal");
                         }}
+                        onRename={() => {
+                          setRenaming(device);
+                          setDraftName(device.name ?? "");
+                        }}
+                        onRemove={() => setRemoving(device)}
                       />
                     ))}
                   </div>
@@ -175,6 +235,26 @@ export function App() {
                 )}
                 <section className="panel">
                   <div className="panel-head">
+                    <h2>Add a device</h2>
+                    <div className="actions">
+                      <button type="button" className="primary" onClick={() => void mintCode()}>
+                        New enrollment code
+                      </button>
+                    </div>
+                  </div>
+                  <p className="hint">
+                    A code is single-use and expires in minutes. Run the command on the new machine.
+                  </p>
+                  {code && (
+                    <pre className="code">
+{`summrise-device --enroll ${location.origin} ${code.code}`}
+{`expires ${new Date(code.expires_at_ms).toLocaleTimeString()}`}
+                    </pre>
+                  )}
+                </section>
+
+                <section className="panel">
+                  <div className="panel-head">
                     <h2>Audit</h2>
                     <div className="actions">
                       <button type="button" onClick={() => void load()}>Refresh</button>
@@ -187,17 +267,55 @@ export function App() {
           )}
 
           {page === "terminal" && (
-            <section className="panel empty">
-              <p>{chosen ? `Terminal for ${chosen.name ?? chosen.id.slice(0, 12)}` : "No device selected."}</p>
-              <p className="hint">The shell lands here — same channel, same grant, same audit.</p>
-            </section>
+            <>
+              {!chosen && (
+                <section className="panel empty">
+                  <p>No device selected.</p>
+                  <p className="hint">Pick one in Devices and the grant appears here.</p>
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks it on
+                    every call.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <TerminalPane grant={grant} />
+                </section>
+              )}
+            </>
           )}
 
           {page === "browser" && (
-            <section className="panel empty">
-              <p>{chosen ? `Browser on ${chosen.name ?? chosen.id.slice(0, 12)}` : "No device selected."}</p>
-              <p className="hint">The device's browser lands here, one frame per refresh.</p>
-            </section>
+            <>
+              {!chosen && (
+                <section className="panel empty">
+                  <p>No device selected.</p>
+                  <p className="hint">Pick one in Devices and its browser appears here.</p>
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <BrowserPane grant={grant} />
+                </section>
+              )}
+            </>
           )}
 
           {page === "audit" && (
@@ -213,6 +331,45 @@ export function App() {
           )}
         </main>
       </div>
+
+      {notice && (
+        <div className="toast" role="status">
+          {notice}
+          <button type="button" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {renaming && (
+        <Modal title={`Rename ${renaming.name ?? renaming.id.slice(0, 12)}`} onClose={() => setRenaming(null)}>
+          <label htmlFor="rename">Name</label>
+          <input
+            id="rename"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void applyRename();
+            }}
+            placeholder="leave empty to use the device's own hostname"
+          />
+          <div className="modal-actions">
+            <button type="button" onClick={() => setRenaming(null)}>Cancel</button>
+            <button type="button" className="primary" onClick={() => void applyRename()}>Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {removing && (
+        <Modal title={`Remove ${removing.name ?? removing.id.slice(0, 12)}?`} onClose={() => setRemoving(null)}>
+          <p className="hint">
+            Its channel closes now and it cannot reconnect. The device keeps running and can be enrolled
+            again with a new code.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setRemoving(null)}>Cancel</button>
+            <button type="button" className="danger" onClick={() => void applyRemove()}>Remove</button>
+          </div>
+        </Modal>
+      )}
 
       <footer className="statusbar">
         <span>{devices.length} devices</span>

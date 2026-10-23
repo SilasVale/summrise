@@ -23,6 +23,9 @@ let token: string | null = null;
 export function setToken(next: string | null) {
   token = next;
 }
+export function getToken(): string {
+  return token ?? "";
+}
 
 class HttpError extends Error {
   constructor(
@@ -56,7 +59,24 @@ export const api = {
     }),
   devices: () => call<Device[]>("/devices"),
   audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
-  health: () => call<{ version: string; devices: number }>("/health")
+  health: () => call<{ version: string; devices: number }>("/health"),
+  rename: (id: string, name: string | null) =>
+    call<{ id: string; name: string | null }>(`/devices/${id}/name`, {
+      method: "POST",
+      body: JSON.stringify({ name })
+    }),
+  remove: (id: string) => call<void>(`/devices/${id}`, { method: "DELETE" }),
+  enroll: () => call<{ code: string; expires_at_ms: number }>("/enroll", { method: "POST" }),
+  grant: (
+    device_id: string,
+    tools: string[],
+    expires_in_s: number,
+    allow_destructive: boolean
+  ) =>
+    call<{ grant: unknown; signature: string }>("/grants", {
+      method: "POST",
+      body: JSON.stringify({ device_id, tools, expires_in_s, allow_destructive })
+    })
 };
 
 export { HttpError };
