@@ -1,0 +1,41 @@
+[package]
+name = "summrise-console"
+description = "The operator-side console: operator auth, the device registry, and grant signing."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# `ws` is the device channel: the device dials the console, and the console forwards the operator's
+# MCP exchange over that socket.
+axum = { version = "0.7", features = ["ws"] }
+# The grant key signs; the grant is verified by the device against a pinned public key.
+ed25519-dalek = "2"
+# Session tokens, enrollment codes and device tokens are OS randomness. `rand_core` is the RNG
+# boundary `ed25519-dalek` already speaks, so the console does not carry a second RNG stack.
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# A device token is stored as a hash, never as the token itself.
+sha2 = "0.10"
+summrise-core = { path = "../core" }
+# `sync` carries the channel's outbound queue and the waiters; `time` is the proxy's 30 s bound;
+# `fs` is the audit index, whose writer must not block the async runtime.
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "sync",
+    "time",
+    "fs",
+] }
+
+# `oneshot` drives the router without binding a socket: the same tower service axum builds. The
+# WebSocket tests need a real listener and a client, because a handshake is not a tower response.
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "connect",
+    "handshake",
+] }
+tower = { version = "0.5", features = ["util"] }

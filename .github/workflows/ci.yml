@@ -1,0 +1,112 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  device:
+    name: device (core + app + launcher + mesh + release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: device
+      # **THE STEPS NAME THE WORKSPACE BY `--manifest-path` RATHER THAN `working-directory: device`.**
+      # `scripts/test/all-gates.bash` derives every bare `cargo test/clippy/fmt` line out of this file
+      # and runs it from `agent/` (its runner was built for the agent's workspace); a command that
+      # names its manifest is the exemption that runner already honours, and it runs from the repo
+      # root, where `device/Cargo.toml` resolves. `working-directory: device` would make this job pass
+      # here and the scheduled all-gates run fail there — the two ends disagreeing, which is the one
+      # thing that script exists to prevent.
+      - name: the device workspace (unit tests)
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec
+      - name: the device workspace formats
+        run: cargo fmt --manifest-path device/Cargo.toml --all -- --check
+      - name: the device workspace is clippy-clean
+        run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec --all-targets -- -D warnings
+
+  device-windows:
+    name: device (the Windows lifecycle)
+    runs-on: windows-latest
+    # The sum of the step ceilings below is larger than 30 minutes, and a job ceiling shorter than a
+    # step's is a per-step timeout that cannot fire (M6). The 90 is a ceiling, not a target.
+    timeout-minutes: 90
+    # **TWO DIFFERENT FIXTURE KEYS, ON PURPOSE (C1).** These are RFC 8032 §7.1's published test
+    # vectors (seeds 1 and 2), never release keys. The launcher key owns the first generation: the
+    # `--seed-sidecar` and the baseline pair. The release key owns updates: release documents and the
+    # staged sidecar the app writes from one. Setting both to the same value — which this job did —
+    # makes the distinction unrepresentable in the only test that can falsify it. Both binaries read
+    # these at COMPILE time; the lane signs each artifact with the matching seed and fails by name on
+    # a build that embedded the wrong one.
+    env:
+      SUMMRISE_LAUNCHER_PUBKEY: d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+      SUMMRISE_RELEASE_PUBKEY: 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      # **NO TARGET CACHE, DELIBERATELY.** The last step below rebuilds the two binaries UNKEYED, so
+      # caching `device/target` would hand that unkeyed artifact to this job's keyed build next run
+      # and make the key seam depend on cargo's environment tracking. A cold build is the cheaper
+      # side of that trade.
+      - name: build the binaries the lifecycle test drives
+        run: cargo build --manifest-path device/Cargo.toml --workspace
+      # THE SUITE IS SPLIT SO A HANG NAMES ITS BINARY. A test process that never exits used to
+      # hold the whole job for its 45-minute ceiling with no way to tell which suite it was; two
+      # steps and a per-step timeout turn that into a red step with the suite in its name.
+      - name: the device workspace (unit tests, everything but the launcher)
+        timeout-minutes: 20
+        run: cargo test --manifest-path device/Cargo.toml --workspace --exclude summrise-launch
+      - name: the launcher's unit tests
+        timeout-minutes: 10
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
+      # THE LIFECYCLE, IN ONE PROCESS. It hung here on 2026-10-21 after its first test printed
+      # `ok`; the cause was `Command::output()` waiting for a pipe that a restored app inherited,
+      # fixed on 2026-10-22 (`72e24bfe`). The shared-process run is green again (verified by the
+      # step below on the same commit), so the five per-test steps that diagnosed it are gone.
+      - name: the Windows lifecycle
+        timeout-minutes: 20
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --nocapture
+      - name: the SCM service mode serves and stops
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact the_service_mode_serves_and_stops_through_the_scm --nocapture
+      # THE PRODUCT INSTALLER, WHICH NO UNIT TEST CAN PROVE (I8/NEW-1): a tree with no baseline is
+      # seeded from the app plus `--seed-sidecar`, `current\` appears, and the service serves it. It
+      # owns the real SummriseLaunch service, so it is `#[ignore]`d and run here by exact name.
+      - name: the product installer seeds a missing baseline
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact the_installer_seeds_a_missing_baseline_from_the_shipped_sidecar --nocapture
+      # **THE NEGATIVE HALF OF C1**: a `--seed-sidecar` signed with the RELEASE key must be refused
+      # with a message naming the launcher key, before anything is registered. With the two keys
+      # above this is a real distinction, not a self-comparison.
+      - name: a release-key-signed seed is refused by name
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact the_installer_refuses_a_seed_signed_with_the_release_key --nocapture
+      # The only test of the product `--install-service`/`--uninstall-service` and the token mint; it
+      # also reads the restart policy back with `sc qfailure` (I4). Same reason for `#[ignore]`.
+      - name: the product installer mints the token once and configures restarts
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact the_install_service_mints_the_install_token_once --nocapture
+      # **THE FAIL-CLOSED HALF OF THE KEY SEAM.** The variables above are job-wide on purpose, so
+      # this step removes them, rebuilds, and runs only the placeholder test, which asserts BOTH
+      # binaries refuse every update by name. The test is `#[ignore]`d, so the keyed workspace run
+      # above cannot count a skipped placeholder test as a pass; `--ignored` is what runs it here.
+      # `shell: bash` because the block is a shell script and the repository's own `workflow_shell`
+      # gate parses the `run:` blocks it can see with `bash -n` (Git Bash ships on windows-latest).
+      # `cargo clean -p` is not tidiness: the key is a compile-time constant, and the clean makes
+      # "this build has no key" a fact of this build.
+      - name: an unkeyed build refuses every update, by name
+        shell: bash
+        run: |
+          unset SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY
+          cargo clean --manifest-path device/Cargo.toml -p summrise-launch -p summrise-device
+          cargo build --manifest-path device/Cargo.toml --workspace
+          cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact a_build_without_a_release_key_refuses_updates_by_name --nocapture
