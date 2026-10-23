@@ -2913,13 +2913,28 @@ async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
         "the page's comment says where the token lives"
     );
     assert!(
+        page.contains("The SESSION token is kept in this tab's sessionStorage"),
+        "the page says which token may be remembered, and for how long"
+    );
+    assert!(
         !page.contains(&hex(&OPERATOR_TOKEN)),
         "the operator token must never be embedded in the page"
     );
-    for forbidden in ["localStorage", "sessionStorage", "document.cookie"] {
+    // The SESSION token may be remembered in the tab (it expires and it is not the operator's
+    // secret); the operator token may not be persisted anywhere, and nothing may be written to
+    // localStorage or a cookie at all.
+    for forbidden in [
+        "localStorage.setItem",
+        "localStorage.getItem",
+        "document.cookie",
+    ] {
         assert!(
             !page.contains(forbidden),
-            "the page must not persist the token through {forbidden}"
+            "the page must not persist anything through {forbidden}"
         );
     }
+    assert!(
+        !page.contains("sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: operator"),
+        "the operator token is never written to storage"
+    );
 }

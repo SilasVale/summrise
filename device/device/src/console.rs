@@ -254,7 +254,13 @@ fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
     {
         return Err(ConsoleError::BadUrl(base.to_owned()));
     }
-    Ok(format!("{scheme}://{rest}/devices/{device_id}/channel"))
+    // `?v=` tells the console which build is on the other end, so the operator's device list can name
+    // it without asking the device for a grant first. A console that ignores the parameter answers
+    // exactly as before: it is a query string on a route both sides already share.
+    Ok(format!(
+        "{scheme}://{rest}/devices/{device_id}/channel?v={}",
+        env!("CARGO_PKG_VERSION")
+    ))
 }
 
 /// Parse the compile-time console key, refusing the placeholder by name.
@@ -722,21 +728,22 @@ mod tests {
         for (base, expected) in [
             (
                 "ws://127.0.0.1:8080",
-                "ws://127.0.0.1:8080/devices/ab/channel",
+                "ws://127.0.0.1:8080/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "http://127.0.0.1:8080/",
-                "ws://127.0.0.1:8080/devices/ab/channel",
+                "ws://127.0.0.1:8080/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "https://console.example.test",
-                "wss://console.example.test/devices/ab/channel",
+                "wss://console.example.test/devices/ab/channel?v=0.0.0-test",
             ),
             (
                 "wss://console.example.test/console",
-                "wss://console.example.test/console/devices/ab/channel",
+                "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
+            let expected = expected.replace("0.0.0-test", env!("CARGO_PKG_VERSION"));
             assert_eq!(channel_url(base, "ab").expect(base), expected, "{base}");
         }
 
@@ -819,7 +826,11 @@ mod tests {
         assert_eq!(loaded.token, token());
         assert_eq!(
             loaded.channel_url,
-            format!("wss://console.example.test/devices/{}/channel", device_id())
+            format!(
+                "wss://console.example.test/devices/{}/channel?v={}",
+                device_id(),
+                env!("CARGO_PKG_VERSION")
+            )
         );
 
         config.console_url = None;

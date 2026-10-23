@@ -48,6 +48,16 @@
   .status { min-height: 1.4em; margin-top: .5rem; color: var(--muted); }
   .status.ok { color: var(--ok); }
   .status.error { color: var(--error); }
+  .chip {
+    display: inline-block;
+    padding: 0 .5rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+  .chip-ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .chip-off { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
   section {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -111,8 +121,10 @@
 <body>
 <!--
   The operator token stays in memory: it is typed here, exchanged for a session token at /auth, and
-  kept only in this page's JavaScript variables. Nothing is persisted in the browser, and this file
-  contains no token, session, grant or other secret.
+  never written anywhere. The SESSION token is kept in this tab's sessionStorage so a refresh or a
+  sleeping phone does not ask for the operator token again; it is dropped on sign-out, on tab close
+  (sessionStorage's own rule), and when the server's expiry passes — the page checks `until` before
+  resuming. Nothing is written to localStorage or a cookie, and this file contains no secret.
 -->
 <header>
   <h1>Summrise console</h1>
@@ -139,7 +151,7 @@
         <button id="sign-out" type="button">Sign out</button>
       </div>
       <table>
-        <thead><tr><th>Name</th><th>Device id</th><th>Last seen</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Status</th><th>Device id</th><th>Last seen</th><th></th></tr></thead>
         <tbody id="device-rows"></tbody>
       </table>
       <p id="devices-status" class="status" role="status"></p>
@@ -238,6 +250,7 @@ const ROUTES = {
 // The session token lives here, in this variable, and nowhere else. There is deliberately no
 // browser storage write anywhere in this file.
 let session = null;
+const SESSION_KEY = "summrise.console.session";
 let devices = [];
 let lastGrant = null;
 
@@ -300,7 +313,7 @@ function renderDevices() {
   if (devices.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.className = "muted";
     cell.textContent = "No device has registered yet.";
     row.append(cell);
@@ -312,6 +325,20 @@ function renderDevices() {
 
     const name = document.createElement("td");
     name.textContent = device.name || "—";
+
+    // Status the operator can read at a glance: a channel that is open now, and the build that
+    // announced itself. A device that never announced a version says so rather than guessing.
+    const status = document.createElement("td");
+    const chip = document.createElement("span");
+    chip.className = "chip " + (device.online ? "chip-ok" : "chip-off");
+    chip.textContent = device.online ? "online" : "offline";
+    status.append(chip);
+    if (device.version) {
+      const version = document.createElement("span");
+      version.className = "muted mono";
+      version.textContent = " v" + device.version;
+      status.append(version);
+    }
 
     const id = document.createElement("td");
     id.className = "mono";
@@ -333,7 +360,7 @@ function renderDevices() {
     });
     action.append(use);
 
-    row.append(name, id, seen, action);
+    row.append(name, status, id, seen, action);
     rows.append(row);
   }
 }
@@ -417,6 +444,7 @@ async function connect(event) {
   try {
     const body = await api(ROUTES.auth, { method: "POST", body: JSON.stringify({ token: token }) });
     session = body.token;
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: session, until: body.expires_at_ms })); } catch (_) {}
     $("operator-token").value = "";
     $("login").hidden = true;
     $("console").hidden = false;
@@ -434,6 +462,7 @@ async function connect(event) {
 
 function signOut() {
   session = null;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
   devices = [];
   lastGrant = null;
   $("operator-token").value = "";
@@ -555,7 +584,25 @@ async function refreshAudit() {
   }
 }
 
+// A token the operator typed once in this tab is reused until it expires: the page is the operator's
+// tool, not a place to paste a secret every time the phone locks.
+function resume() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+    if (!saved || !saved.token || !saved.until || saved.until <= Date.now()) return;
+    session = saved.token;
+    $("login").hidden = true;
+    $("console").hidden = false;
+    setStatus($("session-status"), "Session valid until " + new Date(saved.until).toLocaleString(), "ok");
+    refreshDevices();
+    refreshAudit();
+  } catch (_) {
+    /* a corrupt entry is treated as signed out */
+  }
+}
+
 buildToolList();
+resume();
 $("login-form").addEventListener("submit", connect);
 $("refresh-devices").addEventListener("click", refreshDevices);
 $("sign-out").addEventListener("click", signOut);
