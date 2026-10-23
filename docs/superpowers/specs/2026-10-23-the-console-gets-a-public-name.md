@@ -103,3 +103,35 @@ devices:2  (without it, after a forced reconnect)
 Cloudflare Access does not challenge the channel's upgrade, so the bypass was **inert and is removed** —
 one fewer rule that looks load-bearing. A device that reconnects still reaches the console; what guards
 the channel is the token it registered with, as before.
+
+## 2026-10-23 — Access becomes the operator identity, and what that cost
+
+With Access protecting the hostname, the console still asked for a 64-hex token kept in a file on the
+host. The operator asked the right question — *why type a secret when Access already knows who I am?* —
+and the answer was that the console verified nothing but its own token.
+
+It now verifies Access's answer. Three flags turn it on, all or none:
+
+```
+--access-jwks   <file>   the team's certificates, pinned in a file
+--access-aud    <tag>    this application's audience
+--access-issuer <url>    https://vale-saisi.cloudflareaccess.com
+```
+
+A verified `Cf-Access-Jwt-Assertion` is an operator session; `GET /session` tells the page, which then
+skips the login box. The token and `--login-link` stay as break-glass paths, so a broken Access
+configuration cannot lock the operator out of the console — only out of the pretty way in.
+
+**Why not a password store of our own.** The operator invoked Tailscale's login as the model. Tailscale
+does not store passwords either: it delegates to Google/GitHub/Microsoft. A password store means
+hashing, reset, lockout, rate limiting, MFA and session revocation — several thousand lines of
+security-critical code serving one person, with every line ours to get wrong. Access is the same
+delegation with almost none of the code.
+
+**What was tested, and what was not.** Against a throwaway RSA key: a correct token accepted; another
+audience, another issuer, an expired token, an unknown `kid`, an unusable JWKS — all refused. On the
+deployed console a forged header answered `{"authenticated":false}` and `401` on a data route, which is
+the property that matters: the header is what an attacker controls.
+
+The positive path needs a real Access session, which only the operator's browser can produce; it is
+verified by the operator opening the page, not by this session. That is stated here rather than assumed.
