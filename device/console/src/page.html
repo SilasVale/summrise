@@ -359,7 +359,11 @@ function renderDevices() {
       $("grant-device").value = device.id;
       $("grant-device").focus();
     });
-    action.append(use);
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.addEventListener("click", () => renameDevice(device));
+    action.append(use, rename);
 
     row.append(name, status, id, seen, action);
     rows.append(row);
@@ -554,6 +558,23 @@ async function readState() {
     setStatus($("state-status"), "state.get failed.", "error");
   } finally {
     $("read-state").disabled = lastGrant === null;
+  }
+}
+
+// The operator's label for a machine, which wins over the name the device announces. Clearing it
+// (an empty answer) lets the announced name show through again.
+async function renameDevice(device) {
+  const answer = window.prompt("Name for " + shortId(device.id) + " (empty clears it)", device.name || "");
+  if (answer === null) return;
+  try {
+    await api(ROUTES.devices + "/" + encodeURIComponent(device.id) + "/name", {
+      method: "POST",
+      body: JSON.stringify({ name: answer.trim() === "" ? null : answer.trim() })
+    });
+    setStatus($("devices-status"), "Renamed.", "ok");
+    await refreshDevices();
+  } catch (error) {
+    setStatus($("devices-status"), "Rename failed: " + error.message, "error");
   }
 }
 

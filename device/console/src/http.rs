@@ -157,6 +157,7 @@ impl Console {
             .route("/auth", post(authenticate))
             .route("/enroll", post(enroll))
             .route("/devices", get(list_devices).post(register_device))
+            .route("/devices/:id/name", post(rename_device))
             .route("/devices/:id/channel", get(device_channel))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
@@ -926,6 +927,57 @@ async fn proxy_mcp(
             }
         }
     }
+}
+
+/// `POST /devices/:id/name`: the operator's label for a machine, or `null` to clear it.
+#[derive(Deserialize)]
+struct RenameDevice {
+    name: Option<String>,
+}
+
+async fn rename_device(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    session: OperatorSession,
+    Json(body): Json<RenameDevice>,
+) -> Result<Json<DeviceView>, ApiError> {
+    let name = match body.name {
+        Some(name) => {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                None
+            } else if trimmed.len() > 64 || trimmed.chars().any(|c| c.is_control()) {
+                return Err(ApiError::bad_request("invalid_name"));
+            } else {
+                Some(trimmed.to_owned())
+            }
+        }
+        None => None,
+    };
+
+    let renamed = {
+        let mut devices = lock(&app.devices);
+        devices
+            .rename(&device_id, name)
+            .map_err(|_| ApiError::bad_request("registry_unwritable"))?
+    };
+    let Some(device) = renamed else {
+        return Err(ApiError::not_found("no_such_device"));
+    };
+
+    // Not a device action: the label lives in this console's registry, so it is not written to the
+    // device audit. `session` is what proves the caller is the operator.
+    let _ = session;
+
+    Ok(Json(DeviceView {
+        online: app.channels.online(&device.id),
+        version: app.channels.version(&device.id),
+        name: device.name.or_else(|| app.channels.name(&device.id)),
+        id: device.id,
+        public_key: device.public_key,
+        registered_at_ms: device.registered_at_ms,
+        last_seen_ms: device.last_seen_ms,
+    }))
 }
 
 /// `GET /devices`: the registry, for the operator.

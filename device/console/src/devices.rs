@@ -172,6 +172,37 @@ impl DeviceRegistry {
         Ok(device)
     }
 
+    /// Give a device the name the operator knows it by, or clear it.
+    ///
+    /// The name is the console's label, not the device's claim: a machine that announces
+    /// `DESKTOP-14RJCR8` can be recorded as `studio`. `None` clears it, which lets the announced name
+    /// show through again. The write happens before the in-memory list changes, so a failed write
+    /// leaves the registry serving what is still on disk.
+    pub(crate) fn rename(
+        &mut self,
+        id: &str,
+        name: Option<String>,
+    ) -> Result<Option<Device>, RegisterError> {
+        let Some(existing) = self.devices.get(id).cloned() else {
+            return Ok(None);
+        };
+        let mut next = self.devices.clone();
+        let updated = Device {
+            name,
+            ..existing.device.clone()
+        };
+        next.insert(
+            id.to_owned(),
+            StoredDevice {
+                device: updated.clone(),
+                token_hash: existing.token_hash.clone(),
+            },
+        );
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(Some(updated))
+    }
+
     /// Every device, ordered by id so the wire list and the file are stable.
     pub(crate) fn list(&self) -> Vec<Device> {
         self.devices
@@ -249,4 +280,54 @@ fn validate(stored: &StoredDevice) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    /// The operator's label is the console's fact: it persists, it can be cleared, and clearing it
+    /// lets the announced name show through again.
+    #[test]
+    fn a_device_can_be_named_and_unnamed() {
+        let dir = std::env::temp_dir().join(format!("summrise-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let public = hex::encode(&key.verifying_key().to_bytes());
+        let id = public.clone();
+        registry
+            .register(&id, &public, None, &[9u8; 32], 1_000)
+            .expect("the device registers");
+
+        let renamed = registry
+            .rename(&id, Some("studio".to_owned()))
+            .expect("the write succeeds")
+            .expect("the device exists");
+        assert_eq!(renamed.name.as_deref(), Some("studio"));
+        assert_eq!(
+            DeviceRegistry::load(&dir)
+                .expect("the registry reloads")
+                .list()[0]
+                .name
+                .as_deref(),
+            Some("studio"),
+            "the label is on disk, not only in memory"
+        );
+
+        let cleared = registry
+            .rename(&id, None)
+            .expect("the write succeeds")
+            .expect("the device exists");
+        assert_eq!(cleared.name, None);
+        assert_eq!(
+            registry
+                .rename("00".repeat(32).as_str(), Some("x".to_owned()))
+                .expect("no write"),
+            None,
+            "an unknown device is not created by a rename"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
