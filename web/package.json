@@ -1,0 +1,23 @@
+{
+  "name": "summrise-console-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "//why": "The console page is built here and embedded into the Rust binary as ONE html file, so the device still ships a single executable and the runtime has no Node in it. React is a build-time dependency only.",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0",
+    "vite-plugin-singlefile": "^2.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

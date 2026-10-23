@@ -9,7 +9,7 @@
 // Usage (on a machine with Playwright and the console's operator token):
 //   CONSOLE_URL=http://127.0.0.1:19000 \
 //   CONSOLE_TOKEN_FILE=C:\SummriseConsole\operator.token \
-//   node scripts/console-smoke.mjs [--shot out.png] [--expect 2]
+//   node scripts/console-smoke.mjs [--shot out.png] [--expect 2] [--expect-online 2]
 //
 // Exit codes: 0 the page works · 1 the page is broken · 2 it could not be checked.
 
@@ -27,6 +27,7 @@ const option = (name, fallback) => {
 const base = process.env.CONSOLE_URL || 'http://127.0.0.1:19000';
 const tokenFile = process.env.CONSOLE_TOKEN_FILE;
 const expectedCardinals = Number(option('--expect', process.env.CONSOLE_EXPECT || '1'));
+const expectedOnline = Number(option('--expect-online', process.env.CONSOLE_EXPECT_ONLINE || '-1'));
 const shot = option('--shot', '');
 
 if (!tokenFile) {
@@ -89,6 +90,15 @@ try {
 
 const cards = await page.locator('#device-cards .card').count();
 if (cards < expectedCardinals) await fail(`expected at least ${expectedCardinals} card(s), saw ${cards}`);
+
+// A card proves the page rendered; it does not prove a device can be reached. The summary line is
+// where the console says how many channels are live, and a fleet that is all offline is a console
+// that looks fine and is useless.
+if (expectedOnline >= 0) {
+  const summary = await page.locator('#device-summary').innerText();
+  const online = Number((summary.match(/(\d+)\s+online/) || [])[1] ?? -1);
+  if (online < expectedOnline) await fail(`expected ${expectedOnline} online, the page says "${summary}"`);
+}
 if (errors.length > 0) await fail('the page logged errors');
 
 // A dead button is the exact failure this script exists for: click the one that only needs a session.
