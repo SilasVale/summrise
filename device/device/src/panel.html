@@ -4,37 +4,156 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Summrise — this machine</title>
+<!--
+  The device's own panel: the surface a person standing at this machine uses, and the one that still
+  answers when the console is down. It shares the console's design tokens — the same brand amber, the
+  same neutral scale, the same card and chip vocabulary — because two surfaces of one product should
+  not look like two products.
+-->
 <style>
-  :root { color-scheme: light dark; --line: #d5dae1; --muted: #5c6875; --bg: #ffffff; --fg: #14181d; }
+  :root {
+    color-scheme: light dark;
+    --accent: #bf3a0a;
+    --accent-soft: #ffefe5;
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --surface-recessed: #fafafa;
+    --surface-chip: #f4f4f5;
+    --ink: #18181b;
+    --ink-muted: #71717a;
+    --ink-faint: #a1a1aa;
+    --line: #e4e4e7;
+    --line-strong: #d4d4d8;
+    --ok: #128a4b;
+    --ok-soft: #e7f6ee;
+    --warn: #a8620a;
+    --warn-soft: #fff4e5;
+    --error: #c02a1b;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --shadow: 0 1px 2px rgba(16, 23, 33, .06);
+  }
   @media (prefers-color-scheme: dark) {
-    :root { --line: #2b323c; --muted: #97a3b1; --bg: #10151c; --fg: #e6ebf1; }
+    :root {
+      --accent-soft: #2a1c12;
+      --bg: #0c1014;
+      --surface: #121820;
+      --surface-recessed: #0e1319;
+      --surface-chip: #1a222c;
+      --ink: #e7edf4;
+      --ink-muted: #98a5b4;
+      --ink-faint: #7b8794;
+      --line: #222c37;
+      --line-strong: #2e3a47;
+      --ok: #3fcf7f;
+      --ok-soft: #10261a;
+      --warn: #e0a44a;
+      --warn-soft: #2a1e0b;
+      --error: #ff8b7e;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 2rem 1.25rem; background: var(--bg); color: var(--fg);
-         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 52rem; margin: 0 auto; }
-  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
-  p.sub { color: var(--muted); margin: 0 0 1.5rem; }
-  section { border: 1px solid var(--line); border-radius: .6rem; padding: 1rem; margin-bottom: 1rem; }
-  h2 { font-size: .95rem; margin: 0 0 .75rem; }
-  dl { display: grid; grid-template-columns: 10rem 1fr; gap: .35rem 1rem; margin: 0; }
-  dt { color: var(--muted); }
-  dd { margin: 0; overflow-wrap: anywhere; }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
-  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-  th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 500; }
-  .none { color: var(--muted); }
+  body {
+    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    background: var(--bg); color: var(--ink);
+    font: 0.9375rem / 1.55 var(--font);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 54rem; margin: 0 auto; display: grid; gap: 1rem; }
+  header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.25rem; }
+  header img { display: block; }
+  h1 { font-size: 1.15rem; font-weight: 650; margin: 0; letter-spacing: -0.012em; }
+  header span { color: var(--ink-faint); font-size: 0.85rem; }
+  .lede { color: var(--ink-muted); margin: 0 0 0.25rem; font-size: 0.9rem; }
+
+  section {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius-lg); padding: 1rem 1.1rem; box-shadow: var(--shadow);
+  }
+  section h2 {
+    font-size: 0.95rem; font-weight: 650; margin: 0 0 0.7rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  section h2 .chip { margin-left: auto; }
+  dl { display: grid; grid-template-columns: 11rem 1fr; gap: 0.3rem 1rem; margin: 0; }
+  dt { color: var(--ink-muted); font-size: 0.88rem; }
+  dd { margin: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
+  .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+
+  .chip {
+    display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
+  }
+  .chip-ok { background: var(--ok-soft); color: var(--ok); }
+  .chip-warn { background: var(--warn-soft); color: var(--warn); }
+  .chip-off { background: var(--surface-chip); color: var(--ink-muted); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.35rem 0.45rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.kind { color: var(--ink-muted); }
+  .none { color: var(--ink-muted); font-size: 0.88rem; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Summrise — this machine</h1>
-  <p class="sub">The device's own panel. Loopback only, no login: if you can read this, you are on the box.</p>
+  <header>
+    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <!-- Summrise brand mark: the summrise at sunrise — near hill, far ridge, signal over the pass.
+       THE ONE MARK. It is 16–30px in real life (Windows tray 16, rail 20/26, console 30),
+       so it is drawn for that: three gradients, no scene. The iridescent variant that
+       replaced it for three days put twelve gradients and a whole sky into the same
+       space; at 16–26px its ribbons collapsed into a smear. Reverted.
+       Copies kept in step by src/ui/__tests__/Icon.test.tsx: this file, the panel's
+       BrandMark, the console favicon and the landing page's data-URI. -->
+  <defs>
+    <linearGradient id="summrise-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f59f00"/>
+      <stop offset="1" stop-color="#e8590c"/>
+    </linearGradient>
+    <radialGradient id="summrise-glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/>
+    </radialGradient>
+    <!-- The material: light gathers at the top edge, the base sits in its own shadow.
+         This is what makes the tile read as an object rather than a sticker. -->
+    <linearGradient id="summrise-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".25"/>
+      <stop offset=".45" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="48" height="48" rx="11" fill="url(#summrise-sky)"/>
+
+  <!-- signal rising over the pass -->
+  <circle cx="21" cy="14" r="7.5" fill="url(#summrise-glow)"/>
+  <circle cx="21" cy="14" r="4" fill="#fff8e1"/>
+
+  <!-- far ridge (haze) -->
+  <path fill="#ffffff" opacity=".78" d="M14 41Q26 16 44 41Z"/>
+  <!-- near hill (solid) -->
+  <path fill="#ffffff" d="M2 41Q12 20 24 41Z"/>
+
+  <rect width="48" height="48" rx="11" fill="url(#summrise-sheen)"/>
+</svg>
+    <h1>Summrise</h1><span>this machine</span>
+  </header>
+  <p class="lede">The device's own panel. Loopback only, no login: if you can read this, you are on the box.</p>
 
   <section>
     <h2>Build</h2>
     <dl id="build"><dt>…</dt><dd>reading</dd></dl>
+  </section>
+
+  <section>
+    <h2>Console link <span id="console-chip" class="chip chip-off">unknown</span></h2>
+    <dl id="console"><dt>…</dt><dd>reading</dd></dl>
   </section>
 
   <section>
@@ -49,17 +168,17 @@
   </section>
 </main>
 <script>
-function row(dl, term, value) {
+function row(dl, term, value, mono) {
   const dt = document.createElement("dt");
   dt.textContent = term;
   const dd = document.createElement("dd");
   dd.textContent = value;
+  if (mono) dd.className = "mono";
   dl.append(dt, dd);
 }
 
 function when(ms) {
-  if (typeof ms !== "number") return "";
-  return new Date(ms).toLocaleString();
+  return typeof ms === "number" ? new Date(ms).toLocaleString() : "";
 }
 
 async function refresh() {
@@ -67,24 +186,40 @@ async function refresh() {
   try {
     snapshot = await (await fetch("/api/panel", { cache: "no-store" })).json();
   } catch (error) {
-    document.getElementById("build").replaceChildren(Object.assign(document.createElement("dt"), { textContent: "unreachable" }));
+    document.getElementById("build").replaceChildren();
+    row(document.getElementById("build"), "unreachable", "the device did not answer /api/panel");
     return;
   }
+
   const build = document.getElementById("build");
   build.replaceChildren();
   row(build, "Version", snapshot.version || "unknown");
   row(build, "Channel", snapshot.channel || "unknown");
-  row(build, "Binary sha256", (snapshot.sha256 || "unverified").slice(0, 16));
+  row(build, "Binary sha256", (snapshot.sha256 || "unverified").slice(0, 16), true);
   row(build, "Process", "pid " + snapshot.pid);
+
+  const link = document.getElementById("console");
+  const chip = document.getElementById("console-chip");
+  link.replaceChildren();
+  const attempt = snapshot.console_attempt;
+  if (!attempt || !attempt.attempts) {
+    chip.className = "chip chip-ok";
+    chip.textContent = "connected";
+    row(link, "Last attempt", "connected on the first try");
+  } else {
+    chip.className = "chip chip-warn";
+    chip.textContent = attempt.attempts + " retries";
+    row(link, "Failed attempts", String(attempt.attempts));
+    row(link, "Last reason", attempt.reason || "(none given)");
+  }
 
   const state = document.getElementById("state");
   state.replaceChildren();
-  const doc = snapshot.state;
-  if (!doc) {
+  if (!snapshot.state) {
     row(state, "state.json", "unreadable");
   } else {
-    for (const [key, value] of Object.entries(doc)) {
-      row(state, key, typeof value === "object" ? JSON.stringify(value) : String(value));
+    for (const [key, value] of Object.entries(snapshot.state)) {
+      row(state, key, typeof value === "object" ? JSON.stringify(value) : String(value), typeof value === "object");
     }
   }
 
@@ -97,14 +232,11 @@ async function refresh() {
     const ts = document.createElement("td");
     ts.textContent = when(event.at_ms || event.ts_ms);
     const what = document.createElement("td");
-    // A tool call writes two lines — `begin` with the tool and `end` with the outcome — and the
-    // tool's name is the part an operator reads. Show it, with the event behind it in grey.
     if (event.tool) {
-      what.append(document.createTextNode(event.tool + " "));
+      what.textContent = event.tool;
       const kind = document.createElement("span");
-      kind.className = "none";
-      kind.textContent =
-        event.event === "end" ? (event.ok ? "ok" : "failed") : String(event.decision || event.event);
+      kind.className = "kind";
+      kind.textContent = " " + (event.event === "end" ? (event.ok ? "ok" : "failed") : String(event.decision || event.event));
       what.append(kind);
     } else {
       what.textContent = event.event || event.kind || JSON.stringify(event);

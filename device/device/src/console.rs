@@ -292,12 +292,33 @@ fn channel_url(
 }
 
 /// How the attempt before this one ended.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct RetryNote {
     /// How many attempts had failed when this one started (1 means the previous one was the first).
     pub attempts: u8,
     /// The last failure in a sentence, as the device would print it.
     pub reason: String,
+}
+
+/// The note the link is currently carrying, for the device's own panel.
+///
+/// One process, one console link, so a static is the honest shape: plumbing an `Arc` through the MCP
+/// service to the HTTP layer would be three signatures to say "there is one of these".
+static LAST_ATTEMPT: std::sync::OnceLock<std::sync::Mutex<Option<RetryNote>>> =
+    std::sync::OnceLock::new();
+
+/// How the previous attempt ended, as the panel shows it.
+pub fn last_attempt() -> Option<RetryNote> {
+    LAST_ATTEMPT
+        .get()
+        .and_then(|cell| cell.lock().ok().and_then(|guard| guard.clone()))
+}
+
+fn record_attempt(note: &Option<RetryNote>) {
+    let cell = LAST_ATTEMPT.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = cell.lock() {
+        *guard = note.clone();
+    }
 }
 
 /// A reason travels in a query string and is displayed to an operator: one line, bounded, no control
@@ -412,6 +433,7 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey)
     let mut attempt: u8 = 1;
     let mut note: Option<RetryNote> = None;
     loop {
+        record_attempt(&note);
         match connect(&endpoint, note.as_ref()).await {
             Ok(socket) => {
                 // A connection that opened is a success, but a connection that never served a

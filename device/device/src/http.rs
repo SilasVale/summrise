@@ -221,6 +221,10 @@ async fn panel_snapshot(
         "pid": std::process::id(),
         "state": state,
         "events": events,
+        // The console link's own story. A device cannot report a failure while it is failing, so this
+        // is the last attempt it knows about — and it is the one place that knows it: the panel, on the
+        // machine, which is where an operator looks when the console says "offline".
+        "console_attempt": crate::console::last_attempt(),
     }))
     .into_response()
 }
