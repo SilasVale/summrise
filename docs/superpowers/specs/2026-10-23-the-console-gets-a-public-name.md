@@ -31,6 +31,22 @@ public hostname (`*.agent.saisi.online`) is what this replaces.
 `https://console.saisi.online/health` answers `{"status":"ok","devices":2}`, so the page, the API and the
 two enrolled devices are reachable from the internet.
 
+The whole flow was then driven **through the public name** from the console's own machine, so the
+operator token never left it:
+
+```
+auth:  1689 ms
+grant: 2450 ms
+mcp:   3543 ms   → {"health":{"pid":22364,"poisoned":false,"status":"ok","version":"0.3.10"}, …}
+```
+
+Login, grant, and a device call answering with that device's state — Cloudflare edge, tunnel, console,
+device channel, and back. Under a second per hop, which is the number that matters; the 10-second tails
+measured from a different host on the same uplink did not appear on this path.
+
+Authentication was checked from outside as well: `POST /grants` without an operator token answers
+`401 {"error":"unauthorized"}`.
+
 The path is not fast or steady yet: repeated requests measured **1.6 s to 10.5 s**, with occasional
 15-second timeouts, while the tailnet hop itself is **1.5 ms**. The tunnel shares this host's uplink and
 the same latency shows on `zss-dsh.saisi.online` (a Cloudflare Access 302 that took 3.8 s and sometimes
