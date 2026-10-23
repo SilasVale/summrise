@@ -254,13 +254,47 @@ fn channel_url(base: &str, device_id: &str) -> Result<String, ConsoleError> {
     {
         return Err(ConsoleError::BadUrl(base.to_owned()));
     }
-    // `?v=` tells the console which build is on the other end, so the operator's device list can name
-    // it without asking the device for a grant first. A console that ignores the parameter answers
-    // exactly as before: it is a query string on a route both sides already share.
+    // `?v=` and `?n=` tell the console which build and which machine are on the other end, so the
+    // operator's device list can name them without asking the device for a grant first. A console that
+    // ignores the parameters answers exactly as before: they are a query string on a route both sides
+    // already share.
+    let name = host_name()
+        .map(|name| format!("&n={}", percent_encode(&name)))
+        .unwrap_or_default();
     Ok(format!(
-        "{scheme}://{rest}/devices/{device_id}/channel?v={}",
+        "{scheme}://{rest}/devices/{device_id}/channel?v={}{name}",
         env!("CARGO_PKG_VERSION")
     ))
+}
+
+/// The machine's own name, as the operator would recognise it in a list.
+///
+/// Windows names a machine with `COMPUTERNAME` (`desktop-9vh92bj`); the variable may also be unset in
+/// a service that inherited nothing, in which case the console shows no name rather than a guess.
+fn host_name() -> Option<String> {
+    for key in ["COMPUTERNAME", "HOSTNAME"] {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Percent-encode the characters a query string cannot carry, so a name with a space or `&` survives.
+fn percent_encode(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char)
+            }
+            other => encoded.push_str(&format!("%{other:02X}")),
+        }
+    }
+    encoded
 }
 
 /// Parse the compile-time console key, refusing the placeholder by name.
@@ -744,7 +778,16 @@ mod tests {
             ),
         ] {
             let expected = expected.replace("0.0.0-test", env!("CARGO_PKG_VERSION"));
-            assert_eq!(channel_url(base, "ab").expect(base), expected, "{base}");
+            let actual = channel_url(base, "ab").expect(base);
+            assert!(actual.starts_with(&expected), "{base}: {actual}");
+            // The machine's own name follows the version, encoded so a space or `&` survives.
+            if let Some(name) = host_name() {
+                assert_eq!(
+                    actual,
+                    format!("{expected}&n={}", percent_encode(&name)),
+                    "{base}: the name is announced with the version"
+                );
+            }
         }
 
         for bad in [

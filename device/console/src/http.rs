@@ -724,6 +724,13 @@ async fn device_channel(
             app.channels.announce_version(&device_id, version);
         }
     }
+    if let Some(name) = params.get("n") {
+        let plausible =
+            !name.is_empty() && name.len() <= 64 && !name.chars().any(|c| c.is_control());
+        if plausible {
+            app.channels.announce_name(&device_id, name);
+        }
+    }
 
     upgrade.on_upgrade(move |socket| async move {
         app.channels.serve(device_id, socket).await;
@@ -929,9 +936,11 @@ async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<V
         .map(|device| DeviceView {
             online: app.channels.online(&device.id),
             version: app.channels.version(&device.id),
+            // A name given at registration wins; the machine's own name is a fallback for the
+            // devices that never gave one, which is all of them so far.
+            name: device.name.or_else(|| app.channels.name(&device.id)),
             id: device.id,
             public_key: device.public_key,
-            name: device.name,
             registered_at_ms: device.registered_at_ms,
             last_seen_ms: device.last_seen_ms,
         })

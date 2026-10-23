@@ -121,6 +121,8 @@ pub(crate) struct ChannelRegistry {
     peak_queued: AtomicUsize,
     /// The version each device announced when it opened its channel, for the operator's device list.
     versions: Mutex<HashMap<String, String>>,
+    /// The machine name each device announced, for an operator list that reads like a list of machines.
+    names: Mutex<HashMap<String, String>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -147,6 +149,7 @@ impl ChannelRegistry {
             in_flight: Mutex::new(HashMap::new()),
             peak_queued: AtomicUsize::new(0),
             versions: Mutex::new(HashMap::new()),
+            names: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
@@ -164,6 +167,16 @@ impl ChannelRegistry {
     /// the operator's list shows as unknown rather than guessing from the install.
     pub(crate) fn announce_version(&self, device_id: &str, version: &str) {
         lock(&self.versions).insert(device_id.to_owned(), version.to_owned());
+    }
+
+    /// Record the name the device announced on its channel URL, when the registry has none.
+    pub(crate) fn announce_name(&self, device_id: &str, name: &str) {
+        lock(&self.names).insert(device_id.to_owned(), name.to_owned());
+    }
+
+    /// The name the device announced, if it did.
+    pub(crate) fn name(&self, device_id: &str) -> Option<String> {
+        lock(&self.names).get(device_id).cloned()
     }
 
     /// The version the device announced, if it did.
@@ -499,6 +512,27 @@ mod tests {
 
     fn device_id() -> String {
         "ab".repeat(32)
+    }
+
+    /// What the operator's device list reads: a channel that is open now, and what the device said
+    /// about itself on the way in.
+    #[tokio::test]
+    async fn the_registry_reports_online_and_what_the_device_announced() {
+        let registry = ChannelRegistry::new();
+        assert!(!registry.online(&device_id()), "no channel yet");
+        assert_eq!(registry.version(&device_id()), None);
+        assert_eq!(registry.name(&device_id()), None);
+
+        registry.announce_version(&device_id(), "0.3.11");
+        registry.announce_name(&device_id(), "desktop-9vh92bj");
+        assert_eq!(registry.version(&device_id()).as_deref(), Some("0.3.11"));
+        assert_eq!(
+            registry.name(&device_id()).as_deref(),
+            Some("desktop-9vh92bj")
+        );
+
+        let _open = registry.open(&device_id());
+        assert!(registry.online(&device_id()), "the channel is open");
     }
 
     #[tokio::test]
