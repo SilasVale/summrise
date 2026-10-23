@@ -58,6 +58,48 @@
   }
   .chip-ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
   .chip-off { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+  .summary { color: var(--muted); margin: 0 0 .75rem; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+    gap: .9rem;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: .6rem;
+    padding: .9rem 1rem;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+  }
+  .card header {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: 0;
+  }
+  .card header strong { font-size: 1rem; overflow-wrap: anywhere; }
+  .card header .chip { margin-left: auto; }
+  .dot {
+    width: .6rem;
+    height: .6rem;
+    border-radius: 999px;
+    background: var(--muted);
+    flex: none;
+  }
+  .dot.online { background: var(--ok); }
+  .facts {
+    border: 1px solid var(--line);
+    border-radius: .45rem;
+    padding: .5rem .65rem;
+    display: grid;
+    gap: .25rem;
+  }
+  .fact { display: flex; justify-content: space-between; gap: 1rem; font-size: .88rem; }
+  .fact span:first-child { color: var(--muted); }
+  .card .id { color: var(--muted); margin: 0; }
+  .card footer { display: flex; gap: .5rem; margin-top: auto; }
   section {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -150,10 +192,8 @@
         <button id="refresh-devices" type="button">Refresh</button>
         <button id="sign-out" type="button">Sign out</button>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Status</th><th>Device id</th><th>Last seen</th><th></th></tr></thead>
-        <tbody id="device-rows"></tbody>
-      </table>
+      <p class="summary" id="device-summary"></p>
+      <div id="device-cards" class="cards"></div>
       <p id="devices-status" class="status" role="status"></p>
     </section>
 
@@ -321,49 +361,59 @@ function shortId(id) {
 }
 
 function renderDevices() {
-  const rows = $("device-rows");
-  rows.replaceChildren();
-  if (devices.length === 0) {
-    const row = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.colSpan = 5;
-    cell.className = "muted";
-    cell.textContent = "No device has registered yet.";
-    row.append(cell);
-    rows.append(row);
-    return;
-  }
+  const cards = $("device-cards");
+  cards.replaceChildren();
+  const online = devices.filter((device) => device.online).length;
+  $("device-summary").textContent =
+    devices.length === 0
+      ? "No device has registered yet."
+      : devices.length + (devices.length === 1 ? " device" : " devices") + ", " + online + " online";
+
   for (const device of devices) {
-    const row = document.createElement("tr");
+    const card = document.createElement("article");
+    card.className = "card";
 
-    const name = document.createElement("td");
-    name.textContent = device.name || "—";
-
-    // Status the operator can read at a glance: a channel that is open now, and the build that
-    // announced itself. A device that never announced a version says so rather than guessing.
-    const status = document.createElement("td");
-    const chip = document.createElement("span");
-    chip.className = "chip " + (device.online ? "chip-ok" : "chip-off");
-    chip.textContent = device.online ? "online" : "offline";
-    status.append(chip);
+    const header = document.createElement("header");
+    const dot = document.createElement("span");
+    dot.className = "dot" + (device.online ? " online" : "");
+    const name = document.createElement("strong");
+    name.textContent = device.name || shortId(device.id);
+    header.append(dot, name);
     if (device.version) {
-      const version = document.createElement("span");
-      version.className = "muted mono";
-      version.textContent = " v" + device.version;
-      status.append(version);
+      const chip = document.createElement("span");
+      chip.className = "chip chip-ok";
+      chip.textContent = "v" + device.version;
+      header.append(chip);
     }
 
-    const id = document.createElement("td");
-    id.className = "mono";
+    const facts = document.createElement("div");
+    facts.className = "facts";
+    const channel = document.createElement("div");
+    channel.className = "fact";
+    const channelLabel = document.createElement("span");
+    channelLabel.textContent = "Channel";
+    const channelValue = document.createElement("span");
+    channelValue.textContent = device.online ? "online" : "offline";
+    channelValue.style.color = device.online ? "var(--ok)" : "var(--muted)";
+    channel.append(channelLabel, channelValue);
+
+    const seen = document.createElement("div");
+    seen.className = "fact";
+    const seenLabel = document.createElement("span");
+    seenLabel.textContent = "Last seen";
+    const seenValue = document.createElement("span");
+    seenValue.textContent = ageText(device.last_seen_ms);
+    if (typeof device.last_seen_ms === "number") {
+      seenValue.title = new Date(device.last_seen_ms).toISOString();
+    }
+    seen.append(seenLabel, seenValue);
+    facts.append(channel, seen);
+
+    const id = document.createElement("p");
+    id.className = "mono id";
     id.textContent = device.id || "";
 
-    const seen = document.createElement("td");
-    seen.textContent = ageText(device.last_seen_ms);
-    if (typeof device.last_seen_ms === "number") {
-      seen.title = new Date(device.last_seen_ms).toISOString();
-    }
-
-    const action = document.createElement("td");
+    const footer = document.createElement("footer");
     const use = document.createElement("button");
     use.type = "button";
     use.textContent = "Use";
@@ -379,217 +429,10 @@ function renderDevices() {
     revoke.type = "button";
     revoke.textContent = "Remove";
     revoke.addEventListener("click", () => removeDevice(device));
-    action.append(use, rename, revoke);
+    footer.append(use, rename, revoke);
 
-    row.append(name, status, id, seen, action);
-    rows.append(row);
-  }
-}
-
-function fillDeviceSelect() {
-  const select = $("grant-device");
-  const previous = select.value;
-  select.replaceChildren();
-  for (const device of devices) {
-    const option = document.createElement("option");
-    option.value = device.id;
-    option.textContent = device.name ? device.name + " — " + shortId(device.id) : shortId(device.id);
-    select.append(option);
-  }
-  if (devices.some((device) => device.id === previous)) select.value = previous;
-  $("mint-grant").disabled = devices.length === 0;
-}
-
-async function refreshDevices() {
-  setStatus($("devices-status"), "Loading devices…", "");
-  try {
-    const list = await api(ROUTES.devices);
-    devices = Array.isArray(list) ? list : [];
-    renderDevices();
-    fillDeviceSelect();
-    setStatus(
-      $("devices-status"),
-      devices.length + (devices.length === 1 ? " device" : " devices"),
-      "ok"
-    );
-  } catch (error) {
-    setStatus($("devices-status"), "Devices failed: " + error.message, "error");
-  }
-}
-
-function buildToolList() {
-  const fieldset = $("tool-list");
-  const legend = document.createElement("legend");
-  legend.textContent = "Tools (" + TOOLS.length + ")";
-  fieldset.replaceChildren(legend);
-
-  const toolbar = document.createElement("div");
-  toolbar.className = "toolbar";
-  const all = document.createElement("button");
-  all.type = "button";
-  all.textContent = "All";
-  all.addEventListener("click", () => {
-    for (const box of document.querySelectorAll("#tool-list input[type=checkbox]")) box.checked = true;
-  });
-  const none = document.createElement("button");
-  none.type = "button";
-  none.textContent = "None";
-  none.addEventListener("click", () => {
-    for (const box of document.querySelectorAll("#tool-list input[type=checkbox]")) box.checked = false;
-  });
-  toolbar.append(all, none);
-  fieldset.append(toolbar);
-
-  const grid = document.createElement("div");
-  grid.className = "tool-grid";
-  for (const name of TOOLS) {
-    const label = document.createElement("label");
-    label.className = "tool";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.name = "tool";
-    box.value = name;
-    const text = document.createElement("span");
-    text.textContent = name;
-    label.append(box, text);
-    grid.append(label);
-  }
-  fieldset.append(grid);
-}
-
-// A `?code=` in the URL is the operator's one-time login link (`--login-link` on the host): it is
-// exchanged here and stripped from the address bar so it does not linger in a bookmark or history.
-async function signInWith(body, note) {
-  setStatus($("login-status"), note || "Signing in…", "");
-  try {
-    const answer = await api(ROUTES.auth, { method: "POST", body: JSON.stringify(body) });
-    session = answer.token;
-    try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: session, until: answer.expires_at_ms }));
-    } catch (_) {}
-    $("operator-token").value = "";
-    $("login").hidden = true;
-    $("console").hidden = false;
-    setStatus(
-      $("session-status"),
-      "Session valid until " + new Date(answer.expires_at_ms).toLocaleString(),
-      "ok"
-    );
-    await refreshDevices();
-    await refreshAudit();
-  } catch (error) {
-    setStatus($("login-status"), "Sign-in failed: " + error.message, "error");
-  }
-}
-
-async function connect(event) {
-  event.preventDefault();
-  const token = $("operator-token").value.trim();
-  if (!token) return;
-  setStatus($("login-status"), "Signing in…", "");
-  try {
-    const body = await api(ROUTES.auth, { method: "POST", body: JSON.stringify({ token: token }) });
-    session = body.token;
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: session, until: body.expires_at_ms })); } catch (_) {}
-    $("operator-token").value = "";
-    $("login").hidden = true;
-    $("console").hidden = false;
-    setStatus(
-      $("session-status"),
-      "Session valid until " + new Date(body.expires_at_ms).toLocaleString(),
-      "ok"
-    );
-    await refreshDevices();
-    await refreshAudit();
-  } catch (error) {
-    setStatus($("login-status"), "Sign-in failed: " + error.message, "error");
-  }
-}
-
-function signOut() {
-  session = null;
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
-  devices = [];
-  lastGrant = null;
-  $("operator-token").value = "";
-  $("login").hidden = false;
-  $("console").hidden = true;
-  $("session-status").textContent = "";
-  $("session-status").className = "status";
-  $("grant-output").hidden = true;
-  $("grant-output").textContent = "";
-  $("state-output").textContent = "No state yet.";
-  $("read-state").disabled = true;
-  $("copy-call").disabled = true;
-}
-
-async function mintGrant(event) {
-  event.preventDefault();
-  const deviceId = $("grant-device").value;
-  const tools = Array.from(
-    document.querySelectorAll("#tool-list input[type=checkbox]:checked"),
-    (box) => box.value
-  );
-  const expiresIn = Number($("grant-expiry").value);
-  const allowDestructive = $("allow-destructive").checked;
-
-  if (!deviceId) {
-    setStatus($("grant-status"), "Choose a device first.", "error");
-    return;
-  }
-  if (tools.length === 0) {
-    setStatus($("grant-status"), "Choose at least one tool.", "error");
-    return;
-  }
-  if (!Number.isInteger(expiresIn) || expiresIn < 60 || expiresIn > 604800) {
-    setStatus($("grant-status"), "Lifetime must be 60 to 604800 seconds.", "error");
-    return;
-  }
-
-  setStatus($("grant-status"), "Minting…", "");
-  try {
-    const envelope = await api(ROUTES.grants, {
-      method: "POST",
-      body: JSON.stringify({
-        device_id: deviceId,
-        tools: tools,
-        expires_in_s: expiresIn,
-        allow_destructive: allowDestructive
-      })
-    });
-    lastGrant = { deviceId: deviceId, envelope: envelope };
-    $("grant-output").hidden = false;
-    $("grant-output").textContent = JSON.stringify(envelope, null, 2);
-    $("read-state").disabled = false;
-    $("copy-call").disabled = false;
-    setStatus(
-      $("grant-status"),
-      "Signed a grant for " + tools.length + (tools.length === 1 ? " tool." : " tools."),
-      "ok"
-    );
-    await refreshAudit();
-  } catch (error) {
-    setStatus($("grant-status"), "Grant failed: " + error.message, "error");
-  }
-}
-
-// The other half of onboarding: a code from this console, and the one command the new machine runs.
-// The code is single-use and short-lived, which is why showing it in the page is acceptable.
-async function newCode() {
-  $("new-code").disabled = true;
-  setStatus($("code-status"), "Minting a code…", "");
-  try {
-    const issued = await api(ROUTES.enroll, { method: "POST", body: "{}" });
-    const command =
-      "summrise-device.exe --enroll " + location.origin + " " + issued.code + "\n" +
-      "# the code expires at " + new Date(issued.expires_at_ms).toLocaleTimeString();
-    $("code-output").hidden = false;
-    $("code-output").textContent = command;
-    setStatus($("code-status"), "Code minted; it works once and then it is spent.", "ok");
-  } catch (error) {
-    setStatus($("code-status"), "Could not mint a code: " + error.message, "error");
-  } finally {
-    $("new-code").disabled = false;
+    card.append(header, facts, id, footer);
+    cards.append(card);
   }
 }
 
