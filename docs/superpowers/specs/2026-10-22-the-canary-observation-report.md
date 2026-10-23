@@ -131,3 +131,15 @@ the device's data directory on purpose. Verified on `desktop-14rjcr8`: before th
 `baseline/current` (14.5 MB) and `baseline/previous` (14.9 MB) after an uninstall; after it, neither
 exists, the service answers `1060` (not installed), and only the operator's files and `data/` remain.
 Both machines run 0.3.8 with a green self-check.
+
+### 2026-10-23 — the supervisor restarts the app, and the release downloads intact
+
+Two things that a release owes an operator were checked on the machines rather than argued:
+
+- **The supervisor brings the app back.** `taskkill /F /IM summrise-device.exe` on
+  `desktop-14rjcr8` killed pid 21164; eight seconds later `/api/health` answered from pid 17548 on the
+  same version, and `state.json` carried `service.pid 17548`, `startedAt 2026-10-23T04:41:45Z`,
+  `lastVerdict {"outcome":"ok","detail":"started 0.3.8"}`.
+- **The published installer is the one that was tested.** The `v0.3.8` asset was downloaded back
+  through the release API: 4,580,778 bytes, sha256 `17e51cdd…a227c3`, identical to the `SHA256SUMS`
+  published beside it.
