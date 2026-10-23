@@ -91,18 +91,26 @@ policy  allow-me                    decision allow             email 13122231591
 reachable only after the operator's email is verified, and the console's token remains the second
 factor.
 
-**The device channel was the risk, and it was measured rather than assumed.** A bypass app for
-`console.saisi.online/devices` was created first, because a WebSocket upgrade that receives a 302
-instead of a 101 would take every device offline. Then it was deleted and a device was killed twice:
+**The device paths had to be reachable, and the first attempt at that was wrong.** A bypass app for
+`console.saisi.online/devices` was created, then deleted after a test that only killed a device and
+watched it reconnect: the **channel** upgrade is not challenged by Access, so the bypass looked inert.
+
+It was not inert — it was **mislabelled**. A Cloudflare Access application with no policy does not
+bypass; it treats the request as unauthenticated. The deleted app had no policy at all, so it never
+bypassed anything and the test proved only that the channel survives without it. Device **registration**
+(`POST /devices`) was 302'd by Access, which means a new machine could not enrol through the public
+name at all.
+
+The app was re-created with a real policy (`decision: bypass`, everyone) and verified from outside:
 
 ```
-devices:2  (with the bypass)
-devices:2  (without it, after a forced reconnect)
+POST /devices            → 422  (the console's own validation error: the path is reached)
+GET  /                   → 302  (the operator page is still behind Access)
 ```
 
-Cloudflare Access does not challenge the channel's upgrade, so the bypass was **inert and is removed** —
-one fewer rule that looks load-bearing. A device that reconnects still reaches the console; what guards
-the channel is the token it registered with, as before.
+So the split is deliberate: the two device-facing paths are reachable, everything an operator reads is
+not. The registration still costs a one-time code, and the channel still costs the token the device
+registered with — the bypass removes a network gate, not an authorization one.
 
 ## 2026-10-23 — Access becomes the operator identity, and what that cost
 
