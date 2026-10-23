@@ -100,3 +100,22 @@ pilot: keep the new runtime on these two machines, have the operator use the con
 one serial session on a machine that has a port, and get CI running again (it has been failing at job
 start on the account, not on the code). The deletion gates in the cutover plan stay closed until the
 missing rows above have answers — which is exactly what the plan says a gate is for.
+
+## 2026-10-23 — the release and the second machine
+
+The build is published: `v0.3.7` on `SilasVale/summrise` carries the installer, the app binary and the
+signed document as release assets (prerelease, canary keys). The installer was **run for the first
+time** on the second machine and its trace is the gate's evidence:
+
+```
+install: C:\SummriseCanary   data: C:\ProgramData\Summrise   port: 18090
+registry readback: '0.3.7' (view 64)
+install-service: exit 0
+launch: replaced baseline/current from the installer's pair; the previous generation is baseline/previous
+health: ok on port 18090
+```
+
+Both machines now run 0.3.7 (`/api/health` on each), each with a quiet schedule pointed at the signed
+document. The release was assembled from a local build because the account's Actions never starts a
+job (`runner_id: 0`, zero steps): the tag's own `installer` run is red for that reason, not for the
+workflow.
