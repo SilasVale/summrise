@@ -88,7 +88,7 @@ Written after the first working week. The matrix above was a plan; this is the l
 | one deleted-exe repair | **done** | deleted `baseline/current\summrise-device.exe`, restarted the service: the supervisor booted `previous` and rebuilt `current`, `/api/health` answered 0.3.0, and `repair.log` recorded `{"kind":"repaired","from":"previous","sha256":"db304dd5…"}` |
 | one PTY session | **done** | `terminal.create` through the console answered `{"id":"session-1","kind":"pty","shell":"powershell.exe"}`, `terminal.write` → `{"written":15}`, `terminal.read` returned the console's echo. The default shell fell back from `pwsh` (absent) to `powershell.exe` |
 | one browser session | **done** | Playwright on the device drove the console: login → grant → `/mcp` → `state.get` answered with the device's own state |
-| one SSH session | **done** | `terminal.create {kind:"ssh", host_key pinned}` answered `{"id":"session-4","kind":"ssh","shell":"zss@100.85.163.159:22"}`; `terminal.write` sent 12 bytes; `terminal.read` returned the login banner and `zss@zss:~$ echo SSH-OK` / `SSH-OK`. A key written by Windows' own ssh-keygen was refused (CRLF) until the loader normalised line endings |
+| one SSH session | **done** | `terminal.create {kind:"ssh", host_key pinned}` answered `{"id":"session-4","kind":"ssh","shell":"zss@<dev-box>:22"}`; `terminal.write` sent 12 bytes; `terminal.read` returned the login banner and `zss@zss:~$ echo SSH-OK` / `SSH-OK`. A key written by Windows' own ssh-keygen was refused (CRLF) until the loader normalised line endings |
 | one serial session | **not yet** | needs hardware on the canary |
 | one remote MCP call through the console | **done ×2** | grants minted on `desktop-9vh92bj`, the call answered for both machines over the tailnet |
 

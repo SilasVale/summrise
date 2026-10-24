@@ -7,9 +7,9 @@
 # redeployed yet.
 #
 #   export SUMMRISE_LAUNCHER_PUBKEY=… SUMMRISE_RELEASE_PUBKEY=… SUMMRISE_CONSOLE_GRANT_KEY=…
-#   export SUMMRISE_MIRROR=http://100.85.163.159:18100
+#   export SUMMRISE_MIRROR=http://<dev-box>:18100
 #   export SUMMRISE_MIRROR_DIR=/tmp/canary-repo
-#   export SUMMRISE_CONSOLE=http://100.74.250.98:19000
+#   export SUMMRISE_CONSOLE=http://<canary>:19000
 #   export SUMMRISE_CONSOLE_VERSION=0.3.25        # what you deployed, if you deployed it
 #   scripts/release-canary.sh 0.3.26
 set -euo pipefail

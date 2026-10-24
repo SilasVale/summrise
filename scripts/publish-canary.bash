@@ -8,7 +8,7 @@
 # and the machine reported the old version while every log said the install succeeded.
 #
 #   scripts/publish-canary.bash --version 0.2.7 \
-#       --channel canary --port 18090 --mirror http://100.85.163.159:18100 \
+#       --channel canary --port 18090 --mirror http://<dev-box>:18100 \
 #       --console http://127.0.0.1:19000        # optional: verify what the world sees
 #       --launcher-key ~/.keys/launcher.seed --release-key ~/.keys/release.seed \
 #       --out /srv/canary

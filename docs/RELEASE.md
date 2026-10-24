@@ -28,7 +28,7 @@ export SUMMRISE_LAUNCHER_PUBKEY=… SUMMRISE_RELEASE_PUBKEY=… SUMMRISE_CONSOLE
 
 scripts/publish-canary.bash \
     --version 0.3.21 --channel canary --port 18090 \
-    --mirror http://100.85.163.159:18100 \
+    --mirror http://<dev-box>:18100 \
     --mirror-dir /path/that/the/mirror/serves \
     --launcher-key …/launcher.seed --release-key …/release.seed \
     --out /tmp/canary-mirror \
@@ -132,8 +132,8 @@ deliberate act, not an accident of the configuration.
 
 ```bash
 scripts/verify-release.sh 0.3.21 \
-    --mirror http://100.85.163.159:18100 \
-    --console http://100.74.250.98:19000 \
+    --mirror http://<dev-box>:18100 \
+    --console http://<canary>:19000 \
     --console-version 0.3.21
 ```
 

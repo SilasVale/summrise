@@ -7,18 +7,18 @@
 
 ## What was reused, not built
 
-The host already runs `cloudflared` (pm2 id 0) with tunnel `f27ca571-…`, serving `zss-dsh.saisi.online`
+The host already runs `cloudflared` (pm2 id 0) with tunnel `<tunnel-id>`, serving `zss-dsh.saisi.online`
 → `http://127.0.0.1:18081`. The console did **not** need its own tunnel:
 
 ```
 ingress:
   - hostname: zss-dsh.saisi.online      (unchanged)
   - hostname: console.saisi.online
-    service: http://100.74.250.98:19000   (the console, over the tailnet)
+    service: http://<canary>:19000   (the console, over the tailnet)
   - service: http_status:404
 ```
 
-plus a proxied CNAME `console` → `f27ca571-78b9-43e8-8957-9b7ccde11f8d.cfargotunnel.com` in the
+plus a proxied CNAME `console` → `<tunnel-id>.cfargotunnel.com` in the
 `saisi.online` zone. TLS terminates at Cloudflare — the shape
 `2026-10-22-the-console-transport-decision.md` chose, with no certificate to install and no port open.
 

@@ -6,8 +6,8 @@
 # never redeployed after its own build. Each is invisible from the repository and obvious from here.
 #
 #   scripts/verify-release.sh 0.3.18 \
-#       --mirror http://100.85.163.159:18100 \
-#       --console http://100.74.250.98:19000 \
+#       --mirror http://<dev-box>:18100 \
+#       --console http://<canary>:19000 \
 #       --console-version-file /path/to/expected   # optional, defaults to the released version
 set -euo pipefail
 
