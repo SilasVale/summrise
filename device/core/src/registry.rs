@@ -69,6 +69,18 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description: "Search the device's memory, newest entries first.",
             },
+            ToolDef {
+                name: "memory.list",
+                destructive: false,
+                description:
+                    "Enumerate remembered entries, newest first, optionally only those carrying one tag; a search matches text, this lists what is there.",
+            },
+            ToolDef {
+                name: "memory.export",
+                destructive: false,
+                description:
+                    "Export the whole store as JSONL text, up to 2 MiB; the result names the entry count and whether the cap cut it.",
+            },
         ],
     },
     Capability {
@@ -115,6 +127,12 @@ pub const CAPABILITIES: &[Capability] = &[
                 destructive: false,
                 description:
                     "List the live sessions with their kind and start time.",
+            },
+            ToolDef {
+                name: "terminal.screen",
+                destructive: false,
+                description:
+                    "Read the tail of a session's output as a person would see it — escape sequences removed, the last N lines — without moving the read cursor.",
             },
         ],
     },
@@ -237,6 +255,31 @@ pub const CAPABILITIES: &[Capability] = &[
         ],
     },
     Capability {
+        name: "system",
+        tools: &[
+            // Killing ends a process the device may not own, so it is destructive. Listing and a
+            // network test only observe, and neither changes what a later read sees.
+            ToolDef {
+                name: "system.process_list",
+                destructive: false,
+                description:
+                    "List running processes on this device: pid, executable name and resident memory, optionally filtered by name.",
+            },
+            ToolDef {
+                name: "system.process_kill",
+                destructive: true,
+                description:
+                    "Terminate processes by pid or by exact name; the result names the pids that were signalled and the pids that could not be.",
+            },
+            ToolDef {
+                name: "system.net_test",
+                destructive: false,
+                description:
+                    "Resolve a host name and connect to one TCP port from this device, returning the addresses resolved and the connect latency; ICMP needs raw sockets, so it is not offered.",
+            },
+        ],
+    },
+    Capability {
         name: "state",
         tools: &[ToolDef {
             name: "state.get",
@@ -285,12 +328,15 @@ mod tests {
                 "files.list",
                 "memory.append",
                 "memory.search",
+                "memory.list",
+                "memory.export",
                 "terminal.create",
                 "terminal.write",
                 "terminal.read",
                 "terminal.resize",
                 "terminal.close",
                 "terminal.list",
+                "terminal.screen",
                 "browser.list",
                 "browser.open",
                 "browser.navigate",
@@ -306,6 +352,9 @@ mod tests {
                 "runs.exec",
                 "runs.list",
                 "runs.get",
+                "system.process_list",
+                "system.process_kill",
+                "system.net_test",
                 "state.get",
             ],
             "the registry is the whole surface: no tool exists outside it"

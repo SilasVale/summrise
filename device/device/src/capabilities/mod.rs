@@ -12,6 +12,7 @@ pub mod memory;
 pub mod monitor;
 pub mod runs;
 pub mod ssh;
+pub mod system;
 pub mod terminal;
 
 /// The `destructive` question, answered by the registry and not by this crate.

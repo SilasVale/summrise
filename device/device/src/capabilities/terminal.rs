@@ -654,6 +654,11 @@ impl Ring {
         self.total - self.bytes.len() as u64
     }
 
+    /// Everything the ring still holds, oldest first, without moving any cursor.
+    fn snapshot(&self) -> Vec<u8> {
+        self.bytes.iter().copied().collect()
+    }
+
     /// Copy everything from `cursor` to the current end.
     fn read_from(&self, cursor: u64) -> Result<(Vec<u8>, u64), PtyError> {
         let earliest = self.earliest();
@@ -669,6 +674,77 @@ impl Ring {
         let skip = (cursor - earliest) as usize;
         Ok((self.bytes.iter().skip(skip).copied().collect(), self.total))
     }
+}
+
+/// The most lines one `terminal.screen` may ask for.
+pub const MAX_SCREEN_LINES: usize = 1000;
+
+/// Render a byte stream as the last `lines` lines of plain text.
+///
+/// A screen is not a transcript: the escape sequences a real terminal consumes are noise to a
+/// reader, `\r` is a cursor movement whose effect is already reflected in the stream, and only the
+/// tail is on screen. Control characters that a terminal would act on rather than show are dropped
+/// with the escapes; tabs and newlines survive because they are layout a person sees.
+fn screen_text(bytes: &[u8], lines: usize) -> String {
+    if lines == 0 {
+        return String::new();
+    }
+    let text = strip_ansi(&String::from_utf8_lossy(bytes));
+    let mut kept: Vec<&str> = text.split('\n').collect();
+    // A stream that ends on a newline has an empty last element; a person does not count it.
+    if kept.last().is_some_and(|line| line.is_empty()) {
+        kept.pop();
+    }
+    let start = kept.len().saturating_sub(lines);
+    kept[start..].join("\n")
+}
+
+/// Remove the ANSI escape sequences a terminal would consume.
+///
+/// Covers CSI (`ESC [ … final`), OSC (`ESC ] … BEL` or `ESC \\`) and the two-byte escapes; anything
+/// that is not an escape is kept byte for byte after a lossy UTF-8 conversion.
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    // CSI: parameter and intermediate bytes, then one final byte in @..~.
+                    for inner in chars.by_ref() {
+                        if ('\u{40}'..='\u{7e}').contains(&inner) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    // OSC: ends on BEL or on ST (ESC backslash).
+                    while let Some(inner) = chars.next() {
+                        if inner == '\u{7}' {
+                            break;
+                        }
+                        if inner == '\u{1b}' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                Some(_) => {}
+                None => break,
+            }
+            continue;
+        }
+        if ch == '\r' {
+            continue;
+        }
+        if ch.is_control() && ch != '\n' && ch != '\t' {
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// The reader thread's half of a session: the ring plus the two facts a client can observe.
@@ -1128,6 +1204,21 @@ impl PtyRegistry {
         let read = lock(&session.output).ring.read_from(cursor);
         drop(sessions);
         read
+    }
+
+    /// The tail of a session's output as a person would see it, without moving the read cursor.
+    ///
+    /// `read` is for a client that replays bytes; this is for a client that wants to know what is
+    /// on the screen *now*. Escape sequences are removed (`read` leaves them for the terminal that
+    /// will render them), `\r` is dropped, and only the last `lines` lines are returned. It counts
+    /// as activity for the idle sweeper, because a client watching a screen is using the session.
+    pub fn screen(&self, id: &SessionId, lines: usize) -> Result<String, PtyError> {
+        let mut sessions = lock(&self.sessions);
+        let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
+        session.last_active_ms = (self.clock)();
+        let bytes = lock(&session.output).ring.snapshot();
+        drop(sessions);
+        Ok(screen_text(&bytes, lines))
     }
 
     /// Resize the terminal; a local shell receives `SIGWINCH` and reflows, an SSH shell gets a
@@ -3388,5 +3479,25 @@ mod tests {
             Some(second.join("powershell.exe"))
         );
         std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn a_screen_drops_the_escapes_a_terminal_would_consume() {
+        let raw = b"\x1b[31mred\x1b[0m plain\r\n\x1b]0;title\x07after";
+        assert_eq!(screen_text(raw, 10), "red plain\nafter");
+    }
+
+    #[test]
+    fn a_screen_keeps_only_the_last_lines_a_person_would_see() {
+        let raw = b"one\n\ntwo\nthree\n";
+        assert_eq!(screen_text(raw, 2), "two\nthree");
+        assert_eq!(screen_text(raw, 10), "one\n\ntwo\nthree");
+        assert_eq!(screen_text(raw, 0), "");
+    }
+
+    #[test]
+    fn a_screen_strips_an_osc_terminated_by_st() {
+        let raw = b"a\x1b]8;;https://example.test\x1b\\b";
+        assert_eq!(screen_text(raw, 10), "ab");
     }
 }

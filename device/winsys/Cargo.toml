@@ -1,0 +1,18 @@
+[package]
+name = "summrise-winsys"
+description = "The Windows calls the safe crates cannot make: enumerate processes, and end one."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Like `summrise-winsec`, this crate is `#![cfg(windows)]`: on any other target it compiles to an
+# empty library. That is the point — the safe crates (the device app, the launcher) are
+# `#![forbid(unsafe_code)]`, and the Windows API needs `unsafe`, so it lives behind this one
+# interface instead of spreading through them.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }

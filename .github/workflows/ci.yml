@@ -28,7 +28,7 @@ jobs:
       # this job from drifting apart. `working-directory: device` would make the command correct only
       # in this file, and the same command pasted into a terminal would fail.
       - name: the device workspace (unit tests)
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys
       - name: the device workspace formats
         run: cargo fmt --manifest-path device/Cargo.toml --all -- --check
       - name: the device workspace is clippy-clean

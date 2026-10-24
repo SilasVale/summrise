@@ -37,6 +37,24 @@ pub const MAX_ENTRIES: usize = 10_000;
 /// The largest number of results one search may return.
 pub const MAX_RESULTS: usize = 100;
 
+/// The most a `memory.export` returns in one call: a tool result is a JSON-RPC frame, and a store at
+/// its entry ceiling can be gigabytes.
+pub const MAX_EXPORT_BYTES: usize = 2 * 1024 * 1024;
+
+/// What `export` returns: the stored lines, how many whole lines they are, and whether the cap cut
+/// the store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Export {
+    /// The store's own bytes, as JSONL, ending on a newline unless the store is empty.
+    pub text: String,
+    /// Whole lines in [`Export::text`].
+    pub entries: usize,
+    /// The store was larger than the cap and `text` is a prefix.
+    pub truncated: bool,
+    /// The store's size, so a caller can see what it did not get.
+    pub total_bytes: usize,
+}
+
 /// One remembered fact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
@@ -256,6 +274,92 @@ impl Memory {
             }
         }
         Ok(found.into())
+    }
+
+    /// Enumerate entries, newest first, optionally only those carrying `tag`.
+    ///
+    /// `search` answers "what do I know about X"; this answers "what do I know". The tag match is
+    /// exact and case-insensitive — a substring match would make `ops` list everything tagged
+    /// `ops-runbook` — and the limit is the same cap as a search's, because both are a client
+    /// reading a list it must render.
+    pub fn list(&self, limit: usize, tag: Option<&str>) -> Result<Vec<Entry>, MemoryError> {
+        if limit > MAX_RESULTS {
+            return Err(MemoryError::LimitTooLarge {
+                limit,
+                max: MAX_RESULTS,
+            });
+        }
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let _reading = self
+            .lock
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let file = match fs::File::open(&self.path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(MemoryError::Io(error)),
+        };
+
+        let wanted = tag.map(str::to_lowercase);
+        let mut found: VecDeque<Entry> = VecDeque::new();
+        for (index, line) in BufReader::new(file).lines().enumerate() {
+            let line = line.map_err(MemoryError::Io)?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: Entry = serde_json::from_str(&line)
+                .map_err(|_| MemoryError::Corrupt { line: index + 1 })?;
+            if let Some(wanted) = &wanted {
+                if !entry.tags.iter().any(|tag| tag.to_lowercase() == *wanted) {
+                    continue;
+                }
+            }
+            found.push_front(entry);
+            if found.len() > limit {
+                found.pop_back();
+            }
+        }
+        Ok(found.into())
+    }
+
+    /// The store as JSONL text, cut at a line boundary when it is larger than `max_bytes`.
+    ///
+    /// An export is for a backup, so it is the file's own bytes rather than a re-serialization that
+    /// might not round-trip. The cap exists because a tool result is a JSON-RPC frame, not a stream:
+    /// a store at its 10 000-entry ceiling can be gigabytes, and a client that asked for everything
+    /// can ask again with the byte offset the truncation names.
+    pub fn export(&self, max_bytes: usize) -> Result<Export, MemoryError> {
+        let _reading = self
+            .lock
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let bytes = match fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(MemoryError::Io(error)),
+        };
+        let total = bytes.len();
+        let truncated = total > max_bytes;
+        let kept = if truncated {
+            // The last newline at or before the cap; a store with no newline in the window exports
+            // an empty text rather than half a JSON object.
+            match bytes[..max_bytes].iter().rposition(|byte| *byte == b'\n') {
+                Some(last) => &bytes[..=last],
+                None => &bytes[..0],
+            }
+        } else {
+            &bytes[..]
+        };
+        let entries = kept.iter().filter(|byte| **byte == b'\n').count();
+        Ok(Export {
+            text: String::from_utf8_lossy(kept).into_owned(),
+            entries,
+            truncated,
+            total_bytes: total,
+        })
     }
 
     /// How many non-empty lines the file holds, streamed so a large file is not loaded whole.
@@ -598,5 +702,76 @@ mod tests {
             .expect("an absent file holds no entries")
             .is_empty());
         assert!(!memory.path.exists());
+    }
+
+    #[test]
+    fn a_list_is_newest_first_and_can_name_one_tag() {
+        let (_dir, memory) = memory("memory-list");
+        memory
+            .append("the first", &["ops".to_owned()])
+            .expect("append");
+        memory
+            .append("the second", &["ops".to_owned(), "db".to_owned()])
+            .expect("append");
+        memory
+            .append("the third", &["db".to_owned()])
+            .expect("append");
+
+        let all: Vec<String> = memory
+            .list(10, None)
+            .expect("the list reads")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(all, ["the third", "the second", "the first"]);
+
+        let ops: Vec<String> = memory
+            .list(10, Some("ops"))
+            .expect("the list reads")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(
+            ops,
+            ["the second", "the first"],
+            "the tag is matched exactly, not as a prefix"
+        );
+
+        assert_eq!(memory.list(2, None).expect("the list reads").len(), 2);
+        assert!(matches!(
+            memory.list(MAX_RESULTS + 1, None),
+            Err(MemoryError::LimitTooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn an_export_is_the_stores_own_bytes() {
+        let (_dir, memory) = memory("memory-export");
+        memory.append("one", &[]).expect("append");
+        memory.append("two", &[]).expect("append");
+
+        let export = memory.export(4096).expect("the export reads");
+        assert_eq!(export.entries, 2);
+        assert!(!export.truncated);
+        assert_eq!(export.text.lines().count(), 2);
+        assert!(export.text.contains("\"one\""));
+        assert_eq!(export.total_bytes, export.text.len());
+    }
+
+    #[test]
+    fn an_export_cut_by_the_cap_ends_on_a_line_boundary() {
+        let (_dir, memory) = memory("memory-export-cut");
+        memory.append("one", &[]).expect("append");
+        memory.append("two", &[]).expect("append");
+        let whole = memory.export(4096).expect("the export reads");
+
+        let first_line = whole.text.lines().next().expect("a line").len();
+        let export = memory
+            .export(first_line + 1)
+            .expect("a cap inside the second line still exports the first");
+        assert!(export.truncated);
+        assert_eq!(export.entries, 1);
+        assert_eq!(export.text.lines().count(), 1);
+        assert_eq!(export.total_bytes, whole.text.len());
     }
 }

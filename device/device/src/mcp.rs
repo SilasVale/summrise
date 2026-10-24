@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::http::{header, Request, StatusCode};
@@ -43,7 +44,7 @@ use summrise_core::{
 };
 use tokio::io::AsyncWriteExt;
 
-use crate::capabilities::{browser, files, memory, monitor, runs, ssh, terminal};
+use crate::capabilities::{browser, files, memory, monitor, runs, ssh, system, terminal};
 use crate::config::{Config, Release};
 use crate::store::Store;
 
@@ -67,6 +68,12 @@ pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// How many entries `memory.search` returns when the caller names no limit.
 const DEFAULT_SEARCH_RESULTS: usize = 10;
+
+/// How many trailing lines `terminal.screen` returns when the caller names no count.
+const DEFAULT_SCREEN_LINES: usize = 60;
+
+/// How long `system.net_test` waits when the caller names no timeout.
+const DEFAULT_NET_TIMEOUT_MS: u64 = 5_000;
 
 /// The terminal size `terminal.create` uses when the caller names none.
 const DEFAULT_ROWS: u16 = 24;
@@ -626,6 +633,33 @@ impl DeviceServer {
                     .collect();
                 Ok(Value::Array(found).to_string())
             }
+            Handler::MemoryList => {
+                let arguments: MemoryListArgs = parse(arguments, name)?;
+                let limit = arguments.limit.unwrap_or(DEFAULT_SEARCH_RESULTS);
+                let found = self
+                    .memory
+                    .list(limit, arguments.tag.as_deref())
+                    .map_err(|error| refused(name, error))?;
+                let found: Vec<Value> = found
+                    .iter()
+                    .map(|entry| json!({ "text": entry.text, "tags": entry.tags }))
+                    .collect();
+                Ok(Value::Array(found).to_string())
+            }
+            Handler::MemoryExport => {
+                let _arguments: EmptyArgs = parse(arguments, name)?;
+                let export = self
+                    .memory
+                    .export(memory::MAX_EXPORT_BYTES)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "text": export.text,
+                    "entries": export.entries,
+                    "truncated": export.truncated,
+                    "total_bytes": export.total_bytes,
+                })
+                .to_string())
+            }
             Handler::TerminalCreate => {
                 let arguments: PtyCreateArgs = parse(arguments, name)?;
                 // The kind is the capability's to validate, and its refusal is typed: a client
@@ -814,6 +848,24 @@ impl DeviceServer {
                     .collect();
                 Ok(Value::Array(sessions).to_string())
             }
+            Handler::TerminalScreen => {
+                let arguments: ScreenArgs = parse(arguments, name)?;
+                let id = session_id(name, &arguments.id)?;
+                let lines = arguments
+                    .lines
+                    .unwrap_or(DEFAULT_SCREEN_LINES)
+                    .min(terminal::MAX_SCREEN_LINES);
+                let text = self
+                    .terminal
+                    .screen(&id, lines)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "id": arguments.id,
+                    "text": text,
+                    "lines": text.lines().count(),
+                })
+                .to_string())
+            }
             Handler::BrowserList => {
                 let targets = self
                     .browser
@@ -990,6 +1042,51 @@ impl DeviceServer {
                     .map_err(|error| refused(name, error))?;
                 Ok(json!(row).to_string())
             }
+            Handler::SystemProcessList => {
+                let arguments: ProcessListArgs = parse(arguments, name)?;
+                let found = system::processes(arguments.name.as_deref())
+                    .map_err(|error| refused(name, error))?;
+                let found: Vec<Value> = found
+                    .iter()
+                    .map(|process| {
+                        json!({
+                            "pid": process.pid,
+                            "name": process.name,
+                            "memory_kb": process.memory_kb,
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(found).to_string())
+            }
+            Handler::SystemProcessKill => {
+                let arguments: ProcessKillArgs = parse(arguments, name)?;
+                let report = system::kill(arguments.pid, arguments.name.as_deref())
+                    .map_err(|error| refused(name, error))?;
+                let failed: Vec<Value> = report
+                    .failed
+                    .iter()
+                    .map(|(pid, reason)| json!({ "pid": pid, "reason": reason }))
+                    .collect();
+                Ok(json!({ "killed": report.killed, "failed": failed }).to_string())
+            }
+            Handler::SystemNetTest => {
+                let arguments: NetTestArgs = parse(arguments, name)?;
+                let timeout = Duration::from_millis(
+                    arguments
+                        .timeout_ms
+                        .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
+                        .clamp(1, system::MAX_TIMEOUT_MS),
+                );
+                let report = system::net_test(&arguments.host, arguments.port, timeout)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "addresses": report.addresses,
+                    "connected": report.connected,
+                    "latency_ms": report.latency_ms,
+                    "error": report.error,
+                })
+                .to_string())
+            }
             Handler::StateGet => {
                 // The console's device page: the document an operator would read from
                 // `/api/state`, plus the readiness answer `/api/health` would give. A poisoned
@@ -1097,12 +1194,15 @@ enum Handler {
     FilesList,
     MemoryAppend,
     MemorySearch,
+    MemoryList,
+    MemoryExport,
     TerminalCreate,
     TerminalWrite,
     TerminalRead,
     TerminalResize,
     TerminalClose,
     TerminalList,
+    TerminalScreen,
     BrowserList,
     BrowserOpen,
     BrowserNavigate,
@@ -1118,6 +1218,9 @@ enum Handler {
     RunsExec,
     RunsList,
     RunsGet,
+    SystemProcessList,
+    SystemProcessKill,
+    SystemNetTest,
     StateGet,
 }
 
@@ -1134,12 +1237,15 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("files.list", Handler::FilesList),
     ("memory.append", Handler::MemoryAppend),
     ("memory.search", Handler::MemorySearch),
+    ("memory.list", Handler::MemoryList),
+    ("memory.export", Handler::MemoryExport),
     ("terminal.create", Handler::TerminalCreate),
     ("terminal.write", Handler::TerminalWrite),
     ("terminal.read", Handler::TerminalRead),
     ("terminal.resize", Handler::TerminalResize),
     ("terminal.close", Handler::TerminalClose),
     ("terminal.list", Handler::TerminalList),
+    ("terminal.screen", Handler::TerminalScreen),
     ("browser.list", Handler::BrowserList),
     ("browser.open", Handler::BrowserOpen),
     ("browser.navigate", Handler::BrowserNavigate),
@@ -1155,6 +1261,9 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("runs.exec", Handler::RunsExec),
     ("runs.list", Handler::RunsList),
     ("runs.get", Handler::RunsGet),
+    ("system.process_list", Handler::SystemProcessList),
+    ("system.process_kill", Handler::SystemProcessKill),
+    ("system.net_test", Handler::SystemNetTest),
     ("state.get", Handler::StateGet),
 ];
 
@@ -1336,6 +1445,27 @@ fn input_schema(definition: &ToolDef) -> Value {
             "required": ["query"],
             "additionalProperties": false
         }),
+        "memory.list" => json!({
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": memory::MAX_RESULTS,
+                    "description": format!("How many entries to return, newest first (default {DEFAULT_SEARCH_RESULTS}).")
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Only entries carrying exactly this tag, matched case-insensitively."
+                }
+            },
+            "additionalProperties": false
+        }),
+        "memory.export" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
         "terminal.create" => json!({
             "type": "object",
             "properties": {
@@ -1500,6 +1630,23 @@ fn input_schema(definition: &ToolDef) -> Value {
         "terminal.list" => json!({
             "type": "object",
             "properties": {},
+            "additionalProperties": false
+        }),
+        "terminal.screen" => json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "A session id from terminal.create or terminal.list."
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": terminal::MAX_SCREEN_LINES,
+                    "description": format!("How many trailing lines to return (default {DEFAULT_SCREEN_LINES}).")
+                }
+            },
+            "required": ["id"],
             "additionalProperties": false
         }),
         "browser.list" => json!({
@@ -1707,6 +1854,54 @@ fn input_schema(definition: &ToolDef) -> Value {
             "required": ["id"],
             "additionalProperties": false
         }),
+        "system.process_list" => json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Only processes whose executable name contains this text, case-insensitively."
+                }
+            },
+            "additionalProperties": false
+        }),
+        "system.process_kill" => json!({
+            "type": "object",
+            "properties": {
+                "pid": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "A process id; name a pid or a name, not both."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "An exact executable name, case-insensitive; every match is ended."
+                }
+            },
+            "additionalProperties": false
+        }),
+        "system.net_test" => json!({
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string",
+                    "description": "A host name or IP address to resolve and connect to."
+                },
+                "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535,
+                    "description": "The TCP port to connect to."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": system::MAX_TIMEOUT_MS,
+                    "description": format!("The total time to spend resolving and connecting (default {DEFAULT_NET_TIMEOUT_MS}).")
+                }
+            },
+            "required": ["host", "port"],
+            "additionalProperties": false
+        }),
         "state.get" => json!({
             "type": "object",
             "properties": {},
@@ -1823,6 +2018,51 @@ struct AppendArgs {
 struct SearchArgs {
     query: String,
     limit: Option<usize>,
+}
+
+/// The arguments `memory.list` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MemoryListArgs {
+    limit: Option<usize>,
+    tag: Option<String>,
+}
+
+/// A tool whose input schema declares no properties.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyArgs {}
+
+/// The arguments `terminal.screen` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScreenArgs {
+    id: String,
+    lines: Option<usize>,
+}
+
+/// The arguments `system.process_list` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessListArgs {
+    name: Option<String>,
+}
+
+/// The arguments `system.process_kill` takes: one target, a pid or a name.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessKillArgs {
+    pid: Option<u32>,
+    name: Option<String>,
+}
+
+/// The arguments `system.net_test` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetTestArgs {
+    host: String,
+    port: u16,
+    timeout_ms: Option<u64>,
 }
 
 /// The arguments `terminal.create` takes; only the kind is required, because every other field has
@@ -2708,12 +2948,15 @@ mod tests {
                 "files.list",
                 "memory.append",
                 "memory.search",
+                "memory.list",
+                "memory.export",
                 "terminal.create",
                 "terminal.write",
                 "terminal.read",
                 "terminal.resize",
                 "terminal.close",
                 "terminal.list",
+                "terminal.screen",
                 "browser.list",
                 "browser.open",
                 "browser.navigate",
@@ -2729,6 +2972,9 @@ mod tests {
                 "runs.exec",
                 "runs.list",
                 "runs.get",
+                "system.process_list",
+                "system.process_kill",
+                "system.net_test",
                 "state.get",
             ],
             "the wire surface is the registry's surface"

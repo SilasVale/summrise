@@ -3328,6 +3328,7 @@ dependencies = [
  "summrise-mesh",
  "summrise-release",
  "summrise-winsec",
+ "summrise-winsys",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tower",
@@ -3384,6 +3385,13 @@ dependencies = [
 
 [[package]]
 name = "summrise-winsec"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "summrise-winsys"
 version = "0.1.0"
 dependencies = [
  "windows-sys 0.52.0",

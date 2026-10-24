@@ -81,6 +81,9 @@ tokio = { version = "1", features = [
 # has, and the safe wrapper keeps the test free of `unsafe` like the rest of the crate.
 [target.'cfg(windows)'.dependencies]
 summrise-winsec = { path = "../winsec" }
+# The two Win32 calls the app cannot make from `#![forbid(unsafe_code)]`: process listing and
+# termination. See `winsys/src/lib.rs` for why they are their own crate.
+summrise-winsys = { path = "../winsys" }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.25", default-features = false, features = ["signal", "term", "poll"] }
