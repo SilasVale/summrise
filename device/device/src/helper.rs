@@ -20,6 +20,21 @@ use std::sync::Mutex;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub const TOKEN_FILE: &str = r"C:\ProgramData\Summrise\helper.token";
 
+/// The process's helper identity, set once at startup. The browser capability is deep inside the MCP
+/// service, which has no reason to know about a user-session helper; a per-boot singleton is the
+/// smallest thing that reaches it without threading a parameter through five layers.
+static CURRENT: std::sync::OnceLock<std::sync::Arc<Helper>> = std::sync::OnceLock::new();
+
+/// Publish this boot's helper identity to the rest of the process.
+pub fn install(helper: std::sync::Arc<Helper>) {
+    let _ = CURRENT.set(helper);
+}
+
+/// This boot's helper identity, if startup installed one.
+pub fn current() -> Option<std::sync::Arc<Helper>> {
+    CURRENT.get().cloned()
+}
+
 /// This boot's helper facts.
 pub struct Helper {
     token: String,

@@ -773,8 +773,12 @@ struct Browser {
     /// The browser endpoint Chrome named in `/json/version`, e.g.
     /// `ws://127.0.0.1:<port>/devtools/browser/<uuid>`.
     browser_ws: String,
-    child: Child,
+    /// `None` when the browser was launched by the per-user helper: this process did not start it, so
+    /// it must not kill it. The helper owns that browser and replaces it on the next launch.
+    child: Option<Child>,
     /// This launch's private profile directory; `Drop` removes it after killing the browser.
+    /// The profile directory this capability created, or empty for a helper-launched browser (the
+    /// helper owns that directory, in the user's `LocalAppData`).
     profile: PathBuf,
     http: reqwest::Client,
     /// The browser endpoint connection, opened on the first target command.
@@ -792,6 +796,13 @@ impl Browser {
         chrome: Option<&Path>,
         readiness_timeout_ms: u64,
     ) -> Result<Browser, BrowserError> {
+        // The user-session browser first: it is the one the person at the machine can see and take
+        // over, and the only one that runs with their profile and GPU. If the helper is absent or
+        // cannot start it, the service's own headless browser is the fallback — the feature degrades,
+        // it does not fail.
+        if let Some(browser) = launch_in_the_user_session(readiness_timeout_ms).await {
+            return Ok(browser);
+        }
         let executable = match chrome {
             Some(path) => path.to_owned(),
             None => discover_chrome().ok_or(BrowserError::ChromeNotFound)?,
@@ -817,7 +828,12 @@ impl Browser {
 
     /// Whether the browser process is still running; `try_wait` also reaps an exited child.
     fn alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        match self.child.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            // A helper-launched browser outlives this process's handle on it; the next command says
+            // whether it is still there.
+            None => true,
+        }
     }
 
     /// The targets Chrome reports over HTTP, in Chrome's order.
@@ -1096,10 +1112,15 @@ impl Browser {
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        terminate(&mut self.child);
+        if let Some(child) = self.child.as_mut() {
+            terminate(child);
+        }
         // Best effort: on Windows a renderer that has not finished exiting can still hold a file.
-        // A directory this call cannot remove is swept by a later launch.
-        let _ = fs::remove_dir_all(&self.profile);
+        // A directory this call cannot remove is swept by a later launch. A helper-launched browser
+        // has no directory here: its profile belongs to the helper and outlives this process.
+        if !self.profile.as_os_str().is_empty() {
+            let _ = fs::remove_dir_all(&self.profile);
+        }
     }
 }
 
@@ -1123,6 +1144,47 @@ fn terminate(child: &mut Child) {
 }
 
 /// One launch attempt: a fresh profile, a port this capability chose, and Chrome answering it.
+/// Launch the browser the logged-in user will see, through the per-user helper.
+///
+/// `None` when there is no helper this boot, when the helper has not registered yet, or when it could
+/// not start the browser — the caller then starts the service's own headless browser, which is the
+/// fallback the contract promises. The helper answers as soon as Chrome is spawned; the readiness
+/// wait is the same one a service launch uses.
+async fn launch_in_the_user_session(readiness_timeout_ms: u64) -> Option<Browser> {
+    let helper = crate::helper::current()?;
+    let helper_port = helper.port()?;
+    let port = free_port().ok()?;
+    let http = reqwest::Client::new();
+    let answer = http
+        .post(format!("http://127.0.0.1:{helper_port}/launch"))
+        .bearer_auth(helper.token())
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(format!("{{\"port\":{port}}}"))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .ok()?;
+    if !answer.status().is_success() {
+        return None;
+    }
+    let text = answer.text().await.ok()?;
+    let body: Value = serde_json::from_str(&text).ok()?;
+    if body.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let browser_ws = probe_browser_ws(&http, None, port, Path::new(""), readiness_timeout_ms)
+        .await
+        .ok()?;
+    Some(Browser {
+        port,
+        browser_ws,
+        child: None,
+        profile: PathBuf::new(),
+        http,
+        socket: None,
+    })
+}
+
 async fn launch_once(
     executable: &Path,
     profiles: &Path,
@@ -1173,11 +1235,19 @@ async fn launch_once(
     };
 
     let http = reqwest::Client::new();
-    match probe_browser_ws(&http, &mut child, port, &profile, readiness_timeout_ms).await {
+    match probe_browser_ws(
+        &http,
+        Some(&mut child),
+        port,
+        &profile,
+        readiness_timeout_ms,
+    )
+    .await
+    {
         Ok(browser_ws) => Ok(Browser {
             port,
             browser_ws,
-            child,
+            child: Some(child),
             profile,
             http,
             socket: None,
@@ -1214,7 +1284,7 @@ async fn probe_version(http: &reqwest::Client, url: &str) -> Option<Value> {
 /// Probe `GET /json/version` until Chrome names its browser endpoint, or the attempt fails.
 async fn probe_browser_ws(
     http: &reqwest::Client,
-    child: &mut Child,
+    mut child: Option<&mut Child>,
     port: u16,
     profile: &Path,
     timeout_ms: u64,
@@ -1222,27 +1292,29 @@ async fn probe_browser_ws(
     let url = format!("http://127.0.0.1:{port}/json/version");
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let bind_failure = looks_like_bind_failure(&read_tail(
-                    &profile.join(CHROME_STDERR),
-                    STDERR_TAIL_BYTES,
-                ));
-                let outcome = if bind_failure {
-                    LaunchOutcome::BindFailure
-                } else {
-                    LaunchOutcome::Exited
-                };
-                return Err((
-                    outcome,
-                    BrowserError::Launch(format!(
-                        "chrome exited with {status} before it answered {url}; {}",
-                        stderr_note(profile)
-                    )),
-                ));
+        if let Some(child) = child.as_deref_mut() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let bind_failure = looks_like_bind_failure(&read_tail(
+                        &profile.join(CHROME_STDERR),
+                        STDERR_TAIL_BYTES,
+                    ));
+                    let outcome = if bind_failure {
+                        LaunchOutcome::BindFailure
+                    } else {
+                        LaunchOutcome::Exited
+                    };
+                    return Err((
+                        outcome,
+                        BrowserError::Launch(format!(
+                            "chrome exited with {status} before it answered {url}; {}",
+                            stderr_note(profile)
+                        )),
+                    ));
+                }
+                Ok(None) => {}
+                Err(error) => return Err((LaunchOutcome::Other, BrowserError::Io(error))),
             }
-            Ok(None) => {}
-            Err(error) => return Err((LaunchOutcome::Other, BrowserError::Io(error))),
         }
 
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1251,7 +1323,10 @@ async fn probe_browser_ws(
                 LaunchOutcome::Timeout,
                 BrowserError::Launch(format!(
                     "chrome did not answer {url} within {timeout_ms} ms; {}",
-                    launch_diagnosis(child, profile)
+                    match child.as_deref_mut() {
+                        Some(child) => launch_diagnosis(child, profile),
+                        None => "the browser was started by the per-user helper".to_owned(),
+                    }
                 )),
             ));
         }
@@ -1528,10 +1603,10 @@ impl BrowserRegistry {
     /// The running Chrome's pid, for the tests that prove it is reaped.
     #[cfg(all(test, target_os = "linux"))]
     fn pid(&self) -> Option<u32> {
-        self.browser
-            .try_lock()
-            .ok()
-            .and_then(|slot| slot.as_ref().map(|browser| browser.child.id()))
+        self.browser.try_lock().ok().and_then(|slot| {
+            slot.as_ref()
+                .and_then(|browser| browser.child.as_ref().map(|child| child.id()))
+        })
     }
 }
 
@@ -1677,6 +1752,13 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn without_a_helper_the_user_session_launch_declines() {
+        // No `helper::install` in this process, so the preference must fall through to the service's
+        // own launch rather than block or panic.
+        assert!(launch_in_the_user_session(500).await.is_none());
     }
 
     #[tokio::test]
@@ -1948,7 +2030,11 @@ mod tests {
             .await
             .take()
             .expect("the first browser is running");
-        let leaked_pid = browser.child.id();
+        let leaked_pid = browser
+            .child
+            .as_ref()
+            .expect("the service started this browser")
+            .id();
         std::mem::forget(browser);
 
         // A failed assertion must not leave the leaked browser running: its own Drop was what was

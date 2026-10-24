@@ -980,7 +980,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // The helper is optional. Without its token the logged-in user's shell can never register, and
     // every tool still works; the only loss is a browser in the user's session.
     let helper = match helper::Helper::start() {
-        Ok(helper) => Some(std::sync::Arc::new(helper)),
+        Ok(helper) => {
+            let helper = std::sync::Arc::new(helper);
+            helper::install(helper.clone());
+            Some(helper)
+        }
         Err(error) => {
             eprintln!("summrise-device: no helper token this boot: {error}");
             None
