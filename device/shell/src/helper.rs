@@ -151,8 +151,17 @@ fn capture() -> Result<Picture, String> {
         if desktop != "Default" {
             return Err(format!("the session is locked ({desktop})"));
         }
-        let screen = summrise_winsys::capture_primary_screen()
-            .map_err(|error| format!("the screen could not be captured: {error}"))?;
+        let screen = summrise_winsys::capture_primary_screen().map_err(|error| {
+            // A disconnected RDP session passes the desktop check and then has no surface to copy:
+            // Windows answers ERROR_INVALID_HANDLE. That is the same fact as a locked session — no
+            // desktop is being displayed — so it gets the same sentence rather than an OS message.
+            if error.raw_os_error() == Some(6) {
+                "the session is not being displayed: the desktop has no surface to capture"
+                    .to_owned()
+            } else {
+                format!("the screen could not be captured: {error}")
+            }
+        })?;
         if is_uniform(&screen.rgba) {
             return Err("the session is not being displayed: every pixel is the same".to_owned());
         }
