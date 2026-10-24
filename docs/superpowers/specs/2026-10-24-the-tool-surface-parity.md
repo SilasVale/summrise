@@ -1,6 +1,7 @@
 # The tool surface: 56 tools became 28
 
-> **Status: audit, 2026-10-24.** Written because the cutover plan's parity matrix is
+> **Status: audit, 2026-10-24; six of the seven undecided tools were restored the same day.**
+> Written because the cutover plan's parity matrix is
 > capability-level, and its deletion gate (D3: "the parity matrix has no `no` row") cannot be
 > satisfied by a capability row that hides twenty-one tools.
 
@@ -14,7 +15,7 @@ terminal works" and "the terminal works the way the agent that drives it expects
 
 This file is the tool-level ledger. Every tool in the old registry
 (`summrise-legacy: agent/spec-tools.json`, 56 tools in 9 plugins) is given one disposition, and every
-tool in the new registry (`device/core/src/registry.rs`, 28 tools in 7 capabilities) is accounted for.
+tool in the new registry (`device/core/src/registry.rs`, 34 tools in 8 capabilities) is accounted for.
 It is the input D3 was missing.
 
 ## The four dispositions
@@ -26,7 +27,7 @@ It is the input D3 was missing.
 | **dropped** | no counterpart. The reason is given, and whether it was a decision or an omission |
 | **undecided** | nobody has chosen. Listed so it cannot be mistaken for deliberate |
 
-Counts: **15 ported, 9 replaced, 25 dropped, 7 undecided** — 56 accounted for.
+Counts: **21 ported, 9 replaced, 24 dropped, 2 undecided** — 56 accounted for.
 
 ## The old tools, one by one
 
@@ -54,10 +55,10 @@ The replacement removes a capability, not just a name: the device can no longer 
 |---|---|---|---|
 | `memory_save` | store an entry | `memory.append` | **ported** |
 | `memory_search` | substring search over title/content/tags | `memory.search` | **ported** |
-| `memory_list` | enumerate entries | — | **undecided** |
+| `memory_list` | enumerate entries | `memory.list` | **ported** |
 | `memory_update` | edit an entry by id | — | **undecided** |
 | `memory_delete` | soft-delete by id | — | **undecided** |
-| `memory_export` | whole store as JSONL | — | **undecided** |
+| `memory_export` | whole store as JSONL | `memory.export` (≤2 MiB, says whether it cut) | **ported** |
 
 `memory.append` and `memory.search` cover writing and reading. Everything an operator does when the
 store is *wrong* — list, fix, delete, back up — has no tool and no console surface. That is the
@@ -105,9 +106,9 @@ The concept survives, in a different place: a grant names a tool, the console re
 | `system_file_stat` | size, mtime, kind | — | **dropped** — `files.list` carries name, kind and size, but not mtime |
 | `system_file_upload` | send to the relay, get a one-time URL | — | **replaced** — the console proxy carries files; `files.*` is base64, ≤1 MiB per call |
 | `system_file_download` | fetch a URL onto the device | — | **dropped** — the device no longer fetches arbitrary URLs |
-| `system_process_list` | processes with pid/name/memory | — | **undecided** |
-| `system_process_kill` | kill by pid or name | — | **undecided** |
-| `system_net_test` | ad-hoc TCP connect and ICMP diagnostics | `monitor.*` watches a configured target; nothing tests on demand | **undecided** |
+| `system_process_list` | processes with pid/name/memory | `system.process_list` | **ported** |
+| `system_process_kill` | kill by pid or name | `system.process_kill` (one target; refuses the device itself) | **ported** |
+| `system_net_test` | ad-hoc TCP connect and ICMP diagnostics | `system.net_test` (TCP only; ICMP needs raw sockets) | **ported**, with ICMP dropped by decision |
 
 ### `terminal` (27)
 
@@ -120,7 +121,7 @@ The concept survives, in a different place: a grant names a tool, the console re
 | `terminal_close` | close | `terminal.close` | **ported** |
 | `terminal_list` | live sessions | `terminal.list` | **ported** |
 | `terminal_execute` | run a command in a session and wait | `runs.exec` (argv, captured output, no session) | **replaced** |
-| `terminal_screen` | tail of the buffer, ANSI-stripped | — | **dropped** — `terminal.read` returns the cursor window instead |
+| `terminal_screen` | tail of the buffer, ANSI-stripped | `terminal.screen` | **ported** |
 | `terminal_select` | mark one session active | — | **dropped** — no "active session" concept |
 | `terminal_history` | live **and closed** sessions | — | **dropped** — the new list is live only |
 | `terminal_jobs` | background-job registry | — | **dropped** — `runs.list` lists executions, not jobs |
@@ -159,16 +160,24 @@ The device no longer takes an update *command*; it follows its channel. The on-d
 | `runs.exec` / `list` / `get` | argv execution with captured output, and a way to read it back |
 | `state.get` | the device's own state document, read through the same grant path as everything else |
 
-## The undecided seven
+## The undecided two, and why they stay undecided
 
-| tool | why it matters | who decides |
-|---|---|---|
-| `memory_list` / `update` / `delete` / `export` | the shared store has no way to be corrected or backed up | the operator who owns the store |
-| `system_process_list` / `kill` | "what is eating this machine" is a first question when a device misbehaves | the agent that answers incidents |
-| `system_net_test` | `monitor.probe` says a port is closed; ICMP and DNS say why | the agent that answers incidents |
+`memory.update` and `memory.delete` are the only rows nobody can close by writing code today, and
+that is a decision rather than an omission:
 
-`terminal_screen` is a near-miss worth naming: it is one line over `terminal.read`, and the reason it
-is gone is that the new read is cursor-based, not that anyone decided screen access was wrong.
+- The store is **append-only, and an entry has no identity**: a line is `{text, tags}`. Correcting one
+  means naming it, and naming it means adding an id to the format — a format three devices already
+  write.
+- Deleting means a tombstone or a rewrite. A tombstone needs a compaction rule, because the 10 000
+  entry cap counts tombstones; a rewrite breaks the invariant that made the store safe under a single
+  lock in the first place.
+
+The trigger for doing it is concrete: the first time an operator needs to correct an entry, or any
+other change that migrates `memory.jsonl`. Until then, `memory.list` and `memory.export` make the
+store **auditable**, which is the half that a wrong entry does not need a rewrite for.
+
+`terminal_screen` was the other near-miss and is now ported: it is one function over
+`terminal.read`'s ring, and there was never a reason beyond nobody having written it.
 
 ## What would make this document wrong
 
@@ -179,15 +188,18 @@ is gone is that the new read is cursor-based, not that anyone decided screen acc
   the console, and the split above moves.
 - If `summrise-legacy` keeps serving a fleet after D4, this table describes a race, not a cutover.
 
-## Recommendation
+## The decision record
 
-Restore five before anything else is deleted, because they are what an agent reaches for when a device
-is wrong and the console has no equivalent surface:
+Six tools came back on 2026-10-24 because the console has no equivalent surface for them and each is
+what an agent reaches for when a device is wrong:
 
-1. `terminal.screen` — one function over `terminal.read`;
-2. `system.process_list` and `system.process_kill` — a device that cannot say what it is running is
-   a device that cannot be diagnosed;
-3. `system.net_test` — a closed port is a symptom, not a diagnosis;
-4. `memory.list` and `memory.delete` — a store that cannot be corrected is a store that rots.
+1. `terminal.screen` — one function over `terminal.read`'s ring;
+2. `system.process_list` and `system.process_kill` — a device that cannot say what it is running, or
+   stop it, cannot be diagnosed; they live in a new `summrise-winsys` crate because the Win32 calls
+   need `unsafe` and the app and launcher are `#![forbid(unsafe_code)]`;
+3. `system.net_test` — a closed port is a symptom; a resolve and a connect are the diagnosis;
+4. `memory.list` and `memory.export` — a store that cannot be enumerated or backed up cannot be
+   trusted, even when every entry in it is right.
 
-Everything else on the "dropped" rows can stay dropped, with this file as the record.
+The two that stay open (`memory.update`, `memory.delete`) are blocked on an identity model, not on
+effort, and the section above says what would unblock them.

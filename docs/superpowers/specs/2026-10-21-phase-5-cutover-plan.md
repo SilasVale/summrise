@@ -102,8 +102,10 @@ What changed in the matrix itself:
 - **`MCP keys / grants UI`**: the row's "no UI" is stale. The console page mints grants
   (`device/console/web/src/GrantForm.tsx`) against the device's own catalogue, served by `/tools`.
 - **the rows are capability-level, and D3 needs more than that**: `2026-10-24-the-tool-surface-parity.md`
-  audits all 56 old tools against the 28 new ones — 15 ported, 9 replaced, 25 dropped, 7 undecided.
-  D3 is not ready until those seven are decided.
+  audits all 56 old tools against the 34 new ones — 21 ported, 9 replaced, 24 dropped, 2 undecided.
+  Six tools were restored the day the audit was written; the two left (`memory.update`, `memory.delete`)
+  are blocked on an entry identity model, and the audit names the trigger that unblocks them. D3 still
+  has those two rows to decide.
 - **`file transfer`**: unchanged (separate worker) — and the device's relay upload currently answers
   404, so the canary moves files by HTTP from a host. That is a workaround, not parity.
 - **installer**: the Windows setup is built and **self-tested in CI** (it installs itself on the
