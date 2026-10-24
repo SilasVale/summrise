@@ -447,9 +447,16 @@ mod tests {
         let server = Server::start("a".repeat(64)).expect("the helper binds");
         let (status, _) = call_path(server.port(), "/capture", &"b".repeat(64));
         assert_eq!(status, 401);
+        // With the right token the answer depends on the platform: CI's Windows runner has a desktop
+        // and captures it, while the Linux job can only say why it cannot.
         let (status, body) = call_path(server.port(), "/capture", &"a".repeat(64));
-        assert_eq!(status, 409, "{body}");
-        assert!(body.contains("Windows-only"), "{body}");
+        assert_ne!(status, 401, "{body}");
+        if cfg!(windows) {
+            assert!(status == 200 || status == 409, "{status}: {body}");
+        } else {
+            assert_eq!(status, 409, "{body}");
+            assert!(body.contains("Windows-only"), "{body}");
+        }
     }
 
     #[test]
