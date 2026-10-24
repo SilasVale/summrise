@@ -401,11 +401,11 @@ async fn an_expired_session_is_401() {
     let fixture = Fixture::new("expired-session");
     let session = fixture.authenticate().await;
 
-    let (status, _) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the session starts out valid");
 
     fixture.advance_ms(DAY_MS);
-    let (status, body) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (status, body) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body, json!({ "error": "unauthorized" }));
 }
@@ -414,13 +414,13 @@ async fn an_expired_session_is_401() {
 async fn operator_routes_refuse_a_missing_or_malformed_session() {
     let fixture = Fixture::new("no-session");
 
-    let (status, _) = send(fixture.app(), get("/devices", None)).await;
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let (status, _) = send(fixture.app(), get("/devices", Some("not-a-token"))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some("not-a-token"))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
-    let (status, _) = send(fixture.app(), get("/devices", Some(&"ab".repeat(32)))).await;
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&"ab".repeat(32)))).await;
     assert_eq!(
         status,
         StatusCode::UNAUTHORIZED,
@@ -917,7 +917,7 @@ async fn a_device_registers_under_its_own_public_key() {
         "registration returns the device token once"
     );
 
-    let (status, list) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (status, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list.as_array().expect("a list").len(), 1);
     assert_eq!(list[0]["id"], json!(public_key));
@@ -949,7 +949,7 @@ async fn re_registering_updates_last_seen_and_keeps_registered_at() {
     assert_eq!(body["registered_at_ms"], json!(START_MS));
     assert_eq!(body["last_seen_ms"], json!(START_MS + 5_000));
 
-    let (_, list) = send(fixture.app(), get("/devices", Some(&session))).await;
+    let (_, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(
         list.as_array().expect("a list").len(),
         1,
@@ -1041,7 +1041,7 @@ async fn the_registry_is_persisted_atomically_and_survives_a_restart() {
 
     let restarted = fixture.restart();
     let session = authenticate_on(&restarted).await;
-    let (status, list) = send(restarted.router(), get("/devices", Some(&session))).await;
+    let (status, list) = send(restarted.router(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list.as_array().expect("a list").len(), 1);
 }
@@ -2749,7 +2749,7 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     fixture.enroll(&session).await;
 
     for _ in 0..200 {
-        let (status, _) = send(fixture.app(), get("/devices", None)).await;
+        let (status, _) = send(fixture.app(), get("/fleet", None)).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
@@ -2779,7 +2779,7 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     // The window rolls on the injected clock: one summary accounts for the 100 suppressed, then the
     // new window's first line is written.
     fixture.advance_ms(60_000);
-    let (status, _) = send(fixture.app(), get("/devices", None)).await;
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     let denials = denial_lines(&fixture);
@@ -2946,4 +2946,58 @@ async fn no_console_answer_is_cacheable() {
             "{uri} is an answer for one request"
         );
     }
+}
+
+#[tokio::test]
+async fn the_fleet_namespace_is_the_operators_and_the_device_namespace_is_not() {
+    let fixture = Fixture::new("fleet-split");
+    let key = signing_key(0x11);
+    let (id, _token) = fixture.register(&key).await;
+    let session = fixture.authenticate().await;
+
+    let (status, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        list.as_array()
+            .expect("a list")
+            .iter()
+            .any(|device| device["id"] == json!(id)),
+        "the operator's list is under /fleet: {list}"
+    );
+
+    // `/devices` is the device namespace: a registration POST and a channel. An operator GET there
+    // is not a route — and, more to the point, it is inside Cloudflare Access's bypass prefix, so
+    // the page must never call it with an operator identity.
+    let (status, _) = send(fixture.app(), get("/devices", Some(&session))).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/name"),
+            &session,
+            json!({ "name": "the renamed canary" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    assert_eq!(renamed["name"], json!("the renamed canary"));
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert!(
+        list.as_array()
+            .expect("a list")
+            .iter()
+            .all(|device| device["id"] != json!(id)),
+        "the removed device is gone from the fleet list"
+    );
 }

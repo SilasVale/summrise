@@ -184,3 +184,24 @@ The page could not say so, and a page that cannot say so is indistinguishable fr
 on loopback, and the served page carries the new sentences. The service-token measurement that proves
 the verification path was repeated against the new build; the edge timed out on that attempt, so the
 positive-path evidence stands on the earlier run and on an unchanged verifier.
+
+### 2026-10-24 — the operator's list was inside the device's bypass
+
+The page would sign in through Access, load, and then fall back to the token box. The cause was the
+namespace, not the identity: `console.saisi.online/devices` is the Access application that bypasses
+login for device registration and the device channel, and the operator's device list was
+`GET /devices` — the same prefix. A bypassed request carries no `Cf-Access-Jwt-Assertion`, so
+`/session` said `authenticated: true`, the page mounted, `/devices` answered 401, and the page did
+what it does with a 401: showed the token box.
+
+The namespaces now split by audience: `/devices…` is the device (`POST /devices` to register,
+`GET /devices/:id/channel` to hold the channel) and `/fleet…` is the operator (list, rename, remove).
+The page changed with it — `api.devices()` calls `/fleet`.
+
+Evidence: with an operator session, loopback `/fleet` answers 200 with the device list and `/devices`
+answers 405; through the edge `/fleet` answers 302 (Access) and `/devices` answers 405 (bypassed, and
+not a list). The regression was latent since the bypass application was created on 2026-10-23 — the
+positive test that morning predates it.
+
+The operator token was rotated at the same time: it had appeared in a terminal transcript, and a
+credential that has been printed once is a credential that should stop working.

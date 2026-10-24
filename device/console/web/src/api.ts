@@ -76,15 +76,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(credential)
     }),
-  devices: () => call<Device[]>("/devices"),
+  // `/fleet`, not `/devices`: the device namespace is behind Cloudflare Access's bypass (a
+  // device has no email login), and a bypassed request carries no identity for the page to use.
+  devices: () => call<Device[]>("/fleet"),
   audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
   health: () => call<{ version: string; devices: number }>("/health"),
   rename: (id: string, name: string | null) =>
-    call<{ id: string; name: string | null }>(`/devices/${id}/name`, {
+    call<{ id: string; name: string | null }>(`/fleet/${id}/name`, {
       method: "POST",
       body: JSON.stringify({ name })
     }),
-  remove: (id: string) => call<void>(`/devices/${id}`, { method: "DELETE" }),
+  remove: (id: string) => call<void>(`/fleet/${id}`, { method: "DELETE" }),
   enroll: () => call<{ code: string; expires_at_ms: number }>("/enroll", { method: "POST" }),
   grant: (
     device_id: string,

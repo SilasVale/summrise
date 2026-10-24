@@ -206,10 +206,18 @@ impl Console {
             .route("/auth", post(authenticate))
             .route("/session", get(session_probe))
             .route("/enroll", post(enroll))
-            .route("/devices", get(list_devices).post(register_device))
-            .route("/devices/:id/name", post(rename_device))
-            .route("/devices/:id", axum::routing::delete(remove_device))
+            // Two namespaces, because two audiences with different gates. `/devices…` is what a
+            // DEVICE calls: it registers and then holds a channel, and Cloudflare Access must let it
+            // through without an email login (the `console.saisi.online/devices` bypass application).
+            // `/fleet…` is what the OPERATOR calls, and it must never share that prefix: a bypassed
+            // request carries no `Cf-Access-Jwt-Assertion`, so an operator route under `/devices`
+            // answers 401 to a page that Access just signed in — which is exactly what happened
+            // (2026-10-24: the list loaded, then the page bounced to the token box).
+            .route("/devices", post(register_device))
             .route("/devices/:id/channel", get(device_channel))
+            .route("/fleet", get(list_devices))
+            .route("/fleet/:id/name", post(rename_device))
+            .route("/fleet/:id", axum::routing::delete(remove_device))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
             .route("/audit", get(list_audit))
