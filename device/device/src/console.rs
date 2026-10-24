@@ -1025,14 +1025,20 @@ mod tests {
             .expect("both console facts are present");
         assert_eq!(loaded.device_id, device_id());
         assert_eq!(loaded.token, token());
-        assert_eq!(
-            loaded.channel_url,
-            format!(
-                "wss://console.example.test/devices/{}/channel?v={}",
-                device_id(),
-                env!("CARGO_PKG_VERSION")
-            )
+        let mut expected = format!(
+            "wss://console.example.test/devices/{}/channel?v={}",
+            device_id(),
+            env!("CARGO_PKG_VERSION")
         );
+        // The machine's name rides with the version wherever the machine has one. An expectation that
+        // hardcodes its absence passes on a runner that inherits neither `COMPUTERNAME` nor `HOSTNAME`
+        // (the Linux job does not) and fails on every Windows machine, where `COMPUTERNAME` is always
+        // set — which is how this test went red on 2026-10-24 (run 40080082612) after 98 commits of
+        // nobody running it.
+        if let Some(name) = host_name() {
+            expected.push_str(&format!("&n={}", percent_encode(&name)));
+        }
+        assert_eq!(loaded.channel_url, expected);
 
         config.console_url = None;
         config.console_token_file = None;
