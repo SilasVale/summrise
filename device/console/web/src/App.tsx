@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
-import { api, HttpError, setToken, type AuditLine, type Device, type Session } from "./api";
+import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AuditTable } from "./AuditTable";
 import { Rail, type Page } from "./Rail";
@@ -25,6 +25,7 @@ export function App() {
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
   const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
+  const [accessNote, setAccessNote] = useState<string | null>(null);
 
   const newest = useMemo(
     () =>
@@ -62,6 +63,20 @@ export function App() {
 
   useEffect(() => {
     probe().catch((cause) => {
+      if (cause instanceof NoAnswer || cause instanceof TypeError) {
+        // The edge answered instead of the console. On this host that is an Access login page after
+        // the session lapsed, and a reload is what re-enters Access; the guard is what keeps a broken
+        // edge from reloading forever.
+        if (reloadOnce()) {
+          window.location.reload();
+          return;
+        }
+        setSession({ authenticated: false });
+        setAccessNote(
+          "The console did not answer: the request was intercepted before it arrived. An expired Cloudflare Access session looks exactly like this — reload to sign in through Access."
+        );
+        return;
+      }
       if (cause instanceof HttpError && cause.status === 401) {
         setSession({ authenticated: false });
         return;
@@ -186,6 +201,23 @@ export function App() {
             Cloudflare Access signs you in automatically. The operator token is the way in when it does
             not.
           </p>
+          {accessNote && <p className="error">{accessNote}</p>}
+          {!accessNote && session.access?.header && session.access.error && (
+            <p className="error">
+              Cloudflare Access signed you in, but the console refused the token: {session.access.error}
+            </p>
+          )}
+          {!accessNote && !session.access?.header && session.access?.configured && (
+            <p className="hint">
+              This request carried no Access identity — usually a page restored after the session
+              expired. <a href="/">Reload through Access</a>.
+            </p>
+          )}
+          {!accessNote && session.access && !session.access.configured && (
+            <p className="hint">
+              Access trust is off on this console, so the operator token is the only way in.
+            </p>
+          )}
           <label htmlFor="token">Operator token</label>
           <input
             id="token"
@@ -446,6 +478,24 @@ export function App() {
 function describe(cause: unknown): string {
   if (cause instanceof HttpError) return `${cause.status} ${cause.code}`;
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/// Whether this page may reload itself once to re-enter Cloudflare Access.
+///
+/// The guard is a timestamp rather than a flag: a session that expires an hour later in the same tab
+/// still gets its reload, while an edge that keeps answering with a login page cannot put the page in
+/// a reload loop.
+function reloadOnce(): boolean {
+  const key = "summrise.access.reload";
+  try {
+    const now = Date.now();
+    const last = Number(window.sessionStorage.getItem(key) ?? "0");
+    if (now - last < 20_000) return false;
+    window.sessionStorage.setItem(key, String(now));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function compareVersions(left: string, right: string): number {

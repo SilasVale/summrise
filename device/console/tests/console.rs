@@ -2885,3 +2885,27 @@ async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
         "the operator token is never written to storage"
     );
 }
+
+#[tokio::test]
+async fn the_session_probe_says_what_it_made_of_the_access_header() {
+    let fixture = Fixture::new("session-access-report");
+
+    let (status, body) = send(fixture.app(), get("/session", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], false);
+    assert_eq!(body["access"]["configured"], false);
+    assert_eq!(body["access"]["header"], false);
+
+    // A header that is present but cannot be verified must not read as "no header": the page's
+    // sentence differs, and so does the thing the operator should do about it.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/session")
+        .header("cf-access-jwt-assertion", "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, body) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access"]["configured"], false);
+    assert_eq!(body["access"]["header"], true);
+}

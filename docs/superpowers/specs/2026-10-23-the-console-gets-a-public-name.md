@@ -151,3 +151,36 @@ a test.
 Two consequences worth knowing: `Sign out` clears the tab's session but cannot end the **Access**
 session (only Cloudflare can, at `…/cdn-cgi/access/logout`), and a browser whose Access session expired
 falls back to the token box rather than to an error.
+
+## 2026-10-24 — the token box says why it appeared, and the session stops expiring daily
+
+The sentence above — "a browser whose Access session expired falls back to the token box rather than to
+an error" — is what the operator hit the next evening, and it cost an hour of looking for a verification
+bug that did not exist.
+
+**What the evidence said.** The console process had all three flags; the pinned JWKS held the same two
+`kid`s the team publishes today; the app's audience matched the flag; and a request carrying a real
+Cloudflare-signed JWT — an Access service token, created for the measurement and deleted after it —
+answered `{"authenticated":true,"via":"access"}`. Verification was never the fault. The Access log had
+exactly two logins for the hostname (`2026-10-23T08:13:15Z`, `2026-10-24T13:14:28Z`) and the app's
+`session_duration` was `24h`, so the operator's session had lapsed the morning the token box appeared.
+The page could not say so, and a page that cannot say so is indistinguishable from broken.
+
+**What changed.**
+
+- `GET /session` now carries `access: {configured, header, error}` — the three flags, whether
+  `Cf-Access-Jwt-Assertion` arrived, and the verifier's refusal. The page renders the one sentence that
+  fits: trust off, no header (the expired session), or a refused token with its reason.
+- When `/session` is answered by the edge instead of the console (an Access login page, a proxy error),
+  the page reloads itself **once** — a timestamp in `sessionStorage` keeps a broken edge from becoming a
+  reload loop — and otherwise explains what happened instead of showing a token box as if that were the
+  way in.
+- The console's Access application moved from `24h` to `720h`, matching the account's other
+  applications (`ai.saisi.online`, `dsh.saisi.online`, `code.saisi.online`). The session is not the
+  security boundary — the policy names one email and device grants still expire — and a daily expiry
+  whose only visible symptom is a token box is a daily bug.
+
+**Verified.** The deployed console (0.3.27) answers `{"authenticated":false,"access":{"configured":true,"header":false}}`
+on loopback, and the served page carries the new sentences. The service-token measurement that proves
+the verification path was repeated against the new build; the edge timed out on that attempt, so the
+positive-path evidence stands on the earlier run and on an unchanged verifier.

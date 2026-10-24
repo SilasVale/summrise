@@ -1,7 +1,15 @@
 // The console's HTTP surface, typed. Every call carries the session token once there is one; the
 // Cloudflare Access path needs no token, and /session says which of the two answered.
 
-export type Session = { authenticated: boolean; email?: string; via?: string };
+export type Session = {
+  authenticated: boolean;
+  email?: string;
+  via?: string;
+  /// What the console made of the Cloudflare Access identity on this request: whether the trust is
+  /// configured, whether the header arrived, and why it was refused. The page draws a login box when
+  /// none of it is an identity, and these three facts are the sentence it can show instead of one.
+  access?: { configured: boolean; header: boolean; error?: string };
+};
 export type Device = {
   id: string;
   name: string | null;
@@ -28,6 +36,11 @@ export function getToken(): string {
   return token ?? "";
 }
 
+/// The console did not answer with JSON: the edge answered instead — an Access login page after the
+/// session lapsed, or a proxy's error page. The page reloads once through Access rather than telling
+/// the operator to find a token.
+export class NoAnswer extends Error {}
+
 class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -43,7 +56,12 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (token) headers.authorization = `Bearer ${token}`;
   const response = await fetch(path, { ...init, headers });
   const text = await response.text();
-  const body = text ? (JSON.parse(text) as T | { error?: string }) : null;
+  let body: T | { error?: string } | null;
+  try {
+    body = text ? (JSON.parse(text) as T | { error?: string }) : null;
+  } catch {
+    throw new NoAnswer(path);
+  }
   if (!response.ok) {
     const code = (body as { error?: string } | null)?.error ?? response.statusText;
     throw new HttpError(response.status, code);

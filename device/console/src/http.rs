@@ -226,16 +226,60 @@ impl Inner {
     /// Access is checked only when the operator configured it, and a token that does not verify falls
     /// through to the session check — the feature can let a request in, never let one skip a check.
     fn operator(&self, headers: &HeaderMap) -> Option<Operator> {
-        if let Some(access) = &self.access {
-            if let Some(token) = crate::access::token_from_headers(headers) {
-                if let Ok(claims) = access.verify(token) {
-                    return Some(Operator {
-                        email: claims.email,
-                        via: "access",
-                    });
-                }
-            }
+        self.identity(headers).0
+    }
+
+    /// The operator, and the reason there is none when Access was the intended identity.
+    ///
+    /// One verification serves both callers: the routes only need `operator`, and `/session` needs
+    /// the report so a page can say *why* it is showing a token box.
+    fn identity(&self, headers: &HeaderMap) -> (Option<Operator>, AccessReport) {
+        let header = crate::access::token_from_headers(headers).is_some();
+        let Some(access) = &self.access else {
+            return (
+                self.session_operator(headers),
+                AccessReport {
+                    configured: false,
+                    header,
+                    error: None,
+                },
+            );
+        };
+        let Some(token) = crate::access::token_from_headers(headers) else {
+            return (
+                self.session_operator(headers),
+                AccessReport {
+                    configured: true,
+                    header: false,
+                    error: None,
+                },
+            );
+        };
+        match access.verify(token) {
+            Ok(claims) => (
+                Some(Operator {
+                    email: claims.email,
+                    via: "access",
+                }),
+                AccessReport {
+                    configured: true,
+                    header: true,
+                    error: None,
+                },
+            ),
+            Err(error) => (
+                self.session_operator(headers),
+                AccessReport {
+                    configured: true,
+                    header: true,
+                    error: Some(error.to_string()),
+                },
+            ),
         }
+    }
+
+    /// The operator a live console session names, if any.
+    fn session_operator(&self, headers: &HeaderMap) -> Option<Operator> {
         if self.session_valid(headers) {
             return Some(Operator {
                 email: None,
@@ -574,19 +618,36 @@ struct SessionProbe {
     email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     via: Option<&'static str>,
+    /// What the console made of the Access identity. The page shows this when it has to draw the
+    /// login box, so "Access did not sign me in" stops being indistinguishable from "the session
+    /// expired an hour ago and this tab never noticed".
+    access: AccessReport,
+}
+
+/// The three facts that explain a login box that appeared while Access was supposed to be the
+/// identity: whether the trust is configured, whether the header arrived, and why it was refused.
+#[derive(Serialize)]
+struct AccessReport {
+    configured: bool,
+    header: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<SessionProbe> {
-    match app.operator(&headers) {
+    let (operator, access) = app.identity(&headers);
+    match operator {
         Some(operator) => Json(SessionProbe {
             authenticated: true,
             email: operator.email,
             via: Some(operator.via),
+            access,
         }),
         None => Json(SessionProbe {
             authenticated: false,
             email: None,
             via: None,
+            access,
         }),
     }
 }
