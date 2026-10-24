@@ -10,7 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
 /// Where the device leaves this boot's token (`ProgramData` gives users read, administrators write).
-pub const TOKEN_FILE: &str = r"C:\ProgramData\Summrise\helper.token";
+pub const TOKEN_FILE: &str = r"C:\ProgramData\SummriseHelper\helper.token";
 /// The device's loopback API, where a registration goes.
 pub const DEVICE: &str = "127.0.0.1:18090";
 

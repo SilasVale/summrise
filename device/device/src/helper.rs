@@ -18,7 +18,7 @@ use std::sync::Mutex;
 /// administrators write — exactly the direction this needs, and the reason the file is not in the
 /// device's own data directory (which is protected to SYSTEM and Administrators).
 #[cfg_attr(not(windows), allow(dead_code))]
-pub const TOKEN_FILE: &str = r"C:\ProgramData\Summrise\helper.token";
+pub const TOKEN_FILE: &str = r"C:\ProgramData\SummriseHelper\helper.token";
 
 /// The process's helper identity, set once at startup. The browser capability is deep inside the MCP
 /// service, which has no reason to know about a user-session helper; a per-boot singleton is the

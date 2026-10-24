@@ -39,7 +39,7 @@ reasons and one cost:
   surface already solves "loopback plus a bearer token" in safe Rust; the helper reuses the pattern
   rather than opening a second unsafe seam.
 - **The token is per boot and written by the device.** At startup the device mints 32 random bytes,
-  writes `C:\ProgramData\Summrise\helper.token`, and keeps the value in memory. `ProgramData`'s
+  writes `C:\ProgramData\SummriseHelper\helper.token`, and keeps the value in memory. `ProgramData`'s
   inherited ACL gives users read (not write), so the logged-in user can hand the token back but cannot
   forge one.
 - **The cost**: any local process can *reach* the endpoint; the token is what it must present. That is
