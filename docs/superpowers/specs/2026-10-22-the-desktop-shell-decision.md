@@ -55,3 +55,15 @@ and its **cost** was a second, unaudited path to the same device:
   deletion the cutover plan can now list as decided rather than pending.
 - The console page is the only operator UI, so it carries the weight: its audit view, its grants and
   its device list are the product surface, and a UI regression there is a product regression.
+
+## 2026-10-24 — reopened for the icon, not for a client
+
+The operator asked for the thing this decision did not weigh: a tray icon that says whether a device is
+serving, the way Tailscale's does. A tray needs a user-session process, and once that process exists,
+giving it a window is a small increment rather than a second application.
+
+`summrise-shell` is that process, and its boundary is the point: it renders the console page in the
+system's WebView2, reads the loopback health document, and opens URLs. It holds no credential and talks
+to no device, so it adds neither an authorization path nor an updater — the two costs that made "C"
+right for the shell the old runtime had. The window is built when it is first opened and rebuilt after
+a close, which is why closing it does not end the icon.
