@@ -19,9 +19,12 @@ fn main() {
 
 #[cfg(windows)]
 mod app;
-// Portable on purpose: the probe's tests run in CI's Linux job, where the tray cannot.
+// Portable on purpose: the probe's and the helper channel's tests run in CI's Linux job, where the
+// tray itself cannot.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod health;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod helper;
 
 #[cfg(windows)]
 fn main() {

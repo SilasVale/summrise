@@ -4820,6 +4820,7 @@ dependencies = [
  "futures-util",
  "nix 0.25.1",
  "portable-pty",
+ "rand_core 0.6.4",
  "reqwest 0.12.28",
  "rmcp",
  "russh",

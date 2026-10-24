@@ -20,6 +20,7 @@ use tray_icon::{Icon, TrayIconBuilder, TrayIconEvent};
 use wry::WebViewBuilder;
 
 use crate::health::{self, State};
+use crate::helper;
 
 /// Where the operator console lives.
 const CONSOLE: &str = "https://console.saisi.online/";
@@ -94,6 +95,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::thread::sleep(POLL);
     });
 
+    register_with_the_device();
+
     let mut last: Option<State> = None;
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -129,6 +132,33 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ui = None;
             }
             _ => {}
+        }
+    });
+}
+
+/// Keep this process registered with the device.
+///
+/// The device mints a token each boot and writes it to `ProgramData`; this thread reads it, serves the
+/// launch verb on loopback, and tells the device where. It repeats the registration every thirty
+/// seconds because that is all a device restart costs: the old port is forgotten, the next tick says
+/// where the new one is, and no reconnect protocol has to exist.
+fn register_with_the_device() {
+    std::thread::spawn(|| {
+        let mut current: Option<(String, helper::Server)> = None;
+        loop {
+            if let Some(token) = helper::read_token() {
+                let unchanged = current.as_ref().is_some_and(|(known, _)| known == &token);
+                if !unchanged {
+                    current = helper::Server::start(token.clone())
+                        .ok()
+                        .map(|server| (token.clone(), server));
+                }
+                if let Some((token, server)) = current.as_ref() {
+                    let _ =
+                        helper::register(helper::DEVICE, token, server.port(), std::process::id());
+                }
+            }
+            std::thread::sleep(Duration::from_secs(30));
         }
     });
 }

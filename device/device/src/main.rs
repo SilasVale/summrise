@@ -21,6 +21,7 @@ mod config;
 mod console;
 mod enroll;
 mod fsutil;
+mod helper;
 mod http;
 mod identity;
 mod lock;
@@ -976,7 +977,16 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             update_config,
         );
     }
-    http::serve(config, store, console, mesh).await?;
+    // The helper is optional. Without its token the logged-in user's shell can never register, and
+    // every tool still works; the only loss is a browser in the user's session.
+    let helper = match helper::Helper::start() {
+        Ok(helper) => Some(std::sync::Arc::new(helper)),
+        Err(error) => {
+            eprintln!("summrise-device: no helper token this boot: {error}");
+            None
+        }
+    };
+    http::serve(config, store, console, mesh, helper).await?;
     Ok(())
 }
 

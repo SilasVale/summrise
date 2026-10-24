@@ -8,8 +8,10 @@
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::body::Bytes;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware;
@@ -23,13 +25,14 @@ use summrise_core::{
 
 use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
+use crate::helper;
 use crate::store::Store;
 use crate::watchdog;
 
 /// Build the API's router. Test-only: production always has a console and a mesh slot to fill.
 #[cfg(test)]
 pub(crate) fn router(config: &Config, store: Store) -> Router {
-    router_with(config, store, terminal::Limits::default(), None, None)
+    router_with(config, store, terminal::Limits::default(), None, None, None)
 }
 
 /// A router whose terminal capability uses `limits`. Test-only: an in-process test shortens the
@@ -40,7 +43,7 @@ pub(crate) fn router_with_limits(
     store: Store,
     limits: terminal::Limits,
 ) -> Router {
-    router_with(config, store, limits, None, None)
+    router_with(config, store, limits, None, None, None)
 }
 
 fn router_with(
@@ -49,11 +52,13 @@ fn router_with(
     limits: terminal::Limits,
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
+    helper: Option<Arc<helper::Helper>>,
 ) -> Router {
     let state = AppState {
         token: load_token(&config.token_file),
         store,
         release: config.release(),
+        helper,
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -78,6 +83,9 @@ fn router_with(
         .route("/api/health", get(health))
         .route("/api/state", get(current_state))
         .route("/api/authorize", post(authorize_request))
+        // The per-user helper's registration: a loopback call with the token this boot wrote to
+        // `ProgramData`. It is the only route the helper may call, and it only says where to find it.
+        .route("/helper", post(register_helper))
         .merge(mcp)
         .with_state(state)
 }
@@ -104,8 +112,16 @@ pub async fn serve(
     store: Store,
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
+    helper: Option<Arc<helper::Helper>>,
 ) -> io::Result<()> {
-    let app = router_with(&config, store, terminal::Limits::default(), console, mesh);
+    let app = router_with(
+        &config,
+        store,
+        terminal::Limits::default(),
+        console,
+        mesh,
+        helper,
+    );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
 
@@ -143,6 +159,9 @@ struct AppState {
     store: Store,
     /// The release facts from the launcher's argv, or the crate version for a standalone start.
     release: Release,
+    /// This boot's helper identity, or `None` when the helper is not in play. The helper is optional
+    /// by design: without it the device still serves every tool, it just has no user-session browser.
+    helper: Option<Arc<helper::Helper>>,
 }
 
 impl AppState {
@@ -313,6 +332,34 @@ struct ErrorBody {
     error: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<String>,
+}
+
+/// `POST /helper`: the per-user helper says where it listens.
+///
+/// The body is the helper's port and pid; the token is the one this boot wrote to `ProgramData`, so
+/// the only caller that can register is the process running in the logged-in user's session. A
+/// registration is not authority: it lets the device *ask* the helper to launch a browser, and the
+/// helper still decides what it will do.
+#[derive(serde::Deserialize)]
+struct HelperRegistration {
+    port: u16,
+    /// Diagnostic only: the device records nothing about it and decides nothing from it.
+    #[allow(dead_code)]
+    pid: u32,
+}
+
+async fn register_helper(State(app): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let Some(helper) = app.helper.as_ref() else {
+        return error_response(StatusCode::NOT_FOUND, "no helper", None);
+    };
+    if !helper.authorized(&headers) {
+        return unauthorized();
+    }
+    let Ok(registration) = serde_json::from_slice::<HelperRegistration>(&body) else {
+        return error_response(StatusCode::BAD_REQUEST, "bad registration", None);
+    };
+    helper.registered(registration.port);
+    StatusCode::NO_CONTENT.into_response()
 }
 
 fn unauthorized() -> Response {
@@ -553,6 +600,18 @@ mod tests {
             router(&self.config, self.store.clone())
         }
 
+        /// The same router with a helper identity, for the registration test.
+        fn app_with_helper(&self, helper: Arc<crate::helper::Helper>) -> Router {
+            router_with(
+                &self.config,
+                self.store.clone(),
+                terminal::Limits::default(),
+                None,
+                None,
+                Some(helper),
+            )
+        }
+
         fn saved_state(&self) -> summrise_core::State {
             let mut state = self.store.initial();
             state.sessions = vec![SessionRow {
@@ -584,6 +643,41 @@ mod tests {
         request
             .body(Body::from(body.to_string()))
             .expect("the request builds")
+    }
+
+    #[tokio::test]
+    async fn the_helper_registers_only_with_this_boots_token() {
+        let fixture = fixture("helper-registration", None);
+        let helper = Arc::new(crate::helper::Helper::with_token("c".repeat(64)));
+        let app = fixture.app_with_helper(helper.clone());
+        let registration = json!({ "port": 40001, "pid": 1 });
+
+        // No token, and a token from another boot: both are just unauthenticated callers.
+        let (status, _) = send(app.clone(), post("/helper", None, registration.clone())).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = send(
+            app.clone(),
+            post("/helper", Some(&"d".repeat(64)), registration.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(helper.port(), None);
+
+        // This boot's token registers the port and nothing else.
+        let (status, _) = send(app, post("/helper", Some(&"c".repeat(64)), registration)).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(helper.port(), Some(40001));
+    }
+
+    #[tokio::test]
+    async fn without_a_helper_identity_the_registration_route_is_absent() {
+        let fixture = fixture("helper-absent", None);
+        let (status, _) = send(
+            fixture.app(),
+            post("/helper", None, json!({ "port": 40001, "pid": 1 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     async fn send(app: Router, request: Request<Body>) -> (StatusCode, Value) {
