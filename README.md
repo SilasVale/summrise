@@ -17,6 +17,7 @@ device/
   release/   signed release documents, channels, revocation lists, the signer
   console/   the control plane: operator sessions, enrollment codes, grants, the device channel, audit
   winsec/    the Windows security helpers (protected DACLs), shared by launch and device
+  winsys/    the Windows calls safe crates cannot make: process listing and termination
 ```
 
 Two runtimes, one control plane:
@@ -33,14 +34,14 @@ Two runtimes, one control plane:
 Rust 1.98.1 (`rust-toolchain.toml`).
 
 ```bash
-cargo test --manifest-path device/Cargo.toml --workspace
-cargo fmt --manifest-path device/Cargo.toml --all -- --check
-cargo clippy --manifest-path device/Cargo.toml --workspace --all-targets -- -D warnings
+scripts/check.sh              # the commands CI's `device` job runs, read out of ci.yml
+scripts/check.sh --fast       # format and lints only
+scripts/check.sh --windows    # also cross-compile the Windows target (needs cargo-xwin)
 ```
 
 Windows is the target: the lifecycle suite only runs there (`ci.yml`'s `device-windows` job), and a
-Linux `cargo test` proves the portable half. `cargo xwin check --workspace --target
-x86_64-pc-windows-msvc` compiles the Windows-only paths from Linux.
+Linux `cargo test` proves the portable half. `--windows` compiles the Windows-only paths from Linux;
+it proves they build, not that they pass.
 
 ## The documents
 
