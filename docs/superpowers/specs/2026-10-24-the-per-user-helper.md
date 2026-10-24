@@ -115,9 +115,28 @@ architecture, and the code must treat "no helper" as normal rather than as an er
 
 All four are built (2026-10-24): `device/shell/src/helper.rs` (identity, launch, capture),
 `device/device/src/helper.rs` (token, registration, capture client), the `screen` capability in the
-registry, and the browser preference in `capabilities/browser.rs`. What is not yet done is the
-deployment that puts the new device and helper binaries on the canary and the on-device verification
-of the capture, which needs an unlocked session by definition.
+registry, and the browser preference in `capabilities/browser.rs`.
+
+**Deployed and verified on the canary the same day** (device 0.3.28, shell in the user's session):
+
+- The device wrote `C:\ProgramData\SummriseHelper\helper.token`; `icacls` shows
+  `SYSTEM:(F) Administrators:(F) Users:(RX)`, which is the direction the design needs. The obvious
+  path — inside the data directory — was refused by the deployment itself: that directory is protected
+  to SYSTEM and Administrators, and a token there is unreadable by the process the design exists for.
+- `POST /helper` accepted the registration: the device's MCP `tools/call browser.list` answered with
+  Chrome targets from the **session-2** browser (`chrome://webui-toolbar.top-chrome` is a headed page;
+  the service's headless one has no toolbar), and `Get-CimInstance Win32_Process` shows it running with
+  `--user-data-dir=C:\Users\13122\AppData\Local\Summrise\chrome` while the service's own Chrome
+  still runs in session 0 under `C:\ProgramData\Summrise\chrome-profile`. The launch verb works.
+- `tools/call screen.capture` reached the helper and answered with the typed refusal
+  `the session is not being displayed: the desktop has no surface to capture` — the RDP session was
+  disconnected, which is exactly the case the refusal exists for. The success path needs an unlocked,
+  visible session; the code path is the one that produced this sentence, and nothing ahead of `BitBlt`
+  refused.
+
+The one thing this verification could not see is the tray icon itself: a disconnected session has no
+notification area to photograph. The process is in session 2 and the icon is built from the brand
+asset at startup; it is unverified visually, not unimplemented.
 
 The fourth exists because the first three cannot be verified from session 0. On 2026-10-24 the tray
 could be launched into the user's session from a SYSTEM process (WTSQueryUserToken +
