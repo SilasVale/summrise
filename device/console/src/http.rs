@@ -213,6 +213,7 @@ impl Console {
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
             .route("/audit", get(list_audit))
+            .layer(axum::middleware::from_fn(no_store))
             .with_state(self.inner.clone())
     }
 }
@@ -592,6 +593,18 @@ mod assets {
 /// and keeps the session it gets back in memory.
 async fn operator_page() -> Html<&'static str> {
     Html(OPERATOR_PAGE)
+}
+
+/// Every answer this console gives is for one request, and a cache that disagrees is how a browser
+/// keeps running yesterday's page — or yesterday's `{"authenticated":false}` — after a deploy or a
+/// login. One layer says so instead of a list of routes that has to stay complete as routes are added.
+async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 /// `GET /health`: unauthenticated, and deliberately so — a supervisor and a human need one route

@@ -2909,3 +2909,41 @@ async fn the_session_probe_says_what_it_made_of_the_access_header() {
     assert_eq!(body["access"]["configured"], false);
     assert_eq!(body["access"]["header"], true);
 }
+
+#[tokio::test]
+async fn no_console_answer_is_cacheable() {
+    // A cached page outlives a deploy and a cached `/session` outlives a login: both were possible
+    // while these routes carried no `Cache-Control`.
+    let fixture = Fixture::new("no-store");
+
+    // The page is HTML, so it is read off the response rather than through the JSON helper.
+    let response = fixture
+        .app()
+        .oneshot(get("/", None))
+        .await
+        .expect("the page is served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "the page is the build, and a cached copy outlives a deploy"
+    );
+
+    for (uri, request) in [
+        ("/session", get("/session", None)),
+        ("/health", get("/health", None)),
+    ] {
+        let (status, headers, _) = send_with_headers(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(
+            headers
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-store"),
+            "{uri} is an answer for one request"
+        );
+    }
+}
