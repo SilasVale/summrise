@@ -99,7 +99,7 @@ architecture, and the code must treat "no helper" as normal rather than as an er
   value shrinks — the helper would still be the only way to run a browser with the user's GPU and
   audio, but "watch it from the console" would no longer require a local user.
 
-## The implementation, in three commits
+## The implementation, in four commits
 
 1. **Identity and registration** — device mints the token and serves `POST /helper`; the helper reads
    the token, starts its loopback server, and registers. No browser yet; the device ignores a
@@ -112,6 +112,12 @@ architecture, and the code must treat "no helper" as normal rather than as an er
    exposes it as a tool, so an operator or an agent can verify a UI without a person sitting at the
    machine. A locked or disconnected session is a typed refusal, not a black image: Windows does not
    render a desktop nobody is looking at, and a tool that returned one would be lying.
+
+All four are built (2026-10-24): `device/shell/src/helper.rs` (identity, launch, capture),
+`device/device/src/helper.rs` (token, registration, capture client), the `screen` capability in the
+registry, and the browser preference in `capabilities/browser.rs`. What is not yet done is the
+deployment that puts the new device and helper binaries on the canary and the on-device verification
+of the capture, which needs an unlocked session by definition.
 
 The fourth exists because the first three cannot be verified from session 0. On 2026-10-24 the tray
 could be launched into the user's session from a SYSTEM process (WTSQueryUserToken +

@@ -280,6 +280,17 @@ pub const CAPABILITIES: &[Capability] = &[
         ],
     },
     Capability {
+        name: "screen",
+        tools: &[ToolDef {
+            name: "screen.capture",
+            destructive: false,
+            // The only capability that runs in the logged-in user's session: the helper captures a
+            // desktop the service cannot see, and refuses rather than answering black.
+            description:
+                "Capture the logged-in user's screen as a PNG through the per-user helper. A session that is locked, disconnected, or has no helper running is refused with a sentence; a desktop nobody is looking at is not a picture.",
+        }],
+    },
+    Capability {
         name: "state",
         tools: &[ToolDef {
             name: "state.get",
@@ -355,6 +366,7 @@ mod tests {
                 "system.process_list",
                 "system.process_kill",
                 "system.net_test",
+                "screen.capture",
                 "state.get",
             ],
             "the registry is the whole surface: no tool exists outside it"
@@ -391,6 +403,7 @@ mod tests {
             ("runs.exec", true),
             ("runs.list", false),
             ("runs.get", false),
+            ("screen.capture", false),
             ("state.get", false),
         ] {
             assert_eq!(

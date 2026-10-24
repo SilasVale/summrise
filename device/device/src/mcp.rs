@@ -1087,6 +1087,32 @@ impl DeviceServer {
                 })
                 .to_string())
             }
+            Handler::ScreenCapture => {
+                // The one tool that runs where this process cannot: the picture comes from the
+                // per-user helper, and "no helper" is a sentence rather than a black frame.
+                let Some(helper) = crate::helper::current() else {
+                    return Err(refused(
+                        name,
+                        "no per-user helper is running on this device",
+                    ));
+                };
+                let Some(port) = helper.port() else {
+                    return Err(refused(
+                        name,
+                        "the per-user helper has not registered this boot",
+                    ));
+                };
+                let capture = crate::helper::capture(port, helper.token())
+                    .await
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "format": "png",
+                    "data": capture.png,
+                    "width": capture.width,
+                    "height": capture.height,
+                })
+                .to_string())
+            }
             Handler::StateGet => {
                 // The console's device page: the document an operator would read from
                 // `/api/state`, plus the readiness answer `/api/health` would give. A poisoned
@@ -1221,6 +1247,7 @@ enum Handler {
     SystemProcessList,
     SystemProcessKill,
     SystemNetTest,
+    ScreenCapture,
     StateGet,
 }
 
@@ -1264,6 +1291,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("system.process_list", Handler::SystemProcessList),
     ("system.process_kill", Handler::SystemProcessKill),
     ("system.net_test", Handler::SystemNetTest),
+    ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
 ];
 
@@ -1900,6 +1928,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                 }
             },
             "required": ["host", "port"],
+            "additionalProperties": false
+        }),
+        "screen.capture" => json!({
+            "type": "object",
+            "properties": {},
             "additionalProperties": false
         }),
         "state.get" => json!({
@@ -2975,6 +3008,7 @@ mod tests {
                 "system.process_list",
                 "system.process_kill",
                 "system.net_test",
+                "screen.capture",
                 "state.get",
             ],
             "the wire surface is the registry's surface"

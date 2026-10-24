@@ -110,6 +110,57 @@ pub fn token_path() -> PathBuf {
     }
 }
 
+/// One capture from the helper: PNG bytes as base64, and the size it was taken at.
+pub struct Capture {
+    pub png: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Ask the helper for the logged-in user's screen.
+///
+/// The refusal is the feature as much as the picture: a locked or disconnected session answers with a
+/// sentence, and this turns it into the tool's error rather than returning a black frame the operator
+/// would have to interpret.
+pub async fn capture(port: u16, token: &str) -> Result<Capture, String> {
+    let answer = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/capture"))
+        .bearer_auth(token)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|error| format!("the helper did not answer: {error}"))?;
+    let status = answer.status();
+    let text = answer
+        .text()
+        .await
+        .map_err(|error| format!("the helper's answer was unreadable: {error}"))?;
+    let body: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("the helper answered something else: {error}"))?;
+    if !status.is_success() || body.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        let reason = body
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("the helper refused");
+        return Err(reason.to_owned());
+    }
+    let png = body
+        .get("png")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("the helper's answer carries no picture")?;
+    Ok(Capture {
+        png: png.to_owned(),
+        width: body
+            .get("width")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+        height: body
+            .get("height")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32,
+    })
+}
+
 /// 32 bytes from the operating system's generator, as hex. The same shape the console uses for its
 /// session tokens, and for the same reason: a token that is guessable is not a token.
 fn mint() -> String {

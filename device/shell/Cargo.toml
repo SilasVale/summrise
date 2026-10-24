@@ -13,6 +13,9 @@ publish.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The capture verb: PNG because a screen is not JSON, base64 because the answer is JSON.
+png = "0.17"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 tao = "0.34"
@@ -20,6 +23,8 @@ wry = "0.53"
 # The tray left `tao` in 0.28 and lives in its own crate now; `tray-icon` is that crate, and it owns
 # the menu type too (through `muda`), which is why the menu comes from `tray-icon` here.
 tray-icon = "0.21"
+# The screen capture itself is Win32 (GDI), so it lives in the crate that already allows unsafe.
+summrise-winsys = { path = "../winsys" }
 windows-sys = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Security",

@@ -4892,8 +4892,11 @@ dependencies = [
 name = "summrise-shell"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "png",
  "serde",
  "serde_json",
+ "summrise-winsys",
  "tao",
  "tray-icon",
  "windows-sys 0.52.0",

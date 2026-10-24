@@ -66,7 +66,8 @@ fn handle(mut stream: TcpStream, token: &str, last: &mut Option<std::process::Ch
     let Some(request) = read_request(&mut stream) else {
         return;
     };
-    if request.method != "POST" || request.path != "/launch" {
+    let route = (request.method.as_str(), request.path.as_str());
+    if !matches!(route, ("POST", "/launch") | ("POST", "/capture")) {
         respond(
             &mut stream,
             404,
@@ -84,6 +85,27 @@ fn handle(mut stream: TcpStream, token: &str, last: &mut Option<std::process::Ch
         );
         return;
     }
+    if request.path == "/capture" {
+        match capture() {
+            Ok(picture) => respond(
+                &mut stream,
+                200,
+                "OK",
+                &format!(
+                    "{{\"ok\":true,\"width\":{},\"height\":{},\"png\":\"{}\"}}",
+                    picture.width, picture.height, picture.png
+                ),
+            ),
+            Err(error) => respond(
+                &mut stream,
+                409,
+                "Conflict",
+                &format!("{{\"ok\":false,\"error\":{}}}", quoted(&error)),
+            ),
+        }
+        return;
+    }
+
     let Ok(launch) = serde_json::from_str::<LaunchRequest>(&request.body) else {
         respond(
             &mut stream,
@@ -107,6 +129,70 @@ fn handle(mut stream: TcpStream, token: &str, last: &mut Option<std::process::Ch
             &format!("{{\"ok\":false,\"error\":{}}}", quoted(&error)),
         ),
     }
+}
+
+/// One picture of the session this helper runs in.
+struct Picture {
+    width: u32,
+    height: u32,
+    png: String,
+}
+
+/// Capture the desktop, or say why it cannot be captured.
+///
+/// A locked session answers `Winlogon` when asked for its input desktop, and a disconnected one
+/// renders nothing; both are refusals with a sentence, because a black frame is not a picture of
+/// anything and would be read as "the screen is black".
+fn capture() -> Result<Picture, String> {
+    #[cfg(windows)]
+    {
+        let desktop = summrise_winsys::input_desktop_name()
+            .map_err(|error| format!("the input desktop could not be read: {error}"))?;
+        if desktop != "Default" {
+            return Err(format!("the session is locked ({desktop})"));
+        }
+        let screen = summrise_winsys::capture_primary_screen()
+            .map_err(|error| format!("the screen could not be captured: {error}"))?;
+        if is_uniform(&screen.rgba) {
+            return Err("the session is not being displayed: every pixel is the same".to_owned());
+        }
+        let png = encode_png(screen.width, screen.height, &screen.rgba)?;
+        use base64::Engine;
+        Ok(Picture {
+            width: screen.width,
+            height: screen.height,
+            png: base64::engine::general_purpose::STANDARD.encode(png),
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        Err("screen capture is Windows-only".to_owned())
+    }
+}
+
+/// Whether every pixel is identical: the signature of a desktop nobody is looking at.
+fn is_uniform(rgba: &[u8]) -> bool {
+    let pixels = rgba.as_chunks::<4>().0;
+    let Some(first) = pixels.first() else {
+        return true;
+    };
+    pixels.iter().all(|pixel| pixel == first)
+}
+
+fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|error| format!("the PNG header could not be written: {error}"))?;
+        writer
+            .write_image_data(rgba)
+            .map_err(|error| format!("the PNG data could not be written: {error}"))?;
+    }
+    Ok(out)
 }
 
 /// What the device sends: the port it wants CDP on.
@@ -317,10 +403,14 @@ mod tests {
 
     /// Drive the server the way the device will, over a real socket.
     fn call(port: u16, bearer: &str) -> (u16, String) {
+        call_path(port, "/launch", bearer)
+    }
+
+    fn call_path(port: u16, path: &str, bearer: &str) -> (u16, String) {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("the helper answers");
         let body = "{\"port\":51234}";
         let request = format!(
-            "POST /launch HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {bearer}\r\n\
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {bearer}\r\n\
              Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
@@ -350,6 +440,29 @@ mod tests {
         let (status, body) = call(server.port(), &"a".repeat(64));
         assert_ne!(status, 401, "{body}");
         assert!(body.contains("\"ok\""), "{body}");
+    }
+
+    #[test]
+    fn the_capture_route_needs_the_token_and_says_why_it_cannot_capture_here() {
+        let server = Server::start("a".repeat(64)).expect("the helper binds");
+        let (status, _) = call_path(server.port(), "/capture", &"b".repeat(64));
+        assert_eq!(status, 401);
+        let (status, body) = call_path(server.port(), "/capture", &"a".repeat(64));
+        assert_eq!(status, 409, "{body}");
+        assert!(body.contains("Windows-only"), "{body}");
+    }
+
+    #[test]
+    fn a_uniform_frame_is_not_a_picture() {
+        assert!(is_uniform(&[0, 0, 0, 255, 0, 0, 0, 255]));
+        assert!(!is_uniform(&[0, 0, 0, 255, 1, 0, 0, 255]));
+        assert!(is_uniform(&[]));
+    }
+
+    #[test]
+    fn the_png_writer_produces_a_png() {
+        let png = encode_png(2, 1, &[255, 0, 0, 255, 0, 255, 0, 255]).expect("the encoder writes");
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
     }
 
     #[test]
