@@ -23,6 +23,7 @@ does only what session 0 cannot.
 | launch a browser **as the logged-in user** | read the device's data directory, token or keys |
 | report that browser's CDP port | start, stop, update or repair the device |
 | say whether the app is serving (the loopback health document) | act on a grant, or mint one |
+| capture the user session's screen, when it is unlocked | capture a locked or disconnected session, or bypass the lock |
 
 The helper holds **no device credential**. Everything an operator does to a device still goes through
 the console, a grant, and the device's own authorization; the helper only decides *where* a browser
@@ -107,3 +108,14 @@ architecture, and the code must treat "no helper" as normal rather than as an er
    helper's own tests cover the port argument and the refusal paths.
 3. **The preference** — `browser.*` asks the helper first and falls back to the service launch, with
    the fallback proven by a test that runs with no helper registered.
+4. **`screen.capture`** — the helper captures its session's desktop and answers with a PNG; the device
+   exposes it as a tool, so an operator or an agent can verify a UI without a person sitting at the
+   machine. A locked or disconnected session is a typed refusal, not a black image: Windows does not
+   render a desktop nobody is looking at, and a tool that returned one would be lying.
+
+The fourth exists because the first three cannot be verified from session 0. On 2026-10-24 the tray
+could be launched into the user's session from a SYSTEM process (WTSQueryUserToken +
+DuplicateTokenEx + CreateProcessAsUser, with the two privileges enabled and the device's job object
+escaped), but its screen could not be read: the RDP session was not an active desktop, and
+`CopyFromScreen` answered "invalid handle". That is the exact gap `screen.capture` closes, and the
+exact limit it must report.
