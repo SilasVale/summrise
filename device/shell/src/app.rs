@@ -42,6 +42,12 @@ enum Wake {
     Menu(MenuEvent),
 }
 
+/// The brand mark, rendered from `brand/icon.png` at the two sizes the shell needs. The tray is 16 px
+/// because that is what Windows draws; the window is 32 px because that is what a title bar and a
+/// task switcher ask for.
+const TRAY_RGBA: &[u8] = include_bytes!("../assets/tray-16.rgba");
+const WINDOW_RGBA: &[u8] = include_bytes!("../assets/window-32.rgba");
+
 /// One colour for each thing the dot can say.
 const OK: [u8; 4] = [0x2f, 0xbf, 0x6f, 0xff];
 const BAD: [u8; 4] = [0xd7, 0x3a, 0x2a, 0xff];
@@ -67,7 +73,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_icon(dot(UNKNOWN)?)
+        .with_icon(tray_icon(UNKNOWN)?)
         .with_tooltip("Summrise: checking this device…")
         .build()?;
 
@@ -98,7 +104,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     return;
                 }
                 let (colour, tooltip) = describe(&state);
-                let _ = tray.set_icon(Some(dot(colour).expect("a 16×16 RGBA icon")));
+                let _ = tray.set_icon(Some(tray_icon(colour).expect("a 16×16 RGBA icon")));
                 let _ = tray.set_tooltip(Some(tooltip.as_str()));
                 last = Some(state);
             }
@@ -139,6 +145,7 @@ fn open_console(
     }
     let Ok(window) = WindowBuilder::new()
         .with_title("Summrise console")
+        .with_window_icon(window_icon())
         .with_visible(true)
         .build(target)
     else {
@@ -172,23 +179,34 @@ fn describe(state: &State) -> ([u8; 4], String) {
     }
 }
 
-/// A solid disc in one colour, drawn rather than shipped: the tray needs 16×16 RGBA and the state is
-/// one byte of colour, so an asset per state would be three files to keep in step with this constant.
-fn dot(colour: [u8; 4]) -> Result<Icon, tray_icon::BadIcon> {
-    const SIZE: u32 = 16;
-    const RADIUS: f32 = 6.0;
-    let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = x as f32 - (SIZE as f32 - 1.0) / 2.0;
-            let dy = y as f32 - (SIZE as f32 - 1.0) / 2.0;
-            if dx * dx + dy * dy <= RADIUS * RADIUS {
-                let at = ((y * SIZE + x) * 4) as usize;
-                rgba[at..at + 4].copy_from_slice(&colour);
+/// The brand mark, with a status badge when the device is not serving.
+///
+/// The icon is the product's face, not a coloured dot: a dot says "some program is running" and the
+/// mark says which program. Green is the mark alone; anything else gets a five-pixel badge in the
+/// corner, ringed so it reads against the orange.
+fn tray_icon(colour: [u8; 4]) -> Result<Icon, tray_icon::BadIcon> {
+    const SIZE: usize = 16;
+    let mut rgba = TRAY_RGBA.to_vec();
+    if colour != OK {
+        for y in 9..15 {
+            for x in 9..15 {
+                let edge = x == 9 || y == 9 || x == 14 || y == 14;
+                let at = (y * SIZE + x) * 4;
+                let pixel = if edge {
+                    [0x1f, 0x1f, 0x1f, 0xff]
+                } else {
+                    colour
+                };
+                rgba[at..at + 4].copy_from_slice(&pixel);
             }
         }
     }
-    Icon::from_rgba(rgba, SIZE, SIZE)
+    Icon::from_rgba(rgba, SIZE as u32, SIZE as u32)
+}
+
+/// The same mark for the window's title bar and the task switcher.
+fn window_icon() -> Option<tao::window::Icon> {
+    tao::window::Icon::from_rgba(WINDOW_RGBA.to_vec(), 32, 32).ok()
 }
 
 /// Ask the shell to open `url` with whatever the operator's default browser is.

@@ -176,6 +176,18 @@ impl Console {
             // interactive prompts (sudo, ssh host keys), and fetching it from a CDN would make the
             // console depend on a third party at run time. Two files, no build step.
             .route(
+                "/assets/icon.png",
+                get(|| async {
+                    (
+                        [
+                            (header::CONTENT_TYPE, "image/png"),
+                            (header::CACHE_CONTROL, "public, max-age=86400"),
+                        ],
+                        axum::body::Bytes::from_static(assets::ICON),
+                    )
+                }),
+            )
+            .route(
                 "/assets/xterm.js",
                 get(|| async {
                     assets::Asset {
@@ -578,6 +590,8 @@ mod assets {
     pub(super) const JS: &str = include_str!("../assets/xterm.js");
     pub(super) const CSS: &str = include_str!("../assets/xterm.css");
     pub(super) const FIT: &str = include_str!("../assets/addon-fit.js");
+    /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
+    pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
 
     /// A tiny responder: the bodies are static, and the content types are the two that matter.
     pub(super) struct Asset {
