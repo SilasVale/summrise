@@ -45,8 +45,12 @@ impl Server {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let port = listener.local_addr()?.port();
         std::thread::spawn(move || {
+            // The launch verb is served one request at a time, and the previous browser is this
+            // thread's business: a second Chrome with the same profile would only hand the request
+            // to the first one, which is listening on the old port.
+            let mut last: Option<std::process::Child> = None;
             for stream in listener.incoming().flatten() {
-                handle(stream, &token);
+                handle(stream, &token, &mut last);
             }
         });
         Ok(Server { port })
@@ -57,7 +61,7 @@ impl Server {
     }
 }
 
-fn handle(mut stream: TcpStream, token: &str) {
+fn handle(mut stream: TcpStream, token: &str, last: &mut Option<std::process::Child>) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let Some(request) = read_request(&mut stream) else {
         return;
@@ -80,25 +84,111 @@ fn handle(mut stream: TcpStream, token: &str) {
         );
         return;
     }
-    // The body must be the launch request's shape, even while the verb is unimplemented: a route
-    // that accepted anything would teach the device to send anything.
-    if serde_json::from_str::<serde_json::Value>(&request.body).is_err() {
+    let Ok(launch) = serde_json::from_str::<LaunchRequest>(&request.body) else {
         respond(
             &mut stream,
             400,
             "Bad Request",
-            "{\"ok\":false,\"error\":\"the body is not JSON\"}",
+            "{\"ok\":false,\"error\":\"the body is not a launch request\"}",
         );
         return;
+    };
+    match launch_chrome(launch.port, last) {
+        Ok(pid) => respond(
+            &mut stream,
+            200,
+            "OK",
+            &format!("{{\"ok\":true,\"pid\":{pid}}}"),
+        ),
+        Err(error) => respond(
+            &mut stream,
+            500,
+            "Internal Server Error",
+            &format!("{{\"ok\":false,\"error\":{}}}", quoted(&error)),
+        ),
     }
-    // The launch verb lands in the next commit; until then the route exists and says so, which is a
-    // better answer than a connection that closes with nothing.
-    respond(
-        &mut stream,
-        501,
-        "Not Implemented",
-        "{\"ok\":false,\"error\":\"launch is not implemented yet\"}",
-    );
+}
+
+/// What the device sends: the port it wants CDP on.
+#[derive(serde::Deserialize)]
+struct LaunchRequest {
+    port: u16,
+}
+
+/// Start Chrome in this process's session with a profile of its own.
+///
+/// A profile of its own is not a preference: recent Chrome refuses `--remote-debugging-port` together
+/// with the default user-data directory. The directory lives in the user's `LocalAppData`, so the
+/// browser the device drives is inspectable by the person at the machine and survives a restart.
+#[cfg(windows)]
+fn launch_chrome(port: u16, last: &mut Option<std::process::Child>) -> Result<u32, String> {
+    if let Some(previous) = last.as_mut() {
+        if matches!(previous.try_wait(), Ok(None)) {
+            let _ = previous.kill();
+            let _ = previous.wait();
+        }
+    }
+    let executable = discover_chrome().ok_or("chrome was not found for this user")?;
+    let profile = profile_dir()?;
+    std::fs::create_dir_all(&profile).map_err(|error| error.to_string())?;
+    let child = std::process::Command::new(executable)
+        .arg(format!("--remote-debugging-port={port}"))
+        .arg(format!("--user-data-dir={}", profile.display()))
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("about:blank")
+        .spawn()
+        .map_err(|error| format!("chrome did not start: {error}"))?;
+    let pid = child.id();
+    *last = Some(child);
+    Ok(pid)
+}
+
+#[cfg(not(windows))]
+fn launch_chrome(_port: u16, _last: &mut Option<std::process::Child>) -> Result<u32, String> {
+    Err("the browser is launched on Windows only".to_owned())
+}
+
+/// The browser this helper owns: `SUMMRISE_CHROME` when it names a file, then the user's installs.
+#[cfg(windows)]
+fn discover_chrome() -> Option<std::path::PathBuf> {
+    if let Some(configured) = std::env::var_os("SUMMRISE_CHROME") {
+        let path = std::path::PathBuf::from(configured);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let mut candidates = Vec::new();
+    for root in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+        if let Some(base) = std::env::var_os(root) {
+            let base = std::path::PathBuf::from(base);
+            candidates.push(base.join(r"Google\Chrome\Application\chrome.exe"));
+            candidates.push(base.join(r"Microsoft\Edge\Application\msedge.exe"));
+        }
+    }
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(windows)]
+fn profile_dir() -> Result<std::path::PathBuf, String> {
+    let base = std::env::var_os("LOCALAPPDATA").ok_or("this user has no LocalAppData")?;
+    Ok(std::path::PathBuf::from(base)
+        .join("Summrise")
+        .join("chrome"))
+}
+
+/// JSON-quote a string without pulling a serializer into a line that only formats a sentence.
+fn quoted(text: &str) -> String {
+    let escaped: String = text
+        .chars()
+        .flat_map(|character| match character {
+            '"' => vec!['\\', '"'],
+            '\\' => vec!['\\', '\\'],
+            '\n' => vec!['\\', 'n'],
+            other => vec![other],
+        })
+        .collect();
+    format!("\"{escaped}\"")
 }
 
 /// Tell the device where the helper listens. The registration is idempotent, so the caller may repeat
@@ -255,8 +345,28 @@ mod tests {
         let server = Server::start("a".repeat(64)).expect("the helper binds");
         let (status, _) = call(server.port(), &"b".repeat(64));
         assert_eq!(status, 401);
+        // With the right token the answer depends on the platform (CI's Linux job has no browser to
+        // launch); what must not happen is another refusal.
         let (status, body) = call(server.port(), &"a".repeat(64));
-        assert_eq!(status, 501, "{body}");
+        assert_ne!(status, 401, "{body}");
+        assert!(body.contains("\"ok\""), "{body}");
+    }
+
+    #[test]
+    fn a_body_that_is_not_a_launch_request_is_refused() {
+        let server = Server::start("a".repeat(64)).expect("the helper binds");
+        let mut stream = TcpStream::connect(("127.0.0.1", server.port())).expect("connects");
+        let body = "{\"nope\":1}";
+        let request = format!(
+            "POST /launch HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "a".repeat(64),
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).expect("writes");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("reads");
+        assert!(response.starts_with("HTTP/1.1 400"), "{response}");
     }
 
     #[test]
