@@ -99,6 +99,11 @@ What changed in the matrix itself:
   stale; the console is deployed on the tailnet and two machines are registered.
 - **`panel / desktop shell`**: still `no`, and still the one open decision. The console page is the
   operator surface now; a desktop shell is a port-or-drop call nobody has made.
+- **`MCP keys / grants UI`**: the row's "no UI" is stale. The console page mints grants
+  (`device/console/web/src/GrantForm.tsx`) against the device's own catalogue, served by `/tools`.
+- **the rows are capability-level, and D3 needs more than that**: `2026-10-24-the-tool-surface-parity.md`
+  audits all 56 old tools against the 28 new ones — 15 ported, 9 replaced, 25 dropped, 7 undecided.
+  D3 is not ready until those seven are decided.
 - **`file transfer`**: unchanged (separate worker) — and the device's relay upload currently answers
   404, so the canary moves files by HTTP from a host. That is a workaround, not parity.
 - **installer**: the Windows setup is built and **self-tested in CI** (it installs itself on the
