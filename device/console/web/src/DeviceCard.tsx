@@ -77,10 +77,11 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
  * an error to discover.
  *
  * The update row is what the launcher wrote into its baseline directories. A staged pair (`pending`)
- * is not yet proven — the launcher keeps it only after the new build answers — so the row says
- * "staged" and never "updating" or "restarted": the swap is the launcher's business, and a pending
- * pair is the fact the launcher has left on disk. Three nulls (a device with no baselines) and an
- * absent `update` key (a device too old to report one) both draw no row at all.
+ * is not yet proven — it is written before the probe, and the launcher promotes it only after the new
+ * build answers, discarding it otherwise — so the row says "staged" and never "updating" or
+ * "restarted": the swap is the launcher's business, and a pending pair is the fact the launcher has
+ * left on disk. Three nulls (a device with no baselines) and an absent `update` key (a device too old
+ * to report one) both draw no row at all.
  */
 function HostFactsBlock({ host }: { host: HostFacts }) {
   const memory = host.memory;
@@ -117,7 +118,7 @@ function HostFactsBlock({ host }: { host: HostFacts }) {
           <dd
             title={
               host.update?.pending
-                ? "Not yet proven: the launcher keeps a staged pair only after the new build answers."
+                ? "Not yet proven: the launcher promotes a staged pair only after the new build answers, and discards it otherwise."
                 : undefined
             }
           >
@@ -144,10 +145,11 @@ function sessionSentence(session: { id: number; user?: string | null; state: str
  * The launcher's three generations, in one line, omitting the ones that are not there.
  *
  * `pending` is called "staged" and carries "not yet proven" because that is all it is: the launcher
- * wrote the pair and keeps it only after the new build answers. Every other word for it ("updating",
- * "pending restart") would claim a swap this row cannot see. A generation with no version is left out
- * whole rather than shown as a blank, and three empty generations return "", so the caller draws no
- * row — which is what every device without baselines reports.
+ * wrote the pair before the probe and promotes it only after the new build answers, discarding it
+ * otherwise. Every other word for it ("updating", "pending restart") would claim a swap this row
+ * cannot see. A generation with no version is left out whole rather than shown as a blank, and three
+ * empty generations return "", so the caller draws no row — which is what every device without
+ * baselines reports.
  *
  * Only the staged pair shows its channel: that is what tells an operator where an update in flight
  * came from, and three channels on one line would bury the versions.
