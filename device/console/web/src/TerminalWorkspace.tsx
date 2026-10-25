@@ -161,7 +161,7 @@ function isAbsolutePath(text: string): boolean {
   return text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text) || text.startsWith("\\\\");
 }
 
-export function TerminalWorkspace({ grant }: { grant: Grant }) {
+export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; visible?: boolean }) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [status, setStatus] = useState("No session. Open one, or attach to a session this device already has.");
@@ -227,10 +227,15 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
   }, [tabs, grant]);
 
   // The active tab polls; switching polls once immediately so the tab is current when it appears.
+  //
+  // A page change does not unmount the workspace, so `visible` is what stops the poll instead: a
+  // hidden tab must not keep a device session alive past its idle close. On return the effect runs
+  // again, refits the terminal to a host that has a size again, and reads everything the device
+  // retained since the cursor — which is what makes a live tab reappear without an Attach.
   useEffect(() => {
     if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
     pollTimer.current = null;
-    if (!active) return;
+    if (!active || !visible) return;
     const tab = tabs.find((entry) => entry.key === active);
     if (!tab) return;
     const instance = instances.current.get(active);
@@ -255,7 +260,7 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
       if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
       pollTimer.current = null;
     };
-  }, [active, tabs, grant, poll]);
+  }, [active, tabs, grant, visible, poll]);
 
   // The presets belong to the device, so they are re-read when the grant's device changes.
   useEffect(() => {

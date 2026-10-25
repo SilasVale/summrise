@@ -394,39 +394,41 @@ export function App() {
             </>
           )}
 
-          {page === "terminal" && (
-            <>
-              {!chosen && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Terminal</h2>
-                  </div>
-                  <p className="hint">
-                    A terminal runs on a device, so pick one. The console signs a grant for the tools it
-                    needs, and the device checks that grant on every call.
-                  </p>
-                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
-                </section>
-              )}
-              {chosen && (!grant || grant.deviceId !== chosen.id) && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
-                  </div>
-                  <p className="hint">
-                    A grant is signed by the console, names the tools and expires. The device checks it on
-                    every call. Everything is selected by default: press the button and the terminal
-                    appears.
-                  </p>
-                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
-                </section>
-              )}
-              {chosen && grant && grant.deviceId === chosen.id && (
-                <section className="panel">
-                  <TerminalWorkspace grant={grant} />
-                </section>
-              )}
-            </>
+          {page === "terminal" && !chosen && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Terminal</h2>
+              </div>
+              <p className="hint">
+                A terminal runs on a device, so pick one. The console signs a grant for the tools it
+                needs, and the device checks that grant on every call.
+              </p>
+              <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+            </section>
+          )}
+          {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id) && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+              </div>
+              <p className="hint">
+                A grant is signed by the console, names the tools and expires. The device checks it on
+                every call. Everything is selected by default: press the button and the terminal
+                appears.
+              </p>
+              <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+            </section>
+          )}
+          {/*
+            The workspace is rendered whichever page is showing, and hidden rather than unmounted:
+            a rail click used to destroy the tabs, their cursors and their xterms. The section is a
+            direct child of `main` so the page's grid keeps its gap; `hidden` takes it out of the
+            layout (and out of the modal's way) on every other page.
+          */}
+          {chosen && grant && grant.deviceId === chosen.id && (
+            <section className="panel" hidden={page !== "terminal"}>
+              <TerminalWorkspace grant={grant} visible={page === "terminal"} />
+            </section>
           )}
 
           {page === "browser" && (
