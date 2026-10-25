@@ -57,7 +57,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, Semaphore};
 
 #[cfg(test)]
 use crate::frame::{self, Frame, FrameError};
@@ -134,12 +134,24 @@ struct PairReply {
     reason: Option<String>,
 }
 
+/// The most pairings one relay serves at once, by default.
+///
+/// A pairing is two sockets, two tasks and the buffers a splice needs; 256 of them is far more than a
+/// phase-2 deployment, while the cap keeps a public listener from being a descriptor and memory sink.
+/// The refusal is a close, not a protocol message: the relay is the floor of the path, and a client
+/// that cannot be paired retries or falls back exactly as it does on a timeout.
+pub const MAX_CONCURRENT_PAIRS: usize = 256;
+
 /// One relay process: a listener and the sessions it is pairing.
 pub struct RelayServer {
     listener: TcpListener,
     pair_timeout: Duration,
     local: SocketAddr,
     state: Arc<Mutex<RelayState>>,
+    /// One permit per live pairing; a connection that cannot take one is closed.
+    pairs: Arc<Semaphore>,
+    /// The cap `pairs` was built with, for the refusal's log line.
+    capacity: usize,
 }
 
 /// The waiting and live sessions, guarded as one table so a pairing is
@@ -201,6 +213,18 @@ impl RelayServer {
         address: impl ToSocketAddrs,
         pair_timeout: Duration,
     ) -> Result<Self, RelayError> {
+        Self::with_capacity(address, pair_timeout, MAX_CONCURRENT_PAIRS).await
+    }
+
+    /// Bind a relay with an explicit concurrent-pairing cap.
+    ///
+    /// The cap is a deployment knob and a test seam: a test does not need 256 live sockets to observe
+    /// the refusal.
+    pub async fn with_capacity(
+        address: impl ToSocketAddrs,
+        pair_timeout: Duration,
+        capacity: usize,
+    ) -> Result<Self, RelayError> {
         let listener = TcpListener::bind(address).await?;
         let local = listener.local_addr()?;
         Ok(Self {
@@ -208,6 +232,8 @@ impl RelayServer {
             pair_timeout,
             local,
             state: Arc::new(Mutex::new(RelayState::default())),
+            pairs: Arc::new(Semaphore::new(capacity)),
+            capacity,
         })
     }
 
@@ -221,18 +247,38 @@ impl RelayServer {
     /// Each client gets its own task; one slow client cannot stop another
     /// from pairing. Accept errors are transient (a full descriptor table
     /// clears), so the loop continues rather than taking the relay down.
-    pub async fn run(self) {
+    ///
+    /// **A CONNECTION OVER [`MAX_CONCURRENT_PAIRS`] IS CLOSED, not queued**: the permit is taken before
+    /// the socket is read, so a public listener cannot be held open by dialers waiting for pairings that
+    /// have no slot. A refused client sees EOF and takes the same fallback a timeout sends it to.
+    pub async fn run(&self) {
         loop {
-            match self.listener.accept().await {
-                Ok((stream, _from)) => {
-                    let state = self.state.clone();
-                    let pair_timeout = self.pair_timeout;
-                    tokio::spawn(async move {
-                        let _ = handle_client(stream, state, pair_timeout).await;
-                    });
-                }
+            let (stream, from) = match self.listener.accept().await {
+                Ok(pair) => pair,
                 Err(_) => continue,
-            }
+            };
+            // THE PERMIT IS TAKEN BEFORE THE SOCKET IS READ, so a connection that cannot be served is
+            // closed instead of holding a task and a socket while it waits for a pairing that will not
+            // start. `try_acquire_owned` (not `acquire`) is the point: the accept loop must not block.
+            let permit = match self.pairs.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    // THIS CRATE HAS NO LOGGER; the relay binary is the only writer, and a refusal an
+                    // operator can see costs one line rather than a dependency.
+                    eprintln!(
+                        "[summrise-relay] at its {}-pairing cap; closing the connection from {from}",
+                        self.capacity
+                    );
+                    drop(stream);
+                    continue;
+                }
+            };
+            let state = self.state.clone();
+            let pair_timeout = self.pair_timeout;
+            tokio::spawn(async move {
+                let _ = handle_client(stream, state, pair_timeout).await;
+                drop(permit);
+            });
         }
     }
 }
@@ -644,7 +690,7 @@ mod tests {
             .await
             .expect("a relay");
         let address = server.local_addr();
-        tokio::spawn(server.run());
+        tokio::spawn(async move { server.run().await });
         address
     }
 
@@ -675,6 +721,58 @@ mod tests {
 
         second.send(&frame).await.expect("a frame to the relay");
         assert_eq!(first.recv().await.expect("the echo arrives"), frame);
+    }
+
+    /// **THE CAP IS TAKEN AT ACCEPT, NOT AT THE HELLO.** One client asking for a session holds a permit
+    /// while it waits for a partner; a second connection is accepted and CLOSED rather than queued, so a
+    /// public relay cannot be buried in sockets and tasks that are waiting for pairings.
+    #[tokio::test]
+    async fn a_relay_at_its_pairing_cap_closes_a_new_connection() {
+        let relay = Arc::new(
+            RelayServer::with_capacity("127.0.0.1:0", Duration::from_secs(5), 1)
+                .await
+                .expect("a relay"),
+        );
+        let address = relay.local_addr();
+        let server = Arc::clone(&relay);
+        let task = tokio::spawn(async move { server.run().await });
+
+        // The first client asks for a session and waits: its task holds the only permit.
+        let mut first = TcpStream::connect(address)
+            .await
+            .expect("a connection to the relay");
+        write_control(
+            &mut first,
+            &PairRequest {
+                session: "held".to_owned(),
+            },
+        )
+        .await
+        .expect("the pairing request");
+        for _ in 0..100 {
+            if relay.state.lock().await.waiting.contains_key("held") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            relay.state.lock().await.waiting.contains_key("held"),
+            "the first client must be waiting before the cap is tested"
+        );
+
+        // The second is closed without a reply: a permit is not a queue position.
+        let mut second = TcpStream::connect(address)
+            .await
+            .expect("a connection to the relay");
+        let mut byte = [0u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(1), second.read(&mut byte))
+            .await
+            .expect("the refusal is prompt")
+            .expect("a read, not a reset mid-frame");
+        assert_eq!(read, 0, "a connection the relay cannot pair is closed");
+
+        drop(first);
+        task.abort();
     }
 
     #[tokio::test]

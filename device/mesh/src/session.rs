@@ -1435,7 +1435,7 @@ mod tests {
             .await
             .expect("a relay");
         let address = server.local_addr();
-        tokio::spawn(server.run());
+        tokio::spawn(async move { server.run().await });
         address
     }
 
