@@ -1277,6 +1277,7 @@ async fn rename_device(
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
+        host: app.channels.host(&device.id),
         name: device.name.or_else(|| app.channels.name(&device.id)),
         last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
             attempts: note.attempts,
@@ -1297,6 +1298,7 @@ async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<V
         .map(|device| DeviceView {
             online: app.channels.online(&device.id),
             version: app.channels.version(&device.id),
+            host: app.channels.host(&device.id),
             last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
                 attempts: note.attempts,
                 reason: note.reason,
@@ -1336,6 +1338,10 @@ struct DeviceView {
     /// How the attempt before the last one ended, when the device has said since.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_attempt: Option<RetryView>,
+    /// The machine facts the device last sent over its channel: the operator reads what the device is,
+    /// including which sessions are disconnected, without minting a grant to ask.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<serde_json::Value>,
 }
 
 /// How a transport failure is answered, and whether the operator may retry.

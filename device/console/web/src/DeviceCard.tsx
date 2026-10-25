@@ -1,3 +1,5 @@
+import type { HostFacts } from "./api";
+
 export type Device = {
   id: string;
   name: string | null;
@@ -5,6 +7,7 @@ export type Device = {
   version: string | null;
   last_seen_ms: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
+  host?: HostFacts | null;
 };
 
 type Props = {
@@ -42,6 +45,8 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
         </div>
       </dl>
 
+      {device.host && <HostFactsBlock host={device.host} />}
+
       {device.last_attempt && device.last_attempt.attempts > 0 && (
         // A device cannot report a failure on the connection that failed, so this is what it said the
         // NEXT time it got through — the label is honest about being one attempt behind. Shown online
@@ -62,6 +67,70 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
       </footer>
     </article>
   );
+}
+
+/**
+ * What the machine is, as the device last reported it.
+ *
+ * The session row is the one that resolves the question a capture tool otherwise raises by surprise:
+ * a disconnected or idle session is why a desktop has no picture, and it is a fact about the host, not
+ * an error to discover.
+ */
+function HostFactsBlock({ host }: { host: HostFacts }) {
+  const memory = host.memory;
+  const sessions = host.sessions ?? [];
+  const system = [host.os?.name, host.os?.version].filter(Boolean).join(" ") || "unknown system";
+  return (
+    <dl className="facts host">
+      <div>
+        <dt>Machine</dt>
+        <dd>{system} · up {duration(host.uptime_s)}</dd>
+      </div>
+      {memory && memory.total_bytes ? (
+        <div>
+          <dt>Memory</dt>
+          <dd>{gib(memory.available_bytes)} free of {gib(memory.total_bytes)}</dd>
+        </div>
+      ) : null}
+      {(host.disks ?? []).map((disk) => (
+        <div key={disk.name}>
+          <dt>{disk.name} free</dt>
+          <dd>{gib(disk.free_bytes)} of {gib(disk.total_bytes)}</dd>
+        </div>
+      ))}
+      {sessions.length > 0 && (
+        <div>
+          <dt>Sessions</dt>
+          <dd>{sessions.map(sessionSentence).join(" · ")}</dd>
+        </div>
+      )}
+      <div>
+        <dt>Helper</dt>
+        <dd className={host.helper?.registered ? undefined : "muted"}>
+          {host.helper?.registered ? `session ${host.helper.session ?? "?"}` : "not running"}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function sessionSentence(session: { id: number; user?: string | null; state: string }): string {
+  const who = session.user ? `${session.user}@${session.id}` : `#${session.id}`;
+  return `${who} ${session.state}`;
+}
+
+function gib(bytes?: number): string {
+  if (!bytes) return "0 GiB";
+  return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+}
+
+function duration(seconds?: number): string {
+  if (!seconds) return "unknown";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  if (days > 0) return `${days}d ${hours}h`;
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 /**

@@ -542,22 +542,40 @@ async fn serve(
     key: &VerifyingKey,
 ) -> bool {
     let mut served = false;
-    while let Some(message) = socket.next().await {
-        match message {
-            Ok(Message::Text(text)) => {
-                served = true;
-                if let Some(reply) = handle_frame(text.as_str(), endpoint, server, key).await {
-                    if let Err(error) = socket.send(Message::text(reply.to_string())).await {
-                        eprintln!("summrise-device: the console channel write failed: {error}");
-                        break;
-                    }
+    // The host report rides the same socket as the request/answer traffic: one frame on connect (the
+    // first tick fires immediately) and one a minute after. It is unsolicited, which is the point —
+    // the console knows what the machine is without asking for a grant.
+    let mut host = tokio::time::interval(std::time::Duration::from_secs(60));
+    host.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            _ = host.tick() => {
+                if let Err(error) = socket.send(Message::text(crate::host::frame())).await {
+                    eprintln!("summrise-device: the host report could not be sent: {error}");
+                    break;
                 }
             }
-            Ok(Message::Ping(payload)) => {
-                let _ = socket.send(Message::Pong(payload)).await;
+            message = socket.next() => {
+                let Some(message) = message else {
+                    break;
+                };
+                match message {
+                    Ok(Message::Text(text)) => {
+                        served = true;
+                        if let Some(reply) = handle_frame(text.as_str(), endpoint, server, key).await {
+                            if let Err(error) = socket.send(Message::text(reply.to_string())).await {
+                                eprintln!("summrise-device: the console channel write failed: {error}");
+                                break;
+                            }
+                        }
+                    }
+                    Ok(Message::Ping(payload)) => {
+                        let _ = socket.send(Message::Pong(payload)).await;
+                    }
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    Ok(_) => {}
+                }
             }
-            Ok(Message::Close(_)) | Err(_) => break,
-            Ok(_) => {}
         }
     }
     served

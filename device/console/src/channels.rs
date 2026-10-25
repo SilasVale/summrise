@@ -132,6 +132,10 @@ pub(crate) struct ChannelRegistry {
     versions: Mutex<HashMap<String, String>>,
     /// The machine name each device announced, for an operator list that reads like a list of machines.
     names: Mutex<HashMap<String, String>>,
+    /// The last host facts each device sent over its channel: the machine, its sessions, and where
+    /// the per-user helper landed. Kept after a channel closes, because "last known" is what an
+    /// operator needs to read a device that is down.
+    hosts: Mutex<HashMap<String, serde_json::Value>>,
     /// How the attempt before the current channel ended, per device. It arrives ON the next connect:
     /// a device cannot report a failure over the connection that failed, so the story is one attempt
     /// behind, and the label in the page says so.
@@ -164,6 +168,7 @@ impl ChannelRegistry {
             versions: Mutex::new(HashMap::new()),
             names: Mutex::new(HashMap::new()),
             retries: Mutex::new(HashMap::new()),
+            hosts: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
@@ -201,6 +206,16 @@ impl ChannelRegistry {
     /// The name the device announced, if it did.
     pub(crate) fn name(&self, device_id: &str) -> Option<String> {
         lock(&self.names).get(device_id).cloned()
+    }
+
+    /// Record the host facts a device sent on its channel.
+    pub(crate) fn announce_host(&self, device_id: &str, facts: serde_json::Value) {
+        lock(&self.hosts).insert(device_id.to_owned(), facts);
+    }
+
+    /// The host facts the device last sent, if it has sent any.
+    pub(crate) fn host(&self, device_id: &str) -> Option<serde_json::Value> {
+        lock(&self.hosts).get(device_id).cloned()
     }
 
     /// The version the device announced, if it did.
@@ -253,7 +268,11 @@ impl ChannelRegistry {
                     None => break,
                 },
                 incoming = socket.recv() => match incoming {
-                    Some(Ok(Message::Text(text))) => deliver(&open.pending, &text),
+                    Some(Ok(Message::Text(text))) => {
+                        if let Some(facts) = deliver(&open.pending, &text) {
+                            self.announce_host(&device_id, facts);
+                        }
+                    }
                     Some(Err(_)) | None => break,
                     _ => {}
                 },
@@ -504,12 +523,30 @@ enum DeviceBody {
     Error { error: Value },
 }
 
-fn deliver(pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>, text: &str) {
-    let frame: DeviceFrame = match serde_json::from_str(text) {
+/// Hand one inbound text frame to whoever is waiting for it.
+///
+/// Two kinds arrive on this socket: answers to the console's requests (keyed by envelope id), and the
+/// device's own status reports, which have no id and are what the console shows without asking. A
+/// status frame comes back to the caller to store; an answer is delivered to its waiter.
+fn deliver(
+    pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
+    text: &str,
+) -> Option<serde_json::Value> {
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("summrise-console: device sent a malformed frame: {error}");
+            return None;
+        }
+    };
+    if value.get("id").is_none() {
+        return value.get("host").cloned();
+    }
+    let frame: DeviceFrame = match serde_json::from_value(value) {
         Ok(frame) => frame,
         Err(error) => {
             eprintln!("summrise-console: device sent a malformed frame: {error}");
-            return;
+            return None;
         }
     };
 
@@ -529,6 +566,7 @@ fn deliver(pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>, text: &str) {
             );
         }
     }
+    None
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -577,6 +615,27 @@ mod tests {
 
         let _open = registry.open(&device_id());
         assert!(registry.online(&device_id()), "the channel is open");
+    }
+
+    #[test]
+    fn a_status_frame_is_not_an_answer_and_is_handed_back() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let stored = deliver(
+            &pending,
+            r#"{"host":{"machine":"desktop-9vh92bj","sessions":[{"id":2,"state":"disconnected"}]}}"#,
+        )
+        .expect("a status frame comes back for storage");
+        assert_eq!(stored["machine"], serde_json::json!("desktop-9vh92bj"));
+        assert!(
+            pending.lock().expect("the pending set").is_empty(),
+            "a status frame must not be mistaken for an answer"
+        );
+    }
+
+    #[test]
+    fn an_answer_with_no_waiter_is_dropped_without_panicking() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        assert!(deliver(&pending, r#"{"id":7,"result":{}}"#).is_none());
     }
 
     #[tokio::test]

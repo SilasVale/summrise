@@ -10,6 +10,18 @@ export type Session = {
   /// none of it is an identity, and these three facts are the sentence it can show instead of one.
   access?: { configured: boolean; header: boolean; error?: string };
 };
+/** What the device sent about its machine on the channel: the console shows it without a grant. */
+export type HostFacts = {
+  os?: { name?: string; version?: string; arch?: string };
+  machine?: string;
+  uptime_s?: number;
+  cpu?: { cores?: number };
+  memory?: { total_bytes?: number; available_bytes?: number };
+  disks?: { name: string; total_bytes: number; free_bytes: number }[];
+  sessions?: { id: number; user?: string | null; state: string }[];
+  helper?: { registered?: boolean; pid?: number | null; session?: number | null };
+};
+
 export type Device = {
   id: string;
   name: string | null;
@@ -18,6 +30,7 @@ export type Device = {
   last_seen_ms: number | null;
   registered_at_ms?: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
+  host?: HostFacts | null;
 };
 export type AuditLine = {
   ts_ms: number;

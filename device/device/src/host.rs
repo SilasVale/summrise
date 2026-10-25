@@ -27,6 +27,11 @@ pub fn facts() -> serde_json::Value {
     document
 }
 
+/// The frame the device sends on its channel: the console reads `host` and stores it per device.
+pub fn frame() -> String {
+    serde_json::json!({ "host": facts() }).to_string()
+}
+
 /// The session a process is in — where the helper landed, and what a capture would target.
 pub fn session_of_process(pid: u32) -> Option<u32> {
     #[cfg(windows)]
@@ -133,6 +138,12 @@ mod tests {
         assert!(facts["sessions"].is_array(), "{facts}");
         // Without a helper in this process, the document says so rather than omitting the key.
         assert_eq!(facts["helper"]["registered"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn the_frame_carries_the_facts_under_host() {
+        let frame: serde_json::Value = serde_json::from_str(&frame()).expect("the frame is JSON");
+        assert!(frame["host"]["os"]["name"].is_string(), "{frame}");
     }
 
     #[test]
