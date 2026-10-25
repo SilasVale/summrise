@@ -2,7 +2,9 @@
 //!
 //! One JSON object per line under `<data>/memory.jsonl`. A line is one operation in a journal —
 //! `append`, `update` or `delete` — and the live entries are what a reverse replay of those
-//! operations produces. The file stays append-only, so an earlier byte is never rewritten.
+//! operations produces. The file stays append-only, so an earlier byte is never rewritten; the one
+//! write that does not append is the compaction below, which replaces the whole file through a
+//! rename.
 //!
 //! A line written before the journal carries only `{"text","tags"}` and is read as an append whose
 //! id is derived from its own bytes, and from its ordinal when two lines are byte-identical. An old
@@ -11,19 +13,31 @@
 //!
 //! The caps are part of the capability, not a client convention: **1 MiB per serialized operation
 //! line** (tags and JSON escaping included, the trailing newline not counted), 32 tags, 128 bytes
-//! per tag, 10 000 entries, 100 results. The line cap is a storage cap, not a text-length cap: the
-//! check happens after `serde_json` writes the line, so a quote-heavy 1 MiB text cannot serialize to
-//! two megabytes on disk.
+//! per tag, 10 000 **live** entries, 100 results. The entry cap counts the view, not the lines: an
+//! update or a delete writes a line without taking an entry slot, and an update at the ceiling must
+//! still succeed. The line cap is a storage cap, not a text-length cap: the check happens after
+//! `serde_json` writes the line, so a quote-heavy 1 MiB text cannot serialize to two megabytes on
+//! disk.
 //!
-//! A read walks the journal backwards, newest line first, keeping two sets: ids already emitted, and
-//! ids a delete has tombstoned. That is what makes an update appear at the update's position rather
-//! than at the append's, and it lets one pass return newest-first without holding the journal in
-//! memory.
+//! A read makes two passes. The first walks forward once and records where each non-empty line
+//! starts and which byte-identical copy it is, because a legacy id depends on the copies before it.
+//! The second walks those offsets backwards, newest line first, keeping two sets: ids already
+//! emitted, and ids a delete has tombstoned. That is what makes an update appear at the update's
+//! position rather than at the append's, and it lets the newest-first view be produced without
+//! holding the journal in memory — the first pass is an offset table, not the entries.
+//!
+//! Compaction keeps the file bounded without a clock. Once the journal holds more than
+//! `2 * live + 64` lines, checked after every write, every live entry becomes one `append` line with
+//! its id — oldest first, the reverse of the view, so replaying the snapshot reproduces the view —
+//! and the lines land in `memory.jsonl.new` before a rename commits them. A crash leaves the old
+//! journal or the snapshot, never a half-rewritten file. A snapshot that fails after the write which
+//! triggered it has landed is logged and retried on the next write: the operation is already
+//! durable, and reporting its failure would invite a retry that duplicates it.
 //!
 //! The MCP surface serves several sessions at once, so one lock makes the file's invariants hold
 //! under concurrency: an append's count-then-write is one critical section (two racing appends
-//! cannot both take the last slot), and a read takes the read side, so it never reads a line that is
-//! halfway written.
+//! cannot both take the last slot), an update's liveness and its write are one critical section, and
+//! a read takes the read side, so it never reads a line that is halfway written.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -44,11 +58,16 @@ pub const MAX_TAGS: usize = 32;
 /// The largest one tag may be, in bytes.
 pub const MAX_TAG_BYTES: usize = 128;
 
-/// The largest number of entries the file may hold.
+/// The largest number of live entries the view may hold.
 pub const MAX_ENTRIES: usize = 10_000;
 
 /// The largest number of results one search may return.
 pub const MAX_RESULTS: usize = 100;
+
+/// The journal lines a store may carry beyond the two per live entry before it is rewritten as a
+/// snapshot: the two cover an entry's append and one correction, and the allowance keeps a small
+/// store from being rewritten for every edit.
+const COMPACTION_SLACK: usize = 64;
 
 /// The most a `memory.export` returns in one call: a tool result is a JSON-RPC frame, and a store at
 /// its entry ceiling can be gigabytes.
@@ -143,12 +162,13 @@ impl Serialize for Record {
     }
 }
 
-/// Why an append or a search was refused or failed.
+/// Why a memory operation was refused or failed.
 #[derive(Debug)]
 pub enum MemoryError {
     /// The serialized operation line exceeds [`MAX_ENTRY_BYTES`].
     TooLarge {
-        /// The line's size in bytes, or the raw payload's before serialization.
+        /// The measured size: the serialized line, or a raw payload that cannot fit before the
+        /// escaped line is built.
         bytes: usize,
         /// The cap.
         max: usize,
@@ -167,10 +187,18 @@ pub enum MemoryError {
         /// The cap.
         max: usize,
     },
-    /// The file already holds [`MAX_ENTRIES`] entries; append-only means no eviction.
+    /// The file already holds [`MAX_ENTRIES`] live entries; append-only means no eviction.
     Full {
         /// The cap.
         max: usize,
+    },
+    /// `update` or `delete` named an id that is not live.
+    // The tool that constructs this from a client's id lands in the next change; the tests are the
+    // only caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
+    #[cfg_attr(not(test), allow(dead_code))]
+    NoSuchEntry {
+        /// The id the caller named.
+        id: String,
     },
     /// The requested limit exceeds [`MAX_RESULTS`].
     LimitTooLarge {
@@ -179,7 +207,7 @@ pub enum MemoryError {
         /// The cap.
         max: usize,
     },
-    /// A line is not the JSON object this capability writes; the line number is 1-based.
+    /// A line is not the journal line this capability writes; the line number is 1-based.
     Corrupt {
         /// The offending line.
         line: usize,
@@ -192,7 +220,7 @@ impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MemoryError::TooLarge { bytes, max } => {
-                write!(f, "the entry is {bytes} bytes; the cap is {max}")
+                write!(f, "the operation line is {bytes} bytes; the cap is {max}")
             }
             MemoryError::TooManyTags { count, max } => {
                 write!(f, "the entry has {count} tags; the cap is {max}")
@@ -201,12 +229,17 @@ impl fmt::Display for MemoryError {
                 write!(f, "a tag is {len} bytes; the cap is {max}")
             }
             MemoryError::Full { max } => {
-                write!(f, "memory holds its maximum of {max} entries")
+                write!(f, "memory holds its maximum of {max} live entries")
+            }
+            MemoryError::NoSuchEntry { id } => {
+                write!(f, "memory has no live entry named {id}")
             }
             MemoryError::LimitTooLarge { limit, max } => {
                 write!(f, "a search returns at most {max} entries, not {limit}")
             }
-            MemoryError::Corrupt { line } => write!(f, "memory line {line} is not valid JSON"),
+            MemoryError::Corrupt { line } => {
+                write!(f, "memory line {line} is not a valid journal line")
+            }
             MemoryError::Io(error) => write!(f, "{error}"),
         }
     }
@@ -237,13 +270,26 @@ impl Memory {
         }
     }
 
-    /// Append one entry and return it, id included.
+    /// The read side of the lock, with poisoning treated as "the lock is still the lock".
+    fn reading(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.lock
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The write side of the lock. A poisoned lock is still the file's lock: refusing every later
+    /// call would turn one panicking reader into a store that can never be repaired.
+    fn writing(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.lock
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// What `append` and `update` both accept: the same caps, checked in the cheapest order.
     ///
-    /// Validation happens before the write lock and before the serialized line is built where it
-    /// can: the tag count and each tag's length first, then the JSON serialization, and finally the
-    /// stored line's own length. The cap is on what is written, not on `text.len()`, because tags,
-    /// escaping, the id and the journal's envelope are all part of the line.
-    pub fn append(&self, text: &str, tags: &[String]) -> Result<Entry, MemoryError> {
+    /// An update that could store what an append refuses would be a way around the caps, so one
+    /// predicate is shared rather than copied.
+    fn validate(text: &str, tags: &[String]) -> Result<(), MemoryError> {
         if tags.len() > MAX_TAGS {
             return Err(MemoryError::TooManyTags {
                 count: tags.len(),
@@ -258,7 +304,7 @@ impl Memory {
         }
 
         // A cheap pre-check refuses an obviously oversized payload before serde allocates its
-        // escaped form. The authoritative check is the serialized length below.
+        // escaped form. The authoritative check is the serialized line in `encode`.
         let raw_bytes = text.len() + tags.iter().map(String::len).sum::<usize>();
         if raw_bytes > MAX_ENTRY_BYTES {
             return Err(MemoryError::TooLarge {
@@ -266,18 +312,14 @@ impl Memory {
                 max: MAX_ENTRY_BYTES,
             });
         }
+        Ok(())
+    }
 
-        let entry = Entry {
-            id: mint_id(),
-            text: text.to_owned(),
-            tags: tags.to_vec(),
-        };
-        let record = Record {
-            op: Op::Append,
-            id: Some(entry.id.clone()),
-            entry: Some(entry.clone()),
-        };
-        let mut line = serde_json::to_string(&record)
+    /// Serialize one operation as the line that goes on disk, the cap included.
+    ///
+    /// The trailing newline is not part of the operation, so it is not counted by the cap.
+    fn encode(record: &Record) -> Result<String, MemoryError> {
+        let mut line = serde_json::to_string(record)
             .map_err(|error| MemoryError::Io(io::Error::new(io::ErrorKind::InvalidData, error)))?;
         if line.len() > MAX_ENTRY_BYTES {
             // A text of quotes or control characters is larger on disk than in memory. The cap is
@@ -288,21 +330,16 @@ impl Memory {
             });
         }
         line.push('\n');
+        Ok(line)
+    }
 
-        // The count and the write are one critical section: the last slot cannot be taken twice.
-        let _writing = self
-            .lock
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Append one line under the caller's write lock, creating the data directory if needed.
+    ///
+    /// `append(true)` is the capability's one invariant: an existing byte is never rewritten.
+    fn write_line(&self, line: &str) -> Result<(), MemoryError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(MemoryError::Io)?;
         }
-        if self.count_entries()? >= MAX_ENTRIES {
-            // Append-only means the cap is a refusal, not an eviction of the oldest entry.
-            return Err(MemoryError::Full { max: MAX_ENTRIES });
-        }
-
-        // `append(true)` is the capability's one invariant: an existing byte is never rewritten.
         let mut file = OpenOptions::new()
             .append(true)
             .create(true)
@@ -310,26 +347,108 @@ impl Memory {
             .map_err(MemoryError::Io)?;
         file.write_all(line.as_bytes()).map_err(MemoryError::Io)?;
         file.flush().map_err(MemoryError::Io)?;
+        Ok(())
+    }
+
+    /// Append one entry and return it, id included.
+    ///
+    /// Validation happens before the write lock and before the serialized line is built where it
+    /// can: the tag count and each tag's length first, then the JSON serialization, and finally the
+    /// stored line's own length. The cap is on what is written, not on `text.len()`, because tags,
+    /// escaping, the id and the journal's envelope are all part of the line.
+    pub fn append(&self, text: &str, tags: &[String]) -> Result<Entry, MemoryError> {
+        Self::validate(text, tags)?;
+        let entry = Entry {
+            id: mint_id(),
+            text: text.to_owned(),
+            tags: tags.to_vec(),
+        };
+        let line = Self::encode(&Record {
+            op: Op::Append,
+            id: Some(entry.id.clone()),
+            entry: Some(entry.clone()),
+        })?;
+
+        // The live count and the write are one critical section: the last slot cannot be taken twice.
+        let _writing = self.writing();
+        let live = self.live_count_locked()?;
+        if live >= MAX_ENTRIES {
+            // Append-only means the cap is a refusal, not an eviction of the oldest live entry.
+            return Err(MemoryError::Full { max: MAX_ENTRIES });
+        }
+        self.write_line(&line)?;
+        self.compact_after_write(live + 1);
         Ok(entry)
     }
 
-    /// Walk the journal backwards and hand every live entry to `emit`, newest first.
+    /// Replace the entry `id` names with `text` and `tags`, and return the entry as written.
     ///
-    /// Reverse order is the replay: an update is later in the file than the append it replaces, so
-    /// the walk meets the update first and `seen` skips the append. `deleted` remembers tombstones,
-    /// which are newer than any line they can name. Both sets hold ids, not entries, so the walk's
-    /// memory is the line index plus the names the journal mentions.
-    fn replay(&self, mut emit: impl FnMut(Entry)) -> Result<(), MemoryError> {
-        let _reading = self
-            .lock
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// The new version is a line at the end of the journal, not an edit of the old line: the update
+    /// is newer than the append it replaces, so the reverse replay emits it at its own position.
+    /// Liveness and the write share one critical section, so an update racing a delete either lands
+    /// before the tombstone or is refused; it can never resurrect a deleted id.
+    // The `memory.update` tool that calls this lands in the next change; the tests are the only
+    // caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn update(&self, id: &str, text: &str, tags: &[String]) -> Result<Entry, MemoryError> {
+        Self::validate(text, tags)?;
+        let entry = Entry {
+            id: id.to_owned(),
+            text: text.to_owned(),
+            tags: tags.to_vec(),
+        };
+        let line = Self::encode(&Record {
+            op: Op::Update,
+            id: Some(entry.id.clone()),
+            entry: Some(entry.clone()),
+        })?;
+
+        let _writing = self.writing();
+        let (named, live) = self.liveness_locked(id)?;
+        if !named {
+            return Err(MemoryError::NoSuchEntry { id: id.to_owned() });
+        }
+        self.write_line(&line)?;
+        self.compact_after_write(live);
+        Ok(entry)
+    }
+
+    /// Tombstone `id`: it disappears from every read without a byte of the journal being rewritten.
+    ///
+    /// A second delete names nothing live, so it is [`MemoryError::NoSuchEntry`] rather than a
+    /// silent success: the caller learns its view was already stale, which is the honest answer.
+    // The `memory.delete` tool that calls this lands in the next change; the tests are the only
+    // caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn delete(&self, id: &str) -> Result<(), MemoryError> {
+        let line = Self::encode(&Record {
+            op: Op::Delete,
+            id: Some(id.to_owned()),
+            entry: None,
+        })?;
+
+        let _writing = self.writing();
+        let (named, live) = self.liveness_locked(id)?;
+        if !named {
+            return Err(MemoryError::NoSuchEntry { id: id.to_owned() });
+        }
+        self.write_line(&line)?;
+        self.compact_after_write(live - 1);
+        Ok(())
+    }
+
+    /// Replay the journal without taking a lock: the caller holds one side of it.
+    ///
+    /// The write verbs call this under the write side, so liveness, the live count and the write are
+    /// one critical section. A lock-taking replay could not be used there: std's `RwLock` is not
+    /// reentrant, and taking the read side while holding the write side would deadlock.
+    fn replay_locked(&self, mut emit: impl FnMut(Entry)) -> Result<(), MemoryError> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(MemoryError::Io(error)),
         };
-        let lines = index(&mut file)?;
+        let lines = locate_lines(&mut file)?;
         let mut seen: HashSet<String> = HashSet::new();
         let mut deleted: HashSet<String> = HashSet::new();
         let mut bytes = Vec::new();
@@ -370,6 +489,115 @@ impl Memory {
             }
         }
         Ok(())
+    }
+
+    /// Replay the journal under the read side of the lock, newest entry first.
+    ///
+    /// Reverse order is the replay: an update is later in the file than the append it replaces, so
+    /// the walk meets the update first and `seen` skips the append. `deleted` remembers tombstones,
+    /// which are newer than any line they can name. Both sets hold ids, not entries, so the walk's
+    /// memory is the offset table plus the names the journal mentions.
+    fn replay(&self, emit: impl FnMut(Entry)) -> Result<(), MemoryError> {
+        let _reading = self.reading();
+        self.replay_locked(emit)
+    }
+
+    /// How many entries are live, under the caller's write lock.
+    ///
+    /// The cap is on the view, not on the lines: a journal may hold more lines than entries because
+    /// an update and a delete are lines too.
+    fn live_count_locked(&self) -> Result<usize, MemoryError> {
+        let mut live = 0;
+        self.replay_locked(|_| live += 1)?;
+        Ok(live)
+    }
+
+    /// Whether `id` is live, and how many entries are live, from one replay under the write lock.
+    ///
+    /// Both answers come from the same view, and asking twice would read the journal twice while
+    /// the writer waits. A tombstone newer than an update wins here, which is what keeps an update
+    /// from resurrecting a deleted id.
+    // Only the two write verbs above call this; their tools are the next change.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn liveness_locked(&self, id: &str) -> Result<(bool, usize), MemoryError> {
+        let mut named = false;
+        let mut live = 0;
+        self.replay_locked(|entry| {
+            live += 1;
+            named |= entry.id == id;
+        })?;
+        Ok((named, live))
+    }
+
+    /// Rewrite the journal as a snapshot when it has outgrown its tolerance, after the write landed.
+    ///
+    /// `live` is the number of entries in the view the write just produced, so the count is the one
+    /// the caller measured rather than a fresh read. Nothing here is returned: the operation is
+    /// already durable, and a failed snapshot is maintenance to retry on the next write, not a
+    /// reason to make a caller repeat an append or an update. A failure leaves the old journal in
+    /// place, so the next write sees the same over-threshold file and tries again.
+    fn compact_after_write(&self, live: usize) {
+        let outcome = self.count_lines().and_then(|lines| {
+            if lines <= compaction_threshold(live) {
+                return Ok(());
+            }
+            let mut entries = Vec::with_capacity(live);
+            self.replay_locked(|entry| entries.push(entry))?;
+            self.compact(&entries).map_err(MemoryError::Io)
+        });
+        if let Err(error) = outcome {
+            eprintln!(
+                "summrise-device: memory compaction failed ({error}); the journal is left in place and the next write retries it"
+            );
+        }
+    }
+
+    /// Replace the journal with `live` — newest first, as replay returns it — through a rename.
+    ///
+    /// The snapshot is written oldest first, the reverse of the view. First-append order would move
+    /// an entry that was updated back to where it was first written and change what a reader sees;
+    /// reverse-view order is the order whose replay is exactly this view. Each line is one `append`
+    /// with the entry's id, so an id derived for a legacy line becomes a real one on disk.
+    ///
+    /// The bytes land in `memory.jsonl.new` and the rename commits them: a crash leaves the old
+    /// journal or the new snapshot, never a half-written mix. The caller holds the write side.
+    fn compact(&self, live: &[Entry]) -> io::Result<()> {
+        let snapshot = self.snapshot_path();
+        if let Some(parent) = snapshot.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = File::create(&snapshot)?;
+        let write = (|| -> io::Result<()> {
+            for entry in live.iter().rev() {
+                let record = Record {
+                    op: Op::Append,
+                    id: Some(entry.id.clone()),
+                    entry: Some(entry.clone()),
+                };
+                let mut line = serde_json::to_string(&record).map_err(io::Error::other)?;
+                line.push('\n');
+                file.write_all(line.as_bytes())?;
+            }
+            file.sync_all()
+        })();
+        if let Err(error) = write {
+            drop(file);
+            let _ = fs::remove_file(&snapshot);
+            return Err(error);
+        }
+        drop(file);
+        if let Err(error) = fs::rename(&snapshot, &self.path) {
+            let _ = fs::remove_file(&snapshot);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The snapshot's fixed sibling: `memory.jsonl.new`.
+    fn snapshot_path(&self) -> PathBuf {
+        let mut name = self.path.as_os_str().to_owned();
+        name.push(".new");
+        PathBuf::from(name)
     }
 
     /// Search entries newest-first, matching `query` case-insensitively over text and tags.
@@ -483,22 +711,48 @@ impl Memory {
         })
     }
 
-    /// How many non-empty lines the file holds, streamed so a large file is not loaded whole.
-    fn count_entries(&self) -> Result<usize, MemoryError> {
+    /// How many operation lines the file holds, streamed so a large journal is not loaded whole.
+    ///
+    /// Blank lines are not operations, and the byte predicate is shared with the read's forward
+    /// pass, so a line cannot be blank to one pass and an operation to the other.
+    fn count_lines(&self) -> Result<usize, MemoryError> {
         let file = match fs::File::open(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
             Err(error) => return Err(MemoryError::Io(error)),
         };
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
         let mut count = 0;
-        for line in BufReader::new(file).lines() {
-            let line = line.map_err(MemoryError::Io)?;
-            if !line.trim().is_empty() {
+        loop {
+            line.clear();
+            let read = reader
+                .read_until(b'\n', &mut line)
+                .map_err(MemoryError::Io)?;
+            if read == 0 {
+                break;
+            }
+            if !is_blank_line(&line) {
                 count += 1;
             }
         }
         Ok(count)
     }
+}
+
+/// Whether a journal line carries no operation.
+///
+/// ASCII whitespace is the one blank-line definition: the forward locate pass and the line count
+/// must agree, or a stray `\r` or tab would shift one and not the other.
+fn is_blank_line(line: &[u8]) -> bool {
+    line.iter().all(u8::is_ascii_whitespace)
+}
+
+/// The journal line count at which the next write rewrites the file: two lines per live entry (its
+/// append and one correction) plus a fixed allowance, so a small store is not rewritten for every
+/// edit and a delete-heavy store is re-checked after the view falls below the trigger.
+fn compaction_threshold(live: usize) -> usize {
+    2 * live + COMPACTION_SLACK
 }
 
 /// One non-empty line's place in the journal.
@@ -520,13 +774,13 @@ enum Parsed {
     Legacy(Entry),
 }
 
-/// Index the journal in one forward pass.
+/// Locate every non-empty journal line in one forward pass.
 ///
-/// A read replays newest-first, but a legacy line's id depends on how many byte-identical copies
-/// came before it; the index is that forward count plus the offset each line is read from. It is
-/// small and fixed-size per line, not the line itself, so a store near its ceiling does not have to
-/// be held in memory to be read.
-fn index(file: &mut File) -> Result<Vec<LineRef>, MemoryError> {
+/// This is not an index of entries: nothing is keyed by text or id, and no entry is held. The table
+/// records each line's offset, its 1-based number, and which byte-identical copy it is, because a
+/// legacy id depends on the forward count of identical lines. A read then seeks back by offset, so
+/// a store near its ceiling is not held in memory to be read.
+fn locate_lines(file: &mut File) -> Result<Vec<LineRef>, MemoryError> {
     let mut reader = BufReader::new(file);
     let mut lines = Vec::new();
     let mut occurrences: HashMap<[u8; 8], usize> = HashMap::new();
@@ -549,7 +803,7 @@ fn index(file: &mut File) -> Result<Vec<LineRef>, MemoryError> {
         if line.last() == Some(&b'\r') {
             line.pop();
         }
-        if line.iter().all(u8::is_ascii_whitespace) {
+        if is_blank_line(&line) {
             continue;
         }
         let digest = Sha256::digest(&line);
@@ -659,6 +913,40 @@ mod tests {
         let parent = memory.path.parent().expect("the data directory");
         fs::create_dir_all(parent).expect("the data directory is creatable");
         fs::write(&memory.path, format!("{whole}\n")).expect("the fixture is written");
+    }
+
+    /// How many operation lines the journal holds, blank lines excluded.
+    fn journal_lines(memory: &Memory) -> usize {
+        fs::read_to_string(&memory.path)
+            .map(|stored| {
+                stored
+                    .lines()
+                    .filter(|line| !is_blank_line(line.as_bytes()))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// The journal's lines as JSON objects, oldest first.
+    fn journal_records(memory: &Memory) -> Vec<serde_json::Value> {
+        let stored = fs::read_to_string(&memory.path).expect("the journal is readable");
+        stored
+            .lines()
+            .filter(|line| !is_blank_line(line.as_bytes()))
+            .map(|line| serde_json::from_str(line).expect("a journal line is JSON"))
+            .collect()
+    }
+
+    /// Add `count` tombstones for ids that never existed, growing the journal without changing the
+    /// live view. It is how a test reaches the compaction threshold without hundreds of edits.
+    fn seed_tombstones(memory: &Memory, count: usize) {
+        let mut stored = fs::read_to_string(&memory.path).expect("the journal is readable");
+        for index in 0..count {
+            stored.push_str(&format!(
+                "{{\"op\":\"delete\",\"id\":\"absent-{index}\"}}\n"
+            ));
+        }
+        fs::write(&memory.path, stored).expect("the tombstones are written");
     }
 
     #[test]
@@ -1209,5 +1497,535 @@ mod tests {
             "a legacy line exports the id derived for it"
         );
         assert_eq!(lines[1]["text"].as_str(), Some("a legacy fact"));
+    }
+
+    #[test]
+    fn an_update_replaces_the_text_and_appears_at_the_update_line() {
+        let (_dir, memory) = memory("memory-update");
+        let first = memory
+            .append("the obsolete wording", &["alpha".to_owned()])
+            .expect("the first append");
+        memory
+            .append("the second note", &[])
+            .expect("the second append");
+        memory
+            .append("the third note", &[])
+            .expect("the third append");
+
+        let updated = memory
+            .update(&first.id, "the corrected wording", &["beta".to_owned()])
+            .expect("a live id can be updated");
+        assert_eq!(
+            updated.id, first.id,
+            "an update keeps the name it was given"
+        );
+        assert_eq!(updated.text, "the corrected wording");
+        assert_eq!(updated.tags, ["beta"]);
+
+        let entries = memory.search("", 10).expect("the store replays");
+        let texts: Vec<&str> = entries.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["the corrected wording", "the third note", "the second note"],
+            "the correction is the newest fact about the entry, so it leads the view"
+        );
+        assert_eq!(entries[0].id, first.id);
+        assert!(
+            memory
+                .search("obsolete", 10)
+                .expect("the search reads")
+                .is_empty(),
+            "the old wording is superseded, not appended alongside the new one"
+        );
+        let found = memory.search("corrected", 10).expect("the search reads");
+        assert_eq!(found, vec![updated.clone()]);
+        assert!(
+            memory
+                .list(10, Some("alpha"))
+                .expect("the list reads")
+                .is_empty(),
+            "an update replaces the tags; it does not add to them"
+        );
+        assert_eq!(
+            memory.list(10, Some("beta")).expect("the list reads"),
+            vec![updated.clone()]
+        );
+
+        let records = journal_records(&memory);
+        assert_eq!(records.len(), 4, "an update is one more line");
+        assert_eq!(
+            records[0]["entry"]["text"].as_str(),
+            Some("the obsolete wording")
+        );
+        assert_eq!(records[3]["op"].as_str(), Some("update"));
+        assert_eq!(records[3]["id"].as_str(), Some(first.id.as_str()));
+        assert_eq!(
+            records[3]["entry"]["text"].as_str(),
+            Some("the corrected wording")
+        );
+        assert!(
+            records[3]["entry"].get("id").is_none(),
+            "the record carries the id; the payload does not repeat it"
+        );
+    }
+
+    #[test]
+    fn a_delete_removes_the_entry_from_every_read_and_a_second_delete_is_no_such_entry() {
+        let (_dir, memory) = memory("memory-delete");
+        memory
+            .append("keep this fact", &["kept".to_owned()])
+            .expect("the kept append");
+        let retire = memory
+            .append("retire this fact", &["retired".to_owned()])
+            .expect("the retired append");
+
+        memory.delete(&retire.id).expect("a live id can be retired");
+
+        let texts: Vec<String> = memory
+            .list(10, None)
+            .expect("the list reads")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(texts, ["keep this fact"]);
+        assert!(memory
+            .search("retire", 10)
+            .expect("the search reads")
+            .is_empty());
+        let export = memory.export(4096).expect("the export reads");
+        assert_eq!(export.entries, 1);
+        assert!(export.text.contains("keep this fact"));
+        assert!(
+            !export.text.contains("retire this fact"),
+            "the export is the live view, not the journal"
+        );
+
+        let records = journal_records(&memory);
+        assert_eq!(records.len(), 3, "a delete is one tombstone line");
+        assert_eq!(records[2]["op"].as_str(), Some("delete"));
+        assert_eq!(records[2]["id"].as_str(), Some(retire.id.as_str()));
+        assert!(
+            records[2].get("entry").is_none(),
+            "the tombstone carries an id alone"
+        );
+        assert_eq!(
+            records[1]["entry"]["text"].as_str(),
+            Some("retire this fact"),
+            "the delete rewrote no earlier byte"
+        );
+
+        let error = memory
+            .delete(&retire.id)
+            .expect_err("a second delete names nothing live");
+        assert!(
+            matches!(&error, MemoryError::NoSuchEntry { id } if id == &retire.id),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains(&retire.id),
+            "the refusal names the id it could not find: {error}"
+        );
+        assert_eq!(journal_lines(&memory), 3, "a refused delete writes nothing");
+
+        let error = memory
+            .update(&retire.id, "resurrected", &[])
+            .expect_err("an update cannot resurrect a tombstoned id");
+        assert!(
+            matches!(&error, MemoryError::NoSuchEntry { id } if id == &retire.id),
+            "{error:?}"
+        );
+        assert!(
+            memory
+                .search("resurrected", 10)
+                .expect("the search reads")
+                .is_empty(),
+            "the refused update wrote no line"
+        );
+        assert_eq!(journal_lines(&memory), 3);
+
+        let error = memory
+            .update("no-such-id", "some text", &[])
+            .expect_err("an unknown id is not an entry");
+        assert!(
+            matches!(&error, MemoryError::NoSuchEntry { id } if id == "no-such-id"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_is_refused_by_the_same_caps_as_an_append() {
+        let (_dir, memory) = memory("memory-update-caps");
+        let entry = memory.append("small enough", &[]).expect("the append");
+
+        let error = memory
+            .update(&entry.id, &"x".repeat(MAX_ENTRY_BYTES + 1), &[])
+            .expect_err("an oversized update is refused");
+        assert!(matches!(error, MemoryError::TooLarge { .. }), "{error:?}");
+        assert_eq!(journal_lines(&memory), 1, "a refused update writes no line");
+        assert_eq!(
+            memory.list(10, None).expect("the store replays"),
+            vec![entry.clone()]
+        );
+
+        let error = memory
+            .update(&entry.id, &"\"".repeat(MAX_ENTRY_BYTES), &[])
+            .expect_err("the cap is the serialized line, and quotes are escaped");
+        assert!(
+            matches!(error, MemoryError::TooLarge { bytes, max } if bytes > max),
+            "the refusal reports the serialized size: {error:?}"
+        );
+
+        let error = memory
+            .update(&entry.id, "text", &vec![String::new(); MAX_TAGS + 1])
+            .expect_err("an update accepts no more tags than an append");
+        assert!(
+            matches!(error, MemoryError::TooManyTags { count: 33, max: 32 }),
+            "{error:?}"
+        );
+
+        let error = memory
+            .update(&entry.id, "text", &["x".repeat(MAX_TAG_BYTES + 1)])
+            .expect_err("an update accepts no longer tag than an append");
+        assert!(
+            matches!(error, MemoryError::TagTooLong { len: 129, max: 128 }),
+            "{error:?}"
+        );
+        assert_eq!(
+            journal_lines(&memory),
+            1,
+            "every refused update left the journal alone"
+        );
+    }
+
+    #[test]
+    fn a_legacy_entry_can_be_updated_and_deleted_by_its_derived_id() {
+        let (_dir, memory) = memory("memory-legacy-writes");
+        let first = json_line("the first fact", &["legacy"]);
+        let second = json_line("the second fact", &["legacy"]);
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        fs::write(&memory.path, format!("{first}\n{second}\n{second}\n"))
+            .expect("the legacy fixture is written");
+
+        let entries = memory.list(10, None).expect("the legacy file replays");
+        let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(ids[0], format!("{}-2", ids[1]));
+
+        let updated = memory
+            .update(&ids[2], "the first fact, corrected", &["legacy".to_owned()])
+            .expect("a derived id names a live entry");
+        assert_eq!(updated.id, ids[2], "the derived name survives the update");
+
+        let texts: Vec<String> = memory
+            .list(10, None)
+            .expect("the journal replays")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "the first fact, corrected",
+                "the second fact",
+                "the second fact"
+            ],
+            "the corrected legacy line is emitted at its update, the duplicates stay distinct"
+        );
+
+        memory
+            .delete(&ids[0])
+            .expect("one duplicate is retired by its suffixed derived id");
+        let remaining: Vec<String> = memory
+            .list(10, None)
+            .expect("the journal replays")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(
+            remaining,
+            ["the first fact, corrected", "the second fact"],
+            "deleting one duplicate leaves the other"
+        );
+
+        let view = memory.list(10, None).expect("the view reads");
+        memory.compact(&view).expect("the snapshot writes");
+        assert_eq!(
+            memory.list(10, None).expect("the snapshot replays"),
+            view,
+            "the snapshot writes the derived ids down, so replay no longer has to derive them"
+        );
+    }
+
+    #[test]
+    fn the_live_cap_counts_edits_as_edits() {
+        let (_dir, memory) = memory("memory-live-cap");
+        write_fixture(&memory, MAX_ENTRIES);
+        let newest = memory
+            .list(1, None)
+            .expect("the fixture replays")
+            .pop()
+            .expect("the fixture has an entry");
+
+        memory
+            .update(&newest.id, "the newest entry, corrected", &[])
+            .expect("an update takes no entry slot, so it succeeds at the ceiling");
+        let error = memory
+            .append("one too many", &[])
+            .expect_err("10 000 live entries are still the ceiling");
+        assert!(
+            matches!(error, MemoryError::Full { max: 10_000 }),
+            "{error:?}"
+        );
+        assert_eq!(
+            journal_lines(&memory),
+            MAX_ENTRIES + 1,
+            "the refused append wrote nothing"
+        );
+
+        memory
+            .delete(&newest.id)
+            .expect("a delete frees the slot it held");
+        memory
+            .append("the freed slot", &[])
+            .expect("9 999 live entries leave room for one");
+        assert_eq!(journal_lines(&memory), MAX_ENTRIES + 3);
+    }
+
+    #[test]
+    fn the_snapshot_is_written_in_reverse_view_order_so_replay_reproduces_the_view() {
+        let (_dir, memory) = memory("memory-compact-order");
+        let first = memory
+            .append("first", &["one".to_owned()])
+            .expect("the first append");
+        let second = memory
+            .append("second", &["two".to_owned()])
+            .expect("the second append");
+        let third = memory
+            .append("third", &["three".to_owned()])
+            .expect("the third append");
+        let corrected = memory
+            .update(
+                &second.id,
+                "second, corrected",
+                &["two".to_owned(), "fixed".to_owned()],
+            )
+            .expect("the update");
+        let view = memory.list(10, None).expect("the view reads");
+        let texts: Vec<&str> = view.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(texts, ["second, corrected", "third", "first"]);
+
+        memory.compact(&view).expect("the snapshot writes");
+
+        assert!(
+            !memory.snapshot_path().exists(),
+            "the snapshot is renamed into place, not left behind"
+        );
+        let records = journal_records(&memory);
+        assert_eq!(
+            records.len(),
+            3,
+            "one line per live entry; no update or tombstone survives"
+        );
+        for record in &records {
+            assert_eq!(record["op"].as_str(), Some("append"));
+            assert!(record["entry"].get("id").is_none());
+        }
+        let ids: Vec<&str> = records
+            .iter()
+            .map(|record| record["id"].as_str().expect("every line names its id"))
+            .collect();
+        assert_eq!(
+            ids,
+            [first.id.as_str(), third.id.as_str(), corrected.id.as_str()],
+            "oldest first is the reverse of the view, which is the order replay rebuilds it from"
+        );
+        assert_eq!(
+            records[2]["entry"]["text"].as_str(),
+            Some("second, corrected")
+        );
+        assert_eq!(
+            records[2]["entry"]["tags"],
+            serde_json::json!(["two", "fixed"])
+        );
+
+        let replayed = memory.list(10, None).expect("the snapshot replays");
+        assert_eq!(
+            replayed, view,
+            "the snapshot's replay is the view it replaced, ids included"
+        );
+    }
+
+    #[test]
+    fn eighty_edits_cross_the_threshold_and_leave_a_snapshot_that_replays_the_view() {
+        let (_dir, memory) = memory("memory-compaction-threshold");
+        let entry = memory.append("edit 0", &[]).expect("the append");
+        let mut compactions = 0;
+
+        for edit in 1..=80 {
+            let before = journal_lines(&memory);
+            let updated = memory
+                .update(&entry.id, &format!("edit {edit}"), &[])
+                .expect("each edit is an update");
+            let after = journal_lines(&memory);
+            if after < before {
+                compactions += 1;
+                assert_eq!(after, 1, "a one-entry snapshot is one append line");
+                let expected = format!("edit {edit}");
+                let records = journal_records(&memory);
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0]["op"].as_str(), Some("append"));
+                assert_eq!(records[0]["id"].as_str(), Some(entry.id.as_str()));
+                assert_eq!(
+                    records[0]["entry"]["text"].as_str(),
+                    Some(expected.as_str()),
+                    "the snapshot holds the view as it stood when the threshold was crossed"
+                );
+                assert_eq!(
+                    memory.list(10, None).expect("the snapshot replays"),
+                    [updated],
+                    "its replay is that view, ids included"
+                );
+            }
+        }
+
+        assert_eq!(
+            compactions, 1,
+            "80 edits cross 2 * 1 + 64 exactly once: 1 append + 66 edits is 67 lines"
+        );
+        let view = memory.list(10, None).expect("the final view reads");
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].text, "edit 80");
+        assert!(
+            journal_lines(&memory) <= compaction_threshold(1),
+            "after the snapshot the journal stays under the threshold"
+        );
+    }
+
+    #[test]
+    fn a_failed_snapshot_is_retried_on_the_next_write_instead_of_failing_the_operation() {
+        let (_dir, memory) = memory("memory-compaction-retry");
+        let entry = memory.append("the only entry", &[]).expect("the append");
+        seed_tombstones(&memory, 65);
+        assert_eq!(
+            journal_lines(&memory),
+            66,
+            "one append and 65 tombstones: the next write crosses 2 * 1 + 64"
+        );
+
+        let snapshot = memory.snapshot_path();
+        fs::create_dir_all(&snapshot).expect("a directory where the snapshot wants a file");
+
+        let updated = memory
+            .update(&entry.id, "the snapshot failed", &[])
+            .expect("the update landed durably; a failed snapshot is not its error");
+        assert_eq!(
+            journal_lines(&memory),
+            67,
+            "the failed snapshot leaves the journal in place"
+        );
+        assert!(
+            snapshot.is_dir(),
+            "the obstacle was not renamed over the journal"
+        );
+        assert_eq!(
+            memory.list(10, None).expect("the journal replays"),
+            [updated]
+        );
+
+        fs::remove_dir_all(&snapshot).expect("the obstacle is removable");
+        let updated = memory
+            .update(&entry.id, "the snapshot was retried", &[])
+            .expect("the next write retries the snapshot");
+        assert_eq!(
+            journal_lines(&memory),
+            1,
+            "the retry replaced the journal with a one-entry snapshot"
+        );
+        assert_eq!(
+            memory.list(10, None).expect("the snapshot replays"),
+            [updated]
+        );
+        assert!(!snapshot.exists());
+    }
+
+    #[test]
+    fn every_write_kind_checks_the_threshold_not_only_updates() {
+        let (_dir, memory) = memory("memory-compaction-triggers");
+        let first = memory.append("first", &[]).expect("the append");
+        seed_tombstones(&memory, 70);
+        assert_eq!(journal_lines(&memory), 71);
+
+        memory
+            .append("second", &[])
+            .expect("the append that crosses the threshold");
+        assert_eq!(
+            journal_lines(&memory),
+            2,
+            "the journal is a two-entry snapshot after an append"
+        );
+        let texts: Vec<String> = memory
+            .list(10, None)
+            .expect("the snapshot replays")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(texts, ["second", "first"]);
+
+        seed_tombstones(&memory, 70);
+        memory
+            .delete(&first.id)
+            .expect("the delete that crosses the threshold");
+        assert_eq!(
+            journal_lines(&memory),
+            1,
+            "the journal is a one-entry snapshot after a delete"
+        );
+        let texts: Vec<String> = memory
+            .list(10, None)
+            .expect("the snapshot replays")
+            .into_iter()
+            .map(|entry| entry.text)
+            .collect();
+        assert_eq!(texts, ["second"]);
+    }
+
+    #[test]
+    fn concurrent_deletes_retire_an_entry_once() {
+        let (_dir, memory) = memory("memory-concurrent-delete");
+        let entry = memory.append("to retire", &[]).expect("the append");
+        let barrier = std::sync::Barrier::new(4);
+        let retired = std::sync::atomic::AtomicUsize::new(0);
+        let missing = std::sync::atomic::AtomicUsize::new(0);
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    match memory.delete(&entry.id) {
+                        Ok(()) => {
+                            retired.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Err(MemoryError::NoSuchEntry { .. }) => {
+                            missing.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Err(other) => panic!("a delete failed unexpectedly: {other:?}"),
+                    }
+                });
+            }
+        });
+
+        assert_eq!(
+            retired.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the liveness check and the tombstone are one critical section"
+        );
+        assert_eq!(missing.load(std::sync::atomic::Ordering::SeqCst), 3);
+        assert_eq!(
+            journal_lines(&memory),
+            2,
+            "one append and one tombstone; the three losers wrote nothing"
+        );
+        assert!(memory.list(10, None).expect("the store replays").is_empty());
     }
 }
