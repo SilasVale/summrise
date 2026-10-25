@@ -571,6 +571,11 @@ async fn take_requests(
         return Err(malformed_peer_id(&target));
     }
     let now_ms = broker.now();
+    // **SWEEP BEFORE THE 404.** A target whose registration lapsed can never poll again, so returning
+    // early would leave its expired notes counting against the caps for the rest of their ttl. The
+    // inbox lock is taken first; no path holds it and the table lock together, so the order is safe.
+    let mut inbox = broker.inbox.lock().map_err(|_| poisoned_inbox())?;
+    sweep_inbox(&mut inbox, now_ms);
     {
         let mut table = broker.table.lock().map_err(|_| poisoned_table())?;
         table.retain(|_, entry| !entry.is_stale(now_ms));
@@ -579,8 +584,6 @@ async fn take_requests(
         }
     }
 
-    let mut inbox = broker.inbox.lock().map_err(|_| poisoned_inbox())?;
-    sweep_inbox(&mut inbox, now_ms);
     let waiting = inbox.remove(&target).unwrap_or_default();
     let requests = waiting
         .into_iter()
@@ -1254,6 +1257,33 @@ mod tests {
             body["requests"],
             json!([]),
             "the expired request was removed, not hidden until later"
+        );
+    }
+
+    /// A poll for an expired target answers 404, but it still sweeps that target's queue: otherwise
+    /// the notes stay counted until their own ttl, and the "poll sweeps every target" claim is false for
+    /// the one target that matters most — the one that will never poll again.
+    #[tokio::test]
+    async fn a_poll_for_an_expired_target_sweeps_its_notes() {
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
+        let target = register_empty(&app, &Identity::generate()).await;
+        let requester = Identity::generate();
+        let note = ConnectRequest::sign(&requester, &target, "leaked", ISSUED, 30_000);
+        assert_eq!(leave_request(&app, &note).await.0, StatusCode::NO_CONTENT);
+
+        // The registration's ttl has passed; the note's has not.
+        clock.store(ISSUED + TTL + 1, std::sync::atomic::Ordering::SeqCst);
+        let (status, _) = take_requests(&app, &target, ISSUED + TTL + 1).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            broker
+                .inbox
+                .lock()
+                .expect("the inbox")
+                .get(&target)
+                .is_none(),
+            "the 404 must not leave an expired target's queue pinned"
         );
     }
 
