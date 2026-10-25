@@ -1179,12 +1179,16 @@ mod tests {
         assert_eq!(answer, candidates);
     }
 
+    /// **THE BROKER'S CLOCK IS THE ONE THAT AGES A REGISTRATION.** This test used to assert the
+    /// opposite — that the client's `now_ms` is the clock the broker saw — which was the defect: a client
+    /// an hour ahead deleted every other peer's registration. A far-ahead client now sees exactly what a
+    /// correct one does, because the broker does not read the number it sends.
     #[tokio::test]
-    async fn a_lookup_after_the_ttl_is_an_unknown_peer() {
+    async fn a_lookup_with_a_client_clock_far_ahead_still_sees_the_registration() {
         let broker = spawn_broker().await;
         let identity = Identity::generate();
         let candidates = vec![Candidate::new(CandidateKind::Udp, "10.0.0.1:5000", 900)];
-        let early = client(&identity, candidates.clone(), 1_000, 500);
+        let early = client(&identity, candidates.clone(), 1_000, 30_000);
         early
             .register(&broker)
             .await
@@ -1194,11 +1198,11 @@ mod tests {
             .await
             .expect("the registration is fresh at its issue instant");
 
-        let late = client(&identity, candidates, 1_501, 500);
+        let fast = client(&identity, candidates.clone(), 3_600_000, 30_000);
         assert_eq!(
-            late.lookup(&broker, &identity.public_hex()).await,
-            Err(RendezvousError::UnknownPeer(identity.public_hex())),
-            "the client's clock is the now_ms the broker sees"
+            fast.lookup(&broker, &identity.public_hex()).await,
+            Ok(candidates),
+            "freshness is the broker's clock; the caller's cannot age another peer's entry"
         );
     }
 
@@ -1235,6 +1239,9 @@ mod tests {
         );
     }
 
+    /// **THE TTL RUNS FROM RECEIPT, and this is the one test that lets real time pass**, because the
+    /// boundary under test IS the broker's wall clock: a note's signed stamp cannot be advanced by a
+    /// caller without also changing that caller's clock, which the broker now ignores.
     #[tokio::test]
     async fn an_expired_connect_request_is_not_delivered() {
         let broker = spawn_broker().await;
@@ -1247,18 +1254,17 @@ mod tests {
             .register(&broker)
             .await
             .expect("the target registers");
-        // Signed and offered at 1000; this client's clock is already 1501.
         let requester = client(&requester_identity, Vec::new(), 1_000, 30_000);
         requester
-            .request(&broker, &target_id, "relay-session", 500)
+            .request(&broker, &target_id, "relay-session", 1)
             .await
-            .expect("the broker accepts the request before its ttl");
-        let late = client(&target_identity, Vec::new(), 1_501, 30_000);
+            .expect("the broker accepts the request");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         assert_eq!(
-            late.requests(&broker, &target_id).await,
+            target.requests(&broker, &target_id).await,
             Ok(Vec::new()),
-            "a request past its ttl is dropped, not delivered"
+            "a request past its ttl measured from receipt is dropped, not delivered"
         );
     }
 
