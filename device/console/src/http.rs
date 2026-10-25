@@ -1088,6 +1088,37 @@ fn jsonrpc_error(
         .into_response()
 }
 
+/// How long `runs.exec` may take, above the general `/mcp` bound.
+///
+/// The device runs the command, and the console's own 30-second bound would turn every run longer than
+/// that into a 504 while the command kept running and its history row was still written. The wait
+/// follows the run's requested timeout (60 seconds when absent, the device's 1 ms..10 min range) plus a
+/// grace for the frame, so a client sees the answer it asked to wait for. Every other tool answers in
+/// milliseconds, and `None` leaves the general bound in charge.
+fn run_wait(request: &Value) -> Option<Duration> {
+    let name = request
+        .get("params")
+        .and_then(|params| params.get("name"))
+        .and_then(|name| name.as_str())?;
+    if name != "runs.exec" {
+        return None;
+    }
+    let requested = request
+        .get("params")
+        .and_then(|params| params.get("arguments"))
+        .and_then(|arguments| arguments.get("timeout_ms"))
+        .and_then(|timeout| timeout.as_u64())
+        .unwrap_or(60_000);
+    let clamped = requested.clamp(1, RUNS_MAX_TIMEOUT_MS);
+    Some(Duration::from_millis(clamped) + RUNS_WAIT_GRACE)
+}
+
+/// The device's own cap on `runs.exec`, mirrored so the wait cannot exceed it.
+const RUNS_MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+
+/// The round-trip grace added to a run's wait.
+const RUNS_WAIT_GRACE: Duration = Duration::from_secs(5);
+
 /// `POST /mcp`: verify the operator's grant, enforce the tool it permits, then forward one MCP
 /// exchange over the device channel.
 ///
@@ -1190,8 +1221,11 @@ async fn proxy_mcp(
         }
     }
 
+    // A run blocks on the device for its own timeout, and the device's cap is ten minutes; every other
+    // tool answers quickly, and a device that has not answered in `mcp_timeout` is one to give up on.
+    let wait = app.mcp_timeout.max(run_wait(&body.request).unwrap_or_default());
     let answer = tokio::time::timeout(
-        app.mcp_timeout,
+        wait,
         app.channels
             .request(&body.device_id, body.request, &body.grant),
     )
@@ -1551,6 +1585,44 @@ fn system_now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A `runs.exec` wait follows the run; everything else leaves the general bound in charge.
+    #[test]
+    fn a_run_waits_for_its_own_timeout_and_other_tools_do_not() {
+        let call = |name: &str, arguments: Value| {
+            json!({
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": { "name": name, "arguments": arguments }
+            })
+        };
+
+        // Absent timeout_ms: the device's default 60 s plus the grace.
+        assert_eq!(
+            run_wait(&call("runs.exec", json!({"command": "ver"}))),
+            Some(Duration::from_secs(65))
+        );
+        // A requested timeout is honoured, so a 45 s run is not cut at 30 s.
+        assert_eq!(
+            run_wait(&call("runs.exec", json!({"command": "ver", "timeout_ms": 45_000}))),
+            Some(Duration::from_secs(50))
+        );
+        // The device's cap is mirrored: asking for a day waits ten minutes, not a day.
+        assert_eq!(
+            run_wait(&call("runs.exec", json!({"command": "ver", "timeout_ms": 86_400_000}))),
+            Some(Duration::from_secs(605))
+        );
+        // Anything that is not a run, or is malformed, leaves the general bound alone.
+        assert_eq!(run_wait(&call("memory.list", json!({}))), None);
+        assert_eq!(run_wait(&json!({"method": "initialize", "params": {}})), None);
+        assert_eq!(
+            run_wait(&json!({"method": "tools/call", "params": {"name": "runs.exec"}})),
+            Some(Duration::from_secs(65))
+        );
+    }
+
     use super::*;
 
     #[test]
