@@ -121,13 +121,16 @@ fn last_swap(install: &Path) -> serde_json::Value {
     serde_json::Value::Object(swap)
 }
 
-/// One line of `<install>/repair.log`, as far as the facts read it.
+/// One line of `<install>/repair.log`, as the launcher writes it.
 ///
-/// `kind` is `"repaired"` on every line the launcher writes and is not copied — the file's name
-/// already says why the line is there. `ts_ms` is reported as `at_ms`.
+/// `kind` must be `"repaired"` and `from` must be a generation this build knows; the app's own
+/// reader (`store::read_new_repairs`) applies the same predicate, because a line from a newer
+/// writer or a damaged line is not a repair this build can read. `kind` is not copied to the facts
+/// — the file's name already says why the line is there — and `ts_ms` is reported as `at_ms`.
 #[derive(serde::Deserialize)]
 struct RepairLine {
     ts_ms: u64,
+    kind: String,
     #[serde(rename = "from")]
     from: String,
     sha256: String,
@@ -137,8 +140,9 @@ struct RepairLine {
 ///
 /// `<install>/repair.log` is one JSON line per restore, appended by the launcher. It is read a line
 /// at a time and only the newest few are kept, so a log that has grown for years costs one line of
-/// memory. A missing or unreadable log is an empty list, and a line that does not parse — the tail of
-/// an append that is still in flight — is skipped rather than guessed at.
+/// memory. A missing or unreadable log is an empty list. A line that does not parse — the tail of an
+/// append still in flight — and a line whose kind or source this build does not know are skipped
+/// rather than guessed at.
 fn repairs(install: &Path) -> serde_json::Value {
     let Ok(file) = std::fs::File::open(install.join(crate::store::REPAIR_LOG_FILE)) else {
         return serde_json::Value::Array(Vec::new());
@@ -154,6 +158,9 @@ fn repairs(install: &Path) -> serde_json::Value {
         let Ok(record) = serde_json::from_str::<RepairLine>(&line) else {
             continue;
         };
+        if record.kind != "repaired" || !matches!(record.from.as_str(), "baseline" | "previous") {
+            continue;
+        }
         if newest.len() == RECENT_REPAIRS {
             newest.remove(0);
         }
@@ -582,6 +589,30 @@ mod tests {
             })
             .collect();
         assert_eq!(repairs, serde_json::Value::Array(expected));
+    }
+
+    #[test]
+    fn a_repair_line_with_another_kind_or_source_is_skipped() {
+        let dir = TempDir::new("repairs-unknown-kind");
+        let install = dir.join("install");
+        let log = [
+            r#"{"ts_ms":1700000000100,"kind":"something-else","from":"baseline","sha256":"aa"}"#
+                .to_owned(),
+            r#"{"ts_ms":1700000000200,"kind":"repaired","from":"elsewhere","sha256":"bb"}"#
+                .to_owned(),
+            // A repair the app's own reader accepts still counts beside them.
+            repair_line(1700000000300, "previous", "cc"),
+        ]
+        .join("\n")
+            + "\n";
+        write_repair_log(&install, &log);
+
+        assert_eq!(
+            update_state(&install)["repairs"],
+            serde_json::json!([
+                { "at_ms": 1700000000300_u64, "from": "previous", "sha256": "cc" },
+            ])
+        );
     }
 
     #[test]
