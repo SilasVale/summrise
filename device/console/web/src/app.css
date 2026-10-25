@@ -247,3 +247,23 @@ tr:last-child td { border-bottom: 0; }
   margin: 0; font-size: var(--fs-xs); color: var(--ink-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* A device list inside a page that needs one, so the rail is never a dead end. */
+.picker {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.picker li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line, #e3e1dc);
+  border-radius: 8px;
+}
+.picker li strong {
+  flex: 1;
+}

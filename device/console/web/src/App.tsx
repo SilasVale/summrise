@@ -356,9 +356,15 @@ export function App() {
           {page === "terminal" && (
             <>
               {!chosen && (
-                <section className="panel empty">
-                  <p>No device selected.</p>
-                  <p className="hint">Pick one in Devices and the grant appears here.</p>
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Terminal</h2>
+                  </div>
+                  <p className="hint">
+                    A terminal runs on a device, so pick one. The console signs a grant for the tools it
+                    needs, and the device checks that grant on every call.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
                 </section>
               )}
               {chosen && (!grant || grant.deviceId !== chosen.id) && (
@@ -368,7 +374,8 @@ export function App() {
                   </div>
                   <p className="hint">
                     A grant is signed by the console, names the tools and expires. The device checks it on
-                    every call.
+                    every call. Everything is selected by default: press the button and the terminal
+                    appears.
                   </p>
                   <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
                 </section>
@@ -384,9 +391,15 @@ export function App() {
           {page === "browser" && (
             <>
               {!chosen && (
-                <section className="panel empty">
-                  <p>No device selected.</p>
-                  <p className="hint">Pick one in Devices and its browser appears here.</p>
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Browser</h2>
+                  </div>
+                  <p className="hint">
+                    The browser is one the device runs for you — in the user's session when the helper is
+                    there. Pick a device to grant the console its browser tools.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
                 </section>
               )}
               {chosen && (!grant || grant.deviceId !== chosen.id) && (
@@ -472,6 +485,30 @@ export function App() {
         <span>console {consoleVersion ?? "…"}</span>
       </footer>
     </div>
+  );
+}
+
+/**
+ * A device list for a page that needs one: the rail can be the first thing an operator clicks, and
+ * "no device selected" is a dead end when the list is one panel away.
+ */
+function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoose: (id: string) => void }) {
+  if (devices.length === 0) {
+    return <p className="hint">No devices are enrolled yet. Add one from the Devices page.</p>;
+  }
+  return (
+    <ul className="picker">
+      {devices.map((device) => (
+        <li key={device.id}>
+          <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} />
+          <strong>{device.name ?? device.id.slice(0, 12)}</strong>
+          {device.version && <span className="chip">{device.version}</span>}
+          <button type="button" className="mini" onClick={() => onChoose(device.id)}>
+            Use
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
