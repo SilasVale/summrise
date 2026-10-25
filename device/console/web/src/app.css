@@ -311,3 +311,84 @@ tr:last-child td { border-bottom: 0; }
 .tab-close:hover {
   color: var(--error);
 }
+
+/* The memory browser: a search over device state, one card per entry, and an inline form that
+   replaces a card's body while it is being edited. */
+.memory-page {
+  display: grid;
+  gap: 0.55rem;
+}
+.memory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.memory-toolbar input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.memory-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.memory-add-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.memory-add-tag input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+button.chip-tag {
+  border: 0;
+  background: var(--surface-chip);
+  color: var(--ink-muted);
+  font-family: inherit;
+  cursor: pointer;
+}
+button.chip-tag:hover {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.memory-edit {
+  display: grid;
+  gap: 0.35rem;
+}
+.memory-edit label {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+.memory-edit input,
+.memory-edit textarea {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.memory-edit textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+.memory-edit .actions {
+  margin-left: 0;
+  justify-content: flex-end;
+}

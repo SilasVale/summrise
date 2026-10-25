@@ -8,6 +8,7 @@ import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
+import { MemoryPage } from "./MemoryPage";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -413,6 +414,41 @@ export function App() {
               {chosen && grant && grant.deviceId === chosen.id && (
                 <section className="panel">
                   <BrowserPane grant={grant} />
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "memory" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Memory</h2>
+                  </div>
+                  <p className="hint">
+                    Memory is kept on the device, so pick one. The console signs a grant for the
+                    memory tools, and the device checks that grant on every read and every edit.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    entries appear.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <MemoryPage grant={grant} />
                 </section>
               )}
             </>
