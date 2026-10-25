@@ -53,6 +53,8 @@
 
 **Interfaces:**
 - Produces: `Memory::update(&self, id: &str, text: &str, tags: &[String]) -> Result<Entry, MemoryError>`; `Memory::delete(&self, id: &str) -> Result<(), MemoryError>`; `MemoryError::NoSuchEntry { id: String }`.
+- **Carried from Task 1's review (Important):** `replay()` takes the read lock, so it cannot be called from `append`/`update`/`delete`/`compact` while they hold the write lock (std's `RwLock` is not reentrant). Split it: a lock-free `replay_locked(&self) -> Result<Vec<Entry>, MemoryError>` core that does the file work, and a thin `replay()` wrapper that takes the read lock; the write-side callers call the core under the write lock.
+- **Carried from Task 1's review (minor, same file):** one whitespace predicate for blank-line detection and `count_entries` (they currently disagree on non-ASCII whitespace); `TooLarge`/`Corrupt` Display strings that describe what is actually measured/raised; the module doc's "one pass" claim (reads now do an offset pass plus a reverse replay — say so).
 - Produces: `fn compact(&self, live: &[Entry]) -> io::Result<()>` writing `memory.jsonl.new` in reverse view order, then renaming; threshold `2 * live + 64` lines, evaluated after every journal write; a failed snapshot is logged and retried on the next write.
 - Consumes: Task 1's `Record`, `legacy_id`, replay.
 
@@ -71,6 +73,8 @@
 
 **Interfaces:**
 - Consumes: Task 2's `Memory::update` / `Memory::delete` and `MemoryError::NoSuchEntry`.
+- **Carried from Task 2:** remove the transitional `#[cfg_attr(not(test), allow(dead_code))]` on
+  `update`, `delete`, `liveness_locked` and `NoSuchEntry` — the tools are what make them reachable.
 - Produces: tools `memory.update {id, text, tags}` → the updated entry (`id`, `text`, `tags`); `memory.delete {id}` → `{"deleted": true, "id": …}`; `memory.append` result gains `id`; `memory.list`/`memory.search` entries gain `id`.
 
 - [ ] **Step 1: Write the failing tests** — registry list has 38 tools / 10 capabilities with the two marked destructive; wire list matches; a call to `memory.update` with an unknown id is a tool error whose text names the id.
