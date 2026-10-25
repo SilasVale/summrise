@@ -13,7 +13,7 @@
 //!                      v                              v
 //!                    Relayed <---------------------- Relayed
 //!                      |
-//!                      | RelayClosed (and DirectClosed from Direct)
+//!                      | RelayOpen -> (relay usable) | RelayClosed (and DirectClosed from Direct)
 //!                      v
 //!                  Rendezvous --...--> Closed (sixth close: GiveUp)
 //! ```
@@ -77,6 +77,10 @@ pub enum PathEvent {
     PunchFailed,
     /// The direct connection closed after it had been in use.
     DirectClosed,
+    /// The relay channel is established: the two ends have authenticated each other and the path can
+    /// carry a frame. **THIS, not the order to use the relay, is when the relay becomes usable**, so it
+    /// is the instant the stable-window rule measures from.
+    RelayOpen,
     /// The relay connection closed after it had been in use.
     RelayClosed,
     /// The caller's clock reached `now_ms`.
@@ -267,6 +271,14 @@ impl Path {
                 }
                 self.after_close(now_ms)
             }
+            PathEvent::RelayOpen => {
+                // Only a path already handed to the relay can open. The instant matters: it is what a
+                // later `RelayClosed` measures the stable window against.
+                if self.state == PathState::Relayed {
+                    self.connected_at_ms = Some(now_ms);
+                }
+                Vec::new()
+            }
             PathEvent::RelayClosed => {
                 if self.state != PathState::Relayed {
                     return Vec::new();
@@ -300,15 +312,17 @@ impl Path {
     }
 
     /// Hand the path to the relay, for `reason`.
+    ///
+    /// **ORDERING THE RELAY IS NOT OPENING IT.** The channel may never come up (a dead relay, a pair
+    /// timeout), so there is no connected instant here; the caller emits [`PathEvent::RelayOpen`] when
+    /// the channel is actually established, and that is what arms the stable-window rule. Without this
+    /// split a dead relay counted as a path that had been up for the whole wait before its close, which
+    /// reset the retry budget and made the budget effectively infinite for a caller willing to wait.
     fn use_relay(&mut self, reason: RelayReason, now_ms: u64) -> Vec<PathAction> {
+        let _ = now_ms;
         self.state = PathState::Relayed;
         self.deadline_ms = None;
-        self.connected_at_ms = match reason {
-            // A rendezvous that never found a peer never made a usable path, even though the relay
-            // is the order; a later close is not evidence of stability.
-            RelayReason::RendezvousTimeout => None,
-            RelayReason::PunchFailed | RelayReason::PunchTimeout => Some(now_ms),
-        };
+        self.connected_at_ms = None;
         vec![PathAction::UseRelay { reason }]
     }
 
@@ -868,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn a_relay_after_a_failed_punch_can_be_stable() {
+    fn a_relay_that_never_opens_keeps_counting() {
         let mut path = in_relayed();
         assert_eq!(
             path.apply(PathEvent::RelayClosed, 4_000),
@@ -878,8 +892,9 @@ mod tests {
             }]
         );
 
-        // Back through the rendezvous and a punch that times out: the relay is usable from the
-        // moment the fallback is ordered, so 61 s of it resets the budget.
+        // Back through the rendezvous and a punch that times out: the relay is ordered, but the
+        // channel never opens. A close sixty seconds later is a second consecutive failure, not a
+        // stable path, because no path ever carried a frame.
         assert_eq!(
             path.apply(PathEvent::Start, 4_000),
             vec![PathAction::RequestRendezvous]
@@ -897,11 +912,48 @@ mod tests {
         assert_eq!(
             path.apply(PathEvent::RelayClosed, 65_600),
             vec![PathAction::Retry {
+                after_ms: 2_000,
+                attempt: 2,
+            }],
+            "the order to use the relay is not an open; the budget must count this failure"
+        );
+        assert_eq!(path.state(), PathState::Rendezvous);
+    }
+
+    #[test]
+    fn a_relay_stable_window_runs_from_the_open_event() {
+        let mut path = in_relayed();
+        assert_eq!(
+            path.apply(PathEvent::RelayClosed, 4_000),
+            vec![PathAction::Retry {
                 after_ms: 1_000,
                 attempt: 1,
             }]
         );
-        assert_eq!(path.state(), PathState::Rendezvous);
+        assert_eq!(
+            path.apply(PathEvent::Start, 4_000),
+            vec![PathAction::RequestRendezvous]
+        );
+        assert_eq!(
+            path.apply(PathEvent::Candidates { fresh: true }, 4_100),
+            vec![PathAction::StartPunch { deadline_ms: 4_600 }]
+        );
+        assert_eq!(
+            path.apply(PathEvent::Tick { now_ms: 4_600 }, 4_600),
+            vec![PathAction::UseRelay {
+                reason: RelayReason::PunchTimeout
+            }]
+        );
+        // THE RELAY OPENS at 4_700: the stable window is measured from HERE, not from 4_600.
+        assert_eq!(path.apply(PathEvent::RelayOpen, 4_700), Vec::new());
+        assert_eq!(
+            path.apply(PathEvent::RelayClosed, 65_700),
+            vec![PathAction::Retry {
+                after_ms: 1_000,
+                attempt: 1,
+            }],
+            "sixty-one seconds of an OPEN relay reset the budget before this close counts"
+        );
     }
 
     #[test]
