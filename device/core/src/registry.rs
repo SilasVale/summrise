@@ -68,7 +68,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "memory.update",
                 destructive: true,
                 description:
-                    "Replace the text and tags of the entry an id names; validation is memory.append's, and an id that is not live is refused as no_such_entry.",
+                    "Replace the text and tags of the entry an id names; both are required, tags is the complete new list (send [] to clear them), validation is exactly memory.append's, and an id that is not live is refused as no_such_entry.",
             },
             ToolDef {
                 name: "memory.delete",
@@ -346,7 +346,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_phase_four_tools_and_the_first_session_capability() {
+    fn the_registry_declares_the_whole_surface_and_ten_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
@@ -445,6 +445,27 @@ mod tests {
                 is_destructive(name),
                 Some(destructive),
                 "{name}'s destructive flag is the fact authorize's Ask rule consults"
+            );
+        }
+    }
+
+    #[test]
+    fn the_memory_update_description_says_its_arguments_are_required() {
+        // A client that reads only this sentence must not assume append's optional tags: update
+        // replaces the whole list, and the schema refuses an update that omits it.
+        let description = tool("memory.update")
+            .expect("the tool is declared")
+            .description;
+        for fact in [
+            "both are required",
+            "complete new list",
+            "[] to clear",
+            "exactly memory.append's",
+            "no_such_entry",
+        ] {
+            assert!(
+                description.contains(fact),
+                "memory.update's description states {fact:?}: {description}"
             );
         }
     }

@@ -3338,9 +3338,11 @@ mod tests {
         assert!(updated.get("error").is_none(), "{updated}");
         assert_eq!(updated["result"]["isError"], false, "{updated}");
         let updated: Value = serde_json::from_str(text_of(&updated)).expect("update is JSON");
-        assert_eq!(updated["id"], id, "an update cannot change an entry's name");
-        assert_eq!(updated["text"], "second version");
-        assert_eq!(updated["tags"], json!(["final"]));
+        assert_eq!(
+            updated,
+            json!({ "id": id, "text": "second version", "tags": ["final"] }),
+            "an update answers exactly the entry it wrote, and cannot change its name"
+        );
 
         let old = client
             .call("memory.search", json!({ "query": "first version" }))
