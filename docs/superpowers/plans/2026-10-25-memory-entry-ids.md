@@ -53,10 +53,10 @@
 
 **Interfaces:**
 - Produces: `Memory::update(&self, id: &str, text: &str, tags: &[String]) -> Result<Entry, MemoryError>`; `Memory::delete(&self, id: &str) -> Result<(), MemoryError>`; `MemoryError::NoSuchEntry { id: String }`.
-- Produces: `fn compact(&self, live: &[Entry]) -> io::Result<()>` writing `memory.jsonl.new` then renaming; threshold `2 * live + 64` lines.
+- Produces: `fn compact(&self, live: &[Entry]) -> io::Result<()>` writing `memory.jsonl.new` in reverse view order, then renaming; threshold `2 * live + 64` lines, evaluated after every journal write; a failed snapshot is logged and retried on the next write.
 - Consumes: Task 1's `Record`, `legacy_id`, replay.
 
-- [ ] **Step 1: Write the failing tests** — update replaces text and appears at the update's position; delete removes from search/list/export; second delete is `NoSuchEntry`; an oversized update is `TooLarge`; 64 edits on a 1-entry store leave a snapshot whose replay equals the pre-compaction view.
+- [ ] **Step 1: Write the failing tests** — update replaces text and appears at the update's position; delete removes from search/list/export; second delete is `NoSuchEntry`; an oversized update is `TooLarge`; 80 edits on a 1-entry store cross the threshold and leave a snapshot whose replay equals the pre-compaction view (the snapshot is written in reverse view order, so replay reproduces it exactly).
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** update/delete/cap/compaction as the spec describes.
 - [ ] **Step 4: Run** → PASS; then `cargo test -p summrise-device` (whole suite) and `cargo clippy -p summrise-device --all-targets -- -D warnings`.
@@ -71,7 +71,7 @@
 
 **Interfaces:**
 - Consumes: Task 2's `Memory::update` / `Memory::delete` and `MemoryError::NoSuchEntry`.
-- Produces: tools `memory.update {id, text, tags}` → the updated entry; `memory.delete {id}` → `{"deleted": true, "id": …}`; `memory.append` result gains `id`.
+- Produces: tools `memory.update {id, text, tags}` → the updated entry (`id`, `text`, `tags`); `memory.delete {id}` → `{"deleted": true, "id": …}`; `memory.append` result gains `id`; `memory.list`/`memory.search` entries gain `id`.
 
 - [ ] **Step 1: Write the failing tests** — registry list has 38 tools / 10 capabilities with the two marked destructive; wire list matches; a call to `memory.update` with an unknown id is a tool error whose text names the id.
 - [ ] **Step 2: Run** → FAIL.

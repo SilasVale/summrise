@@ -86,28 +86,44 @@ that exist.
 
 ## Compaction
 
-The journal grows with every change, so at some point it is rewritten as a snapshot: every live entry,
-in original order, as an `append` line with its id. The rewrite goes to `memory.jsonl.new` and is
+The journal grows with every change, so at some point it is rewritten as a snapshot: every live entry
+as one `append` line with its id, written in the **reverse of the current view** — oldest first — so
+that replaying the snapshot reproduces the view exactly. "Original append order" would not: an entry
+that was updated lives at its update's position in the view, and a snapshot in first-append order would
+move it back and change what a reader sees. The rewrite goes to `memory.jsonl.new` and is
 renamed over the old file — a crash leaves one file or the other, the shape the registry already uses.
 
-The trigger is measured, not guessed: **2 × live entries + 64 lines**, evaluated after an append. The
-constant exists so a store that is being edited can be rewritten while the store is still small; the
-exact number is the builder's call.
+The trigger is measured, not guessed: **2 × live entries + 64 lines**, evaluated after **every**
+journal write — append, update and delete. An edit-only store would otherwise grow without limit (at
+the entry ceiling appends are refused, so an append-only trigger can never fire again), and a
+delete-heavy store would fall below the threshold and never be re-checked.
+
+A snapshot that fails after the write has landed is logged and retried on the next write; it is not
+reported to the caller, because the caller's operation did land durably and an error would invite a
+retry that duplicates it.
 
 ## The two tools
 
 | tool | arguments | answer |
 |---|---|---|
-| `memory.update` | `id`, `text`, `tags` | the updated entry (`id`, `text`, `tags`, `updated_ms`) |
+| `memory.update` | `id`, `text`, `tags` | the updated entry (`id`, `text`, `tags`) |
 | `memory.delete` | `id` | `{"deleted": true, "id": …}` |
 
 Both are destructive (`a later read cannot undo them`), and both fail with a typed
-`no_such_entry { id }` for an id that is not live. `memory.update` validates exactly as
+`no_such_entry { id }` for an id that is not live. There is no timestamp on an entry, and none is added: the capability has no clock, `summrise-core`
+is documented as having none, and a field that is computed for one answer and never persisted would
+be a fact no later read could reproduce. The journal's line order **is** the time, and an update
+moves an entry to its own position.
+
+`memory.update` validates exactly as
 `memory.append` does — the same caps, the same serialization check — because an update that could
 store what an append refuses would be a way around the caps.
 
 `memory.append` gains an id in its result. That is an additive change to a tool that returned
 `{"appended": true}`: a client that ignores the field sees the same success.
+
+`memory.list` and `memory.search` return entries with their ids (`{"id","text","tags"}`), which is what
+makes a page able to name the entry it is about to edit.
 
 `memory.export` returns the live entries as JSONL (each line `{"id","text","tags"}`), not the journal.
 The journal is an implementation detail; the export is what the device remembers.
@@ -117,6 +133,13 @@ The journal is an implementation detail; the export is what the device remembers
 - It does not add a delete-after-N-days policy, or any retention. That is a separate decision.
 - It does not index. Search stays a reverse scan; the cap on entries is what makes it acceptable.
 - It does not let an update change an id, or resurrect a deleted id: `append` mints a new one.
+
+## Downgrade is out of scope, and the release note says so
+
+A pre-change build parses `{"op":"append",…}` as a corrupt line, so rolling a device back after it has
+written journal lines makes memory reads fail until it is upgraded again. The bytes are intact and the
+reader is not. This is accepted: the release that ships the journal says it in its notes, and a
+rollback after a journal write is a re-upgrade, not a downgrade.
 
 ## Acceptance
 
