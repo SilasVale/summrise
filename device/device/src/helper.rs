@@ -39,6 +39,7 @@ pub fn current() -> Option<std::sync::Arc<Helper>> {
 pub struct Helper {
     token: String,
     port: Mutex<Option<u16>>,
+    pid: Mutex<Option<u32>>,
 }
 
 impl Helper {
@@ -61,6 +62,7 @@ impl Helper {
         Helper {
             token,
             port: Mutex::new(None),
+            pid: Mutex::new(None),
         }
     }
 
@@ -84,9 +86,15 @@ impl Helper {
         same(presented.as_bytes(), self.token.as_bytes())
     }
 
-    /// Record where the helper said it listens.
-    pub fn registered(&self, port: u16) {
+    /// Record where the helper said it listens, and which process said it.
+    pub fn registered(&self, port: u16, pid: u32) {
         *self.port.lock().expect("the helper port is never poisoned") = Some(port);
+        *self.pid.lock().expect("the helper pid is never poisoned") = Some(pid);
+    }
+
+    /// The helper process, once it has registered this boot.
+    pub fn pid(&self) -> Option<u32> {
+        *self.pid.lock().expect("the helper pid is never poisoned")
     }
 
     /// Where the helper listens, if it has registered this boot. The browser preference (next
@@ -220,11 +228,13 @@ mod tests {
     }
 
     #[test]
-    fn a_registration_records_the_port() {
+    fn a_registration_records_the_port_and_the_process() {
         let helper = Helper::with_token("a".repeat(64));
         assert_eq!(helper.port(), None);
-        helper.registered(49812);
+        assert_eq!(helper.pid(), None);
+        helper.registered(49812, 2260);
         assert_eq!(helper.port(), Some(49812));
+        assert_eq!(helper.pid(), Some(2260));
     }
 
     #[test]

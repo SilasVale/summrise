@@ -301,3 +301,244 @@ pub fn capture_primary_screen() -> io::Result<Screen> {
         })
     }
 }
+
+/// One mounted volume as the operator sees it (`C:\`).
+pub struct Volume {
+    pub name: String,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+}
+
+/// One Windows session: a person, or the service session, and what it is doing.
+pub struct Session {
+    /// The session id (`WTS_SESSION_INFO.WSessionId`).
+    pub id: u32,
+    /// The account, when the session has one.
+    pub user: Option<String>,
+    /// `active`, `connected`, `disconnected`, `idle`, `listen`, or the state's numeric value.
+    pub state: String,
+}
+
+/// The machine facts the console needs, gathered in one pass.
+pub struct HostFacts {
+    /// The real Windows version, e.g. `10.0.26100` (`RtlGetVersion`, not the manifest-dependent
+    /// `GetVersionEx`, which reports 6.2 on a modern build for an unmanifested executable).
+    pub os_version: String,
+    /// The NetBIOS name.
+    pub machine: String,
+    /// Seconds since boot.
+    pub uptime_s: u64,
+    pub memory_total_bytes: u64,
+    pub memory_available_bytes: u64,
+    pub volumes: Vec<Volume>,
+    pub sessions: Vec<Session>,
+}
+
+/// Gather the host facts; a fact that cannot be read is zero, not an error, because a device that
+/// answers with five of six facts is more useful than one that answers with none.
+pub fn host_facts() -> io::Result<HostFacts> {
+    Ok(HostFacts {
+        os_version: os_version()?,
+        machine: machine_name()?,
+        uptime_s: uptime_seconds(),
+        memory_total_bytes: memory().map(|(total, _)| total).unwrap_or(0),
+        memory_available_bytes: memory().map(|(_, available)| available).unwrap_or(0),
+        volumes: volumes(),
+        sessions: sessions(),
+    })
+}
+
+/// The session a process is in, which is how the device knows where its helper landed.
+pub fn session_of_process(pid: u32) -> Option<u32> {
+    use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+
+    let mut session = 0u32;
+    // SAFETY: the out pointer is valid for the call.
+    let ok = unsafe { ProcessIdToSessionId(pid, &mut session) };
+    (ok != 0).then_some(session)
+}
+
+fn os_version() -> io::Result<String> {
+    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+
+    // `RtlGetVersion` is the authoritative call; `GetVersionEx` reports 6.2 for an executable without
+    // a compatibility manifest, which is every build of this binary.
+    type RtlGetVersion = unsafe extern "system" fn(*mut OSVERSIONINFOW) -> i32;
+    let mut info: OSVERSIONINFOW = unsafe { zeroed() };
+    info.dwOSVersionInfoSize = size_of::<OSVERSIONINFOW>() as u32;
+    // SAFETY: `ntdll` is loaded in every process, and the symbol has the documented signature.
+    unsafe {
+        let module = windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(windows_sys::w!(
+            "ntdll.dll"
+        ));
+        if module == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let Some(address) = windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+            module,
+            c"RtlGetVersion".as_ptr() as *const u8,
+        ) else {
+            return Err(io::Error::last_os_error());
+        };
+        let rtl_get_version: RtlGetVersion = std::mem::transmute(address);
+        let status = rtl_get_version(&mut info);
+        if status != 0 {
+            return Err(io::Error::other(format!(
+                "RtlGetVersion returned {status:#x}"
+            )));
+        }
+    }
+    Ok(format!(
+        "{}.{}.{}",
+        info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber
+    ))
+}
+
+fn machine_name() -> io::Result<String> {
+    use windows_sys::Win32::System::SystemInformation::{
+        ComputerNamePhysicalDnsHostname, GetComputerNameExW,
+    };
+
+    let mut buffer = [0u16; 256];
+    let mut length = buffer.len() as u32;
+    // SAFETY: the buffer and its length match.
+    let ok = unsafe {
+        GetComputerNameExW(
+            ComputerNamePhysicalDnsHostname,
+            buffer.as_mut_ptr(),
+            &mut length,
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(String::from_utf16_lossy(&buffer[..length as usize]))
+}
+
+fn uptime_seconds() -> u64 {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+
+    // SAFETY: no arguments, no pointers.
+    unsafe { GetTickCount64() / 1000 }
+}
+
+fn memory() -> Option<(u64, u64)> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    let mut status: MEMORYSTATUSEX = unsafe { zeroed() };
+    status.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: the structure is sized and initialized as the call expects.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0).then_some((status.ullTotalPhys, status.ullAvailPhys))
+}
+
+fn volumes() -> Vec<Volume> {
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives,
+    };
+    use windows_sys::Win32::System::WindowsProgramming::{DRIVE_FIXED, DRIVE_REMOTE};
+
+    // SAFETY: every call below takes a NUL-terminated wide string or no arguments.
+    unsafe {
+        let mask = GetLogicalDrives();
+        let mut volumes = Vec::new();
+        for index in 0..26u32 {
+            if mask & (1 << index) == 0 {
+                continue;
+            }
+            let letter = (b'A' + index as u8) as u16;
+            let root = [letter, b':' as u16, b'\\' as u16, 0u16];
+            let kind = GetDriveTypeW(root.as_ptr());
+            if kind != DRIVE_FIXED && kind != DRIVE_REMOTE {
+                continue;
+            }
+            let mut free = 0u64;
+            let mut total = 0u64;
+            if GetDiskFreeSpaceExW(root.as_ptr(), &mut free, &mut total, std::ptr::null_mut()) == 0
+            {
+                continue;
+            }
+            volumes.push(Volume {
+                name: String::from_utf16_lossy(&root[..3]),
+                total_bytes: total,
+                free_bytes: free,
+            });
+        }
+        volumes
+    }
+}
+
+fn sessions() -> Vec<Session> {
+    use windows_sys::Win32::System::RemoteDesktop::{
+        WTSEnumerateSessionsW, WTSFreeMemory, WTS_CURRENT_SERVER_HANDLE, WTS_SESSION_INFOW,
+    };
+
+    let mut sessions = Vec::new();
+    let mut pointer: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
+    let mut count = 0u32;
+    // SAFETY: the call fills a newly allocated array and its count; both are released below.
+    let ok =
+        unsafe { WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &mut pointer, &mut count) };
+    if ok == 0 {
+        return sessions;
+    }
+    for index in 0..count as usize {
+        // SAFETY: the array has `count` entries.
+        let info = unsafe { &*pointer.add(index) };
+        let user = session_user(info.SessionId);
+        sessions.push(Session {
+            id: info.SessionId,
+            user,
+            state: state_name(info.State),
+        });
+    }
+    // SAFETY: the pointer came from `WTSEnumerateSessionsW`.
+    unsafe { WTSFreeMemory(pointer as *mut _) };
+    sessions
+}
+
+fn session_user(session: u32) -> Option<String> {
+    use windows_sys::Win32::System::RemoteDesktop::{
+        WTSFreeMemory, WTSQuerySessionInformationW, WTSUserName, WTS_CURRENT_SERVER_HANDLE,
+    };
+
+    let mut buffer: *mut u16 = std::ptr::null_mut();
+    let mut bytes = 0u32;
+    // SAFETY: the call allocates the buffer and its byte length; both are released below.
+    let ok = unsafe {
+        WTSQuerySessionInformationW(
+            WTS_CURRENT_SERVER_HANDLE,
+            session,
+            WTSUserName,
+            &mut buffer,
+            &mut bytes,
+        )
+    };
+    if ok == 0 || buffer.is_null() || bytes == 0 {
+        return None;
+    }
+    let name = String::from_utf16_lossy(unsafe {
+        std::slice::from_raw_parts(buffer, (bytes / 2) as usize)
+    });
+    // SAFETY: the buffer came from `WTSQuerySessionInformationW`.
+    unsafe { WTSFreeMemory(buffer as *mut _) };
+    let name = name.trim_end_matches('\0').to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
+fn state_name(state: windows_sys::Win32::System::RemoteDesktop::WTS_CONNECTSTATE_CLASS) -> String {
+    // The numeric values are stable and documented; the names are for a human reading the console.
+    match state {
+        0 => "active".to_owned(),
+        1 => "connected".to_owned(),
+        2 => "connect-query".to_owned(),
+        3 => "shadow".to_owned(),
+        4 => "disconnected".to_owned(),
+        5 => "idle".to_owned(),
+        6 => "listen".to_owned(),
+        7 => "reset".to_owned(),
+        8 => "down".to_owned(),
+        9 => "init".to_owned(),
+        other => format!("state-{other}"),
+    }
+}

@@ -22,6 +22,7 @@ mod console;
 mod enroll;
 mod fsutil;
 mod helper;
+mod host;
 mod http;
 mod identity;
 mod lock;

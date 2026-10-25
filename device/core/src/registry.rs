@@ -280,6 +280,17 @@ pub const CAPABILITIES: &[Capability] = &[
         ],
     },
     Capability {
+        name: "host",
+        tools: &[ToolDef {
+            name: "host.facts",
+            destructive: false,
+            // Read-only, and the console's device page is the caller: an operator should not need a
+            // grant to learn what machine a device is.
+            description:
+                "Read what machine this device is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
+        }],
+    },
+    Capability {
         name: "screen",
         tools: &[ToolDef {
             name: "screen.capture",
@@ -366,6 +377,7 @@ mod tests {
                 "system.process_list",
                 "system.process_kill",
                 "system.net_test",
+                "host.facts",
                 "screen.capture",
                 "state.get",
             ],
@@ -403,6 +415,7 @@ mod tests {
             ("runs.exec", true),
             ("runs.list", false),
             ("runs.get", false),
+            ("host.facts", false),
             ("screen.capture", false),
             ("state.get", false),
         ] {

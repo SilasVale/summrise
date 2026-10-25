@@ -358,7 +358,7 @@ async fn register_helper(State(app): State<AppState>, headers: HeaderMap, body: 
     let Ok(registration) = serde_json::from_slice::<HelperRegistration>(&body) else {
         return error_response(StatusCode::BAD_REQUEST, "bad registration", None);
     };
-    helper.registered(registration.port);
+    helper.registered(registration.port, registration.pid);
     StatusCode::NO_CONTENT.into_response()
 }
 

@@ -1087,6 +1087,11 @@ impl DeviceServer {
                 })
                 .to_string())
             }
+            Handler::HostFacts => {
+                // Read-only, and the one tool an operator can call without minting a grant: knowing
+                // what machine a device is is context for every decision that follows.
+                Ok(crate::host::facts().to_string())
+            }
             Handler::ScreenCapture => {
                 // The one tool that runs where this process cannot: the picture comes from the
                 // per-user helper, and "no helper" is a sentence rather than a black frame.
@@ -1247,6 +1252,7 @@ enum Handler {
     SystemProcessList,
     SystemProcessKill,
     SystemNetTest,
+    HostFacts,
     ScreenCapture,
     StateGet,
 }
@@ -1291,6 +1297,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("system.process_list", Handler::SystemProcessList),
     ("system.process_kill", Handler::SystemProcessKill),
     ("system.net_test", Handler::SystemNetTest),
+    ("host.facts", Handler::HostFacts),
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
 ];
@@ -1928,6 +1935,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                 }
             },
             "required": ["host", "port"],
+            "additionalProperties": false
+        }),
+        "host.facts" => json!({
+            "type": "object",
+            "properties": {},
             "additionalProperties": false
         }),
         "screen.capture" => json!({
@@ -3008,6 +3020,7 @@ mod tests {
                 "system.process_list",
                 "system.process_kill",
                 "system.net_test",
+                "host.facts",
                 "screen.capture",
                 "state.get",
             ],
