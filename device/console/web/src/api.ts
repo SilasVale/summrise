@@ -10,6 +10,15 @@ export type Session = {
   /// none of it is an identity, and these three facts are the sentence it can show instead of one.
   access?: { configured: boolean; header: boolean; error?: string };
 };
+/**
+ * One baseline generation the launcher wrote: the version, and the channel it came from.
+ *
+ * The device reads it from `<install>/baseline/<generation>/baseline.json` for display — what the
+ * launcher wrote, not a signature check the console makes. A missing or half-written sidecar arrives
+ * as `null`, never as a partial object.
+ */
+export type UpdateGeneration = { version?: string; channel?: string };
+
 /** What the device sent about its machine on the channel: the console shows it without a grant. */
 export type HostFacts = {
   os?: { name?: string; version?: string; arch?: string };
@@ -20,6 +29,15 @@ export type HostFacts = {
   disks?: { name: string; total_bytes: number; free_bytes: number }[];
   sessions?: { id: number; user?: string | null; state: string }[];
   helper?: { registered?: boolean; pid?: number | null; session?: number | null };
+  /// The launcher's three baseline generations: `current` is the pair it trusts, `pending` is a pair
+  /// staged and not yet proven, `previous` is the pair a failed update returns to. Each generation is
+  /// `null` when its sidecar is missing or unreadable, so a device with no baselines reports three
+  /// nulls; the whole key is absent on a device too old to report it.
+  update?: {
+    current?: UpdateGeneration | null;
+    previous?: UpdateGeneration | null;
+    pending?: UpdateGeneration | null;
+  } | null;
 };
 
 /** A saved terminal preset: the shape of a connection, never its credential. */
