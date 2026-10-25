@@ -1068,31 +1068,14 @@ mod tests {
     async fn authorize_allows_a_known_tool_as_the_owner() {
         let fixture = fixture("authorize-owner", Some(&token_hex()));
 
-        for tool in [
-            "files.read",
-            "files.write",
-            "files.mkdir",
-            "files.list",
-            "memory.append",
-            "memory.search",
-            "terminal.create",
-            "terminal.write",
-            "terminal.read",
-            "terminal.resize",
-            "terminal.close",
-            "terminal.list",
-            "browser.list",
-            "browser.open",
-            "browser.navigate",
-            "browser.eval",
-            "browser.screenshot",
-            "browser.close",
-            "browser.shutdown",
-            "runs.exec",
-            "runs.list",
-            "runs.get",
-            "state.get",
-        ] {
+        // The registry is the table the device serves, so iterating it is what keeps this test from
+        // sampling: a tool added to `CAPABILITIES` is covered the day it is added, and a tool the
+        // registry declares but authorize refuses fails here.
+        for tool in summrise_core::registry::CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|definition| definition.name)
+        {
             let (status, response) = send(
                 fixture.app(),
                 post("/api/authorize", Some(&token_hex()), authorize_body(tool)),

@@ -121,6 +121,12 @@ moves an entry to its own position.
 `memory.append` does — the same caps, the same serialization check — because an update that could
 store what an append refuses would be a way around the caps.
 
+Two operators can name the same entry at once, and both orders are legal. An update that takes the write
+lock first succeeds, and a delete that follows removes the updated entry (the tombstone is newer, so the
+view is absent); a delete that lands first makes the update a `no_such_entry`. What may never happen is a
+half state — a tombstoned id that still reads, or an update that resurrects one — and the replay is what
+rules that out.
+
 `memory.append` gains an id in its result. That is an additive change to a tool that returned
 `{"appended": true}`: a client that ignores the field sees the same success.
 

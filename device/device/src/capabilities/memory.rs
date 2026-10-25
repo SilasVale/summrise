@@ -924,6 +924,15 @@ mod tests {
         fs::write(&memory.path, format!("{whole}\n")).expect("the fixture is written");
     }
 
+    /// Write exact pre-journal lines, one per line, as the old version left them.
+    fn write_legacy_lines(memory: &Memory, lines: &[&str]) {
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        let mut stored = lines.join("\n");
+        stored.push('\n');
+        fs::write(&memory.path, stored).expect("the legacy fixture is written");
+    }
+
     /// How many operation lines the journal holds, blank lines excluded.
     fn journal_lines(memory: &Memory) -> usize {
         fs::read_to_string(&memory.path)
@@ -961,6 +970,15 @@ mod tests {
     /// The predictable temporary name a pre-NEW-8 snapshot used. It is not written any more; a test
     /// plants it to prove compaction cannot be redirected through it.
     const LEGACY_SNAPSHOT_FILE: &str = "memory.jsonl.new";
+
+    /// The raw pre-journal line the pinned id belongs to.
+    const PINNED_LEGACY_LINE: &str = r#"{"text":"a","tags":[]}"#;
+
+    /// The first 16 hex of that line's sha256, computed outside this crate with
+    /// `printf '%s' '{"text":"a","tags":[]}' | sha256sum` (`8b1a7be928074623…`). It is a literal on
+    /// purpose: deriving it with `legacy_id` would pin whatever the implementation currently does,
+    /// not the derivation the pre-journal format already wrote to disk.
+    const PINNED_LEGACY_ID: &str = "8b1a7be928074623";
 
     /// The file names in the memory's data directory, sorted.
     fn data_files(memory: &Memory) -> Vec<String> {
@@ -1397,6 +1415,70 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_line_id_is_pinned_to_its_sha256_prefix() {
+        let (_dir, memory) = memory("memory-legacy-pinned-id");
+        write_legacy_lines(&memory, &[PINNED_LEGACY_LINE]);
+
+        let entries = memory.search("", 10).expect("the legacy file is readable");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].id, PINNED_LEGACY_ID,
+            "the id is the first 16 hex of the line's sha256, computed independently of legacy_id"
+        );
+        assert_eq!(entries[0].text, "a");
+        assert!(entries[0].tags.is_empty());
+    }
+
+    #[test]
+    fn three_identical_legacy_lines_keep_three_ids_and_deleting_the_middle_one_leaves_two() {
+        let (_dir, memory) = memory("memory-legacy-three");
+        let base = PINNED_LEGACY_ID;
+        let middle = format!("{base}-2");
+        let newest = format!("{base}-3");
+        write_legacy_lines(&memory, &[PINNED_LEGACY_LINE; 3]);
+
+        let ids: Vec<String> = memory
+            .list(10, None)
+            .expect("the legacy file replays")
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            ids,
+            [newest.clone(), middle.clone(), base.to_owned()],
+            "three byte-identical lines are three entries, named by occurrence, newest first"
+        );
+
+        memory
+            .delete(&middle)
+            .expect("the middle copy is retired by its own suffixed id");
+
+        let remaining = memory.search("", 10).expect("the journal replays");
+        let ids: Vec<&str> = remaining.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [newest.as_str(), base],
+            "deleting the middle copy renumbers neither survivor: each is still found by its own id"
+        );
+        assert!(
+            remaining.iter().all(|entry| entry.text == "a"),
+            "both survivors are the same legacy line"
+        );
+
+        let listed: Vec<String> = memory
+            .list(10, None)
+            .expect("the list replays the tombstone")
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(
+            listed,
+            [newest, base.to_owned()],
+            "search and list agree on the two survivors"
+        );
+    }
+
+    #[test]
     fn an_append_returns_the_id_it_wrote_and_does_not_rewrite_the_legacy_line() {
         let (_dir, memory) = memory("memory-append-id");
         let legacy = json_line("before the journal", &[]);
@@ -1535,6 +1617,16 @@ mod tests {
             "a legacy line exports the id derived for it"
         );
         assert_eq!(lines[1]["text"].as_str(), Some("a legacy fact"));
+
+        let found = memory
+            .search("a legacy fact", 10)
+            .expect("the search reads the same journal");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            lines[1]["id"].as_str(),
+            Some(found[0].id.as_str()),
+            "the export prints the same id the search returns for the legacy entry"
+        );
     }
 
     #[test]
@@ -2136,5 +2228,101 @@ mod tests {
             "one append and one tombstone; the three losers wrote nothing"
         );
         assert!(memory.list(10, None).expect("the store replays").is_empty());
+    }
+
+    /// An update and a delete racing on one id: the write lock makes them one ordered history.
+    ///
+    /// There are two legal histories, and the lock decides which one happens. If the update takes
+    /// the write side first it succeeds, and the delete that follows still finds the id live, so it
+    /// succeeds too — the tombstone is the newer fact and the view stops showing the entry. If the
+    /// delete takes the write side first, the update is refused as [`MemoryError::NoSuchEntry`].
+    /// Neither history may leave the updated entry visible, a half-written line, or a delete that
+    /// named a live id and failed. "Exactly one succeeds" is therefore not an invariant: an update
+    /// landing before the tombstone is two successes on one id by design.
+    #[test]
+    fn an_update_racing_a_delete_never_resurrects_the_entry() {
+        let (_dir, memory) = memory("memory-update-delete-race");
+        let entry = memory.append("before the race", &[]).expect("the append");
+        let memory = std::sync::Arc::new(memory);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+        let updater = {
+            let memory = std::sync::Arc::clone(&memory);
+            let barrier = std::sync::Arc::clone(&barrier);
+            let id = entry.id.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                memory.update(&id, "updated by the race", &["raced".to_owned()])
+            })
+        };
+        let deleter = {
+            let memory = std::sync::Arc::clone(&memory);
+            let barrier = std::sync::Arc::clone(&barrier);
+            let id = entry.id.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                memory.delete(&id)
+            })
+        };
+
+        let updated = updater.join().expect("the updater joins");
+        let deleted = deleter.join().expect("the deleter joins");
+
+        assert!(
+            deleted.is_ok(),
+            "the entry is live in both histories, so the delete cannot be refused: {deleted:?}"
+        );
+        match &updated {
+            Ok(updated) => {
+                assert_eq!(updated.id, entry.id);
+                assert_eq!(updated.text, "updated by the race");
+                assert_eq!(updated.tags, ["raced"]);
+            }
+            Err(MemoryError::NoSuchEntry { id }) => assert_eq!(
+                id, &entry.id,
+                "the refused update names the id the delete retired"
+            ),
+            Err(other) => panic!("the race produced an error it does not explain: {other:?}"),
+        }
+        let update_landed = updated.is_ok();
+
+        // The tombstone is the newest fact in both histories, so no read may still show the entry.
+        let view = memory.list(10, None).expect("the view replays");
+        assert!(
+            view.is_empty(),
+            "an update cannot outlive its tombstone: {view:?}"
+        );
+        assert!(
+            memory
+                .search("updated", 10)
+                .expect("the search replays")
+                .is_empty(),
+            "the updated wording is not resurrected by a later replay"
+        );
+        let export = memory.export(4096).expect("the export reads");
+        assert_eq!(export.entries, 0);
+        assert!(export.text.is_empty());
+        assert!(!export.truncated);
+
+        // The journal is whole lines only: the append, then the update if it landed, then the
+        // tombstone. A loser wrote nothing, and `journal_records` parses every line.
+        let records = journal_records(&memory);
+        let ops: Vec<&str> = records
+            .iter()
+            .map(|record| {
+                record["op"]
+                    .as_str()
+                    .expect("every journal line names its operation")
+            })
+            .collect();
+        let expected = if update_landed {
+            vec!["append", "update", "delete"]
+        } else {
+            vec!["append", "delete"]
+        };
+        assert_eq!(
+            ops, expected,
+            "the race wrote whole operation lines in one order, and the loser wrote nothing"
+        );
     }
 }
