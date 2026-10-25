@@ -1,5 +1,8 @@
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
 
+/** The device reports at most this many repairs, so a full list means "at least this many". */
+const REPAIR_LIMIT = 5;
+
 export type Device = {
   id: string;
   name: string | null;
@@ -143,13 +146,7 @@ function HostFactsBlock({ host }: { host: HostFacts }) {
       {repairs.length > 0 && (
         <div>
           <dt>Repaired</dt>
-          <dd
-            title={repairs
-              .map((repair) => `${new Date(repair.at_ms).toISOString()} ${repair.from} ${repair.sha256}`)
-              .join("\n")}
-          >
-            {repairsSentence(repairs)}
-          </dd>
+          <dd title={repairsTitle(repairs)}>{repairsSentence(repairs)}</dd>
         </div>
       )}
       <div>
@@ -222,20 +219,24 @@ function swapSentence(swap: UpdateSwap | null | undefined): string | null {
 /**
  * How often the launcher restored the app, and from where, in one line.
  *
- * The count is what the row is for, so it comes first ("repaired twice"). The `from` values are
- * named only when at least one restore came from `previous`: a repair from the baseline is the
- * normal one, and naming it every time would bury the case that answers "the current generation
- * itself was unusable". The launcher writes only those two values; anything else is not counted as
- * a generation this row knows, and an empty list draws no row.
+ * The row's label supplies "Repaired", so the value starts with the count ("twice", "4 times").
+ * The count is what the row is for, and it is honest about the device's cap: only the newest five
+ * repairs are reported, so five records may be a longer history cut off, and that row says "at
+ * least 5 times"; an exact count is claimed only below the cap.
+ *
+ * The `from` values are named only when at least one restore came from `previous`: a repair from
+ * the baseline is the normal one, and naming it every time would bury the case that answers "the
+ * current generation itself was unusable". The launcher writes only those two values; anything
+ * else is not counted as a generation this row knows, and an empty list draws no row.
  */
 function repairsSentence(repairs: UpdateRepair[]): string | null {
   if (repairs.length === 0) return null;
   const count = repairs.length;
   const previous = repairs.filter((repair) => repair.from === "previous").length;
-  const total = `repaired ${times(count)}`;
+  const total = `${count === REPAIR_LIMIT ? "at least " : ""}${times(count)}`;
   if (previous === 0) return total;
   if (previous === count) {
-    if (count === 1) return "repaired once from the previous generation";
+    if (count === 1) return "once from the previous generation";
     return `${total}, ${count === 2 ? "both" : "all"} from the previous generation`;
   }
   const fromPrevious = previous === 1 ? "once" : previous === 2 ? "twice" : `${previous} of them`;
@@ -245,6 +246,24 @@ function repairsSentence(repairs: UpdateRepair[]): string | null {
 /** "once", "twice", or "3 times": a repair count as the row says it. */
 function times(count: number): string {
   return count === 1 ? "once" : count === 2 ? "twice" : `${count} times`;
+}
+
+/** The repairs row's hover: each record's time, generation and hash, newest first. */
+function repairsTitle(repairs: UpdateRepair[]): string {
+  return repairs
+    .map((repair) => `${repairTime(repair.at_ms)} ${repair.from} ${repair.sha256}`)
+    .join("\n");
+}
+
+/**
+ * A repair's ISO time, or its raw milliseconds when the value is outside `Date`'s range.
+ *
+ * `at_ms` is a `u64` on the wire, so a corrupted-but-parseable log line can carry a value no
+ * `Date` can hold; formatting it must not throw in render and blank the whole card.
+ */
+function repairTime(at_ms: number): string {
+  const date = new Date(at_ms);
+  return Number.isNaN(date.getTime()) ? `${at_ms} ms` : date.toISOString();
 }
 
 function gib(bytes?: number): string {
