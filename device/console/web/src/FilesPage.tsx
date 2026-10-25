@@ -20,12 +20,14 @@ type Entry = { name: string; kind: Kind; len: number };
  * The file that is open.
  *
  * A text file is editable; a refused UTF-8 read is kept as the device's sentence, because a binary
- * file is a fact about the file rather than a failure of the page; and a base64 read is bytes to
- * download, never a textarea the operator could mistake for text.
+ * file is a fact about the file rather than a failure of the page; a file over the device's read cap
+ * has its own state, because the cap applies to base64 too and no action can work; and a base64 read
+ * is bytes to download, never a textarea the operator could mistake for text.
  */
 type Open =
   | { path: string; mode: "text"; text: string; saved: string }
   | { path: string; mode: "refused"; sentence: string }
+  | { path: string; mode: "too-large"; len: number | null; sentence: string | null }
   | { path: string; mode: "base64"; data: string };
 
 /// The device's cap on one `files.read`/`files.write` payload; uploads are refused here first.
@@ -41,8 +43,9 @@ const MAX_FILE_BYTES = 1024 * 1024;
  *
  * A UTF-8 read that the device refuses is the signal that the bytes are not text: the page shows the
  * device's sentence and offers the same file as base64, which it downloads unchanged instead of
- * painting mojibake into an editor. Every read is gated so the newest listing or file wins; a failed
- * listing keeps the previous one where it is.
+ * painting mojibake into an editor. The 1 MiB read cap is a separate state: it applies to both
+ * encodings, so an over-cap file is reported as a fact with no action that must fail. Every read is
+ * gated so the newest listing or file wins; a failed listing keeps the previous one where it is.
  */
 export function FilesPage({ grant }: { grant: Grant }) {
   const [dir, setDir] = useState("");
@@ -121,6 +124,9 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setOpen(null);
     setOpening(null);
     setFileError(null);
+    setSaving(false);
+    setCreating(false);
+    setUploading(false);
     setFolderName("");
     setActionNote(null);
     setActionError(null);
@@ -133,6 +139,16 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setOpening(null);
     setOpen(null);
     setFileError(null);
+  };
+
+  // A file over the cap is a fact the page can state without a device call: `files.read` enforces
+  // the same cap for UTF-8 and base64, so neither a read nor a download can succeed. Beginning a new
+  // file epoch drops a read that is still on the wire, so it cannot paint over this card.
+  const showTooLarge = (path: string, len: number | null, sentence: string | null) => {
+    fileGate.begin();
+    setOpening(null);
+    setFileError(null);
+    setOpen({ path, mode: "too-large", len, sentence });
   };
 
   const openText = async (path: string) => {
@@ -149,9 +165,12 @@ export function FilesPage({ grant }: { grant: Grant }) {
     } catch (cause) {
       if (fileGate.stale(ticket)) return;
       const sentence = message(cause);
-      if (isFileRefusal(sentence)) {
-        // The device answered — this file is not UTF-8 text (or is over its cap). Show its sentence
-        // and let the operator ask for the bytes instead. It is not an error page.
+      if (isTooLargeRefusal(sentence)) {
+        // The file grew past the cap after the listing, or the listing's size was unavailable.
+        showTooLarge(path, null, sentence);
+      } else if (isFileRefusal(sentence)) {
+        // The device answered — this file is not UTF-8 text. Show its sentence and let the operator
+        // ask for the bytes instead. It is not an error page.
         setOpen({ path, mode: "refused", sentence });
       } else {
         setOpen(null);
@@ -172,14 +191,35 @@ export function FilesPage({ grant }: { grant: Grant }) {
       setOpen({ path, mode: "base64", data });
     } catch (cause) {
       if (fileGate.stale(ticket)) return;
+      const sentence = message(cause);
+      if (isTooLargeRefusal(sentence)) {
+        // Base64 cannot read it either: leave the cap fact and no action that must fail.
+        showTooLarge(path, null, sentence);
+        return;
+      }
       // The refusal card stays where it is: this second read failing is extra information, not a
       // reason to throw away the sentence the device gave for the first one.
       setFileError(
-        "Could not read " + displayFile(path) + " as base64: " + message(cause)
+        "Could not read " + displayFile(path) + " as base64: " + sentence
       );
     } finally {
       if (!fileGate.stale(ticket)) setOpening(null);
     }
+  };
+
+  /// Open a listed file. The size from the listing is checked before the device is called, so an
+  /// over-cap file never asks for a read that cannot succeed; a directory is just a listing.
+  const openEntry = (entry: Entry) => {
+    const path = childPath(dir, entry.name);
+    if (entry.kind === "directory") {
+      void read(path);
+      return;
+    }
+    if (entry.len > MAX_FILE_BYTES) {
+      showTooLarge(path, entry.len, null);
+      return;
+    }
+    void openText(path);
   };
 
   const save = async () => {
@@ -216,7 +256,12 @@ export function FilesPage({ grant }: { grant: Grant }) {
   const createFolder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = folderName.trim();
-    if (name === "") return;
+    const problem = nameProblem(name);
+    if (problem !== null) {
+      setActionNote(null);
+      setActionError("The folder was not created: " + problem + ".");
+      return;
+    }
     const folder = dir;
     const path = childPath(folder, name);
     setCreating(true);
@@ -245,6 +290,12 @@ export function FilesPage({ grant }: { grant: Grant }) {
     if (!file) return;
 
     const name = file.name;
+    const problem = nameProblem(name);
+    if (problem !== null) {
+      setActionNote(null);
+      setActionError("The file was not uploaded: " + problem + ".");
+      return;
+    }
     if (file.size > MAX_FILE_BYTES) {
       // The device would refuse this too; saying it here saves the round trip and names the limit.
       setActionNote(null);
@@ -290,9 +341,11 @@ export function FilesPage({ grant }: { grant: Grant }) {
       </div>
       <p className="hint">
         Paths are relative to the device's files root. A folder with more than 1000 entries is
-        refused with the device's sentence, and a UTF-8 read that refuses can be opened as base64.
-        Saving replaces the whole file; an upload replaces a file of the same name. Both are capped
-        at 1 MiB. The device has no delete or rename tool, so this page offers neither.
+        refused with the device's sentence, and a UTF-8 read that refuses because the file is not
+        text can be opened as base64. The 1 MiB read cap applies to base64 too, so an over-cap file
+        cannot be opened or downloaded. Saving replaces the whole file; an upload replaces a file of
+        the same name. Both are capped at 1 MiB. The device has no delete or rename tool, so this
+        page offers neither.
       </p>
 
       <nav className="files-crumbs" aria-label="Breadcrumb">
@@ -371,6 +424,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
               <button
                 type="button"
                 className="files-name"
+                aria-label="Parent folder"
                 disabled={loadingDir}
                 onClick={() => void read(up)}
               >
@@ -393,11 +447,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
                 <button
                   type="button"
                   className="files-name"
-                  onClick={() =>
-                    entry.kind === "directory"
-                      ? void read(childPath(dir, entry.name))
-                      : void openText(childPath(dir, entry.name))
-                  }
+                  onClick={() => openEntry(entry)}
                 >
                   {entry.name}
                   {entry.kind === "directory" ? "/" : ""}
@@ -489,6 +539,22 @@ export function FilesPage({ grant }: { grant: Grant }) {
             </>
           )}
 
+          {open.mode === "too-large" && (
+            <>
+              <p className="hint">
+                <strong>Too large to read.</strong>{" "}
+                {open.sentence ??
+                  (open.len === null
+                    ? "The device's read cap is 1 MiB, and this file is larger than that."
+                    : `The file is ${bytes(open.len)}; the device's read cap is 1 MiB (1,048,576 bytes).`)}
+              </p>
+              <p className="hint">
+                The cap applies to files.read in both UTF-8 and base64, so the page cannot open or
+                download this file.
+              </p>
+            </>
+          )}
+
           {open.mode === "base64" && (
             <>
               <p className="hint">
@@ -520,10 +586,21 @@ export function FilesPage({ grant }: { grant: Grant }) {
   );
 }
 
-/// The child path the plan specifies: a name from a listing under the directory being shown. No
-/// `..` is ever built here; the parent row computes its target from the current string instead.
+/// A child path: the directory being shown plus one name. Every caller passes a single component —
+/// a listed entry, a validated new folder name, or a validated upload basename — so no `..` is ever
+/// built here; the parent row computes its target from the current string instead.
 function childPath(parent: string, name: string): string {
   return parent === "" ? name : parent + "/" + name;
+}
+
+/// Why a name cannot be one path component, or null when it can. The device would refuse a bad path
+/// anyway; rejecting it here keeps the page's invariant — only the current directory plus one listed
+/// or validated component is sent — and replaces a device refusal with the page's own sentence.
+function nameProblem(name: string): string | null {
+  if (name === "") return "the name is empty";
+  if (name === "." || name === "..") return `“${name}” is a relative path, not a name`;
+  if (name.includes("/") || name.includes("\\")) return "a name cannot contain a path separator";
+  return null;
 }
 
 /// The parent directory of a path, or null at the root — computed, never sent as a `..` component.
@@ -552,11 +629,15 @@ function crumbs(path: string): { name: string; path: string }[] {
   return trail;
 }
 
-/// The two `files.read` refusals that are facts about the bytes rather than failures of the page: a
-/// file that is not UTF-8 text (the device names the encoding to ask for) and one over the 1 MiB
-/// cap (the device names the size and the cap). A missing file is neither.
+/// The `files.read` refusal that is a fact about the bytes: the file is not UTF-8 text, and the
+/// device names `base64` as the encoding to ask for.
 function isFileRefusal(sentence: string): boolean {
-  return sentence.includes("not UTF-8 text") || sentence.includes("the cap is");
+  return sentence.includes("not UTF-8 text");
+}
+
+/// The 1 MiB cap is a separate refusal: it applies to both encodings, so a base64 retry cannot help.
+function isTooLargeRefusal(sentence: string): boolean {
+  return sentence.includes("the cap is");
 }
 
 /// A path as the page shows it: the root is a word, everything else is rooted with `/`.
@@ -635,14 +716,17 @@ function readAsBase64(file: File): Promise<string> {
 }
 
 /// Save the base64 bytes as a file: decode to a typed array, wrap it in a Blob and click a temporary
-/// link. The object URL is revoked on the next task, after the browser has started the download.
+/// link. The object URL is revoked after a second, once the browser has had time to start the
+/// download.
 function download(path: string, data: string) {
   const binary = atob(data);
   const decoded = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     decoded[index] = binary.charCodeAt(index);
   }
-  const url = URL.createObjectURL(new Blob([decoded]));
+  const url = URL.createObjectURL(
+    new Blob([decoded], { type: "application/octet-stream" })
+  );
   const link = document.createElement("a");
   link.href = url;
   link.download = baseName(path);
