@@ -437,6 +437,10 @@ impl MeshSession {
         ttl_ms: u64,
         refresh_ms: u64,
     ) -> Result<Self, SessionError> {
+        // **THE BROKER REFUSES A LONGER TTL**, so a caller that asks for one would get a generic 400 at the
+        // first welcome. Clamping here registers for the maximum the broker allows instead: the refresh
+        // task still runs at `refresh_ms`, and no deployment silently lapses.
+        let ttl_ms = ttl_ms.min(crate::broker::MAX_REGISTRATION_TTL_MS);
         // A server endpoint also dials: quinn's `connect_with` takes the client
         // configuration per connection, so one UDP socket both accepts the
         // direct handshake and opens the outbound one the role chooses.
@@ -1983,6 +1987,23 @@ mod tests {
 
         echo_once(&mut channel, 7).await;
         serve.abort();
+    }
+
+    /// A ttl longer than the broker's maximum is clamped, not refused: the join succeeds and the
+    /// registration lives as long as the broker allows.
+    #[tokio::test]
+    async fn a_join_clamps_a_ttl_longer_than_the_broker_allows() {
+        let broker = start_broker().await;
+        let (identity, _) = dialer_and_listener();
+        let session = MeshSession::join_with_ttl(
+            identity,
+            config(&broker, None, DIRECT_TIMEOUT_MS),
+            crate::broker::MAX_REGISTRATION_TTL_MS + 60_000,
+            1_000,
+        )
+        .await
+        .expect("the broker must not refuse the clamped registration");
+        drop(session);
     }
 
     /// **THE CAP IS TAKEN BEFORE THE HANDSHAKE AND HELD FOR THE SESSION'S LIFE.** A dialer that
