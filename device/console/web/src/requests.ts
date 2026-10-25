@@ -13,7 +13,8 @@ type RequestGate = { begin(): number; stale(ticket: number): boolean };
  * The counter is a ref, not state: claiming a ticket must not render, and the check compares against
  * the value at the moment the answer lands, not the one the call site closed over. Unmounting the
  * page invalidates every ticket it still holds, so a late answer cannot set state on a page that is
- * gone (the same epoch also ends when a page starts over for a different grant).
+ * gone. The hook does not see the grant: a page whose work belongs to one must call `begin()` in the
+ * effect that starts the new grant, or the old epoch stays current.
  */
 export function useRequestGate(): RequestGate {
   const newest = useRef(0);

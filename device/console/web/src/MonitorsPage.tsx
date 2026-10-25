@@ -91,10 +91,14 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
   // while a failed refresh must leave the previous list where it is.
   const listed = useRef(false);
   // The list and the status poll paint different things (the targets and their summaries), so each
-  // has its own ticket: a poll must not discard a list read that is still on the wire, and a
-  // refresh must not discard the poll's answers for the other targets.
+  // has its own ticket: a poll must never discard a list read that is still on the wire. A successful
+  // read does restart the poll effect, whose cleanup invalidates a batch in flight; the replacement
+  // tick is skipped while `pollInFlight` is set, so those summaries wait for the next tick. A probe
+  // gets a third ticket: it writes one target's status and its own error, and must not thrash with
+  // the poll's batch.
   const listGate = useRequestGate();
   const pollGate = useRequestGate();
+  const probeGate = useRequestGate();
 
   const read = useCallback(async () => {
     const ticket = listGate.begin();
@@ -127,6 +131,7 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
 
   // A different grant is a different device's registry: its targets, its summaries, its draft.
   useEffect(() => {
+    probeGate.begin();
     listed.current = false;
     setTargets([]);
     setStatuses({});
@@ -142,7 +147,7 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
     setExpect("");
     setNote("Reading the device's targets…");
     void read();
-  }, [read]);
+  }, [read, probeGate]);
 
   // Poll every target's summary while the list is showing. The effect restarts when the target set
   // changes, so an added target is asked about at once rather than at the next 15-second mark.
@@ -230,20 +235,28 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
   };
 
   const probe = async (target: Target) => {
+    const ticket = probeGate.begin();
     setProbing(target.id);
     setError(null);
     try {
       await callTool(grant, "monitor.probe", { id: target.id });
+      // A newer probe (or a new grant) makes the rest of this one pointless: do not read a summary
+      // for a card the newest probe already owns.
+      if (probeGate.stale(ticket)) return;
       // `monitor.probe` answers with the sample, but the card shows the summary (since, drops,
       // up_pct), so read that back. A probe that ran is a fact even if this second read fails.
       const fresh = JSON.parse(
         await callTool(grant, "monitor.status", { id: target.id })
       ) as Status;
+      if (probeGate.stale(ticket)) return;
       setStatuses((current) => ({ ...current, [target.id]: fresh }));
     } catch (cause) {
+      if (probeGate.stale(ticket)) return;
       setError("Could not probe " + where(target) + ": " + message(cause));
     } finally {
-      setProbing(null);
+      // Only the newest probe owns the button: an earlier answer must not clear a later probe's
+      // "Probing…" or make a third one clickable while it is still on the wire.
+      if (!probeGate.stale(ticket)) setProbing(null);
     }
   };
 
