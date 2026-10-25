@@ -181,6 +181,24 @@ tr:last-child td { border-bottom: 0; }
   width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
+.modal select {
+  width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
+}
+/* A radio is a choice, not a field: the modal's full-width input rule would stretch it. */
+.modal input[type="radio"] { width: auto; padding: 0; }
+.modal .check { font-weight: 450; }
+/* The SSH credential is one of two, so it is a fieldset with two radios and only the chosen
+   field below it. */
+.modal .auth-choice {
+  margin: 0; padding: 0.4rem 0.6rem 0.55rem; border: 1px solid var(--line);
+  border-radius: var(--radius-xs); display: grid; gap: 0.2rem;
+}
+.modal .auth-choice legend { padding: 0 0.25rem; font-size: var(--fs-sm); font-weight: 550; }
+/* Serial framing is four short values, not four full-width lines. */
+.serial-framing { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: 0.5rem; }
+.serial-framing > div { display: grid; gap: 0.2rem; min-width: 0; }
+.serial-framing label { font-size: var(--fs-xs); font-weight: 550; color: var(--ink-muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; }
 
 .toast {
