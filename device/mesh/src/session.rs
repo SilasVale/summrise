@@ -374,6 +374,30 @@ impl Drop for MeshSession {
     }
 }
 
+/// Take one served-session slot, if any is free.
+///
+/// One rule for both paths: the direct accept loop and the relay poller admit a served session through
+/// here. Without the poller's use, the broker inbox was a way around `max_served`: one handler task per
+/// drained request, unbounded by the cap that the direct path enforces.
+fn take_session_slot(slots: &Arc<Semaphore>) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    slots.clone().try_acquire_owned().ok()
+}
+
+/// Log a refused served session at most O(log n) times.
+///
+/// The accept loop runs at the dialer's rate; one synchronous `eprintln!` per refusal would let a caller
+/// fill stderr (and the journal) without limit while the cap is full.
+fn refuse_logged(cap: usize) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static REFUSED: AtomicU64 = AtomicU64::new(0);
+    let count = REFUSED.fetch_add(1, Ordering::Relaxed) + 1;
+    if count == 1 || count.is_power_of_two() {
+        eprintln!(
+            "[summrise-mesh] serve at its {cap}-session cap; refused {count} connection(s) so far"
+        );
+    }
+}
+
 impl MeshSession {
     /// Join the mesh: bind the endpoint, publish the candidates, and keep the
     /// registration fresh in the background.
@@ -806,7 +830,7 @@ impl MeshSession {
         // hold the direct accept loop. The guard aborts the poller when this
         // future ends or is dropped, so an aborted `serve` does not leave a
         // task polling the broker forever.
-        let _relay_poller = self.spawn_relay_poller(Arc::clone(&handler));
+        let _relay_poller = self.spawn_relay_poller(Arc::clone(&handler), Arc::clone(&slots));
         loop {
             let incoming = match self.endpoint.accept_incoming().await {
                 Ok(incoming) => incoming,
@@ -814,17 +838,12 @@ impl MeshSession {
                 Err(EndpointError::Closed) => return Ok(()),
                 Err(error) => return Err(SessionError::Endpoint(error)),
             };
-            let permit = match slots.clone().try_acquire_owned() {
-                Ok(permit) => permit,
-                Err(_) => {
-                    // Dropping the un-accepted `Incoming` refuses the connection without a handshake;
-                    // the dialer sees a failed connect, not a session that waits for a slot.
-                    drop(incoming);
-                    eprintln!(
-                        "[summrise-mesh] serve at its {max_served}-session cap; refusing a new peer"
-                    );
-                    continue;
-                }
+            let Some(permit) = take_session_slot(&slots) else {
+                // Dropping the un-accepted `Incoming` refuses the connection without a handshake; the
+                // dialer sees a failed connect, not a session that waits for a slot.
+                drop(incoming);
+                refuse_logged(max_served);
+                continue;
             };
             let endpoint = self.endpoint.clone();
             let handler = Arc::clone(&handler);
@@ -1181,7 +1200,11 @@ impl MeshSession {
     /// handler, so it does not borrow the session. `None` when the session has
     /// no relay: a request would have nowhere to meet. The returned guard
     /// aborts the task when it is dropped.
-    fn spawn_relay_poller<H, Fut>(&self, handler: Arc<H>) -> Option<AbortOnDrop>
+    fn spawn_relay_poller<H, Fut>(
+        &self,
+        handler: Arc<H>,
+        slots: Arc<Semaphore>,
+    ) -> Option<AbortOnDrop>
     where
         H: Fn(String, Channel) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
@@ -1211,6 +1234,12 @@ impl MeshSession {
                         // verifies, or our own key: refuse it, keep polling.
                         continue;
                     };
+                    // THE INBOX IS NOT A WAY AROUND THE CAP: a relayed session takes the same permit
+                    // as a direct one. With no slot the request is dropped; it is one-shot at the
+                    // broker, and the dialer's relay patience produces its own typed timeout.
+                    let Some(permit) = take_session_slot(&slots) else {
+                        continue;
+                    };
                     let handler = Arc::clone(&handler);
                     let identity = identity.clone();
                     tokio::spawn(async move {
@@ -1220,6 +1249,7 @@ impl MeshSession {
                             let peer_id = channel.peer_id().to_owned();
                             handler(peer_id, channel).await;
                         }
+                        drop(permit);
                     });
                 }
             }
