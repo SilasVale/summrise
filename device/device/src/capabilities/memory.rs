@@ -1,28 +1,41 @@
-//! The append-only memory capability (design §4.5).
+//! The journal-backed memory capability (design §4.5).
 //!
-//! One JSON object per line under `<data>/memory.jsonl`. Appends never rewrite earlier entries; a
-//! search reads the file and walks it backwards, so the newest entry is returned first. The caps are
-//! part of the capability, not a client convention: **1 MiB per entry's serialized JSON** (tags and
-//! JSON escaping included, the trailing newline not counted), 32 tags, 128 bytes per tag, 10 000
-//! entries, 100 results.
+//! One JSON object per line under `<data>/memory.jsonl`. A line is one operation in a journal —
+//! `append`, `update` or `delete` — and the live entries are what a reverse replay of those
+//! operations produces. The file stays append-only, so an earlier byte is never rewritten.
 //!
-//! The entry cap is a storage cap, not a text-length cap: the check happens after `serde_json`
-//! writes the object, so a quote-heavy 1 MiB text cannot serialize to two megabytes on disk.
+//! A line written before the journal carries only `{"text","tags"}` and is read as an append whose
+//! id is derived from its own bytes, and from its ordinal when two lines are byte-identical. An old
+//! file therefore keeps working without a migration, and a duplicate stays two distinguishable
+//! entries instead of collapsing into one.
+//!
+//! The caps are part of the capability, not a client convention: **1 MiB per serialized operation
+//! line** (tags and JSON escaping included, the trailing newline not counted), 32 tags, 128 bytes
+//! per tag, 10 000 entries, 100 results. The line cap is a storage cap, not a text-length cap: the
+//! check happens after `serde_json` writes the line, so a quote-heavy 1 MiB text cannot serialize to
+//! two megabytes on disk.
+//!
+//! A read walks the journal backwards, newest line first, keeping two sets: ids already emitted, and
+//! ids a delete has tombstoned. That is what makes an update appear at the update's position rather
+//! than at the append's, and it lets one pass return newest-first without holding the journal in
+//! memory.
 //!
 //! The MCP surface serves several sessions at once, so one lock makes the file's invariants hold
 //! under concurrency: an append's count-then-write is one critical section (two racing appends
-//! cannot both take the last slot), and a search takes the read side, so it never reads a line that
-//! is halfway written.
+//! cannot both take the last slot), and a read takes the read side, so it never reads a line that is
+//! halfway written.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-/// The largest serialized entry: tags, JSON quoting and escapes included; the newline is extra.
+/// The largest serialized operation line: tags, the id, JSON quoting and escapes included; the
+/// newline is extra.
 pub const MAX_ENTRY_BYTES: usize = 1024 * 1024;
 
 /// The most tags one entry may carry.
@@ -41,35 +54,101 @@ pub const MAX_RESULTS: usize = 100;
 /// its entry ceiling can be gigabytes.
 pub const MAX_EXPORT_BYTES: usize = 2 * 1024 * 1024;
 
-/// What `export` returns: the stored lines, how many whole lines they are, and whether the cap cut
-/// the store.
+/// What `export` returns: the live entries as JSONL, how many whole lines they are, and whether the
+/// cap cut the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Export {
-    /// The store's own bytes, as JSONL, ending on a newline unless the store is empty.
+    /// The live entries, newest first, ending on a newline unless the store is empty.
     pub text: String,
     /// Whole lines in [`Export::text`].
     pub entries: usize,
-    /// The store was larger than the cap and `text` is a prefix.
+    /// The live entries were larger than the cap and `text` is a prefix.
     pub truncated: bool,
-    /// The store's size, so a caller can see what it did not get.
+    /// The size of all live entries, so a caller can see what it did not get.
     pub total_bytes: usize,
 }
 
-/// One remembered fact.
+/// One remembered fact, and the name a later operation uses to refer to it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
+    /// The entry's name: minted by an append, derived for a legacy line. It belongs to the journal
+    /// record rather than to the payload, so an append's `entry` object does not repeat it.
+    #[serde(default)]
+    pub id: String,
     /// The entry's text.
     pub text: String,
     /// Free-form tags; a search matches them as well as the text.
     pub tags: Vec<String>,
 }
 
+/// What a journal line does to the entry it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Op {
+    /// A new entry.
+    Append,
+    /// A new version of an existing entry, at this line's position in the journal.
+    Update,
+    /// A tombstone: the named entry is no longer live.
+    Delete,
+}
+
+/// One line of the journal.
+///
+/// The id is at this level, not inside `entry`, because it is what the operation names; the payload
+/// keeps the pre-journal `{"text","tags"}` shape. An append or update carries an id and an entry, a
+/// delete carries an id alone.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Record {
+    /// What the line does.
+    pub op: Op,
+    /// The entry the line names.
+    pub id: Option<String>,
+    /// The entry an append or update writes; a delete carries none.
+    pub entry: Option<Entry>,
+}
+
+/// The entry half of a journal line: the record already carries the id, so the payload omits it.
+#[derive(Serialize)]
+struct Payload<'a> {
+    text: &'a str,
+    tags: &'a [String],
+}
+
+// Serde's `tag` container attribute is an enum attribute; on a struct it emits a second `op` key.
+// This impl is what keeps the record's shape the design names: op, then the optional id, then the
+// optional payload, with the payload's id only at the record level.
+impl Serialize for Record {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut record = serializer.serialize_struct("Record", 3)?;
+        record.serialize_field("op", &self.op)?;
+        if let Some(id) = &self.id {
+            record.serialize_field("id", id)?;
+        }
+        if let Some(entry) = &self.entry {
+            record.serialize_field(
+                "entry",
+                &Payload {
+                    text: &entry.text,
+                    tags: &entry.tags,
+                },
+            )?;
+        }
+        record.end()
+    }
+}
+
 /// Why an append or a search was refused or failed.
 #[derive(Debug)]
 pub enum MemoryError {
-    /// The serialized entry exceeds [`MAX_ENTRY_BYTES`].
+    /// The serialized operation line exceeds [`MAX_ENTRY_BYTES`].
     TooLarge {
-        /// The payload's size in bytes; after serialization this is the stored line's length.
+        /// The line's size in bytes, or the raw payload's before serialization.
         bytes: usize,
         /// The cap.
         max: usize,
@@ -158,13 +237,13 @@ impl Memory {
         }
     }
 
-    /// Append one entry.
+    /// Append one entry and return it, id included.
     ///
     /// Validation happens before the write lock and before the serialized line is built where it
     /// can: the tag count and each tag's length first, then the JSON serialization, and finally the
-    /// stored line's own length. The cap is on what is written, not on `text.len()`, because tags
-    /// and escaping are part of the line.
-    pub fn append(&self, text: &str, tags: &[String]) -> Result<(), MemoryError> {
+    /// stored line's own length. The cap is on what is written, not on `text.len()`, because tags,
+    /// escaping, the id and the journal's envelope are all part of the line.
+    pub fn append(&self, text: &str, tags: &[String]) -> Result<Entry, MemoryError> {
         if tags.len() > MAX_TAGS {
             return Err(MemoryError::TooManyTags {
                 count: tags.len(),
@@ -189,10 +268,16 @@ impl Memory {
         }
 
         let entry = Entry {
+            id: mint_id(),
             text: text.to_owned(),
             tags: tags.to_vec(),
         };
-        let mut line = serde_json::to_string(&entry)
+        let record = Record {
+            op: Op::Append,
+            id: Some(entry.id.clone()),
+            entry: Some(entry.clone()),
+        };
+        let mut line = serde_json::to_string(&record)
             .map_err(|error| MemoryError::Io(io::Error::new(io::ErrorKind::InvalidData, error)))?;
         if line.len() > MAX_ENTRY_BYTES {
             // A text of quotes or control characters is larger on disk than in memory. The cap is
@@ -224,7 +309,67 @@ impl Memory {
             .open(&self.path)
             .map_err(MemoryError::Io)?;
         file.write_all(line.as_bytes()).map_err(MemoryError::Io)?;
-        file.flush().map_err(MemoryError::Io)
+        file.flush().map_err(MemoryError::Io)?;
+        Ok(entry)
+    }
+
+    /// Walk the journal backwards and hand every live entry to `emit`, newest first.
+    ///
+    /// Reverse order is the replay: an update is later in the file than the append it replaces, so
+    /// the walk meets the update first and `seen` skips the append. `deleted` remembers tombstones,
+    /// which are newer than any line they can name. Both sets hold ids, not entries, so the walk's
+    /// memory is the line index plus the names the journal mentions.
+    fn replay(&self, mut emit: impl FnMut(Entry)) -> Result<(), MemoryError> {
+        let _reading = self
+            .lock
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut file = match File::open(&self.path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(MemoryError::Io(error)),
+        };
+        let lines = index(&mut file)?;
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut deleted: HashSet<String> = HashSet::new();
+        let mut bytes = Vec::new();
+        for line in lines.iter().rev() {
+            bytes.resize(line.len, 0);
+            file.seek(SeekFrom::Start(line.offset))
+                .map_err(MemoryError::Io)?;
+            file.read_exact(&mut bytes).map_err(MemoryError::Io)?;
+            match parse_line(&bytes, line.number, line.occurrence)? {
+                Parsed::Record(record) => {
+                    let id = record
+                        .id
+                        .ok_or(MemoryError::Corrupt { line: line.number })?;
+                    match record.op {
+                        Op::Append | Op::Update => {
+                            let mut entry = record
+                                .entry
+                                .ok_or(MemoryError::Corrupt { line: line.number })?;
+                            if seen.contains(&id) || deleted.contains(&id) {
+                                continue;
+                            }
+                            entry.id = id.clone();
+                            seen.insert(id);
+                            emit(entry);
+                        }
+                        Op::Delete => {
+                            deleted.insert(id);
+                        }
+                    }
+                }
+                Parsed::Legacy(entry) => {
+                    if seen.contains(&entry.id) || deleted.contains(&entry.id) {
+                        continue;
+                    }
+                    seen.insert(entry.id.clone());
+                    emit(entry);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Search entries newest-first, matching `query` case-insensitively over text and tags.
@@ -239,41 +384,22 @@ impl Memory {
             return Ok(Vec::new());
         }
 
-        // A search never reads a line an append is still writing.
-        let _reading = self
-            .lock
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let file = match fs::File::open(&self.path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(MemoryError::Io(error)),
-        };
-
         let needle = query.to_lowercase();
-        let mut found: VecDeque<Entry> = VecDeque::new();
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line = line.map_err(MemoryError::Io)?;
-            if line.trim().is_empty() {
-                continue;
+        let mut found = Vec::new();
+        self.replay(|entry| {
+            if found.len() >= limit {
+                return;
             }
-            let entry: Entry = serde_json::from_str(&line)
-                .map_err(|_| MemoryError::Corrupt { line: index + 1 })?;
             if entry.text.to_lowercase().contains(&needle)
                 || entry
                     .tags
                     .iter()
                     .any(|tag| tag.to_lowercase().contains(&needle))
             {
-                // Walking forwards but pushing to the front leaves the newest entries first, and
-                // popping the back keeps at most `limit` entries in memory.
-                found.push_front(entry);
-                if found.len() > limit {
-                    found.pop_back();
-                }
+                found.push(entry);
             }
-        }
-        Ok(found.into())
+        })?;
+        Ok(found)
     }
 
     /// Enumerate entries, newest first, optionally only those carrying `tag`.
@@ -293,72 +419,67 @@ impl Memory {
             return Ok(Vec::new());
         }
 
-        let _reading = self
-            .lock
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let file = match fs::File::open(&self.path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(MemoryError::Io(error)),
-        };
-
         let wanted = tag.map(str::to_lowercase);
-        let mut found: VecDeque<Entry> = VecDeque::new();
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line = line.map_err(MemoryError::Io)?;
-            if line.trim().is_empty() {
-                continue;
+        let mut found = Vec::new();
+        self.replay(|entry| {
+            if found.len() >= limit {
+                return;
             }
-            let entry: Entry = serde_json::from_str(&line)
-                .map_err(|_| MemoryError::Corrupt { line: index + 1 })?;
             if let Some(wanted) = &wanted {
                 if !entry.tags.iter().any(|tag| tag.to_lowercase() == *wanted) {
-                    continue;
+                    return;
                 }
             }
-            found.push_front(entry);
-            if found.len() > limit {
-                found.pop_back();
-            }
-        }
-        Ok(found.into())
+            found.push(entry);
+        })?;
+        Ok(found)
     }
 
-    /// The store as JSONL text, cut at a line boundary when it is larger than `max_bytes`.
+    /// The live entries as JSONL, cut at a line boundary when they are larger than `max_bytes`.
     ///
-    /// An export is for a backup, so it is the file's own bytes rather than a re-serialization that
-    /// might not round-trip. The cap exists because a tool result is a JSON-RPC frame, not a stream:
-    /// a store at its 10 000-entry ceiling can be gigabytes, and a client that asked for everything
-    /// can ask again with the byte offset the truncation names.
+    /// The export is what the device remembers, not the journal that stores it: an update appears as
+    /// the updated entry and a tombstoned entry is absent. The cap exists because a tool result is a
+    /// JSON-RPC frame, not a stream: a store at its 10 000-entry ceiling can be gigabytes, and a
+    /// client that asked for everything can ask again with the byte offset the truncation names.
     pub fn export(&self, max_bytes: usize) -> Result<Export, MemoryError> {
-        let _reading = self
-            .lock
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let bytes = match fs::read(&self.path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(MemoryError::Io(error)),
-        };
-        let total = bytes.len();
-        let truncated = total > max_bytes;
-        let kept = if truncated {
-            // The last newline at or before the cap; a store with no newline in the window exports
-            // an empty text rather than half a JSON object.
-            match bytes[..max_bytes].iter().rposition(|byte| *byte == b'\n') {
-                Some(last) => &bytes[..=last],
-                None => &bytes[..0],
+        let mut text = String::new();
+        let mut entries = 0;
+        let mut total_bytes = 0;
+        let mut truncated = false;
+        let mut failure = None;
+        self.replay(|entry| {
+            if failure.is_some() {
+                return;
             }
-        } else {
-            &bytes[..]
-        };
-        let entries = kept.iter().filter(|byte| **byte == b'\n').count();
+            let mut line = match serde_json::to_string(&entry) {
+                Ok(line) => line,
+                Err(error) => {
+                    failure = Some(MemoryError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        error,
+                    )));
+                    return;
+                }
+            };
+            line.push('\n');
+            total_bytes += line.len();
+            // Whole lines only: one line that does not fit ends the export, so a client never has
+            // to guess whether the last line was cut in the middle.
+            if !truncated && text.len() + line.len() <= max_bytes {
+                text.push_str(&line);
+                entries += 1;
+            } else {
+                truncated = true;
+            }
+        })?;
+        if let Some(error) = failure {
+            return Err(error);
+        }
         Ok(Export {
-            text: String::from_utf8_lossy(kept).into_owned(),
+            text,
             entries,
             truncated,
-            total_bytes: total,
+            total_bytes,
         })
     }
 
@@ -378,6 +499,134 @@ impl Memory {
         }
         Ok(count)
     }
+}
+
+/// One non-empty line's place in the journal.
+struct LineRef {
+    /// Byte offset of the line's first byte.
+    offset: u64,
+    /// The line's length without its newline.
+    len: usize,
+    /// 1-based line number in the file, blank lines included, for [`MemoryError::Corrupt`].
+    number: usize,
+    /// Which byte-identical copy of the line this is, 1-based; only a legacy id uses it.
+    occurrence: usize,
+}
+
+/// One parsed journal line: an operation, or a bare line from before operations existed.
+enum Parsed {
+    Record(Record),
+    /// A pre-journal entry, carrying the id its bytes and ordinal derive.
+    Legacy(Entry),
+}
+
+/// Index the journal in one forward pass.
+///
+/// A read replays newest-first, but a legacy line's id depends on how many byte-identical copies
+/// came before it; the index is that forward count plus the offset each line is read from. It is
+/// small and fixed-size per line, not the line itself, so a store near its ceiling does not have to
+/// be held in memory to be read.
+fn index(file: &mut File) -> Result<Vec<LineRef>, MemoryError> {
+    let mut reader = BufReader::new(file);
+    let mut lines = Vec::new();
+    let mut occurrences: HashMap<[u8; 8], usize> = HashMap::new();
+    let mut offset = 0u64;
+    let mut number = 0usize;
+    loop {
+        let mut line = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(MemoryError::Io)?;
+        if read == 0 {
+            break;
+        }
+        number += 1;
+        let start = offset;
+        offset += read as u64;
+        if line.last() == Some(&b'\n') {
+            line.pop();
+        }
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        if line.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        let digest = Sha256::digest(&line);
+        let mut prefix = [0u8; 8];
+        prefix.copy_from_slice(&digest[..8]);
+        let occurrence = occurrences.entry(prefix).or_insert(0);
+        *occurrence += 1;
+        lines.push(LineRef {
+            offset: start,
+            len: line.len(),
+            number,
+            occurrence: *occurrence,
+        });
+    }
+    Ok(lines)
+}
+
+/// Read one line as the journal defines it.
+///
+/// A bare `{"text","tags"}` object is the format before the journal and stays readable. A line that
+/// names an operation must parse as that operation, so an unknown op is corruption rather than a
+/// legacy line whose extra field a permissive parser would ignore.
+fn parse_line(bytes: &[u8], number: usize, occurrence: usize) -> Result<Parsed, MemoryError> {
+    #[derive(Deserialize)]
+    struct Probe {
+        #[serde(default)]
+        op: Option<Op>,
+    }
+
+    let probe: Probe =
+        serde_json::from_slice(bytes).map_err(|_| MemoryError::Corrupt { line: number })?;
+    if probe.op.is_some() {
+        let record: Record =
+            serde_json::from_slice(bytes).map_err(|_| MemoryError::Corrupt { line: number })?;
+        return Ok(Parsed::Record(record));
+    }
+
+    let mut entry: Entry =
+        serde_json::from_slice(bytes).map_err(|_| MemoryError::Corrupt { line: number })?;
+    let line = std::str::from_utf8(bytes).map_err(|_| MemoryError::Corrupt { line: number })?;
+    entry.id = legacy_id(line, occurrence);
+    Ok(Parsed::Legacy(entry))
+}
+
+/// A legacy line's id: the first 16 hex of its sha256, plus its occurrence when lines repeat.
+///
+/// The derivation is over the line's own bytes, so one file derives the same ids on every read. A
+/// byte-identical duplicate is a different entry and gets a suffix instead of collapsing into the
+/// first one, which is what lets each be named and retired separately.
+fn legacy_id(line: &str, occurrence: usize) -> String {
+    let digest = Sha256::digest(line.as_bytes());
+    let mut id = hex(&digest[..8]);
+    if occurrence > 1 {
+        id.push_str(&format!("-{occurrence}"));
+    }
+    id
+}
+
+/// 8 bytes from the operating system's generator, as hex.
+///
+/// An id is a name, not a secret, but it must not repeat: 64 random bits keep a collision
+/// negligible even at the 10 000-entry ceiling.
+fn mint_id() -> String {
+    use rand_core::{OsRng, RngCore};
+
+    let mut bytes = [0u8; 8];
+    OsRng.fill_bytes(&mut bytes);
+    hex(&bytes)
+}
+
+/// Lower-case hex, the form ids are written in.
+fn hex(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        text.push_str(&format!("{byte:02x}"));
+    }
+    text
 }
 
 #[cfg(test)]
@@ -594,8 +843,8 @@ mod tests {
             "a refused append writes no line and no file"
         );
 
-        // A quote-light text of the same length fits, because its serialized form is small.
-        let text = "x".repeat(MAX_ENTRY_BYTES - 64);
+        // A quote-light text leaves room for the journal envelope, so its serialized line fits.
+        let text = "x".repeat(MAX_ENTRY_BYTES - 128);
         memory
             .append(&text, &[])
             .expect("a text whose serialized line fits the cap is accepted");
@@ -621,7 +870,7 @@ mod tests {
                 scope.spawn(|| {
                     barrier.wait();
                     match memory.append("racing", &[]) {
-                        Ok(()) => {
+                        Ok(_) => {
                             accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         }
                         Err(MemoryError::Full { .. }) => {
@@ -745,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    fn an_export_is_the_stores_own_bytes() {
+    fn an_export_is_the_live_entries_as_jsonl() {
         let (_dir, memory) = memory("memory-export");
         memory.append("one", &[]).expect("append");
         memory.append("two", &[]).expect("append");
@@ -754,7 +1003,7 @@ mod tests {
         assert_eq!(export.entries, 2);
         assert!(!export.truncated);
         assert_eq!(export.text.lines().count(), 2);
-        assert!(export.text.contains("\"one\""));
+        assert!(export.text.contains("\"text\":\"one\""));
         assert_eq!(export.total_bytes, export.text.len());
     }
 
@@ -773,5 +1022,192 @@ mod tests {
         assert_eq!(export.entries, 1);
         assert_eq!(export.text.lines().count(), 1);
         assert_eq!(export.total_bytes, whole.text.len());
+    }
+
+    #[test]
+    fn legacy_lines_keep_working_with_stable_distinct_ids() {
+        let (_dir, memory) = memory("memory-legacy-ids");
+        let first = json_line("the first fact", &["legacy"]);
+        let second = json_line("the second fact", &["legacy"]);
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        fs::write(&memory.path, format!("{first}\n{second}\n{second}\n"))
+            .expect("the legacy fixture is written");
+
+        let entries = memory.search("", 10).expect("the legacy file is readable");
+        let texts: Vec<&str> = entries.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["the second fact", "the second fact", "the first fact"],
+            "a duplicate is two entries, and the file is read newest-first"
+        );
+
+        let ids: Vec<&str> = entries.iter().map(|entry| entry.id.as_str()).collect();
+        let mut distinct = ids.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), 3, "three entries have three ids: {ids:?}");
+        assert_eq!(
+            entries[0].id,
+            format!("{}-2", entries[1].id),
+            "the duplicate's id is the base derived id plus its occurrence"
+        );
+        assert_eq!(entries[1].id.len(), 16);
+        assert!(entries[1].id.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(entries[1].id, entries[2].id);
+
+        let again = memory.search("", 10).expect("a second read");
+        let again: Vec<&str> = again.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(
+            ids, again,
+            "the derivation is over the line's bytes, so a second read derives the same ids"
+        );
+
+        let listed = memory
+            .list(10, None)
+            .expect("the list reads the same journal");
+        let listed: Vec<&str> = listed.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, listed, "search and list replay the same ids");
+    }
+
+    #[test]
+    fn an_append_returns_the_id_it_wrote_and_does_not_rewrite_the_legacy_line() {
+        let (_dir, memory) = memory("memory-append-id");
+        let legacy = json_line("before the journal", &[]);
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        fs::write(&memory.path, format!("{legacy}\n")).expect("the legacy fixture is written");
+
+        let appended = memory
+            .append("after the journal", &["new".to_owned()])
+            .expect("the append");
+        assert_eq!(appended.text, "after the journal");
+        assert_eq!(appended.tags, ["new"]);
+        assert_eq!(
+            appended.id.len(),
+            16,
+            "8 random bytes are 16 hex characters"
+        );
+        assert!(
+            appended.id.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "the id is hex: {}",
+            appended.id
+        );
+
+        let found = memory.search("after", 10).expect("the append is readable");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].id, appended.id,
+            "the returned id names the stored entry"
+        );
+
+        let stored = fs::read_to_string(&memory.path).expect("the journal is readable");
+        let lines: Vec<&str> = stored.lines().collect();
+        assert_eq!(lines.len(), 2, "the legacy line and the appended line");
+        assert_eq!(
+            lines[0], legacy,
+            "an append writes after the old bytes; it does not rewrite them"
+        );
+
+        let record: serde_json::Value =
+            serde_json::from_str(lines[1]).expect("the appended line is JSON");
+        assert_eq!(record["op"].as_str(), Some("append"));
+        assert_eq!(record["id"].as_str(), Some(appended.id.as_str()));
+        assert_eq!(record["entry"]["text"].as_str(), Some("after the journal"));
+        assert_eq!(record["entry"]["tags"], serde_json::json!(["new"]));
+        assert!(
+            record["entry"].get("id").is_none(),
+            "the id is the record's; the payload keeps the old entry shape"
+        );
+
+        let old: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("the old line still parses");
+        assert_eq!(old["text"].as_str(), Some("before the journal"));
+        assert!(
+            old.get("op").is_none(),
+            "the first line is still the bare entry the old version wrote"
+        );
+    }
+
+    #[test]
+    fn a_journal_replays_an_update_at_its_own_line_and_a_delete_as_a_tombstone() {
+        let (_dir, memory) = memory("memory-journal-replay");
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        fs::write(
+            &memory.path,
+            concat!(
+                "{\"op\":\"append\",\"id\":\"a\",\"entry\":{\"text\":\"old a\",\"tags\":[]}}\n",
+                "{\"op\":\"append\",\"id\":\"b\",\"entry\":{\"text\":\"b\",\"tags\":[]}}\n",
+                "{\"op\":\"update\",\"id\":\"a\",\"entry\":{\"text\":\"new a\",\"tags\":[]}}\n",
+                "{\"op\":\"append\",\"id\":\"c\",\"entry\":{\"text\":\"c\",\"tags\":[]}}\n",
+                "{\"op\":\"append\",\"id\":\"d\",\"entry\":{\"text\":\"d\",\"tags\":[]}}\n",
+                "{\"op\":\"delete\",\"id\":\"d\"}\n",
+            ),
+        )
+        .expect("the journal fixture is written");
+
+        let entries = memory.search("", 10).expect("the journal replays");
+        let texts: Vec<&str> = entries.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["c", "new a", "b"],
+            "the update is emitted at its own line and the tombstone removes d"
+        );
+        assert_eq!(entries[1].id, "a");
+        assert!(
+            entries.iter().all(|entry| entry.id != "d"),
+            "a delete names an entry that must not appear"
+        );
+
+        let listed = memory
+            .list(10, None)
+            .expect("the list replays the same journal");
+        let texts: Vec<&str> = listed.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!(texts, ["c", "new a", "b"]);
+    }
+
+    #[test]
+    fn an_export_is_the_live_entries_with_their_ids() {
+        let (_dir, memory) = memory("memory-export-live");
+        let legacy = json_line("a legacy fact", &[]);
+        let parent = memory.path.parent().expect("the data directory");
+        fs::create_dir_all(parent).expect("the data directory is creatable");
+        fs::write(&memory.path, format!("{legacy}\n")).expect("the legacy fixture is written");
+        let appended = memory
+            .append("an appended fact", &["new".to_owned()])
+            .expect("the append");
+
+        let export = memory.export(4096).expect("the export reads");
+        assert_eq!(export.entries, 2);
+        assert!(!export.truncated);
+        assert_eq!(export.total_bytes, export.text.len());
+
+        let lines: Vec<serde_json::Value> = export
+            .text
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("an exported entry is JSON"))
+            .collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[0]["id"].as_str(),
+            Some(appended.id.as_str()),
+            "the export is newest-first, like the list it backs up"
+        );
+        assert_eq!(
+            lines[0]["text"].as_str(),
+            Some("an appended fact"),
+            "the export is the entry, not the journal record that stores it"
+        );
+        assert_eq!(lines[0]["tags"], serde_json::json!(["new"]));
+        assert!(
+            lines[0].get("op").is_none(),
+            "the journal is an implementation detail"
+        );
+        assert!(
+            lines[1]["id"].as_str().is_some_and(|id| id.len() == 16),
+            "a legacy line exports the id derived for it"
+        );
+        assert_eq!(lines[1]["text"].as_str(), Some("a legacy fact"));
     }
 }
