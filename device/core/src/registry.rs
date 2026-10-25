@@ -65,6 +65,18 @@ pub const CAPABILITIES: &[Capability] = &[
                 description: "Append one entry to the device's append-only memory.",
             },
             ToolDef {
+                name: "memory.update",
+                destructive: true,
+                description:
+                    "Replace the text and tags of the entry an id names; validation is memory.append's, and an id that is not live is refused as no_such_entry.",
+            },
+            ToolDef {
+                name: "memory.delete",
+                destructive: true,
+                description:
+                    "Retire one remembered entry by id; every later read omits it, and a second delete is refused as no_such_entry.",
+            },
+            ToolDef {
                 name: "memory.search",
                 destructive: false,
                 description: "Search the device's memory, newest entries first.",
@@ -342,6 +354,12 @@ mod tests {
             .collect();
 
         assert_eq!(
+            CAPABILITIES.len(),
+            10,
+            "ten capabilities declare the surface"
+        );
+        assert_eq!(tools.len(), 38, "the surface is 38 tools");
+        assert_eq!(
             tools,
             [
                 "files.read",
@@ -349,6 +367,8 @@ mod tests {
                 "files.mkdir",
                 "files.list",
                 "memory.append",
+                "memory.update",
+                "memory.delete",
                 "memory.search",
                 "memory.list",
                 "memory.export",
@@ -393,6 +413,8 @@ mod tests {
             ("files.mkdir", false),
             ("files.list", false),
             ("memory.append", true),
+            ("memory.update", true),
+            ("memory.delete", true),
             ("memory.search", false),
             ("terminal.create", true),
             ("terminal.write", true),

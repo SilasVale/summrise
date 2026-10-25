@@ -615,10 +615,31 @@ impl DeviceServer {
             }
             Handler::MemoryAppend => {
                 let arguments: AppendArgs = parse(arguments, name)?;
-                self.memory
+                let entry = self
+                    .memory
                     .append(&arguments.text, &arguments.tags)
                     .map_err(|error| refused(name, error))?;
-                Ok(json!({ "appended": true }).to_string())
+                Ok(json!({ "appended": true, "id": entry.id }).to_string())
+            }
+            Handler::MemoryUpdate => {
+                let arguments: UpdateArgs = parse(arguments, name)?;
+                let entry = self
+                    .memory
+                    .update(&arguments.id, &arguments.text, &arguments.tags)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "id": entry.id,
+                    "text": entry.text,
+                    "tags": entry.tags,
+                })
+                .to_string())
+            }
+            Handler::MemoryDelete => {
+                let arguments: DeleteArgs = parse(arguments, name)?;
+                self.memory
+                    .delete(&arguments.id)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({ "deleted": true, "id": arguments.id }).to_string())
             }
             Handler::MemorySearch => {
                 let arguments: SearchArgs = parse(arguments, name)?;
@@ -629,7 +650,7 @@ impl DeviceServer {
                     .map_err(|error| refused(name, error))?;
                 let found: Vec<Value> = found
                     .iter()
-                    .map(|entry| json!({ "text": entry.text, "tags": entry.tags }))
+                    .map(|entry| json!({ "id": entry.id, "text": entry.text, "tags": entry.tags }))
                     .collect();
                 Ok(Value::Array(found).to_string())
             }
@@ -642,7 +663,7 @@ impl DeviceServer {
                     .map_err(|error| refused(name, error))?;
                 let found: Vec<Value> = found
                     .iter()
-                    .map(|entry| json!({ "text": entry.text, "tags": entry.tags }))
+                    .map(|entry| json!({ "id": entry.id, "text": entry.text, "tags": entry.tags }))
                     .collect();
                 Ok(Value::Array(found).to_string())
             }
@@ -1224,6 +1245,8 @@ enum Handler {
     FilesMkdir,
     FilesList,
     MemoryAppend,
+    MemoryUpdate,
+    MemoryDelete,
     MemorySearch,
     MemoryList,
     MemoryExport,
@@ -1269,6 +1292,8 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("files.mkdir", Handler::FilesMkdir),
     ("files.list", Handler::FilesList),
     ("memory.append", Handler::MemoryAppend),
+    ("memory.update", Handler::MemoryUpdate),
+    ("memory.delete", Handler::MemoryDelete),
     ("memory.search", Handler::MemorySearch),
     ("memory.list", Handler::MemoryList),
     ("memory.export", Handler::MemoryExport),
@@ -1461,6 +1486,37 @@ fn input_schema(definition: &ToolDef) -> Value {
                 }
             },
             "required": ["text"],
+            "additionalProperties": false
+        }),
+        "memory.update" => json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The id memory.list, memory.search or memory.append returned."
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The entry's new text; it replaces what the entry said."
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The entry's complete new tag list, not a patch: at most 32 tags of 128 bytes each, and [] clears them."
+                }
+            },
+            "required": ["id", "text", "tags"],
+            "additionalProperties": false
+        }),
+        "memory.delete" => json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The id memory.list, memory.search or memory.append returned."
+                }
+            },
+            "required": ["id"],
             "additionalProperties": false
         }),
         "memory.search" => json!({
@@ -2055,6 +2111,24 @@ struct AppendArgs {
     /// Tags are optional: a plain note is still a fact worth remembering.
     #[serde(default)]
     tags: Vec<String>,
+}
+
+/// The arguments `memory.update` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateArgs {
+    id: String,
+    text: String,
+    /// The complete replacement, not a patch: an update that omitted tags would silently clear
+    /// them, so the schema requires the field and names [] as the way to clear.
+    tags: Vec<String>,
+}
+
+/// The arguments `memory.delete` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteArgs {
+    id: String,
 }
 
 /// The arguments `memory.search` takes.
@@ -2789,6 +2863,21 @@ mod tests {
             "array"
         );
         assert_eq!(
+            schema("memory.update")["required"],
+            json!(["id", "text", "tags"]),
+            "an update names the entry and the whole replacement"
+        );
+        assert_eq!(
+            schema("memory.update")["properties"]["tags"]["type"],
+            "array",
+            "an update carries the complete tag list, not a patch"
+        );
+        assert_eq!(
+            schema("memory.delete")["required"],
+            json!(["id"]),
+            "a delete names the one entry it retires"
+        );
+        assert_eq!(
             schema("memory.search")["required"],
             json!(["query"]),
             "memory.search's limit is optional"
@@ -2992,6 +3081,8 @@ mod tests {
                 "files.mkdir",
                 "files.list",
                 "memory.append",
+                "memory.update",
+                "memory.delete",
                 "memory.search",
                 "memory.list",
                 "memory.export",
@@ -3196,11 +3287,19 @@ mod tests {
             )
             .await;
         assert!(appended.get("error").is_none(), "{appended}");
+        let appended: Value = serde_json::from_str(text_of(&appended)).expect("append is JSON");
+        assert_eq!(appended["appended"], true);
+        let id = appended["id"]
+            .as_str()
+            .expect("append answers the id it minted")
+            .to_owned();
+        assert_eq!(id.len(), 16, "an id is 8 random bytes as hex: {id}");
 
         let found = client
             .call("memory.search", json!({ "query": "remembers" }))
             .await;
         let entries: Value = serde_json::from_str(text_of(&found)).expect("search is JSON");
+        assert_eq!(entries[0]["id"], id, "search names the entry it returns");
         assert_eq!(entries[0]["text"], "the device remembers this");
         assert_eq!(entries[0]["tags"], json!(["arch"]));
 
@@ -3210,6 +3309,111 @@ mod tests {
             .map(str::to_owned)
             .collect();
         assert_eq!(hits.len(), 1, "append-only: one entry, one line");
+    }
+
+    #[tokio::test]
+    async fn memory_entries_are_corrected_and_retired_by_id_through_mcp() {
+        let device = start("mcp-memory-edit").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let appended = client
+            .call(
+                "memory.append",
+                json!({ "text": "first version", "tags": ["draft"] }),
+            )
+            .await;
+        let appended: Value = serde_json::from_str(text_of(&appended)).expect("append is JSON");
+        let id = appended["id"]
+            .as_str()
+            .expect("append answers the id it minted")
+            .to_owned();
+
+        let updated = client
+            .call(
+                "memory.update",
+                json!({ "id": id, "text": "second version", "tags": ["final"] }),
+            )
+            .await;
+        assert!(updated.get("error").is_none(), "{updated}");
+        assert_eq!(updated["result"]["isError"], false, "{updated}");
+        let updated: Value = serde_json::from_str(text_of(&updated)).expect("update is JSON");
+        assert_eq!(updated["id"], id, "an update cannot change an entry's name");
+        assert_eq!(updated["text"], "second version");
+        assert_eq!(updated["tags"], json!(["final"]));
+
+        let old = client
+            .call("memory.search", json!({ "query": "first version" }))
+            .await;
+        let old: Value = serde_json::from_str(text_of(&old)).expect("search is JSON");
+        assert!(
+            old.as_array().expect("search is an array").is_empty(),
+            "the superseded text is not returned: {old}"
+        );
+        let found = client
+            .call("memory.search", json!({ "query": "second version" }))
+            .await;
+        let found: Value = serde_json::from_str(text_of(&found)).expect("search is JSON");
+        assert_eq!(found[0]["id"], id);
+        assert_eq!(found[0]["tags"], json!(["final"]));
+
+        let listed = client.call("memory.list", json!({})).await;
+        let listed: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        assert_eq!(listed[0]["id"], id, "list names the entry it returns");
+        assert_eq!(listed[0]["text"], "second version");
+
+        let deleted = client.call("memory.delete", json!({ "id": id })).await;
+        assert!(deleted.get("error").is_none(), "{deleted}");
+        assert_eq!(deleted["result"]["isError"], false, "{deleted}");
+        let deleted: Value = serde_json::from_str(text_of(&deleted)).expect("delete is JSON");
+        assert_eq!(deleted, json!({ "deleted": true, "id": id }));
+
+        let listed = client.call("memory.list", json!({})).await;
+        let listed: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        assert!(
+            listed.as_array().expect("list is an array").is_empty(),
+            "a retired entry is gone from every read: {listed}"
+        );
+
+        let again = client.call("memory.delete", json!({ "id": id })).await;
+        assert_eq!(again["result"]["isError"], true, "{again}");
+        assert!(
+            text_of(&again).contains(&id),
+            "the refusal names the id that is no longer live: {}",
+            text_of(&again)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_update_of_an_unknown_id_is_a_tool_error_that_names_it() {
+        let device = start("mcp-memory-no-such-entry").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let refused = client
+            .call(
+                "memory.update",
+                json!({ "id": "no-such-id", "text": "nothing", "tags": [] }),
+            )
+            .await;
+
+        assert!(refused.get("error").is_none(), "the tool ran: {refused}");
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("no-such-id"),
+            "a refusal names the id the caller named: {}",
+            text_of(&refused)
+        );
+
+        let refused = client
+            .call("memory.delete", json!({ "id": "also-missing" }))
+            .await;
+        assert_eq!(refused["result"]["isError"], true, "{refused}");
+        assert!(
+            text_of(&refused).contains("also-missing"),
+            "a delete refusal names its id too: {}",
+            text_of(&refused)
+        );
     }
 
     #[tokio::test]

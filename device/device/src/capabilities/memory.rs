@@ -196,9 +196,6 @@ pub enum MemoryError {
         max: usize,
     },
     /// `update` or `delete` named an id that is not live.
-    // The tool that constructs this from a client's id lands in the next change; the tests are the
-    // only caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
-    #[cfg_attr(not(test), allow(dead_code))]
     NoSuchEntry {
         /// The id the caller named.
         id: String,
@@ -405,9 +402,6 @@ impl Memory {
     /// is newer than the append it replaces, so the reverse replay emits it at its own position.
     /// Liveness and the write share one critical section, so an update racing a delete either lands
     /// before the tombstone or is refused; it can never resurrect a deleted id.
-    // The `memory.update` tool that calls this lands in the next change; the tests are the only
-    // caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn update(&self, id: &str, text: &str, tags: &[String]) -> Result<Entry, MemoryError> {
         Self::validate(text, tags)?;
         let entry = Entry {
@@ -435,9 +429,6 @@ impl Memory {
     ///
     /// A second delete names nothing live, so it is [`MemoryError::NoSuchEntry`] rather than a
     /// silent success: the caller learns its view was already stale, which is the honest answer.
-    // The `memory.delete` tool that calls this lands in the next change; the tests are the only
-    // caller in this build, and `allow` keeps the bin target's dead-code pass quiet meanwhile.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn delete(&self, id: &str) -> Result<(), MemoryError> {
         let line = Self::encode(&Record {
             op: Op::Delete,
@@ -535,8 +526,6 @@ impl Memory {
     /// Both answers come from the same view, and asking twice would read the journal twice while
     /// the writer waits. A tombstone newer than an update wins here, which is what keeps an update
     /// from resurrecting a deleted id.
-    // Only the two write verbs above call this; their tools are the next change.
-    #[cfg_attr(not(test), allow(dead_code))]
     fn liveness_locked(&self, id: &str) -> Result<(bool, usize), MemoryError> {
         let mut named = false;
         let mut live = 0;
