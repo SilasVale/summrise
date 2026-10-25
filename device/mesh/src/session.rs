@@ -690,18 +690,20 @@ impl MeshSession {
                 PathAction::UseRelay { .. } => {
                     let result = self.relay_channel(&peer_key, &peer_id).await;
                     match result {
-                        Ok(channel) => return Ok(channel),
+                        Ok(channel) => {
+                            // THE CHANNEL IS UP NOW, and this is what arms the stable-window rule:
+                            // `Path` ordered the relay earlier, but an order is not an open. The
+                            // produced actions are empty by construction (RelayOpen only records the
+                            // instant).
+                            let _ = self.path.apply(PathEvent::RelayOpen, clock.now());
+                            return Ok(channel);
+                        }
                         Err(error) => {
-                            // `Path` moved to Relayed when it *ordered* the
-                            // fallback, but the relay never opened: no path
-                            // carried a frame. Count it as a close now, while
-                            // `connected_at_ms` is still the ordering instant,
-                            // so a caller that retries a minute later cannot
-                            // make a dead relay look like a stable path and
-                            // reset the retry budget. The produced Retry (or
-                            // GiveUp) is dropped: this connect is already
-                            // returning the concrete relay error, and the next
-                            // connect reads the state this left.
+                            // The relay never opened: no path carried a frame. Count it as a close;
+                            // `connected_at_ms` is None, so this can never look stable and reset the
+                            // retry budget. The produced Retry (or GiveUp) is dropped: this connect is
+                            // already returning the concrete relay error, and the next connect reads
+                            // the state this left.
                             let _ = self.path.apply(PathEvent::RelayClosed, clock.now());
                             return Err(error);
                         }
