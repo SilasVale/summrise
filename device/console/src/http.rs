@@ -1116,8 +1116,11 @@ fn run_wait(request: &Value) -> Option<Duration> {
 /// The device's own cap on `runs.exec`, mirrored so the wait cannot exceed it.
 const RUNS_MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 
-/// The round-trip grace added to a run's wait.
+/// The round-trip grace added to a run's wait: the channel gets this much longer than the run itself.
 const RUNS_WAIT_GRACE: Duration = Duration::from_secs(5);
+
+/// The proxy's backstop around a run: the channel's bound plus room for the frame's round trip.
+const RUNS_BACKSTOP_GRACE: Duration = Duration::from_secs(10);
 
 /// `POST /mcp`: verify the operator's grant, enforce the tool it permits, then forward one MCP
 /// exchange over the device channel.
@@ -1221,15 +1224,30 @@ async fn proxy_mcp(
         }
     }
 
-    // A run blocks on the device for its own timeout, and the device's cap is ten minutes; every other
-    // tool answers quickly, and a device that has not answered in `mcp_timeout` is one to give up on.
-    let wait = app.mcp_timeout.max(run_wait(&body.request).unwrap_or_default());
-    let answer = tokio::time::timeout(
-        wait,
-        app.channels
-            .request(&body.device_id, body.request, &body.grant),
-    )
-    .await;
+    // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
+    // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
+    // tool keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
+    let answer = match run_wait(&body.request) {
+        // A run blocks on the device for its own timeout, so the channel waits that long and the
+        // proxy's backstop sits a little above it.
+        Some(wait) => {
+            tokio::time::timeout(
+                wait + RUNS_BACKSTOP_GRACE,
+                app.channels
+                    .request_within(&body.device_id, body.request, &body.grant, wait),
+            )
+            .await
+        }
+        // Everything else answers in milliseconds; the general bound stays in charge of both layers.
+        None => {
+            tokio::time::timeout(
+                app.mcp_timeout,
+                app.channels
+                    .request(&body.device_id, body.request, &body.grant),
+            )
+            .await
+        }
+    };
 
     match answer {
         Err(_) => {
@@ -1606,24 +1624,31 @@ mod tests {
         );
         // A requested timeout is honoured, so a 45 s run is not cut at 30 s.
         assert_eq!(
-            run_wait(&call("runs.exec", json!({"command": "ver", "timeout_ms": 45_000}))),
+            run_wait(&call(
+                "runs.exec",
+                json!({"command": "ver", "timeout_ms": 45_000})
+            )),
             Some(Duration::from_secs(50))
         );
         // The device's cap is mirrored: asking for a day waits ten minutes, not a day.
         assert_eq!(
-            run_wait(&call("runs.exec", json!({"command": "ver", "timeout_ms": 86_400_000}))),
+            run_wait(&call(
+                "runs.exec",
+                json!({"command": "ver", "timeout_ms": 86_400_000})
+            )),
             Some(Duration::from_secs(605))
         );
         // Anything that is not a run, or is malformed, leaves the general bound alone.
         assert_eq!(run_wait(&call("memory.list", json!({}))), None);
-        assert_eq!(run_wait(&json!({"method": "initialize", "params": {}})), None);
+        assert_eq!(
+            run_wait(&json!({"method": "initialize", "params": {}})),
+            None
+        );
         assert_eq!(
             run_wait(&json!({"method": "tools/call", "params": {"name": "runs.exec"}})),
             Some(Duration::from_secs(65))
         );
     }
-
-    use super::*;
 
     #[test]
     fn a_tool_call_is_recognized_only_for_tools_call() {

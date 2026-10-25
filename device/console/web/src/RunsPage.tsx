@@ -510,10 +510,13 @@ function historyNoteFor(rows: RunRecord[]): string {
 /// land later. Every other failure is the device's own sentence.
 function runFailure(cause: unknown): string {
   const sentence = message(cause);
-  if (sentence === "device timeout") {
+  // Two console answers mean "I stopped waiting", and neither is the device refusing: the proxy's own
+  // backstop (`device timeout`) and the channel's answer bound (`device did not answer`). The command
+  // is not cancelled by either — it keeps running on the device and its history row lands when it ends.
+  if (sentence === "device timeout" || sentence === "device did not answer") {
     return (
-      "The console stopped waiting for the device (device timeout): the command may still be " +
-      "running there, and its history row may appear when it finishes. Refresh the history to look for it."
+      "The console stopped waiting for the device: the command may still be running there, and its " +
+      "history row may appear when it finishes. Refresh the history to look for it."
     );
   }
   return "Could not run the command: " + sentence;

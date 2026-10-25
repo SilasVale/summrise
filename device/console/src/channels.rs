@@ -297,6 +297,23 @@ impl ChannelRegistry {
         mcp: Value,
         grant: &GrantEnvelope,
     ) -> Result<Reply, RequestError> {
+        self.request_within(device_id, mcp, grant, self.reply_timeout)
+            .await
+    }
+
+    /// Forward `mcp` and wait `reply` for the device's answer.
+    ///
+    /// [`request`](Self::request) uses [`REPLY_TIMEOUT`], which is right for a tool that answers in
+    /// milliseconds. `runs.exec` is the exception: it blocks on the device for the command's own
+    /// timeout, so the proxy passes the run's wait here — otherwise the console would answer 504 while
+    /// the command kept running and its history row was still written.
+    pub(crate) async fn request_within(
+        &self,
+        device_id: &str,
+        mcp: Value,
+        grant: &GrantEnvelope,
+        reply: Duration,
+    ) -> Result<Reply, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
         let id = self.next_request.fetch_add(1, Ordering::Relaxed);
         let (outbound, pending, receiver) = self
@@ -338,7 +355,7 @@ impl ChannelRegistry {
 
         // The answer has its own bound: a device that accepted the frame and then stopped working
         // must not hold the operator's request open forever.
-        match tokio::time::timeout(self.reply_timeout, receiver).await {
+        match tokio::time::timeout(reply, receiver).await {
             Err(_) => Err(RequestError::ReplyTimeout),
             Ok(Ok(answer)) => answer,
             // The sender was dropped: the channel closed without answering.
@@ -689,6 +706,65 @@ mod tests {
 
         assert_eq!(result, Err(RequestError::ReplyTimeout));
         acceptor.abort();
+    }
+
+    /// A run's channel wait follows the run, not the general answer bound. Without this, a command
+    /// that outlives [`REPLY_TIMEOUT`] would be answered 504 by the channel while the device was still
+    /// running it — the exact case the Runs page's timeout field made visible.
+    #[tokio::test]
+    async fn a_run_waits_past_the_general_reply_bound() {
+        // The general bound is 20 ms; this device answers after 120 ms.
+        let registry = Arc::new(ChannelRegistry::with_timeouts(
+            Duration::from_millis(50),
+            Duration::from_millis(20),
+        ));
+        let open = registry.open(&device_id());
+        let mut commands = open.commands;
+        let pending = open.pending.clone();
+        let device = tokio::spawn(async move {
+            while let Some(Outbound::Text {
+                accepted, frame, ..
+            }) = commands.recv().await
+            {
+                let _ = accepted.send(Ok(()));
+                let pending = pending.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(120)).await;
+                    let id = serde_json::from_str::<serde_json::Value>(&frame)
+                        .ok()
+                        .and_then(|value| value.get("id").cloned())
+                        .unwrap_or(serde_json::Value::Null);
+                    let answer =
+                        format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{"answered":true}}}}"#);
+                    let _ = deliver(&pending, &answer);
+                });
+            }
+        });
+
+        // The general bound gives up first.
+        let general = registry
+            .request(
+                &device_id(),
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+                &grant(),
+            )
+            .await;
+        assert_eq!(general, Err(RequestError::ReplyTimeout));
+
+        // A run's own wait lets the same device answer.
+        let run = registry
+            .request_within(
+                &device_id(),
+                json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
+                &grant(),
+                Duration::from_millis(500),
+            )
+            .await;
+        assert!(
+            matches!(run, Ok(Reply::Result(ref value)) if value["answered"] == json!(true)),
+            "the run's wait reads the late answer: {run:?}"
+        );
+        device.abort();
     }
 
     #[tokio::test]
