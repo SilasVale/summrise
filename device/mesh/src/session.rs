@@ -62,6 +62,12 @@
 //! behind it. The authenticated [`Channel`] is handed to the caller's async
 //! closure, which runs in that connection's task.
 //!
+//! **AND ONLY SO MANY STRANGERS.** The loop holds at most
+//! [`MAX_SERVED_SESSIONS`] served sessions; the permit is taken BEFORE the
+//! handshake and carried by the connection's task, so a dialer that connects
+//! and says nothing still costs a counted slot, and one over the cap is closed
+//! rather than queued behind it.
+//!
 //! **The relay inbox is a doorbell, not a mailbox.** A `connect` that falls to
 //! the relay first leaves a signed [`ConnectRequest`] at the broker, naming the
 //! pair's relay session; a `serve` polls that inbox every
@@ -100,6 +106,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use summrise_core::mesh::{Path, PathAction, PathEvent, PathState};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 use crate::endpoint::{EndpointError, MeshEndpoint, PeerSession};
@@ -131,6 +138,14 @@ pub const REGISTRATION_TTL_MS: u64 = 30_000;
 
 /// How often the refresh task re-signs the registration, by default.
 pub const REGISTRATION_REFRESH_MS: u64 = 10_000;
+
+/// The most served sessions one accept loop holds at once, by default.
+///
+/// Each served session is a QUIC connection, a task and the frames it carries. A device serves a
+/// handful of peers, so 64 is generous; the cap keeps a reachable device from being turned into a
+/// connection sink by dialers that complete a handshake and then say nothing. A connection over the
+/// cap is refused before the handshake, which the caller sees as a failed connect.
+pub const MAX_SERVED_SESSIONS: usize = 64;
 
 /// How long one relay pairing or relay TLS handshake may take.
 ///
@@ -762,7 +777,29 @@ impl MeshSession {
         H: Fn(String, Channel) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
+        self.serve_with_cap(handshake_timeout, handler, MAX_SERVED_SESSIONS)
+            .await
+    }
+
+    /// The same accept loop with an explicit concurrent-session cap.
+    ///
+    /// The cap is a deployment knob and a test seam: a test does not need 64 live QUIC connections to
+    /// observe the refusal.
+    pub async fn serve_with_cap<H, Fut>(
+        &self,
+        handshake_timeout: Duration,
+        handler: H,
+        max_served: usize,
+    ) -> Result<(), SessionError>
+    where
+        H: Fn(String, Channel) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
         let handler = Arc::new(handler);
+        // ONE PERMIT PER SERVED SESSION. The permit is taken BEFORE the handshake (a dialer that has
+        // completed a handshake but says nothing still costs a connection and a task) and is carried
+        // into the connection's task, so it is released exactly when that task ends.
+        let slots = Arc::new(Semaphore::new(max_served));
         // The relay inbox is drained in its own task: a broker poll must not
         // hold the direct accept loop. The guard aborts the poller when this
         // future ends or is dropped, so an aborted `serve` does not leave a
@@ -774,6 +811,18 @@ impl MeshSession {
                 // The endpoint is closed: dropped, or closed by its owner.
                 Err(EndpointError::Closed) => return Ok(()),
                 Err(error) => return Err(SessionError::Endpoint(error)),
+            };
+            let permit = match slots.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    // Dropping the un-accepted `Incoming` refuses the connection without a handshake;
+                    // the dialer sees a failed connect, not a session that waits for a slot.
+                    drop(incoming);
+                    eprintln!(
+                        "[summrise-mesh] serve at its {max_served}-session cap; refusing a new peer"
+                    );
+                    continue;
+                }
             };
             let endpoint = self.endpoint.clone();
             let handler = Arc::clone(&handler);
@@ -796,6 +845,7 @@ impl MeshSession {
                     transport: Transport::Direct(session),
                 };
                 handler(peer_id, channel).await;
+                drop(permit);
             });
         }
     }
@@ -1750,6 +1800,24 @@ mod tests {
         tokio::spawn(async move { session.serve(HANDSHAKE_TIMEOUT, handler).await })
     }
 
+    /// The cap-taking twin of [`spawn_serve`]: a test that needs a small session cap.
+    fn spawn_serve_with_cap<H, Fut>(
+        session: &Arc<MeshSession>,
+        handler: H,
+        cap: usize,
+    ) -> JoinHandle<Result<(), SessionError>>
+    where
+        H: Fn(String, Channel) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let session = Arc::clone(session);
+        tokio::spawn(async move {
+            session
+                .serve_with_cap(HANDSHAKE_TIMEOUT, handler, cap)
+                .await
+        })
+    }
+
     /// Send one request over `channel` and check the echoed response.
     async fn echo_once(channel: &mut Channel, id: u64) {
         let request = frame(Kind::Req, id);
@@ -1882,6 +1950,81 @@ mod tests {
         );
 
         echo_once(&mut channel, 7).await;
+        serve.abort();
+    }
+
+    /// **THE CAP IS TAKEN BEFORE THE HANDSHAKE AND HELD FOR THE SESSION'S LIFE.** A dialer that
+    /// connects and then says nothing still occupies a served slot; the next dialer is refused, and
+    /// the slot frees when that handler ends.
+    #[tokio::test]
+    async fn a_serve_loop_at_its_session_cap_refuses_a_new_peer() {
+        let broker = start_broker().await;
+        let (first_identity, listener_identity) = dialer_and_listener();
+        let listener_peer = listener_identity.public_hex();
+        let listener = Arc::new(
+            MeshSession::join(
+                listener_identity.clone(),
+                config(&broker, None, DIRECT_TIMEOUT_MS),
+            )
+            .await
+            .expect("the listener joins"),
+        );
+        // The handler holds its permit until the test releases it: this is the slow-dialer case the
+        // cap exists for, and the release is explicit so the test does not depend on how quickly a
+        // dropped QUIC connection is observed.
+        let hold = Arc::new(tokio::sync::Notify::new());
+        let serve = spawn_serve_with_cap(
+            &listener,
+            {
+                let hold = Arc::clone(&hold);
+                move |_peer_id, _channel| {
+                    let hold = Arc::clone(&hold);
+                    async move { hold.notified().await }
+                }
+            },
+            1,
+        );
+
+        let mut first = MeshSession::join(first_identity, config(&broker, None, DIRECT_TIMEOUT_MS))
+            .await
+            .expect("the first dialer joins");
+        let held = timeout(PATIENCE, first.connect(&listener_peer, now_ms()))
+            .await
+            .expect("the first connect timed out")
+            .expect("the only slot is free");
+
+        // A SECOND identity, so the refusal is about the slot and not about reusing a session.
+        let mut second = MeshSession::join(
+            Identity::generate(),
+            config(&broker, None, DIRECT_TIMEOUT_MS),
+        )
+        .await
+        .expect("the second dialer joins");
+        let refused = timeout(PATIENCE, second.connect(&listener_peer, now_ms())).await;
+        assert!(
+            matches!(refused, Ok(Err(_))),
+            "the cap must refuse the second session: {refused:?}"
+        );
+
+        // The slot is LIVE, not a permanent refusal: release the first handler and the cap admits again.
+        drop(held);
+        drop(first);
+        // `notify_one`, not `notify_waiters`: a notification that arrives before the handler has
+        // polled `notified()` is RETAINED by the former and lost by the latter, and under a loaded
+        // test runner that race is what "the slot frees" must not depend on.
+        hold.notify_one();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut third = MeshSession::join(
+            Identity::generate(),
+            config(&broker, None, DIRECT_TIMEOUT_MS),
+        )
+        .await
+        .expect("a third dialer joins");
+        let admitted = timeout(PATIENCE, third.connect(&listener_peer, now_ms()))
+            .await
+            .expect("the retry timed out")
+            .expect("the freed slot admits the next session");
+        drop(admitted);
         serve.abort();
     }
 
