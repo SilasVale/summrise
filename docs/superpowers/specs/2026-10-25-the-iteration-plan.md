@@ -104,7 +104,10 @@ page (`memory.jsonl` replay, compaction, 38 tools / 10 capabilities). Evidence:
 - **Acceptance**: registry and wire tests for the two tools; a device test that update/delete round
   trips and that a deleted entry is not returned by search or export.
 
-### P3 — Monitors
+### P3 — Monitors — **done 2026-10-25**
+
+The console has a Monitors page (add, status, probe now, remove, 15 s polling) over the existing five
+tools; the canary flow is in `2026-10-25-monitors-page.md` § Task 2.
 
 **Goal**: an operator sees the reachability they configured.
 
