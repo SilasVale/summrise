@@ -62,7 +62,7 @@ pub const CAPABILITIES: &[Capability] = &[
             ToolDef {
                 name: "memory.append",
                 destructive: true,
-                description: "Append one entry to the device's append-only memory.",
+                description: "Append one entry to the device's append-only memory and return its id; the id is what memory.update and memory.delete name.",
             },
             ToolDef {
                 name: "memory.update",

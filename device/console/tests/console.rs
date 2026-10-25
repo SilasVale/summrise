@@ -2816,16 +2816,47 @@ async fn the_operator_page_is_served_as_html() {
 
 #[tokio::test]
 async fn the_served_tool_catalogue_is_the_registry() {
-    // The page fetches /tools instead of carrying a copy, so the registry is checked once, at the route
-    // that serves it (see `the_tool_catalogue_is_the_registry`). This asserts the page really does call
-    // that route — a page that silently fell back to a stale copy would pass every other test here.
+    // The page fetches /tools instead of carrying a copy; this is the route it fetches. The list must be
+    // the device's own registry — 38 tools, same order, same sentences — or the grant form would offer
+    // a surface the device does not have (or miss one it does).
     let fixture = Fixture::new("page-tools");
+    let session = fixture.authenticate().await;
+    let (status, tools) = send(fixture.app(), get("/tools", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let served: Vec<&str> = tools
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a name"))
+        .collect();
+    let declared: Vec<&str> = summrise_core::registry::CAPABILITIES
+        .iter()
+        .flat_map(|capability| capability.tools)
+        .map(|tool| tool.name)
+        .collect();
+    assert_eq!(served, declared, "the console serves the device's registry");
+    for tool in tools.as_array().expect("a list") {
+        let name = tool["name"].as_str().expect("a name");
+        let expected = summrise_core::registry::tool(name).expect("the tool is in the registry");
+        assert_eq!(tool["description"], expected.description, "{name}");
+        assert_eq!(tool["destructive"], expected.destructive, "{name}");
+    }
+
+    // And the page really does call it: a page that silently fell back to a stale copy would pass
+    // every other test here.
     let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         page.contains("/tools"),
         "the page asks the console for the catalogue"
     );
+}
+
+#[tokio::test]
+async fn the_tool_catalogue_is_not_served_without_an_operator() {
+    let fixture = Fixture::new("page-tools-gate");
+    let (status, _) = send(fixture.app(), get("/tools", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[test]

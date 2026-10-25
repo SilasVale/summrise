@@ -56,8 +56,8 @@ The replacement removes a capability, not just a name: the device can no longer 
 | `memory_save` | store an entry | `memory.append` | **ported** |
 | `memory_search` | substring search over title/content/tags | `memory.search` | **ported** |
 | `memory_list` | enumerate entries | `memory.list` | **ported** |
-| `memory_update` | edit an entry by id | — | **undecided** |
-| `memory_delete` | soft-delete by id | — | **undecided** |
+| `memory_update` | edit an entry by id | `memory.update` (2026-10-25) | **ported** |
+| `memory_delete` | soft-delete by id | `memory.delete` (2026-10-25) | **ported** |
 | `memory_export` | whole store as JSONL | `memory.export` (≤2 MiB, says whether it cut) | **ported** |
 
 `memory.append` and `memory.search` cover writing and reading. Everything an operator does when the

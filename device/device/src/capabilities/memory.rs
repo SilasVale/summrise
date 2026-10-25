@@ -677,7 +677,7 @@ impl Memory {
     /// The export is what the device remembers, not the journal that stores it: an update appears as
     /// the updated entry and a tombstoned entry is absent. The cap exists because a tool result is a
     /// JSON-RPC frame, not a stream: a store at its 10 000-entry ceiling can be gigabytes, and a
-    /// client that asked for everything can ask again with the byte offset the truncation names.
+    /// truncated answer says so rather than pretending the store ended.
     pub fn export(&self, max_bytes: usize) -> Result<Export, MemoryError> {
         let mut text = String::new();
         let mut entries = 0;

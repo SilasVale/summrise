@@ -243,6 +243,11 @@ impl Console {
                 axum::routing::delete(remove_connection),
             )
             .route("/fleet/:id", axum::routing::delete(remove_device))
+            // The tool catalogue the grant form reads. It is the device's own registry — the console
+            // depends on `summrise-core`, so there is one list, not a copy in the page and another in
+            // the device. The page still falls back to its embedded list if this route fails, but the
+            // route is what makes that fallback a fallback.
+            .route("/tools", get(tool_catalogue))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
             .route("/audit", get(list_audit))
@@ -1359,6 +1364,28 @@ async fn rename_device(
 }
 
 /// `GET /devices`: the registry, for the operator.
+/// `GET /tools`: the registry, as the grant form reads it.
+async fn tool_catalogue(_: OperatorSession) -> Json<Vec<ToolView>> {
+    let tools = summrise_core::registry::CAPABILITIES
+        .iter()
+        .flat_map(|capability| capability.tools)
+        .map(|tool| ToolView {
+            name: tool.name,
+            destructive: tool.destructive,
+            description: tool.description,
+        })
+        .collect();
+    Json(tools)
+}
+
+/// One tool as `/tools` serves it.
+#[derive(serde::Serialize)]
+struct ToolView {
+    name: &'static str,
+    destructive: bool,
+    description: &'static str,
+}
+
 async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
     let devices = lock(&app.devices).list();
     let devices = devices

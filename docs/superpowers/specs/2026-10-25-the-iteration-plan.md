@@ -11,9 +11,9 @@
 Proven on the canary (device 0.3.29, console 0.3.32, helper in the user's session):
 
 - **The runtime**: `summrise-launch` (SCM service, sole writer of the app binary) supervises
-  `summrise-device` (36 tools in 10 capabilities); the console is the only control plane and every
+  `summrise-device` (38 tools in 10 capabilities); the console is the only control plane and every
   action is a signed grant plus an audit row.
-- **The face**: a web console with four pages (Devices, Terminal, Browser, Audit) that an operator
+- **The face**: a web console with five pages (Devices, Terminal, Browser, Memory, Audit) that an operator
   reaches through Cloudflare Access or the operator token; the device's own panel at
   `127.0.0.1:18090` for the person standing at the machine.
 - **The presence**: `summrise-shell` in the user's session — a tray icon that promotes itself into the
@@ -52,7 +52,7 @@ and workspace UI, not device capabilities.
 |---|---|---|---|
 | Terminal workspace | tabs, saved connections, session control | one session per grant, no tabs, no presets | **build** (P1) |
 | Browser | live embedded view, native input | screenshot polling over CDP | **build** (P6: screencast) |
-| Memory | browse/edit/delete | four tools, no view; `memory.update`/`memory.delete` undecided | **build** (P2) |
+| Memory | browse/edit/delete | ids, `memory.update`/`memory.delete`, the Memory page | **done** (P2) |
 | Monitors | card, alerts, status | five tools, no view | **build** (P3) |
 | Runs & history | history, activity, archive, trajectories | `runs.*`, the audit table | **build** (P4) |
 | Approvals | approve/refuse per call | grants only; the device's Ask rule has no console surface | **build** (P5) |

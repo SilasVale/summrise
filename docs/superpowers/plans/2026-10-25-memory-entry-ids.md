@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The file is append-only: an existing byte is never rewritten except by the snapshot's atomic rename (`memory.jsonl.new` → `memory.jsonl`).
+- The file is append-only: an existing byte is never rewritten except by the snapshot's atomic rename (a `fsutil::create_new_sibling` temporary → `memory.jsonl`).
 - Caps unchanged: 1 MiB serialized entry, 32 tags × 128 bytes, 100 search results, 10 000 **live** entries.
 - `memory.update` validates exactly as `memory.append` (same caps, same serialization check).
 - Both new tools are `destructive: true` in the registry; unknown id is a typed `no_such_entry { id }`.
@@ -55,7 +55,7 @@
 - Produces: `Memory::update(&self, id: &str, text: &str, tags: &[String]) -> Result<Entry, MemoryError>`; `Memory::delete(&self, id: &str) -> Result<(), MemoryError>`; `MemoryError::NoSuchEntry { id: String }`.
 - **Carried from Task 1's review (Important):** `replay()` takes the read lock, so it cannot be called from `append`/`update`/`delete`/`compact` while they hold the write lock (std's `RwLock` is not reentrant). Split it: a lock-free `replay_locked(&self) -> Result<Vec<Entry>, MemoryError>` core that does the file work, and a thin `replay()` wrapper that takes the read lock; the write-side callers call the core under the write lock.
 - **Carried from Task 1's review (minor, same file):** one whitespace predicate for blank-line detection and `count_entries` (they currently disagree on non-ASCII whitespace); `TooLarge`/`Corrupt` Display strings that describe what is actually measured/raised; the module doc's "one pass" claim (reads now do an offset pass plus a reverse replay — say so).
-- Produces: `fn compact(&self, live: &[Entry]) -> io::Result<()>` writing `memory.jsonl.new` in reverse view order, then renaming; threshold `2 * live + 64` lines, evaluated after every journal write; a failed snapshot is logged and retried on the next write.
+- Produces: `fn compact(&self, live: &[Entry]) -> io::Result<()>` writing a `fsutil::create_new_sibling` temporary in reverse view order, then renaming; threshold `2 * live + 64` lines, evaluated after every journal write; a failed snapshot is logged and retried on the next write.
 - Consumes: Task 1's `Record`, `legacy_id`, replay.
 
 - [ ] **Step 1: Write the failing tests** — update replaces text and appears at the update's position; delete removes from search/list/export; second delete is `NoSuchEntry`; an oversized update is `TooLarge`; 80 edits on a 1-entry store cross the threshold and leave a snapshot whose replay equals the pre-compaction view (the snapshot is written in reverse view order, so replay reproduces it exactly).
