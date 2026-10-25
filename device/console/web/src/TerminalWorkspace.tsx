@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { callTool, type Grant } from "./terminal";
+import { callTool, ToolError, type Grant } from "./terminal";
 import { api, type SavedConnection } from "./api";
 import { Modal } from "./Modal";
 
@@ -27,6 +27,29 @@ type Tab = {
 type Instance = {
   term: Terminal;
   fit: FitAddon;
+};
+
+/**
+ * Why a tab stopped working, in the words that tell the three cases apart.
+ *
+ * `closed` is the device saying it no longer has the session; `unreachable` is the device not
+ * answering; `grant` is permission being refused (the one that names the grant). `read` and `write`
+ * are a single call failing while the device still lists the session, and they say which half failed.
+ */
+type FaultKind = "closed" | "unreachable" | "grant" | "read" | "write";
+
+type Fault = {
+  kind: FaultKind;
+  /** The full sentence the tab shows; the marker is only its short label. */
+  sentence: string;
+};
+
+const FAULT_LABELS: Record<FaultKind, string> = {
+  closed: "closed",
+  unreachable: "offline",
+  grant: "grant",
+  read: "read failed",
+  write: "not sent"
 };
 
 /** The three kinds `terminal.create` accepts, and the shape of the form each one needs. */
@@ -103,6 +126,50 @@ function messageOf(cause: unknown): string {
 }
 
 /**
+ * The sentence a grant refusal deserves, or `null` when the failure was not one.
+ *
+ * Two surfaces refuse a call for grant reasons and they answer differently: the console checks the
+ * signature and the expiry before the frame leaves (HTTP 403 with a code), and the device checks the
+ * same grant again (a JSON-RPC error, code -32001 or -32002). Both are named here so a page never has
+ * to match English to know which of the three failures it is.
+ */
+function grantRefusal(cause: unknown): string | null {
+  if (!(cause instanceof ToolError)) return null;
+  if (cause.status === 403) {
+    switch (cause.message) {
+      case "grant_expired":
+        return "Your grant expired: the console refused the call before it reached the device. Sign a new grant to resume.";
+      case "invalid_grant_signature":
+        return "Your grant's signature was refused. Sign a new grant to resume.";
+      case "grant_device_mismatch":
+        return "Your grant was signed for another device. Sign a new grant for this one.";
+      case "tool not permitted by grant":
+        return "Your grant does not cover this tool. Sign a grant that includes it.";
+      default:
+        return `Your grant refused the call: ${cause.message}. Sign a new grant to resume.`;
+    }
+  }
+  if (cause.code === -32001) {
+    return `Your grant refused the call: ${cause.message}. Sign a new grant to resume.`;
+  }
+  if (cause.code === -32002) {
+    return `Your grant did not consent to this call: ${cause.message}. Sign a grant that does.`;
+  }
+  return null;
+}
+
+/** A failure that is the link, not the permission and not the session. */
+function unreachableSentence(cause: unknown): string {
+  if (cause instanceof ToolError && cause.status === 401) {
+    return "The console's sign-in expired, so the call did not reach the device. Reload and sign in again.";
+  }
+  if (cause instanceof ToolError && cause.status === 404) {
+    return "The console no longer has this device: it was removed from the fleet.";
+  }
+  return `The device is unreachable: ${messageOf(cause)}. The tab keeps its output and resumes when the device answers again.`;
+}
+
+/**
  * The arguments one dialog draft implies.
  *
  * The device's `terminal.create` has `additionalProperties: false` and refuses a field another kind
@@ -161,9 +228,18 @@ function isAbsolutePath(text: string): boolean {
   return text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text) || text.startsWith("\\\\");
 }
 
-export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; visible?: boolean }) {
+export function TerminalWorkspace({
+  grant,
+  visible = true,
+  onGrantRefused
+}: {
+  grant: Grant;
+  visible?: boolean;
+  onGrantRefused?: () => void;
+}) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
+  const [faults, setFaults] = useState<Record<string, Fault>>({});
   const [status, setStatus] = useState("No session. Open one, or attach to a session this device already has.");
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
   const [presets, setPresets] = useState<SavedConnection[]>([]);
@@ -173,25 +249,204 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
   const [presetError, setPresetError] = useState<string | null>(null);
   const instances = useRef(new Map<string, Instance>());
   const hosts = useRef(new Map<string, HTMLDivElement>());
+  /** Each tab's read cursor: the absolute byte count the device has already sent this xterm. */
+  const cursors = useRef(new Map<string, number>());
+  /** The current fault per tab, readable synchronously inside a poll or a keystroke handler. */
+  const faultRef = useRef(new Map<string, Fault>());
+  /** When the last `terminal.list` probe ran, so a repeating refusal does not probe every 700 ms. */
+  const probing = useRef(new Map<string, number>());
+  const diagnosing = useRef(new Set<string>());
+  const grantRef = useRef(grant);
+  const grantRefusedRef = useRef(onGrantRefused);
   const activeRef = useRef<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+
+  const setFault = useCallback((key: string, fault: Fault) => {
+    faultRef.current.set(key, fault);
+    setFaults((previous) => ({ ...previous, [key]: fault }));
+  }, []);
+
+  const clearFault = useCallback((key: string) => {
+    if (!faultRef.current.delete(key)) return;
+    setFaults((previous) => {
+      if (!(key in previous)) return previous;
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    grantRef.current = grant;
+  }, [grant]);
+
+  // A newly signed grant is the remedy a grant fault names, so a renewal clears those faults. This is
+  // declared before the poll effect so the immediate poll after a renewal already sees them cleared.
+  useEffect(() => {
+    for (const [key, fault] of [...faultRef.current]) {
+      if (fault.kind === "grant") {
+        clearFault(key);
+        probing.current.delete(key);
+      }
+    }
+  }, [grant, clearFault]);
+
+  useEffect(() => {
+    grantRefusedRef.current = onGrantRefused;
+  }, [onGrantRefused]);
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
 
+  /** One read at this tab's cursor, and the cursor it returns. */
+  const readOnce = useCallback(async (tab: Tab): Promise<{ data?: string; cursor?: number }> => {
+    const cursor = cursors.current.get(tab.key) ?? 0;
+    return JSON.parse(await callTool(grantRef.current, "terminal.read", { id: tab.session, cursor }));
+  }, []);
+
+  /**
+   * Ask the device once what it still has, and turn the answer into one of the three sentences.
+   *
+   * The probe is `terminal.list`: a session missing from it is `closed` (with the device's own
+   * refusal as the reason when it gave one), a probe that fails is `unreachable`, and a refusal that
+   * names the grant is `grant` — whichever of the two calls carried it.
+   */
+  const diagnose = useCallback(
+    async (tab: Tab, source: "read" | "write", cause: unknown) => {
+      const note = source === "write" ? " Your keystrokes were not sent." : "";
+      const refused = grantRefusal(cause);
+      if (refused) {
+        setFault(tab.key, { kind: "grant", sentence: refused + note });
+        grantRefusedRef.current?.();
+        return;
+      }
+      if (diagnosing.current.has(tab.key)) return;
+      diagnosing.current.add(tab.key);
+      probing.current.set(tab.key, Date.now());
+      try {
+        const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
+        const sessions: { id?: string }[] = Array.isArray(answer) ? answer : [];
+        if (!sessions.some((entry) => entry.id === tab.session)) {
+          // Only a sentence the device itself sent is a reason it gave; a proxy failure is not one.
+          const reason = cause instanceof ToolError && cause.fromDevice ? cause.message : null;
+          setFault(tab.key, {
+            kind: "closed",
+            sentence: reason
+              ? `The device closed this session: ${reason}.${note}`
+              : `The device closed this session: it no longer lists ${tab.session}.${note}`
+          });
+          return;
+        }
+        // The device still has the session, so one call failed. A read whose cursor it cannot serve
+        // is recovered by taking the retained output from the start on the next poll.
+        if (source === "read") cursors.current.set(tab.key, 0);
+        setFault(
+          tab.key,
+          source === "write"
+            ? { kind: "write", sentence: `Your keystrokes were not sent: ${messageOf(cause)}.` }
+            : {
+                kind: "read",
+                sentence: `Reading this session failed: ${messageOf(cause)}. The tab takes the retained output again.`
+              }
+        );
+      } catch (probeCause) {
+        const probeRefused = grantRefusal(probeCause);
+        if (probeRefused) {
+          setFault(tab.key, { kind: "grant", sentence: probeRefused + note });
+          grantRefusedRef.current?.();
+        } else {
+          setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(probeCause) + note });
+        }
+      } finally {
+        diagnosing.current.delete(tab.key);
+      }
+    },
+    [setFault]
+  );
+
+  /**
+   * Record a failed read or write on its tab.
+   *
+   * The first failure of an episode sets the immediate sentence and probes once. Later failures keep
+   * that episode's kind (so an unreachable tab is not relabelled by every retry) and only refresh the
+   * sentence; the one exception is a device-spoken refusal, which may mean the session has since
+   * closed, so it earns a new probe at most every ten seconds.
+   */
+  const fail = useCallback(
+    (tab: Tab, source: "read" | "write", cause: unknown) => {
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "grant")) return;
+      // A grant refusal answers the question by itself, whatever the tab's previous fault was: the
+      // permission is the reason, not the link the earlier sentence described.
+      const refused = grantRefusal(cause);
+      if (refused) {
+        const note = source === "write" ? " Your keystrokes were not sent." : "";
+        setFault(tab.key, { kind: "grant", sentence: refused + note });
+        grantRefusedRef.current?.();
+        return;
+      }
+      const detail = messageOf(cause);
+      const note = source === "write" ? " Your keystrokes were not sent." : "";
+      if (current) {
+        if (current.kind === "unreachable") {
+          setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(cause) + note });
+        } else if (source === "write") {
+          setFault(tab.key, { kind: "write", sentence: `Your keystrokes were not sent: ${detail}.` });
+        } else {
+          setFault(tab.key, { kind: "read", sentence: `Reading this session failed: ${detail}.` });
+        }
+        const spoke = cause instanceof ToolError && cause.fromDevice;
+        const sinceProbe = Date.now() - (probing.current.get(tab.key) ?? 0);
+        if (spoke && sinceProbe > 10_000) void diagnose(tab, source, cause);
+        return;
+      }
+      setFault(
+        tab.key,
+        source === "write"
+          ? { kind: "write", sentence: `Your keystrokes were not sent: ${detail}.` }
+          : { kind: "read", sentence: `Reading this session failed: ${detail}.` }
+      );
+      void diagnose(tab, source, cause);
+    },
+    [diagnose, setFault]
+  );
+
+  /** One keystroke. A failure is the tab's, not a console log's. */
+  const write = useCallback(
+    async (tab: Tab, data: string) => {
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "grant")) return;
+      try {
+        await callTool(grantRef.current, "terminal.write", { id: tab.session, data });
+        if (faultRef.current.get(tab.key)?.kind === "write") clearFault(tab.key);
+      } catch (cause) {
+        fail(tab, "write", cause);
+      }
+    },
+    [clearFault, fail]
+  );
+
   const poll = useCallback(
     async (tab: Tab) => {
       const instance = instances.current.get(tab.key);
       if (!instance) return;
+      const current = faultRef.current.get(tab.key);
+      if (current && (current.kind === "closed" || current.kind === "grant")) return;
       try {
-        const read = JSON.parse(await callTool(grant, "terminal.read", { id: tab.session }));
+        const read = await readOnce(tab);
         if (read.data) instance.term.write(read.data);
-      } catch {
-        /* a failed poll is retried; the session id decides whether it is alive */
+        if (typeof read.cursor === "number") cursors.current.set(tab.key, read.cursor);
+        // A read that works clears a fault about the link or about reading. It does not clear "your
+        // keystrokes were not sent": that sentence stays until a write succeeds (or the tab is
+        // retried), because a working read says nothing about the keystroke that was dropped.
+        const fault = faultRef.current.get(tab.key);
+        if (fault && (fault.kind === "unreachable" || fault.kind === "read")) clearFault(tab.key);
+      } catch (cause) {
+        fail(tab, "read", cause);
       }
     },
-    [grant]
+    [clearFault, fail, readOnce]
   );
 
   // One xterm per tab, created when its host element exists and disposed when the tab goes away.
@@ -211,7 +466,7 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
       term.loadAddon(fit);
       term.open(host);
       term.onData((data) => {
-        void callTool(grant, "terminal.write", { id: tab.session, data }).catch(() => {});
+        void write(tab, data);
       });
       instances.current.set(tab.key, { term, fit });
       if (activeRef.current === null) {
@@ -223,8 +478,11 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
       if (tabs.some((tab) => tab.key === key)) continue;
       instance.term.dispose();
       instances.current.delete(key);
+      cursors.current.delete(key);
+      clearFault(key);
+      probing.current.delete(key);
     }
-  }, [tabs, grant]);
+  }, [tabs, write, clearFault]);
 
   // The active tab polls; switching polls once immediately so the tab is current when it appears.
   //
@@ -245,7 +503,7 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
       } catch {
         /* the host may not be measurable yet */
       }
-      void callTool(grant, "terminal.resize", {
+      void callTool(grantRef.current, "terminal.resize", {
         id: tab.session,
         rows: instance.term.rows,
         cols: instance.term.cols
@@ -276,10 +534,19 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
     };
   }, [grant.deviceId]);
 
+  // The device switch that unmounts the workspace takes the xterms with it.
+  useEffect(
+    () => () => {
+      for (const instance of instances.current.values()) instance.term.dispose();
+      instances.current.clear();
+    },
+    []
+  );
+
   /** Open one session and add its tab. Returns the device's sentence on failure, null on success. */
   const openWith = async (args: Record<string, unknown>, title: string): Promise<string | null> => {
     try {
-      const answer = JSON.parse(await callTool(grant, "terminal.create", args));
+      const answer = JSON.parse(await callTool(grantRef.current, "terminal.create", args));
       const session = answer.id as string;
       setTabs((previous) => [...previous, { key: session, session, kind: String(args.kind), title }]);
       setActive(session);
@@ -344,14 +611,16 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
       return;
     }
     try {
+      // Only the chosen kind's fields leave the page: an ssh preset has no baud, a serial preset has
+      // no host. The console's own validation would refuse the mismatch, one step later.
       const saved = await api.saveConnection(grant.deviceId, {
         name: preset.name.trim(),
         kind: preset.kind,
-        host: preset.host.trim() || undefined,
-        port: Number(preset.port) || undefined,
-        user: preset.user.trim() || undefined,
-        port_path: preset.port_path.trim() || undefined,
-        baud: Number(preset.baud) || undefined
+        host: preset.kind === "ssh" ? preset.host.trim() || undefined : undefined,
+        port: preset.kind === "ssh" ? Number(preset.port) || undefined : undefined,
+        user: preset.kind === "ssh" ? preset.user.trim() || undefined : undefined,
+        port_path: preset.kind === "serial" ? preset.port_path.trim() || undefined : undefined,
+        baud: preset.kind === "serial" ? Number(preset.baud) || undefined : undefined
       });
       setPresets((previous) => [...previous, saved]);
       setPresetError(null);
@@ -369,7 +638,7 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
 
   const attach = async () => {
     try {
-      const answer = JSON.parse(await callTool(grant, "terminal.list", {}));
+      const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
       const sessions: { id: string; kind: string }[] = Array.isArray(answer) ? answer : [];
       setAvailable(sessions);
       setStatus(sessions.length === 0 ? "No open session on this device." : `${sessions.length} session(s) on this device.`);
@@ -390,14 +659,27 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
   };
 
   const close = async (tab: Tab) => {
-    await callTool(grant, "terminal.close", { id: tab.session }).catch(() => {});
+    await callTool(grantRef.current, "terminal.close", { id: tab.session }).catch(() => {});
     setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
+    cursors.current.delete(tab.key);
+    probing.current.delete(tab.key);
+    clearFault(tab.key);
     if (activeRef.current === tab.key) {
       const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
       setActive(next?.key ?? null);
     }
     setStatus(`Session ${tab.session} is closed.`);
   };
+
+  /** Start a faulted tab again: drop the sentence and read once from the retained output. */
+  const retry = (tab: Tab) => {
+    clearFault(tab.key);
+    probing.current.delete(tab.key);
+    void poll(tab);
+  };
+
+  const activeTab = tabs.find((tab) => tab.key === active) ?? null;
+  const activeFault = activeTab ? faults[activeTab.key] : undefined;
 
   return (
     <div className="terminal-workspace">
@@ -457,6 +739,14 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
               onClick={() => setActive(tab.key)}
             >
               {tab.title}
+              {faults[tab.key] && (
+                <span
+                  className={"tab-state state-" + faults[tab.key].kind}
+                  title={faults[tab.key].sentence}
+                >
+                  {FAULT_LABELS[faults[tab.key].kind]}
+                </span>
+              )}
               <span
                 className="tab-close"
                 role="button"
@@ -477,6 +767,24 @@ export function TerminalWorkspace({ grant, visible = true }: { grant: Grant; vis
               </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {activeTab && activeFault && (
+        <div className={"terminal-fault fault-" + activeFault.kind} role="alert">
+          <p>{activeFault.sentence}</p>
+          <div className="terminal-fault-actions">
+            <span className="hint">
+              {activeFault.kind === "closed" || activeFault.kind === "grant"
+                ? "No keystrokes are sent from this tab while it is in this state."
+                : `Tab ${activeTab.title}`}
+            </span>
+            {activeFault.kind !== "closed" && activeFault.kind !== "grant" && (
+              <button type="button" className="mini" onClick={() => retry(activeTab)}>
+                Try again
+              </button>
+            )}
+          </div>
         </div>
       )}
 

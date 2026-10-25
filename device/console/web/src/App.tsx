@@ -29,6 +29,8 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
   const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
+  /** True when the grant in force was refused, so the form is offered again above the live tabs. */
+  const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
 
@@ -109,6 +111,7 @@ export function App() {
     setAudit([]);
     setSelected(null);
     setGrant(null);
+    setGrantStale(false);
     setPage("devices");
   };
 
@@ -406,7 +409,7 @@ export function App() {
               <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
             </section>
           )}
-          {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id) && (
+          {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id || grantStale) && (
             <section className="panel">
               <div className="panel-head">
                 <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
@@ -416,7 +419,19 @@ export function App() {
                 every call. Everything is selected by default: press the button and the terminal
                 appears.
               </p>
-              <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+              {grantStale && (
+                <p className="hint">
+                  The grant in force was refused by the console or the device. Sign a new one and the
+                  open tabs resume where they were.
+                </p>
+              )}
+              <GrantForm
+                deviceId={chosen.id}
+                onGranted={(envelope) => {
+                  setGrant({ deviceId: chosen.id, envelope });
+                  setGrantStale(false);
+                }}
+              />
             </section>
           )}
           {/*
@@ -427,7 +442,11 @@ export function App() {
           */}
           {chosen && grant && grant.deviceId === chosen.id && (
             <section className="panel" hidden={page !== "terminal"}>
-              <TerminalWorkspace grant={grant} visible={page === "terminal"} />
+              <TerminalWorkspace
+                grant={grant}
+                visible={page === "terminal"}
+                onGrantRefused={() => setGrantStale(true)}
+              />
             </section>
           )}
 

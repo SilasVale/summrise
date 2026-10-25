@@ -332,6 +332,48 @@ tr:last-child td { border-bottom: 0; }
 .tab-close:hover {
   color: var(--error);
 }
+/* A tab that stopped answering marks itself, and the sentence above the screen says why. The labels
+   are deliberately different words: "closed" is the device's, "offline" the link's, "grant" the
+   permission's, and "read failed"/"not sent" say which half of the session failed. */
+.tab-state {
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.tab-state.state-closed { background: var(--surface-chip); color: var(--ink-muted); }
+.tab-state.state-unreachable { background: var(--warn-soft); color: var(--warn); }
+.tab-state.state-grant { background: var(--error-soft); color: var(--error); }
+.tab-state.state-read,
+.tab-state.state-write { background: var(--warn-soft); color: var(--warn); }
+
+.terminal-fault {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-recessed);
+}
+.terminal-fault p { margin: 0; font-size: var(--fs-sm); }
+.terminal-fault.fault-closed { background: var(--surface-chip); }
+.terminal-fault.fault-grant {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--line-strong));
+  background: var(--error-soft);
+}
+.terminal-fault.fault-unreachable {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line-strong));
+  background: var(--warn-soft);
+}
+.terminal-fault-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 
 /* The memory browser: a search over device state, one card per entry, and an inline form that
    replaces a card's body while it is being edited. */
