@@ -574,3 +574,183 @@ button.runs-open:disabled {
   text-decoration: none;
   cursor: default;
 }
+
+/* The files page: a breadcrumb over the device's tree, one row per entry, and a viewer/editor for
+   the file that is open. Rows are a list rather than cards — a folder is scanned, not read one item
+   at a time, and a hundred card borders are noise. */
+.files-page {
+  display: grid;
+  gap: 0.55rem;
+}
+.files-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+}
+button.files-crumb {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0.1rem 0.3rem;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+button.files-crumb:hover {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.files-crumb-current {
+  padding: 0.1rem 0.3rem;
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+.files-crumb-sep {
+  color: var(--ink-faint);
+}
+
+.files-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+.files-new {
+  display: grid;
+  gap: 0.2rem;
+}
+.files-new > label,
+.files-upload > label {
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--ink-muted);
+}
+.files-new-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.files-new-row input {
+  width: 12rem;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.files-upload {
+  display: grid;
+  gap: 0.2rem;
+}
+.files-upload input[type="file"] {
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+}
+
+.files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-recessed);
+  overflow: hidden;
+}
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+.files-row:last-child {
+  border-bottom: 0;
+}
+.files-row:hover {
+  background: var(--surface-chip);
+}
+.files-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0.1rem 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.files-name {
+  color: var(--ink);
+  cursor: pointer;
+}
+button.files-name:hover {
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.files-directory button.files-name {
+  font-weight: 600;
+}
+span.files-name {
+  color: var(--ink-muted);
+}
+.files-up button.files-name {
+  color: var(--ink-muted);
+  font-weight: 550;
+}
+.files-kind {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.files-size {
+  flex: none;
+  min-width: 4.5rem;
+  text-align: right;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.files-viewer {
+  display: grid;
+  gap: 0.5rem;
+}
+.files-viewer header .mono {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.files-viewer label {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+}
+.files-editor {
+  width: 100%;
+  min-height: 18rem;
+  padding: 0.5rem 0.6rem;
+  resize: vertical;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 4;
+}
+.files-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

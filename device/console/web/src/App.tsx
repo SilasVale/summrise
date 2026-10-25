@@ -8,6 +8,7 @@ import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
+import { FilesPage } from "./FilesPage";
 import { MemoryPage } from "./MemoryPage";
 import { MonitorsPage } from "./MonitorsPage";
 import { RunsPage } from "./RunsPage";
@@ -354,6 +355,42 @@ export function App() {
                 </section>
               </div>
             </div>
+          )}
+
+          {page === "files" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Files</h2>
+                  </div>
+                  <p className="hint">
+                    The files live on the device, so pick one. The console signs a grant for the
+                    file tools, and the device checks that grant on every list, read, write and
+                    mkdir.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    files appear.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <FilesPage grant={grant} />
+                </section>
+              )}
+            </>
           )}
 
           {page === "terminal" && (
