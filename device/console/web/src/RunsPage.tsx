@@ -74,6 +74,11 @@ export function RunsPage({ grant }: { grant: Grant }) {
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
   // where they are, so the two cases are told apart by whether a list ever arrived.
   const listed = useRef(false);
+  // The disabled button is the visible guard, but a second submit can arrive before the re-render
+  // disables it; `running` in this handler is the value from the render that created it, so the ref
+  // is the real gate. The sequence invalidates an answer from an older grant or an older run.
+  const runningRef = useRef(false);
+  const runSeq = useRef(0);
 
   const read = useCallback(async () => {
     setLoadingHistory(true);
@@ -93,8 +98,12 @@ export function RunsPage({ grant }: { grant: Grant }) {
     }
   }, [grant]);
 
-  // A different grant is a different device's history and a different draft.
+  // A different grant is a different device's history and a different draft. It also invalidates a
+  // run that is still waiting: its answer belongs to the device this page has left.
   useEffect(() => {
+    runSeq.current += 1;
+    runningRef.current = false;
+    setRunning(false);
     listed.current = false;
     setHistory([]);
     setHistoryNote("Reading the device's run history…");
@@ -112,9 +121,9 @@ export function RunsPage({ grant }: { grant: Grant }) {
 
   const run = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // The disabled button is the visible guard; this one holds when a submit arrives before the
-    // state has re-rendered the button, so one form cannot put two runs on the device.
-    if (running) return;
+    if (runningRef.current) return;
+    runningRef.current = true;
+    const seq = ++runSeq.current;
     const line = command.trim();
     // argv mode splits on whitespace and does no quoting: the first word is the program and the rest
     // are its arguments. A shell line is handed over whole. An empty command is sent as the empty
@@ -133,20 +142,27 @@ export function RunsPage({ grant }: { grant: Grant }) {
 
     setRunning(true);
     setRunError(null);
-    // The result panel belongs to the run that is about to finish, never to the one before it.
-    setResult(null);
     try {
       const finished = JSON.parse(
         await callTool(grant, "runs.exec", request)
       ) as RunResult;
+      if (runSeq.current !== seq) return;
       // Show the run before the re-read: a history read that fails afterwards must not make a
       // successful run look like it did not happen.
       setResult(finished);
       await read();
     } catch (cause) {
-      setRunError("Could not run the command: " + message(cause));
+      if (runSeq.current !== seq) return;
+      // The last result stays where it is: a failed run says nothing about the one that did run.
+      setRunError(runFailure(cause));
+      // A console timeout is not a device refusal — the row may already have been written for a
+      // command the console stopped waiting on, so the history is read again instead of left stale.
+      await read();
     } finally {
-      setRunning(false);
+      if (runSeq.current === seq) {
+        runningRef.current = false;
+        setRunning(false);
+      }
     }
   };
 
@@ -197,7 +213,7 @@ export function RunsPage({ grant }: { grant: Grant }) {
             id="runs-command"
             value={command}
             onChange={(event) => setCommand(event.target.value)}
-            placeholder={shell ? "echo hello && dir" : "echo hello"}
+            placeholder={shell ? "echo hello && echo bye" : "echo hello"}
             autoComplete="off"
             spellCheck={false}
           />
@@ -240,7 +256,7 @@ export function RunsPage({ grant }: { grant: Grant }) {
 
       <p className="hint">
         {shell
-          ? "The whole line goes to the device's platform shell (cmd /C on Windows, sh -c elsewhere), so the shell parses it."
+          ? "The whole line is run through the device's platform shell (cmd /C on Windows, sh -c elsewhere), so the shell parses it. Do not put cmd /C (or sh -c) in the line yourself — the toggle already does that, and it would run twice."
           : "The line is split on whitespace — the first word is the program, the rest are its arguments — and run without a shell, so $, * and ; are ordinary characters. There is no quoting."}{" "}
         The working directory is where the process starts, relative to the device's files root; it is
         not a jail. The timeout is 1 to {MAX_TIMEOUT_MS} ms and defaults to {DEFAULT_TIMEOUT_MS} ms.
@@ -253,6 +269,11 @@ export function RunsPage({ grant }: { grant: Grant }) {
         </p>
       )}
       {runError && <p className="error">{runError}</p>}
+      {runError && result && (
+        <p className="hint">
+          The result below is from the last run that finished; this attempt did not replace it.
+        </p>
+      )}
 
       {result && (
         <section className="card runs-result">
@@ -333,9 +354,9 @@ export function RunsPage({ grant }: { grant: Grant }) {
             <p className="mono">{commandLine(detail)}</p>
           </div>
           <p className="hint">
-            This is the record the history kept. It stores each stream's size, not its bytes, so a
-            past run has no stdout or stderr to show: the result panel above carries the output of
-            the run this page just made, and an earlier run's output is gone.
+            This is the record the history kept. The device stores each stream's size, not its
+            bytes, so a past run has no stdout or stderr to fetch: output is shown only for a run
+            this page has just made, and every earlier run's output is gone.
           </p>
           <dl className="facts">
             <div>
@@ -475,8 +496,27 @@ function historyNoteFor(rows: RunRecord[]): string {
     return "The device's run history is empty; the form above runs the first command.";
   }
   const noun = rows.length === 1 ? "run" : "runs";
-  const capped = rows.length >= HISTORY_LIMIT ? ` (the newest ${HISTORY_LIMIT})` : "";
-  return `${rows.length} recent ${noun}${capped}, newest first. Click a row to read its record.`;
+  // The device answers the newest rows up to the limit; only a full answer is worth calling the
+  // newest N, because a shorter one is the whole history it had.
+  const count =
+    rows.length >= HISTORY_LIMIT
+      ? `The newest ${HISTORY_LIMIT} ${noun}`
+      : `${rows.length} recent ${noun}`;
+  return `${count}, newest first. Click a row to read its record.`;
+}
+
+/// The sentence for a failed `runs.exec`. A console timeout is not a device refusal: the proxy
+/// stopped waiting for an answer while the command may still be running, and its history row can
+/// land later. Every other failure is the device's own sentence.
+function runFailure(cause: unknown): string {
+  const sentence = message(cause);
+  if (sentence === "device timeout") {
+    return (
+      "The console stopped waiting for the device (device timeout): the command may still be " +
+      "running there, and its history row may appear when it finishes. Refresh the history to look for it."
+    );
+  }
+  return "Could not run the command: " + sentence;
 }
 
 function message(cause: unknown): string {
