@@ -21,6 +21,7 @@ mod auth;
 mod channels;
 mod codes;
 mod config;
+mod connections;
 mod denials;
 mod devices;
 mod grants;

@@ -22,6 +22,18 @@ export type HostFacts = {
   helper?: { registered?: boolean; pid?: number | null; session?: number | null };
 };
 
+/** A saved terminal preset: the shape of a connection, never its credential. */
+export type SavedConnection = {
+  id: string;
+  name: string;
+  kind: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  port_path?: string;
+  baud?: number;
+};
+
 export type Device = {
   id: string;
   name: string | null;
@@ -100,6 +112,14 @@ export const api = {
       body: JSON.stringify({ name })
     }),
   remove: (id: string) => call<void>(`/fleet/${id}`, { method: "DELETE" }),
+  connections: (id: string) => call<SavedConnection[]>(`/fleet/${id}/connections`),
+  saveConnection: (id: string, draft: Omit<SavedConnection, "id">) =>
+    call<SavedConnection>(`/fleet/${id}/connections`, {
+      method: "POST",
+      body: JSON.stringify(draft)
+    }),
+  removeConnection: (id: string, connection: string) =>
+    call<void>(`/fleet/${id}/connections/${connection}`, { method: "DELETE" }),
   enroll: () => call<{ code: string; expires_at_ms: number }>("/enroll", { method: "POST" }),
   grant: (
     device_id: string,

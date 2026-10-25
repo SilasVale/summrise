@@ -26,6 +26,7 @@ use crate::auth::{
 use crate::channels::{ChannelRegistry, Reply, RequestError};
 use crate::codes::{ConsumeError, EnrollmentCodes, IssueError};
 use crate::config::{load_grant_key, load_operator_token, Config, StartupError};
+use crate::connections;
 use crate::denials::Denials;
 use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
@@ -70,6 +71,8 @@ struct Inner {
     grant_key: SigningKey,
     sessions: Mutex<Vec<Session>>,
     devices: Mutex<DeviceRegistry>,
+    /// Saved terminal presets, keyed by device inside the file. Operator convenience, not device state.
+    connections: Mutex<connections::Connections>,
     codes: Mutex<EnrollmentCodes>,
     channels: ChannelRegistry,
     audit: Audit,
@@ -136,6 +139,7 @@ impl Console {
         let operator_token = load_operator_token(&config.operator_token_file)?;
         let grant_key = load_grant_key(&config.grant_key_file)?;
         let devices = DeviceRegistry::load(&config.data)?;
+        let connections = connections::Connections::load(&config.data)?;
         let codes = EnrollmentCodes::load(&config.data)?;
 
         Ok(Console {
@@ -144,6 +148,7 @@ impl Console {
                 grant_key,
                 sessions: Mutex::new(Vec::new()),
                 devices: Mutex::new(devices),
+                connections: Mutex::new(connections),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
@@ -229,6 +234,14 @@ impl Console {
             .route("/devices/:id/channel", get(device_channel))
             .route("/fleet", get(list_devices))
             .route("/fleet/:id/name", post(rename_device))
+            .route(
+                "/fleet/:id/connections",
+                get(list_connections).post(save_connection),
+            )
+            .route(
+                "/fleet/:id/connections/:connection",
+                axum::routing::delete(remove_connection),
+            )
             .route("/fleet/:id", axum::routing::delete(remove_device))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
@@ -240,6 +253,14 @@ impl Console {
 
 /// The state axum hands to every handler and extractor.
 type AppState = Arc<Inner>;
+
+impl Inner {
+    /// Whether this console has a device with `id`: the check every per-device operator route makes
+    /// before it touches a store that would happily key on an unknown id.
+    fn has_device(&self, id: &str) -> bool {
+        lock(&self.devices).contains(id)
+    }
+}
 
 impl Inner {
     /// The operator behind this request: a live session, or a verified Access identity.
@@ -1238,6 +1259,53 @@ async fn remove_device(
 #[derive(Deserialize)]
 struct RenameDevice {
     name: Option<String>,
+}
+
+/// `GET /fleet/:id/connections`: this device's saved terminal presets.
+async fn list_connections(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    _: OperatorSession,
+) -> Result<Json<Vec<connections::Connection>>, ApiError> {
+    if !app.has_device(&device_id) {
+        return Err(ApiError::not_found("no_such_device"));
+    }
+    Ok(Json(lock(&app.connections).list(&device_id)))
+}
+
+/// `POST /fleet/:id/connections`: save one preset.
+async fn save_connection(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    _: OperatorSession,
+    Json(draft): Json<connections::Draft>,
+) -> Result<(StatusCode, Json<connections::Connection>), ApiError> {
+    if !app.has_device(&device_id) {
+        return Err(ApiError::not_found("no_such_device"));
+    }
+    let saved = lock(&app.connections)
+        .add(&device_id, draft)
+        .map_err(ApiError::bad_request)?;
+    Ok((StatusCode::CREATED, Json(saved)))
+}
+
+/// `DELETE /fleet/:id/connections/:connection`: forget one preset.
+async fn remove_connection(
+    State(app): State<AppState>,
+    Path((device_id, connection_id)): Path<(String, String)>,
+    _: OperatorSession,
+) -> Result<StatusCode, ApiError> {
+    if !app.has_device(&device_id) {
+        return Err(ApiError::not_found("no_such_device"));
+    }
+    let removed = lock(&app.connections)
+        .remove(&device_id, &connection_id)
+        .map_err(ApiError::bad_request)?;
+    if removed {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("no_such_connection"))
+    }
 }
 
 async fn rename_device(

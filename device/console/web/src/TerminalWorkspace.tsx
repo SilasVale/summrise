@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, type Grant } from "./terminal";
+import { api, type SavedConnection } from "./api";
+import { Modal } from "./Modal";
 
 /**
  * Several sessions at once, each in its own tab.
@@ -39,6 +41,19 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
   const [active, setActive] = useState<string | null>(null);
   const [status, setStatus] = useState("No session. Open one, or attach to a session this device already has.");
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
+  const [presets, setPresets] = useState<SavedConnection[]>([]);
+  const [dialog, setDialog] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    name: "",
+    kind: "pty",
+    host: "",
+    port: "22",
+    user: "",
+    port_path: "",
+    baud: "115200",
+    password: ""
+  });
   const instances = useRef(new Map<string, Instance>());
   const hosts = useRef(new Map<string, HTMLDivElement>());
   const activeRef = useRef<string | null>(null);
@@ -125,19 +140,90 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
     };
   }, [active, tabs, grant, poll]);
 
-  const open = async () => {
+  // The presets belong to the device, so they are re-read when the grant's device changes.
+  useEffect(() => {
+    let live = true;
+    void api
+      .connections(grant.deviceId)
+      .then((list) => {
+        if (live) setPresets(list);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [grant.deviceId]);
+
+  const openWith = async (args: Record<string, unknown>, title: string) => {
     try {
-      const answer = JSON.parse(await callTool(grant, "terminal.create", { kind: "pty" }));
+      const answer = JSON.parse(await callTool(grant, "terminal.create", args));
       const session = answer.id as string;
       setTabs((previous) => [
         ...previous,
-        { key: session, session, kind: "pty", title: `pty ${previous.length + 1}` }
+        { key: session, session, kind: String(args.kind), title }
       ]);
       setActive(session);
       setStatus(`Session ${session} is open.`);
     } catch (cause) {
       setStatus("Could not open: " + (cause instanceof Error ? cause.message : String(cause)));
     }
+  };
+
+  const open = () => void openWith({ kind: "pty" }, `pty ${tabs.length + 1}`);
+
+  /** The create arguments a preset (or the dialog's draft) implies. */
+  const argsFor = (source: {
+    kind: string;
+    host?: string;
+    port?: number;
+    user?: string;
+    port_path?: string;
+    baud?: number;
+    password?: string;
+  }): Record<string, unknown> => {
+    if (source.kind === "ssh") {
+      const args: Record<string, unknown> = {
+        kind: "ssh",
+        host: source.host,
+        port: source.port ?? 22,
+        user: source.user
+      };
+      // The password is typed for this session and never saved: a preset names the connection, not
+      // the credential.
+      if (source.password) args.auth = { kind: "password", password: source.password };
+      return args;
+    }
+    if (source.kind === "serial") {
+      return { kind: "serial", port: source.port_path, baud: source.baud ?? 115200 };
+    }
+    return { kind: "pty" };
+  };
+
+  const savePreset = async () => {
+    if (!draft.name.trim()) {
+      setDraftError("Give the preset a name.");
+      return;
+    }
+    try {
+      const saved = await api.saveConnection(grant.deviceId, {
+        name: draft.name.trim(),
+        kind: draft.kind,
+        host: draft.host.trim() || undefined,
+        port: Number(draft.port) || undefined,
+        user: draft.user.trim() || undefined,
+        port_path: draft.port_path.trim() || undefined,
+        baud: Number(draft.baud) || undefined
+      });
+      setPresets((previous) => [...previous, saved]);
+      setDraftError(null);
+    } catch (cause) {
+      setDraftError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const forgetPreset = async (preset: SavedConnection) => {
+    await api.removeConnection(grant.deviceId, preset.id).catch(() => {});
+    setPresets((previous) => previous.filter((entry) => entry.id !== preset.id));
   };
 
   const attach = async () => {
@@ -178,10 +264,33 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
         <h2>Terminal</h2>
         <div className="actions">
           <button type="button" onClick={() => void attach()}>Attach to a session</button>
-          <button type="button" className="primary" onClick={() => void open()}>+ New</button>
+          <button type="button" onClick={() => setDialog(true)}>Save a preset</button>
+          <button type="button" className="primary" onClick={open}>+ New</button>
         </div>
       </div>
       <p className={status.startsWith("Could not") || status.startsWith("List failed") ? "error" : "hint"}>{status}</p>
+
+      {presets.length > 0 && (
+        <ul className="picker">
+          {presets.map((preset) => (
+            <li key={preset.id}>
+              <span className="mono">{preset.kind}</span>
+              <strong>{preset.name}</strong>
+              <span className="mono muted">
+                {preset.kind === "serial"
+                  ? `${preset.port_path ?? "?"} ${preset.baud ?? ""}`
+                  : preset.kind === "ssh"
+                    ? `${preset.user ?? "?"}@${preset.host ?? "?"}:${preset.port ?? 22}`
+                    : "local shell"}
+              </span>
+              <button type="button" className="mini" onClick={() => void openWith(argsFor(preset), preset.name)}>
+                Open
+              </button>
+              <button type="button" className="mini" onClick={() => void forgetPreset(preset)}>Forget</button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {available.length > 0 && (
         <ul className="picker">
@@ -241,6 +350,77 @@ export function TerminalWorkspace({ grant }: { grant: Grant }) {
           }}
         />
       ))}
+
+      {dialog && (
+        <Modal title="Save a terminal preset" onClose={() => setDialog(false)}>
+          <label htmlFor="preset-name">Name</label>
+          <input
+            id="preset-name"
+            value={draft.name}
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            placeholder="the db host"
+          />
+          <label htmlFor="preset-kind">Kind</label>
+          <select
+            id="preset-kind"
+            value={draft.kind}
+            onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
+          >
+            <option value="pty">pty — a shell on the device</option>
+            <option value="ssh">ssh — a remote host</option>
+            <option value="serial">serial — a port on the device</option>
+          </select>
+          {draft.kind === "ssh" && (
+            <>
+              <label htmlFor="preset-host">Host</label>
+              <input
+                id="preset-host"
+                value={draft.host}
+                onChange={(event) => setDraft({ ...draft, host: event.target.value })}
+                placeholder="db.internal"
+              />
+              <label htmlFor="preset-port">Port</label>
+              <input
+                id="preset-port"
+                value={draft.port}
+                onChange={(event) => setDraft({ ...draft, port: event.target.value })}
+                placeholder="22"
+              />
+              <label htmlFor="preset-user">User</label>
+              <input
+                id="preset-user"
+                value={draft.user}
+                onChange={(event) => setDraft({ ...draft, user: event.target.value })}
+                placeholder="operator"
+              />
+              <p className="hint">The password is not saved: type it when the session opens.</p>
+            </>
+          )}
+          {draft.kind === "serial" && (
+            <>
+              <label htmlFor="preset-path">Port path</label>
+              <input
+                id="preset-path"
+                value={draft.port_path}
+                onChange={(event) => setDraft({ ...draft, port_path: event.target.value })}
+                placeholder="COM3 or /dev/ttyUSB0"
+              />
+              <label htmlFor="preset-baud">Baud</label>
+              <input
+                id="preset-baud"
+                value={draft.baud}
+                onChange={(event) => setDraft({ ...draft, baud: event.target.value })}
+                placeholder="115200"
+              />
+            </>
+          )}
+          {draftError && <p className="error">{draftError}</p>}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setDialog(false)}>Cancel</button>
+            <button type="button" className="primary" onClick={() => void savePreset()}>Save</button>
+          </div>
+        </Modal>
+      )}
 
       {tabs.length === 0 && (
         <div className="panel empty">

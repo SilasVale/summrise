@@ -3001,3 +3001,75 @@ async fn the_fleet_namespace_is_the_operators_and_the_device_namespace_is_not() 
         "the removed device is gone from the fleet list"
     );
 }
+
+#[tokio::test]
+async fn a_saved_connection_is_per_device_and_carries_no_credential() {
+    let fixture = Fixture::new("saved-connections");
+    let key = signing_key(0x21);
+    let (id, _token) = fixture.register(&key).await;
+    let session = fixture.authenticate().await;
+
+    let (status, saved) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/connections"),
+            &session,
+            json!({
+                "name": "the db host",
+                "kind": "ssh",
+                "host": "db.internal",
+                "port": 22,
+                "user": "operator"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "save: {saved}");
+    let connection_id = saved["id"].as_str().expect("an id").to_owned();
+    assert_eq!(saved["host"], json!("db.internal"));
+
+    // A preset that cannot become a session is refused now, not when the operator is waiting for a
+    // prompt: an ssh preset with no host is the shape the device would reject later.
+    let (status, body) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{id}/connections"),
+            &session,
+            json!({ "name": "no host", "kind": "ssh", "port": 22, "user": "operator" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // A device that does not exist has no list to read or write.
+    let (status, _) = send(
+        fixture.app(),
+        get("/fleet/not-a-device/connections", Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, list) = send(
+        fixture.app(),
+        get(&format!("/fleet/{id}/connections"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list.as_array().expect("a list").len(), 1, "{list}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{id}/connections/{connection_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(
+        fixture.app(),
+        get(&format!("/fleet/{id}/connections"), Some(&session)),
+    )
+    .await;
+    assert!(list.as_array().expect("a list").is_empty(), "{list}");
+}
