@@ -8,6 +8,7 @@ export type Page =
   | "memory"
   | "monitors"
   | "runs"
+  | "system"
   | "audit";
 
 const ICONS: Record<Page, string> = {
@@ -20,6 +21,7 @@ const ICONS: Record<Page, string> = {
     "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
   monitors: "M3 12h3.5l2.5-6 4 12 2.5-6H21",
   runs: "M8 5v14l11-7z",
+  system: "M8 8h8v8H8zM4 9h4M4 15h4M16 9h4M16 15h4M9 4v4M15 4v4M9 16v4M15 16v4",
   audit: "M5 4.5h14v15H5zM8 8.5h8M8 12h8M8 15.5h5"
 };
 
@@ -36,7 +38,7 @@ export function Rail({
 }) {
   return (
     <nav className="rail" aria-label="Sections">
-      {(["devices", "files", "terminal", "browser", "memory", "monitors", "runs", "audit"] as Page[]).map((entry) => (
+      {(["devices", "files", "terminal", "browser", "memory", "monitors", "runs", "system", "audit"] as Page[]).map((entry) => (
         <button
           key={entry}
           type="button"

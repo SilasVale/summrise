@@ -754,3 +754,83 @@ span.files-name {
   justify-content: flex-end;
   gap: 0.5rem;
 }
+
+/* The system page: a process table whose rows can end a process, and one TCP connect with its
+   answer. The table is a table — a snapshot is scanned, not read one card at a time — and the
+   network result reuses `.card`/`.facts` so it reads like the other device facts. */
+.system-page {
+  display: grid;
+  gap: 0.55rem;
+}
+.system-section {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.system-section > h3 {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+.system-toolbar,
+.system-net {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+}
+.system-field {
+  display: grid;
+  gap: 0.2rem;
+  flex: 0 1 7.5rem;
+  min-width: 0;
+}
+.system-field.filter { flex: 1 1 16rem; }
+.system-field.host { flex: 1 1 13rem; }
+.system-field > label {
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--ink-muted);
+}
+.system-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.system-toolbar > button,
+.system-net > button { flex: none; }
+
+.system-table {
+  max-height: 22rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+}
+.system-table th:nth-child(3),
+.system-table td:nth-child(3),
+.system-table th:last-child,
+.system-table td:last-child { text-align: right; }
+.system-table td { vertical-align: middle; }
+.system-pid,
+.system-memory {
+  width: 1%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.system-name { overflow-wrap: anywhere; }
+.system-kill-cell { width: 1%; white-space: nowrap; }
+
+.system-failures {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: var(--fs-sm);
+}
+.system-net-result header .mono {
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}

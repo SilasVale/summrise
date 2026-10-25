@@ -12,6 +12,7 @@ import { FilesPage } from "./FilesPage";
 import { MemoryPage } from "./MemoryPage";
 import { MonitorsPage } from "./MonitorsPage";
 import { RunsPage } from "./RunsPage";
+import { SystemPage } from "./SystemPage";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -558,6 +559,42 @@ export function App() {
               {chosen && grant && grant.deviceId === chosen.id && (
                 <section className="panel">
                   <RunsPage grant={grant} />
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "system" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>System</h2>
+                  </div>
+                  <p className="hint">
+                    Processes and reachability live on the device, so pick one. The console signs a
+                    grant for the system tools, and the device checks that grant on every read,
+                    every kill and every network test.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    process list appears.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <SystemPage grant={grant} />
                 </section>
               )}
             </>
