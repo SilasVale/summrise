@@ -90,8 +90,10 @@ The journal grows with every change, so at some point it is rewritten as a snaps
 as one `append` line with its id, written in the **reverse of the current view** — oldest first — so
 that replaying the snapshot reproduces the view exactly. "Original append order" would not: an entry
 that was updated lives at its update's position in the view, and a snapshot in first-append order would
-move it back and change what a reader sees. The rewrite goes to `memory.jsonl.new` and is
-renamed over the old file — a crash leaves one file or the other, the shape the registry already uses.
+move it back and change what a reader sees. The rewrite goes through `fsutil::create_new_sibling` — a
+random-suffixed new file opened with `create_new`, so a name planted in the data directory can never be
+written through — and is renamed over the old file. A crash leaves one file or the other, the shape the
+registry already uses; a leftover sibling is ignored by every read.
 
 The trigger is measured, not guessed: **2 × live entries + 64 lines**, evaluated after **every**
 journal write — append, update and delete. An edit-only store would otherwise grow without limit (at
