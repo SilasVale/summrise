@@ -267,3 +267,47 @@ tr:last-child td { border-bottom: 0; }
 .picker li strong {
   flex: 1;
 }
+
+/* Tabs over one terminal history: the workspace's shape, borrowed from the legacy panel. */
+.terminal-workspace {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.tabbar {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.25rem;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-bottom-color: transparent;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: var(--surface-recessed);
+  color: var(--ink-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tab-active {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.tab-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  padding: 0 0.1rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.tab-close:hover {
+  color: var(--error);
+}

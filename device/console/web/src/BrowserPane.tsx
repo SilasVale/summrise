@@ -39,6 +39,12 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     }
   };
 
+  const choose = (which: string) => {
+    setTarget(which);
+    // The picture, when there is one, is of the target that was selected a moment ago.
+    if (shot) void capture(which);
+  };
+
   const open = async () => {
     if (!url.trim()) return;
     try {
@@ -108,6 +114,20 @@ export function BrowserPane({ grant }: { grant: Grant }) {
         </div>
       </div>
       <p className={status.includes("failed") ? "error" : "hint"}>{status}</p>
+
+      {targets.length > 0 && (
+        // The browser can hold several pages; the screenshot follows the target, so the operator has
+        // to be able to say which one. Without this the pane always showed whichever came first.
+        <div className="row">
+          <select value={target} onChange={(event) => choose(event.target.value)}>
+            {targets.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.title || entry.url || entry.id}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="row">
         <input placeholder="https://example.test — opens or navigates" value={url} onChange={(event) => setUrl(event.target.value)} />

@@ -6,7 +6,7 @@ import { AuditTable } from "./AuditTable";
 import { Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
-import { TerminalPane } from "./TerminalPane";
+import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 
 export function App() {
@@ -382,7 +382,7 @@ export function App() {
               )}
               {chosen && grant && grant.deviceId === chosen.id && (
                 <section className="panel">
-                  <TerminalPane grant={grant} />
+                  <TerminalWorkspace grant={grant} />
                 </section>
               )}
             </>
