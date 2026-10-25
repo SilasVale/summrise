@@ -29,10 +29,11 @@
 //! Compaction keeps the file bounded without a clock. Once the journal holds more than
 //! `2 * live + 64` lines, checked after every write, every live entry becomes one `append` line with
 //! its id — oldest first, the reverse of the view, so replaying the snapshot reproduces the view —
-//! and the lines land in `memory.jsonl.new` before a rename commits them. A crash leaves the old
-//! journal or the snapshot, never a half-rewritten file. A snapshot that fails after the write which
-//! triggered it has landed is logged and retried on the next write: the operation is already
-//! durable, and reporting its failure would invite a retry that duplicates it.
+//! and the lines land in a brand-new random sibling before a rename commits them (the NEW-8 rule: a
+//! planted name can never be the file written through). A crash leaves the old journal or the
+//! snapshot, never a half-rewritten file. A snapshot that fails after the write which triggered it
+//! has landed is logged and retried on the next write: the operation is already durable, and
+//! reporting its failure would invite a retry that duplicates it.
 //!
 //! The MCP surface serves several sessions at once, so one lock makes the file's invariants hold
 //! under concurrency: an append's count-then-write is one critical section (two racing appends
@@ -47,6 +48,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use crate::fsutil::create_new_sibling;
 
 /// The largest serialized operation line: tags, the id, JSON quoting and escapes included; the
 /// newline is extra.
@@ -259,6 +262,11 @@ pub struct Memory {
     path: PathBuf,
     /// One writer at a time, and readers that never overlap a write.
     lock: std::sync::RwLock<()>,
+    /// Test-only: one-shot switch that makes the next snapshot fail before it touches the
+    /// filesystem. The retry path must be provable on every platform, and "make the data directory
+    /// unwritable" is not portable; this is the type's only test seam.
+    #[cfg(test)]
+    snapshot_fault: std::sync::atomic::AtomicBool,
 }
 
 impl Memory {
@@ -267,7 +275,17 @@ impl Memory {
         Memory {
             path: data.join("memory.jsonl"),
             lock: std::sync::RwLock::new(()),
+            #[cfg(test)]
+            snapshot_fault: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Make the next snapshot fail, for the test that proves a failed snapshot is logged and retried
+    /// instead of failing the operation that preceded it.
+    #[cfg(test)]
+    fn fail_the_next_snapshot(&self) {
+        self.snapshot_fault
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The read side of the lock, with poisoning treated as "the lock is still the lock".
@@ -559,14 +577,23 @@ impl Memory {
     /// reverse-view order is the order whose replay is exactly this view. Each line is one `append`
     /// with the entry's id, so an id derived for a legacy line becomes a real one on disk.
     ///
-    /// The bytes land in `memory.jsonl.new` and the rename commits them: a crash leaves the old
-    /// journal or the new snapshot, never a half-written mix. The caller holds the write side.
+    /// The bytes land in a brand-new random sibling (`create_new_sibling`, NEW-8), not a predictable
+    /// name, so a file planted in the data directory can never be the one written through. The
+    /// rename commits the bytes, and a crash leaves the old journal or the new snapshot, never a
+    /// half-written mix. The caller holds the write side.
     fn compact(&self, live: &[Entry]) -> io::Result<()> {
-        let snapshot = self.snapshot_path();
-        if let Some(parent) = snapshot.parent() {
+        #[cfg(test)]
+        if self
+            .snapshot_fault
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(io::Error::other("the test made the snapshot fail"));
+        }
+
+        if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut file = File::create(&snapshot)?;
+        let (temporary, mut file) = create_new_sibling(&self.path)?;
         let write = (|| -> io::Result<()> {
             for entry in live.iter().rev() {
                 let record = Record {
@@ -582,22 +609,15 @@ impl Memory {
         })();
         if let Err(error) = write {
             drop(file);
-            let _ = fs::remove_file(&snapshot);
+            let _ = fs::remove_file(&temporary);
             return Err(error);
         }
         drop(file);
-        if let Err(error) = fs::rename(&snapshot, &self.path) {
-            let _ = fs::remove_file(&snapshot);
+        if let Err(error) = fs::rename(&temporary, &self.path) {
+            let _ = fs::remove_file(&temporary);
             return Err(error);
         }
         Ok(())
-    }
-
-    /// The snapshot's fixed sibling: `memory.jsonl.new`.
-    fn snapshot_path(&self) -> PathBuf {
-        let mut name = self.path.as_os_str().to_owned();
-        name.push(".new");
-        PathBuf::from(name)
     }
 
     /// Search entries newest-first, matching `query` case-insensitively over text and tags.
@@ -947,6 +967,35 @@ mod tests {
             ));
         }
         fs::write(&memory.path, stored).expect("the tombstones are written");
+    }
+
+    /// The predictable temporary name a pre-NEW-8 snapshot used. It is not written any more; a test
+    /// plants it to prove compaction cannot be redirected through it.
+    const LEGACY_SNAPSHOT_FILE: &str = "memory.jsonl.new";
+
+    /// The file names in the memory's data directory, sorted.
+    fn data_files(memory: &Memory) -> Vec<String> {
+        let parent = memory.path.parent().expect("the data directory");
+        let mut names: Vec<String> = fs::read_dir(parent)
+            .expect("the data directory is readable")
+            .map(|entry| {
+                entry
+                    .expect("a directory entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// `compact` is called under the write side by the write path; a test that wants a snapshot
+    /// without a triggering write takes the same side here, so it honours the documented
+    /// precondition rather than reaching into `compact` unlocked.
+    fn compact_in_test(memory: &Memory, live: &[Entry]) -> std::io::Result<()> {
+        let _writing = memory.writing();
+        memory.compact(live)
     }
 
     #[test]
@@ -1749,7 +1798,7 @@ mod tests {
         );
 
         let view = memory.list(10, None).expect("the view reads");
-        memory.compact(&view).expect("the snapshot writes");
+        compact_in_test(&memory, &view).expect("the snapshot writes");
         assert_eq!(
             memory.list(10, None).expect("the snapshot replays"),
             view,
@@ -1815,11 +1864,12 @@ mod tests {
         let texts: Vec<&str> = view.iter().map(|entry| entry.text.as_str()).collect();
         assert_eq!(texts, ["second, corrected", "third", "first"]);
 
-        memory.compact(&view).expect("the snapshot writes");
+        compact_in_test(&memory, &view).expect("the snapshot writes");
 
-        assert!(
-            !memory.snapshot_path().exists(),
-            "the snapshot is renamed into place, not left behind"
+        assert_eq!(
+            data_files(&memory),
+            vec!["memory.jsonl".to_owned()],
+            "the random temporary sibling is renamed away, not left behind"
         );
         let records = journal_records(&memory);
         assert_eq!(
@@ -1913,8 +1963,7 @@ mod tests {
             "one append and 65 tombstones: the next write crosses 2 * 1 + 64"
         );
 
-        let snapshot = memory.snapshot_path();
-        fs::create_dir_all(&snapshot).expect("a directory where the snapshot wants a file");
+        memory.fail_the_next_snapshot();
 
         let updated = memory
             .update(&entry.id, "the snapshot failed", &[])
@@ -1924,16 +1973,11 @@ mod tests {
             67,
             "the failed snapshot leaves the journal in place"
         );
-        assert!(
-            snapshot.is_dir(),
-            "the obstacle was not renamed over the journal"
-        );
         assert_eq!(
             memory.list(10, None).expect("the journal replays"),
             [updated]
         );
 
-        fs::remove_dir_all(&snapshot).expect("the obstacle is removable");
         let updated = memory
             .update(&entry.id, "the snapshot was retried", &[])
             .expect("the next write retries the snapshot");
@@ -1946,7 +1990,83 @@ mod tests {
             memory.list(10, None).expect("the snapshot replays"),
             [updated]
         );
-        assert!(!snapshot.exists());
+        assert_eq!(
+            data_files(&memory),
+            vec!["memory.jsonl".to_owned()],
+            "the successful retry leaves no temporary sibling"
+        );
+    }
+
+    #[test]
+    fn a_planted_snapshot_name_is_never_written_through() {
+        let (dir, memory) = memory("memory-snapshot-planted");
+        let entry = memory.append("the only entry", &[]).expect("the append");
+        seed_tombstones(&memory, 65);
+
+        // The old fixed `.new` name, hard-linked to a victim outside the data directory. A hard
+        // link is the portable form of the review's symlink: it needs no platform privilege and
+        // proves the same thing, that a name planted in the directory is not the file written.
+        let planted = memory.path.with_file_name(LEGACY_SNAPSHOT_FILE);
+        let victim = dir.join("not-the-journal");
+        let untouched = "a planted name must not redirect the journal";
+        fs::write(&victim, untouched).expect("the victim is written");
+        fs::hard_link(&victim, &planted).expect("the planted name links to the victim");
+
+        let updated = memory
+            .update(&entry.id, "the snapshot ignores the planted name", &[])
+            .expect("the update lands and the snapshot runs");
+        assert_eq!(
+            fs::read_to_string(&victim).expect("the victim is readable"),
+            untouched,
+            "compaction must not truncate or write through a planted name"
+        );
+        assert_eq!(
+            fs::read_to_string(&planted).expect("the planted name is readable"),
+            untouched,
+            "the planted name was left alone, not renamed over the journal"
+        );
+        assert_eq!(
+            journal_lines(&memory),
+            1,
+            "the snapshot ran through its brand-new random sibling"
+        );
+        assert_eq!(
+            memory.list(10, None).expect("the snapshot replays"),
+            [updated]
+        );
+    }
+
+    #[test]
+    fn a_leftover_temporary_file_is_never_read_as_the_journal() {
+        let (_dir, memory) = memory("memory-leftover-temp");
+        let entry = memory.append("the real entry", &[]).expect("the append");
+        let leftover = memory
+            .path
+            .with_file_name(".memory.jsonl.0123456789abcdef.tmp");
+        let partial = "{\"op\":\"append\",\"id\":\"ghost\",\"entry\":{\"text\":\"half";
+        fs::write(&leftover, partial).expect("the partial sibling is written");
+
+        assert_eq!(
+            memory.list(10, None).expect("the journal reads"),
+            vec![entry.clone()],
+            "a sibling is not the journal, even when it looks like a half-written snapshot"
+        );
+
+        seed_tombstones(&memory, 65);
+        let updated = memory
+            .update(&entry.id, "the journal after a snapshot", &[])
+            .expect("the update compacts");
+        assert_eq!(journal_lines(&memory), 1);
+        assert_eq!(
+            fs::read_to_string(&leftover).expect("the leftover is still readable"),
+            partial,
+            "a random-suffix leftover simply stays; it is ignored, not recycled"
+        );
+        assert_eq!(
+            memory.list(10, None).expect("the snapshot replays"),
+            vec![updated],
+            "the snapshot carries no ghost from the leftover"
+        );
     }
 
     #[test]
