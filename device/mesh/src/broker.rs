@@ -15,8 +15,17 @@
 //!   connect requests **once**. A request past its `ttl_ms` is dropped; a
 //!   served request is removed before it is answered.
 //!
-//! `now_ms` is a query parameter so the caller owns the clock: the broker
-//! never reads one, and a test can move time without sleeping.
+//! `now_ms` is a query parameter and is still REQUIRED, but the broker does
+//! not use it: freshness is the broker's own clock, measured from the moment
+//! the broker RECEIVED a registration. It was the caller's clock until
+//! 2026-10-25, and that was a defect rather than a test convenience: any
+//! unauthenticated `GET /lookup/:id?now_ms=<far future>` swept every other
+//! registration out of the table, and a device with a clock five minutes fast
+//! did the same by accident. The signed `ttl_ms` still travels and still
+//! bounds an entry — from receipt, not from the peer's own stamp — and a
+//! registration whose `ttl_ms` exceeds [`MAX_REGISTRATION_TTL_MS`] is refused,
+//! because a peer may sign any number it likes and one entry must not hold a
+//! slot for a year.
 //!
 //! **THE REQUEST INBOX IS METADATA ONLY.** A [`ConnectRequest`] holds a
 //! requester id, a target id and a relay session id — the three names two
@@ -66,14 +75,66 @@ pub const MAX_REGISTRATION_BYTES: usize = 64 * 1024;
 /// every insert and lookup is cheap.
 pub const MAX_REGISTRATIONS: usize = 4096;
 
-/// The broker's table: one registration per peer id.
-type Table = Arc<Mutex<HashMap<String, Registration>>>;
+/// The longest `ttl_ms` a registration may ask for, in milliseconds.
+///
+/// Five minutes is ten times the default refresh interval (10 s) and ten times
+/// the default ttl (30 s): long enough for a slow or briefly disconnected peer
+/// to keep its slot, short enough that a signed `u64::MAX` cannot. A peer may
+/// sign any ttl it likes; this is the broker's bound on what it will STORE.
+pub const MAX_REGISTRATION_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// One stored registration and the broker's receipt time.
+///
+/// **THE RECEIPT TIME IS THE BROKER'S, NEVER THE PEER'S.** Expiry measures the
+/// signed `ttl_ms` from the moment the broker accepted the entry, so a
+/// registration dated in the year 3000 cannot hold a slot for longer than any
+/// other — and the peer's `issued_at_ms` still travels (it is signed, and a
+/// lookup returns it) without being trusted for freshness.
+struct Entry {
+    registration: Registration,
+    received_at_ms: u64,
+}
+
+impl Entry {
+    /// Whether this entry is past its signed ttl, measured from receipt.
+    fn is_stale(&self, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.received_at_ms) > self.registration.ttl_ms
+    }
+}
+
+/// The broker's clock: milliseconds since the epoch, read only by the broker.
+type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+fn system_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// The broker's table: one registration per peer id, with its receipt time.
+type Table = Arc<Mutex<HashMap<String, Entry>>>;
 
 /// The broker's connect-request inbox: the requests waiting for each target.
 ///
-/// A queue holds the values as they arrived. The fields are names and stamps;
+/// A queue holds the values as they arrived, each with the broker's RECEIPT time — the same rule the
+/// registration table uses (see the module docs): a requester's clock decides nothing, so a peer whose
+/// clock is wrong can still leave a note, and one whose clock is far ahead cannot make it live longer.
 /// [`ConnectRequest`] deliberately has nowhere to put a payload.
-type Inbox = Arc<Mutex<HashMap<String, Vec<ConnectRequest>>>>;
+type Inbox = Arc<Mutex<HashMap<String, Vec<QueuedRequest>>>>;
+
+/// One waiting connect request and when the broker accepted it.
+struct QueuedRequest {
+    request: ConnectRequest,
+    received_at_ms: u64,
+}
+
+impl QueuedRequest {
+    /// Whether this note is past its signed ttl, measured from receipt.
+    fn is_expired(&self, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.received_at_ms) > self.request.ttl_ms
+    }
+}
 
 /// A local rendezvous broker.
 ///
@@ -86,6 +147,8 @@ pub struct Broker {
     /// The registration cap this broker enforces; [`MAX_REGISTRATIONS`]
     /// unless [`Broker::with_capacity`] chose another.
     max_registrations: usize,
+    /// The broker's OWN clock. Never the caller's: see the module docs.
+    clock: Clock,
 }
 
 impl Default for Broker {
@@ -94,6 +157,7 @@ impl Default for Broker {
             table: Table::default(),
             inbox: Inbox::default(),
             max_registrations: MAX_REGISTRATIONS,
+            clock: Arc::new(system_now_ms),
         }
     }
 }
@@ -108,6 +172,22 @@ impl Broker {
     /// An empty broker with the default cap.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An empty broker whose clock is `clock`.
+    ///
+    /// The seam a test moves time with, and the reason no test has to sleep for
+    /// a ttl to elapse. Production uses [`system_now_ms`].
+    pub fn with_clock(clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+        Self {
+            clock: Arc::new(clock),
+            ..Self::default()
+        }
+    }
+
+    /// The broker's current time, in milliseconds since the epoch.
+    fn now(&self) -> u64 {
+        (self.clock)()
     }
 
     /// An empty broker that admits at most `max_registrations` peers.
@@ -234,32 +314,54 @@ async fn register(
         ),
     })?;
 
+    // THE PEER CHOOSES ITS TTL IN THE SIGNED BYTES, so the broker is the one that must refuse an
+    // unreasonable one: a `u64::MAX` would hold a slot against every other peer for ever.
+    if registration.ttl_ms > MAX_REGISTRATION_TTL_MS {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "ttl_too_long",
+            format!(
+                "ttl_ms {} exceeds the broker's maximum of {MAX_REGISTRATION_TTL_MS} ms",
+                registration.ttl_ms
+            ),
+        ));
+    }
+
     let mut table = broker.table.lock().map_err(|_| poisoned_table())?;
-    // The only clock a registration carries is its own stamp. Sweeping with
-    // it drops entries already expired relative to the registering peer's
-    // now; the cap below is what bounds a table that nobody ever refreshes.
-    let now_ms = registration.issued_at_ms;
-    table.retain(|_, existing| !existing.is_stale(now_ms));
+    // FRESHNESS IS THE BROKER'S. This used to sweep with the registering peer's own stamp, so a peer
+    // whose clock was in the future evicted live entries; the receipt time removes the peer from the
+    // question entirely.
+    let now_ms = broker.now();
+    table.retain(|_, entry| !entry.is_stale(now_ms));
     if !table.contains_key(&registration.peer_id) && table.len() >= broker.max_registrations {
         return Err(table_full(broker.max_registrations));
     }
-    table.insert(registration.peer_id.clone(), registration);
+    table.insert(
+        registration.peer_id.clone(),
+        Entry {
+            registration,
+            received_at_ms: now_ms,
+        },
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The clock the caller supplies to `GET /lookup/:peer_id`.
+/// The clock the caller supplies. **IT IS REQUIRED BY THE WIRE AND IGNORED BY THE BROKER** — the name
+/// keeps the parameter in the URL, and the leading underscore says the value is deliberately unused;
+/// freshness comes from the broker's own clock (see the module docs).
 #[derive(Debug, Deserialize)]
-struct LookupQuery {
-    now_ms: u64,
+struct ClockQuery {
+    #[serde(rename = "now_ms")]
+    _now_ms: u64,
 }
 
 /// `GET /lookup/:peer_id?now_ms=…` — the fresh candidates and their stamp.
 async fn lookup(
     State(broker): State<Broker>,
     Path(peer_id): Path<String>,
-    query: Result<Query<LookupQuery>, QueryRejection>,
+    query: Result<Query<ClockQuery>, QueryRejection>,
 ) -> Result<Json<LookupResponse>, ApiError> {
-    let Query(query) = query.map_err(|rejection| {
+    let Query(_query) = query.map_err(|rejection| {
         api_error(
             StatusCode::BAD_REQUEST,
             "malformed_query",
@@ -271,22 +373,15 @@ async fn lookup(
         return Err(malformed_peer_id(&peer_id));
     }
     let mut table = broker.table.lock().map_err(|_| poisoned_table())?;
-    // A lookup is where a stale entry would otherwise be hidden forever; the
-    // caller's clock is the one the question is asked at, so it is also the
-    // one the sweep uses.
-    table.retain(|_, registration| !registration.is_stale(query.now_ms));
-    let Some(registration) = table.get(&peer_id) else {
+    // A lookup is where a stale entry would otherwise be hidden forever. The sweep uses the broker's
+    // clock; the caller's `now_ms` cannot make another peer's registration disappear.
+    table.retain(|_, entry| !entry.is_stale(broker.now()));
+    let Some(entry) = table.get(&peer_id) else {
         return Err(not_found(format!("no registration for {peer_id}")));
     };
-    if registration.is_stale(query.now_ms) {
-        return Err(not_found(format!(
-            "the registration for {peer_id} is older than its ttl_ms of {}",
-            registration.ttl_ms
-        )));
-    }
     Ok(Json(LookupResponse {
-        issued_at_ms: registration.issued_at_ms,
-        candidates: registration.candidates.clone(),
+        issued_at_ms: entry.registration.issued_at_ms,
+        candidates: entry.registration.candidates.clone(),
     }))
 }
 
@@ -332,8 +427,10 @@ async fn leave_request(
         ));
     }
 
+    let now_ms = broker.now();
     {
-        let table = broker.table.lock().map_err(|_| poisoned_table())?;
+        let mut table = broker.table.lock().map_err(|_| poisoned_table())?;
+        table.retain(|_, entry| !entry.is_stale(now_ms));
         if !table.contains_key(&target) {
             return Err(not_found(format!(
                 "no registration for {target}; a peer that never registered is not awaiting a connect"
@@ -342,7 +439,10 @@ async fn leave_request(
     }
 
     let mut inbox = broker.inbox.lock().map_err(|_| poisoned_inbox())?;
-    inbox.entry(target).or_default().push(request);
+    inbox.entry(target).or_default().push(QueuedRequest {
+        request,
+        received_at_ms: now_ms,
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -356,9 +456,9 @@ async fn leave_request(
 async fn take_requests(
     State(broker): State<Broker>,
     Path(target): Path<String>,
-    query: Result<Query<LookupQuery>, QueryRejection>,
+    query: Result<Query<ClockQuery>, QueryRejection>,
 ) -> Result<Json<RequestsResponse>, ApiError> {
-    let Query(query) = query.map_err(|rejection| {
+    let Query(_query) = query.map_err(|rejection| {
         api_error(
             StatusCode::BAD_REQUEST,
             "malformed_query",
@@ -369,9 +469,10 @@ async fn take_requests(
     if !is_canonical_peer_id(&target) {
         return Err(malformed_peer_id(&target));
     }
+    let now_ms = broker.now();
     {
         let mut table = broker.table.lock().map_err(|_| poisoned_table())?;
-        table.retain(|_, registration| !registration.is_stale(query.now_ms));
+        table.retain(|_, entry| !entry.is_stale(now_ms));
         if !table.contains_key(&target) {
             return Err(not_found(format!("no registration for {target}")));
         }
@@ -381,7 +482,8 @@ async fn take_requests(
     let waiting = inbox.remove(&target).unwrap_or_default();
     let requests = waiting
         .into_iter()
-        .filter(|request| !request.is_expired(query.now_ms))
+        .filter(|queued| !queued.is_expired(now_ms))
+        .map(|queued| queued.request)
         .collect();
     Ok(Json(RequestsResponse { requests }))
 }
@@ -403,6 +505,19 @@ mod tests {
 
     fn app() -> Router {
         Broker::new().router()
+    }
+
+    /// A broker whose clock a test moves by hand.
+    ///
+    /// `now_ms` used to do this on the wire; the broker now owns the clock, so a test owns the
+    /// BROKER's clock instead — and no test ever sleeps for a ttl to elapse.
+    fn clocked(now: u64) -> (Broker, Arc<std::sync::atomic::AtomicU64>) {
+        let cell = Arc::new(std::sync::atomic::AtomicU64::new(now));
+        let reader = Arc::clone(&cell);
+        (
+            Broker::with_clock(move || reader.load(std::sync::atomic::Ordering::SeqCst)),
+            cell,
+        )
     }
 
     fn candidate(kind: CandidateKind, addr: &str) -> Candidate {
@@ -561,7 +676,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_registration_past_its_ttl_is_not_returned() {
-        let app = app();
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
         let identity = Identity::generate();
         let registration = Registration::sign(
             &identity,
@@ -574,12 +690,96 @@ mod tests {
             StatusCode::NO_CONTENT
         );
 
+        clock.store(ISSUED + 500, std::sync::atomic::Ordering::SeqCst);
         let (status, _) = lookup(&app, &identity.public_hex(), ISSUED + 500).await;
         assert_eq!(status, StatusCode::OK, "exactly at the ttl is still fresh");
 
+        clock.store(ISSUED + 501, std::sync::atomic::Ordering::SeqCst);
         let (status, body) = lookup(&app, &identity.public_hex(), ISSUED + 501).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], json!("unknown_peer"));
+    }
+
+    /// **THE DEFECT THIS FIXES, AS A TEST.** The sweep used to run on the CALLER's `now_ms`, so one
+    /// unauthenticated `GET /lookup/:id?now_ms=<an hour ahead>` deleted every other registration — and a
+    /// device whose clock was merely fast did it by accident, once a minute. Freshness is the broker's
+    /// clock now; the caller's number is still required by the wire and is not read.
+    #[tokio::test]
+    async fn a_lookup_from_a_clock_far_ahead_cannot_evict_a_live_registration() {
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
+        let identity = Identity::generate();
+        let registration = Registration::sign(
+            &identity,
+            vec![candidate(CandidateKind::Udp, "10.0.0.1:5000")],
+            ISSUED,
+            TTL,
+        );
+        assert_eq!(
+            register(&app, &registration).await.0,
+            StatusCode::NO_CONTENT
+        );
+
+        let (status, _) = lookup(&app, &identity.public_hex(), ISSUED + 3_600_000).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a caller's clock cannot age another peer's registration"
+        );
+        let (status, body) = lookup(&app, &identity.public_hex(), ISSUED).await;
+        assert_eq!(status, StatusCode::OK, "and the entry is still there");
+        assert_eq!(
+            body["candidates"].as_array().map(Vec::len),
+            Some(1),
+            "with what the peer published: {body}"
+        );
+        assert_eq!(
+            clock.load(std::sync::atomic::Ordering::SeqCst),
+            ISSUED,
+            "the broker never advanced its clock, because it never read the caller's"
+        );
+    }
+
+    /// A peer signs its own `ttl_ms`, so the broker is the one that must bound it: `u64::MAX` would hold
+    /// one of the 4096 slots for ever.
+    #[tokio::test]
+    async fn a_registration_ttl_above_the_ceiling_is_refused() {
+        let app = app();
+        let identity = Identity::generate();
+        let registration =
+            Registration::sign(&identity, Vec::new(), ISSUED, MAX_REGISTRATION_TTL_MS + 1);
+        let (status, body) = register(&app, &registration).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], json!("ttl_too_long"));
+        let (status, _) = lookup(&app, &identity.public_hex(), ISSUED).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "a refused registration must not occupy a slot"
+        );
+    }
+
+    /// **A STAMP IN THE FUTURE IS NOT A LONGER LIFE.** Expiry is measured from when the broker RECEIVED
+    /// the entry, so a peer cannot pin a slot by signing a date in the year 3000.
+    #[tokio::test]
+    async fn a_registration_dated_in_the_future_expires_from_receipt() {
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
+        let identity = Identity::generate();
+        let far_future = u64::MAX / 2;
+        let registration = Registration::sign(&identity, Vec::new(), far_future, TTL);
+        assert_eq!(
+            register(&app, &registration).await.0,
+            StatusCode::NO_CONTENT
+        );
+
+        clock.store(ISSUED + TTL + 1, std::sync::atomic::Ordering::SeqCst);
+        let (status, _) = lookup(&app, &identity.public_hex(), ISSUED + TTL + 1).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "the signed stamp does not extend the life the broker granted"
+        );
     }
 
     #[tokio::test]
@@ -708,7 +908,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_expired_registration_is_swept_when_a_new_one_is_inserted() {
-        let broker = Broker::new();
+        let (broker, clock) = clocked(ISSUED);
         let app = broker.router();
         let expired = Identity::generate();
         let fresh = Identity::generate();
@@ -718,8 +918,9 @@ mod tests {
             register(&app, &expired_registration).await.0,
             StatusCode::NO_CONTENT
         );
-        // A new peer's own stamp is 5 s later: the first registration is far
-        // past its 500 ms ttl relative to it.
+        // Five seconds after RECEIPT the first registration is far past its 500 ms ttl. The broker's
+        // clock is what moves; the fresh peer's own stamp is deliberately later and irrelevant.
+        clock.store(ISSUED + 5_000, std::sync::atomic::Ordering::SeqCst);
         let fresh_registration = Registration::sign(&fresh, Vec::new(), ISSUED + 5_000, TTL);
         assert_eq!(
             register(&app, &fresh_registration).await.0,
@@ -741,7 +942,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_expired_registration_is_swept_by_a_lookup() {
-        let broker = Broker::new();
+        let (broker, clock) = clocked(ISSUED);
         let app = broker.router();
         let expired = Identity::generate();
         let live = Identity::generate();
@@ -757,6 +958,7 @@ mod tests {
             StatusCode::NO_CONTENT
         );
 
+        clock.store(ISSUED + 101, std::sync::atomic::Ordering::SeqCst);
         let (status, _) = lookup(&app, &live.public_hex(), ISSUED + 101).await;
         assert_eq!(status, StatusCode::OK);
         assert!(
@@ -883,7 +1085,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_connect_request_is_delivered_once_and_removed() {
-        let app = app();
+        let (broker, _clock) = clocked(ISSUED);
+        let app = broker.router();
         let target = Identity::generate();
         let target_id = register_empty(&app, &target).await;
         let requester = Identity::generate();
@@ -911,13 +1114,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_connect_request_past_its_ttl_is_dropped() {
-        let app = app();
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
         let target = Identity::generate();
         let target_id = register_empty(&app, &target).await;
         let requester = Identity::generate();
 
         let fresh = ConnectRequest::sign(&requester, &target_id, "fresh", ISSUED, 500);
         assert_eq!(leave_request(&app, &fresh).await.0, StatusCode::NO_CONTENT);
+        clock.store(ISSUED + 500, std::sync::atomic::Ordering::SeqCst);
         let (_, body) = take_requests(&app, &target_id, ISSUED + 500).await;
         assert_eq!(
             body["requests"],
@@ -930,14 +1135,18 @@ mod tests {
             leave_request(&app, &expired).await.0,
             StatusCode::NO_CONTENT
         );
-        let (status, body) = take_requests(&app, &target_id, ISSUED + 501).await;
+        // THE TTL RUNS FROM RECEIPT, not from the signed stamp: the note was accepted at +500, so it is
+        // stale one millisecond past +1,000 — not at +501, which is only one millisecond of inbox life.
+        clock.store(ISSUED + 1_001, std::sync::atomic::Ordering::SeqCst);
+        let (status, body) = take_requests(&app, &target_id, ISSUED + 1_001).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
             json!([]),
-            "a request one millisecond past its ttl is dropped, not returned"
+            "a request past its ttl measured from receipt is dropped, not returned"
         );
 
+        clock.store(ISSUED, std::sync::atomic::Ordering::SeqCst);
         let (_, body) = take_requests(&app, &target_id, ISSUED).await;
         assert_eq!(
             body["requests"],
@@ -948,7 +1157,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_bad_request_signature_is_403_and_does_not_consume_another_request() {
-        let app = app();
+        let (broker, _clock) = clocked(ISSUED);
+        let app = broker.router();
         let target = Identity::generate();
         let target_id = register_empty(&app, &target).await;
         let honest = Identity::generate();
