@@ -19,6 +19,28 @@ export type Session = {
  */
 export type UpdateGeneration = { version?: string; channel?: string };
 
+/**
+ * The launcher's last swap, from `<install>/swap.result.json`.
+ *
+ * `applied` is a pair that took over, `rolled_back` a pair that failed and returned to `previous`,
+ * and `refused` a swap the launcher declined before it touched anything — a refusal is not an
+ * update. The device reports `null` for a missing, torn or unrecognised result, and leaves the key
+ * out on a device too old to report it.
+ */
+export type UpdateSwap = {
+  outcome: "applied" | "rolled_back" | "refused";
+  version?: string;
+  at_ms: number;
+  reason?: string;
+};
+
+/**
+ * One restore the launcher recorded in `<install>/repair.log`: the app copy no longer matched the
+ * generation it came from, so the launcher rewrote it. `from` is the generation the bytes came from;
+ * `sha256` is the launcher's hash of them, kept out of the visible text.
+ */
+export type UpdateRepair = { at_ms: number; from: "baseline" | "previous"; sha256: string };
+
 /** What the device sent about its machine on the channel: the console shows it without a grant. */
 export type HostFacts = {
   os?: { name?: string; version?: string; arch?: string };
@@ -37,6 +59,12 @@ export type HostFacts = {
     current?: UpdateGeneration | null;
     previous?: UpdateGeneration | null;
     pending?: UpdateGeneration | null;
+    /// The launcher's last swap result. `null` when the file is missing, torn or names an outcome
+    /// this console does not know — never an inferred restart.
+    last_swap?: UpdateSwap | null;
+    /// The launcher's newest restores, newest first and at most five; empty when it never repaired
+    /// anything (or the log is missing), and absent on a device too old to report it.
+    repairs?: UpdateRepair[];
   } | null;
 };
 
