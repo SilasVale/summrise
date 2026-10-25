@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
+import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
 
 /**
@@ -34,9 +35,14 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   const [removing, setRemoving] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Every read paints the same three things (the list, the note and the edit), so one ticket per read
+  // is enough: a newer read supersedes the older one, whichever filter or button started it.
+  const gate = useRequestGate();
+
   const read = useCallback(
     async (want: { query: string; tag: string }) => {
       const wanted = { query: want.query.trim(), tag: want.tag.trim() };
+      const ticket = gate.begin();
       setBusy(true);
       setError(null);
       try {
@@ -45,6 +51,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
           found = JSON.parse(
             await callTool(grant, "memory.search", { query: wanted.query, limit: LIMIT })
           ) as Entry[];
+          if (gate.stale(ticket)) return;
           // A search matches text and tags, but the device has no query that searches and filters at
           // once: the tag narrows the matches a search returned.
           if (wanted.tag) {
@@ -62,6 +69,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
           const args: Record<string, unknown> = { limit: LIMIT };
           if (wanted.tag) args.tag = wanted.tag;
           found = JSON.parse(await callTool(grant, "memory.list", args)) as Entry[];
+          if (gate.stale(ticket)) return;
           if (found.length === 0) {
             setStatus(wanted.tag ? `Nothing is tagged ${wanted.tag}.` : "The device remembers nothing yet.");
           } else {
@@ -78,12 +86,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
         // showing survives the re-read.
         setEditing((current) => (found.some((entry) => entry.id === current) ? current : null));
       } catch (cause) {
+        // A stale error describes a view that is gone, exactly like stale data does.
+        if (gate.stale(ticket)) return;
         setError("Could not read memory: " + message(cause));
       } finally {
-        setBusy(false);
+        // Only the newest read owns the busy flag: an older answer that lands late must not clear it
+        // while the newer request is still on the wire.
+        if (!gate.stale(ticket)) setBusy(false);
       }
     },
-    [grant]
+    [gate, grant]
   );
 
   // The store belongs to the device, so a different grant is a different list and a different draft.

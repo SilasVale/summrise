@@ -107,6 +107,9 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.06); background: var(--accent); }
 button.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 35%, var(--line-strong)); }
 button.danger:hover { background: var(--error-soft); border-color: var(--error); }
+/* A small button for an action inside a card, a picker row or a footer. The `.tools` grid is denser
+   than this and overrides the padding for its own buttons. */
+.mini { padding: 0.2rem 0.5rem; font-size: var(--fs-xs); }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 .summary { color: var(--ink-muted); font-size: var(--fs-sm); margin: 0 0 0.8rem; }
@@ -317,6 +320,18 @@ tr:last-child td { border-bottom: 0; }
 .memory-page {
   display: grid;
   gap: 0.55rem;
+}
+/* One entry: the header is the id and its Edit/Delete actions, and the body is the text and tags.
+   The id takes the head's spare width and wraps there, so a long id never squeezes the actions. */
+.memory-entry {
+  min-width: 0;
+}
+.memory-entry header .mono {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.memory-entry header .actions {
+  flex: none;
 }
 .memory-toolbar {
   display: flex;

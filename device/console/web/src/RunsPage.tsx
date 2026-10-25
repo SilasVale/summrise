@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
 
 /**
@@ -76,32 +77,40 @@ export function RunsPage({ grant }: { grant: Grant }) {
   const listed = useRef(false);
   // The disabled button is the visible guard, but a second submit can arrive before the re-render
   // disables it; `running` in this handler is the value from the render that created it, so the ref
-  // is the real gate. The sequence invalidates an answer from an older grant or an older run.
+  // is the real gate. Answer ordering is a different job and belongs to a ticket: the three streams
+  // below (the history, a run, one row's record) each get their own, because a refresh of the list
+  // must not discard a run that is still waiting.
   const runningRef = useRef(false);
-  const runSeq = useRef(0);
+  const historyGate = useRequestGate();
+  const runGate = useRequestGate();
+  const detailGate = useRequestGate();
 
   const read = useCallback(async () => {
+    const ticket = historyGate.begin();
     setLoadingHistory(true);
     setHistoryError(null);
     try {
       const rows = JSON.parse(
         await callTool(grant, "runs.list", { limit: HISTORY_LIMIT })
       ) as RunRecord[];
+      if (historyGate.stale(ticket)) return;
       listed.current = true;
       setHistory(rows);
       setHistoryNote(historyNoteFor(rows));
     } catch (cause) {
+      if (historyGate.stale(ticket)) return;
       if (!listed.current) setHistoryNote("The device's run history could not be read.");
       setHistoryError("Could not read the run history: " + message(cause));
     } finally {
-      setLoadingHistory(false);
+      if (!historyGate.stale(ticket)) setLoadingHistory(false);
     }
-  }, [grant]);
+  }, [grant, historyGate]);
 
   // A different grant is a different device's history and a different draft. It also invalidates a
-  // run that is still waiting: its answer belongs to the device this page has left.
+  // run or a row read that is still waiting: its answer belongs to the device this page has left.
   useEffect(() => {
-    runSeq.current += 1;
+    runGate.begin();
+    detailGate.begin();
     runningRef.current = false;
     setRunning(false);
     listed.current = false;
@@ -111,19 +120,20 @@ export function RunsPage({ grant }: { grant: Grant }) {
     setResult(null);
     setRunError(null);
     setDetail(null);
+    setDetailId(null);
     setDetailError(null);
     setCommand("");
     setShell(false);
     setCwd("");
     setTimeoutMs(String(DEFAULT_TIMEOUT_MS));
     void read();
-  }, [read]);
+  }, [read, runGate, detailGate]);
 
   const run = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (runningRef.current) return;
     runningRef.current = true;
-    const seq = ++runSeq.current;
+    const ticket = runGate.begin();
     const line = command.trim();
     // argv mode splits on whitespace and does no quoting: the first word is the program and the rest
     // are its arguments. A shell line is handed over whole. An empty command is sent as the empty
@@ -146,20 +156,20 @@ export function RunsPage({ grant }: { grant: Grant }) {
       const finished = JSON.parse(
         await callTool(grant, "runs.exec", request)
       ) as RunResult;
-      if (runSeq.current !== seq) return;
+      if (runGate.stale(ticket)) return;
       // Show the run before the re-read: a history read that fails afterwards must not make a
       // successful run look like it did not happen.
       setResult(finished);
       await read();
     } catch (cause) {
-      if (runSeq.current !== seq) return;
+      if (runGate.stale(ticket)) return;
       // The last result stays where it is: a failed run says nothing about the one that did run.
       setRunError(runFailure(cause));
       // A console timeout is not a device refusal — the row may already have been written for a
       // command the console stopped waiting on, so the history is read again instead of left stale.
       await read();
     } finally {
-      if (runSeq.current === seq) {
+      if (!runGate.stale(ticket)) {
         runningRef.current = false;
         setRunning(false);
       }
@@ -168,18 +178,22 @@ export function RunsPage({ grant }: { grant: Grant }) {
 
   const show = async (row: RunRecord) => {
     if (detailId !== null) return;
+    const ticket = detailGate.begin();
     setDetailId(row.id);
     setDetailError(null);
     try {
       const record = JSON.parse(
         await callTool(grant, "runs.get", { id: row.id })
       ) as RunRecord;
+      if (detailGate.stale(ticket)) return;
       setDetail(record);
     } catch (cause) {
+      if (detailGate.stale(ticket)) return;
       setDetail(null);
       setDetailError("Could not read run " + row.id + ": " + message(cause));
     } finally {
-      setDetailId(null);
+      // A superseded read must not clear the id of the one that replaced it.
+      if (!detailGate.stale(ticket)) setDetailId(null);
     }
   };
 

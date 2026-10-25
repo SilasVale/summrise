@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
+import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
 
 /** What a target's probe does: a TCP connect, or an HTTP GET of a path. */
@@ -89,12 +90,19 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
   // Whether this grant has produced a list yet; a failed first read has nothing to keep showing,
   // while a failed refresh must leave the previous list where it is.
   const listed = useRef(false);
+  // The list and the status poll paint different things (the targets and their summaries), so each
+  // has its own ticket: a poll must not discard a list read that is still on the wire, and a
+  // refresh must not discard the poll's answers for the other targets.
+  const listGate = useRequestGate();
+  const pollGate = useRequestGate();
 
   const read = useCallback(async () => {
+    const ticket = listGate.begin();
     setBusy(true);
     setError(null);
     try {
       const found = JSON.parse(await callTool(grant, "monitor.list", {})) as Target[];
+      if (listGate.stale(ticket)) return;
       listed.current = true;
       setTargets(found);
       // The device answers each target with the summary it has; paint that before the first poll,
@@ -107,14 +115,15 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
       setNote(listNote(found));
       setPollError(null);
     } catch (cause) {
+      if (listGate.stale(ticket)) return;
       // The list stays as it was: a refresh that fails should not blank a list the operator can
       // still act on, and the sentence says what the device refused.
       if (!listed.current) setNote("The device's target list could not be read.");
       setError("Could not read the watched targets: " + message(cause));
     } finally {
-      setBusy(false);
+      if (!listGate.stale(ticket)) setBusy(false);
     }
-  }, [grant]);
+  }, [grant, listGate]);
 
   // A different grant is a different device's registry: its targets, its summaries, its draft.
   useEffect(() => {
@@ -139,12 +148,12 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
   // changes, so an added target is asked about at once rather than at the next 15-second mark.
   useEffect(() => {
     if (targets.length === 0) return;
-    let stopped = false;
     const ids = targets.map((target) => target.id);
 
     const tick = async () => {
-      if (stopped || pollInFlight.current) return;
+      if (pollInFlight.current) return;
       pollInFlight.current = true;
+      const ticket = pollGate.begin();
       try {
         const results = await Promise.allSettled(
           ids.map(async (id) => {
@@ -152,7 +161,7 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
             return [id, JSON.parse(text) as Status] as const;
           })
         );
-        if (stopped) return;
+        if (pollGate.stale(ticket)) return;
         const fresh: Record<string, Status> = {};
         let failure: string | null = null;
         for (const result of results) {
@@ -168,7 +177,9 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
       } catch (cause) {
         // `allSettled` already turned every device refusal into a result; this is the belt for the
         // one thing it cannot catch (a bug in the mapping), so a poll never leaves a rejection loose.
-        if (!stopped) setPollError("Could not read a target's status: " + message(cause));
+        if (!pollGate.stale(ticket)) {
+          setPollError("Could not read a target's status: " + message(cause));
+        }
       } finally {
         pollInFlight.current = false;
       }
@@ -177,10 +188,12 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
     void tick();
     const timer = window.setInterval(() => void tick(), POLL_MS);
     return () => {
-      stopped = true;
+      // Leaving the effect (unmount, a different grant, a different target set) ends the epoch: a
+      // batch on the wire belongs to a list this page no longer shows.
+      pollGate.begin();
       window.clearInterval(timer);
     };
-  }, [grant, targets]);
+  }, [grant, targets, pollGate]);
 
   const add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
