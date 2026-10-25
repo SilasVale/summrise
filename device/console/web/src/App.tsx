@@ -9,6 +9,7 @@ import { GrantForm } from "./GrantForm";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { MemoryPage } from "./MemoryPage";
+import { MonitorsPage } from "./MonitorsPage";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -449,6 +450,41 @@ export function App() {
               {chosen && grant && grant.deviceId === chosen.id && (
                 <section className="panel">
                   <MemoryPage grant={grant} />
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "monitors" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Monitors</h2>
+                  </div>
+                  <p className="hint">
+                    Monitors run on the device, so pick one. The console signs a grant for the
+                    monitor tools, and the device checks that grant on every add, probe and removal.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    targets appear.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <MonitorsPage grant={grant} />
                 </section>
               )}
             </>

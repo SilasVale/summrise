@@ -1,6 +1,6 @@
 // The rail is the legacy panel's grammar, kept: destinations on the left, a connection dot at the
 // foot. Icons are inline SVG paths from the same 24×24 grid the old Icon set used.
-export type Page = "devices" | "terminal" | "browser" | "memory" | "audit";
+export type Page = "devices" | "terminal" | "browser" | "memory" | "monitors" | "audit";
 
 const ICONS: Record<Page, string> = {
   devices:
@@ -9,6 +9,7 @@ const ICONS: Record<Page, string> = {
   browser: "M3 5.5h18v13H3zM3 9.5h18M6.5 7.5h.01M9 7.5h.01",
   memory:
     "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  monitors: "M3 12h3.5l2.5-6 4 12 2.5-6H21",
   audit: "M5 4.5h14v15H5zM8 8.5h8M8 12h8M8 15.5h5"
 };
 
@@ -25,7 +26,7 @@ export function Rail({
 }) {
   return (
     <nav className="rail" aria-label="Sections">
-      {(["devices", "terminal", "browser", "memory", "audit"] as Page[]).map((entry) => (
+      {(["devices", "terminal", "browser", "memory", "monitors", "audit"] as Page[]).map((entry) => (
         <button
           key={entry}
           type="button"

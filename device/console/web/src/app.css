@@ -392,3 +392,50 @@ button.chip-tag:hover {
   margin-left: 0;
   justify-content: flex-end;
 }
+
+/* The monitors page: the add form is one row that wraps, and each watched target is a card whose
+   facts are the summary the device keeps for it. */
+.monitors-page {
+  display: grid;
+  gap: 0.55rem;
+}
+.monitors-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+}
+.monitors-field {
+  display: grid;
+  gap: 0.2rem;
+  flex: 0 1 7.5rem;
+  min-width: 0;
+}
+.monitors-field.host { flex: 1 1 13rem; }
+.monitors-field.path { flex: 1 1 9rem; }
+.monitors-field.expect { flex: 1 1 12rem; }
+.monitors-field > label {
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--ink-muted);
+}
+.monitors-field input,
+.monitors-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.monitors-add > button { flex: none; }
+.monitor-kind {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
