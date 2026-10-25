@@ -89,7 +89,11 @@ and workspace UI, not device capabilities.
   SSH to the device itself and one PTY, both surviving a tab switch; the audit shows one
   `terminal.create` per tab.
 
-### P2 — Memory, and the two tools nobody chose
+### P2 — Memory, and the two tools nobody chose — **done 2026-10-25**
+
+Landed as `memory.update` / `memory.delete` with entry ids and a journal store, and the console's Memory
+page (`memory.jsonl` replay, compaction, 38 tools / 10 capabilities). Evidence:
+`2026-10-25-memory-entries-get-ids-design.md` § "Verified on the canary".
 
 **Goal**: the memory store is browsable, and an entry can be corrected or retired.
 

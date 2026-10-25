@@ -158,6 +158,28 @@ rollback after a journal write is a re-upgrade, not a downgrade.
 7. Registry and wire lists carry 38 tools / 10 capabilities, and `memory.update`/`memory.delete` are
    marked destructive.
 
+## Verified on the canary (2026-10-25, device 0.3.30, console 0.3.35)
+
+The flow, run through the device's own MCP with the install token:
+
+```
+append:            {"appended":true,"id":"46acb9ea3939ffd6"}
+search after:     [{"id":"46acb9ea3939ffd6","tags":["probe"],"text":"the probe writes this"}]
+update:            {"id":"46acb9ea3939ffd6","tags":[],"text":"the probe corrected this"}
+search after:     [{"id":"46acb9ea3939ffd6","tags":[],"text":"the probe corrected this"}]   ← the old text is gone
+delete:            {"deleted":true,"id":"46acb9ea3939ffd6"}
+search after:     []
+second delete:     TOOL ERROR: memory.delete: memory has no live entry named 46acb9ea3939ffd6
+export:            {"entries":0,"text":"","total_bytes":0,"truncated":false}
+```
+
+## Export is a report, not a backup
+
+Each exported line is `{"id","text","tags"}` — a view, not a journal record. Feeding it back as
+`memory.jsonl` would not restore the store: a bare line with an `id` is read as a legacy entry and its
+id is re-derived from the line's bytes. There is no restore path and none is planned; the journal is
+the record, and the export is what a human or another system reads.
+
 ## What the console page will use
 
 The Memory page reads with `memory.list` / `memory.search` (one grant), shows ids and tags, edits
