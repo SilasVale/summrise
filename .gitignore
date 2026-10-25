@@ -2,3 +2,4 @@
 # binary is built from a tree with no Node in it. Only the dependency tree is ignored.
 node_modules/
 device/installer/*.exe
+.superpowers/
