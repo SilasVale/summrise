@@ -10,6 +10,7 @@ import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { MemoryPage } from "./MemoryPage";
 import { MonitorsPage } from "./MonitorsPage";
+import { RunsPage } from "./RunsPage";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -485,6 +486,41 @@ export function App() {
               {chosen && grant && grant.deviceId === chosen.id && (
                 <section className="panel">
                   <MonitorsPage grant={grant} />
+                </section>
+              )}
+            </>
+          )}
+
+          {page === "runs" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Runs</h2>
+                  </div>
+                  <p className="hint">
+                    A run happens on the device, so pick one. runs.exec is destructive and audited:
+                    the console signs a grant for it, and the device checks that grant on every call.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    run form appears.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <RunsPage grant={grant} />
                 </section>
               )}
             </>
