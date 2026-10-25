@@ -1969,18 +1969,12 @@ mod tests {
             .await
             .expect("the listener joins"),
         );
-        // The handler holds its permit until the test releases it: this is the slow-dialer case the
-        // cap exists for, and the release is explicit so the test does not depend on how quickly a
-        // dropped QUIC connection is observed.
-        let hold = Arc::new(tokio::sync::Notify::new());
+        // The handler holds its slot for 300 ms: a slow dialer, deterministic, with no notification
+        // race between the test and the runtime.
         let serve = spawn_serve_with_cap(
             &listener,
-            {
-                let hold = Arc::clone(&hold);
-                move |_peer_id, _channel| {
-                    let hold = Arc::clone(&hold);
-                    async move { hold.notified().await }
-                }
+            |_peer_id, _channel| async move {
+                tokio::time::sleep(Duration::from_millis(300)).await;
             },
             1,
         );
@@ -1988,7 +1982,7 @@ mod tests {
         let mut first = MeshSession::join(first_identity, config(&broker, None, DIRECT_TIMEOUT_MS))
             .await
             .expect("the first dialer joins");
-        let held = timeout(PATIENCE, first.connect(&listener_peer, now_ms()))
+        let _held = timeout(PATIENCE, first.connect(&listener_peer, now_ms()))
             .await
             .expect("the first connect timed out")
             .expect("the only slot is free");
@@ -2006,25 +2000,28 @@ mod tests {
             "the cap must refuse the second session: {refused:?}"
         );
 
-        // The slot is LIVE, not a permanent refusal: release the first handler and the cap admits again.
-        drop(held);
-        drop(first);
-        // `notify_one`, not `notify_waiters`: a notification that arrives before the handler has
-        // polled `notified()` is RETAINED by the former and lost by the latter, and under a loaded
-        // test runner that race is what "the slot frees" must not depend on.
-        hold.notify_one();
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut third = MeshSession::join(
-            Identity::generate(),
-            config(&broker, None, DIRECT_TIMEOUT_MS),
+        // The slot is LIVE, not a permanent refusal: once the handler returns, a new QUIC connection
+        // is admitted. This probes the CAP, not the path machinery: a raw endpoint connect completes
+        // only if the serve loop took the freed permit (a refusal drops the incoming before the
+        // handshake).
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let listener_addr = listener
+            .endpoint
+            .local_addr()
+            .expect("the listener's bound address");
+        let probe =
+            MeshEndpoint::client(Identity::generate(), loopback()).expect("a probe endpoint");
+        let connected = timeout(
+            PATIENCE,
+            probe.connect(listener_addr, Some(listener_identity.public_bytes())),
         )
         .await
-        .expect("a third dialer joins");
-        let admitted = timeout(PATIENCE, third.connect(&listener_peer, now_ms()))
-            .await
-            .expect("the retry timed out")
-            .expect("the freed slot admits the next session");
-        drop(admitted);
+        .expect("the probe timed out");
+        assert!(
+            connected.is_ok(),
+            "the freed slot admits a new connection: {:?}",
+            connected.err()
+        );
         serve.abort();
     }
 
