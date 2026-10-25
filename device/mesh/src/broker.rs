@@ -27,6 +27,13 @@
 //! because a peer may sign any number it likes and one entry must not hold a
 //! slot for a year.
 //!
+//! **THE INBOX IS BOUNDED THE SAME WAY.** A connect request's signed `ttl_ms` is
+//! capped at [`MAX_REQUEST_TTL_MS`], a target may have at most
+//! [`MAX_REQUESTS_PER_TARGET`] notes waiting, and the broker holds at most
+//! [`MAX_QUEUED_REQUESTS`] across every target; both refusals are a typed
+//! `429 inbox_full`. Registrations are cheap, so a per-target cap alone would
+//! not bound memory — an attacker with many identities could multiply it.
+//!
 //! **THE REQUEST INBOX IS METADATA ONLY.** A [`ConnectRequest`] holds a
 //! requester id, a target id and a relay session id — the three names two
 //! peers need in order to meet — plus a signature and its freshness stamps.
@@ -82,6 +89,26 @@ pub const MAX_REGISTRATIONS: usize = 4096;
 /// to keep its slot, short enough that a signed `u64::MAX` cannot. A peer may
 /// sign any ttl it likes; this is the broker's bound on what it will STORE.
 pub const MAX_REGISTRATION_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// The longest `ttl_ms` a connect request may ask for, in milliseconds.
+///
+/// A connect request is a doorbell for a rendezvous that is happening NOW — the relay pairing starts as
+/// soon as the target polls — so five minutes is already far past useful, and it is the same ceiling as
+/// a registration. A peer signs its own value; this is the broker's bound on what it will STORE.
+pub const MAX_REQUEST_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// The most connect requests one target may have waiting.
+///
+/// A target that polls takes its queue whole, so a longer queue is one nobody is reading; one key can
+/// otherwise fill a stranger's inbox faster than they drain it.
+pub const MAX_REQUESTS_PER_TARGET: usize = 32;
+
+/// The most connect requests the broker holds across every target.
+///
+/// A per-target cap alone is not a memory bound: registrations are cheap and an attacker can hold many
+/// targets at once. 4096 notes of a few hundred bytes each is a table-sized bound, not a policy on who
+/// may be told about a peer.
+pub const MAX_QUEUED_REQUESTS: usize = 4096;
 
 /// One stored registration and the broker's receipt time.
 ///
@@ -149,6 +176,12 @@ pub struct Broker {
     max_registrations: usize,
     /// The broker's OWN clock. Never the caller's: see the module docs.
     clock: Clock,
+    /// The per-target inbox cap; [`MAX_REQUESTS_PER_TARGET`] unless
+    /// [`Broker::with_inbox_capacity`] chose another.
+    max_requests_per_target: usize,
+    /// The whole-broker inbox cap; [`MAX_QUEUED_REQUESTS`] unless
+    /// [`Broker::with_inbox_capacity`] chose another.
+    max_queued_requests: usize,
 }
 
 impl Default for Broker {
@@ -158,6 +191,8 @@ impl Default for Broker {
             inbox: Inbox::default(),
             max_registrations: MAX_REGISTRATIONS,
             clock: Arc::new(system_now_ms),
+            max_requests_per_target: MAX_REQUESTS_PER_TARGET,
+            max_queued_requests: MAX_QUEUED_REQUESTS,
         }
     }
 }
@@ -181,6 +216,18 @@ impl Broker {
     pub fn with_clock(clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         Self {
             clock: Arc::new(clock),
+            ..Self::default()
+        }
+    }
+
+    /// An empty broker whose inbox caps are `per_target` and `total`.
+    ///
+    /// A test seam like [`Broker::with_capacity`]: the default caps are thousands of requests, and a
+    /// test does not need thousands of signed notes to prove the refusal.
+    pub fn with_inbox_capacity(per_target: usize, total: usize) -> Self {
+        Self {
+            max_requests_per_target: per_target,
+            max_queued_requests: total,
             ..Self::default()
         }
     }
@@ -385,6 +432,19 @@ async fn lookup(
     }))
 }
 
+/// Drop expired notes, and empty queues, for EVERY target under the inbox lock.
+///
+/// The caps count what is stored; an expired note is not something a target can ever take, so it must
+/// not hold a slot. Without this sweep a target that never polls again (or an attacker who filled
+/// many queues and stopped) keeps the inbox full until the broker restarts: registration is cheap, so
+/// that is a mesh-wide `429` for the cost of 4096 signed notes.
+fn sweep_inbox(inbox: &mut HashMap<String, Vec<QueuedRequest>>, now_ms: u64) {
+    inbox.retain(|_, queue| {
+        queue.retain(|queued| !queued.is_expired(now_ms));
+        !queue.is_empty()
+    });
+}
+
 /// `POST /request/:target` — verify a connect request and leave it for its
 /// target.
 ///
@@ -438,7 +498,48 @@ async fn leave_request(
         }
     }
 
+    // A SIGNED TTL IS NOT A PERMISSION. The same ceiling a registration gets: without it a request
+    // signed with `u64::MAX` waits in the inbox for ever, and the target's next poll takes a note about a
+    // rendezvous that cannot happen.
+    if request.ttl_ms > MAX_REQUEST_TTL_MS {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "ttl_too_long",
+            format!(
+                "ttl_ms {} exceeds the broker's maximum of {MAX_REQUEST_TTL_MS} ms",
+                request.ttl_ms
+            ),
+        ));
+    }
+
     let mut inbox = broker.inbox.lock().map_err(|_| poisoned_inbox())?;
+    // EXPIRED NOTES DO NOT HOLD SLOTS, in any queue: sweep every target, not just this one.
+    sweep_inbox(&mut inbox, now_ms);
+    // THE QUEUE IS BOUNDED BOTH WAYS. A per-target cap stops one target being buried; a total cap stops
+    // an attacker who registered many targets from multiplying that per-target allowance into unbounded
+    // memory. The counts are computed under the lock, so two simultaneous senders cannot both fit.
+    let queued: usize = inbox.values().map(Vec::len).sum();
+    let for_target = inbox.get(&target).map(Vec::len).unwrap_or(0);
+    if for_target >= broker.max_requests_per_target {
+        return Err(api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "inbox_full",
+            format!(
+                "{target} already has {} waiting connect requests (its maximum); the queue is taken whole on the next poll",
+                broker.max_requests_per_target
+            ),
+        ));
+    }
+    if queued >= broker.max_queued_requests {
+        return Err(api_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "inbox_full",
+            format!(
+                "the broker already holds {} waiting connect requests (its maximum across every target)",
+                broker.max_queued_requests
+            ),
+        ));
+    }
     inbox.entry(target).or_default().push(QueuedRequest {
         request,
         received_at_ms: now_ms,
@@ -479,6 +580,7 @@ async fn take_requests(
     }
 
     let mut inbox = broker.inbox.lock().map_err(|_| poisoned_inbox())?;
+    sweep_inbox(&mut inbox, now_ms);
     let waiting = inbox.remove(&target).unwrap_or_default();
     let requests = waiting
         .into_iter()
@@ -1152,6 +1254,117 @@ mod tests {
             body["requests"],
             json!([]),
             "the expired request was removed, not hidden until later"
+        );
+    }
+
+    /// **EXPIRED NOTES MUST NOT KEEP THE INBOX FULL.** A note left to a target that never polls again
+    /// would otherwise count against both caps until the broker restarts — and registration is cheap,
+    /// so 4096 such notes are a permanent `429 inbox_full` for every peer. The sweep runs on insert and
+    /// on poll, over EVERY target's queue, not just the one being touched.
+    #[tokio::test]
+    async fn expired_notes_in_other_targets_are_swept() {
+        let (broker, clock) = clocked(ISSUED);
+        let broker = Broker {
+            max_requests_per_target: 1,
+            max_queued_requests: 2,
+            ..broker
+        };
+        let app = broker.router();
+        let first = register_empty(&app, &Identity::generate()).await;
+        let second = register_empty(&app, &Identity::generate()).await;
+        let third = register_empty(&app, &Identity::generate()).await;
+        let requester = Identity::generate();
+
+        for target in [&first, &second] {
+            let note = ConnectRequest::sign(&requester, target, "expired", ISSUED, 0);
+            assert_eq!(leave_request(&app, &note).await.0, StatusCode::NO_CONTENT);
+        }
+        // Both notes are past their zero ttl one millisecond later, but neither target is polled.
+        clock.store(ISSUED + 1, std::sync::atomic::Ordering::SeqCst);
+        let note = ConnectRequest::sign(&requester, &third, "live", ISSUED, TTL);
+        assert_eq!(
+            leave_request(&app, &note).await.0,
+            StatusCode::NO_CONTENT,
+            "an expired note must not count against the cap"
+        );
+    }
+
+    /// A CONNECT REQUEST'S TTL IS THE PEER'S NUMBER, and the broker bounds it the same way it bounds a
+    /// registration's: a signed `u64::MAX` would wait in the inbox for ever.
+    #[tokio::test]
+    async fn a_connect_request_ttl_above_the_ceiling_is_refused() {
+        let app = app();
+        let target = Identity::generate();
+        let target_id = register_empty(&app, &target).await;
+        let requester = Identity::generate();
+        let too_long =
+            ConnectRequest::sign(&requester, &target_id, "s", ISSUED, MAX_REQUEST_TTL_MS + 1);
+        let (status, body) = leave_request(&app, &too_long).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], json!("ttl_too_long"));
+        let (status, body) = take_requests(&app, &target_id, ISSUED).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["requests"],
+            json!([]),
+            "a refused request must not be queued"
+        );
+    }
+
+    /// THE INBOX IS BOUNDED: a fresh identity can mint a key and fill a target's queue faster than it
+    /// polls, and an unbounded queue is memory an unauthenticated caller controls.
+    #[tokio::test]
+    async fn a_targets_inbox_is_capped_and_a_poll_reopens_it() {
+        let broker = Broker::with_inbox_capacity(2, 8);
+        let app = broker.router();
+        let target = Identity::generate();
+        let target_id = register_empty(&app, &target).await;
+        let requester = Identity::generate();
+        for session in ["one", "two"] {
+            let req = ConnectRequest::sign(&requester, &target_id, session, ISSUED, TTL);
+            assert_eq!(leave_request(&app, &req).await.0, StatusCode::NO_CONTENT);
+        }
+        let third = ConnectRequest::sign(&requester, &target_id, "three", ISSUED, TTL);
+        let (status, body) = leave_request(&app, &third).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(body["error"], json!("inbox_full"));
+        assert!(
+            body["detail"].as_str().unwrap_or_default().contains('2'),
+            "the refusal names the per-target cap: {body}"
+        );
+
+        let (_, body) = take_requests(&app, &target_id, ISSUED).await;
+        assert_eq!(
+            body["requests"].as_array().map(Vec::len),
+            Some(2),
+            "the refused request was not queued"
+        );
+        // The queue is drained; the cap is a LIVE limit, not a permanent refusal.
+        assert_eq!(leave_request(&app, &third).await.0, StatusCode::NO_CONTENT);
+    }
+
+    /// A per-target cap alone is not a memory bound when an attacker can register many targets: the
+    /// broker holds a TOTAL too.
+    #[tokio::test]
+    async fn the_global_inbox_cap_bounds_every_target() {
+        let broker = Broker::with_inbox_capacity(8, 3);
+        let app = broker.router();
+        let first = Identity::generate();
+        let first_id = register_empty(&app, &first).await;
+        let second = Identity::generate();
+        let second_id = register_empty(&app, &second).await;
+        let requester = Identity::generate();
+        for (target, session) in [(&first_id, "a"), (&first_id, "b"), (&second_id, "c")] {
+            let req = ConnectRequest::sign(&requester, target, session, ISSUED, TTL);
+            assert_eq!(leave_request(&app, &req).await.0, StatusCode::NO_CONTENT);
+        }
+        let one_more = ConnectRequest::sign(&requester, &second_id, "d", ISSUED, TTL);
+        let (status, body) = leave_request(&app, &one_more).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(body["error"], json!("inbox_full"));
+        assert!(
+            body["detail"].as_str().unwrap_or_default().contains('3'),
+            "the refusal names the total cap: {body}"
         );
     }
 
