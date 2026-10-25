@@ -88,6 +88,10 @@
 **Files:**
 - Create: `device/console/web/src/MemoryPage.tsx`
 - Modify: `device/console/web/src/App.tsx` (a `memory` page in the rail), `Rail.tsx` (icon + label), `app.css` (page styles if needed)
+- Modify: `device/console/web/src/GrantForm.tsx` — its fallback tool list predates `memory.update`,
+  `memory.delete`, `host.facts`, `screen.capture`, `terminal.screen`, `memory.list`, `memory.export`
+  and the `system.*` tools; the list is only the fallback for a failed `/tools` request, but a stale one
+  offers a surface that does not exist.
 
 **Interfaces:**
 - Consumes: `callTool(grant, "memory.list" | "memory.search" | "memory.update" | "memory.delete" | …)`; `Grant` from `./terminal`.
