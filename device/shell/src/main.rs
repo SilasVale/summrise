@@ -26,13 +26,34 @@ mod health;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod helper;
 
+/// A GUI-subsystem process has no console, so a failure that would otherwise be an `eprintln!` goes
+/// to a file beside the browser profile: the tray is either there or it is not, and this says which.
+pub fn note(line: &str) {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(base).join("Summrise");
+    let _ = std::fs::create_dir_all(&directory);
+    let path = directory.join("shell.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 #[cfg(windows)]
 fn main() {
     if app::already_running() {
         // The icon is already in the tray; a second one would be a second dot saying the same thing.
         return;
     }
+    note("starting");
     if let Err(error) = app::run() {
+        note(&format!("exited: {error}"));
         eprintln!("summrise-shell: {error}");
         std::process::exit(1);
     }

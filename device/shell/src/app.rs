@@ -77,6 +77,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_icon(tray_icon(UNKNOWN)?)
         .with_tooltip("Summrise: checking this device…")
         .build()?;
+    crate::note(&format!("tray built: pid={}", std::process::id()));
+    promote_own_icon();
 
     // The tray and its menu report through channels, not through tao's event enum. Connecting each
     // handler to the proxy is what makes `ControlFlow::Wait` wake up for a click.
@@ -135,6 +137,63 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 }
+
+/// Windows 11 files every new tray icon under the overflow chevron and keeps it there until the app
+/// asks otherwise. An icon nobody sees is the same as no icon, so the shell promotes its own entry —
+/// only its own, matched by executable path, and only when it is not already shown.
+///
+/// The entry is written by Explorer shortly after the icon is added, which is why this retries: the
+/// first attempt is usually too early.
+#[cfg(windows)]
+fn promote_own_icon() {
+    std::thread::spawn(|| {
+        for _ in 0..20 {
+            if set_own_icon_promoted() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    });
+}
+
+#[cfg(windows)]
+fn set_own_icon_promoted() -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+    use winreg::RegKey;
+
+    let Ok(own) = std::env::current_exe() else {
+        return false;
+    };
+    let own = own.to_string_lossy().to_lowercase();
+    let Ok(settings) = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(r"Control Panel\NotifyIconSettings", KEY_READ | KEY_WRITE)
+    else {
+        return false;
+    };
+    for name in settings.enum_keys().flatten() {
+        let Ok(entry) = settings.open_subkey_with_flags(&name, KEY_READ | KEY_WRITE) else {
+            continue;
+        };
+        let Ok(path) = entry.get_value::<String, _>("ExecutablePath") else {
+            continue;
+        };
+        if path.to_lowercase() != own {
+            continue;
+        }
+        if entry.get_value::<u32, _>("IsPromoted").unwrap_or(0) != 0 {
+            return true;
+        }
+        if entry.set_value("IsPromoted", &1u32).is_ok() {
+            crate::note("tray promoted to the visible area");
+            return true;
+        }
+        return false;
+    }
+    false
+}
+
+#[cfg(not(windows))]
+fn promote_own_icon() {}
 
 /// Keep this process registered with the device.
 ///
