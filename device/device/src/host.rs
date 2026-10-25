@@ -5,9 +5,16 @@
 //! memory and disk the device is sharing, and the sessions — including the one the helper runs in,
 //! because "the desktop cannot be captured" is a property of a session, not of a device.
 //!
-//! Everything is best-effort. A fact that cannot be read is reported as zero or an empty list rather
-//! than failing the call: a device that answers with five of six facts is more useful than one that
-//! refuses to say anything.
+//! Everything is best-effort. A fact that cannot be read is reported as zero, an empty list or null
+//! rather than failing the call: a device that answers with five of six facts is more useful than one
+//! that refuses to say anything.
+
+use std::path::Path;
+
+/// The launcher's baseline layout, relative to the install root. The writer's spelling of these
+/// names is `device/launch/src/paths.rs`.
+const BASELINE_DIR: &str = "baseline";
+const BASELINE_SIDECAR: &str = "baseline.json";
 
 /// The machine facts, as the wire sees them.
 pub fn facts() -> serde_json::Value {
@@ -24,12 +31,72 @@ pub fn facts() -> serde_json::Value {
     } else {
         document["helper"] = serde_json::json!({ "registered": false });
     }
+    // The install root is where this executable was started from: an installed app lives at
+    // `<install>/summrise-device.exe`. An executable that cannot name its directory reports the
+    // three generations as unknown rather than failing the facts.
+    let install = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    document["update"] = match install.as_deref() {
+        Some(install) => update_state(install),
+        None => serde_json::json!({
+            "current": null,
+            "previous": null,
+            "pending": null,
+        }),
+    };
     document
 }
 
 /// The frame the device sends on its channel: the console reads `host` and stores it per device.
 pub fn frame() -> String {
     serde_json::json!({ "host": facts() }).to_string()
+}
+
+/// What the launcher's baseline generations say, for display.
+///
+/// `current` is the generation the launcher boots, `pending` a pair staged and not yet proven, and
+/// `previous` the pair a failed update returns to. Only `version` and `channel` are read from each
+/// `<install>/baseline/<generation>/baseline.json`.
+///
+/// This does not verify the sidecar's signature. The launcher verified it before it wrote the pair;
+/// this reports what the launcher wrote, a fact for the console and not a trust decision. A missing,
+/// unreadable or malformed sidecar is `null` for that generation, and one bad file never hides the
+/// other two.
+fn update_state(install: &Path) -> serde_json::Value {
+    serde_json::json!({
+        "current": generation_state(install, "current"),
+        "previous": generation_state(install, "previous"),
+        "pending": generation_state(install, "pending"),
+    })
+}
+
+/// The two fields of a generation's sidecar that the console shows.
+///
+/// The launcher writes `sha256` and `signature` beside them; a document that names only these two
+/// leaves the rest unread rather than copying the launcher's evidence into the facts.
+#[derive(serde::Deserialize)]
+struct SidecarVersion {
+    version: String,
+    channel: String,
+}
+
+/// One generation's `{version, channel}`, or `null` when the sidecar cannot be read or parsed.
+fn generation_state(install: &Path, generation: &str) -> serde_json::Value {
+    let path = install
+        .join(BASELINE_DIR)
+        .join(generation)
+        .join(BASELINE_SIDECAR);
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return serde_json::Value::Null;
+    };
+    let Ok(sidecar) = serde_json::from_str::<SidecarVersion>(&text) else {
+        return serde_json::Value::Null;
+    };
+    serde_json::json!({
+        "version": sidecar.version,
+        "channel": sidecar.channel,
+    })
 }
 
 /// The session a process is in — where the helper landed, and what a capture would target.
@@ -125,6 +192,114 @@ fn platform_facts() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::test_support::TempDir;
+
+    /// Write one generation's sidecar under a temp install.
+    fn write_sidecar(install: &Path, generation: &str, sidecar: &str) {
+        let directory = install.join("baseline").join(generation);
+        std::fs::create_dir_all(&directory).expect("the generation directory is creatable");
+        std::fs::write(directory.join("baseline.json"), sidecar).expect("the sidecar is writable");
+    }
+
+    #[test]
+    fn the_three_generations_report_their_version_and_channel() {
+        let dir = TempDir::new("update-state-generations");
+        let install = dir.join("install");
+        write_sidecar(
+            &install,
+            "current",
+            r#"{"version":"0.3.29","channel":"stable","sha256":"00","signature":"00"}"#,
+        );
+        write_sidecar(
+            &install,
+            "previous",
+            r#"{"version":"0.3.28","channel":"stable","sha256":"00","signature":"00"}"#,
+        );
+        write_sidecar(
+            &install,
+            "pending",
+            r#"{"version":"0.3.30","channel":"canary","sha256":"00","signature":"00"}"#,
+        );
+
+        // The whole document equals: the sha256 and signature are not copied to the facts.
+        assert_eq!(
+            update_state(&install),
+            serde_json::json!({
+                "current": { "version": "0.3.29", "channel": "stable" },
+                "previous": { "version": "0.3.28", "channel": "stable" },
+                "pending": { "version": "0.3.30", "channel": "canary" },
+            })
+        );
+    }
+
+    #[test]
+    fn one_malformed_sidecar_is_null_while_the_others_report() {
+        let dir = TempDir::new("update-state-malformed");
+        let install = dir.join("install");
+        write_sidecar(
+            &install,
+            "current",
+            r#"{"version":"0.3.29","channel":"stable"}"#,
+        );
+        write_sidecar(
+            &install,
+            "previous",
+            r#"{"version":"0.3.28","channel":"stable"}"#,
+        );
+        // A torn write: the file is there, the document is not.
+        write_sidecar(&install, "pending", r#"{"version":"0.3.3"#);
+
+        let update = update_state(&install);
+        assert_eq!(update["current"]["version"], "0.3.29");
+        assert_eq!(update["previous"]["version"], "0.3.28");
+        assert!(update["pending"].is_null(), "{update}");
+    }
+
+    #[test]
+    fn a_sidecar_without_a_channel_is_null() {
+        let dir = TempDir::new("update-state-missing-field");
+        let install = dir.join("install");
+        write_sidecar(&install, "current", r#"{"version":"0.3.29"}"#);
+
+        let update = update_state(&install);
+        assert!(update["current"].is_null(), "{update}");
+    }
+
+    #[test]
+    fn a_missing_baseline_directory_is_three_nulls() {
+        let dir = TempDir::new("update-state-no-baseline");
+        let install = dir.join("install");
+        std::fs::create_dir_all(&install).expect("the install directory is creatable");
+
+        assert_eq!(
+            update_state(&install),
+            serde_json::json!({ "current": null, "previous": null, "pending": null })
+        );
+    }
+
+    #[test]
+    fn an_install_path_that_does_not_exist_does_not_panic() {
+        let dir = TempDir::new("update-state-nonexistent");
+        let update = update_state(&dir.join("not-an-install"));
+        assert!(update["current"].is_null(), "{update}");
+        assert!(update["previous"].is_null(), "{update}");
+        assert!(update["pending"].is_null(), "{update}");
+    }
+
+    #[test]
+    fn the_facts_report_the_update_state() {
+        let facts = facts();
+        let update = &facts["update"];
+        assert!(update.is_object(), "{facts}");
+        for generation in ["current", "previous", "pending"] {
+            let value = &update[generation];
+            assert!(
+                value.is_null() || (value["version"].is_string() && value["channel"].is_string()),
+                "{facts}"
+            );
+        }
+    }
 
     #[test]
     fn the_facts_are_a_document_a_console_can_render() {
