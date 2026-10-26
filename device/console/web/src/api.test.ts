@@ -174,6 +174,13 @@ describe("the endpoints", () => {
     expect(init.body).toBe(JSON.stringify({ token: "credential" }));
   });
 
+  it("logout POSTs /logout with the token and no body", async () => {
+    setToken("session-token");
+    const init = await request(() => api.logout(), "/logout", "POST");
+    expect(init.body).toBeUndefined();
+    expect(headers(init)).toEqual({ authorization: "Bearer session-token" });
+  });
+
   it("devices reads /fleet, not /devices", async () => {
     await request(() => api.devices(), "/fleet");
   });
