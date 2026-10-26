@@ -58,13 +58,16 @@ export function AuditTable({
   lines,
   devices,
   tokens,
-  empty = "No audit lines yet."
+  empty = "No audit lines yet.",
+  emptyFiltered = "No audit lines match."
 }: {
   lines: AuditLine[];
   devices: Device[];
   tokens: TokenMeta[];
   /** The sentence for no lines at all. The audit keeps its own; Security names failed authentications. */
   empty?: string;
+  /** The sentence for a filter that matches nothing. The table's default; a log may name its own. */
+  emptyFiltered?: string;
 }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -136,20 +139,22 @@ export function AuditTable({
             ))}
           </select>
         </label>
-        <label className="audit-field">
-          <span>Token</span>
-          <select
-            value={filter.token}
-            onChange={(event) => setFilter({ ...filter, token: event.target.value })}
-          >
-            <option value="">All tokens</option>
-            {tokenOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {tokenOptions.length > 0 && (
+          <label className="audit-field">
+            <span>Token</span>
+            <select
+              value={filter.token}
+              onChange={(event) => setFilter({ ...filter, token: event.target.value })}
+            >
+              <option value="">All tokens</option>
+              {tokenOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="audit-field tool">
           <span>Tool or detail</span>
           <input
@@ -190,7 +195,7 @@ export function AuditTable({
       </p>
 
       {shown.length === 0 ? (
-        <p className="hint">No audit lines match.</p>
+        <p className="hint">{emptyFiltered}</p>
       ) : (
         <div className="scroll">
           <table>

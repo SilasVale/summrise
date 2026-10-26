@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { AuditLine, Device } from "./api";
 import { SecurityPage } from "./SecurityPage";
@@ -42,6 +42,16 @@ describe("SecurityPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("No failed authentications yet.")).toBeInTheDocument();
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+  });
+
+  it("names a filter that matches no failed authentication", () => {
+    render(<SecurityPage lines={[denied]} devices={[]} tokens={[]} />);
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ok" } });
+
+    expect(
+      screen.getByText("No failed authentication matches this filter.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
   });
 
   it("renders the refusal log in the audit table, with no token named", () => {

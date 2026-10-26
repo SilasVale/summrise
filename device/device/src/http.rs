@@ -70,7 +70,7 @@ fn router_with(
         helper,
         data: config.data.clone(),
         panel_token: mint_panel_token(),
-        supervised: config.release_sha.is_some(),
+        supervised: config.supervised,
         restart,
     };
 
@@ -396,12 +396,17 @@ async fn enroll_from_panel(
         Ok(enrollment) => {
             // The app builds its console link at boot. Under the launcher, exit so the supervisor
             // restarts it with the link that was just written; standalone, say so instead of dying.
+            //
+            // The answer is built before the hook is asked. The hook's delay is what lets the tiny
+            // response reach the page; the handler cannot observe the body's flush itself, so the
+            // delay is the stated mechanism, not a guarantee.
             let restarting = app.supervised;
+            let answer = Json(serde_json::json!({ "id": enrollment.id, "restarting": restarting }))
+                .into_response();
             if restarting {
                 (app.restart)();
             }
-            Json(serde_json::json!({ "id": enrollment.id, "restarting": restarting }))
-                .into_response()
+            answer
         }
         // The operator reads the device's own sentence; the panel invents none.
         Err(error) => sentence_response(StatusCode::BAD_REQUEST, &error.to_string()),
@@ -749,6 +754,7 @@ mod tests {
             release_version: release_version.map(str::to_owned),
             release_sha: release_sha.map(str::to_owned),
             release_channel,
+            supervised: release_sha.is_some(),
             console_url: None,
             console_token_file: None,
             mesh_broker: None,
@@ -765,32 +771,33 @@ mod tests {
 
     impl Fixture {
         fn app(&self) -> Router {
-            router(&self.config, self.store.clone())
-        }
-
-        /// The same router with a recorded restart hook, for the supervised-enrolment test.
-        fn app_with_restart(&self, restart: RestartHook) -> Router {
-            router_with(
-                &self.config,
-                self.store.clone(),
-                terminal::Limits::default(),
-                None,
-                None,
-                None,
-                restart,
-            )
+            self.app_with(None, no_restart())
         }
 
         /// The same router with a helper identity, for the registration test.
         fn app_with_helper(&self, helper: Arc<crate::helper::Helper>) -> Router {
+            self.app_with(Some(helper), no_restart())
+        }
+
+        /// The same router with a recorded restart hook, for the supervised-enrolment test.
+        fn app_with_restart(&self, restart: RestartHook) -> Router {
+            self.app_with(None, restart)
+        }
+
+        /// The one place the seven router arguments are listed; a new dependency is one edit.
+        fn app_with(
+            &self,
+            helper: Option<Arc<crate::helper::Helper>>,
+            restart: RestartHook,
+        ) -> Router {
             router_with(
                 &self.config,
                 self.store.clone(),
                 terminal::Limits::default(),
                 None,
                 None,
-                Some(helper),
-                no_restart(),
+                helper,
+                restart,
             )
         }
 
@@ -1651,7 +1658,12 @@ mod tests {
         let fixture = fixture("panel-enroll-ok", None);
         let console = MockConsole::start().await;
         let client = client();
-        let server = PanelServer::start(fixture.app()).await;
+        let calls = Arc::new(AtomicU64::new(0));
+        let recorder = calls.clone();
+        let hook: RestartHook = Arc::new(move || {
+            recorder.fetch_add(1, Ordering::SeqCst);
+        });
+        let server = PanelServer::start(fixture.app_with_restart(hook)).await;
         let token = served_token(&client, &server).await;
         let code = "a".repeat(64);
 
@@ -1677,6 +1689,11 @@ mod tests {
         assert_eq!(
             answer["restarting"], false,
             "a standalone start is not restarted: it would not come back"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "a standalone start never asks the restart hook"
         );
         assert!(
             !text.contains(&console.token(0)),
@@ -1721,9 +1738,15 @@ mod tests {
         let console = MockConsole::start().await;
         let client = client();
         let calls = Arc::new(AtomicU64::new(0));
+        let link_seen = Arc::new(AtomicU64::new(0));
+        let data = fixture.config.data.clone();
         let recorder = calls.clone();
+        let link = link_seen.clone();
         let hook: RestartHook = Arc::new(move || {
             recorder.fetch_add(1, Ordering::SeqCst);
+            if data.join("console.json").exists() {
+                link.fetch_add(1, Ordering::SeqCst);
+            }
         });
         let server = PanelServer::start(fixture.app_with_restart(hook)).await;
         let token = served_token(&client, &server).await;
@@ -1746,9 +1769,10 @@ mod tests {
             1,
             "the hook is asked exactly once"
         );
-        assert!(
-            fixture.config.data.join("console.json").exists(),
-            "the console link is written before the restart is requested"
+        assert_eq!(
+            link_seen.load(Ordering::SeqCst),
+            1,
+            "the console link existed when the hook was asked, not merely when the answer arrived"
         );
     }
 

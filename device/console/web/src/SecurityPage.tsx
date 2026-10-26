@@ -32,6 +32,7 @@ export function SecurityPage({
         devices={devices}
         tokens={tokens}
         empty="No failed authentications yet."
+        emptyFiltered="No failed authentication matches this filter."
       />
     </section>
   );
