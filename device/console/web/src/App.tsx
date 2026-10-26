@@ -68,11 +68,7 @@ export function App() {
   // Ask who we are first, then ask for data. Fetching the device list before knowing whether there is
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
-  const probe = useCallback(async () => {
-    const [state, health] = await Promise.all([api.session(), api.health()]);
-    setConsoleVersion(health.version);
-    setSession(state);
-    if (!state.authenticated) return;
+  const refreshData = useCallback(async () => {
     const [list, lines, tokenList] = await Promise.all([
       api.devices(),
       api.audit(AUDIT_WINDOW),
@@ -81,23 +77,24 @@ export function App() {
     setDevices(list);
     setAudit(lines);
     setTokens(tokenList);
-    setError(null);
   }, []);
+
+  const probe = useCallback(async () => {
+    const [state, health] = await Promise.all([api.session(), api.health()]);
+    setConsoleVersion(health.version);
+    setSession(state);
+    if (!state.authenticated) return;
+    await refreshData();
+    setError(null);
+  }, [refreshData]);
 
   const load = useCallback(async () => {
     if (!session?.authenticated) {
       await probe();
       return;
     }
-    const [list, lines, tokenList] = await Promise.all([
-      api.devices(),
-      api.audit(AUDIT_WINDOW),
-      tokensOrEmpty()
-    ]);
-    setDevices(list);
-    setAudit(lines);
-    setTokens(tokenList);
-  }, [probe, session?.authenticated]);
+    await refreshData();
+  }, [probe, refreshData, session?.authenticated]);
 
   useEffect(() => {
     probe().catch((cause) => {

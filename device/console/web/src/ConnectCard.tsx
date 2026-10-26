@@ -85,7 +85,8 @@ function expiry(entry: TokenMeta): string {
  *
  * Its other mode mints a **permanent token** instead: the console keeps only its hash, the plaintext
  * is returned once, and a client pastes it into a fixed configuration. The token is a password — the
- * list below the form carries metadata only, and revocation is the only withdrawal.
+ * list below the form carries metadata only; revocation withdraws it, and a token created with an
+ * expiry also stops at that date.
  */
 export function ConnectCard({ device, onClose }: { device: Device; onClose: () => void }) {
   // The registry is the list, as it is for the grant form; the fallback keeps the card usable when
@@ -336,8 +337,9 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
         <div role="tabpanel" aria-label="Permanent token" className="connect">
           <p className="hint">
             A permanent token is a credential the client keeps in a fixed MCP configuration: it is not
-            tied to one run, and it works until you revoke it. The console stores only its hash and
-            checks the device on every request.
+            tied to one run, and a token without an expiry works until you revoke it. One created with
+            an expiry also stops at that date. The console stores only its hash and checks the device
+            on every request.
           </p>
 
           {!created && (

@@ -76,13 +76,17 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     }
   };
 
+  const paint = (answer: { data: string; bytes: number }) => {
+    setShot(`data:image/png;base64,${answer.data}`);
+    setStatus(`Captured ${answer.bytes} bytes.`);
+  };
+
   const capture = async (which = target) => {
     if (!which) return;
     try {
       const answer = await captureOnce(which);
       if (!answer) return;
-      setShot(`data:image/png;base64,${answer.data}`);
-      setStatus(`Captured ${answer.bytes} bytes.`);
+      paint(answer);
     } catch (cause) {
       // The picture on screen is of a page this call could not read. Leaving it under a failure
       // sentence would present the old frame as the current one.
@@ -219,11 +223,13 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       return;
     }
     const started = liveView.current;
-    if (started && (started.grant !== grant || started.target !== target)) {
-      // Live belongs to the view it was started on. A target change or a new grant ends the watch;
-      // the operator restarts it with the button rather than having it follow silently.
+    if (started && started.grant !== grant) {
+      // A new grant is a different authority: the watch ends rather than silently continuing under
+      // it, and the sentence says why. A different target is the same authority and the same watch,
+      // so the timer restarts on that target instead of stopping.
       liveView.current = null;
       setLive(false);
+      setStatus("Live stopped: the grant changed.");
       return;
     }
     liveView.current = { grant, target };
@@ -245,9 +251,8 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       try {
         const answer = await captureOnce(target);
         if (!current || !answer) return;
-        setShot(`data:image/png;base64,${answer.data}`);
+        paint(answer);
         setFrames((count) => count + 1);
-        setStatus(`Captured ${answer.bytes} bytes.`);
       } catch (cause) {
         if (!current) return;
         // A refusal and any other failure both end the watch; the operator restarts it with the

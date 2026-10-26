@@ -52,7 +52,7 @@ call (at least one), decide whether destructive tools are pre-approved, and pres
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
 is permanent by default; an optional expiry (1 hour–365 days) can be set at creation, and revocation
-is the only withdrawal ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
+is the only withdrawal for a permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
 ## 4. Point the client at the endpoint
 
@@ -134,7 +134,7 @@ Authorization: Bearer <contents of C:\ProgramData\Summrise\token>
 | What you see | What it means |
 |---|---|
 | `302` to `…cloudflareaccess.com` | The request hit a Cloudflare Access application before the endpoint. `/mcp/*` must be its own application — a bypass, or a service token whose two `CF-Access-*` headers the client sends — never the operator application. |
-| `401` | The bearer was not accepted: the header is missing or is not a bearer, the token is unknown, revoked, or was created for another device, or the grant expired. Check the id in the path, and create a new token if this one was revoked. |
+| `401` | The bearer was not accepted: the header is missing or is not a bearer, the token is unknown, revoked, expired, or was created for another device, or the grant expired. Check the id in the path, and create a new token if this one was revoked or expired. |
 | `403`, JSON-RPC `-32001`, "tool not permitted by grant" | The tool is outside the token's (or grant's) set. A token's tools and destructive consent are fixed at creation: create a token that includes the tool. |
 | `404`, `no_such_device` | The id in the path is not a registered device (for a valid grant: the device was removed). Copy the id from the card again. |
 | `503` with `retry_after_ms` | The device has no open channel or its queue is full — offline, between reconnects, or busy. Retry after that many milliseconds; the card's **Channel** row says whether it is back. |
