@@ -28,6 +28,7 @@ p { margin: 0.35rem 0; }
 }
 .brand { display: flex; align-items: center; gap: 0.55rem; }
 .brand span { color: var(--ink-faint); font-size: var(--fs-sm); }
+.crumb { color: var(--ink-muted); font-size: 12px; margin-left: 0.35rem; }
 .session { margin: 0 0 0 auto; color: var(--ink-muted); font-size: var(--fs-sm); display: flex; align-items: center; gap: 0.4rem; }
 
 /* An app shell, not a document: the top bar and the status bar stay put and only the middle scrolls.
@@ -39,17 +40,19 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: 1.1rem 1.25rem 2rem; 
 
 /* The rail is the legacy panel's grammar: destinations on the left, connection state at the foot. */
 .rail {
-  width: 56px; flex: none; display: flex; flex-direction: column; align-items: center;
+  width: 78px; flex: none; display: flex; flex-direction: column; align-items: center;
   gap: 0.35rem; padding: 0.75rem 0 0.9rem; border-right: 1px solid var(--line);
   background: var(--surface);
 }
 .rail-btn {
-  width: 38px; height: 38px; display: grid; place-items: center;
+  width: 62px; height: 52px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px;
   border: none; border-radius: var(--radius-xs); background: transparent;
   color: var(--ink-muted); cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
 }
 .rail-btn:hover { background: var(--surface-chip); color: var(--ink); }
 .rail-btn.active { background: var(--accent-soft); color: var(--accent); }
+.rail-label { font-size: 9.5px; letter-spacing: 0.02em; line-height: 1; }
 .rail-spacer { flex: 1; }
 .rail-dot { margin-bottom: 0.2rem; }
 
@@ -253,6 +256,7 @@ tr:last-child td { border-bottom: 0; }
 @media (max-width: 56rem) {
   .body { flex-direction: column-reverse; }
   .rail { width: 100%; flex-direction: row; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem; }
+  .rail-btn { width: auto; min-width: 52px; height: 44px; }
   .rail-spacer { display: none; }
   .rail-dot { margin: 0 0.4rem; }
   main { padding: 0.9rem 0.9rem 1.2rem; }

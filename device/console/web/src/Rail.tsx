@@ -11,6 +11,20 @@ export type Page =
   | "system"
   | "audit";
 
+/// What each page is called in the rail and in the top bar. The rail's buttons are icon-first, so the
+/// label is the difference between "a column of glyphs" and a navigable set of sections.
+export const PAGE_LABELS: Record<Page, string> = {
+  devices: "Devices",
+  files: "Files",
+  terminal: "Terminal",
+  browser: "Browser",
+  memory: "Memory",
+  monitors: "Monitors",
+  runs: "Runs",
+  system: "System",
+  audit: "Audit"
+};
+
 const ICONS: Record<Page, string> = {
   devices:
     "M4 5.5h16M4 12h16M4 18.5h10M3 3.5h18a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1Z",
@@ -50,6 +64,7 @@ export function Rail({
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <path d={ICONS[entry]} />
           </svg>
+          <span className="rail-label">{PAGE_LABELS[entry]}</span>
         </button>
       ))}
       <span className="rail-spacer" />

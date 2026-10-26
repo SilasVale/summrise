@@ -3,7 +3,7 @@ import logoUrl from "./logo.svg";
 import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AuditTable } from "./AuditTable";
-import { Rail, type Page } from "./Rail";
+import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
 import { TerminalWorkspace } from "./TerminalWorkspace";
@@ -259,6 +259,7 @@ export function App() {
             <img src={logoUrl} alt="" width={26} height={26} />
             <h1>Summrise</h1>
             <span>console</span>
+            <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
