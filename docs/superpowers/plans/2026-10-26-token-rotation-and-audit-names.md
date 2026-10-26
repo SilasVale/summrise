@@ -123,3 +123,16 @@ the table on ids rather than blanking the page.
 - Review Focus: atomicity, one plaintext, scope, story, degradation.
 - Deliberate: no per-token history page (the filter on the existing table is enough), no expiry, no
   bulk rotation.
+
+## Review rulings (2026-10-26)
+
+- Rotation is one save of the whole map (old removed, new inserted); a failed write returns before
+  memory is adopted, so the old token keeps working and the file is unchanged. Tested on a read-only
+  directory, in memory and after reload.
+- The audit is a creation plus a revocation (`token` with the consent, `token_revoke` with `rotated`),
+  both with the device and the 201 the caller saw; no new kind.
+- The App's token fetch is caught to an empty list: devices/audit render, cells and filter options fall
+  back to short ids, and no error is surfaced; a rejected fetch is tested.
+- The audit filter's options are the distinct ids in the window (name when known, short id otherwise),
+  sorted by label with "All tokens" first; the line key and expansion are untouched.
+- Rotation at the cap succeeds and the count stays at the cap.
