@@ -815,12 +815,15 @@ mod tests {
                     "-c".to_owned(),
                     "echo $$ > child.pid; exec sleep 5".to_owned(),
                 ],
-                timeout_ms: Some(200),
+                // Two seconds, not 200 ms: the assertion needs the shell to have spawned and
+                // written its pid before the deadline. A loaded runner can miss a 200 ms window and
+                // then fail on the missing file rather than on the timeout's behaviour.
+                timeout_ms: Some(2_000),
                 ..ExecRequest::default()
             })
             .expect("sh runs");
 
-        assert!(result.timed_out, "the 200 ms timeout expired");
+        assert!(result.timed_out, "the 2 s timeout expired: {result:?}");
         assert_eq!(result.exit_code, None, "a killed process has no exit code");
 
         // The pid in the file is the shell's — and after `exec`, the sleep's. It must be gone:
@@ -844,20 +847,26 @@ mod tests {
         // The background sleep is a different process in the shell's process group. Its output is
         // redirected so it cannot keep the pipes open: if only the direct child were killed, it
         // would outlive the call and this test would see it.
+        //
+        // The foreground `exec sleep` (not `wait`) is deliberate: `wait` can return early on a shell
+        // that reports a failed background spawn, and then `timed_out` is false for a reason that is
+        // not the timeout. `exec` leaves one long-lived child in place. Two seconds, not 500 ms,
+        // gives a loaded runner time to spawn the shell and for it to write the two pid files before
+        // the deadline; a 500 ms deadline could otherwise fire before the writes and fail differently.
         let result = runs
             .exec(ExecRequest {
                 command: "sh".to_owned(),
                 args: vec![
                     "-c".to_owned(),
-                    "sleep 5 >/dev/null 2>&1 & echo $! > background.pid; echo $$ > child.pid; wait"
+                    "sleep 5 >/dev/null 2>&1 & echo $! > background.pid; echo $$ > child.pid; exec sleep 5"
                         .to_owned(),
                 ],
-                timeout_ms: Some(500),
+                timeout_ms: Some(2_000),
                 ..ExecRequest::default()
             })
             .expect("sh runs");
 
-        assert!(result.timed_out);
+        assert!(result.timed_out, "the 2 s timeout expired: {result:?}");
         let read_pid = |name: &str| -> i32 {
             fs::read_to_string(root.join(name))
                 .expect("the child wrote its pid")
