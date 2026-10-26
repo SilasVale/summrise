@@ -1,5 +1,5 @@
-//! The standard MCP transport's pure half: the grant header, the media types, the one local answer
-//! and the tool filter.
+//! The standard MCP transport's pure half: the bearer (a grant envelope or a permanent token), the
+//! media types, the one local answer and the tool filter.
 //!
 //! The route itself (`POST /mcp/:id`) lives in `http.rs`, beside the custom envelope the page uses.
 //! Everything here is a function of bytes the route has already decided are worth parsing: no state,
@@ -17,7 +17,46 @@ use summrise_core::grant::GrantEnvelope;
 /// speak it must disconnect rather than be told a version the console does not implement.
 pub(crate) const PROTOCOL_VERSION: &str = "2025-06-18";
 
-/// The `Authorization: Bearer <lowercase hex of the GrantEnvelope JSON>` this route accepts.
+/// What a standard MCP bearer is: a one-off grant, or a permanent token the console mints a grant
+/// for.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BearerKind {
+    /// The grant envelope itself, in hex. Verified exactly as before.
+    Grant(GrantEnvelope),
+    /// A permanent token (`srm_` plus 64 lowercase hex). The route looks it up and mints a grant.
+    Token(String),
+}
+
+/// Classify the `Authorization` header: a permanent token, or a grant.
+///
+/// The token is recognized by its prefix, which is why the prefix exists: a bearer that is not a
+/// token goes to [`grant_from_headers`] unchanged, so the grant path keeps its exact parsing and
+/// every existing client behaves as before. A malformed token falls through to the grant parser and
+/// fails there (hex has no `s`, `r`, `m` or `_`), which is one `None` for every bad credential.
+pub(crate) fn bearer_from_headers(headers: &HeaderMap) -> Option<BearerKind> {
+    if let Some(token) = token_from_headers(headers) {
+        return Some(BearerKind::Token(token));
+    }
+    grant_from_headers(headers).map(BearerKind::Grant)
+}
+
+/// The permanent token this header carries, when it is one.
+fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = token.trim();
+    let body = token.strip_prefix(crate::tokens::TOKEN_PREFIX)?;
+    let well_formed = token.len() == crate::tokens::TOKEN_LEN
+        && body
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+    well_formed.then(|| token.to_owned())
+}
+
+/// The `Authorization: Bearer <lowercase hex of the GrantEnvelope JSON>` a grant arrives as.
 ///
 /// The scheme is case-insensitive because HTTP says it is. The token is the envelope's own JSON
 /// bytes in hex, the console's one wire encoding for secrets and keys, so a client does not need a
@@ -150,6 +189,57 @@ mod tests {
         );
 
         assert_eq!(grant_from_headers(&headers), Some(envelope));
+    }
+
+    #[test]
+    fn a_bearer_is_either_a_grant_envelope_or_a_permanent_token() {
+        let envelope = envelope();
+        let bytes = serde_json::to_vec(&envelope).expect("the envelope serializes");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {}", crate::hex::encode(&bytes))
+                .parse()
+                .expect("a header value"),
+        );
+        assert_eq!(
+            bearer_from_headers(&headers),
+            Some(BearerKind::Grant(envelope))
+        );
+
+        let token = format!("srm_{}", "ab".repeat(32));
+        headers.insert(
+            header::AUTHORIZATION,
+            format!("Bearer {token}").parse().expect("a header value"),
+        );
+        assert_eq!(
+            bearer_from_headers(&headers),
+            Some(BearerKind::Token(token)),
+            "an srm_ bearer is the token, never an attempt to hex-decode a grant"
+        );
+    }
+
+    #[test]
+    fn a_bearer_with_a_malformed_token_is_no_bearer() {
+        for value in [
+            // Not 64 hex after the prefix.
+            format!("Bearer srm_{}", "ab".repeat(31)),
+            format!("Bearer srm_{}", "ab".repeat(33)),
+            // Uppercase is not the shape the console mints.
+            format!("Bearer srm_{}", "AB".repeat(32)),
+            // Not hex at all.
+            format!("Bearer srm_{}", "zz".repeat(32)),
+            "Bearer srm_".to_owned(),
+            "Basic srm_ababababababababababababababababababababababababababababababababab"
+                .to_owned(),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::AUTHORIZATION,
+                value.parse().expect("a header value"),
+            );
+            assert_eq!(bearer_from_headers(&headers), None, "{value}");
+        }
     }
 
     #[test]
