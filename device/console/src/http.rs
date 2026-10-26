@@ -272,6 +272,7 @@ impl Console {
             // is the only time the secret is visible; the list is metadata only.
             .route("/tokens", get(list_tokens).post(create_token))
             .route("/tokens/:id", axum::routing::delete(revoke_token))
+            .route("/tokens/:id/rotate", post(rotate_token))
             .route("/mcp", post(proxy_mcp))
             .route("/mcp/:id", post(standard_mcp))
             .route("/audit", get(list_audit))
@@ -1074,6 +1075,49 @@ async fn create_token(
         Some(&meta.device_id),
         StatusCode::CREATED,
         Some(detail),
+    )
+    .await;
+
+    Ok((StatusCode::CREATED, Json(CreatedToken { meta, token })))
+}
+
+/// `POST /tokens/:id/rotate`: replace one token's secret in one write, keeping its scope.
+///
+/// The answer is the create shape: the new record's public facts and the one and only copy of the
+/// new secret. The audit tells the replacement as two facts of the same action — a creation with the
+/// replacement's consent and a revocation of the old record (`rotated`) — both naming the device.
+async fn rotate_token(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    _: OperatorSession,
+) -> Result<(StatusCode, Json<CreatedToken>), ApiError> {
+    let rotated = lock(&app.tokens)
+        .rotate(&id, (app.now)())
+        .map_err(|_| ApiError::internal())?;
+    let Some((meta, token)) = rotated else {
+        return Err(ApiError::not_found("no_such_token"));
+    };
+
+    // The consent is an authorization fact, as it is on a creation: a later review must find it.
+    let detail = if meta.allow_destructive {
+        "allow_destructive=true"
+    } else {
+        "allow_destructive=false"
+    };
+    app.record(
+        "token",
+        Some(&meta.device_id),
+        StatusCode::CREATED,
+        Some(detail),
+    )
+    .await;
+    // The old record is gone from the file before this response is built: the same device's
+    // revocation is the withdrawal half of the replacement, not a second operator action.
+    app.record(
+        "token_revoke",
+        Some(&meta.device_id),
+        StatusCode::CREATED,
+        Some("rotated"),
     )
     .await;
 
