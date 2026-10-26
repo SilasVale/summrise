@@ -173,8 +173,9 @@ Commit: `console: a terminal session can be searched`.
 
 - [ ] **Step 1: Read the page, then write the tests**
 
-`MonitorsPage` calls `monitor.list {}`, `monitor.status {id}`, `monitor.add {kind, host, port, path?,
-expect?}`, `monitor.probe {id}` (then reads `monitor.status`), `monitor.remove {id}`. Cover:
+`MonitorsPage` calls `monitor.list {}`, `monitor.status {id}`, `monitor.add {kind, host, port,
+interval_ms, path?, expect?}` (the device requires `interval_ms`), `monitor.probe {id}` (then reads
+`monitor.status`), `monitor.remove {id}`. Cover:
 
 1. a listed http target renders host:port and its status; a down target says so as a fact;
 2. adding a tcp target sends exactly `{kind: "tcp", host, port}` and re-lists;
