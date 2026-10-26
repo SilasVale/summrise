@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -36,6 +36,23 @@ async function openPane() {
   const view = render(<BrowserPane grant={grant} />);
   await screen.findByText("1 target(s).");
   return view;
+}
+
+const shotCalls = () =>
+  callToolMock.mock.calls.filter(([, name]) => name === "browser.screenshot");
+
+/** Advance fake time far enough for a tick to start and settle; live polls every 1.5 s. */
+async function tick(ms = 1_500) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+async function startLive() {
+  fireEvent.click(screen.getByRole("button", { name: "Start live view" }));
+  // Let React install the interval before time moves; otherwise the first tick can be counted from
+  // the moment the test advanced past it.
+  await tick(0);
 }
 
 describe("BrowserPane", () => {
@@ -158,5 +175,198 @@ describe("BrowserPane", () => {
 
     const failure = await screen.findByText("Navigate failed: the tab is gone");
     expect(failure).toHaveClass("error");
+  });
+
+  it("captures one live frame per 1.5 s and counts them", async () => {
+    const { container } = await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      expect(screen.getByRole("button", { name: "Stop live view" })).toBeInTheDocument();
+      expect(shotCalls()).toHaveLength(0);
+
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+      await tick(3_000);
+      expect(shotCalls()).toHaveLength(3);
+      expect(screen.getByText("Live · 1.5 s · frame 3")).toBeInTheDocument();
+      expect(container.querySelector(".browser-shot")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps one capture in flight when a shot is slower than the interval", async () => {
+    let release!: (value: string) => void;
+    const slow = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.screenshot") return slow;
+      return answerFor(name, args);
+    });
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      // Three more ticks while the first answer is outstanding: all must be skipped, not queued.
+      await tick(4_500);
+      expect(shotCalls()).toHaveLength(1);
+
+      await act(async () => {
+        release(JSON.stringify({ data: "AAAA", bytes: 3 }));
+        await slow;
+      });
+      await tick();
+      expect(shotCalls()).toHaveLength(2);
+      expect(screen.getByText("Live · 1.5 s · frame 2")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops capturing when the live toggle is switched off", async () => {
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Stop live view" }));
+      expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the live timer on unmount", async () => {
+    const { unmount } = await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      unmount();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips ticks while the document is hidden and resumes when it is visible", async () => {
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+      try {
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(shotCalls()).toHaveLength(1);
+
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+          await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(shotCalls()).toHaveLength(2);
+      } finally {
+        Reflect.deleteProperty(document, "hidden");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops when the grant changes under a running live view", async () => {
+    const view = await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      view.rerender(<BrowserPane grant={{ ...grant, envelope: { rotated: true } }} />);
+      expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops when re-listing finds no target", async () => {
+    listAnswers = [[A], []];
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      expect(shotCalls()).toHaveLength(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "List targets" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("No browser is open on this device.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops live on a refusal and shows the screenshot failure", async () => {
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.screenshot") throw new ToolError("the grant expired", 403, -32001);
+      return answerFor(name, args);
+    });
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+
+      expect(screen.getByText("Screenshot failed: the grant expired")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops live on any other screenshot failure too", async () => {
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.screenshot") throw new ToolError("the tab is gone", 200, null, true);
+      return answerFor(name, args);
+    });
+    await openPane();
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+
+      expect(screen.getByText("Screenshot failed: the tab is gone")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      await tick(6_000);
+      expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

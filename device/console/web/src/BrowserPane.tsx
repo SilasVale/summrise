@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRequestGate } from "./requests";
 import { callTool, toolFailure, type Grant } from "./terminal";
 
 type Target = { id: string; url?: string; title?: string };
+
+/** How slow "live" is: one screenshot per interval, because a CDP screencast is a transport of its own. */
+const LIVE_MS = 1_500;
+/** The interval the operator reads comes from the interval the timer uses. */
+const LIVE_LABEL = `Live · ${LIVE_MS / 1_000} s`;
 
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
@@ -13,6 +18,15 @@ export function BrowserPane({ grant }: { grant: Grant }) {
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
   const [status, setStatus] = useState("No browser is open on this device.");
+  const [live, setLive] = useState(false);
+  const [frames, setFrames] = useState(0);
+
+  // A live tick never queues behind itself: if the device is still answering the previous screenshot,
+  // the next interval is skipped rather than stacking a second request.
+  const inFlight = useRef(false);
+  // The view the running watch belongs to. A different target or grant is a different view, so the
+  // watch stops there instead of silently moving to it.
+  const liveView = useRef<{ grant: Grant; target: string } | null>(null);
 
   // A list and a picture are separate reads, so each has its own newest-answer rule: a late list must
   // not replace a newer selection, and a late screenshot must not show a page the operator already
@@ -46,19 +60,30 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     }
   };
 
-  const capture = async (which = target) => {
-    if (!which) return;
+  // One screenshot request, shared by the button and the live timer. A null answer means a newer
+  // request has superseded this one, so both its picture and its error belong to a view that is gone.
+  const captureOnce = async (which: string): Promise<{ data: string; bytes: number } | null> => {
     const ticket = shotGate.begin();
     try {
       const answer = JSON.parse(await callTool(grant, "browser.screenshot", { target: which })) as {
         data: string;
         bytes: number;
       };
-      if (shotGate.stale(ticket)) return;
+      return shotGate.stale(ticket) ? null : answer;
+    } catch (cause) {
+      if (shotGate.stale(ticket)) return null;
+      throw cause;
+    }
+  };
+
+  const capture = async (which = target) => {
+    if (!which) return;
+    try {
+      const answer = await captureOnce(which);
+      if (!answer) return;
       setShot(`data:image/png;base64,${answer.data}`);
       setStatus(`Captured ${answer.bytes} bytes.`);
     } catch (cause) {
-      if (shotGate.stale(ticket)) return;
       // The picture on screen is of a page this call could not read. Leaving it under a failure
       // sentence would present the old frame as the current one.
       setShot(null);
@@ -181,6 +206,92 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     void list();
   }, []);
 
+  useEffect(() => {
+    if (!live) {
+      liveView.current = null;
+      return;
+    }
+    if (!target) {
+      // The last tab closed: there is nothing left to watch, so the toggle goes off rather than
+      // staying on over an empty pane.
+      liveView.current = null;
+      setLive(false);
+      return;
+    }
+    const started = liveView.current;
+    if (started && (started.grant !== grant || started.target !== target)) {
+      // Live belongs to the view it was started on. A target change or a new grant ends the watch;
+      // the operator restarts it with the button rather than having it follow silently.
+      liveView.current = null;
+      setLive(false);
+      return;
+    }
+    liveView.current = { grant, target };
+
+    // This effect's own lifetime: an answer that lands after a stop, a change, or an unmount must not
+    // paint a frame, even when the request itself had already been sent.
+    let current = true;
+    let timer: number | undefined;
+
+    const stopTimer = () => {
+      if (timer === undefined) return;
+      window.clearInterval(timer);
+      timer = undefined;
+    };
+
+    const tick = async () => {
+      if (!current || document.hidden || inFlight.current) return;
+      inFlight.current = true;
+      try {
+        const answer = await captureOnce(target);
+        if (!current || !answer) return;
+        setShot(`data:image/png;base64,${answer.data}`);
+        setFrames((count) => count + 1);
+        setStatus(`Captured ${answer.bytes} bytes.`);
+      } catch (cause) {
+        if (!current) return;
+        // A refusal and any other failure both end the watch; the operator restarts it with the
+        // button. The sentence is the one the on-demand path already uses.
+        setShot(null);
+        setStatus("Screenshot failed: " + toolFailure(cause));
+        setLive(false);
+      } finally {
+        inFlight.current = false;
+      }
+    };
+
+    const startTimer = () => {
+      if (timer !== undefined || document.hidden) return;
+      timer = window.setInterval(() => {
+        if (!document.hidden) void tick();
+      }, LIVE_MS);
+    };
+
+    // A hidden tab does not keep asking the device for pictures nobody can see. Coming back visible
+    // restarts the interval only while the toggle is still on, which is the only way this effect runs.
+    const onVisibility = () => {
+      if (document.hidden) stopTimer();
+      else startTimer();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    startTimer();
+    return () => {
+      current = false;
+      stopTimer();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [live, grant, target]);
+
+  const toggleLive = () => {
+    if (live) {
+      setLive(false);
+      return;
+    }
+    setFrames(0);
+    setLive(true);
+  };
+
   return (
     <div className="browser-pane">
       <div className="panel-head">
@@ -188,11 +299,20 @@ export function BrowserPane({ grant }: { grant: Grant }) {
         <div className="actions">
           <button type="button" onClick={() => void list()}>List targets</button>
           <button type="button" disabled={!target} onClick={() => void capture()}>Refresh view</button>
+          <button
+            type="button"
+            disabled={!target}
+            title={`One screenshot every ${LIVE_MS / 1_000} s`}
+            onClick={toggleLive}
+          >
+            {live ? "Stop live view" : "Start live view"}
+          </button>
           <button type="button" disabled={!target} onClick={() => void close()}>Close tab</button>
           <button type="button" onClick={() => void stop()}>Stop browser</button>
         </div>
       </div>
       <p className={status.includes("failed") ? "error" : "hint"}>{status}</p>
+      {live && shot && <p className="hint">{LIVE_LABEL} · frame {frames}</p>}
 
       {targets.length > 0 && (
         // The browser can hold several pages; the screenshot follows the target, so the operator has
