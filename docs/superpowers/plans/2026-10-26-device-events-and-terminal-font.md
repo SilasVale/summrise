@@ -21,8 +21,10 @@ events page; terminal font size); the local panel's shape is `device/device/src/
 ## Global Constraints
 
 - **`state.get` stays one tool.** No new registry entry, no tool-count change, no input schema change.
-  The event tail is an additive field of the answer, best-effort: a missing or unreadable `events.jsonl`
-  is `[]`, never a failed call; a poisoned state document still returns its events.
+  The event tail is an additive field of the answer, best-effort: a **missing** `events.jsonl`
+  contributes nothing (the call's own audit line is still the tail), an **unreadable** one is `null`
+  with a sentence rather than "no events", and neither fails the call; a poisoned state document still
+  returns its events. An older device that sends no field reads as an empty tail.
 - Console web only for the page and the font: `device/console/web/src/*`, the committed
   `dist/index.html`, tests. No new dependency.
 - Every console device call is `callTool(grant, …)`; no console route; no credential stored.
@@ -34,12 +36,15 @@ events page; terminal font size); the local panel's shape is `device/device/src/
 
 ## Review Focus
 
-1. **A poisoned document is not an empty page.** `state: null` + `health.poisoned: true` must render the
-   degraded health and the events that still exist, not a blank panel or a fake "offline".
+1. **A poisoned document is not an empty page, and an unreadable log is not an empty one either.**
+   `state: null` + `health.poisoned: true` must render the degraded health and the events that still
+   exist, not a blank panel or a fake "offline"; `events: null` says the log could not be read, and
+   only `[]` says the device has recorded nothing.
 2. **An event is whatever the device wrote.** Tool-call lines are `{ts_ms, event: "begin"|"end",
    tool, ...}`, state lines are `{ts_ms, kind: "repaired"|…, ...}`, and the store falls back to a JSON
    string for a line that is not an object. The label is `kind` or `event`, the other keys are fields,
-   and a non-object line is text — never `[object Object]`.
+   and a non-object line is text — never `[object Object]`, even when a label is itself an object
+   (JSON, or nothing).
 3. **The device's order is not the operator's.** The tail arrives oldest-first; the page shows newest
    first without mutating the array it was given.
 4. **A font change reaches every open tab and the next one.** Existing xterms are updated in place and
@@ -68,7 +73,8 @@ events page; terminal font size); the local panel's shape is `device/device/src/
   **The tail is the device's audit log**, so it contains the MCP surface's own begin/end lines,
   including the `state.get` call being answered: tool-call lines are `{ts_ms, event: "begin"|"end",
   tool, ...}`, state lines are `{ts_ms, kind: "repaired"|"state_quarantined", ...}`. The page reads the
-  label from `kind` or `event` and never repeats it among the fields.
+  label from `kind` or `event` and never repeats it among the fields. `events` is `null` when the
+  device could not read its own log; the page names that case instead of calling it empty.
 - Produces: `EventsPage({grant}: {grant: Grant})`; `Page` gains `"events"`, labelled **Events**.
 - The events page's own copy: **The device keeps its last ten events.** and, for an empty tail,
   **The device has recorded no events.**
@@ -145,7 +151,11 @@ best-effort rule and the poisoned-document case.
   export function clampFontSize(value: number): number;   // finite, rounded, clamped; NaN → default
   export function loadFontSize(storage: Pick<Storage, "getItem"> | null): number;
   export function saveFontSize(storage: Pick<Storage, "setItem"> | null, size: number): void;
+  export function fontStorage(): Storage | null;   // the one place window.localStorage is touched
   ```
+  `fontStorage` exists because evaluating `window.localStorage` itself can throw when the browser
+  blocks storage; the component passes its answer to both functions. The effect saves on mount too,
+  which normalises a malformed stored value.
   A storage that throws (private mode) leaves the default; a stored value that is not a number is the
   default.
 

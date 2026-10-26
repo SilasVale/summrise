@@ -219,7 +219,8 @@ What remains:
   model.
 - **`ArchivePage` / `ActivityPage` as AI-session surfaces.** The question ("what happened while I was
   away") is real; the answer here is recorded terminal sessions and browser actions, which the new
-  device does not keep. Do not port the renderer; add the event tail above.
+  device does not keep. Do not port the renderer; the device's own event tail is the honest answer and
+  it now has a page (`6424bd7`).
 - **`DshPage`, `DshPane`, `HarnessHosts`, `DesktopShell`, `EmbeddedBrowserPane`'s native view.**
   Electron-native `WebContentsView`s, desktop density and the DSH harness. A web page cannot compose
   them, and none is a device capability; the harness is a separate product surface.
