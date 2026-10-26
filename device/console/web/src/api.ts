@@ -180,6 +180,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(credential)
     }),
+  // Ends the presented session on the server. The page calls it best-effort as it signs out; a
+  // failure is not a reason to keep the in-memory session alive in the tab.
+  logout: () => call<void>("/logout", { method: "POST" }),
   // `/fleet`, not `/devices`: the device namespace is behind Cloudflare Access's bypass (a
   // device has no email login), and a bypassed request carries no identity for the page to use.
   devices: () => call<Device[]>("/fleet"),
