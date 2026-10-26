@@ -1,4 +1,4 @@
-import { VITALS_TTL_MS, type VitalsSample } from "./vitals";
+import { VITALS_MIN_INTERVAL_MS, VITALS_TTL_MS, type VitalsSample } from "./vitals";
 
 /**
  * The device card's vitals sparkline: memory available % and the tightest disk's free %, drawn from
@@ -8,7 +8,8 @@ import { VITALS_TTL_MS, type VitalsSample } from "./vitals";
  * screen reader and a person who does not read charts get the same facts; the SVG itself is
  * `aria-hidden`. The x axis is a fixed two-hour window ending at the newest sample, so a history that
  * covers five minutes occupies the right-hand sliver rather than being stretched into a claim of two
- * hours. Samples are connected, never invented: a gap is a longer segment, and the caption says so.
+ * hours. A gap longer than three sampling intervals breaks the line: neither a straight segment nor a
+ * fabricated point is drawn across it, and an isolated sample is a dot.
  */
 
 const WIDTH = 240;
@@ -17,7 +18,10 @@ const TOP = 4;
 const BOTTOM = 40;
 
 const CAPTION =
-  "Memory available and the tightest disk's free space over the last 2 h, sampled every 30 s while this console page was open in this browser. Gaps are not filled.";
+  "Memory available and the tightest disk's free space over the last 2 h, sampled every 30 s while this console page was open in this browser. Gaps longer than 90 s are not drawn.";
+
+/** A gap longer than three sampling intervals is a real absence, not a slow poll. */
+const GAP_MS = VITALS_MIN_INTERVAL_MS * 3;
 
 export function VitalsChart({ samples }: { samples: VitalsSample[] }) {
   if (samples.length < 2) {
@@ -35,10 +39,11 @@ export function VitalsChart({ samples }: { samples: VitalsSample[] }) {
   const start = end - VITALS_TTL_MS;
   const x = (ts: number) => clamp(((ts - start) / VITALS_TTL_MS) * WIDTH, 0, WIDTH);
   const y = (percent: number) => TOP + (1 - percent / 100) * (BOTTOM - TOP);
-  const points = (percent: (sample: VitalsSample) => number) =>
-    ordered
+  const points = (run: VitalsSample[], percent: (sample: VitalsSample) => number) =>
+    run
       .map((sample) => `${x(sample.ts_ms).toFixed(1)},${y(percent(sample)).toFixed(1)}`)
       .join(" ");
+  const runs = splitRuns(ordered);
 
   const memory = memoryPercent(latest);
   const disk = diskPercent(latest);
@@ -58,20 +63,60 @@ export function VitalsChart({ samples }: { samples: VitalsSample[] }) {
         aria-hidden="true"
         focusable="false"
       >
-        <polyline
-          className="vitals-line vitals-line-memory"
-          points={points(memoryPercent)}
-          vectorEffect="non-scaling-stroke"
-        />
-        <polyline
-          className="vitals-line vitals-line-disk"
-          points={points(diskPercent)}
-          vectorEffect="non-scaling-stroke"
-        />
+        {runs.map((run, index) =>
+          run.length >= 2 ? (
+            <polyline
+              key={`memory-${index}`}
+              className="vitals-line vitals-line-memory"
+              points={points(run, memoryPercent)}
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : (
+            <circle
+              key={`memory-dot-${index}`}
+              className="vitals-dot vitals-dot-memory"
+              cx={x(run[0].ts_ms)}
+              cy={y(memoryPercent(run[0]))}
+              r={1.7}
+            />
+          )
+        )}
+        {runs.map((run, index) =>
+          run.length >= 2 ? (
+            <polyline
+              key={`disk-${index}`}
+              className="vitals-line vitals-line-disk"
+              points={points(run, diskPercent)}
+              vectorEffect="non-scaling-stroke"
+            />
+          ) : (
+            <circle
+              key={`disk-dot-${index}`}
+              className="vitals-dot vitals-dot-disk"
+              cx={x(run[0].ts_ms)}
+              cy={y(diskPercent(run[0]))}
+              r={1.7}
+            />
+          )
+        )}
       </svg>
       <p className="vitals-caption">{CAPTION}</p>
     </div>
   );
+}
+
+/** Split a time-ordered history where the gap is longer than three sampling intervals. */
+function splitRuns(samples: VitalsSample[]): VitalsSample[][] {
+  const runs: VitalsSample[][] = [];
+  for (const sample of samples) {
+    const run = runs[runs.length - 1];
+    if (run && sample.ts_ms - run[run.length - 1].ts_ms <= GAP_MS) {
+      run.push(sample);
+    } else {
+      runs.push([sample]);
+    }
+  }
+  return runs;
 }
 
 /** Available memory as a percentage, or 0 when the stored total cannot support one. */

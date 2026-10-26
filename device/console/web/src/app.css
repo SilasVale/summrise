@@ -159,6 +159,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .vitals-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .vitals-line-memory { stroke: var(--accent); }
 .vitals-line-disk { stroke: var(--warn); }
+.vitals-dot { stroke: none; }
+.vitals-dot-memory { fill: var(--accent); }
+.vitals-dot-disk { fill: var(--warn); }
 .vitals-caption, .vitals-collecting { margin: 0.25rem 0 0; color: var(--ink-muted); font-size: var(--fs-xs); line-height: 1.4; }
 
 .chip {

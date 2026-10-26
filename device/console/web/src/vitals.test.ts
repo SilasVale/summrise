@@ -142,10 +142,21 @@ describe("recordVitals", () => {
     const other = sample(NOW, { memory_available_bytes: 1 * GIB, disk_name: "other" });
     localStorage.setItem(VITALS_KEY_PREFIX + "dev-2", JSON.stringify([other]));
 
-    const history = recordVitals([device()], NOW);
+    // dev-2 is in the fleet (offline, no host), so its key is kept but never read for dev-1.
+    const history = recordVitals([device(), { id: "dev-2", online: false }], NOW);
     expect(history["dev-1"].map((entry) => entry.ts_ms)).toEqual([NOW]);
     expect(history["dev-1"][0].memory_available_bytes).toBe(4 * GIB);
     expect(loadVitals("dev-2")).toEqual([other]);
+  });
+
+  it("forgets a removed device's history and keeps a listed device's", () => {
+    localStorage.setItem(VITALS_KEY_PREFIX + "gone", JSON.stringify([sample(NOW)]));
+    localStorage.setItem(VITALS_KEY_PREFIX + "dev-1", JSON.stringify([sample(NOW - 30_000)]));
+
+    recordVitals([device()], NOW);
+
+    expect(localStorage.getItem(VITALS_KEY_PREFIX + "gone")).toBeNull();
+    expect(loadVitals("dev-1")).toHaveLength(2);
   });
 
   it("loads corrupt or foreign storage as empty and replaces it on the next sample", () => {

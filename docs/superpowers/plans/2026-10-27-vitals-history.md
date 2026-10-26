@@ -121,8 +121,14 @@ costs something.
   no available bytes adds nothing rather than storing a zero that would draw a false flatline. The
   cost: a device that omits the field has no memory series until it reports one.
 
-- **Two polylines, no invented points.** "Gaps are not interpolated" means no synthesized samples:
-  consecutive stored samples are connected, so a gap reads as a longer segment, and the caption says
-  "Gaps are not filled." Splitting the line at a gap would draw more honest breaks but needs more
-  than the two polylines this plan specifies. The cost: a long gap is a straight segment, not an
-  absence, and the caption has to carry that nuance.
+- **Gaps break the line.** A gap longer than three sampling intervals (90 s) is a real absence, so the
+  chart draws separate runs and never a segment across it; an isolated sample is a dot. The caption
+  says "Gaps longer than 90 s are not drawn." This replaces the earlier "one segment across a gap"
+  draft, whose picture could be read as continuous data even though no point was invented. The cost:
+  a run of one sample is a dot, not a line; the latest-value text still states the current numbers.
+
+- **Removed devices are forgotten.** `recordVitals` prunes `summrise.vitals.*` keys whose device is no
+  longer in the fleet, so a deleted machine does not leave a history in this browser forever. An
+  empty fleet is not a fleet: the prune runs only when the list is non-empty, so a partial/failed
+  refresh cannot erase the histories of devices that are still there. The cost: a device that is
+  temporarily missing from a successful list loses its history (there is no such partial list today).

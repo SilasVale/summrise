@@ -117,6 +117,7 @@ export function recordVitals(
   devices: readonly DeviceRef[],
   now: number
 ): Record<string, VitalsSample[]> {
+  if (devices.length > 0) pruneRemoved(devices);
   const history: Record<string, VitalsSample[]> = {};
   for (const device of devices) {
     const samples = retain(loadVitals(device.id), now);
@@ -133,6 +134,29 @@ export function recordVitals(
     history[device.id] = bounded;
   }
   return history;
+}
+
+/**
+ * Forget keys for devices the fleet no longer lists, so a removed machine does not leave a history
+ * in this browser forever. An empty list is not a fleet: a partial or failed refresh must not erase
+ * the histories of devices that are still there.
+ */
+function pruneRemoved(devices: readonly DeviceRef[]): void {
+  const storage = browserStorage();
+  if (!storage) return;
+  const present = new Set(devices.map((device) => keyFor(device.id)));
+  try {
+    const stale: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key !== null && key.startsWith(VITALS_KEY_PREFIX) && !present.has(key)) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) storage.removeItem(key);
+  } catch {
+    /* a refused enumeration or removal leaves the keys; the next successful call retries */
+  }
 }
 
 /** Two hours, and never more than the cap, keep the stored value and the returned chart bounded. */
