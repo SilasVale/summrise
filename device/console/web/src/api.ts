@@ -90,6 +90,20 @@ export type Device = {
   last_attempt?: { attempts: number; reason: string } | null;
   host?: HostFacts | null;
 };
+/**
+ * One permanent token's metadata, as the console lists it: never the token itself.
+ *
+ * The plaintext `srm_…` is returned once by `createToken` and exists nowhere else — the console keeps
+ * only its hash, and this list is what the page can show afterwards.
+ */
+export type TokenMeta = {
+  id: string;
+  name: string;
+  device_id: string;
+  tools: string[];
+  allow_destructive: boolean;
+  created_at_ms: number;
+};
 export type AuditLine = {
   ts_ms: number;
   kind: string;
@@ -177,7 +191,21 @@ export const api = {
     call<{ grant: unknown; signature: string }>("/grants", {
       method: "POST",
       body: JSON.stringify({ device_id, tools, expires_in_s, allow_destructive })
-    })
+    }),
+  // Permanent tokens: the create answer is the only one that carries the plaintext, so it is the one
+  // shape that carries `token`. Every list entry is metadata, and a revoke is a bare DELETE.
+  tokens: () => call<TokenMeta[]>("/tokens"),
+  createToken: (draft: {
+    name: string;
+    device_id: string;
+    tools: string[];
+    allow_destructive: boolean;
+  }) =>
+    call<TokenMeta & { token: string }>("/tokens", {
+      method: "POST",
+      body: JSON.stringify(draft)
+    }),
+  revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: "DELETE" })
 };
 
 export { HttpError };
