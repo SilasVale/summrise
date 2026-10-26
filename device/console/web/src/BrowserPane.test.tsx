@@ -301,8 +301,35 @@ describe("BrowserPane", () => {
 
       view.rerender(<BrowserPane grant={{ ...grant, envelope: { rotated: true } }} />);
       expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
+      expect(screen.getByText("Live stopped: the grant changed.")).toBeInTheDocument();
       await tick(6_000);
       expect(shotCalls()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps watching when the selected target changes", async () => {
+    listAnswers = [[A, B]];
+    const view = render(<BrowserPane grant={grant} />);
+    await screen.findByText("2 target(s).");
+    vi.useFakeTimers();
+    try {
+      await startLive();
+      await tick();
+      const calls = shotCalls();
+      expect(calls[calls.length - 1]?.[2]).toEqual({ target: "A" });
+
+      fireEvent.change(screen.getByLabelText("Target"), { target: { value: "B" } });
+      await tick(0);
+      expect(screen.getByRole("button", { name: "Stop live view" })).toBeInTheDocument();
+
+      await tick();
+      expect(
+        shotCalls().some(([, , args]) => (args as { target?: string }).target === "B")
+      ).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Stop live view" }));
+      void view;
     } finally {
       vi.useRealTimers();
     }

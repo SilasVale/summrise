@@ -78,7 +78,7 @@ export function NotificationsCard() {
         </>
       )}
 
-      {ready && !on && (
+      {state === "default" && !on && (
         <>
           <p className="hint">
             Get a browser notification when a new monitor goes down. The permission is asked only when
@@ -92,6 +92,25 @@ export function NotificationsCard() {
               onClick={() => void turnOn()}
             >
               {asking ? "Asking…" : "Enable notifications"}
+            </button>
+          </footer>
+        </>
+      )}
+
+      {state === "granted" && !on && (
+        <>
+          <p className="hint">
+            Notifications are off. The browser has already granted permission, so pressing the button
+            turns them on without a prompt.
+          </p>
+          <footer>
+            <button
+              type="button"
+              className="primary"
+              disabled={asking}
+              onClick={() => void turnOn()}
+            >
+              {asking ? "Asking…" : "Turn notifications on"}
             </button>
           </footer>
         </>

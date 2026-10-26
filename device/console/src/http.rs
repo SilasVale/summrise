@@ -282,6 +282,26 @@ impl Console {
     }
 }
 
+/// The facts one audit line names. One shape, named at the call site: the three `Option`s are
+/// different facts, not interchangeable positionals.
+struct AuditFacts<'a> {
+    kind: &'static str,
+    device_id: Option<&'a str>,
+    status: StatusCode,
+    detail: Option<&'a str>,
+    tool: Option<&'a str>,
+    token_id: Option<&'a str>,
+}
+
+/// The consent the operator gave, as the audit's fixed pair of strings for a grant or a token.
+fn consent_detail(allow_destructive: bool) -> &'static str {
+    if allow_destructive {
+        "allow_destructive=true"
+    } else {
+        "allow_destructive=false"
+    }
+}
+
 /// The state axum hands to every handler and extractor.
 type AppState = Arc<Inner>;
 
@@ -399,6 +419,21 @@ impl Inner {
             .await;
     }
 
+    /// Write one audit line from named facts, so the interchangeable `Option`s cannot be transposed.
+    async fn record_facts(&self, facts: AuditFacts<'_>) {
+        self.audit
+            .append(&audit::Entry {
+                ts_ms: (self.now)(),
+                kind: facts.kind,
+                device_id: facts.device_id,
+                status: facts.status.as_u16(),
+                detail: facts.detail,
+                tool: facts.tool,
+                token_id: facts.token_id,
+            })
+            .await;
+    }
+
     /// Write one audit line, naming the tool when the action was a `tools/call` and the permanent
     /// token when one authenticated it. `token_id` is the record's id, never the secret.
     async fn record_tool(
@@ -410,17 +445,15 @@ impl Inner {
         tool: Option<&str>,
         token_id: Option<&str>,
     ) {
-        self.audit
-            .append(&audit::Entry {
-                ts_ms: (self.now)(),
-                kind,
-                device_id,
-                status: status.as_u16(),
-                detail,
-                tool,
-                token_id,
-            })
-            .await;
+        self.record_facts(AuditFacts {
+            kind,
+            device_id,
+            status,
+            detail,
+            tool,
+            token_id,
+        })
+        .await;
     }
 
     /// Audit an **authenticated** refusal as `denied` and hand the error back.
@@ -995,18 +1028,11 @@ async fn create_grant(
         }
     };
 
-    // The audit keeps the consent the operator granted, as a fixed pair of strings: it is an
-    // authorization fact, not a payload, and the flag is what a later review needs to find.
-    let detail = if signed.grant.allow_destructive {
-        "allow_destructive=true"
-    } else {
-        "allow_destructive=false"
-    };
     app.record(
         "grant",
         Some(signed.grant.device_id.as_str()),
         StatusCode::OK,
-        Some(detail),
+        Some(consent_detail(signed.grant.allow_destructive)),
     )
     .await;
 
@@ -1089,16 +1115,11 @@ async fn create_token(
     };
 
     // The consent is an authorization fact, as it is on a grant: a later review must find it.
-    let detail = if meta.allow_destructive {
-        "allow_destructive=true"
-    } else {
-        "allow_destructive=false"
-    };
     app.record(
         "token",
         Some(&meta.device_id),
         StatusCode::CREATED,
-        Some(detail),
+        Some(consent_detail(meta.allow_destructive)),
     )
     .await;
 
@@ -1123,16 +1144,11 @@ async fn rotate_token(
     };
 
     // The consent is an authorization fact, as it is on a creation: a later review must find it.
-    let detail = if meta.allow_destructive {
-        "allow_destructive=true"
-    } else {
-        "allow_destructive=false"
-    };
     app.record(
         "token",
         Some(&meta.device_id),
         StatusCode::CREATED,
-        Some(detail),
+        Some(consent_detail(meta.allow_destructive)),
     )
     .await;
     // The old record is gone from the file before this response is built: the same device's
@@ -1446,14 +1462,14 @@ async fn forward(
     let tool = match requested_tool(&request) {
         Ok(tool) => tool.map(str::to_owned),
         Err(()) => {
-            app.record_tool(
-                "denied",
-                audit_id.as_deref(),
-                invalid_params_status,
-                Some("invalid_tool_call"),
-                None,
+            app.record_facts(AuditFacts {
+                kind: "denied",
+                device_id: audit_id.as_deref(),
+                status: invalid_params_status,
+                detail: Some("invalid_tool_call"),
+                tool: None,
                 token_id,
-            )
+            })
             .await;
             return jsonrpc_error(
                 invalid_params_status,
@@ -1468,14 +1484,14 @@ async fn forward(
 
     if let Some(tool) = tool.as_deref() {
         if !grant.grant.tools.iter().any(|allowed| allowed == tool) {
-            app.record_tool(
-                "denied",
-                audit_id.as_deref(),
-                StatusCode::FORBIDDEN,
-                Some("tool_not_permitted"),
-                Some(tool),
+            app.record_facts(AuditFacts {
+                kind: "denied",
+                device_id: audit_id.as_deref(),
+                status: StatusCode::FORBIDDEN,
+                detail: Some("tool_not_permitted"),
+                tool: Some(tool),
                 token_id,
-            )
+            })
             .await;
             return jsonrpc_error(
                 StatusCode::FORBIDDEN,
@@ -1512,27 +1528,27 @@ async fn forward(
 
     match answer {
         Err(_) => {
-            app.record_tool(
-                "denied",
-                audit_id.as_deref(),
-                StatusCode::GATEWAY_TIMEOUT,
-                Some("device timeout"),
-                tool.as_deref(),
+            app.record_facts(AuditFacts {
+                kind: "denied",
+                device_id: audit_id.as_deref(),
+                status: StatusCode::GATEWAY_TIMEOUT,
+                detail: Some("device timeout"),
+                tool: tool.as_deref(),
                 token_id,
-            )
+            })
             .await;
             ApiError::gateway_timeout("device timeout").into_response()
         }
         Ok(Err(error)) => {
             let failure = failure_for(error);
-            app.record_tool(
-                "denied",
-                audit_id.as_deref(),
-                failure.status,
-                Some(failure.detail),
-                tool.as_deref(),
+            app.record_facts(AuditFacts {
+                kind: "denied",
+                device_id: audit_id.as_deref(),
+                status: failure.status,
+                detail: Some(failure.detail),
+                tool: tool.as_deref(),
                 token_id,
-            )
+            })
             .await;
             failure.into_response()
         }
@@ -1543,14 +1559,14 @@ async fn forward(
                 }
             }
             let detail = reply_detail(&reply);
-            app.record_tool(
-                "mcp",
-                audit_id.as_deref(),
-                StatusCode::OK,
-                detail.as_deref(),
-                tool.as_deref(),
+            app.record_facts(AuditFacts {
+                kind: "mcp",
+                device_id: audit_id.as_deref(),
+                status: StatusCode::OK,
+                detail: detail.as_deref(),
+                tool: tool.as_deref(),
                 token_id,
-            )
+            })
             .await;
             match reply {
                 Reply::Result(result) => (StatusCode::OK, Json(result)).into_response(),

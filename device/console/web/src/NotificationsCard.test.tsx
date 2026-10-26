@@ -60,7 +60,12 @@ describe("NotificationsCard", () => {
     FakeNotification.permission = "granted";
     render(<NotificationsCard />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Enable notifications" }));
+    // Granted but off is its own state: the permission cannot be asked again, and the sentence must
+    // not promise a prompt that will never appear.
+    expect(
+      screen.getByText(/The browser has already granted permission, so pressing the button turns them on without a prompt\./)
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Turn notifications on" }));
 
     expect(await screen.findByText(/^Notifications are on\./)).toBeInTheDocument();
     expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
@@ -75,7 +80,7 @@ describe("NotificationsCard", () => {
     expect(screen.getByText(/^Notifications are on\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
 
-    expect(await screen.findByRole("button", { name: "Enable notifications" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Turn notifications on" })).toBeInTheDocument();
     expect(screen.queryByText(/^Notifications are on\./)).not.toBeInTheDocument();
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe("off");
     expect(FakeNotification.requestPermission).not.toHaveBeenCalled();

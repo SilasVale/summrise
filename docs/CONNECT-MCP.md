@@ -123,7 +123,8 @@ the new value gets the same duration counted from the rotation, not the old abso
 
 Revocation is the only withdrawal for a permanent token. The device card's token list shows each
 token's name, creation date, tool set, expiry and **last use** (`last used <date>`, or `never used`) —
-never the token — and **Revoke** asks for confirmation. After it, the next request with that token is
+never the token — and **Revoke** asks for confirmation. The in-memory list is current; the file is
+written at most once a minute, so a reload may show a last-use value up to a minute old. After it, the next request with that token is
 `401` and the token is gone from the list: neither the page nor the audit can show it again.
 
 The audit names the token's **record id** (`token_id`, not the secret) on every MCP line that token

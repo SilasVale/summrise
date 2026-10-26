@@ -147,6 +147,35 @@ pub(crate) struct Draft {
     pub(crate) expires_in_s: Option<u64>,
 }
 
+/// The facts a token's identity shares with its replacement: everything except the secret, id,
+/// timestamps and lifetime. A rotation copies these from the old record; a creation fills them from
+/// the operator's form.
+struct Scope {
+    name: String,
+    device_id: String,
+    tools: Vec<String>,
+    allow_destructive: bool,
+}
+
+/// Build one new record for `scope`: a fresh id and `srm_` secret, the given expiry and creation
+/// time, no last use. The plaintext is returned once and never stored.
+fn issue(scope: Scope, expires_at_ms: Option<u64>, now_ms: u64) -> (Token, String) {
+    let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
+    let token = Token {
+        id: hex::encode(&random_32()),
+        name: scope.name,
+        device_id: scope.device_id,
+        tools: scope.tools,
+        allow_destructive: scope.allow_destructive,
+        created_at_ms: now_ms,
+        expires_at_ms,
+        last_used_ms: None,
+        saved_last_used_ms: None,
+        hash: hash_token(&plaintext),
+    };
+    (token, plaintext)
+}
+
 /// Why a token could not be minted, or a revocation could not be written.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TokenError {
@@ -284,27 +313,18 @@ impl Tokens {
             .expires_in_s
             .map(|seconds| now_ms.saturating_add(seconds.saturating_mul(1_000)));
 
-        // The plaintext exists in this scope, in the return value and in nothing else: the record
-        // keeps only its hash, and the file is written from the record.
-        let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
-        let token = Token {
-            id: hex::encode(&random_32()),
+        let scope = Scope {
             name: name.to_owned(),
             device_id: draft.device_id,
             tools: draft.tools,
             allow_destructive: draft.allow_destructive,
-            created_at_ms: now_ms,
-            expires_at_ms,
-            last_used_ms: None,
-            saved_last_used_ms: None,
-            hash: hash_token(&plaintext),
         };
+        let (token, plaintext) = issue(scope, expires_at_ms, now_ms);
         let meta = token.meta();
 
         let mut next = self.tokens.clone();
         next.insert(token.id.clone(), token);
-        self.save(&next).map_err(|_| TokenError::Storage)?;
-        self.tokens = next;
+        self.save_and_adopt(next)?;
 
         Ok((meta, plaintext))
     }
@@ -337,28 +357,20 @@ impl Tokens {
             .expires_at_ms
             .map(|expires_at_ms| expires_at_ms.saturating_sub(old.created_at_ms));
 
-        // The plaintext exists in this scope, in the return value and in nothing else: the record
-        // keeps only its hash, and the file is written from the record.
-        let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
-        let token = Token {
-            id: hex::encode(&random_32()),
+        let scope = Scope {
             name: old.name.clone(),
             device_id: old.device_id.clone(),
             tools: old.tools.clone(),
             allow_destructive: old.allow_destructive,
-            created_at_ms: now_ms,
-            expires_at_ms: lifetime.map(|duration| now_ms.saturating_add(duration)),
-            last_used_ms: None,
-            saved_last_used_ms: None,
-            hash: hash_token(&plaintext),
         };
+        let expires_at_ms = lifetime.map(|duration| now_ms.saturating_add(duration));
+        let (token, plaintext) = issue(scope, expires_at_ms, now_ms);
         let meta = token.meta();
 
         let mut next = self.tokens.clone();
         next.remove(id);
         next.insert(token.id.clone(), token);
-        self.save(&next).map_err(|_| TokenError::Storage)?;
-        self.tokens = next;
+        self.save_and_adopt(next)?;
 
         Ok(Some((meta, plaintext)))
     }
@@ -370,8 +382,7 @@ impl Tokens {
         }
         let mut next = self.tokens.clone();
         let removed = next.remove(id);
-        self.save(&next).map_err(|_| TokenError::Storage)?;
-        self.tokens = next;
+        self.save_and_adopt(next)?;
         Ok(removed)
     }
 
@@ -391,8 +402,7 @@ impl Tokens {
         for token in &removed {
             next.remove(&token.id);
         }
-        self.save(&next).map_err(|_| TokenError::Storage)?;
-        self.tokens = next;
+        self.save_and_adopt(next)?;
         Ok(removed)
     }
 
@@ -401,7 +411,7 @@ impl Tokens {
         // The comparison walks the whole hash, as every credential comparison in this service does.
         self.tokens
             .values()
-            .find(|token| constant_time_eq(token.hash.as_bytes(), hash.as_bytes()))
+            .find(|token| same_hash(token, hash))
             .cloned()
     }
 
@@ -415,7 +425,7 @@ impl Tokens {
         let Some(token) = self
             .tokens
             .values_mut()
-            .find(|token| constant_time_eq(token.hash.as_bytes(), hash.as_bytes()))
+            .find(|token| same_hash(token, hash))
         else {
             return false;
         };
@@ -437,6 +447,14 @@ impl Tokens {
             }
         }
         true
+    }
+
+    /// Write `next` and adopt it only after the write succeeded: a failed save leaves memory and
+    /// file on the previous map, so a mutation is all-or-nothing.
+    fn save_and_adopt(&mut self, next: BTreeMap<String, Token>) -> Result<(), TokenError> {
+        self.save(&next).map_err(|_| TokenError::Storage)?;
+        self.tokens = next;
+        Ok(())
     }
 
     /// Replace the file with `tokens`, atomically.
@@ -511,6 +529,11 @@ fn quarantine_and_start_empty(path: &Path, reason: &str) {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "nothing".to_owned())
     );
+}
+
+/// Whether this record's hash is `hash`, compared over the whole hash in constant time.
+fn same_hash(token: &Token, hash: &str) -> bool {
+    constant_time_eq(token.hash.as_bytes(), hash.as_bytes())
 }
 
 /// Whether `value` is exactly 64 lowercase hex characters: the only shape this build writes.
