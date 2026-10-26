@@ -70,13 +70,13 @@ runs/audit histories). This adds history, not a duplicate view.
   `VitalsChart` after the live memory/disk rows. App keeps `vitals` state from `recordVitals(list,
   Date.now())` in `refreshData` and passes `vitals[device.id] ?? []`.
 
-- [ ] **Step 1: Tests first** (vitals sampler, chart, DeviceCard/App)
-- [ ] **Step 2: Implement, gates, commit**
+- [x] **Step 1: Tests first** (vitals sampler, chart, DeviceCard/App)
+- [x] **Step 2: Implement, gates, commit**
   `console: the device card keeps a two-hour vitals history`.
 
 ### Task 2: The record
 
-- [ ] Tick this plan, record the rulings (why localStorage, why 30 s/2 h/240, why the tightest disk,
+- [x] Tick this plan, record the rulings (why localStorage, why 30 s/2 h/240, why the tightest disk,
   why no server-side sample), commit `docs: the vitals history's decisions`.
 
 ## Self-review
@@ -86,3 +86,43 @@ runs/audit histories). This adds history, not a duplicate view.
 - Review Focus: pure sampler, storage containment, honest caption, tightest disk, no new timer.
 - Deliberate: browser-local (survives reloads, not closed browsers); no server sampling this round; no
   chart library; memory + tightest disk only (not every disk or CPU).
+
+## Rulings
+
+Recorded when the history shipped (`8d182fb`). Each decision had a real alternative, and each one
+costs something.
+
+- **Browser-local `localStorage`, one key per device.** The console already holds the facts in the
+  browser, and this round changes no device, console server or API. `localStorage` survives a reload,
+  unlike memory, and one key per device is what keeps another device's history out of the read. The
+  cost: closing the browser stops the series, and another operator in another browser sees their own
+  history, not this one's. Server-side sampling is the fix when that matters.
+
+- **30 s / 2 h / 240.** The App already polls every 5 s; sampling every poll would be noise and about
+  1,440 points an hour. Thirty seconds is dense enough to see a slope and leaves exactly 240 points
+  in two hours; two hours covers "what was it an hour ago" with a margin. The timestamp stored with
+  the newest sample enforces the cadence, so there is no second timer to drift or to forget to clear.
+  The cost: a spike between two samples is invisible, and a newly opened page starts with no line.
+
+- **The tightest disk, not every disk.** The card already lists every disk's live free space. One
+  line per disk would crowd the card and bury the disk that is about to fill; the lowest free
+  percentage is the one that answers "will this machine run out". Zero totals are skipped rather than
+  divided by, and the latest sample's disk is named beside the chart because the tightest disk can
+  change between samples. The cost: other disks are not charted, and a changing tightest disk makes
+  the line a mix of disks — the label names only the latest one.
+
+- **No server-side sample.** A sampler on the console server would cover closed pages and other
+  browsers, but it is a new table, a write on the fleet path, retention on the device and an API
+  change — for a chart that is additive this round. The plan's scope is web-only. The cost: a gap
+  whenever no console page is open. The caption states that coverage; the chart does not fill it.
+
+- **A sample also requires `memory.available_bytes`.** The plan names `total_bytes > 0`; the stored
+  sample and its percentage also need the available figure. An online device that reports a total but
+  no available bytes adds nothing rather than storing a zero that would draw a false flatline. The
+  cost: a device that omits the field has no memory series until it reports one.
+
+- **Two polylines, no invented points.** "Gaps are not interpolated" means no synthesized samples:
+  consecutive stored samples are connected, so a gap reads as a longer segment, and the caption says
+  "Gaps are not filled." Splitting the line at a gap would draw more honest breaks but needs more
+  than the two polylines this plan specifies. The cost: a long gap is a straight segment, not an
+  absence, and the caption has to carry that nuance.
