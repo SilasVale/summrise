@@ -911,3 +911,6 @@ span.files-name {
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
+
+/* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
+.screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
