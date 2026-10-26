@@ -40,6 +40,19 @@ const lines: AuditLine[] = [
 
 const detailButtons = () => screen.getAllByRole("button", { name: "Details" });
 
+// Two record ids as the console writes them: 64 lowercase hex, never the `srm_` secret.
+const tokenA = "a".repeat(64);
+const tokenB = "b".repeat(64);
+const shortA = "a".repeat(12) + "…";
+const shortB = "b".repeat(12) + "…";
+
+/** The table row that carries a token cell with this text. */
+function rowOf(text: string): HTMLElement {
+  const row = screen.getByText(text).closest("tr");
+  expect(row).not.toBeNull();
+  return row as HTMLElement;
+}
+
 
 describe("AuditTable", () => {
   it("filters by device, opens a line, and clears a filter that matches nothing", () => {
@@ -137,5 +150,56 @@ describe("AuditTable", () => {
     expect(screen.getByRole("option", { name: "retired-devi…" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Device"), { target: { value: retired } });
     expect(screen.getByText(/1 of 1 lines/)).toBeInTheDocument();
+  });
+
+  it("names the token that made a call, and shows an em dash when no token did", () => {
+    render(
+      <AuditTable
+        lines={[
+          {
+            ts_ms: 1,
+            kind: "mcp",
+            device_id: alpha,
+            tool: "tools/list",
+            detail: null,
+            status: 200,
+            token_id: tokenA
+          },
+          { ts_ms: 2, kind: "mcp", device_id: alpha, tool: "tools/list", detail: null, status: 200 }
+        ]}
+        devices={devices}
+      />
+    );
+
+    expect(screen.getByText(shortA)).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+    // The id is the record, not the credential: the table never renders an `srm_` value.
+    expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("keeps two otherwise identical lines apart when only their token differs", () => {
+    const base: AuditLine = {
+      ts_ms: 3,
+      kind: "mcp",
+      device_id: alpha,
+      tool: "tools/call",
+      detail: "ok",
+      status: 200
+    };
+    const { rerender } = render(
+      <AuditTable lines={[{ ...base, token_id: tokenA }, { ...base, token_id: tokenB }]} devices={devices} />
+    );
+
+    fireEvent.click(within(rowOf(shortA)).getByRole("button", { name: "Details" }));
+    expect(within(rowOf(shortA)).getByRole("button", { name: "Hide" })).toBeInTheDocument();
+
+    // The poll returns new objects, and a line's order can change: the open row is the token's row,
+    // not whichever line now happens to hold the same ordinal.
+    rerender(
+      <AuditTable lines={[{ ...base, token_id: tokenB }, { ...base, token_id: tokenA }]} devices={devices} />
+    );
+
+    expect(within(rowOf(shortA)).getByRole("button", { name: "Hide" })).toBeInTheDocument();
+    expect(within(rowOf(shortB)).getByRole("button", { name: "Details" })).toBeInTheDocument();
   });
 });

@@ -17,7 +17,9 @@ const EMPTY: AuditFilter = { device: "", tool: "", status: "all" };
  * The key is the line's content plus its ordinal among identical lines in the FULL list, not its
  * index in the filtered one: a filter that keeps an open row must keep it open, and the five-second
  * poll returns new objects for the same lines. A content-only key would collapse two identical lines
- * into one; the ordinal is what keeps them apart.
+ * into one; the ordinal is what keeps them apart. The token id is part of the content: two lines that
+ * differ only in which token made the call are different facts, so a reordered poll must not move the
+ * open row from one token to the other.
  */
 function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
   const seen = new Map<string, number>();
@@ -27,6 +29,7 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
       line.ts_ms,
       line.kind,
       line.device_id ?? "",
+      line.token_id ?? "",
       line.tool ?? "",
       line.detail ?? "",
       line.status
@@ -142,6 +145,7 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
                 <th>when</th>
                 <th>kind</th>
                 <th>device</th>
+                <th>token</th>
                 <th>tool</th>
                 <th>status</th>
                 <th>details</th>
@@ -161,6 +165,7 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
                       <td className="mono">
                         {line.device_id ? shortId(line.device_id) : ""}
                       </td>
+                      <td className="mono">{line.token_id ? shortId(line.token_id) : "—"}</td>
                       <td className="mono">
                         {line.tool ?? line.detail ?? ""}
                         {deviceError && (
@@ -200,7 +205,7 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
                     </tr>
                     {isOpen && (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <dl className="facts">
                             <div>
                               <dt>Timestamp</dt>

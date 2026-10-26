@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectCard } from "./ConnectCard";
+import type { TokenMeta } from "./api";
 import { restoreGlobal } from "./test/dom";
 import { TOOL_NAMES } from "./useToolNames";
 
@@ -50,6 +51,8 @@ const ENVELOPE = { grant: { jti: "grant-1" }, signature: "signature" };
 // A token with the shape the plan fixes: `srm_` and 64 lowercase hex, 68 characters in all.
 const TOKEN = "srm_" + "a".repeat(64);
 const CREATED_AT = Date.UTC(2026, 9, 26, 12, 0, 0);
+// A day after the create, so the last-used sentence cannot be mistaken for the created date.
+const LAST_USED_AT = Date.UTC(2026, 9, 27, 12, 0, 0);
 
 // The same token as `GET /tokens` lists it: no `token` key, because the list is metadata only.
 const META = {
@@ -253,6 +256,45 @@ describe("ConnectCard's permanent-token mode", () => {
     // The other device's token is not this card's business, and no `srm_` value is in the list.
     expect(screen.queryByText("attic-dsh")).not.toBeInTheDocument();
     expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("says when each token was last used, and says never used when it was not", async () => {
+    mocks.tokens.mockResolvedValue([
+      { ...META, last_used_ms: LAST_USED_AT },
+      { ...META, id: "tok-2", name: "spare-dsh" }
+    ]);
+    await openTokens();
+
+    expect(
+      await screen.findByText(`last used ${new Date(LAST_USED_AT).toLocaleDateString()}`)
+    ).toBeInTheDocument();
+    expect(await screen.findByText("never used")).toBeInTheDocument();
+    // The facts the row already carried are still there beside the new one.
+    const used = screen.getByText("laptop-dsh").closest("li");
+    expect(used).not.toBeNull();
+    const row = within(used as HTMLElement);
+    expect(row.getByText(new Date(CREATED_AT).toLocaleDateString())).toBeInTheDocument();
+    expect(row.getByText(/files\.read, host\.facts/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(2);
+  });
+
+  it("re-reads the list after a create, so a use the console recorded appears", async () => {
+    // One implementation rather than a queue: a failing assertion must not leave a queued answer
+    // that the next test inherits.
+    let listed: TokenMeta[] = [META];
+    mocks.tokens.mockImplementation(async () => listed);
+    await openTokens();
+    expect(await screen.findByText("never used")).toBeInTheDocument();
+
+    listed = [{ ...META, last_used_ms: LAST_USED_AT }];
+    typeName("laptop-dsh");
+    createToken();
+
+    expect(
+      await screen.findByText(`last used ${new Date(LAST_USED_AT).toLocaleDateString()}`)
+    ).toBeInTheDocument();
+    expect(screen.queryByText("never used")).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(2));
   });
 
   it("says what the empty list means until one is created for this device", async () => {

@@ -103,11 +103,23 @@ export type TokenMeta = {
   tools: string[];
   allow_destructive: boolean;
   created_at_ms: number;
+  /**
+   * When this token last authenticated an MCP call, as the console recorded it; absent or `null` for
+   * a token that has never been used. The console persists it at most once a minute, so a reload can
+   * lag a use by under a minute — the fact is still live in memory on the device.
+   */
+  last_used_ms?: number | null;
 };
 export type AuditLine = {
   ts_ms: number;
   kind: string;
   device_id?: string | null;
+  /**
+   * The record id (64 lowercase hex) of the permanent token that authenticated this call. Absent or
+   * `null` for a grant-authenticated call and for every action that is not a token's MCP call; the
+   * console never writes the `srm_` value here.
+   */
+  token_id?: string | null;
   tool?: string | null;
   detail?: string | null;
   status: number;

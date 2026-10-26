@@ -2349,6 +2349,10 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
         mcp.get("detail").is_none(),
         "a result needs no detail: {mcp}"
     );
+    assert!(
+        mcp.get("token_id").is_none(),
+        "the operator route names no token: {mcp}"
+    );
 
     let text = audit_text(&fixture);
     for marker in ["request-body-marker-7c1f", "response-body-marker-9d2e"] {
@@ -4206,6 +4210,160 @@ async fn a_tool_outside_the_token_never_reaches_the_device() {
     );
 }
 
+/// A token-authenticated call is attributed to the record — the id, never the secret — and moves the
+/// token's last use, which the operator's list shows.
+#[tokio::test]
+async fn a_token_call_moves_last_used_and_names_the_token_in_the_audit() {
+    let fixture = Fixture::new("token-last-used");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(5_000);
+    let listed_at = fixture.now_ms();
+    let list_request = json!({ "jsonrpc": "2.0", "id": 21, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, list_request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], list_request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 21, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["last_used_ms"],
+        json!(listed_at),
+        "the list shows when the token was used: {list}"
+    );
+
+    // A tools/call carries the tool as well as the token.
+    fixture.advance_ms(1_000);
+    let call_at = fixture.now_ms();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 22,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 22, "result": { "content": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("mcp"))
+        .collect();
+    assert_eq!(mcp.len(), 2, "one line per call: {lines:?}");
+    assert_eq!(
+        mcp[0]["token_id"],
+        json!(id),
+        "the tools/list line names the token: {}",
+        mcp[0]
+    );
+    assert!(
+        mcp[0].get("tool").is_none(),
+        "tools/list names no tool: {}",
+        mcp[0]
+    );
+    assert_eq!(
+        mcp[1]["token_id"],
+        json!(id),
+        "the tools/call line names the token too: {}",
+        mcp[1]
+    );
+    assert_eq!(mcp[1]["tool"], json!("files.read"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(
+        list[0]["last_used_ms"],
+        json!(call_at),
+        "a second call moves the use even inside the save window: {list}"
+    );
+
+    let audit = audit_text(&fixture);
+    assert!(
+        !audit.contains("srm_") && !audit.contains(&plaintext),
+        "the audit must never carry the secret: {audit}"
+    );
+}
+
+/// A grant-authenticated call has no token record to name, so its audit line carries no token_id.
+#[tokio::test]
+async fn a_grant_call_has_no_token_id() {
+    let fixture = Fixture::new("grant-no-token-id");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb7)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert!(
+        mcp.get("token_id").is_none(),
+        "a grant has no token record to name: {mcp}"
+    );
+}
+
 /// An unknown token, a revoked one and one used against another device are one 401 on the wire; the
 /// denial log keeps the difference, and none of them can rotate the audit.
 #[tokio::test]
@@ -4224,6 +4382,11 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert_eq!(body, json!({ "error": "unauthorized" }));
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("last_used_ms").is_none(),
+        "a foreign-device attempt is not a use: {list}"
+    );
 
     let unknown = format!("srm_{}", "00".repeat(32));
     let (status, body) = send(
@@ -4265,8 +4428,9 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     assert!(
         audit.iter().any(|line| line["kind"] == json!("denied")
             && line["detail"] == json!("api_token_device_mismatch")
-            && line["device_id"] == json!(device_b)),
-        "the foreign-device attempt is in the operator's audit: {audit:?}"
+            && line["device_id"] == json!(device_b)
+            && line.get("token_id").is_none()),
+        "the foreign-device attempt is in the operator's audit and names no token: {audit:?}"
     );
 
     for request in [

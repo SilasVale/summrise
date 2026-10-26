@@ -12,6 +12,10 @@
 //! The scope is fixed at creation — one device, a non-empty set of registry tools, and the operator's
 //! destructive consent — so a token can never name a tool or a device the operator did not.
 //!
+//! The record also keeps when it last authenticated a call. The in-memory fact moves on every
+//! successful exchange, the file at most once a minute ([`LAST_USED_SAVE_MS`]), so a reload may lag
+//! by under a minute. The operator's list shows it: revoking an unused token is an informed act.
+//!
 //! The file is `<data>/tokens.json`, written whole through a temporary file and a rename, mode 0600,
 //! like the device registry. A file this build cannot trust is quarantined and the console starts
 //! with no tokens: the file is a lookup table for a credential the operator can mint again, and a
@@ -48,6 +52,13 @@ pub(crate) const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_CHARS;
 /// of a permanent token is that the *token* is long-lived, not the grant it is exchanged for.
 pub(crate) const MINTED_GRANT_LIFETIME_S: u64 = 60;
 
+/// How often a token's last use is allowed to rewrite the file.
+///
+/// Every successful exchange updates the in-memory fact; the file is written only when the value it
+/// already holds is older than this, so a busy client does not rewrite the credential file once per
+/// request. A reload can therefore lag by under a minute, which is the documented behaviour.
+pub(crate) const LAST_USED_SAVE_MS: u64 = 60_000;
+
 /// The store's file name under the data directory.
 const TOKENS_FILE: &str = "tokens.json";
 
@@ -66,6 +77,13 @@ pub struct Token {
     pub allow_destructive: bool,
     /// When the token was created, in Unix milliseconds.
     pub created_at_ms: u64,
+    /// When the token last authenticated an MCP call, in Unix milliseconds; absent until it does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<u64>,
+    /// The value in the file right now: the memory fact may be newer while the save window is open.
+    /// It is not a second fact to serialize — the file's own `last_used_ms` is what this mirrors.
+    #[serde(skip)]
+    saved_last_used_ms: Option<u64>,
     /// SHA-256 of the token, 64 lowercase hex. The plaintext is never stored.
     pub hash: String,
 }
@@ -80,6 +98,7 @@ impl Token {
             tools: self.tools.clone(),
             allow_destructive: self.allow_destructive,
             created_at_ms: self.created_at_ms,
+            last_used_ms: self.last_used_ms,
         }
     }
 }
@@ -93,6 +112,9 @@ pub struct TokenMeta {
     pub tools: Vec<String>,
     pub allow_destructive: bool,
     pub created_at_ms: u64,
+    /// When the token last authenticated an MCP call, in Unix milliseconds; absent until it does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<u64>,
 }
 
 /// A request to mint one token, after the operator has filled a form.
@@ -234,6 +256,8 @@ impl Tokens {
             tools: draft.tools,
             allow_destructive: draft.allow_destructive,
             created_at_ms: now_ms,
+            last_used_ms: None,
+            saved_last_used_ms: None,
             hash: hash_token(&plaintext),
         };
         let meta = token.meta();
@@ -288,6 +312,40 @@ impl Tokens {
             .cloned()
     }
 
+    /// Record that the token whose hash is `hash` authenticated a call at `now_ms`.
+    ///
+    /// Every use moves the in-memory fact; the file is written only when the value it holds is absent
+    /// or at least [`LAST_USED_SAVE_MS`] old. A failed write is not a failed call: the memory fact
+    /// stays, the previous persisted value is kept, and the next due use tries again. Returns whether
+    /// a record matched at all.
+    pub(crate) fn mark_used(&mut self, hash: &str, now_ms: u64) -> bool {
+        let Some(token) = self
+            .tokens
+            .values_mut()
+            .find(|token| constant_time_eq(token.hash.as_bytes(), hash.as_bytes()))
+        else {
+            return false;
+        };
+        let previous = token.saved_last_used_ms;
+        token.last_used_ms = Some(now_ms);
+        let due =
+            previous.is_none_or(|previous| now_ms.saturating_sub(previous) >= LAST_USED_SAVE_MS);
+        if !due {
+            return true;
+        }
+
+        // The write is the whole list, as every mutation of this store is. On success the file holds
+        // exactly the current memory values, so those are the values now persisted.
+        let next = self.tokens.clone();
+        if self.save(&next).is_ok() {
+            self.tokens = next;
+            for token in self.tokens.values_mut() {
+                token.saved_last_used_ms = token.last_used_ms;
+            }
+        }
+        true
+    }
+
     /// Replace the file with `tokens`, atomically.
     fn save(&self, tokens: &BTreeMap<String, Token>) -> std::io::Result<()> {
         let list: Vec<&Token> = tokens.values().collect();
@@ -306,7 +364,7 @@ fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
     let mut tokens = BTreeMap::new();
     let mut hashes = BTreeSet::new();
     let mut dropped = 0;
-    for token in list {
+    for mut token in list {
         if !is_lower_hex_64(&token.id) {
             return Err("an entry's id is not 32 bytes of lowercase hex".to_owned());
         }
@@ -333,6 +391,8 @@ fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
         if !hashes.insert(token.hash.clone()) {
             return Err("the same hash appears twice".to_owned());
         }
+        // The loaded value is what the file holds; memory starts out agreeing with it.
+        token.saved_last_used_ms = token.last_used_ms;
         if tokens.insert(token.id.clone(), token).is_some() {
             return Err("the same id appears twice".to_owned());
         }
@@ -828,6 +888,175 @@ mod tests {
         assert!(
             data.join("tokens.json.tmp").exists(),
             "the leftover is not the store and is not silently promoted"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A token that has never authenticated a call says so by saying nothing.
+    #[test]
+    fn a_new_token_has_no_last_use() {
+        let data = tempdir("last-used-none");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, _) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+
+        assert_eq!(meta.last_used_ms, None, "a new token has never been used");
+        let json = serde_json::to_value(&tokens.list()[0]).expect("a meta serializes");
+        assert!(
+            json.get("last_used_ms").is_none(),
+            "an unused token carries no last_used_ms: {json}"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Every use updates memory; the file is rewritten only once the persisted value is a minute
+    /// old, so a busy client does not rewrite the credential file on every request.
+    #[test]
+    fn a_use_is_remembered_every_time_and_written_once_a_minute() {
+        let data = tempdir("last-used-throttle");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, plaintext) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+        let hash = hash_token(&plaintext);
+
+        assert!(tokens.mark_used(&hash, 10_000), "a known token is marked");
+        assert_eq!(
+            tokens.list()[0].last_used_ms,
+            Some(10_000),
+            "the first use is remembered"
+        );
+        assert_eq!(
+            Tokens::load(&data).expect("the file loads").list()[0].last_used_ms,
+            Some(10_000),
+            "the first use is written: there was no previous value"
+        );
+
+        // Inside the minute the memory fact moves and the file still holds the first write.
+        assert!(tokens.mark_used(&hash, 40_000));
+        assert_eq!(tokens.list()[0].last_used_ms, Some(40_000));
+        assert_eq!(
+            Tokens::load(&data).expect("the file loads").list()[0].last_used_ms,
+            Some(10_000),
+            "a use inside the window does not rewrite the file"
+        );
+
+        // The window is measured from what was persisted, not from the last in-memory use.
+        assert!(tokens.mark_used(&hash, 70_000));
+        assert_eq!(tokens.list()[0].last_used_ms, Some(70_000));
+        let reloaded = Tokens::load(&data).expect("the file loads");
+        assert_eq!(
+            reloaded.list()[0].last_used_ms,
+            Some(70_000),
+            "the use after the window writes the newest value"
+        );
+        assert_eq!(reloaded.list()[0].id, meta.id, "the record is the same one");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A use of a hash this store does not hold changes no record and writes nothing.
+    #[test]
+    fn marking_an_unknown_hash_returns_false_and_touches_nothing() {
+        let data = tempdir("last-used-unknown");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (_meta, plaintext) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+        let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
+        let list_before = tokens.list();
+
+        let marked = tokens.mark_used(&"00".repeat(32), 50_000);
+
+        assert!(!marked, "an unknown hash marks nothing");
+        assert_eq!(tokens.list(), list_before, "no record changed");
+        assert_eq!(
+            std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable"),
+            before,
+            "nothing was written"
+        );
+        assert!(
+            tokens
+                .find_by_hash(&hash_token(&plaintext))
+                .expect("the token is there")
+                .last_used_ms
+                .is_none(),
+            "the known token was not marked by someone else's hash"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A file this build wrote before the field existed loads: an absent value is `None`, and the
+    /// first use after the upgrade writes it.
+    #[test]
+    fn an_old_file_without_last_used_loads_with_none() {
+        let data = tempdir("last-used-old-file");
+        let path = data.join(TOKENS_FILE);
+        let hash = "11".repeat(32);
+        let old = serde_json::json!([{
+            "id": "aa".repeat(32),
+            "name": "laptop",
+            "device_id": device_id(),
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 1_000,
+            "hash": hash,
+        }]);
+        std::fs::write(&path, old.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let mut tokens = Tokens::load(&data).expect("an old file still loads");
+
+        assert_eq!(tokens.list().len(), 1);
+        assert_eq!(
+            tokens.list()[0].last_used_ms,
+            None,
+            "the absent field reads as never used"
+        );
+        assert!(tokens.mark_used(&hash, 20_000));
+        assert_eq!(
+            Tokens::load(&data).expect("the file reloads").list()[0].last_used_ms,
+            Some(20_000),
+            "the first post-upgrade use is persisted, because there was nothing to throttle"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A failed write is not a failed call: memory keeps the fact, the file keeps the old value, and
+    /// the next due use tries again.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_last_use_write_keeps_the_memory_fact() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data = tempdir("last-used-write-failure");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (_meta, plaintext) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+        let hash = hash_token(&plaintext);
+
+        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o500))
+            .expect("the directory is made read-only");
+        let marked = tokens.mark_used(&hash, 30_000);
+        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))
+            .expect("the directory is writable again");
+
+        assert!(marked, "a save failure does not fail the use");
+        assert_eq!(
+            tokens.list()[0].last_used_ms,
+            Some(30_000),
+            "the in-memory fact stays"
+        );
+        assert_eq!(
+            Tokens::load(&data).expect("the file loads").list()[0].last_used_ms,
+            None,
+            "the file was not written"
         );
         std::fs::remove_dir_all(&data).ok();
     }
