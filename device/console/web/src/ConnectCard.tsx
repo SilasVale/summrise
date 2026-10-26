@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, getToken, type Device } from "./api";
+import { api, type Device } from "./api";
 import { copyText } from "./copy";
 import { shortId } from "./format";
 import { TOOL_NAMES } from "./GrantForm";
@@ -47,9 +47,9 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
   // the console cannot answer, and the mint's own `unknown_tool` refusal is the last word.
   useEffect(() => {
     let live = true;
-    fetch("/tools", { headers: { authorization: `Bearer ${getToken()}` } })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
-      .then((list: { name: string }[]) => {
+    api
+      .tools()
+      .then((list) => {
         if (!live || list.length === 0) return;
         setTools(list.map((tool) => tool.name));
       })
