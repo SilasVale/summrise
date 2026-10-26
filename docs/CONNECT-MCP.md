@@ -1,5 +1,7 @@
 # Connecting an AI client to one device
 
+> In a hurry? [`QUICKSTART.md`](QUICKSTART.md) is the five-minute path from an installed device to a working client; this document is the long form.
+
 The console carries a standard streamable-HTTP MCP endpoint for each device. It is **not** the page's
 `POST /mcp` envelope: that route belongs to the console's own page and requires an operator session.
 This endpoint is for an MCP client (DeepSeek Harness, any `StreamableHTTPClientTransport`), and its
