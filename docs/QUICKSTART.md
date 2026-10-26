@@ -80,10 +80,11 @@ repository, or have the deployment inject the value from a secret:
       Authorization: Bearer srm_<64 lowercase hex characters>
 ```
 
-The same endpoint accepts a session instead of a token: send the lowercase hex of a GrantEnvelope in
-the same header ([mint one](CONNECT-MCP.md#mint-a-grant), or the card's **Session grant** tab). It
-expires; the token does not. Behind Cloudflare Access with a service-token policy for `/mcp/*`, add
-the two `CF-Access-*` headers too ([details](CONNECT-MCP.md#cloudflare-access)).
+The same endpoint accepts a grant for a session instead of a token: the card's **Session grant** tab
+mints one (an hour by default), and its lowercase hex goes in the same header
+([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; the token does not. Behind Cloudflare
+Access with a service-token policy for `/mcp/*`, add the two `CF-Access-*` headers too
+([details](CONNECT-MCP.md#cloudflare-access)).
 
 ## 5. Check it
 
