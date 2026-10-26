@@ -97,6 +97,31 @@ describe("MonitorsPage", () => {
     );
   });
 
+  it("offers notifications above the target list, with no grant of its own", async () => {
+    device((name) => {
+      if (name === "monitor.list") return JSON.stringify([{ ...HTTP, summary: UP }]);
+      if (name === "monitor.status") return JSON.stringify(UP);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    const { container } = render(<MonitorsPage grant={GRANT} />);
+
+    // The card is the page's, not the grant's: it renders before the list has answered, and jsdom
+    // having no Notification is a sentence on it, never a crash.
+    const region = screen.getByRole("region", { name: "Monitor notifications" });
+    expect(
+      within(region).getByText(
+        "This browser does not support notifications. The down chip still shows the count."
+      )
+    ).toBeInTheDocument();
+
+    await screen.findByRole("article");
+    const list = container.querySelector(".cards");
+    expect(list).not.toBeNull();
+    expect(region.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The card's state is the operator's, not the device's: it never calls a tool.
+    expect(mocked.mock.calls.every((call) => call[1] === "monitor.list" || call[1] === "monitor.status")).toBe(true);
+  });
+
   it("adds a tcp target with exactly the tcp arguments, then re-lists", async () => {
     let targets: Target[] = [];
     device((name, args) => {

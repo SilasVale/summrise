@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { message } from "./format";
 import { Modal } from "./Modal";
+import { NotificationsCard } from "./NotificationsCard";
 import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
 
@@ -377,6 +378,8 @@ export function MonitorsPage({ grant }: { grant: Grant }) {
       <p className="hint">{note}</p>
       {error && !removing && <p className="error">{error}</p>}
       {pollError && <p className="error">{pollError}</p>}
+
+      <NotificationsCard />
 
       {targets.length > 0 && (
         <div className="cards">

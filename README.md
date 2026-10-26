@@ -148,6 +148,7 @@ The design is a record, not a wiki page: each document states a decision and wha
 
 | Question | Document |
 |---|---|
+| how to go from an installed device to an AI client | [`docs/QUICKSTART.md`](docs/QUICKSTART.md) |
 | why two runtimes, and what each owns | `docs/superpowers/specs/2026-10-20-the-two-runtime-architecture-design.md` |
 | where the console's TLS lives | `2026-10-22-the-console-transport-decision.md` |
 | why there is no desktop shell | `2026-10-22-the-desktop-shell-decision.md` |
