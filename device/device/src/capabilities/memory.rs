@@ -168,6 +168,8 @@ impl Serialize for Record {
 /// Why a memory operation was refused or failed.
 #[derive(Debug)]
 pub enum MemoryError {
+    /// The entry's text is empty; an entry exists to carry a fact.
+    EmptyText,
     /// The serialized operation line exceeds [`MAX_ENTRY_BYTES`].
     TooLarge {
         /// The measured size: the serialized line, or a raw payload that cannot fit before the
@@ -219,6 +221,9 @@ pub enum MemoryError {
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            MemoryError::EmptyText => {
+                write!(f, "the entry's text is empty; a fact needs words")
+            }
             MemoryError::TooLarge { bytes, max } => {
                 write!(f, "the operation line is {bytes} bytes; the cap is {max}")
             }
@@ -305,6 +310,12 @@ impl Memory {
     /// An update that could store what an append refuses would be a way around the caps, so one
     /// predicate is shared rather than copied.
     fn validate(text: &str, tags: &[String]) -> Result<(), MemoryError> {
+        // The empty check comes first because it is the caller's shape error: the entry has nothing
+        // to remember. The tag and size caps are about a payload that was actually given, and a
+        // flood of tags cannot turn an empty text into a fact.
+        if text.is_empty() {
+            return Err(MemoryError::EmptyText);
+        }
         if tags.len() > MAX_TAGS {
             return Err(MemoryError::TooManyTags {
                 count: tags.len(),
@@ -1116,13 +1127,30 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_text_is_refused_and_writes_no_file() {
+        let (_dir, memory) = memory("memory-empty-append");
+
+        let error = memory
+            .append("", &[])
+            .expect_err("an empty text is not a fact to remember");
+        assert!(
+            matches!(error, MemoryError::EmptyText),
+            "the refusal is the empty-text error, not a size or tag error: {error:?}"
+        );
+        assert!(
+            !memory.path.exists(),
+            "a refused append must not create the memory file"
+        );
+    }
+
+    #[test]
     fn a_tag_flood_is_refused_by_count_before_it_is_stored() {
         let (_dir, memory) = memory("memory-tag-flood");
 
         // The review's probe: 500 000 empty tags, which the old text+tag sum counted as zero bytes.
         let tags = vec![String::new(); 500_000];
         let error = memory
-            .append("", &tags)
+            .append("the tags are the flood", &tags)
             .expect_err("a tag flood is not an entry of zero bytes");
         assert!(
             matches!(
@@ -1165,7 +1193,7 @@ mod tests {
         // Exactly at both caps is legal: the tag count and each tag's length are bounds, not ranges.
         let tags = vec!["y".repeat(MAX_TAG_BYTES); MAX_TAGS];
         memory
-            .append("", &tags)
+            .append("the text is inside the cap", &tags)
             .expect("32 tags of 128 bytes each are inside both caps");
     }
 
@@ -1427,6 +1455,34 @@ mod tests {
         );
         assert_eq!(entries[0].text, "a");
         assert!(entries[0].tags.is_empty());
+    }
+
+    #[test]
+    fn a_legacy_line_with_an_empty_text_is_still_read() {
+        let (_dir, memory) = memory("memory-legacy-empty-text");
+        write_legacy_lines(&memory, &[&json_line("", &["legacy"])]);
+
+        let entries = memory
+            .search("", 10)
+            .expect("the read path validates nothing, so history stays readable");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].text, "",
+            "an empty text written before the rule is still an entry"
+        );
+        assert_eq!(entries[0].tags, ["legacy"]);
+        assert_eq!(
+            entries[0].id.len(),
+            16,
+            "the legacy line keeps the id derived from its bytes"
+        );
+        assert_eq!(
+            memory
+                .list(10, None)
+                .expect("the list replays the same line"),
+            entries,
+            "search and list agree, and neither migrates or rejects the history"
+        );
     }
 
     #[test]
@@ -1824,6 +1880,28 @@ mod tests {
             journal_lines(&memory),
             1,
             "every refused update left the journal alone"
+        );
+    }
+
+    #[test]
+    fn an_empty_update_is_refused_and_leaves_the_entry_as_it_was() {
+        let (_dir, memory) = memory("memory-empty-update");
+        let entry = memory
+            .append("the original fact", &["kept".to_owned()])
+            .expect("the append");
+
+        let error = memory
+            .update(&entry.id, "", &[])
+            .expect_err("clearing the text is not a way to retire an entry");
+        assert!(
+            matches!(error, MemoryError::EmptyText),
+            "the refusal is the empty-text error, not a tag or size error: {error:?}"
+        );
+        assert_eq!(journal_lines(&memory), 1, "a refused update writes no line");
+        assert_eq!(
+            memory.list(10, None).expect("the store replays"),
+            vec![entry],
+            "the entry keeps its text and tags; a delete is how it is retired"
         );
     }
 

@@ -1478,7 +1478,11 @@ fn input_schema(definition: &ToolDef) -> Value {
         "memory.append" => json!({
             "type": "object",
             "properties": {
-                "text": { "type": "string", "description": "The fact to remember." },
+                "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The fact to remember; an empty text is refused."
+                },
                 "tags": {
                     "type": "array",
                     "items": { "type": "string" },
@@ -1497,7 +1501,8 @@ fn input_schema(definition: &ToolDef) -> Value {
                 },
                 "text": {
                     "type": "string",
-                    "description": "The entry's new text; it replaces what the entry said."
+                    "minLength": 1,
+                    "description": "The entry's new text; it replaces what the entry said. An empty text is refused: a delete retires an entry."
                 },
                 "tags": {
                     "type": "array",
@@ -2863,6 +2868,17 @@ mod tests {
             "array"
         );
         assert_eq!(
+            schema("memory.append")["properties"]["text"]["minLength"],
+            1,
+            "an empty text is not a fact to remember"
+        );
+        assert!(
+            schema("memory.append")["properties"]["text"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("empty")),
+            "the append schema says an empty text is refused"
+        );
+        assert_eq!(
             schema("memory.update")["required"],
             json!(["id", "text", "tags"]),
             "an update names the entry and the whole replacement"
@@ -2871,6 +2887,17 @@ mod tests {
             schema("memory.update")["properties"]["tags"]["type"],
             "array",
             "an update carries the complete tag list, not a patch"
+        );
+        assert_eq!(
+            schema("memory.update")["properties"]["text"]["minLength"],
+            1,
+            "an empty text cannot clear an entry, because a delete is how it is retired"
+        );
+        assert!(
+            schema("memory.update")["properties"]["text"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("empty")),
+            "the update schema says an empty text is refused"
         );
         assert_eq!(
             schema("memory.delete")["required"],
