@@ -198,6 +198,14 @@ describe("the endpoints", () => {
     await request(() => api.audit(5), "/audit?limit=5");
   });
 
+  it("denials asks for a limit of 200 by default", async () => {
+    await request(() => api.denials(), "/denials?limit=200");
+  });
+
+  it("denials passes the caller's limit", async () => {
+    await request(() => api.denials(5), "/denials?limit=5");
+  });
+
   it("rename POSTs the name to /fleet/<id>/name", async () => {
     const init = await request(
       () => api.rename("dev-1", "workbench"),
