@@ -111,6 +111,19 @@ describe("AuditTable", () => {
     expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
   });
 
+  it("uses the caller's empty sentence instead of the audit's", () => {
+    render(
+      <AuditTable
+        lines={[]}
+        devices={devices}
+        tokens={[]}
+        empty="No failed authentications yet."
+      />
+    );
+    expect(screen.getByText("No failed authentications yet.")).toBeInTheDocument();
+    expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+  });
+
   it("says the page shows a bounded window when the window is full", () => {
     const many: AuditLine[] = Array.from({ length: 200 }, (_, index) => ({
       ts_ms: index,

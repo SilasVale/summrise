@@ -11,7 +11,8 @@ export type Page =
   | "runs"
   | "system"
   | "audit"
-  | "events";
+  | "events"
+  | "security";
 
 /// What each page is called in the rail and in the top bar. The rail's buttons are icon-first, so the
 /// label is the difference between "a column of glyphs" and a navigable set of sections.
@@ -26,7 +27,8 @@ export const PAGE_LABELS: Record<Page, string> = {
   runs: "Runs",
   system: "System",
   audit: "Audit",
-  events: "Events"
+  events: "Events",
+  security: "Security"
 };
 
 /// The rail's order is this map's insertion order; `Record<Page, string>` keeps the map complete, so
@@ -47,7 +49,9 @@ const ICONS: Record<Page, string> = {
   system: "M8 8h8v8H8zM4 9h4M4 15h4M16 9h4M16 15h4M9 4v4M15 4v4M9 16v4M15 16v4",
   audit: "M5 4.5h14v15H5zM8 8.5h8M8 12h8M8 15.5h5",
   // A list with a dot per line: the event log, not the audit document's page.
-  events: "M4 6h.01M9 6h11M4 12h.01M9 12h11M4 18h.01M9 18h11"
+  events: "M4 6h.01M9 6h11M4 12h.01M9 12h11M4 18h.01M9 18h11",
+  // A shield: the refusals are the console's perimeter, not another document.
+  security: "M12 3l7 3v5.5c0 4.3-2.9 7.4-7 8.5-4.1-1.1-7-4.2-7-8.5V6z"
 };
 
 export function Rail({

@@ -57,11 +57,14 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
 export function AuditTable({
   lines,
   devices,
-  tokens
+  tokens,
+  empty = "No audit lines yet."
 }: {
   lines: AuditLine[];
   devices: Device[];
   tokens: TokenMeta[];
+  /** The sentence for no lines at all. The audit keeps its own; Security names failed authentications. */
+  empty?: string;
 }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -109,7 +112,7 @@ export function AuditTable({
     });
   };
 
-  if (lines.length === 0) return <p className="hint">No audit lines yet.</p>;
+  if (lines.length === 0) return <p className="hint">{empty}</p>;
 
   return (
     <div>

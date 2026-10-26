@@ -56,7 +56,9 @@
 - **Comparison discipline.** Token hashes, install tokens, panel tokens and sessions compare with
   `constant_time_eq` over bytes.
 - **No payload bodies.** The audit cannot hold an MCP body by type; the denial log is rate-limited and
-  separate so unauthenticated traffic cannot rotate the operator's history.
+  separate so unauthenticated traffic cannot rotate the operator's history. The operator can read the
+  denial log at the console's **Security** page (`GET /denials`, operator-only, newest first); the page
+  states the 100/minute cap and the `suppressed N` summary.
 
 ## Residual risks (accepted or open)
 
@@ -74,6 +76,8 @@
    owner credential; its file ACL is the boundary.
 6. **Volume/DoS.** The console caps MCP bodies and queues; the denial log is rate-limited. A
    authenticated operator can still saturate a device's session or queue within those limits.
+   Probing is observable on the Security page but not alerted in real time: a suppressed run shows
+   as one `suppressed N` line on the next write, and nothing pushes a notification.
 7. **Edge configuration.** Access bypasses (`/devices`, the channel) and `/mcp`'s own application are
    deployment decisions; a wrong bypass exposes the registration/channel paths to the internet (they
    still require a valid code/signature, but the surface is larger).
