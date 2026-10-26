@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { callTool, type Grant } from "./terminal";
+import { callTool, ToolError, type Grant } from "./terminal";
 
 /** The part of a `monitor.list` target the chip reads; the Monitors page owns the full shape. */
 type Target = { summary?: { up_now: boolean | null } | null };
@@ -14,9 +14,11 @@ const POLL_MS = 20_000;
  * The one thing the top bar says about monitors: how many are down, wherever the operator is.
  *
  * It is a read of the grant the console already holds, not a route or a notification. Unknown is not
- * zero: a refused or failed list, a target with no summary, or an empty list renders nothing, and a
- * down target renders the fact without an error banner. A report belongs to the grant it was read
- * with, so a late answer from an old grant cannot paint the new one.
+ * zero: before any successful read, a refused or failed list, a target with no summary, or an empty
+ * list renders nothing, and a down target renders the fact without an error banner. A report belongs
+ * to the grant it was read with, so a late answer from an old grant cannot paint the new one. A failed
+ * refresh keeps the last fact and retries; a grant the console or device refused is not retried at
+ * all.
  */
 export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => void }) {
   const [report, setReport] = useState<Report | null>(null);
@@ -24,6 +26,13 @@ export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => voi
   useEffect(() => {
     let live = true;
     let inFlight = false;
+    let timer: number | null = null;
+
+    const stop = () => {
+      if (timer === null) return;
+      window.clearInterval(timer);
+      timer = null;
+    };
 
     const read = async () => {
       if (inFlight) return;
@@ -33,18 +42,25 @@ export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => voi
         if (!live || !Array.isArray(targets)) return;
         const down = targets.filter((target) => target?.summary?.up_now === false).length;
         setReport({ grant, down, total: targets.length });
-      } catch {
-        // The chip never becomes an error banner: a refresh that failed leaves the last fact alone.
+      } catch (cause) {
+        // A refused grant is not retried: the envelope is stale or lacks the tool, and asking again
+        // every 20 seconds cannot fix it. Any other failure keeps the last fact and retries.
+        if (
+          cause instanceof ToolError &&
+          (cause.status === 403 || cause.code === -32001 || cause.code === -32002)
+        ) {
+          stop();
+        }
       } finally {
         inFlight = false;
       }
     };
 
+    timer = window.setInterval(() => void read(), POLL_MS);
     void read();
-    const timer = setInterval(() => void read(), POLL_MS);
     return () => {
       live = false;
-      clearInterval(timer);
+      stop();
     };
   }, [grant]);
 
@@ -54,7 +70,7 @@ export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => voi
   return (
     <button
       type="button"
-      className="chip chip-down"
+      className="chip chip-bad chip-action"
       title={`${current.down} of ${current.total} monitors down — open Monitors`}
       onClick={onOpen}
     >

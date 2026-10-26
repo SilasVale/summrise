@@ -31,6 +31,13 @@ function lists(targets: Target[]) {
   });
 }
 
+/** Let an awaited read finish while fake timers are installed, without running the interval. */
+async function settle() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
 describe("MonitorChip", () => {
   beforeEach(() => {
     mocked.mockReset();
@@ -59,16 +66,20 @@ describe("MonitorChip", () => {
   it("renders nothing, and complains nowhere, when the device refuses the list", async () => {
     mocked.mockRejectedValue(new ToolError("the grant expired", 403, -32001));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
 
-    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
-    // Let the refusal settle; a chip that reported it would by now.
-    await act(async () => {
-      await Promise.resolve();
-    });
+      await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
+      // Let the refusal settle; a chip that reported it would by now.
+      await act(async () => {
+        await Promise.resolve();
+      });
 
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(consoleError).not.toHaveBeenCalled();
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("renders nothing for an empty list, and still asked the device once", async () => {
@@ -106,6 +117,138 @@ describe("MonitorChip", () => {
       });
       // The unmounted chip made no third call.
       expect(mocked).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the last down report when a refresh fails, and retries on the next tick", async () => {
+    let failing = false;
+    mocked.mockImplementation(async (_grant: Grant, name: string) => {
+      if (name !== "monitor.list") throw new Error(`the test did not expect a ${name} call`);
+      if (failing) throw new ToolError("the console never reached the device", 0);
+      return JSON.stringify([{ id: "a:22", summary: DOWN }]);
+    });
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+      await settle();
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toBeInTheDocument();
+
+      failing = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(mocked).toHaveBeenCalledTimes(2);
+      // Unknown is not an all-clear: the last fact stays until the device answers again.
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      // A transport failure is retried, unlike a refused grant.
+      expect(mocked).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not overlap a slow list, and asks again on the next tick after it resolves", async () => {
+    let release: ((value: string) => void) | null = null;
+    mocked.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        })
+    );
+    lists([{ id: "a:22", summary: DOWN }]);
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+      expect(mocked).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      // The list is still on the wire: the tick is skipped rather than queued behind it.
+      expect(mocked).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        release?.(JSON.stringify([{ id: "a:22", summary: DOWN }]));
+        await Promise.resolve();
+      });
+      await settle();
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(mocked).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restarts the poll on a grant change, and a late answer from the old grant never paints", async () => {
+    const OTHER: Grant = { deviceId: "device-2", envelope: { token: "other" } };
+    let releaseOld: ((value: string) => void) | null = null;
+    mocked.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseOld = resolve;
+        })
+    );
+    lists([{ id: "b:22", summary: DOWN }]);
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+      expect(mocked).toHaveBeenCalledTimes(1);
+
+      rerender(<MonitorChip grant={OTHER} onOpen={vi.fn()} />);
+      // The new grant reads immediately, without waiting for the old list or the next tick.
+      expect(mocked).toHaveBeenCalledTimes(2);
+      expect(mocked).toHaveBeenLastCalledWith(OTHER, "monitor.list", {});
+      await settle();
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toHaveAttribute(
+        "title",
+        "1 of 1 monitors down — open Monitors"
+      );
+
+      await act(async () => {
+        releaseOld?.(JSON.stringify([DOWN, DOWN, DOWN]));
+        await Promise.resolve();
+      });
+      await settle();
+      // Three downs in the old envelope belong to the old grant, not this one.
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toHaveAttribute(
+        "title",
+        "1 of 1 monitors down — open Monitors"
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      // The new grant's timer is the only one left: one call, with the new grant.
+      expect(mocked).toHaveBeenCalledTimes(3);
+      expect(mocked).toHaveBeenLastCalledWith(OTHER, "monitor.list", {});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops polling when the grant is refused", async () => {
+    mocked.mockRejectedValue(new ToolError("the grant expired", 403, -32001));
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+      await settle();
+      expect(mocked).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      // A grant that does not allow monitor.list cannot be fixed by asking again every 20 seconds.
+      expect(mocked).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

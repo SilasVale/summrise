@@ -155,11 +155,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .chip-warn { background: var(--warn-soft); color: var(--warn); }
 .chip-bad { background: var(--error-soft); color: var(--error); }
 
-/* The monitor chip is a fact that is also the way to the page: a button with the chip's shape, not
-   the console's default button chrome. */
-.chip-down { background: var(--error-soft); color: var(--error); }
-button.chip-down { border: 0; cursor: pointer; }
-button.chip-down:hover { border-color: transparent; background: var(--error-soft); color: var(--error); }
+/* The monitor chip is `.chip-bad` with the button's affordance: no chrome, and a hover that stays a
+   chip rather than becoming a button. */
+button.chip-action { border: 0; cursor: pointer; }
+button.chip-action:hover { border-color: transparent; }
+button.chip-bad.chip-action:hover { background-color: var(--error-soft); }
 
 .scroll { max-height: 17rem; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
