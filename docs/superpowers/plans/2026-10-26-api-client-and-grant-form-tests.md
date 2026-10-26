@@ -4,7 +4,7 @@
 > checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** put the console's two untested security-surface pieces — the HTTP client every page goes
-through and the grant form that mints what the device checks — under test, and remove the five copies
+through and the grant form that mints what the device checks — under test, and remove the six copies
 of the same `message` helper and the three variants of "short device id".
 
 **Architecture:** `api.ts` is the console's whole HTTP surface (token, Access, JSON errors); a test
@@ -39,7 +39,8 @@ authorization begins.
    `api.grant`; a selection sends exactly those names, the lifetime and the destructive flag; a
    `/tools` failure leaves the fallback list usable and everything selected.
 3. **One helper, one rule.** Every display site uses `shortId`; `shortId` truncates to twelve code
-   units and adds `…` only then; `message` is the `Error`/string rule the five pages already share;
+   units and adds `…` only then; `message` is the `Error`/string rule the five pages and the terminal
+   already share;
    the protocol name is untouched.
 4. **No leaked mock.** A test that silences or replaces a global restores it, including on failure.
 
@@ -56,7 +57,7 @@ authorization begins.
 - Mock `globalThis.fetch`; a helper `answer({status?, statusText?, text?, json?})` returns the
   Response-like object the client reads (`ok`, `status`, `statusText`, `text()`).
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Cover at least:
 
@@ -65,7 +66,9 @@ Cover at least:
    POST with a body does;
 3. a JSON 200 is parsed; **any non-empty non-JSON body is `NoAnswer`** (the edge answered, whatever its
    status — this happens before the `ok` check); a non-2xx JSON `{error: "..."}` is `HttpError` with
-   that code; a non-2xx empty body falls back to `statusText`;
+   that code; a non-2xx empty body falls back to `statusText`. A proxy's HTML error page is therefore
+   the edge answering, not a status the page can report — the App takes its one Access reload, which
+   is the contract `NoAnswer`'s doc comment states; the test pins it deliberately;
 4. each endpoint's path and method: `session` `/session`; `signIn` POST `/auth` with the credential;
    `devices` `/fleet` (not `/devices`); `audit()` `/audit?limit=20`, `audit(5)` limit 5; `rename` POST
    `/fleet/<id>/name`; `remove` DELETE `/fleet/<id>`; `connections`; `saveConnection`; `removeConnection`;
@@ -75,7 +78,7 @@ Cover at least:
    "mesh_unavailable"}`;
 6. the request body is `JSON.stringify` of what the caller passed (assert `init.body`).
 
-- [ ] **Step 2: Run, then commit**
+- [x] **Step 2: Run, then commit**
 
 `npx vitest run src/api.test.ts`, then the whole suite and typecheck. The bundle does not change.
 Commit: `test: the console's HTTP client is pinned endpoint by endpoint`.
@@ -92,7 +95,7 @@ Commit: `test: the console's HTTP client is pinned endpoint by endpoint`.
 - Mock `./api` with `vi.mock`: `api.grant` a `vi.fn()`, `getToken` a `vi.fn(() => "token")`; keep the
   real `TOOL_NAMES` export by `importOriginal`. Mock `globalThis.fetch` for `/tools` and restore it.
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Cover at least:
 
@@ -105,7 +108,7 @@ Cover at least:
    lifetime to 60 and untick destructive), and `onGranted` receives the envelope plus the same names;
 6. an `api.grant` rejection shows its message; the button returns from `Signing…`.
 
-- [ ] **Step 2: Run, then commit**
+- [x] **Step 2: Run, then commit**
 
 `npx vitest run src/GrantForm.test.tsx`, then the whole suite and typecheck. The bundle does not change.
 Commit: `test: the grant form mints exactly what was selected`.
@@ -116,8 +119,8 @@ Commit: `test: the grant form mints exactly what was selected`.
 - Create: `device/console/web/src/format.ts`, `device/console/web/src/format.test.ts`
 - Modify: `App.tsx`, `DevicePage.tsx`, `DevicePicker.tsx`, `DeviceCard.tsx`, `AuditTable.tsx`,
   `ConnectCard.tsx` (display ids), `FilesPage.tsx`, `MemoryPage.tsx`, `MonitorsPage.tsx`,
-  `RunsPage.tsx`, `SystemPage.tsx` (the `message` copies), `DevicePage.test.tsx` (the unnamed id's
-  expectation)
+  `RunsPage.tsx`, `SystemPage.tsx` (the `message` copies), `TerminalWorkspace.tsx` (its `messageOf`,
+  the sixth copy), `DevicePage.test.tsx` (the unnamed id's expectation)
 
 **Interfaces:**
 - ```ts
@@ -127,23 +130,24 @@ Commit: `test: the grant form mints exactly what was selected`.
   export function message(cause: unknown): string;
   ```
 
-- [ ] **Step 1: Pure tests first**
+- [x] **Step 1: Pure tests first**
 
 `format.test.ts`: a 12-character id is unchanged; a 13-character id is the first 12 plus `…`; a short
 id has no ellipsis; `message(new Error("x"))` is `"x"`, `message("x")` is `"x"`, `message(42)` is `"42"`.
 
-- [ ] **Step 2: Replace the copies**
+- [x] **Step 2: Replace the copies**
 
 - `AuditTable.shortId` and `DeviceCard.shortId` are deleted; their callers import `shortId`. (DeviceCard's
   copy appended an ellipsis even to an id it did not cut; the shared rule fixes that.)
-- The `id.slice(0, 12)` in `App.tsx` (five headings/notices), `DevicePage.tsx`, `DevicePicker.tsx`
+- The `id.slice(0, 12)` in `App.tsx` (six headings/notices), `DevicePage.tsx`, `DevicePicker.tsx`
   and `ConnectCard.tsx`'s display `name` become `shortId(id)`. **`ConnectCard`'s `serverName` stays a
   raw slice** — it is a protocol name, not a display string.
-- The five local `message` functions are deleted; their callers import the shared one.
+- The five pages' local `message` functions and `TerminalWorkspace`'s `messageOf` are deleted; their
+  callers import the shared one.
 - `DevicePage.test.tsx`'s unnamed-device expectation becomes `0123456789ab…`; if any other test asserts
   a truncated id without the ellipsis, update it and say so.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 `npm run typecheck`, `npm test`, build with the exit code checked, bundle committed.
 Commit: `console: one short id and one error sentence, not eleven copies`.
