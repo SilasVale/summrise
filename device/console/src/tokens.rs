@@ -8,9 +8,11 @@
 //! the token's tools and destructive consent. The device protocol and its offline verification are
 //! unchanged, because the device only ever sees a grant.
 //!
-//! A token is a bearer with **no expiry**: revocation is the withdrawal, and it removes the record.
-//! Rotation is the other way out: one atomic replacement whose new id and secret keep the old scope,
-//! so the previous bearer stops working at the same instant the next one starts.
+//! A token is a bearer whose lifetime the operator chooses at creation: absent by default, in
+//! which case revocation is the only withdrawal and it removes the record. A token given a lifetime
+//! stops authenticating calls at that instant, as a revoked one does. Rotation is the other way
+//! out: one atomic replacement whose new id and secret keep the old scope and lifetime policy, so
+//! the previous bearer stops working at the same instant the next one starts.
 //! The scope is fixed at creation — one device, a non-empty set of registry tools, and the operator's
 //! destructive consent — so a token can never name a tool or a device the operator did not.
 //!
@@ -39,7 +41,16 @@ pub(crate) const MAX_TOKENS: usize = 64;
 /// The longest a token's name may be, in characters, after trimming.
 pub(crate) const MAX_NAME_CHARS: usize = 80;
 
-/// The prefix every permanent token carries, so a bearer is recognized without a second field.
+/// The shortest lifetime a token may be given at creation, in seconds: one hour.
+///
+/// A shorter window is a unit error (`ms` sent as seconds), not a credential, so it is refused
+/// rather than minted with a surprise expiry.
+pub(crate) const MIN_TOKEN_EXPIRY_S: u64 = 3_600;
+
+/// The longest lifetime a token may be given at creation, in seconds: 365 days.
+pub(crate) const MAX_TOKEN_EXPIRY_S: u64 = 31_536_000;
+
+/// The prefix every token carries, so a bearer is recognized without a second field.
 pub(crate) const TOKEN_PREFIX: &str = "srm_";
 
 /// How many hex characters follow the prefix: 32 bytes.
@@ -51,7 +62,7 @@ pub(crate) const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_CHARS;
 /// How long the grant minted for one token request lives.
 ///
 /// Sixty seconds is [`crate::grants::MIN_GRANT_LIFETIME_S`], the shortest a grant may live: the point
-/// of a permanent token is that the *token* is long-lived, not the grant it is exchanged for.
+/// of a long-lived token is that the *token* is long-lived, not the grant it is exchanged for.
 pub(crate) const MINTED_GRANT_LIFETIME_S: u64 = 60;
 
 /// How often a token's last use is allowed to rewrite the file.
@@ -64,7 +75,7 @@ pub(crate) const LAST_USED_SAVE_MS: u64 = 60_000;
 /// The store's file name under the data directory.
 const TOKENS_FILE: &str = "tokens.json";
 
-/// One permanent token as it is stored: the public facts plus the hash of the secret.
+/// One token as it is stored: the public facts plus the hash of the secret.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Token {
     /// The record's id, from the OS CSPRNG. Revocation names it; it is not a credential.
@@ -79,6 +90,9 @@ pub struct Token {
     pub allow_destructive: bool,
     /// When the token was created, in Unix milliseconds.
     pub created_at_ms: u64,
+    /// When the token stops being a credential, in Unix milliseconds; absent means it never does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
     /// When the token last authenticated an MCP call, in Unix milliseconds; absent until it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_ms: Option<u64>,
@@ -100,6 +114,7 @@ impl Token {
             tools: self.tools.clone(),
             allow_destructive: self.allow_destructive,
             created_at_ms: self.created_at_ms,
+            expires_at_ms: self.expires_at_ms,
             last_used_ms: self.last_used_ms,
         }
     }
@@ -114,6 +129,9 @@ pub struct TokenMeta {
     pub tools: Vec<String>,
     pub allow_destructive: bool,
     pub created_at_ms: u64,
+    /// When the token stops being a credential, in Unix milliseconds; absent means it never does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at_ms: Option<u64>,
     /// When the token last authenticated an MCP call, in Unix milliseconds; absent until it does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_ms: Option<u64>,
@@ -125,6 +143,8 @@ pub(crate) struct Draft {
     pub(crate) device_id: String,
     pub(crate) tools: Vec<String>,
     pub(crate) allow_destructive: bool,
+    /// The requested lifetime in seconds; absent means the token never expires.
+    pub(crate) expires_in_s: Option<u64>,
 }
 
 /// Why a token could not be minted, or a revocation could not be written.
@@ -142,6 +162,10 @@ pub(crate) enum TokenError {
     UnknownDevice,
     /// [`MAX_TOKENS`] tokens already exist.
     TooManyTokens,
+    /// The requested lifetime is shorter than [`MIN_TOKEN_EXPIRY_S`].
+    ExpiryTooShort,
+    /// The requested lifetime is longer than [`MAX_TOKEN_EXPIRY_S`].
+    ExpiryTooLong,
     /// The file could not be written; memory still serves the previous list.
     Storage,
 }
@@ -247,6 +271,18 @@ impl Tokens {
         if self.tokens.len() >= MAX_TOKENS {
             return Err(TokenError::TooManyTokens);
         }
+        if let Some(seconds) = draft.expires_in_s {
+            if seconds < MIN_TOKEN_EXPIRY_S {
+                return Err(TokenError::ExpiryTooShort);
+            }
+            if seconds > MAX_TOKEN_EXPIRY_S {
+                return Err(TokenError::ExpiryTooLong);
+            }
+        }
+        // An absent lifetime stays absent: permanence is the default, not a sentinel value.
+        let expires_at_ms = draft
+            .expires_in_s
+            .map(|seconds| now_ms.saturating_add(seconds.saturating_mul(1_000)));
 
         // The plaintext exists in this scope, in the return value and in nothing else: the record
         // keeps only its hash, and the file is written from the record.
@@ -258,6 +294,7 @@ impl Tokens {
             tools: draft.tools,
             allow_destructive: draft.allow_destructive,
             created_at_ms: now_ms,
+            expires_at_ms,
             last_used_ms: None,
             saved_last_used_ms: None,
             hash: hash_token(&plaintext),
@@ -272,10 +309,11 @@ impl Tokens {
         Ok((meta, plaintext))
     }
 
-    /// Replace one token's identity in one save, keeping its scope.
+    /// Replace one token's identity in one save, keeping its scope and lifetime policy.
     ///
     /// The next map is built first — the old record removed, the replacement inserted with the old
-    /// name, device, tools and destructive consent and a new id, secret and creation time — then
+    /// name, device, tools and destructive consent, a new id, secret and creation time, and a new
+    /// expiry of the same duration as the old one (or none, if the old was permanent) — then
     /// written once. Memory adopts it only after the write succeeds, so a failed save is [`Storage`]
     /// with the old token still valid in memory and in the file: there is no moment with both
     /// secrets or neither.
@@ -293,6 +331,12 @@ impl Tokens {
             return Ok(None);
         };
 
+        // The old record's lifetime is the policy — expiry minus creation — so the replacement gets
+        // a fresh period of the same length, never the old absolute date.
+        let lifetime = old
+            .expires_at_ms
+            .map(|expires_at_ms| expires_at_ms.saturating_sub(old.created_at_ms));
+
         // The plaintext exists in this scope, in the return value and in nothing else: the record
         // keeps only its hash, and the file is written from the record.
         let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
@@ -303,6 +347,7 @@ impl Tokens {
             tools: old.tools.clone(),
             allow_destructive: old.allow_destructive,
             created_at_ms: now_ms,
+            expires_at_ms: lifetime.map(|duration| now_ms.saturating_add(duration)),
             last_used_ms: None,
             saved_last_used_ms: None,
             hash: hash_token(&plaintext),
@@ -507,6 +552,7 @@ mod tests {
             device_id: device_id.to_owned(),
             tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
             allow_destructive: false,
+            expires_in_s: None,
         }
     }
 
@@ -1316,6 +1362,218 @@ mod tests {
             Tokens::load(&data).expect("the file still loads").list(),
             vec![meta],
             "and the file still holds the first token"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// The window is inclusive at both ends, one second outside is a typed refusal, and the
+    /// computed time saturates instead of wrapping.
+    #[test]
+    fn the_expiry_window_is_one_hour_to_a_year_and_its_edges_are_typed() {
+        let data = tempdir("expiry-bounds");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let now = 1_000;
+
+        let mut shortest = draft("shortest", &device_id(), &["files.read"]);
+        shortest.expires_in_s = Some(MIN_TOKEN_EXPIRY_S);
+        let (shortest_meta, _) = tokens
+            .create(shortest, true, now)
+            .expect("one hour is allowed");
+        assert_eq!(
+            shortest_meta.expires_at_ms,
+            Some(now + MIN_TOKEN_EXPIRY_S * 1_000),
+            "the lifetime is stored as an absolute time"
+        );
+
+        let mut longest = draft("longest", &device_id(), &["files.read"]);
+        longest.expires_in_s = Some(MAX_TOKEN_EXPIRY_S);
+        let (longest_meta, _) = tokens
+            .create(longest, true, now)
+            .expect("a year is allowed");
+        assert_eq!(
+            longest_meta.expires_at_ms,
+            Some(now + MAX_TOKEN_EXPIRY_S * 1_000),
+            "the longest lifetime is inclusive"
+        );
+
+        let mut too_short = draft("too-short", &device_id(), &["files.read"]);
+        too_short.expires_in_s = Some(MIN_TOKEN_EXPIRY_S - 1);
+        assert_eq!(
+            tokens.create(too_short, true, now).err(),
+            Some(TokenError::ExpiryTooShort),
+            "one second under an hour is a unit error"
+        );
+
+        let mut too_long = draft("too-long", &device_id(), &["files.read"]);
+        too_long.expires_in_s = Some(MAX_TOKEN_EXPIRY_S + 1);
+        assert_eq!(
+            tokens.create(too_long, true, now).err(),
+            Some(TokenError::ExpiryTooLong),
+            "one second over a year is a unit error"
+        );
+
+        assert_eq!(
+            tokens.list().len(),
+            2,
+            "a refused window mints nothing: the two accepted tokens are the store"
+        );
+
+        let mut saturated = draft("saturated", &device_id(), &["files.read"]);
+        saturated.expires_in_s = Some(MIN_TOKEN_EXPIRY_S);
+        let (saturated_meta, _) = tokens
+            .create(saturated, true, u64::MAX)
+            .expect("a clock at the end of time still mints");
+        assert_eq!(
+            saturated_meta.expires_at_ms,
+            Some(u64::MAX),
+            "now + lifetime saturates instead of wrapping"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// No lifetime is the default and stays permanent: the record, the list and the file all say
+    /// nothing rather than invent an expiry.
+    #[test]
+    fn a_create_without_an_expiry_is_permanent() {
+        let data = tempdir("expiry-none");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+
+        let (meta, _) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+
+        assert_eq!(meta.expires_at_ms, None, "an absent lifetime is permanent");
+        let listed = serde_json::to_value(&tokens.list()[0]).expect("a meta serializes");
+        assert!(
+            listed.get("expires_at_ms").is_none(),
+            "the list omits the absent fact: {listed}"
+        );
+        let text = std::fs::read_to_string(data.join(TOKENS_FILE)).expect("the file is readable");
+        assert!(
+            !text.contains("expires_at_ms"),
+            "the file omits the absent fact: {text}"
+        );
+
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        assert_eq!(
+            reloaded.list()[0].expires_at_ms,
+            None,
+            "a permanent token is still permanent after a restart"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A file this build wrote before the field existed loads as permanent: no migration turns the
+    /// operator's existing tokens into expiring ones.
+    #[test]
+    fn an_old_file_without_an_expiry_loads_permanent() {
+        let data = tempdir("expiry-old-file");
+        let path = data.join(TOKENS_FILE);
+        let old = serde_json::json!([{
+            "id": "aa".repeat(32),
+            "name": "laptop",
+            "device_id": device_id(),
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 1_000,
+            "hash": "11".repeat(32),
+        }]);
+        std::fs::write(&path, old.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let tokens = Tokens::load(&data).expect("an old file still loads");
+
+        assert_eq!(tokens.list().len(), 1, "the record is served");
+        assert_eq!(
+            tokens.list()[0].expires_at_ms,
+            None,
+            "the absent field reads as no expiry"
+        );
+        assert!(
+            path.exists(),
+            "an old file is not quarantined for lacking the field"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Rotation carries the lifetime policy, not the old absolute date: a thirty-day-old token
+    /// created with ninety days rotates to now + ninety days, and a permanent token stays permanent.
+    #[test]
+    fn rotation_keeps_the_lifetime_policy() {
+        let data = tempdir("rotate-expiry");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        const DAY_MS: u64 = 86_400_000;
+        const DAY_S: u64 = 86_400;
+
+        let mut thirty = draft("thirty", &device_id(), &["files.read"]);
+        thirty.expires_in_s = Some(30 * DAY_S);
+        let (thirty_meta, _) = tokens.create(thirty, true, 1_000).expect("a valid token");
+        assert_eq!(thirty_meta.expires_at_ms, Some(1_000 + 30 * DAY_MS));
+
+        let mut ninety = draft("ninety", &device_id(), &["files.read"]);
+        ninety.expires_in_s = Some(90 * DAY_S);
+        let (ninety_meta, _) = tokens.create(ninety, true, 1_000).expect("a valid token");
+        assert_eq!(ninety_meta.expires_at_ms, Some(1_000 + 90 * DAY_MS));
+
+        let (permanent_meta, _) = tokens
+            .create(
+                draft("permanent", &device_id(), &["files.read"]),
+                true,
+                1_000,
+            )
+            .expect("a valid token");
+        assert_eq!(permanent_meta.expires_at_ms, None);
+
+        // Thirty days later the old expiry is irrelevant: the policy is the duration it was given.
+        let rotated_at = 1_000 + 30 * DAY_MS;
+        let (rotated_thirty, _) = tokens
+            .rotate(&thirty_meta.id, rotated_at)
+            .expect("the write succeeds")
+            .expect("the id exists");
+        assert_eq!(rotated_thirty.created_at_ms, rotated_at);
+        assert_eq!(
+            rotated_thirty.expires_at_ms,
+            Some(rotated_at + 30 * DAY_MS),
+            "a thirty-day policy stays thirty days from the rotation"
+        );
+
+        let (rotated_ninety, _) = tokens
+            .rotate(&ninety_meta.id, rotated_at)
+            .expect("the write succeeds")
+            .expect("the id exists");
+        assert_eq!(
+            rotated_ninety.expires_at_ms,
+            Some(rotated_at + 90 * DAY_MS),
+            "a ninety-day policy stays ninety days, not the old absolute date"
+        );
+
+        let (rotated_permanent, _) = tokens
+            .rotate(&permanent_meta.id, rotated_at)
+            .expect("the write succeeds")
+            .expect("the id exists");
+        assert_eq!(
+            rotated_permanent.expires_at_ms, None,
+            "a permanent token stays permanent"
+        );
+
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        assert_eq!(reloaded.list().len(), 3);
+        let disk = std::fs::read_to_string(data.join(TOKENS_FILE)).expect("the file is readable");
+        let records: Vec<serde_json::Value> =
+            serde_json::from_str(&disk).expect("the file is a JSON list");
+        let ninety_record = records
+            .iter()
+            .find(|record| record["id"] == serde_json::json!(rotated_ninety.id))
+            .expect("the rotated ninety-day record is on disk");
+        assert_eq!(
+            ninety_record["expires_at_ms"],
+            serde_json::json!(rotated_at + 90 * DAY_MS),
+            "the policy reaches the file: {ninety_record}"
         );
         std::fs::remove_dir_all(&data).ok();
     }
