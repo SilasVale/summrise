@@ -111,6 +111,32 @@ describe("EventsPage", () => {
     expect(within(screen.getByLabelText("Device health")).getByText("0.3.44")).toBeInTheDocument();
   });
 
+  it("says the device could not read its event log when events is null", async () => {
+    mocks.callTool.mockResolvedValue(
+      JSON.stringify({ state: { schema: 1 }, health, events: null })
+    );
+    render(<EventsPage grant={grant} />);
+
+    expect(await screen.findByText("The device could not read its event log.")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Device health")).getByText("0.3.44")).toBeInTheDocument();
+    expect(screen.queryByText("The device has recorded no events.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders an object-valued kind as JSON rather than [object Object]", async () => {
+    mocks.callTool.mockResolvedValue(
+      JSON.stringify({
+        state: { schema: 1 },
+        health,
+        events: [{ ts_ms: 3, kind: { nested: true } }]
+      })
+    );
+    render(<EventsPage grant={grant} />);
+
+    expect(await screen.findByText('{"nested":true}')).toBeInTheDocument();
+    expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
+  });
+
   it("shows an audit line's event as its kind and does not repeat it among the fields", async () => {
     // The device's tool-call lines say `event: "begin"`, not `kind`; the column is the event's
     // label, so the label must not also appear as `event=begin` beside `tool=...`.

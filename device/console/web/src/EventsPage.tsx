@@ -12,20 +12,27 @@ type Health = {
   reason?: string;
 };
 
-/** What `state.get` answers: the document (or null), its health, and the device's event tail. */
+/**
+ * What `state.get` answers: its health half and the device's event tail.
+ *
+ * `events` is `null` when the device could not read its log — "cannot say", not "recorded nothing".
+ */
 type StateAnswer = {
-  state: unknown;
   health: Health;
-  events: unknown[];
+  events: unknown[] | null;
 };
 
 /**
- * The wire shape as an older device answers it.
+ * The wire shape as a device may answer it.
  *
  * `events` is an additive field: a device that predates it returns `{state, health}` only, and that
- * device is exactly the one whose health an operator may need most. Absence is the empty tail.
+ * device is exactly the one whose health an operator may need most. Absence is the empty tail;
+ * `null` is the unreadable one.
  */
-type StateReply = Omit<StateAnswer, "events"> & { events?: unknown };
+type StateReply = {
+  health: Health;
+  events?: unknown;
+};
 
 /**
  * The device's own event tail, as a page.
@@ -37,7 +44,8 @@ type StateReply = Omit<StateAnswer, "events"> & { events?: unknown };
  * oldest first; the page reverses a copy for an operator who reads newest first.
  *
  * A poisoned state document is not an empty page: the health half still answers degraded, and the
- * events the device recorded are still shown. Only a failed call is a page with no events at all.
+ * events the device recorded are still shown. An event log the device could not read is its own
+ * sentence, not an empty tail; only a failed call leaves the page with neither health nor events.
  */
 export function EventsPage({ grant }: { grant: Grant }) {
   const [answer, setAnswer] = useState<StateAnswer | null>(null);
@@ -55,9 +63,7 @@ export function EventsPage({ grant }: { grant: Grant }) {
     try {
       const reply = JSON.parse(await callTool(grant, "state.get", {})) as StateReply;
       if (gate.stale(ticket)) return;
-      // A missing or non-array tail is `[]`: an older device still has health worth rendering, and a
-      // malformed field must not blank the page.
-      setAnswer({ ...reply, events: Array.isArray(reply.events) ? reply.events : [] });
+      setAnswer({ health: reply.health, events: tailOf(reply) });
     } catch (cause) {
       if (gate.stale(ticket)) return;
       // A failed read leaves nothing to show: the previous tail belongs to the attempt that failed,
@@ -72,7 +78,6 @@ export function EventsPage({ grant }: { grant: Grant }) {
   // A different grant is a different device's events. The old tail and its refusal belong to the
   // device this page has left, so the new grant starts with an empty page and one fresh read.
   useEffect(() => {
-    gate.begin();
     setAnswer(null);
     setError(null);
     setBusy(false);
@@ -119,7 +124,9 @@ export function EventsPage({ grant }: { grant: Grant }) {
             </div>
           </dl>
 
-          {answer.events.length === 0 ? (
+          {answer.events === null ? (
+            <p className="hint">The device could not read its event log.</p>
+          ) : answer.events.length === 0 ? (
             <p className="hint">The device has recorded no events.</p>
           ) : (
             <table>
@@ -162,14 +169,29 @@ export function EventsPage({ grant }: { grant: Grant }) {
   );
 }
 
+/**
+ * Normalize the additive `events` field.
+ *
+ * Absent is a device older than the field (empty). Null is a log the device could not read, which is
+ * a different answer from "nothing was recorded". A malformed field must not blank the health the
+ * device can still report, so a value that is neither an array nor null is treated as empty.
+ */
+function tailOf(reply: StateReply): unknown[] | null {
+  if (reply.events === undefined) return [];
+  if (reply.events === null) return null;
+  return Array.isArray(reply.events) ? reply.events : [];
+}
+
 /** Whether an event is one of the object lines the device writes, not a string fallback. */
 function isRecord(event: unknown): event is Record<string, unknown> {
   return typeof event === "object" && event !== null && !Array.isArray(event);
 }
 
-/** An event's kind, or nothing when the line carries no string kind. */
+/** An event's kind as text: a string stands alone, null is blank, anything else is its JSON. */
 function textOf(value: unknown): string {
-  return typeof value === "string" ? value : value == null ? "" : String(value);
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  return JSON.stringify(value) ?? "";
 }
 
 /** The operator's clock for an event's `ts_ms`; an absent or unreadable stamp is left blank. */

@@ -29,6 +29,10 @@ export const PAGE_LABELS: Record<Page, string> = {
   events: "Events"
 };
 
+/// The rail's order is this map's insertion order; `Record<Page, string>` keeps the map complete, so
+/// there is no second list to update when a section is added.
+const SECTIONS = Object.keys(PAGE_LABELS) as Page[];
+
 const ICONS: Record<Page, string> = {
   devices:
     "M4 5.5h16M4 12h16M4 18.5h10M3 3.5h18a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1Z",
@@ -59,7 +63,7 @@ export function Rail({
 }) {
   return (
     <nav className="rail" aria-label="Sections">
-      {(["devices", "files", "terminal", "browser", "screen", "memory", "monitors", "runs", "system", "audit", "events"] as Page[]).map((entry) => (
+      {SECTIONS.map((entry) => (
         <button
           key={entry}
           type="button"

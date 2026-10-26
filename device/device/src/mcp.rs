@@ -46,7 +46,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{browser, files, memory, monitor, runs, ssh, system, terminal};
 use crate::config::{Config, Release};
-use crate::store::Store;
+use crate::store::{Store, EVENT_TAIL};
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
 const BASE64: base64::engine::general_purpose::GeneralPurpose =
@@ -1167,10 +1167,13 @@ impl DeviceServer {
                         }),
                     ),
                 };
-                // Best-effort, like the local panel: a device that cannot read its own event log
-                // still answers the document, and the console shows an empty tail rather than an
-                // offline device. A poisoned document still returns whatever events exist.
-                let events = self.store.tail_events(10).unwrap_or_default();
+                // Best-effort: the document still answers when the log cannot be read, but the
+                // field is `null` — "the device cannot say" — not `[]`, which would claim it
+                // recorded nothing. A poisoned document still returns whatever events exist.
+                let events = match self.store.tail_events(EVENT_TAIL) {
+                    Ok(events) => json!(events),
+                    Err(_) => Value::Null,
+                };
                 Ok(json!({ "state": state, "health": health, "events": events }).to_string())
             }
         }
@@ -3251,7 +3254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn state_get_answers_an_empty_tail_without_an_event_log() {
+    async fn state_get_still_answers_when_the_event_log_is_absent() {
         let device = start("mcp-state-no-events").await;
         assert!(
             !device.config.data.join("events.jsonl").exists(),
@@ -3297,8 +3300,8 @@ mod tests {
             serde_json::from_str(text_of(&reply)).expect("state.get returns one JSON document");
         assert_eq!(
             document["events"],
-            json!([]),
-            "an unreadable event log is an empty tail, not a failed call: {document}"
+            Value::Null,
+            "an unreadable event log is 'the device cannot say', not a claim that nothing was recorded: {document}"
         );
         assert_eq!(
             document["health"]["status"], "ok",
