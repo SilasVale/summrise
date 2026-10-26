@@ -41,6 +41,12 @@ pub const SWAP_REQUEST_FILE: &str = "swap.request.json";
 /// — is its one writer.
 pub const REPAIR_LOG_FILE: &str = "repair.log";
 
+/// How many trailing `events.jsonl` lines the local panel and `state.get` both show.
+///
+/// One number for both surfaces: the console's events page and the device's own `/api/panel` must
+/// show the same tail, and a divergence here would be invisible from either side alone.
+pub const EVENT_TAIL: usize = 10;
+
 /// How often the running app folds a swap request and a swap result into the state document.
 ///
 /// One second, not thirty: the request is transient. The supervisor polls for it every two seconds
@@ -232,11 +238,6 @@ impl Store {
         }
     }
 
-    /// Read the state document, or a fresh one when there is no file yet.
-    ///
-    /// Only `state.json` is opened. A `.tmp` left by a write that never reached its rename describes
-    /// a document that was never committed, so it is not state — treating it as state is how a
-    /// half-written file becomes an answer.
     /// The last `limit` lines of `events.jsonl`, oldest first, each as JSON when it parses as JSON.
     ///
     /// Missing file is an empty list, not an error: a device that has never repaired anything has no
@@ -261,6 +262,11 @@ impl Store {
         Ok(events)
     }
 
+    /// Read the state document, or a fresh one when there is no file yet.
+    ///
+    /// Only `state.json` is opened. A `.tmp` left by a write that never reached its rename describes
+    /// a document that was never committed, so it is not state — treating it as state is how a
+    /// half-written file becomes an answer.
     pub fn load(&self) -> Result<State, StoreError> {
         let path = self.state_path();
         match fs::read(&path) {

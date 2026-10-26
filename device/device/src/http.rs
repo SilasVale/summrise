@@ -26,7 +26,7 @@ use summrise_core::{
 use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
-use crate::store::Store;
+use crate::store::{Store, EVENT_TAIL};
 use crate::watchdog;
 
 /// Build the API's router. Test-only: production always has a console and a mesh slot to fill.
@@ -232,7 +232,12 @@ async fn panel_snapshot(
         return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
     }
     let state = app.store.load().ok();
-    let events = app.store.tail_events(10).unwrap_or_default();
+    // The same tail `state.get` answers, and the same reading of a failure: null says the device
+    // could not read its log, which is not the same claim as "nothing was recorded".
+    let events = match app.store.tail_events(EVENT_TAIL) {
+        Ok(events) => serde_json::json!(events),
+        Err(_) => serde_json::Value::Null,
+    };
     Json(serde_json::json!({
         "version": app.release.version,
         "channel": app.release.channel,
