@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesPage } from "./FilesPage";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { restoreGlobal } from "./test/dom";
 
 vi.mock("./terminal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./terminal")>();
@@ -26,12 +27,6 @@ const originals = {
   createObjectURL: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
   revokeObjectURL: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
 };
-
-/// Put a replaced global back exactly as it was, or remove the property when jsdom never had it.
-function restore(target: object, key: string, descriptor?: PropertyDescriptor) {
-  if (descriptor) Object.defineProperty(target, key, descriptor);
-  else Reflect.deleteProperty(target, key);
-}
 
 /// The path argument of a `files.list` call, as the page keeps it in its listing.
 function listedPath(args: Record<string, unknown>): string {
@@ -195,8 +190,8 @@ describe("FilesPage binary files", () => {
   });
 
   afterEach(() => {
-    restore(URL, "createObjectURL", originals.createObjectURL);
-    restore(URL, "revokeObjectURL", originals.revokeObjectURL);
+    restoreGlobal(URL, "createObjectURL", originals.createObjectURL);
+    restoreGlobal(URL, "revokeObjectURL", originals.revokeObjectURL);
   });
 
   it("turns a UTF-8 refusal into a base64 download of the file's exact bytes", async () => {

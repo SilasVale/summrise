@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryPage } from "./MemoryPage";
 import { callTool, ToolError } from "./terminal";
+import { restoreGlobal } from "./test/dom";
 
 vi.mock("./terminal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./terminal")>();
@@ -27,12 +28,6 @@ const originals = {
   revokeObjectURL: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
 };
 
-/// Put a replaced global back exactly as it was, or remove the property when jsdom never had it.
-function restore(target: object, key: string, descriptor?: PropertyDescriptor) {
-  if (descriptor) Object.defineProperty(target, key, descriptor);
-  else Reflect.deleteProperty(target, key);
-}
-
 /// Render the page over a device that remembers nothing, then open the export dialog.
 async function openExport(answer: typeof EXPORT = EXPORT): Promise<HTMLElement> {
   mocked.mockImplementation(async (_grant, name) => {
@@ -52,9 +47,9 @@ describe("MemoryPage export", () => {
   });
 
   afterEach(() => {
-    restore(navigator, "clipboard", originals.clipboard);
-    restore(URL, "createObjectURL", originals.createObjectURL);
-    restore(URL, "revokeObjectURL", originals.revokeObjectURL);
+    restoreGlobal(navigator, "clipboard", originals.clipboard);
+    restoreGlobal(URL, "createObjectURL", originals.createObjectURL);
+    restoreGlobal(URL, "revokeObjectURL", originals.revokeObjectURL);
   });
 
   it("shows the whole JSONL and a sentence naming the 2 MiB cap, the cut and the store's bytes", async () => {
