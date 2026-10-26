@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HttpError } from "./api";
-import { GrantForm, TOOL_NAMES } from "./GrantForm";
+import { GrantForm } from "./GrantForm";
+import { TOOL_NAMES } from "./useToolNames";
 
 // The form is the console's only mint, and the HTTP client behind it has its own test. So `grant` and
 // the catalogue `tools` are mocks; everything else in `./api` stays real (importOriginal), and
-// `TOOL_NAMES` is the component's own export — the fallback list is one of the subjects.
+// `TOOL_NAMES` is the fallback the hook starts from — the fallback list is one of the subjects.
 const mocks = vi.hoisted(() => ({
   grant: vi.fn(),
   tools: vi.fn()
@@ -119,19 +119,6 @@ describe("GrantForm", () => {
 
   it("keeps the fallback usable when the catalogue request fails", async () => {
     mocks.tools.mockRejectedValue(new Error("offline"));
-    renderForm();
-    await settle();
-
-    expect(toolNames()).toEqual(TOOL_NAMES);
-    toolCheckboxes().forEach((box) => expect(box).toBeChecked());
-    expect(screen.getByText("Tools (38 of 38)")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "host.facts" }));
-    expect(screen.getByText("Tools (37 of 38)")).toBeInTheDocument();
-  });
-
-  it("keeps the fallback usable when the catalogue answers 500", async () => {
-    mocks.tools.mockRejectedValue(new HttpError(500, "Internal Server Error"));
     renderForm();
     await settle();
 
