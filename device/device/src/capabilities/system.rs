@@ -290,20 +290,23 @@ mod tests {
 
     #[test]
     fn tests_support_a_kill_by_pid_and_by_name() {
-        let (mut child, name) = long_child();
+        let (mut child, _, first_dir) = long_child("a");
         let pid = child.id();
         let report = kill(Some(pid), None).expect("the child can be ended");
         assert_eq!(report.killed, vec![pid], "{report:?}");
 
-        let (mut second, _) = long_child();
+        let (mut second, name, second_dir) = long_child("b");
         let report = kill(None, Some(&name)).expect("the name resolves to the child");
-        assert!(
-            report.killed.contains(&second.id()),
-            "the name killed the pid it names: {report:?}"
+        assert_eq!(
+            report.killed,
+            vec![second.id()],
+            "the unique name killed exactly the fixture: {report:?}"
         );
         for child in [&mut child, &mut second] {
             wait_until_gone(child);
         }
+        std::fs::remove_dir_all(first_dir).ok();
+        std::fs::remove_dir_all(second_dir).ok();
     }
 
     #[test]
@@ -358,30 +361,51 @@ mod tests {
         ));
     }
 
-    /// A child that lives long enough to be ended on purpose, and the name it will appear under.
-    #[cfg(unix)]
-    fn long_child() -> (std::process::Child, String) {
-        let child = Command::new("sleep")
+    /// A long-lived process whose executable name is unique to this test, so a kill by name can only
+    /// reach the fixture. A shared name is not safe here: the runs timeout tests and the terminal
+    /// tests also have `sleep` processes, and a by-name kill of `sleep` once killed those mid-run —
+    /// the CI flake where a five-second sleep died with no exit code and `timed_out: false`.
+    fn long_child(tag: &str) -> (std::process::Child, String, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("summrise-kill-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the fixture dir");
+        #[cfg(unix)]
+        let (binary, name) = {
+            let source = ["/bin/sleep", "/usr/bin/sleep"]
+                .into_iter()
+                .find(|path| std::path::Path::new(path).exists())
+                .expect("sleep is installed");
+            // `/proc/<pid>/stat`'s comm field is at most 15 bytes; "smk" + pid + tag stays inside it.
+            let name = format!("smk{}{tag}", std::process::id());
+            let binary = dir.join(&name);
+            std::fs::copy(source, &binary).expect("sleep is copied under a unique name");
+            (binary, name)
+        };
+        #[cfg(windows)]
+        let (binary, name) = {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+            let source = std::path::Path::new(&root)
+                .join("System32")
+                .join("ping.exe");
+            let name = format!("smk{}{tag}.exe", std::process::id());
+            let binary = dir.join(&name);
+            std::fs::copy(&source, &binary).expect("ping is copied under a unique name");
+            (binary, name)
+        };
+        #[cfg(unix)]
+        let child = Command::new(&binary)
             .arg("30")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("sleep starts");
-        // The kernel's comm is the executable's name, which is what the name filter matches.
-        (child, "sleep".to_owned())
-    }
-
-    #[cfg(windows)]
-    fn long_child() -> (std::process::Child, String) {
-        // `ping` directly rather than through `cmd /C`: the child's pid is then the process the
-        // name filter will find, which is what makes "kill by name killed this pid" a real assert.
-        let child = Command::new("ping")
+            .expect("the fixture starts");
+        #[cfg(windows)]
+        let child = Command::new(&binary)
             .args(["-n", "30", "127.0.0.1"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .expect("ping starts");
-        (child, "ping.exe".to_owned())
+            .expect("the fixture starts");
+        (child, name, dir)
     }
 
     /// Wait for a child that was signalled to leave the table, so the test does not leak it.
