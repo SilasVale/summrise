@@ -115,3 +115,16 @@ separate, rate-limited and capped"; the operator needs to see probing).
 - Review Focus: operator-only, log guarantees, honest page, audit unchanged, shell complete.
 - Deliberate: read-only (no clear/export), no real-time alert/notification for denials this round, no
   cross-file search; the page is the existing table with the denial-specific sentence.
+
+## Review rulings (2026-10-26)
+
+- The route is read-only and operator-only; a malformed `limit` is the console's JSON 400, missing is
+  100, above the max clamps to 1000, and `0` returns no lines. The 401 of an unauthenticated caller is
+  itself a denial line, not an audit line.
+- The denial log's cap, rotation and 100/minute window are untouched; the read takes `JsonLines`'s
+  append lock, so a concurrent append is not torn.
+- The page uses the existing table with a denial-specific empty sentence; the audit page passes no
+  `empty` prop and keeps its behavior/tests. The rail's twelve-section shell test was updated
+  deliberately.
+- The threat model now records the Security page as the operator's view of probing, and that probing
+  is observable but not alerted.
