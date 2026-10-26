@@ -88,6 +88,27 @@ const attic = {
   last_seen_ms: Date.now() - 30_000
 };
 
+// One permanent token as `GET /tokens` lists it (no value), and the audit line that names its id.
+const tokenId = "a".repeat(64);
+const shortTokenId = "a".repeat(12) + "…";
+const laptop = {
+  id: tokenId,
+  name: "laptop-dsh",
+  device_id: workshop.id,
+  tools: ["tools/list"],
+  allow_destructive: false,
+  created_at_ms: 1
+};
+const tokenCall = {
+  ts_ms: 1,
+  kind: "mcp",
+  device_id: workshop.id,
+  tool: "tools/list",
+  detail: null,
+  status: 200,
+  token_id: tokenId
+};
+
 beforeEach(() => {
   signedIn = false;
   mocks.session.mockImplementation(async () =>
@@ -128,7 +149,9 @@ async function bootAndSignIn() {
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByRole("heading", { name: "Summrise" });
-  await screen.findByText("workshop");
+  // The status bar's count is the load signal: the device name is also an option in the audit's
+  // device filter once there are lines, so it is not a unique way to wait for the fleet.
+  await screen.findByText("2 devices");
   return view;
 }
 
@@ -366,5 +389,38 @@ describe("App", () => {
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
     expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
     expect(mocks.setToken).toHaveBeenLastCalledWith(null);
+  });
+
+  it("names the token behind an audited call from the list it fetched beside the fleet", async () => {
+    mocks.tokens.mockResolvedValue([laptop]);
+    mocks.audit.mockResolvedValue([tokenCall]);
+    await bootAndSignIn();
+
+    // The devices page draws the audit table beside the fleet, so the name is there without a page
+    // change, and it is the name rather than the id the console recorded.
+    expect(within(await screen.findByRole("table")).getByText("laptop-dsh")).toBeInTheDocument();
+    expect(screen.queryByText(shortTokenId)).not.toBeInTheDocument();
+    expect(mocks.tokens).toHaveBeenCalled();
+  });
+
+  it("survives a rejected token fetch: the fleet and audit render, on ids and All tokens", async () => {
+    mocks.tokens.mockRejectedValue(new Error("tokens_unavailable"));
+    mocks.audit.mockResolvedValue([tokenCall]);
+    await bootAndSignIn();
+
+    // The list is a convenience: losing it leaves the page working and the table on record ids.
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
+    expect(screen.queryByText("tokens_unavailable")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
+    const select = screen.getByLabelText("Token");
+    // The filter still works and still matches the cell, on the short id, because that is all the page
+    // knows once the list is gone. Nothing is named, and nothing is blank.
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "All tokens",
+      shortTokenId
+    ]);
+    expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Device, type TokenMeta } from "./api";
+import { api, type Created, type Device, type TokenMeta } from "./api";
 import { copyText } from "./copy";
 import { message, shortId } from "./format";
 import { useToolNames } from "./useToolNames";
@@ -21,9 +21,6 @@ type Issued = {
   config: string;
   expiresAt: number;
 };
-
-/** What one permanent-token create produced: metadata, plus the plaintext that exists only here. */
-type Created = TokenMeta & { token: string };
 
 type Mode = "session" | "token";
 
@@ -92,6 +89,9 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
   const [created, setCreated] = useState<Created | null>(null);
   const [tokenList, setTokenList] = useState<TokenMeta[] | null>(null);
   const [tokenListError, setTokenListError] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<TokenMeta | null>(null);
+  const [rotateBusy, setRotateBusy] = useState(false);
+  const [rotateError, setRotateError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<TokenMeta | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
@@ -162,6 +162,26 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
       setCreateError(message(cause));
     } finally {
       setCreating(false);
+    }
+  };
+
+  // A rotation is the create's one-time view with the old record's scope: the console answers with the
+  // new plaintext, the list is read again so the same name carries the new date, and the value is
+  // cleared by minting another exactly as a create's is.
+  const rotate = async () => {
+    if (!rotating) return;
+    setRotateBusy(true);
+    setRotateError(null);
+    setCopied(null);
+    try {
+      setCreated(await api.rotateToken(rotating.id));
+      setCreateError(null);
+      setRotating(null);
+      await refreshTokens();
+    } catch (cause) {
+      setRotateError(message(cause));
+    } finally {
+      setRotateBusy(false);
     }
   };
 
@@ -382,6 +402,9 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                         {entry.allow_destructive ? " · destructive allowed" : " · read-only"}
                       </span>{" · "}
                       <span className="muted">{lastUsed(entry)}</span>{" "}
+                      <button type="button" onClick={() => { setRotateError(null); setRotating(entry); }}>
+                        Rotate
+                      </button>{" "}
                       <button type="button" onClick={() => { setRevokeError(null); setRevoking(entry); }}>
                         Revoke
                       </button>
@@ -393,6 +416,27 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
             {tokenListError && <p className="error">{tokenListError}</p>}
           </section>
         </div>
+      )}
+
+      {rotating && (
+        <Modal title={`Rotate "${rotating.name}"?`} onClose={() => { if (!rotateBusy) setRotating(null); }}>
+          <p className="hint">
+            The old token stops working the moment this succeeds: every client still using it is
+            refused on its next request, and the old value cannot be recovered.
+          </p>
+          <p className="hint">
+            The new token keeps this one&apos;s name, device, tools and destructive consent. Its value
+            is shown once, right after — the console keeps only its hash — so update the client&apos;s
+            configuration then.
+          </p>
+          {rotateError && <p className="error">{rotateError}</p>}
+          <div className="modal-actions">
+            <button type="button" disabled={rotateBusy} onClick={() => setRotating(null)}>Cancel</button>
+            <button type="button" className="primary" disabled={rotateBusy} onClick={() => void rotate()}>
+              {rotateBusy ? "Rotating…" : "Rotate token"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {revoking && (

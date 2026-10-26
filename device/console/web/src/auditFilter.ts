@@ -1,10 +1,16 @@
 import type { AuditLine } from "./api";
 
 /**
- * What the audit table is narrowing by. `device` is an exact id and `""` means every device; `tool`
+ * What the audit table is narrowing by. `device` is an exact id and `""` means every device; `token`
+ * is a token's record id and `""` means every token, including the calls a grant authenticated; `tool`
  * is empty for every tool; `status` is one of the two outcomes the operator can name.
  */
-export type AuditFilter = { device: string; tool: string; status: "all" | "ok" | "failed" };
+export type AuditFilter = {
+  device: string;
+  token: string;
+  tool: string;
+  status: "all" | "ok" | "failed";
+};
 
 /**
  * Whether the exchange failed, in the operator's sense.
@@ -23,13 +29,17 @@ export function auditFailed(line: AuditLine): boolean {
  *
  * The tool field matches the tool name or the detail. The detail is searched for every line, not only
  * the tool-less ones: a device error carries its JSON-RPC code there, and that is how an operator finds
- * "the calls the device refused".
+ * "the calls the device refused". The token field is an exact record id: a line a grant authenticated
+ * has none, so it belongs to no token's filter and only "All tokens" shows it.
  */
 export function filterAudit(lines: AuditLine[], filter: AuditFilter): AuditLine[] {
   const tool = filter.tool.trim().toLowerCase();
-  if (filter.device === "" && tool === "" && filter.status === "all") return lines;
+  if (filter.device === "" && filter.token === "" && tool === "" && filter.status === "all") {
+    return lines;
+  }
   return lines.filter((line) => {
     if (filter.device !== "" && line.device_id !== filter.device) return false;
+    if (filter.token !== "" && line.token_id !== filter.token) return false;
     if (tool !== "") {
       const inTool = (line.tool ?? "").toLowerCase().includes(tool);
       const inDetail = (line.detail ?? "").toLowerCase().includes(tool);

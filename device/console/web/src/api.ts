@@ -110,6 +110,13 @@ export type TokenMeta = {
    */
   last_used_ms?: number | null;
 };
+/**
+ * What a create or a rotation answers with: the record's metadata plus the one plaintext the console
+ * ever returns. It is the only shape that carries `token` — the list never does, and the console keeps
+ * only the hash afterwards, so a caller has exactly one chance to show it.
+ */
+export type Created = TokenMeta & { token: string };
+
 export type AuditLine = {
   ts_ms: number;
   kind: string;
@@ -213,10 +220,13 @@ export const api = {
     tools: string[];
     allow_destructive: boolean;
   }) =>
-    call<TokenMeta & { token: string }>("/tokens", {
+    call<Created>("/tokens", {
       method: "POST",
       body: JSON.stringify(draft)
     }),
+  // Rotation replaces the record with one of the same scope: the request names only the id, and the
+  // answer is the create shape because the new value is returned once, here and nowhere else.
+  rotateToken: (id: string) => call<Created>(`/tokens/${id}/rotate`, { method: "POST" }),
   revokeToken: (id: string) => call<void>(`/tokens/${id}`, { method: "DELETE" })
 };
 

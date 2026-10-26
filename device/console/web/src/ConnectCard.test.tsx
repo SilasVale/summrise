@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   grant: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
+  rotateToken: vi.fn(),
   revokeToken: vi.fn()
 }));
 
@@ -28,6 +29,7 @@ vi.mock("./api", async (importOriginal) => {
       grant: mocks.grant,
       tokens: mocks.tokens,
       createToken: mocks.createToken,
+      rotateToken: mocks.rotateToken,
       revokeToken: mocks.revokeToken
     }
   };
@@ -66,6 +68,12 @@ const META = {
 
 // What `POST /tokens` answers with: the metadata plus the one plaintext the console ever returns.
 const CREATED = { ...META, token: TOKEN };
+
+// What `POST /tokens/<id>/rotate` answers with: the create shape, for a record that kept the old scope
+// and took a new id, secret and created date.
+const ROTATED_TOKEN = "srm_" + "b".repeat(64);
+const ROTATED_AT = Date.UTC(2026, 9, 27, 9, 0, 0);
+const ROTATED = { ...META, id: "tok-9", created_at_ms: ROTATED_AT, token: ROTATED_TOKEN };
 
 const OTHER = {
   id: "tok-2",
@@ -115,6 +123,7 @@ beforeEach(() => {
   mocks.tools.mockResolvedValue(SERVED);
   mocks.tokens.mockResolvedValue([]);
   mocks.createToken.mockResolvedValue(CREATED);
+  mocks.rotateToken.mockResolvedValue(ROTATED);
   mocks.revokeToken.mockResolvedValue(undefined);
 });
 
@@ -322,6 +331,71 @@ describe("ConnectCard's permanent-token mode", () => {
     await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/No permanent tokens for this device/)).toBeInTheDocument();
     expect(screen.queryByText("laptop-dsh")).not.toBeInTheDocument();
+  });
+
+  it("rotates only after a confirmation that names the cost, then shows the new value once and re-lists", async () => {
+    let listed: TokenMeta[] = [META];
+    mocks.tokens.mockImplementation(async () => listed);
+    await openTokens();
+    expect(await screen.findByText(new Date(CREATED_AT).toLocaleDateString())).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop-dsh"?' });
+    // Nothing has happened yet: the confirm is the only thing that sends the request.
+    expect(mocks.rotateToken).not.toHaveBeenCalled();
+    expect(within(dialog).getByText(/stops working/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/shown once/)).toBeInTheDocument();
+
+    // The console answers with the new record before the list is read again, as a create does.
+    listed = [{ ...META, id: ROTATED.id, created_at_ms: ROTATED_AT }];
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate token" }));
+
+    await waitFor(() => expect(mocks.rotateToken).toHaveBeenCalledWith(META.id));
+    // The one-time view: the value and the config a client pastes, shown here and nowhere else.
+    expect((await screen.findAllByText(ROTATED_TOKEN)).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(new RegExp(`Authorization: Bearer ${ROTATED_TOKEN}`))).toBeInTheDocument();
+    expect(screen.getByText(/shown once/)).toBeInTheDocument();
+    // The list was re-read: the same name now carries the new record, and the old date is gone.
+    expect(await screen.findByText(new Date(ROTATED_AT).toLocaleDateString())).toBeInTheDocument();
+    expect(screen.queryByText(new Date(CREATED_AT).toLocaleDateString())).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(2));
+    const list = within(screen.getByRole("region", { name: "Existing tokens" }));
+    expect(list.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("sends nothing when a rotation is cancelled", async () => {
+    mocks.tokens.mockResolvedValue([META]);
+    await openTokens();
+    await screen.findByText("laptop-dsh");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop-dsh"?' });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog", { name: 'Rotate "laptop-dsh"?' })).not.toBeInTheDocument();
+    expect(mocks.rotateToken).not.toHaveBeenCalled();
+    expect(mocks.tokens).toHaveBeenCalledTimes(1);
+    // The record the operator was looking at is untouched, and no value was ever shown.
+    expect(screen.getByText("laptop-dsh")).toBeInTheDocument();
+    expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("shows the console's sentence when a rotation is refused, and keeps the old record listed", async () => {
+    mocks.rotateToken.mockRejectedValue(new Error("no_such_token"));
+    mocks.tokens.mockResolvedValue([META]);
+    await openTokens();
+    await screen.findByText("laptop-dsh");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop-dsh"?' });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate token" }));
+
+    expect(await within(dialog).findByText("no_such_token")).toBeInTheDocument();
+    expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
+    // Nothing was replaced, so nothing is re-read and the list still holds the token that was there.
+    expect(mocks.tokens).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("laptop-dsh")).toBeInTheDocument();
   });
 
   it("shows the console's sentence when a create is refused", async () => {
