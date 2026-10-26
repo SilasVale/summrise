@@ -17,9 +17,15 @@ export async function copyText(text: string): Promise<boolean> {
     const area = document.createElement("textarea");
     area.value = text;
     document.body.append(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    area.remove();
-    return copied;
+    try {
+      area.select();
+      return document.execCommand("copy");
+    } catch {
+      // Some browsers throw instead of answering false; a caller that says "Copied" only on a true
+      // answer must not receive a rejection it does not catch.
+      return false;
+    } finally {
+      area.remove();
+    }
   }
 }
