@@ -172,11 +172,16 @@ jobs:
           if ($null -ne $service) { throw "the service survived the uninstall: $($service.Status)" }
           Write-Host "service is gone"
 
+      # A run artifact is a convenience, not the record: the tag release above attaches the same
+      # installer to the release, which is where an operator downloads it months later. Keeping the
+      # artifact for the default 90 days filled 90% of the account's Actions storage (2026-10-26);
+      # one day is enough to fetch a build from its run, and expired artifacts are deleted for us.
       - uses: actions/upload-artifact@v4
         with:
           name: SummriseSetup-${{ env.VERSION }}
           path: device/installer/SummriseSetup-*.exe
           if-no-files-found: error
+          retention-days: 1
 
       # A TAG RELEASE CARRIES THE INSTALLER. The artifact above is for the run; the release is what
       # an operator downloads months later.
