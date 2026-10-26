@@ -70,9 +70,11 @@ everywhere and tested nowhere.
 - The console: `readOnce` returns the same optional fields; when `alive === false`, `poll` sets
   `{kind: "closed", sentence}` and returns. The sentence is:
   - `The session ended with exit code 7. The output above is what it printed.`
-  - `The session ended on signal SIGTERM. …`
+  - `The session ended on signal Killed. …` (the crate's public spelling — `portable-pty` 0.8.1
+    exposes no `signal()` accessor, so the device parses its `Display`; a signal is never invented as
+    exit code 1)
   - `The session ended. …`
-  The tab's visible label gains ` · ended` while the fault is closed.
+  The tab's visible label gains ` · ended` while the fault is closed. The tab is never auto-hidden.
 
 - [ ] **Step 1: Device tests first**
 
