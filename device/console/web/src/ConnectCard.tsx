@@ -139,10 +139,10 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
             Allow destructive tools
           </label>
           <p className="hint">
-            Without that consent the device refuses <span className="mono">terminal.create</span>,{" "}
-            <span className="mono">terminal.write</span>, <span className="mono">files.write</span>,{" "}
-            <span className="mono">browser.navigate</span>, <span className="mono">runs.exec</span> and the
-            memory writes; the read tools still work.
+            The grant covers every tool the device declares. Without destructive consent the device refuses{" "}
+            <span className="mono">terminal.create</span>, <span className="mono">terminal.write</span>,{" "}
+            <span className="mono">files.write</span>, <span className="mono">browser.navigate</span>,{" "}
+            <span className="mono">runs.exec</span> and the memory writes; the read tools still work.
           </p>
           <button type="button" className="primary" disabled={busy} onClick={() => void mint()}>
             {busy ? "Signing…" : "Mint a grant and show the config"}
