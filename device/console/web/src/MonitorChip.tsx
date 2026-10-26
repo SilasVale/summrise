@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { notifyMonitors } from "./notifications";
 import { callTool, ToolError, type Grant } from "./terminal";
 
 /** The part of a `monitor.list` target the chip reads; the Monitors page owns the full shape. */
@@ -23,10 +24,24 @@ const POLL_MS = 20_000;
 export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => void }) {
   const [report, setReport] = useState<Report | null>(null);
 
+  // The last down count a successful read established. `null` means no read has succeeded yet, so
+  // the first fact is not a transition and is never announced. A failed read leaves this untouched:
+  // what the device last said is still the operator's best information.
+  const previous = useRef<number | null>(null);
+  // The poll restarts on `grant`, not on a parent re-render that hands over a new `onOpen`; the
+  // click always runs the newest opener without making the device the price of a closure.
+  const onOpenRef = useRef(onOpen);
+  useEffect(() => {
+    onOpenRef.current = onOpen;
+  }, [onOpen]);
+
   useEffect(() => {
     let live = true;
     let inFlight = false;
     let timer: number | null = null;
+    // A different grant is a different device's registry: its first successful read is another
+    // "first", never a rise from the grant this chip used to show.
+    previous.current = null;
 
     const stop = () => {
       if (timer === null) return;
@@ -41,6 +56,12 @@ export function MonitorChip({ grant, onOpen }: { grant: Grant; onOpen: () => voi
         const targets = JSON.parse(await callTool(grant, "monitor.list", {})) as Target[];
         if (!live || !Array.isArray(targets)) return;
         const down = targets.filter((target) => target?.summary?.up_now === false).length;
+        // Only a rise after a known count is a new outage. The count itself is the state; the
+        // announcement belongs to the transition, once, however many polls repeat the same number.
+        if (previous.current !== null && down > previous.current) {
+          notifyMonitors(down, targets.length, onOpenRef.current);
+        }
+        previous.current = down;
         setReport({ grant, down, total: targets.length });
       } catch (cause) {
         // A refused grant is not retried: the envelope is stale or lacks the tool, and asking again

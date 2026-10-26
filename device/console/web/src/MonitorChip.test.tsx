@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MonitorChip } from "./MonitorChip";
+import { notifyMonitors } from "./notifications";
 import { callTool, ToolError, type Grant } from "./terminal";
 
 // The chip's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
@@ -10,7 +11,12 @@ vi.mock("./terminal", async (importOriginal) => {
   return { ...actual, callTool: vi.fn() };
 });
 
+// The chip's whole notification surface is `notifyMonitors`: the transition rule is what this file
+// asserts, and the module's own tests cover what a notification says.
+vi.mock("./notifications", () => ({ notifyMonitors: vi.fn() }));
+
 const mocked = vi.mocked(callTool);
+const notified = vi.mocked(notifyMonitors);
 
 const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
@@ -41,6 +47,7 @@ async function settle() {
 describe("MonitorChip", () => {
   beforeEach(() => {
     mocked.mockReset();
+    notified.mockClear();
   });
 
   it("says how many monitors are down, names the total, and opens Monitors", async () => {
@@ -236,6 +243,107 @@ describe("MonitorChip", () => {
     }
   });
 
+  it("does not announce the first down read, or a count that does not rise", async () => {
+    lists([{ id: "a:22", summary: DOWN }]);
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
+      await settle();
+      expect(screen.getByRole("button", { name: "1 monitor down" })).toBeInTheDocument();
+      // The first fact is not a transition: there is no earlier count to have risen from.
+      expect(notified).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      // The same count is the same fact, however many times it is read.
+      expect(notified).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("announces a rise after a successful read, with the count, the total and the opener", async () => {
+    let targets: Target[] = [{ id: "a:22", summary: UP }, { id: "b:443", summary: UP }];
+    mocked.mockImplementation(async (_grant: Grant, name: string) => {
+      if (name !== "monitor.list") throw new Error(`the test did not expect a ${name} call`);
+      return JSON.stringify(targets);
+    });
+    const onOpen = vi.fn();
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={onOpen} />);
+      await settle();
+      expect(notified).not.toHaveBeenCalled();
+
+      targets = [{ id: "a:22", summary: DOWN }, { id: "b:443", summary: UP }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      expect(notified).toHaveBeenCalledTimes(1);
+      expect(notified).toHaveBeenCalledWith(1, 2, onOpen);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      // Once per rise: reading the same down target again is not a second outage.
+      expect(notified).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("announces a new rise after a fall, and nothing when the count falls", async () => {
+    let targets: Target[] = [{ id: "a:22", summary: DOWN }];
+    mocked.mockImplementation(async (_grant: Grant, name: string) => {
+      if (name !== "monitor.list") throw new Error(`the test did not expect a ${name} call`);
+      return JSON.stringify(targets);
+    });
+    const onOpen = vi.fn();
+    vi.useFakeTimers();
+    try {
+      render(<MonitorChip grant={GRANT} onOpen={onOpen} />);
+      await settle();
+      expect(notified).not.toHaveBeenCalled();
+
+      targets = [{ id: "a:22", summary: UP }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      // A fall is good news; it is not an announcement.
+      expect(notified).not.toHaveBeenCalled();
+
+      targets = [{ id: "a:22", summary: DOWN }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      expect(notified).toHaveBeenCalledTimes(1);
+      expect(notified).toHaveBeenLastCalledWith(1, 1, onOpen);
+
+      targets = [{ id: "a:22", summary: UP }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      expect(notified).toHaveBeenCalledTimes(1);
+
+      targets = [{ id: "a:22", summary: DOWN }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      await settle();
+      // The second outage is a second rise, and it is announced once.
+      expect(notified).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops polling when the grant is refused", async () => {
     mocked.mockRejectedValue(new ToolError("the grant expired", 403, -32001));
     vi.useFakeTimers();
@@ -243,6 +351,8 @@ describe("MonitorChip", () => {
       render(<MonitorChip grant={GRANT} onOpen={vi.fn()} />);
       await settle();
       expect(mocked).toHaveBeenCalledTimes(1);
+      // A refused read is not a fall to zero, and it is not a rise: it says nothing at all.
+      expect(notified).not.toHaveBeenCalled();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20_000);
