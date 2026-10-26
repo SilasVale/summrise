@@ -109,6 +109,11 @@ export type TokenMeta = {
    * lag a use by under a minute — the fact is still live in memory on the device.
    */
   last_used_ms?: number | null;
+  /**
+   * When this token stops authenticating, in Unix milliseconds; absent or `null` for a token created
+   * without a lifetime — the default, and how every record written before the field existed reads.
+   */
+  expires_at_ms?: number | null;
 };
 /**
  * What a create or a rotation answers with: the record's metadata plus the one plaintext the console
@@ -222,6 +227,11 @@ export const api = {
     device_id: string;
     tools: string[];
     allow_destructive: boolean;
+    /**
+     * The lifetime the new token gets, in seconds: the server accepts 3600 through 31 536 000. Omit
+     * it for the default — a token that never expires; the request body then carries no such key.
+     */
+    expires_in_s?: number;
   }) =>
     call<Created>("/tokens", {
       method: "POST",
