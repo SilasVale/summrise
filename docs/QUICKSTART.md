@@ -35,8 +35,9 @@ in minutes. Spend it either way:
   trusted plaintext tunnel.
 
 Either path spends the code once and writes the console link and channel token under the data
-directory. The app builds its console link at boot, so restart the service, and the card turns
-**online**:
+directory. The app builds its console link at boot. A **panel** enrollment on a supervised install
+asks the launcher to restart the app automatically (the page says so); after a **command-line**
+enrollment, restart the service yourself, and the card turns **online**:
 
 ```bat
 sc stop SummriseLaunch

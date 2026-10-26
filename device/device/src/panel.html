@@ -458,7 +458,9 @@ async function enroll(event) {
     }
     if (response.ok) {
       status.className = "enroll-status ok";
-      status.textContent = "Enrolled " + answer.id + ". Restart the SummriseLaunch service, then reload this panel.";
+      status.textContent = answer.restarting
+        ? "Enrolled " + answer.id + ". The device is restarting to connect; reload this panel in a few seconds."
+        : "Enrolled " + answer.id + ". Restart the SummriseLaunch service, then reload this panel.";
     } else {
       status.className = "enroll-status error";
       status.textContent = (answer && answer.error) || "the device answered HTTP " + response.status;

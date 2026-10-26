@@ -32,7 +32,15 @@ use crate::watchdog;
 /// Build the API's router. Test-only: production always has a console and a mesh slot to fill.
 #[cfg(test)]
 pub(crate) fn router(config: &Config, store: Store) -> Router {
-    router_with(config, store, terminal::Limits::default(), None, None, None)
+    router_with(
+        config,
+        store,
+        terminal::Limits::default(),
+        None,
+        None,
+        None,
+        no_restart(),
+    )
 }
 
 /// A router whose terminal capability uses `limits`. Test-only: an in-process test shortens the
@@ -43,7 +51,7 @@ pub(crate) fn router_with_limits(
     store: Store,
     limits: terminal::Limits,
 ) -> Router {
-    router_with(config, store, limits, None, None, None)
+    router_with(config, store, limits, None, None, None, no_restart())
 }
 
 fn router_with(
@@ -53,6 +61,7 @@ fn router_with(
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
+    restart: RestartHook,
 ) -> Router {
     let state = AppState {
         token: load_token(&config.token_file),
@@ -61,6 +70,8 @@ fn router_with(
         helper,
         data: config.data.clone(),
         panel_token: mint_panel_token(),
+        supervised: config.release_sha.is_some(),
+        restart,
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -120,6 +131,14 @@ pub async fn serve(
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
 ) -> io::Result<()> {
+    // A supervised enrollment restarts through the launcher after the answer reaches the page; a
+    // standalone process has no supervisor to bring it back, so its handler never calls this.
+    let restart: RestartHook = std::sync::Arc::new(|| {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            std::process::exit(0);
+        });
+    });
     let app = router_with(
         &config,
         store,
@@ -127,6 +146,7 @@ pub async fn serve(
         console,
         mesh,
         helper,
+        restart,
     );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
@@ -155,6 +175,16 @@ async fn bind(config: &Config) -> io::Result<tokio::net::TcpListener> {
     tokio::net::TcpListener::bind(loopback_addr(config.port)).await
 }
 
+/// What a successful panel enrollment does when the launcher is the parent: restart the app so its
+/// console link is rebuilt. A function so a test can record the call instead of ending the process.
+type RestartHook = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// The hook a test uses: a restart is never requested. Production passes its own hook to `serve`.
+#[cfg(test)]
+fn no_restart() -> RestartHook {
+    std::sync::Arc::new(|| {})
+}
+
 /// Everything a handler needs: the state file, the token read once at startup, and the release this
 /// process was started as (the fact health reports).
 #[derive(Clone)]
@@ -173,6 +203,12 @@ struct AppState {
     /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
+    /// Whether the launcher started this process with a verified digest. Only then may a panel
+    /// enrollment restart it: a standalone app that exits would not come back.
+    supervised: bool,
+    /// What to do after a supervised enrollment wrote the console link (the real hook exits after a
+    /// short delay so the answer reaches the page; tests record the call).
+    restart: RestartHook,
 }
 
 impl AppState {
@@ -357,7 +393,16 @@ async fn enroll_from_panel(
         allow_plaintext: request.allow_plaintext.unwrap_or(false),
     };
     match crate::enroll::enroll(&invocation).await {
-        Ok(enrollment) => Json(serde_json::json!({ "id": enrollment.id })).into_response(),
+        Ok(enrollment) => {
+            // The app builds its console link at boot. Under the launcher, exit so the supervisor
+            // restarts it with the link that was just written; standalone, say so instead of dying.
+            let restarting = app.supervised;
+            if restarting {
+                (app.restart)();
+            }
+            Json(serde_json::json!({ "id": enrollment.id, "restarting": restarting }))
+                .into_response()
+        }
         // The operator reads the device's own sentence; the panel invents none.
         Err(error) => sentence_response(StatusCode::BAD_REQUEST, &error.to_string()),
     }
@@ -723,6 +768,19 @@ mod tests {
             router(&self.config, self.store.clone())
         }
 
+        /// The same router with a recorded restart hook, for the supervised-enrolment test.
+        fn app_with_restart(&self, restart: RestartHook) -> Router {
+            router_with(
+                &self.config,
+                self.store.clone(),
+                terminal::Limits::default(),
+                None,
+                None,
+                None,
+                restart,
+            )
+        }
+
         /// The same router with a helper identity, for the registration test.
         fn app_with_helper(&self, helper: Arc<crate::helper::Helper>) -> Router {
             router_with(
@@ -732,6 +790,7 @@ mod tests {
                 None,
                 None,
                 Some(helper),
+                no_restart(),
             )
         }
 
@@ -1457,6 +1516,10 @@ mod tests {
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "the token is lowercase hex: {token}"
         );
+        assert!(
+            html.contains("The device is restarting to connect"),
+            "the page explains the supervised restart, and keeps the manual sentence for a standalone start"
+        );
         for id in [
             "enroll-console",
             "enroll-code",
@@ -1584,7 +1647,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_panel_enrols_this_machine_and_answers_only_the_device_id() {
+    async fn the_panel_enrols_this_machine_and_answers_its_id_and_whether_it_restarts() {
         let fixture = fixture("panel-enroll-ok", None);
         let console = MockConsole::start().await;
         let client = client();
@@ -1608,8 +1671,12 @@ mod tests {
         assert_eq!(id.len(), 64, "the id is the identity's public key in hex");
         assert_eq!(
             answer.as_object().map(|object| object.len()),
-            Some(1),
-            "the answer is the id and nothing else: {text}"
+            Some(2),
+            "the answer is the id and the restart fact: {text}"
+        );
+        assert_eq!(
+            answer["restarting"], false,
+            "a standalone start is not restarted: it would not come back"
         );
         assert!(
             !text.contains(&console.token(0)),
@@ -1639,6 +1706,49 @@ mod tests {
             registrations[0]["signature"].as_str().map(str::len),
             Some(128),
             "the registration is signed with the device identity"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_supervised_enrolment_asks_for_a_restart_after_writing_the_link() {
+        let fixture = fixture_with_release(
+            "panel-enroll-restart",
+            None,
+            Some("2.0.3"),
+            Some("b1946ac92492d2347c6235b4d2611184"),
+            Some(Channel::Stable),
+        );
+        let console = MockConsole::start().await;
+        let client = client();
+        let calls = Arc::new(AtomicU64::new(0));
+        let recorder = calls.clone();
+        let hook: RestartHook = Arc::new(move || {
+            recorder.fetch_add(1, Ordering::SeqCst);
+        });
+        let server = PanelServer::start(fixture.app_with_restart(hook)).await;
+        let token = served_token(&client, &server).await;
+
+        let (status, answer, text) = post_enroll(
+            &client,
+            &server.base_url,
+            Some(&token),
+            json!({ "console_url": console.base_url.clone(), "code": "a".repeat(64) }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{text}");
+        assert_eq!(
+            answer["restarting"], true,
+            "a supervised start asks for the restart"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the hook is asked exactly once"
+        );
+        assert!(
+            fixture.config.data.join("console.json").exists(),
+            "the console link is written before the restart is requested"
         );
     }
 
