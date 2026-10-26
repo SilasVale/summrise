@@ -129,6 +129,20 @@ function terminalTheme() {
     : { background: "#10151c", foreground: "#d5dde6", cursor: "#ff8a4c", selectionBackground: "#2a3540" };
 }
 
+/**
+ * How a match reads on the terminal's dark screen: a quiet slate for every match, amber for the one
+ * the search is on. The addon draws nothing without this object — a search would select a line and
+ * `clearDecorations()` would have nothing to clear — so the two requirements travel together.
+ */
+const SEARCH_DECORATIONS = {
+  matchBackground: "#3a4f63",
+  matchBorder: "#5b7a99",
+  matchOverviewRuler: "#5b7a99",
+  activeMatchBackground: "#b45309",
+  activeMatchBorder: "#f59e0b",
+  activeMatchColorOverviewRuler: "#f59e0b"
+} as const;
+
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -264,7 +278,7 @@ export function TerminalWorkspace({
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
   const [presetError, setPresetError] = useState<string | null>(null);
   // Scrollback search is a view of the xterm's own buffer, so it is page state, not a device call.
-  const [finding, setFinding] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   const [findTerm, setFindTerm] = useState("");
   const [findMiss, setFindMiss] = useState(false);
   const instances = useRef(new Map<string, Instance>());
@@ -322,6 +336,18 @@ export function TerminalWorkspace({
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  /**
+   * The xterm that belongs to a tab, or undefined while that tab has no terminal (yet).
+   *
+   * A tab's addons live on its own instance, so every walk from a tab (or from the active tab's key)
+   * to `term`, `fit` or `search` goes through here; a tab that went away has no instance at all.
+   */
+  const instanceAt = useCallback(
+    (key: string | null | undefined): Instance | undefined =>
+      key ? instances.current.get(key) : undefined,
+    []
+  );
 
   /** One read at this tab's cursor, and the cursor it returns. */
   const readOnce = useCallback(async (tab: Tab): Promise<{ data?: string; cursor?: number }> => {
@@ -477,7 +503,7 @@ export function TerminalWorkspace({
 
   const poll = useCallback(
     async (tab: Tab) => {
-      const instance = instances.current.get(tab.key);
+      const instance = instanceAt(tab.key);
       if (!instance) return;
       const current = faultRef.current.get(tab.key);
       if (current && (current.kind === "closed" || current.kind === "grant")) return;
@@ -494,7 +520,7 @@ export function TerminalWorkspace({
         fail(tab, "read", cause);
       }
     },
-    [clearFault, fail, readOnce]
+    [clearFault, fail, instanceAt, readOnce]
   );
 
   // One xterm per tab, created when its host element exists and disposed when the tab goes away.
@@ -555,8 +581,8 @@ export function TerminalWorkspace({
 
   // The field is the point of opening the bar, so the operator can type a term straight away.
   useEffect(() => {
-    if (finding) findInput.current?.focus();
-  }, [finding]);
+    if (findOpen) findInput.current?.focus();
+  }, [findOpen]);
 
   // The bar searches the session on screen. A tab switch leaves the decorations behind because they
   // were drawn on that tab's xterm, not this one's, and drops the miss sentence because it was about
@@ -564,20 +590,20 @@ export function TerminalWorkspace({
   // nothing was drawn, so nothing is cleared.
   useEffect(() => {
     const left = searchedTab.current;
-    if (finding && left && left !== active) {
-      instances.current.get(left)?.search.clearDecorations();
+    if (findOpen && left && left !== active) {
+      instanceAt(left)?.search.clearDecorations();
       setFindMiss(false);
     }
     searchedTab.current = active;
-  }, [active, finding]);
+  }, [active, findOpen, instanceAt]);
 
   // Closing the last session takes the bar with it: there is no scrollback left for it to search.
   useEffect(() => {
-    if (active === null && finding) {
-      setFinding(false);
+    if (active === null && findOpen) {
+      setFindOpen(false);
       setFindMiss(false);
     }
-  }, [active, finding]);
+  }, [active, findOpen]);
 
   // The active tab polls; switching polls once immediately so the tab is current when it appears.
   //
@@ -591,7 +617,7 @@ export function TerminalWorkspace({
     if (!active || !visible) return;
     const tab = tabs.find((entry) => entry.key === active);
     if (!tab) return;
-    const instance = instances.current.get(active);
+    const instance = instanceAt(active);
     if (instance) {
       try {
         instance.fit.fit();
@@ -613,7 +639,7 @@ export function TerminalWorkspace({
       if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
       pollTimer.current = null;
     };
-  }, [active, tabs, grant, visible, poll]);
+  }, [active, tabs, grant, visible, poll, instanceAt]);
 
   // The presets belong to the device, so they are re-read when the grant's device changes.
   useEffect(() => {
@@ -844,36 +870,34 @@ export function TerminalWorkspace({
    * The addon walks the xterm's own retained output, so a search is answered from what the page
    * already has: it never becomes a device call, and it dies with the terminal it belongs to.
    */
-  const activeSearch = () => {
-    const key = activeRef.current;
-    return key ? instances.current.get(key)?.search : undefined;
-  };
+  const activeSearch = () => instanceAt(activeRef.current)?.search;
 
   /** Search the active tab's scrollback; a miss is the bar's sentence, not a fault on the tab. */
   const findStep = (direction: "next" | "previous") => {
     const search = activeSearch();
     if (!search || findTerm === "") return;
-    const hit = direction === "next" ? search.findNext(findTerm) : search.findPrevious(findTerm);
+    const options = { decorations: SEARCH_DECORATIONS };
+    const hit =
+      direction === "next" ? search.findNext(findTerm, options) : search.findPrevious(findTerm, options);
     setFindMiss(!hit);
   };
 
   /** Put the bar away, taking the decorations it drew with it, and give the keys back to the session. */
   const closeFind = () => {
-    const key = activeRef.current;
-    const instance = key ? instances.current.get(key) : undefined;
+    const instance = instanceAt(activeRef.current);
     instance?.search.clearDecorations();
-    setFinding(false);
+    setFindOpen(false);
     setFindMiss(false);
     instance?.term.focus();
   };
 
   const toggleFind = () => {
-    if (finding) {
+    if (findOpen) {
       closeFind();
       return;
     }
     setFindMiss(false);
-    setFinding(true);
+    setFindOpen(true);
   };
 
   return (
@@ -992,8 +1016,18 @@ export function TerminalWorkspace({
         </div>
       )}
 
-      {finding && activeTab && (
-        <div className="find-bar" role="search">
+      {/* Escape is the bar's key, not the field's: a key pressed on Next or Close still puts the bar
+          away, because the event bubbles to the container that owns it. */}
+      {findOpen && activeTab && (
+        <div
+          className="find-bar"
+          role="search"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            closeFind();
+          }}
+        >
           <input
             ref={findInput}
             type="text"
@@ -1006,13 +1040,9 @@ export function TerminalWorkspace({
               setFindMiss(false);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                findStep(event.shiftKey ? "previous" : "next");
-              } else if (event.key === "Escape") {
-                event.preventDefault();
-                closeFind();
-              }
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              findStep(event.shiftKey ? "previous" : "next");
             }}
           />
           <button type="button" disabled={findTerm === ""} onClick={() => findStep("next")}>Next</button>

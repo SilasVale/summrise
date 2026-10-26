@@ -6,9 +6,10 @@ import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "
 import { restoreGlobal } from "./test/dom";
 
 /// The xterms the component created, in creation order: a font change is asserted on the instance,
-/// because that is what the operator's screen shows.
+/// because that is what the operator's screen shows, and the loaded addons are how a tab proves the
+/// search addon belongs to its own terminal.
 const mockedXterm = vi.hoisted(() => ({
-  instances: [] as { options: Record<string, unknown> }[]
+  instances: [] as { options: Record<string, unknown>; loadAddon: Mock }[]
 }));
 
 /// The fit addons, in creation order: a font change refits each xterm into the host it already has.
@@ -495,12 +496,14 @@ describe("TerminalWorkspace search", () => {
     expect(screen.getByRole("button", { name: "Find" })).toBeDisabled();
   });
 
-  it("finds forward on Enter and backward on Shift+Enter, with no case filter", async () => {
+  it("finds forward on Enter and backward on Shift+Enter, decorating the matches", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
     await screen.findByRole("tab", { name: /pty 1/ });
     await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
     const addon = mockedSearch.instances[0];
+    // The addon is loaded on this tab's own xterm, so it searches that tab's scrollback and no other.
+    expect(mockedXterm.instances[0].loadAddon.mock.calls.map(([loaded]) => loaded)).toContain(addon);
 
     const input = openSearch();
     expect(input).toHaveFocus();
@@ -513,11 +516,18 @@ describe("TerminalWorkspace search", () => {
 
     expect(addon.findNext).toHaveBeenCalledTimes(1);
     expect(addon.findNext.mock.calls[0][0]).toBe("error");
-    expect(addon.findNext.mock.calls[0][1]?.caseSensitive).toBeUndefined();
+    // Without decorations the addon selects a match but draws nothing, and clearing draws nothing too.
+    const next = addon.findNext.mock.calls[0][1];
+    expect(next?.decorations).toMatchObject({
+      matchBackground: "#3a4f63",
+      activeMatchBackground: "#b45309"
+    });
+    expect(next?.caseSensitive).toBeUndefined();
 
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     expect(addon.findPrevious).toHaveBeenCalledTimes(1);
     expect(addon.findPrevious.mock.calls[0][0]).toBe("error");
+    expect(addon.findPrevious.mock.calls[0][1]?.decorations).toBeDefined();
     expect(addon.findPrevious.mock.calls[0][1]?.caseSensitive).toBeUndefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -560,6 +570,26 @@ describe("TerminalWorkspace search", () => {
     fireEvent.keyDown(again, { key: "Escape" });
     expect(screen.queryByPlaceholderText("Find in this session")).not.toBeInTheDocument();
     expect(addon.clearDecorations).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes with Escape from a button in the bar, not only from the field", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
+    const addon = mockedSearch.instances[0];
+
+    const input = openSearch();
+    fireEvent.change(input, { target: { value: "error" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const close = screen.getByRole("button", { name: "Close" });
+    close.focus();
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Escape" });
+
+    expect(screen.queryByPlaceholderText("Find in this session")).not.toBeInTheDocument();
+    expect(addon.clearDecorations).toHaveBeenCalledTimes(1);
   });
 
   it("toggles the bar back out of the way from Find", async () => {
