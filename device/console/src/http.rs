@@ -1,5 +1,5 @@
-//! The HTTP surface: the operator page, login, enrollment, the device registry, grant signing and
-//! health.
+//! The HTTP surface: the operator page, login, enrollment, the device registry, grant signing,
+//! permanent-token management and health.
 //!
 //! One router, built once from a loaded [`Console`]. The handlers are thin on purpose: the decisions
 //! live in `auth`, `codes`, `devices` and `grants`, and the router only turns refusals into status
@@ -31,6 +31,7 @@ use crate::denials::Denials;
 use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
+use crate::tokens::{TokenError, TokenMeta, Tokens};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -77,6 +78,8 @@ struct Inner {
     grant_key: SigningKey,
     sessions: Mutex<Vec<Session>>,
     devices: Mutex<DeviceRegistry>,
+    /// The operator's permanent API tokens: a credential the console exchanges for a short grant.
+    tokens: Mutex<Tokens>,
     /// Saved terminal presets, keyed by device inside the file. Operator convenience, not device state.
     connections: Mutex<connections::Connections>,
     codes: Mutex<EnrollmentCodes>,
@@ -150,6 +153,7 @@ impl Console {
         let operator_token = load_operator_token(&config.operator_token_file)?;
         let grant_key = load_grant_key(&config.grant_key_file)?;
         let devices = DeviceRegistry::load(&config.data)?;
+        let tokens = Tokens::load(&config.data)?;
         let connections = connections::Connections::load(&config.data)?;
         let codes = EnrollmentCodes::load(&config.data)?;
 
@@ -159,6 +163,7 @@ impl Console {
                 grant_key,
                 sessions: Mutex::new(Vec::new()),
                 devices: Mutex::new(devices),
+                tokens: Mutex::new(tokens),
                 connections: Mutex::new(connections),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
@@ -263,6 +268,10 @@ impl Console {
             // route is what makes that fallback a fallback.
             .route("/tools", get(tool_catalogue))
             .route("/grants", post(create_grant))
+            // Permanent tokens an AI client can keep in a fixed configuration. The create response
+            // is the only time the secret is visible; the list is metadata only.
+            .route("/tokens", get(list_tokens).post(create_token))
+            .route("/tokens/:id", axum::routing::delete(revoke_token))
             .route("/mcp", post(proxy_mcp))
             .route("/mcp/:id", post(standard_mcp))
             .route("/audit", get(list_audit))
@@ -986,6 +995,93 @@ async fn create_grant(
     }))
 }
 
+#[derive(Deserialize)]
+struct CreateToken {
+    name: String,
+    device_id: String,
+    tools: Vec<String>,
+    /// The operator's explicit consent to destructive tools under this token. Absent means `false`:
+    /// consent is a deliberate `true`, never a default.
+    #[serde(default)]
+    allow_destructive: bool,
+}
+
+/// The create answer: the public facts, plus the one and only copy of the secret a client gets.
+#[derive(Serialize)]
+struct CreatedToken {
+    #[serde(flatten)]
+    meta: TokenMeta,
+    /// The plaintext token. Shown once; the console stores only its SHA-256.
+    token: String,
+}
+
+/// `GET /tokens`: the operator's permanent tokens, newest first, without hashes or secrets.
+async fn list_tokens(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<TokenMeta>> {
+    Json(lock(&app.tokens).list())
+}
+
+/// `POST /tokens`: mint one permanent token for one device and a fixed tool set.
+///
+/// The answer is the only time the plaintext exists outside the operator's client: the registry
+/// keeps its SHA-256, the list reports metadata only, and the audit line names the device and never
+/// the token.
+async fn create_token(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Json(request): Json<CreateToken>,
+) -> Result<(StatusCode, Json<CreatedToken>), ApiError> {
+    let audit_id = audit_device_id(&request.device_id);
+    let device_known = app.has_device(&request.device_id);
+    let created = lock(&app.tokens).create(
+        crate::tokens::Draft {
+            name: request.name,
+            device_id: request.device_id,
+            tools: request.tools,
+            allow_destructive: request.allow_destructive,
+        },
+        device_known,
+        (app.now)(),
+    );
+
+    let (meta, token) = match created {
+        Ok(created) => created,
+        Err(error) => {
+            let refusal = match error {
+                TokenError::NameEmpty => ApiError::bad_request("name_empty"),
+                TokenError::NameTooLong => ApiError::bad_request("invalid_name"),
+                TokenError::EmptyTools => ApiError::bad_request("empty_tools"),
+                TokenError::UnknownTool => ApiError::bad_request("unknown_tool"),
+                TokenError::UnknownDevice => ApiError::not_found("unknown_device"),
+                TokenError::TooManyTokens => ApiError::too_many("too_many_tokens"),
+                TokenError::Storage => ApiError::internal(),
+            };
+            return Err(app.deny(audit_id.as_deref(), refusal).await);
+        }
+    };
+
+    app.record("token", Some(&meta.device_id), StatusCode::CREATED, None)
+        .await;
+
+    Ok((StatusCode::CREATED, Json(CreatedToken { meta, token })))
+}
+
+/// `DELETE /tokens/:id`: revoke one token. The record is removed, so its next request is 401.
+async fn revoke_token(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    _: OperatorSession,
+) -> Result<StatusCode, ApiError> {
+    let removed = lock(&app.tokens)
+        .revoke(&id)
+        .map_err(|_| ApiError::internal())?;
+    if !removed {
+        return Err(ApiError::not_found("no_such_token"));
+    }
+    app.record("token_revoke", None, StatusCode::NO_CONTENT, None)
+        .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `GET /devices/{id}/channel`: the device dials in, and this socket becomes its one live channel.
 ///
 /// Authentication is the token registration returned. An unregistered id and a wrong token are the
@@ -1163,6 +1259,44 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
     } else {
         Err(ApiError::not_found("unknown_device"))
     }
+}
+
+/// Mint the grant one permanent token authorizes for this request.
+///
+/// The scope is the token's, never the request's: the record's device, tools and destructive consent
+/// are what get signed, for [`crate::tokens::MINTED_GRANT_LIFETIME_S`] seconds. The caller of this
+/// route therefore cannot widen what the token may reach, and the device verifies this grant as it
+/// verifies any other.
+///
+/// `Err` is the denial log's detail. The wire answer is always `unauthorized`: a caller holding a
+/// wrong, foreign or revoked token learns only that it was refused.
+fn mint_token_grant(
+    app: &AppState,
+    device_id: &str,
+    token: &str,
+) -> Result<GrantEnvelope, &'static str> {
+    let hash = crate::tokens::hash_token(token);
+    let Some(record) = lock(&app.tokens).find_by_hash(&hash) else {
+        return Err("unknown_api_token");
+    };
+    if record.device_id != device_id {
+        return Err("api_token_device_mismatch");
+    }
+
+    let signed = grants::sign(
+        &app.grant_key,
+        device_id,
+        record.tools,
+        crate::tokens::MINTED_GRANT_LIFETIME_S,
+        record.allow_destructive,
+        (app.now)(),
+    )
+    .map_err(|_| "api_token_unusable")?;
+
+    Ok(GrantEnvelope {
+        grant: signed.grant,
+        signature: hex::encode(&signed.signature.to_bytes()),
+    })
 }
 
 /// Forward one MCP exchange to a device and record the authenticated outcome.
@@ -1344,9 +1478,13 @@ async fn proxy_mcp(
 
 /// `POST /mcp/:id`: the standard MCP transport an AI client connects to.
 ///
-/// The grant is the credential. It is verified before the device lookup (no registry oracle) and
-/// before the body is read (no 8 MiB buffer for an unauthenticated caller). Everything before a
-/// verified grant goes to the denial log; everything after it is an audited action.
+/// The bearer is one of two credentials: a grant envelope, verified exactly as it always was, or a
+/// permanent token, found by hash, checked against this path's device and exchanged for a
+/// sixty-second grant with the token's tools and consent. The device only ever sees a grant.
+///
+/// Either credential is checked before the device lookup (no registry oracle) and before the body is
+/// read (no 8 MiB buffer for an unauthenticated caller). Everything before a verified grant or a
+/// valid token goes to the denial log; everything after it is an audited action.
 async fn standard_mcp(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
@@ -1371,15 +1509,32 @@ async fn standard_mcp(
             .into_response();
     }
 
-    let Some(grant) = crate::mcp::grant_from_headers(&headers) else {
+    let Some(bearer) = crate::mcp::bearer_from_headers(&headers) else {
         return app
             .refuse(audit_id.as_deref(), ApiError::unauthorized())
             .await
             .into_response();
     };
-    if let Err(error) = verify_presented(&app, &device_id, &grant) {
-        return app.refuse(audit_id.as_deref(), error).await.into_response();
-    }
+    // Two bearer types, one grant from here on: a presented envelope is verified exactly as before,
+    // and a permanent token mints an envelope with the token's scope. A token failure is a
+    // pre-authentication refusal, so it goes to the denial log, never to the audit.
+    let grant = match bearer {
+        crate::mcp::BearerKind::Grant(grant) => {
+            if let Err(error) = verify_presented(&app, &device_id, &grant) {
+                return app.refuse(audit_id.as_deref(), error).await.into_response();
+            }
+            grant
+        }
+        crate::mcp::BearerKind::Token(token) => match mint_token_grant(&app, &device_id, &token) {
+            Ok(grant) => grant,
+            Err(detail) => {
+                return app
+                    .refuse_as(audit_id.as_deref(), ApiError::unauthorized(), detail)
+                    .await
+                    .into_response()
+            }
+        },
+    };
     if let Err(error) = ensure_registered(&app, &device_id) {
         return app.deny(audit_id.as_deref(), error).await.into_response();
     }
