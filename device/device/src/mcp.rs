@@ -813,7 +813,7 @@ impl DeviceServer {
             Handler::TerminalRead => {
                 let arguments: PtyReadArgs = parse(arguments, name)?;
                 let id = session_id(name, &arguments.id)?;
-                let (bytes, cursor) = self
+                let answer = self
                     .terminal
                     .read(&id, arguments.cursor.unwrap_or(0))
                     .map_err(|error| refused(name, error))?;
@@ -822,9 +822,16 @@ impl DeviceServer {
                 // already past it, so the replacement character is the honest answer rather than a
                 // retry the capability cannot prove is safe. A byte-stream client (the panel's
                 // terminal) reads the same ring through its own transport later.
+                //
+                // `alive`, `exit_code` and `signal` are the session's end facts: an older client
+                // ignores them, and a client of an older device sees only `{data, cursor}` and must
+                // treat that as alive.
                 Ok(json!({
-                    "data": String::from_utf8_lossy(&bytes),
-                    "cursor": cursor,
+                    "data": String::from_utf8_lossy(&answer.data),
+                    "cursor": answer.cursor,
+                    "alive": answer.alive,
+                    "exit_code": answer.exit_code,
+                    "signal": answer.signal,
                 })
                 .to_string())
             }
@@ -3768,6 +3775,20 @@ mod tests {
                 .await;
             assert_eq!(read["result"]["isError"], false, "{read}");
             let body: Value = serde_json::from_str(text_of(&read)).expect("read is JSON");
+            assert_eq!(
+                body["alive"], true,
+                "a live session says it is alive: {body}"
+            );
+            assert_eq!(
+                body["exit_code"],
+                Value::Null,
+                "a live session has no exit code: {body}"
+            );
+            assert_eq!(
+                body["signal"],
+                Value::Null,
+                "a live session ended on no signal: {body}"
+            );
             output.push_str(body["data"].as_str().expect("data is a string"));
             let next = body["cursor"].as_u64().expect("cursor is a number");
             assert!(next >= cursor, "a cursor never moves backwards");

@@ -411,6 +411,26 @@ pub struct SessionInfo {
     pub pid: Option<u32>,
 }
 
+/// The answer to one read: the bytes after the cursor, the new cursor, and what is known about the
+/// session's end.
+///
+/// `alive` is false once the reader saw the output end or the child's status. The exit facts are
+/// the child's own: a serial or SSH session has no child, so both stay `None`, and a still-running
+/// child has neither yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadAnswer {
+    /// The retained output after the caller's cursor.
+    pub data: Vec<u8>,
+    /// The absolute stream position after this answer; the next call's cursor.
+    pub cursor: u64,
+    /// Whether the session is still producing. False once the reader saw the output end.
+    pub alive: bool,
+    /// The child's exit code, once it was reaped with one.
+    pub exit_code: Option<i32>,
+    /// The signal that ended the child, in the platform's spelling, if it ended on one.
+    pub signal: Option<String>,
+}
+
 /// Why a terminal operation was refused or failed.
 ///
 /// The variants are typed rather than stringly: the MCP surface renders them, and a test names the
@@ -747,13 +767,19 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
-/// The reader thread's half of a session: the ring plus the two facts a client can observe.
+/// The reader thread's half of a session: the ring plus the facts a client can observe.
 struct Output {
     ring: Ring,
     /// The child's output ended (a natural exit or a read error), not necessarily a close.
     eof: bool,
     /// The session is being closed; the reader must stop.
     closed: bool,
+    /// The child's exit code, once the reader reaped it. A serial or SSH session has no child, so
+    /// it keeps `None`.
+    exit_code: Option<i32>,
+    /// The signal the child ended on, in the platform's spelling, when it ended on one. A serial or
+    /// SSH session has no child, so it keeps `None`.
+    signal: Option<String>,
 }
 
 /// One live session.
@@ -1196,12 +1222,26 @@ impl PtyRegistry {
         }
     }
 
-    /// Copy a session's output from `cursor` to the current end.
-    pub fn read(&self, id: &SessionId, cursor: u64) -> Result<(Vec<u8>, u64), PtyError> {
+    /// Copy a session's output from `cursor` to the current end, with the session's end facts.
+    pub fn read(&self, id: &SessionId, cursor: u64) -> Result<ReadAnswer, PtyError> {
         let mut sessions = lock(&self.sessions);
         let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
         session.last_active_ms = (self.clock)();
-        let read = lock(&session.output).ring.read_from(cursor);
+        let read = {
+            let output = lock(&session.output);
+            output
+                .ring
+                .read_from(cursor)
+                .map(|(data, cursor)| ReadAnswer {
+                    data,
+                    cursor,
+                    // `closed` cannot be observed here: a closing session is already out of the map
+                    // this call holds. The end a reader can read is the reader's EOF.
+                    alive: !output.eof,
+                    exit_code: output.exit_code,
+                    signal: output.signal.clone(),
+                })
+        };
         drop(sessions);
         read
     }
@@ -1408,6 +1448,8 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
+            exit_code: None,
+            signal: None,
         }));
         // portable-pty's Unix spawn calls setsid(), so this pid is the child's session and process
         // group id; the descendants a close has to reach inherit it.
@@ -1485,6 +1527,8 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
+            exit_code: None,
+            signal: None,
         }));
         let task_output = Arc::clone(&output);
         let reader_task = tokio::spawn(async move {
@@ -1575,6 +1619,8 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
+            exit_code: None,
+            signal: None,
         }));
         let thread_output = Arc::clone(&output);
         let thread_name = format!("summrise-serial-reader-{id}");
@@ -1652,6 +1698,7 @@ fn drain_reader(
 ) {
     let mut buffer = [0u8; READ_CHUNK_BYTES];
     let mut child_exited = false;
+    let mut status: Option<portable_pty::ExitStatus> = None;
     loop {
         if lock(&output).closed {
             return;
@@ -1665,13 +1712,17 @@ fn drain_reader(
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 // The patched ConPTY reader reports no data this way, and the pipe never EOFs while
                 // the HPCON lives. Poll the child instead: a natural exit ends the drain after the
-                // bytes already buffered have been read.
+                // bytes already buffered have been read. `try_wait` consumes the status, so keep it.
                 if child_exited {
                     break;
                 }
                 let mut child = lock(&child);
                 match child.try_wait() {
-                    Ok(Some(_)) | Err(_) => child_exited = true,
+                    Ok(Some(exit)) => {
+                        status = Some(exit);
+                        child_exited = true;
+                    }
+                    Err(_) => child_exited = true,
                     Ok(None) => {
                         drop(child);
                         thread::sleep(Duration::from_millis(WOULD_BLOCK_POLL_MS));
@@ -1696,10 +1747,36 @@ fn drain_reader(
         if !lock(&output).closed {
             close_session(pid);
         }
-        let _ = child.try_wait();
+        // The ConPTY would-block path may have reaped the child already; this call then has no status
+        // to give, and the one captured above is the child's own.
+        if status.is_none() {
+            if let Ok(Some(exit)) = child.try_wait() {
+                status = Some(exit);
+            }
+        }
     }
+    let (exit_code, signal) = status.as_ref().map(exit_facts).unwrap_or((None, None));
     let mut output = lock(&output);
+    output.exit_code = exit_code;
+    output.signal = signal;
     output.eof = true;
+}
+
+/// Split a reaped child's status into the two end facts the wire carries.
+///
+/// `portable-pty` 0.8.1 exposes `success()` and `exit_code()`, but its `signal` field is private and
+/// has no accessor. Its `Display` is therefore the only public way to tell a signal death from a
+/// nonzero exit: the crate writes `Terminated by <signal>` for the former and `Exited with code <n>`
+/// for the latter. Without that distinction a shell killed by a signal would be reported with the
+/// crate's synthetic code 1, which is an invented code. A serial or SSH session has no child and
+/// never reaches this function.
+fn exit_facts(status: &portable_pty::ExitStatus) -> (Option<i32>, Option<String>) {
+    let rendered = status.to_string();
+    if let Some(signal) = rendered.strip_prefix("Terminated by ") {
+        (None, Some(signal.to_owned()))
+    } else {
+        (i32::try_from(status.exit_code()).ok(), None)
+    }
 }
 
 /// The reader thread of a serial session: drain the port into the ring and stop when it closes.
@@ -2258,10 +2335,10 @@ mod tests {
         let mut cursor = 0;
         let mut text = String::new();
         while Instant::now() < deadline {
-            let (bytes, next) = registry.read(id, cursor).expect("a live session reads");
-            if next > cursor {
-                text.push_str(&String::from_utf8_lossy(&bytes));
-                cursor = next;
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
             }
             if text.contains(marker) {
                 return text;
@@ -2282,10 +2359,10 @@ mod tests {
         let mut cursor = 0;
         let mut text = String::new();
         while Instant::now() < deadline {
-            let (bytes, next) = registry.read(id, cursor).expect("a live session reads");
-            if next > cursor {
-                text.push_str(&String::from_utf8_lossy(&bytes));
-                cursor = next;
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
             }
             if let Some(number) = number_after(&text, marker) {
                 return number;
@@ -2351,14 +2428,15 @@ mod tests {
 
         // The cursor is a resume token: reading from an old cursor returns the retained tail again,
         // and reading from the newest cursor returns nothing new.
-        let (all, end) = fixture
+        let all = fixture
             .registry
             .read(&id, 0)
             .expect("the retained output is readable from the start");
-        assert!(String::from_utf8_lossy(&all).contains("SUMMRISE42"));
-        let (empty, same) = fixture.registry.read(&id, end).expect("a caught-up read");
-        assert!(empty.is_empty());
-        assert_eq!(same, end);
+        assert!(String::from_utf8_lossy(&all.data).contains("SUMMRISE42"));
+        let end = all.cursor;
+        let empty = fixture.registry.read(&id, end).expect("a caught-up read");
+        assert!(empty.data.is_empty());
+        assert_eq!(empty.cursor, end);
 
         fixture
             .registry
@@ -2393,6 +2471,129 @@ mod tests {
         assert!(
             fixture.registry.list().is_empty(),
             "a closed session is not listed"
+        );
+    }
+
+    /// A shell that exits naturally is reported once, with the child's own exit facts.
+    #[tokio::test]
+    async fn a_natural_exit_reports_the_code_and_keeps_the_output() {
+        let fixture = Fixture::new("pty-natural-exit-facts");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        let live = fixture.registry.read(&id, 0).expect("a live session reads");
+        assert!(live.alive, "a session that is running says so");
+        assert_eq!(live.exit_code, None, "a running child has no exit code");
+
+        fixture
+            .registry
+            .write(&id, b"echo BYE-SESSION-END\nexit 7\n")
+            .await
+            .expect("the marker and the exit are written");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ended = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads while it ends");
+        while ended.alive && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            ended = fixture
+                .registry
+                .read(&id, 0)
+                .expect("the ended session still reads");
+        }
+        assert!(!ended.alive, "the reader saw the shell exit");
+        let printed = String::from_utf8_lossy(&ended.data);
+        assert!(
+            printed.contains("BYE-SESSION-END"),
+            "the retained output outlives the shell: {printed:?}"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            ended.exit_code,
+            Some(7),
+            "the child's own exit code is reported"
+        );
+        #[cfg(not(unix))]
+        assert!(
+            ended.exit_code.is_some(),
+            "a natural exit reports a code; the shell's exact code is not the contract"
+        );
+
+        let second = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a second shell starts");
+        let running = fixture
+            .registry
+            .read(&second, 0)
+            .expect("the running session reads");
+        assert!(running.alive, "a session that is still running says alive");
+        assert_eq!(
+            running.exit_code, None,
+            "a live session does not borrow the ended one's code"
+        );
+    }
+
+    /// A shell killed by a signal is reported as a signal, not with an invented exit code.
+    #[tokio::test]
+    async fn a_signal_death_is_reported_as_a_signal() {
+        let fixture = Fixture::new("pty-signal-exit-facts");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+
+        fixture
+            .registry
+            .write(&id, b"kill -KILL $$\n")
+            .await
+            .expect("the signal is sent to the shell");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ended = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads while it ends");
+        while ended.alive && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            ended = fixture
+                .registry
+                .read(&id, 0)
+                .expect("the ended session still reads");
+        }
+        assert!(!ended.alive, "the reader saw the shell die");
+        assert_eq!(
+            ended.exit_code, None,
+            "a signal death is not an exit code, and the crate's synthetic 1 must not be reported"
+        );
+        assert!(
+            ended.signal.is_some(),
+            "the signal that ended the child is reported: {:?}",
+            ended.signal
         );
     }
 
