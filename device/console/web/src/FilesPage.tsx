@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type FormEvent
 } from "react";
+import { message } from "./format";
 import { useRequestGate } from "./requests";
 import { downloadFile } from "./download";
 import { callTool, type Grant } from "./terminal";
@@ -725,8 +726,4 @@ function download(path: string, data: string) {
     decoded[index] = binary.charCodeAt(index);
   }
   downloadFile(baseName(path), decoded, "application/octet-stream");
-}
-
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

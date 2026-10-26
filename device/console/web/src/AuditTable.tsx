@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
+import { shortId } from "./format";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000; 200 is enough
@@ -9,11 +10,6 @@ import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 export const AUDIT_WINDOW = 200;
 
 const EMPTY: AuditFilter = { device: "", tool: "", status: "all" };
-
-/** An id long enough to be worth shortening; the line's own detail shows the whole one. */
-function shortId(id: string): string {
-  return id.length > 12 ? id.slice(0, 12) + "…" : id;
-}
 
 /**
  * One key per line, stable across filtering and polling.

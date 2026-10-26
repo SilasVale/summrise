@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
 import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
 import { copyText } from "./copy";
+import { shortId } from "./format";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { EventsPage } from "./EventsPage";
@@ -154,7 +155,7 @@ export function App() {
     if (!removing) return;
     try {
       await api.remove(removing.id);
-      setNotice(`${removing.name ?? removing.id.slice(0, 12)} was removed; its channel closed.`);
+      setNotice(`${removing.name ?? shortId(removing.id)} was removed; its channel closed.`);
       setRemoving(null);
       if (selected === removing.id) setSelected(null);
       await load();
@@ -188,7 +189,7 @@ export function App() {
       setNotice("Could not copy the diagnostics: the browser refused the clipboard.");
       return;
     }
-    setNotice("Diagnostics copied for " + (device.name ?? device.id.slice(0, 12)) + ".");
+    setNotice("Diagnostics copied for " + (device.name ?? shortId(device.id)) + ".");
   };
 
   const mintCode = async () => {
@@ -319,7 +320,7 @@ export function App() {
                 {chosen ? (
                   <section className="panel">
                     <div className="panel-head">
-                      <h2>Working on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                      <h2>Working on {chosen.name ?? shortId(chosen.id)}</h2>
                       <div className="actions">
                         <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
                         <button type="button" onClick={() => setConnecting(chosen)}>Connect an AI client</button>
@@ -399,7 +400,7 @@ export function App() {
           {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id || grantStale) && (
             <section className="panel">
               <div className="panel-head">
-                <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                <h2>Grant what the console may do on {chosen.name ?? shortId(chosen.id)}</h2>
               </div>
               <p className="hint">
                 A grant is signed by the console, names the tools and expires. The device checks it on
@@ -563,7 +564,7 @@ export function App() {
       )}
 
       {renaming && (
-        <Modal title={`Rename ${renaming.name ?? renaming.id.slice(0, 12)}`} onClose={() => setRenaming(null)}>
+        <Modal title={`Rename ${renaming.name ?? shortId(renaming.id)}`} onClose={() => setRenaming(null)}>
           <label htmlFor="rename">Name</label>
           <input
             id="rename"
@@ -586,7 +587,7 @@ export function App() {
       )}
 
       {removing && (
-        <Modal title={`Remove ${removing.name ?? removing.id.slice(0, 12)}?`} onClose={() => setRemoving(null)}>
+        <Modal title={`Remove ${removing.name ?? shortId(removing.id)}?`} onClose={() => setRemoving(null)}>
           <p className="hint">
             Its channel closes now and it cannot reconnect. The device keeps running and can be enrolled
             again with a new code.
