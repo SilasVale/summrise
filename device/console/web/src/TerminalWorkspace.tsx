@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
@@ -32,6 +33,8 @@ import { Modal } from "./Modal";
 type Instance = {
   term: Terminal;
   fit: FitAddon;
+  /** The tab's own scrollback search: local to this xterm, and disposed with it. */
+  search: SearchAddon;
 };
 
 /**
@@ -260,6 +263,10 @@ export function TerminalWorkspace({
   const [presetDialog, setPresetDialog] = useState(false);
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
   const [presetError, setPresetError] = useState<string | null>(null);
+  // Scrollback search is a view of the xterm's own buffer, so it is page state, not a device call.
+  const [finding, setFinding] = useState(false);
+  const [findTerm, setFindTerm] = useState("");
+  const [findMiss, setFindMiss] = useState(false);
   const instances = useRef(new Map<string, Instance>());
   const batches = useRef(new Map<string, TerminalWriteBatcher>());
   const hosts = useRef(new Map<string, HTMLDivElement>());
@@ -274,6 +281,9 @@ export function TerminalWorkspace({
   const grantRefusedRef = useRef(onGrantRefused);
   const activeRef = useRef<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+  const findInput = useRef<HTMLInputElement | null>(null);
+  /** The tab the search bar last belonged to, so a switch can clear what it drew there. */
+  const searchedTab = useRef<string | null>(null);
 
   const setFault = useCallback((key: string, fault: Fault) => {
     faultRef.current.set(key, fault);
@@ -502,11 +512,13 @@ export function TerminalWorkspace({
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
+      const search = new SearchAddon();
+      term.loadAddon(search);
       term.open(host);
       term.onData((data) => {
         void write(tab, data);
       });
-      instances.current.set(tab.key, { term, fit });
+      instances.current.set(tab.key, { term, fit, search });
       if (activeRef.current === null) {
         activeRef.current = tab.key;
         setActive(tab.key);
@@ -540,6 +552,32 @@ export function TerminalWorkspace({
     }
     saveFontSize(fontStorage(), fontSize);
   }, [fontSize]);
+
+  // The field is the point of opening the bar, so the operator can type a term straight away.
+  useEffect(() => {
+    if (finding) findInput.current?.focus();
+  }, [finding]);
+
+  // The bar searches the session on screen. A tab switch leaves the decorations behind because they
+  // were drawn on that tab's xterm, not this one's, and drops the miss sentence because it was about
+  // the tab being left; the bar itself stays open and follows the active tab. With the bar closed
+  // nothing was drawn, so nothing is cleared.
+  useEffect(() => {
+    const left = searchedTab.current;
+    if (finding && left && left !== active) {
+      instances.current.get(left)?.search.clearDecorations();
+      setFindMiss(false);
+    }
+    searchedTab.current = active;
+  }, [active, finding]);
+
+  // Closing the last session takes the bar with it: there is no scrollback left for it to search.
+  useEffect(() => {
+    if (active === null && finding) {
+      setFinding(false);
+      setFindMiss(false);
+    }
+  }, [active, finding]);
 
   // The active tab polls; switching polls once immediately so the tab is current when it appears.
   //
@@ -800,6 +838,44 @@ export function TerminalWorkspace({
     }
   };
 
+  /**
+   * The search addon belonging to the tab on screen, or undefined when no terminal is open.
+   *
+   * The addon walks the xterm's own retained output, so a search is answered from what the page
+   * already has: it never becomes a device call, and it dies with the terminal it belongs to.
+   */
+  const activeSearch = () => {
+    const key = activeRef.current;
+    return key ? instances.current.get(key)?.search : undefined;
+  };
+
+  /** Search the active tab's scrollback; a miss is the bar's sentence, not a fault on the tab. */
+  const findStep = (direction: "next" | "previous") => {
+    const search = activeSearch();
+    if (!search || findTerm === "") return;
+    const hit = direction === "next" ? search.findNext(findTerm) : search.findPrevious(findTerm);
+    setFindMiss(!hit);
+  };
+
+  /** Put the bar away, taking the decorations it drew with it, and give the keys back to the session. */
+  const closeFind = () => {
+    const key = activeRef.current;
+    const instance = key ? instances.current.get(key) : undefined;
+    instance?.search.clearDecorations();
+    setFinding(false);
+    setFindMiss(false);
+    instance?.term.focus();
+  };
+
+  const toggleFind = () => {
+    if (finding) {
+      closeFind();
+      return;
+    }
+    setFindMiss(false);
+    setFinding(true);
+  };
+
   return (
     <div className="terminal-workspace">
       <div className="panel-head">
@@ -817,6 +893,7 @@ export function TerminalWorkspace({
             Rename tab
           </button>
           <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
+          <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
           <button
             type="button"
             title={`Smaller terminal text (now ${fontSize})`}
@@ -912,6 +989,36 @@ export function TerminalWorkspace({
               </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {finding && activeTab && (
+        <div className="find-bar" role="search">
+          <input
+            ref={findInput}
+            type="text"
+            aria-label="Find in this session"
+            placeholder="Find in this session"
+            spellCheck={false}
+            value={findTerm}
+            onChange={(event) => {
+              setFindTerm(event.target.value);
+              setFindMiss(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                findStep(event.shiftKey ? "previous" : "next");
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                closeFind();
+              }
+            }}
+          />
+          <button type="button" disabled={findTerm === ""} onClick={() => findStep("next")}>Next</button>
+          <button type="button" disabled={findTerm === ""} onClick={() => findStep("previous")}>Previous</button>
+          <button type="button" onClick={closeFind}>Close</button>
+          {findMiss && <span className="hint" role="status">No match.</span>}
         </div>
       )}
 
