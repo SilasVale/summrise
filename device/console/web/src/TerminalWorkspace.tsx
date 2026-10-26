@@ -528,7 +528,7 @@ export function TerminalWorkspace({
     }
     pollTimer.current = window.setInterval(() => {
       if (activeRef.current === active) void poll(tab);
-    }, 700);
+    }, 250);
     return () => {
       if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
       pollTimer.current = null;

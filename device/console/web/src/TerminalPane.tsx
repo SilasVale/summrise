@@ -89,7 +89,7 @@ export function TerminalPane({ grant }: { grant: Grant }) {
       term.current.focus();
       resize();
       window.addEventListener("resize", resize);
-      timer.current = window.setInterval(() => void poll(), 700);
+      timer.current = window.setInterval(() => void poll(), 250);
       await poll();
     } catch (cause) {
       setStatus("Could not open: " + (cause instanceof Error ? cause.message : String(cause)));
