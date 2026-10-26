@@ -229,7 +229,8 @@ rather than race the swap transaction.
 The supervisor starts the app with --install, --data, --port, --token-file and the release facts of
 the sidecar it booted: --release-version, --release-sha and --release-channel (stable or canary).
 The app records those in state.json and /api/health; there is no other source for its version or
-channel."
+channel. The child is also marked SUMMRISE_SUPERVISED=1: only a process with a supervisor may exit
+after a panel enrollment and trust that it will be brought back."
     );
 }
 
@@ -782,7 +783,10 @@ fn spawn_app(config: &Config, sidecar: &Sidecar) -> io::Result<Child> {
     let mut command = Command::new(app_exe(&config.install));
     command
         .args(app_arguments(config, sidecar))
-        .current_dir(&config.install);
+        .current_dir(&config.install)
+        // The mark the app reads before it restarts after a panel enrollment: argv is caller-supplied,
+        // this says the process has a supervisor that will bring it back.
+        .env("SUMMRISE_SUPERVISED", "1");
     command.spawn()
 }
 

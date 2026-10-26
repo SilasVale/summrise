@@ -31,8 +31,9 @@ panel; the Rust server tests do.
 - **The enrollment protocol is the existing one.** No new console route, no change to the registration
   signature, no new token format. The panel is a caller of `enroll::enroll`.
 - **Errors are the device's sentences.** The panel shows `EnrollError`'s Display; it invents no text.
-  Success returns the device id and says the `SummriseLaunch` service must be restarted for the
-  running app to open the channel (the console link is built at boot).
+  Success returns the device id. A supervised start (the launcher marks its child with
+  `SUMMRISE_SUPERVISED=1`) restarts through the launcher, which re-opens the console link at the new
+  boot; a standalone start says the service must be restarted, because nothing would bring it back.
 - **A second enrollment refuses without `force`** (the existing `TokenConflict`); the form's "Replace
   an existing enrollment" maps to `force`.
 - English UI/comments. `cargo test -p summrise-device`, clippy, fmt; `npm test` untouched; the
@@ -149,5 +150,6 @@ diff is one line plus the comment. Commit:
 - Spec coverage: the operator's UI-enrollment question (the panel form), the Actions storage warning
   (the artifact retention).
 - Review Focus: token scope, local-only gates, sentences/restart, explicit re-enrollment, retention.
-- Deliberate limits: no hot-reload of the console link (restart required), no panel login (loopback
-  is the trust boundary), no new console route.
+- Deliberate limits: no in-process reload of the console link (a supervised panel enrollment exits
+  and the launcher restarts it; standalone needs a manual restart), no panel login (loopback is the
+  trust boundary), no new console route.

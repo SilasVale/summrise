@@ -6,6 +6,18 @@ import { AuditTable } from "./AuditTable";
 const alpha = "device-a-0123456789ab";
 const beta = "device-b-0123456789ab";
 
+function line(overrides: Partial<AuditLine> = {}): AuditLine {
+  return {
+    ts_ms: Date.UTC(2026, 9, 26, 8, 0, 0),
+    kind: "denied",
+    device_id: null,
+    tool: null,
+    detail: null,
+    status: 401,
+    ...overrides
+  };
+}
+
 const devices: Device[] = [
   { id: alpha, name: "Alpha", online: true, version: "1.2.3", last_seen_ms: 1 },
   { id: beta, name: "Beta", online: false, version: null, last_seen_ms: null }
@@ -109,6 +121,41 @@ describe("AuditTable", () => {
     render(<AuditTable lines={[]} devices={devices} tokens={[]} />);
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
     expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
+  });
+
+  it("names the caller's log when a filter matches nothing", () => {
+    render(
+      <AuditTable
+        lines={[line({ detail: "bad_operator_token" })]}
+        devices={[]}
+        tokens={[]}
+        empty="No failed authentications yet."
+        emptyFiltered="No failed authentication matches this filter."
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+      target: { value: "no-such-detail" }
+    });
+    expect(
+      screen.getByText("No failed authentication matches this filter.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
+  });
+
+  it("hides the token filter when no line in the window carries a token", () => {
+    const { rerender } = render(
+      <AuditTable lines={[line({ detail: "bad_operator_token" })]} devices={[]} tokens={[]} />
+    );
+    expect(screen.queryByLabelText("Token")).not.toBeInTheDocument();
+
+    rerender(
+      <AuditTable
+        lines={[line({ detail: "tool/call", token_id: "token-1" })]}
+        devices={[]}
+        tokens={[]}
+      />
+    );
+    expect(screen.getByLabelText("Token")).toBeInTheDocument();
   });
 
   it("uses the caller's empty sentence instead of the audit's", () => {

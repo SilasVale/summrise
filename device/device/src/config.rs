@@ -102,6 +102,10 @@ pub struct Config {
     pub release_sha: Option<String>,
     /// `--release-channel` from the launcher, or `None` for a standalone development start.
     pub release_channel: Option<Channel>,
+    /// Whether the process that started this one supervises it (`SUMMRISE_SUPERVISED=1`, set by the
+    /// launcher for its child). Only a supervised app may exit after a panel enrollment: a process an
+    /// operator started by hand would not come back.
+    pub supervised: bool,
     /// The console's base URL, when the console link is on.
     ///
     /// Both console facts are optional, and they are all-or-nothing: a URL without the token file
@@ -221,6 +225,12 @@ impl Config {
         let mut mesh_relay: Option<String> = None;
         let mut mesh_stun: Option<String> = None;
 
+        // The launcher's own mark, not an inference from the argv: a hand-started process given the
+        // launcher's release flags is still not supervised, and must not exit after an enrollment.
+        let supervised = env("SUMMRISE_SUPERVISED")
+            .and_then(|value| value.to_str().map(|text| text == "1"))
+            .unwrap_or(false);
+
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
             let flag = argument.to_str().and_then(Flag::parse).ok_or_else(|| {
@@ -325,6 +335,7 @@ impl Config {
             release_version,
             release_sha,
             release_channel,
+            supervised,
             console_url,
             console_token_file,
             mesh_broker,
@@ -676,6 +687,7 @@ mod tests {
                 release_version: Some("2.0.3".to_owned()),
                 release_sha: Some("b1946ac92492d2347c6235b4d2611184".to_owned()),
                 release_channel: Some(Channel::Canary),
+                supervised: false,
                 console_url: None,
                 console_token_file: None,
                 mesh_broker: Some("http://127.0.0.1:8080".to_owned()),
@@ -952,6 +964,7 @@ mod tests {
                 release_version: None,
                 release_sha: None,
                 release_channel: None,
+                supervised: false,
                 console_url: None,
                 console_token_file: None,
                 mesh_broker: None,
@@ -985,6 +998,37 @@ mod tests {
         assert_eq!(config.data, PathBuf::from("/env/data"));
         assert_eq!(config.port, 19_000);
         assert_eq!(config.files_root, PathBuf::from("/flag/files"));
+    }
+
+    #[test]
+    fn the_launcher_marks_its_child_as_supervised() {
+        let args = [
+            "--install",
+            "/opt/summrise",
+            "--data",
+            "/var/lib/summrise",
+            "--port",
+            "18081",
+            "--token-file",
+            "/etc/summrise/token",
+            "--files-root",
+            "/srv/summrise/workspace",
+        ];
+        let plain = parse(&args, &[]).expect("the command line parses");
+        assert!(
+            !plain.supervised,
+            "a hand-started process is not supervised"
+        );
+
+        let marked =
+            parse(&args, &[("SUMMRISE_SUPERVISED", "1")]).expect("the launcher's mark parses");
+        assert!(
+            marked.supervised,
+            "the launcher's child knows it is supervised"
+        );
+
+        let other = parse(&args, &[("SUMMRISE_SUPERVISED", "0")]).expect("any other value parses");
+        assert!(!other.supervised, "only 1 is the mark");
     }
 
     #[test]

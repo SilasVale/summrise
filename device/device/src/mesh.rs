@@ -490,6 +490,7 @@ mod tests {
             release_version: None,
             release_sha: None,
             release_channel: None,
+            supervised: false,
             console_url: None,
             console_token_file: None,
             mesh_broker: broker.map(str::to_owned),
