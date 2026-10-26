@@ -13,6 +13,7 @@ import {
 import { copyText } from "./copy";
 import { shortId } from "./format";
 import { DeviceCard, retrySentence } from "./DeviceCard";
+import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { EventsPage } from "./EventsPage";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
@@ -35,6 +36,9 @@ import { SystemPage } from "./SystemPage";
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  // The browser-local history sampled from the same fleet the page polls, one entry per device id.
+  // It lives in localStorage; this state is the copy the cards draw.
+  const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
   const [audit, setAudit] = useState<AuditLine[]>([]);
   // Failed authentications, from their own log. Fetched with the audit because both are bounded
   // windows the operator reads, and a poll that refreshed one and not the other would be half a story.
@@ -80,6 +84,9 @@ export function App() {
       tokensOrEmpty()
     ]);
     setDevices(list);
+    // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
+    // after a successful fleet fetch is what keeps an offline device from adding a stale point.
+    setVitals(recordVitals(list, Date.now()));
     setAudit(lines);
     setDenials(refusals);
     setTokens(tokenList);
@@ -146,6 +153,7 @@ export function App() {
     setToken(null);
     setSession({ authenticated: false });
     setDevices([]);
+    setVitals({});
     setAudit([]);
     setDenials([]);
     setTokens([]);
@@ -328,6 +336,7 @@ export function App() {
                       <DeviceCard
                         key={device.id}
                         device={device}
+                        vitals={vitals[device.id] ?? []}
                         newest={newest}
                         selected={selected === device.id}
                         onSelect={() => {
