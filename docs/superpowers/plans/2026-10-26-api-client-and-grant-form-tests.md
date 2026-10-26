@@ -63,8 +63,9 @@ Cover at least:
 1. `setToken`/`getToken`: empty before, the value after, empty again after `setToken(null)`;
 2. headers: no token → no `authorization`; a token → `Bearer <token>`; a GET has no `content-type`; a
    POST with a body does;
-3. a JSON 200 is parsed; a non-JSON 200 is `NoAnswer`; a non-2xx JSON `{error: "..."}` is `HttpError`
-   with that code; a non-2xx empty/non-JSON body falls back to `statusText`;
+3. a JSON 200 is parsed; **any non-empty non-JSON body is `NoAnswer`** (the edge answered, whatever its
+   status — this happens before the `ok` check); a non-2xx JSON `{error: "..."}` is `HttpError` with
+   that code; a non-2xx empty body falls back to `statusText`;
 4. each endpoint's path and method: `session` `/session`; `signIn` POST `/auth` with the credential;
    `devices` `/fleet` (not `/devices`); `audit()` `/audit?limit=20`, `audit(5)` limit 5; `rename` POST
    `/fleet/<id>/name`; `remove` DELETE `/fleet/<id>`; `connections`; `saveConnection`; `removeConnection`;
@@ -82,7 +83,8 @@ Commit: `test: the console's HTTP client is pinned endpoint by endpoint`.
 ### Task 2: The grant form's tests
 
 **Files:**
-- Create: `device/console/web/src/GrantForm.test.tsx` (test-only)
+- Modify: `device/console/web/src/GrantForm.test.tsx` (it already has one destructive-consent test;
+  extend it, do not weaken that test)
 
 **Interfaces:**
 - `GrantForm({deviceId, onGranted})`; the real component's fallback `TOOL_NAMES` (38 names) and the
@@ -132,7 +134,8 @@ id has no ellipsis; `message(new Error("x"))` is `"x"`, `message("x")` is `"x"`,
 
 - [ ] **Step 2: Replace the copies**
 
-- `AuditTable.shortId` and `DeviceCard.shortId` are deleted; their callers import `shortId`.
+- `AuditTable.shortId` and `DeviceCard.shortId` are deleted; their callers import `shortId`. (DeviceCard's
+  copy appended an ellipsis even to an id it did not cut; the shared rule fixes that.)
 - The `id.slice(0, 12)` in `App.tsx` (five headings/notices), `DevicePage.tsx`, `DevicePicker.tsx`
   and `ConnectCard.tsx`'s display `name` become `shortId(id)`. **`ConnectCard`'s `serverName` stays a
   raw slice** — it is a protocol name, not a display string.
