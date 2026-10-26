@@ -180,3 +180,32 @@ export const api = {
 };
 
 export { HttpError };
+
+
+/** Whether the console can ask a mesh broker about devices, and which broker it would ask. */
+export type MeshStatus = { configured: boolean; broker: string | null };
+
+/**
+ * What the console learned about one device's mesh registration: no broker configured, a broker answer,
+ * or a typed refusal. The readiness route contacts the broker, never the device.
+ */
+export type MeshReadiness =
+  | { configured: true; reachable: boolean; candidates: number }
+  | { configured: false }
+  | { error: string };
+
+export function meshStatus(): Promise<MeshStatus> {
+  return call<MeshStatus>("/mesh");
+}
+
+export async function meshReadiness(deviceId: string): Promise<MeshReadiness> {
+  try {
+    return await call<{ configured: true; reachable: boolean; candidates: number }>(
+      `/fleet/${encodeURIComponent(deviceId)}/mesh`
+    );
+  } catch (error) {
+    const code = error instanceof HttpError ? error.code : "mesh_unavailable";
+    if (code === "no_mesh_broker") return { configured: false };
+    return { error: code };
+  }
+}

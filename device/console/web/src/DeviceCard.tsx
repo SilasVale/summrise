@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
+import { meshReadiness, type MeshReadiness } from "./api";
 
 /** The device reports at most this many repairs, so a full list means "at least this many". */
 const REPAIR_LIMIT = 5;
@@ -25,6 +27,17 @@ type Props = {
 
 export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const behind = device.version !== null && newest !== null && device.version !== newest;
+  // A readiness check is on demand: the page must not ask the broker about every device on every load.
+  const [mesh, setMesh] = useState<MeshReadiness | null>(null);
+  const [checking, setChecking] = useState(false);
+  const meshText = (() => {
+    if (!mesh) return "not checked";
+    if ("error" in mesh) return mesh.error;
+    if (!mesh.configured) return "console has no broker";
+    return mesh.reachable
+      ? `reachable (${mesh.candidates} candidate${mesh.candidates === 1 ? "" : "s"})`
+      : "not registered";
+  })();
   return (
     <article className={"card" + (selected ? " card-selected" : "")}>
       <header>
@@ -46,6 +59,10 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
           <dt>Last seen</dt>
           <dd>{age(device.last_seen_ms)}</dd>
         </div>
+        <div>
+          <dt>Mesh</dt>
+          <dd className={mesh && "reachable" in mesh && mesh.reachable ? "ok" : "muted"}>{meshText}</dd>
+        </div>
       </dl>
 
       {device.host && <HostFactsBlock host={device.host} />}
@@ -65,6 +82,17 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
       <footer>
         <button type="button" className="primary" onClick={onSelect}>Work on this</button>
         <button type="button" onClick={onDiagnostics}>Diagnostics</button>
+        <button
+          type="button"
+          disabled={checking}
+          onClick={async () => {
+            setChecking(true);
+            setMesh(await meshReadiness(device.id));
+            setChecking(false);
+          }}
+        >
+          {checking ? "Checking…" : "Check mesh"}
+        </button>
         <button type="button" onClick={onRename}>Rename</button>
         <button type="button" className="danger" onClick={onRemove}>Remove</button>
       </footer>
