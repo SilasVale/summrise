@@ -57,8 +57,8 @@ pub use punch::{PunchOutcome, Puncher};
 pub use relay::{RelayClient, RelayError, RelayServer};
 pub use relay_tls::{RelayTlsError, RelayTlsRole, RelayTlsSession};
 pub use rendezvous::{
-    Candidate, CandidateKind, ConnectRequest, LookupResponse, Registration, Rendezvous,
-    RendezvousError, RequestsResponse,
+    lookup_candidates, validate_broker_url, Candidate, CandidateKind, ConnectRequest,
+    LookupResponse, Registration, Rendezvous, RendezvousError, RequestsResponse,
 };
 pub use session::{
     Channel, MeshConfig, MeshSession, PeerId, SessionError, Uri, LOOKUP_TIMEOUT_MS,
