@@ -942,3 +942,6 @@ span.files-name {
 }
 .audit-field.tool input { width: 100%; }
 .audit-caption { margin: 0 0 0.4rem; }
+
+/* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
+.screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
