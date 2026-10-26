@@ -413,6 +413,14 @@ export function TerminalWorkspace({
       }
       const detail = messageOf(cause);
       const note = source === "write" ? " Your keystrokes were not sent." : "";
+      // A read refused because its cursor fell behind the ring can recover by itself: move to the
+      // earliest byte the device still has before the existing-fault branch below, which only
+      // updates the sentence. Without this, a tab already showing a read fault keeps retrying the
+      // refused cursor until the operator presses Try again.
+      if (source === "read") {
+        const earliest = earliestCursor(detail);
+        if (earliest !== null) cursors.current.set(tab.key, earliest);
+      }
       if (current) {
         if (current.kind === "unreachable") {
           setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(cause) + note });

@@ -289,4 +289,52 @@ describe("TerminalWorkspace transcript", () => {
     );
     expect(readCursors.slice(1).every((cursor) => cursor === 6)).toBe(true);
   });
+
+  it("recovers on the next poll when a too-old refusal arrives during a read fault", async () => {
+    const readCursors: number[] = [];
+    let attempts = 0;
+    let releaseTooOld!: () => void;
+    const transientFaultSeen = new Promise<void>((resolve) => {
+      releaseTooOld = resolve;
+    });
+
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        const cursor = Number(args?.cursor);
+        readCursors.push(cursor);
+        attempts += 1;
+        if (attempts === 1) return JSON.stringify({ data: "", cursor: 6 });
+        if (attempts === 2) throw new ToolError("Failed to fetch", 0);
+        if (cursor < 4096) {
+          // Hold the too-old refusal until the transient fault is on screen: this is the case where
+          // `fail` already has a fault to update, not the first-failure path `diagnose` handles.
+          await transientFaultSeen;
+          throw new ToolError(
+            `terminal.read: the cursor ${cursor} is older than the retained output, which starts at 4096`,
+            200,
+            null,
+            true
+          );
+        }
+        return JSON.stringify({ data: "", cursor: 4096 });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Failed to fetch");
+    releaseTooOld();
+
+    await waitFor(() => expect(readCursors).toContain(4096), { timeout: 3_000 });
+    const recoveredAt = readCursors.indexOf(4096);
+    expect(recoveredAt).toBeGreaterThan(0);
+    expect(readCursors[recoveredAt - 1]).toBe(6);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
 });
