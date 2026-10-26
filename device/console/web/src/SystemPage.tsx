@@ -49,6 +49,16 @@ const MAX_NET_TIMEOUT_MS = 60_000;
 const READING_PROCESSES = "Reading the device's process list…";
 
 /**
+ * What a successful `host.restart` means, in the page's words.
+ *
+ * The tool answers before the app exits, so this is the fact the device sent, not a promise that it
+ * is back: the reconnection is the launcher's, and the sentence says "restarting".
+ */
+const RESTARTED_SENTENCE =
+  "The device is restarting through its launcher. It will reconnect in a few seconds; " +
+  "terminals, browser tabs and runs on the device ended.";
+
+/**
  * The device's processes and its reachability, as a page.
  *
  * Both are device state, so this reads and acts through the same grant as the terminal, the browser,
@@ -84,6 +94,11 @@ export function SystemPage({ grant }: { grant: Grant }) {
   const [netResult, setNetResult] = useState<NetResult | null>(null);
   const [netError, setNetError] = useState<string | null>(null);
 
+  const [restartOpen, setRestartOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [restarted, setRestarted] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
   // where they are, so the two are told apart by whether a list ever arrived.
   const listed = useRef(false);
@@ -93,12 +108,17 @@ export function SystemPage({ grant }: { grant: Grant }) {
   // after the first one ended the pid, a second refusal for a process that is already gone.
   const killingRef = useRef(false);
   const testingRef = useRef(false);
+  // A restart is the one call whose success ends the connection it answered on. One click must be
+  // one call: the ref is the gate before the disabled button re-renders, and the rest of the page
+  // stays usable while it is on the wire.
+  const restartingRef = useRef(false);
   // The list, the kill and the test paint different things, so each has its own ticket: a refresh
   // must not discard a kill that is still on the wire, and a kill's re-read must not paint over a
   // newer refresh. A new grant begins a new epoch for all three; the effect below does that.
   const listGate = useRequestGate();
   const killGate = useRequestGate();
   const netGate = useRequestGate();
+  const restartGate = useRequestGate();
 
   const read = useCallback(
     async (needle: string) => {
@@ -138,8 +158,10 @@ export function SystemPage({ grant }: { grant: Grant }) {
   useEffect(() => {
     killGate.begin();
     netGate.begin();
+    restartGate.begin();
     killingRef.current = false;
     testingRef.current = false;
+    restartingRef.current = false;
     listed.current = false;
     setProcesses([]);
     setFilter("");
@@ -157,8 +179,12 @@ export function SystemPage({ grant }: { grant: Grant }) {
     setTestingFor(null);
     setNetResult(null);
     setNetError(null);
+    setRestartOpen(false);
+    setRestarting(false);
+    setRestarted(false);
+    setRestartError(null);
     void read("");
-  }, [read, killGate, netGate]);
+  }, [read, killGate, netGate, restartGate]);
 
   // The filter is sent, not applied here: pressing Refresh (or Enter) is the device call, and the
   // note says what the table is, not what the box says.
@@ -243,6 +269,45 @@ export function SystemPage({ grant }: { grant: Grant }) {
     }
   };
 
+  /**
+   * One deliberate restart, and then no second one from this page.
+   *
+   * The device builds `{"restarting": true}`, starts the app's exit, and answers; the connection that
+   * carried the answer will go away with the app. The page therefore reports the fact it was given
+   * and leaves the reconnection to the launcher. A success disables the button until a reload: the
+   * launcher's budget is three consecutive restarts, and spending it is not a thing to do twice by
+   * reflex. A refusal is the device's sentence, and the button stays available because nothing
+   * ended.
+   */
+  const confirmRestart = async () => {
+    if (restartingRef.current || restarted) return;
+    restartingRef.current = true;
+    const ticket = restartGate.begin();
+    // The confirmation has made its decision; the outcome is kept in the section, where it stays
+    // legible after the dialog is gone.
+    setRestartOpen(false);
+    setRestarting(true);
+    setRestartError(null);
+    try {
+      const answer = JSON.parse(await callTool(grant, "host.restart", {})) as {
+        restarting?: unknown;
+      };
+      if (restartGate.stale(ticket)) return;
+      if (answer.restarting !== true) {
+        throw new Error("the device answered without confirming the restart");
+      }
+      setRestarted(true);
+    } catch (cause) {
+      if (restartGate.stale(ticket)) return;
+      setRestartError("The device did not restart: " + message(cause));
+    } finally {
+      if (!restartGate.stale(ticket)) {
+        restartingRef.current = false;
+        setRestarting(false);
+      }
+    }
+  };
+
   const listedFilter = filter.trim();
   const filterPending = listedFilter !== applied;
 
@@ -255,6 +320,37 @@ export function SystemPage({ grant }: { grant: Grant }) {
         What the device is running, and whether it can reach one TCP port. Every read and every
         action goes through the grant the console signed; the device audits each call.
       </p>
+
+      <section className="system-section" aria-labelledby="system-device-app">
+        <h3 id="system-device-app">Device app</h3>
+        <p className="hint">
+          The app the launcher supervises. Restarting it ends every open terminal, browser tab and
+          run on the device, and takes the device offline briefly while the launcher starts it again.
+        </p>
+        <div className="system-toolbar">
+          <button
+            type="button"
+            className="danger"
+            disabled={restarting || restarted}
+            onClick={() => {
+              setRestartError(null);
+              setRestartOpen(true);
+            }}
+          >
+            Restart app
+          </button>
+        </div>
+        {restarting && <p className="hint">Asking the device to restart…</p>}
+        {restartError && <p className="error">{restartError}</p>}
+        {restarted && (
+          <>
+            <p>{RESTARTED_SENTENCE}</p>
+            <p className="hint">
+              This page will not offer another restart: reload it once the device reconnects.
+            </p>
+          </>
+        )}
+      </section>
 
       <section className="system-section" aria-labelledby="system-processes">
         <h3 id="system-processes">Processes</h3>
@@ -467,6 +563,41 @@ export function SystemPage({ grant }: { grant: Grant }) {
           </section>
         )}
       </section>
+
+      {restartOpen && (
+        <Modal
+          title="Restart the device app?"
+          onClose={() => {
+            if (restartingRef.current) return;
+            setRestartOpen(false);
+          }}
+        >
+          <p>
+            This asks the device to restart its app through the launcher. Every open terminal,
+            browser tab and run on the device ends, and the device goes offline briefly while the
+            launcher starts it again.
+          </p>
+          <p className="hint">
+            The launcher allows three consecutive restarts: do not restart repeatedly, because three
+            quick restarts can leave the device down. The device audits the call, and it refuses when
+            it was not started by the launcher.
+          </p>
+          <div className="modal-actions">
+            {/* Cancel is first so the dialog opens on the way out, not on the destructive call. */}
+            <button type="button" onClick={() => setRestartOpen(false)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="danger"
+              disabled={restarting}
+              onClick={() => void confirmRestart()}
+            >
+              Restart app
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {killTarget && (
         <Modal
