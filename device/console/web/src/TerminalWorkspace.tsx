@@ -1018,7 +1018,7 @@ export function TerminalWorkspace({
             >
               {tab.title}
               {faults[tab.key]?.kind === "closed" && " · ended"}
-              {faults[tab.key] && (
+              {faults[tab.key] && faults[tab.key].kind !== "closed" && (
                 <span
                   className={"tab-state state-" + faults[tab.key].kind}
                   title={faults[tab.key].sentence}
@@ -1041,9 +1041,7 @@ export function TerminalWorkspace({
                     void close(tab);
                   }
                 }}
-              >
-                ×
-              </span>
+              />
             </button>
           ))}
         </div>
