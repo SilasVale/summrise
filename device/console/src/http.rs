@@ -393,11 +393,12 @@ impl Inner {
         status: StatusCode,
         detail: Option<&str>,
     ) {
-        self.record_tool(kind, device_id, status, detail, None)
+        self.record_tool(kind, device_id, status, detail, None, None)
             .await;
     }
 
-    /// Write one audit line, naming the tool when the action was a `tools/call`.
+    /// Write one audit line, naming the tool when the action was a `tools/call` and the permanent
+    /// token when one authenticated it. `token_id` is the record's id, never the secret.
     async fn record_tool(
         &self,
         kind: &'static str,
@@ -405,6 +406,7 @@ impl Inner {
         status: StatusCode,
         detail: Option<&str>,
         tool: Option<&str>,
+        token_id: Option<&str>,
     ) {
         self.audit
             .append(&audit::Entry {
@@ -414,6 +416,7 @@ impl Inner {
                 status: status.as_u16(),
                 detail,
                 tool,
+                token_id,
             })
             .await;
     }
@@ -452,6 +455,7 @@ impl Inner {
                 status: error.status.as_u16(),
                 detail: Some(detail),
                 tool: None,
+                token_id: None,
             })
             .await;
         error
@@ -1294,13 +1298,23 @@ enum TokenRefusal {
     ForeignDevice,
 }
 
+/// The grant one permanent token request is answered with, and the record that authenticated it.
+struct MintedGrant {
+    envelope: GrantEnvelope,
+    /// The token record's id: the audit names this, never the `srm_` secret.
+    token_id: String,
+}
+
 /// `Err` is the refusal kind. The wire answer is always `unauthorized`: a caller holding a wrong,
 /// foreign or revoked token learns only that it was refused.
+///
+/// A successful signing also marks the token used, best-effort: the in-memory last use moves on
+/// every exchange, the file at the store's own throttle, and a failed write does not fail this call.
 fn mint_token_grant(
     app: &AppState,
     device_id: &str,
     token: &str,
-) -> Result<GrantEnvelope, TokenRefusal> {
+) -> Result<MintedGrant, TokenRefusal> {
     let hash = crate::tokens::hash_token(token);
     let Some(record) = lock(&app.tokens).find_by_hash(&hash) else {
         return Err(TokenRefusal::Unauthenticated("unknown_api_token"));
@@ -1309,19 +1323,27 @@ fn mint_token_grant(
         return Err(TokenRefusal::ForeignDevice);
     }
 
+    let now = (app.now)();
     let signed = grants::sign(
         &app.grant_key,
         device_id,
         record.tools,
         crate::tokens::MINTED_GRANT_LIFETIME_S,
         record.allow_destructive,
-        (app.now)(),
+        now,
     )
     .map_err(|_| TokenRefusal::Unauthenticated("api_token_unusable"))?;
 
-    Ok(GrantEnvelope {
-        grant: signed.grant,
-        signature: hex::encode(&signed.signature.to_bytes()),
+    // The exchange happened, so the record says when. This is after a successful signature for
+    // exactly this device: an unknown, revoked, foreign or unmintable token never gets here.
+    lock(&app.tokens).mark_used(&hash, now);
+
+    Ok(MintedGrant {
+        envelope: GrantEnvelope {
+            grant: signed.grant,
+            signature: hex::encode(&signed.signature.to_bytes()),
+        },
+        token_id: record.id,
     })
 }
 
@@ -1331,25 +1353,29 @@ fn mint_token_grant(
 /// HTTP status a malformed `tools/call` gets: the custom route answers 400, the standard route
 /// answers 200 with a JSON-RPC error, and both are the same authorization decision. `filter` is the
 /// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
-/// `None` and keeps its unfiltered answer.
+/// `None` and keeps its unfiltered answer. `token_id` is the permanent token's record id when one
+/// authenticated this exchange, and is written on every line this function records.
 async fn forward(
     app: &AppState,
     device_id: &str,
     grant: &GrantEnvelope,
-    audit_id: Option<&str>,
+    token_id: Option<&str>,
     request: Value,
     invalid_params_status: StatusCode,
     filter: Option<&[String]>,
 ) -> Response {
+    let audit_id = audit_device_id(device_id);
     let request_id = request.get("id").cloned().unwrap_or(Value::Null);
     let tool = match requested_tool(&request) {
         Ok(tool) => tool.map(str::to_owned),
         Err(()) => {
-            app.record(
+            app.record_tool(
                 "denied",
-                audit_id,
+                audit_id.as_deref(),
                 invalid_params_status,
                 Some("invalid_tool_call"),
+                None,
+                token_id,
             )
             .await;
             return jsonrpc_error(
@@ -1367,10 +1393,11 @@ async fn forward(
         if !grant.grant.tools.iter().any(|allowed| allowed == tool) {
             app.record_tool(
                 "denied",
-                audit_id,
+                audit_id.as_deref(),
                 StatusCode::FORBIDDEN,
                 Some("tool_not_permitted"),
                 Some(tool),
+                token_id,
             )
             .await;
             return jsonrpc_error(
@@ -1410,10 +1437,11 @@ async fn forward(
         Err(_) => {
             app.record_tool(
                 "denied",
-                audit_id,
+                audit_id.as_deref(),
                 StatusCode::GATEWAY_TIMEOUT,
                 Some("device timeout"),
                 tool.as_deref(),
+                token_id,
             )
             .await;
             ApiError::gateway_timeout("device timeout").into_response()
@@ -1422,10 +1450,11 @@ async fn forward(
             let failure = failure_for(error);
             app.record_tool(
                 "denied",
-                audit_id,
+                audit_id.as_deref(),
                 failure.status,
                 Some(failure.detail),
                 tool.as_deref(),
+                token_id,
             )
             .await;
             failure.into_response()
@@ -1439,10 +1468,11 @@ async fn forward(
             let detail = reply_detail(&reply);
             app.record_tool(
                 "mcp",
-                audit_id,
+                audit_id.as_deref(),
                 StatusCode::OK,
                 detail.as_deref(),
                 tool.as_deref(),
+                token_id,
             )
             .await;
             match reply {
@@ -1494,7 +1524,7 @@ async fn proxy_mcp(
         &app,
         &body.device_id,
         &body.grant,
-        audit_id.as_deref(),
+        None,
         body.request,
         StatusCode::BAD_REQUEST,
         None,
@@ -1543,16 +1573,17 @@ async fn standard_mcp(
     };
     // Two bearer types, one grant from here on: a presented envelope is verified exactly as before,
     // and a permanent token mints an envelope with the token's scope. A token failure is a
-    // pre-authentication refusal, so it goes to the denial log, never to the audit.
-    let grant = match bearer {
+    // pre-authentication refusal, so it goes to the denial log, never to the audit. Only a token
+    // gives the forwarded lines a token id; a grant has no permanent record to name.
+    let (grant, token_id) = match bearer {
         crate::mcp::BearerKind::Grant(grant) => {
             if let Err(error) = verify_presented(&app, &device_id, &grant) {
                 return app.refuse(audit_id.as_deref(), error).await.into_response();
             }
-            grant
+            (grant, None)
         }
         crate::mcp::BearerKind::Token(token) => match mint_token_grant(&app, &device_id, &token) {
-            Ok(grant) => grant,
+            Ok(minted) => (minted.envelope, Some(minted.token_id)),
             Err(TokenRefusal::Unauthenticated(detail)) => {
                 return app
                     .refuse_as(audit_id.as_deref(), ApiError::unauthorized(), detail)
@@ -1639,7 +1670,7 @@ async fn standard_mcp(
                 &app,
                 &device_id,
                 &grant,
-                audit_id.as_deref(),
+                token_id.as_deref(),
                 request,
                 StatusCode::OK,
                 Some(&grant.grant.tools),
@@ -1651,7 +1682,7 @@ async fn standard_mcp(
                 &app,
                 &device_id,
                 &grant,
-                audit_id.as_deref(),
+                token_id.as_deref(),
                 request,
                 StatusCode::OK,
                 None,
