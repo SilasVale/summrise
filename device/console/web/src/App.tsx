@@ -264,7 +264,9 @@ export function App() {
             <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
-            {grant && <MonitorChip grant={grant} onOpen={() => setPage("monitors")} />}
+            {chosen && grant && grant.deviceId === chosen.id && (
+              <MonitorChip grant={grant} onOpen={() => setPage("monitors")} />
+            )}
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
             {session.email ? session.email : `${online} of ${devices.length} devices online`}
             <button type="button" onClick={signOut}>Sign out</button>

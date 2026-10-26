@@ -289,10 +289,18 @@ describe("App", () => {
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
     // The chip appears with the grant, and its click is navigation only: no second grant, same page
-    // shell, the Monitors heading.
+    // shell, and the Monitors page itself (the heading alone is also the picker's).
     const chip = await screen.findByRole("button", { name: "monitor-chip" });
     fireEvent.click(chip);
     expect(screen.getByRole("heading", { name: "Monitors" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The device probes each target on its own interval and keeps the last 60 probes for the summary. A down target is a fact, not a failure of this page: the dot is its newest probe, and the numbers are the device's."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Host")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add target" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Monitors run on the device, so pick one\./)).not.toBeInTheDocument();
     expect(mocks.grant).toHaveBeenCalledTimes(1);
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
@@ -307,6 +315,24 @@ describe("App", () => {
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "yes");
     expect(workspace.closest("section")).not.toHaveAttribute("hidden");
+  });
+
+  it("shows the chip only for the device the grant names", async () => {
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
+    await screen.findByRole("button", { name: "monitor-chip" });
+
+    // The console moves to another device while the workshop grant is still in force: the chip must
+    // not show workshop's monitors under attic, and attic's page asks for its own grant.
+    const rail = screen.getByRole("navigation", { name: "Sections" });
+    fireEvent.click(within(rail).getByRole("button", { name: "Devices" }));
+    selectDevice("attic");
+
+    expect(
+      screen.getByRole("heading", { name: "Grant what the console may do on attic" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
   });
 
   it("clears its poll when the page unmounts", async () => {
