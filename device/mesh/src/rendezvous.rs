@@ -390,6 +390,50 @@ pub fn now_ms() -> u64 {
 /// purpose: phase 2's broker is a local process, and phase 2b owns the
 /// relay/broker reachable over the internet.
 ///
+/// Validate a broker URL without contacting it: the same rule every request applies.
+///
+/// Returns the canonical `host:port` authority (a trailing slash is accepted and stripped). This is
+/// the console's startup check — a console that named an impossible broker should say so at start,
+/// not on the first readiness request.
+pub fn validate_broker_url(broker_url: &str) -> Result<String, RendezvousError> {
+    origin(broker_url)
+}
+
+/// Ask a broker for a peer's current candidates, WITHOUT holding an identity.
+///
+/// A lookup is unauthenticated and signs nothing, so the console (or any readiness probe) can ask
+/// "is this peer registered right now?" without a key of its own. `now_ms` is the caller's clock; the
+/// broker ignores it for freshness (its own clock decides), but it remains in the wire for
+/// compatibility. `timeout` bounds the whole exchange.
+pub async fn lookup_candidates(
+    broker_url: &str,
+    peer_id: &str,
+    now_ms: u64,
+    timeout: std::time::Duration,
+) -> Result<Vec<Candidate>, RendezvousError> {
+    // The broker's path segment is a hex key; canonicalising it here keeps the request path to bytes
+    // that cannot mean anything else.
+    let key = Identity::public_from_hex(peer_id).map_err(|error| {
+        RendezvousError::Malformed(format!("{peer_id:?} is not a mesh peer id: {error}"))
+    })?;
+    let peer_id = keys::hex_encode(&key);
+    let path = format!("/lookup/{peer_id}?now_ms={now_ms}");
+
+    let (status, body) = request(broker_url, "GET", &path, None, timeout).await?;
+    match status {
+        200 => {
+            let answer: LookupResponse = serde_json::from_slice(&body)
+                .map_err(|error| RendezvousError::Malformed(error.to_string()))?;
+            Ok(answer.candidates)
+        }
+        404 => Err(RendezvousError::UnknownPeer(peer_id)),
+        status => Err(RendezvousError::Refused {
+            status,
+            detail: response_detail(&body),
+        }),
+    }
+}
+
 /// It is [`Clone`] because a serving session hands one copy to its inbox
 /// poller task while the session keeps its own.
 #[derive(Clone)]
@@ -485,27 +529,7 @@ impl Rendezvous {
         broker_url: &str,
         peer_id: &str,
     ) -> Result<Vec<Candidate>, RendezvousError> {
-        // The broker's path segment is a hex key; canonicalising it here keeps
-        // the request path to bytes that cannot mean anything else.
-        let key = Identity::public_from_hex(peer_id).map_err(|error| {
-            RendezvousError::Malformed(format!("{peer_id:?} is not a mesh peer id: {error}"))
-        })?;
-        let peer_id = keys::hex_encode(&key);
-        let path = format!("/lookup/{peer_id}?now_ms={}", (self.clock)());
-
-        let (status, body) = request(broker_url, "GET", &path, None, self.request_timeout).await?;
-        match status {
-            200 => {
-                let answer: LookupResponse = serde_json::from_slice(&body)
-                    .map_err(|error| RendezvousError::Malformed(error.to_string()))?;
-                Ok(answer.candidates)
-            }
-            404 => Err(RendezvousError::UnknownPeer(peer_id)),
-            status => Err(RendezvousError::Refused {
-                status,
-                detail: response_detail(&body),
-            }),
-        }
+        lookup_candidates(broker_url, peer_id, (self.clock)(), self.request_timeout).await
     }
 
     /// Leave a signed connect request for `target_id` at `broker_url`.
@@ -1183,6 +1207,56 @@ mod tests {
     /// opposite — that the client's `now_ms` is the clock the broker saw — which was the defect: a client
     /// an hour ahead deleted every other peer's registration. A far-ahead client now sees exactly what a
     /// correct one does, because the broker does not read the number it sends.
+    #[test]
+    fn a_broker_url_is_validated_without_contacting_it() {
+        assert_eq!(
+            validate_broker_url("http://127.0.0.1:8080/").expect("a plain origin"),
+            "127.0.0.1:8080"
+        );
+        for bad in [
+            "https://broker.example",
+            "http://host:1/path",
+            "broker.example:1",
+            "http://host:1?x=1",
+        ] {
+            assert!(
+                matches!(validate_broker_url(bad), Err(RendezvousError::BadUrl(_))),
+                "{bad:?} must be refused at startup, not at the first lookup"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lookup_needs_no_identity() {
+        let broker = spawn_broker().await;
+        let identity = Identity::generate();
+        let peer_id = identity.public_hex();
+        let registrar = client(&identity, Vec::new(), 1_000, 30_000);
+        registrar
+            .register(&broker)
+            .await
+            .expect("the peer registers");
+
+        // The free function answers with the candidates and signs nothing.
+        let candidates = lookup_candidates(&broker, &peer_id, 1_000, Duration::from_secs(2))
+            .await
+            .expect("a registered peer is found");
+        assert!(candidates.is_empty(), "no candidates were published");
+
+        let unknown = Identity::generate().public_hex();
+        assert_eq!(
+            lookup_candidates(&broker, &unknown, 1_000, Duration::from_secs(2)).await,
+            Err(RendezvousError::UnknownPeer(unknown))
+        );
+        assert!(
+            matches!(
+                lookup_candidates(&broker, "not-a-key", 1_000, Duration::from_secs(2)).await,
+                Err(RendezvousError::Malformed(_))
+            ),
+            "a malformed peer id is refused before any request leaves"
+        );
+    }
+
     #[tokio::test]
     async fn a_lookup_with_a_client_clock_far_ahead_still_sees_the_registration() {
         let broker = spawn_broker().await;
