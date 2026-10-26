@@ -87,7 +87,10 @@ describe("AuditTable", () => {
       status: 200
     }));
     render(<AuditTable lines={many} devices={devices} />);
-    expect(screen.getByText(/shows the newest 200 lines/)).toHaveTextContent(/console keeps more/);
+    const caption = screen.getByText(/loaded the newest 200 lines/);
+    expect(caption).toHaveTextContent(/older lines are not loaded/);
+    // The page knows how many it asked for, not what the console holds: it must not claim there are more.
+    expect(caption).not.toHaveTextContent(/keeps more/);
   });
 
   it("offers a retired device by the prefix of its id", () => {

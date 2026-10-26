@@ -107,7 +107,7 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
         {lines.length >= AUDIT_WINDOW && (
           <>
             {" "}
-            — this page shows the newest {lines.length} lines; the console keeps more.
+            — the page loaded the newest {lines.length} lines; older lines are not loaded.
           </>
         )}
       </p>
