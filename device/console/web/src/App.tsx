@@ -9,6 +9,8 @@ import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
 import { ConnectCard } from "./ConnectCard";
+import { DevicePage } from "./DevicePage";
+import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
@@ -483,74 +485,40 @@ export function App() {
           )}
 
           {page === "screen" && (
-            <>
-              {!chosen && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Screen</h2>
-                  </div>
-                  <p className="hint">
-                    The screen belongs to the device's user session, so pick the device whose screen
-                    you want to see. The console signs a grant for the capture tool, and the device
-                    checks that grant on every call.
-                  </p>
-                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
-                </section>
-              )}
-              {chosen && (!grant || grant.deviceId !== chosen.id) && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
-                  </div>
-                  <p className="hint">
-                    A grant is signed by the console, names the tools and expires. The device checks
-                    it on every call. Everything is selected by default: press the button and the
-                    screen can be captured.
-                  </p>
-                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
-                </section>
-              )}
-              {chosen && grant && grant.deviceId === chosen.id && (
-                <section className="panel">
-                  <ScreenPage grant={grant} />
-                </section>
-              )}
-            </>
+            <DevicePage
+              title="Screen"
+              pickHint="The screen belongs to the device's user session, so pick the device whose screen
+                you want to see. The console signs a grant for the capture tool, and the device
+                checks that grant on every call."
+              grantHint="A grant is signed by the console, names the tools and expires. The device checks
+                it on every call. Everything is selected by default: press the button and the
+                screen can be captured."
+              devices={devices}
+              chosen={chosen}
+              grant={grant}
+              onChoose={(id) => setSelected(id)}
+              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
+            >
+              {(active) => <ScreenPage grant={active} />}
+            </DevicePage>
           )}
 
           {page === "memory" && (
-            <>
-              {!chosen && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Memory</h2>
-                  </div>
-                  <p className="hint">
-                    Memory is kept on the device, so pick one. The console signs a grant for the
-                    memory tools, and the device checks that grant on every read and every edit.
-                  </p>
-                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
-                </section>
-              )}
-              {chosen && (!grant || grant.deviceId !== chosen.id) && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
-                  </div>
-                  <p className="hint">
-                    A grant is signed by the console, names the tools and expires. The device checks
-                    it on every call. Everything is selected by default: press the button and the
-                    entries appear.
-                  </p>
-                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
-                </section>
-              )}
-              {chosen && grant && grant.deviceId === chosen.id && (
-                <section className="panel">
-                  <MemoryPage grant={grant} />
-                </section>
-              )}
-            </>
+            <DevicePage
+              title="Memory"
+              pickHint="Memory is kept on the device, so pick one. The console signs a grant for the
+                memory tools, and the device checks that grant on every read and every edit."
+              grantHint="A grant is signed by the console, names the tools and expires. The device checks
+                it on every call. Everything is selected by default: press the button and the
+                entries appear."
+              devices={devices}
+              chosen={chosen}
+              grant={grant}
+              onChoose={(id) => setSelected(id)}
+              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
+            >
+              {(active) => <MemoryPage grant={active} />}
+            </DevicePage>
           )}
 
           {page === "monitors" && (
@@ -672,38 +640,21 @@ export function App() {
           )}
 
           {page === "events" && (
-            <>
-              {!chosen && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Events</h2>
-                  </div>
-                  <p className="hint">
-                    The events are the device's own, so pick one. The console signs a grant for the
-                    state tool, and the device checks that grant on every read.
-                  </p>
-                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
-                </section>
-              )}
-              {chosen && (!grant || grant.deviceId !== chosen.id) && (
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
-                  </div>
-                  <p className="hint">
-                    A grant is signed by the console, names the tools and expires. The device checks
-                    it on every call. Everything is selected by default: press the button and the
-                    device's health and its last ten events appear.
-                  </p>
-                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
-                </section>
-              )}
-              {chosen && grant && grant.deviceId === chosen.id && (
-                <section className="panel">
-                  <EventsPage grant={grant} />
-                </section>
-              )}
-            </>
+            <DevicePage
+              title="Events"
+              pickHint="The events are the device's own, so pick one. The console signs a grant for the
+                state tool, and the device checks that grant on every read."
+              grantHint="A grant is signed by the console, names the tools and expires. The device checks
+                it on every call. Everything is selected by default: press the button and the
+                device's health and its last ten events appear."
+              devices={devices}
+              chosen={chosen}
+              grant={grant}
+              onChoose={(id) => setSelected(id)}
+              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
+            >
+              {(active) => <EventsPage grant={active} />}
+            </DevicePage>
           )}
         </main>
       </div>
@@ -765,30 +716,6 @@ export function App() {
         <span>console {consoleVersion ?? "…"}</span>
       </footer>
     </div>
-  );
-}
-
-/**
- * A device list for a page that needs one: the rail can be the first thing an operator clicks, and
- * "no device selected" is a dead end when the list is one panel away.
- */
-function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoose: (id: string) => void }) {
-  if (devices.length === 0) {
-    return <p className="hint">No devices are enrolled yet. Add one from the Devices page.</p>;
-  }
-  return (
-    <ul className="picker">
-      {devices.map((device) => (
-        <li key={device.id}>
-          <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} />
-          <strong>{device.name ?? device.id.slice(0, 12)}</strong>
-          {device.version && <span className="chip">{device.version}</span>}
-          <button type="button" className="mini" onClick={() => onChoose(device.id)}>
-            Use
-          </button>
-        </li>
-      ))}
-    </ul>
   );
 }
 
