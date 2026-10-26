@@ -205,10 +205,9 @@ Commit: `console: a terminal transcript says what the device still retains`.
 
 **Interfaces:**
 - Consumes: `memory.append {text, tags?}` → `{appended: true, id}`. The device enforces the tag and
-  size caps (32 tags × 128 bytes, 1 MiB serialized line). **It does NOT refuse an empty text** —
-  verified in `device/device/src/capabilities/memory.rs::validate`, which checks only the caps, and the
-  schema declares no `minLength`. The page refuses an empty text; a device-side refusal is recorded
-  below as a follow-up, not silently assumed.
+  size caps (32 tags × 128 bytes, 1 MiB serialized line) and, since `6fd8a01`, refuses an empty text
+  with a typed `EmptyText` and `minLength: 1` in the schema. The page refuses it too; both boundaries
+  are deliberate.
 - Produces: no new export.
 
 - [ ] **Step 1: Write the failing tests**
@@ -217,7 +216,7 @@ Mock `memory.list` → `[]` and `memory.append` → `{"appended":true,"id":"m1"}
 answering one entry on the second call. Click **New entry**, type `rotate the cert on the 1st`, add tag
 `ops`, submit; assert `memory.append` was called with `{text: "rotate the cert on the 1st", tags:
 ["ops"]}`, the dialog closes, and the list is re-read. An empty text keeps **Remember** disabled (the
-page's guard; the device would accept it today). A device refusal (`ToolError(..., fromDevice)`) keeps
+page's guard, beside the device's own refusal). A device refusal (`ToolError(..., fromDevice)`) keeps
 the dialog open and shows the sentence.
 
 - [ ] **Step 2: Run and watch fail**
@@ -277,10 +276,11 @@ Commit: `test: the console shell boots, navigates and signs out`.
 
 ## Recorded, not done
 
-- **The device accepts an empty `memory.append`.** The requirement's schema says "The fact to
-  remember" and declares no `minLength`; `validate` checks the caps only. The page refuses it, but an
-  MCP client can still write an empty fact that occupies a slot and shows up in the store. The device
-  should refuse it with a typed error and a `minLength: 1`, in a Rust change with its own tests.
+- **The device accepts an empty `memory.append` — closed 2026-10-26 (`6fd8a01`).** An MCP client
+  could write an empty fact that occupied a slot and showed up in the store. The device now refuses it
+  with `MemoryError::EmptyText` (checked before the caps) and `minLength: 1` on both append and
+  update; a legacy journal line that already carries an empty text still reads. The page's guard
+  stays as the first boundary.
 - **Terminal scrollback search** needs an xterm search addon; it is a dependency decision, not a
   wiring one, so it stays out.
 - **The monitor chip** (a down target visible from every page) is a shared poller and a notification
