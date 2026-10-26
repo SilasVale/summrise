@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { api, type SavedConnection } from "./api";
 import { Modal } from "./Modal";
 
@@ -248,6 +249,7 @@ export function TerminalWorkspace({
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
   const [presetError, setPresetError] = useState<string | null>(null);
   const instances = useRef(new Map<string, Instance>());
+  const batches = useRef(new Map<string, TerminalWriteBatcher>());
   const hosts = useRef(new Map<string, HTMLDivElement>());
   /** Each tab's read cursor: the absolute byte count the device has already sent this xterm. */
   const cursors = useRef(new Map<string, number>());
@@ -412,17 +414,28 @@ export function TerminalWorkspace({
     [diagnose, setFault]
   );
 
-  /** One keystroke. A failure is the tab's, not a console log's. */
+  /**
+   * One keystroke, buffered into one MCP call.
+   *
+   * A failure is the tab's, not a console log's: the batch's error path produces the same sentence a
+   * per-keystroke write did. The buffer lives per tab because each tab is a different session.
+   */
   const write = useCallback(
-    async (tab: Tab, data: string) => {
+    (tab: Tab, data: string) => {
       const current = faultRef.current.get(tab.key);
       if (current && (current.kind === "closed" || current.kind === "grant")) return;
-      try {
-        await callTool(grantRef.current, "terminal.write", { id: tab.session, data });
-        if (faultRef.current.get(tab.key)?.kind === "write") clearFault(tab.key);
-      } catch (cause) {
-        fail(tab, "write", cause);
+      let batch = batches.current.get(tab.key);
+      if (!batch) {
+        batch = createTerminalWriteBatcher(
+          async (chunk) => {
+            await callTool(grantRef.current, "terminal.write", { id: tab.session, data: chunk });
+            if (faultRef.current.get(tab.key)?.kind === "write") clearFault(tab.key);
+          },
+          (cause) => fail(tab, "write", cause)
+        );
+        batches.current.set(tab.key, batch);
       }
+      batch.push(data);
     },
     [clearFault, fail]
   );
@@ -476,6 +489,8 @@ export function TerminalWorkspace({
     }
     for (const [key, instance] of [...instances.current]) {
       if (tabs.some((tab) => tab.key === key)) continue;
+      batches.current.get(key)?.cancel();
+      batches.current.delete(key);
       instance.term.dispose();
       instances.current.delete(key);
       cursors.current.delete(key);
@@ -537,6 +552,8 @@ export function TerminalWorkspace({
   // The device switch that unmounts the workspace takes the xterms with it.
   useEffect(
     () => () => {
+      for (const batch of batches.current.values()) batch.cancel();
+      batches.current.clear();
       for (const instance of instances.current.values()) instance.term.dispose();
       instances.current.clear();
     },
@@ -659,6 +676,11 @@ export function TerminalWorkspace({
   };
 
   const close = async (tab: Tab) => {
+    // Flush what was typed before the session goes away; a keystroke queued behind the close would
+    // otherwise be sent to an id the device already ended.
+    await batches.current.get(tab.key)?.flush();
+    batches.current.get(tab.key)?.cancel();
+    batches.current.delete(tab.key);
     await callTool(grantRef.current, "terminal.close", { id: tab.session }).catch(() => {});
     setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
     cursors.current.delete(tab.key);
