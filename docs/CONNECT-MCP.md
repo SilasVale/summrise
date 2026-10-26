@@ -116,9 +116,14 @@ A token is not an operator session: it cannot mint grants, list devices, read th
 another token. The console accepts at most 64 tokens.
 
 A token has **no expiry**; revocation is the only withdrawal. The device card's token list shows each
-token's name, creation date and tool count — never the token — and **Revoke** asks for confirmation.
-After it, the next request with that token is `401` and the token is gone from the list: neither the
-page nor the audit can show it again.
+token's name, creation date, tool set and **last use** (`last used <date>`, or `never used`) — never
+the token — and **Revoke** asks for confirmation. After it, the next request with that token is `401`
+and the token is gone from the list: neither the page nor the audit can show it again.
+
+The audit names the token's **record id** (`token_id`, not the secret) on every MCP line that token
+authenticated, so a call can be attributed to the credential that made it; the grant-authenticated
+path and the page's operator route carry no `token_id`. The id is what the list shows; the `srm_…`
+value never enters the audit.
 
 ### Which one to use
 

@@ -135,3 +135,17 @@ Commit: `console: the token list says when it was last used; the audit names the
 - Deliberate: no per-token call counts or series (the audit is the log), no expiry, no filter by
   token this round (the table's cell and the existing device/tool/status filters answer the common
   question; a token filter is a follow-up if it is asked for).
+
+## Review rulings (2026-10-26)
+
+- `mark_used` measures the save window from the **persisted** value (a private `#[serde(skip)]`
+  mirror), not the newest in-memory use; a failed write leaves memory updated and the next due call
+  retries. A successful write syncs the mirror for every record, because the file is the whole list.
+- The audit's `token_id` is the record id only; the plaintext is never passed to `Entry`, and the
+  integration test greps both audit files for `srm_` and for the value.
+- The token route passes the id on both `tools/list` and `tools/call`; the grant path, the custom
+  operator route and the foreign-device refusal carry none. Malformed tool calls are audited with
+  the id when the bearer was a token.
+- The page's audit token cell shows the short id or an em dash; the row key includes `token_id`, so
+  two otherwise identical lines stay distinct and an expanded row survives a poll.
+- `CONNECT-MCP.md` now states the list's last-use fact and the audit attribution.
