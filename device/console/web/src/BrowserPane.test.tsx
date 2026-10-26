@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPane } from "./BrowserPane";
 import { callTool, ToolError, type Grant } from "./terminal";
 
@@ -39,9 +39,6 @@ async function openPane() {
 }
 
 describe("BrowserPane", () => {
-  // vitest runs without globals, so RTL's automatic afterEach(cleanup) is not registered.
-  afterEach(cleanup);
-
   beforeEach(() => {
     callToolMock.mockReset();
     listAnswers = [[A]];
@@ -79,6 +76,8 @@ describe("BrowserPane", () => {
   it("disables Navigate and Close tab when no target is listed", async () => {
     listAnswers = [[]];
     render(<BrowserPane grant={grant} />);
+    // The initial status is the same sentence, so wait for the answer itself before asserting on it.
+    await waitFor(() => expect(callToolMock).toHaveBeenCalledWith(grant, "browser.list", {}));
     await screen.findByText("No browser is open on this device.");
 
     fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });
@@ -118,6 +117,34 @@ describe("BrowserPane", () => {
     expect(stopped).toHaveTextContent(/browser is stopped/i);
     expect(container.querySelector(".browser-shot")).toBeNull();
     expect(screen.queryByLabelText("Target")).toBeNull();
+  });
+
+  it("clears the previous picture when a screenshot fails", async () => {
+    const { container } = await openPane();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh view" }));
+    await waitFor(() => expect(container.querySelector(".browser-shot")).not.toBeNull());
+
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.screenshot") throw new ToolError("the tab is gone", 200, null, true);
+      return answerFor(name, args);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh view" }));
+
+    expect(await screen.findByText("Screenshot failed: the tab is gone")).toBeInTheDocument();
+    expect(container.querySelector(".browser-shot")).toBeNull();
+  });
+
+  it("says a transport failure never reached the device", async () => {
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.navigate") throw new ToolError("Failed to fetch", 0);
+      return answerFor(name, args);
+    });
+    await openPane();
+    fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Navigate" }));
+
+    const failure = await screen.findByText(/Navigate failed: the console never reached the device/);
+    expect(failure).toHaveTextContent("Failed to fetch");
   });
 
   it("shows the tool's own refusal under the action that failed", async () => {

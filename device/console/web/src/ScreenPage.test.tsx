@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScreenPage } from "./ScreenPage";
 import { ToolError, type Grant } from "./terminal";
@@ -14,9 +14,6 @@ const grant: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
 describe("ScreenPage", () => {
   afterEach(() => {
-    // The suite does not enable vitest globals, so Testing Library cannot register its own
-    // auto-cleanup: without this the second render finds the first test's page still in the DOM.
-    cleanup();
     mocks.callTool.mockReset();
   });
 
@@ -50,5 +47,32 @@ describe("ScreenPage", () => {
     expect(refusal).toHaveClass("error");
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("clears the previous frame when a second capture fails", async () => {
+    mocks.callTool.mockResolvedValueOnce(
+      JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
+    );
+    mocks.callTool.mockRejectedValueOnce(new ToolError("the session is locked", 200, null, true));
+    render(<ScreenPage grant={grant} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+    expect(await screen.findByRole("img", { name: "the device's screen" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+    expect(await screen.findByText("the session is locked")).toBeInTheDocument();
+    // An older picture under a refusal would read as the screen the device just failed to take.
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("says a transport failure never reached the device", async () => {
+    mocks.callTool.mockRejectedValue(new ToolError("Failed to fetch", 0));
+    render(<ScreenPage grant={grant} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    const failure = await screen.findByText(/never reached the device/);
+    expect(failure).toHaveClass("error");
+    expect(failure).toHaveTextContent("Failed to fetch");
   });
 });

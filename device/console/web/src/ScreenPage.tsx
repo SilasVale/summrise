@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRequestGate } from "./requests";
-import { callTool, type Grant } from "./terminal";
+import { callTool, toolFailure, type Grant } from "./terminal";
 
 /** What `screen.capture` answers: one PNG and the size the helper reported for it. */
 type Capture = { data: string; width: number; height: number };
@@ -57,7 +57,7 @@ export function ScreenPage({ grant }: { grant: Grant }) {
       // A failed capture clears the previous picture: an image with the refusal underneath it would
       // read as the screen the device just failed to take.
       setShot(null);
-      setError(message(cause));
+      setError(toolFailure(cause));
     } finally {
       if (!gate.stale(ticket)) {
         capturing.current = false;
@@ -107,6 +107,3 @@ function downloadName(at: Date): string {
   return `summrise-screen-${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}.png`;
 }
 
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryPage } from "./MemoryPage";
 import { callTool, ToolError } from "./terminal";
@@ -52,8 +52,6 @@ describe("MemoryPage export", () => {
   });
 
   afterEach(() => {
-    // `globals` is off in vitest.config.ts, so Testing Library cannot register its own cleanup.
-    cleanup();
     restore(navigator, "clipboard", originals.clipboard);
     restore(URL, "createObjectURL", originals.createObjectURL);
     restore(URL, "revokeObjectURL", originals.revokeObjectURL);

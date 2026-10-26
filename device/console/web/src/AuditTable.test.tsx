@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { AuditLine, Device } from "./api";
 import { AuditTable } from "./AuditTable";
 
@@ -40,7 +40,6 @@ const lines: AuditLine[] = [
 
 const detailButtons = () => screen.getAllByRole("button", { name: "Details" });
 
-afterEach(cleanup);
 
 describe("AuditTable", () => {
   it("filters by device, opens a line, and clears a filter that matches nothing", () => {
@@ -91,6 +90,38 @@ describe("AuditTable", () => {
     expect(caption).toHaveTextContent(/older lines are not loaded/);
     // The page knows how many it asked for, not what the console holds: it must not claim there are more.
     expect(caption).not.toHaveTextContent(/keeps more/);
+  });
+
+  it("keeps an open row open when a filter removes the rows above it", () => {
+    render(<AuditTable lines={lines} devices={devices} />);
+    fireEvent.change(screen.getByLabelText("Device"), { target: { value: alpha } });
+    fireEvent.click(detailButtons()[1]);
+    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+      target: { value: "terminal.list" }
+    });
+    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+  });
+
+  it("marks a device error that arrived as HTTP 200", () => {
+    const refused: AuditLine = {
+      ts_ms: 5,
+      kind: "mcp",
+      device_id: alpha,
+      tool: "terminal.create",
+      detail: "jsonrpc error -32002",
+      status: 200
+    };
+    render(<AuditTable lines={[refused]} devices={devices} />);
+
+    const status = screen.getByText("200");
+    expect(status).toHaveClass("chip-warn");
+    expect(status.getAttribute("title")).toMatch(/JSON-RPC error/);
+    expect(screen.getByText("error")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
+    expect(screen.getByText(/1 of 1 lines/)).toBeInTheDocument();
   });
 
   it("offers a retired device by the prefix of its id", () => {

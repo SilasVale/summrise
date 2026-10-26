@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
 import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
+import { copyText } from "./copy";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
@@ -179,15 +180,9 @@ export function App() {
       );
     }
     const text = lines.join("\n");
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const area = document.createElement("textarea");
-      area.value = text;
-      document.body.append(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
+    if (!(await copyText(text))) {
+      setNotice("Could not copy the diagnostics: the browser refused the clipboard.");
+      return;
     }
     setNotice("Diagnostics copied for " + (device.name ?? device.id.slice(0, 12)) + ".");
   };

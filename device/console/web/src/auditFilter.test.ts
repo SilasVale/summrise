@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuditLine } from "./api";
-import { filterAudit, type AuditFilter } from "./auditFilter";
+import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 
 const A = "device-a";
 const B = "device-b";
@@ -40,7 +40,7 @@ describe("filterAudit", () => {
     expect(filterAudit(lines, filter({ device: A, status: "failed" }))).toEqual([]);
   });
 
-  it("matches the detail when the line has no tool", () => {
+  it("matches the detail with or without a tool", () => {
     const detailOnly: AuditLine = {
       ts_ms: 4,
       kind: "tool",
@@ -49,6 +49,31 @@ describe("filterAudit", () => {
       detail: "Uploaded a firmware image",
       status: 200
     };
+    const refused: AuditLine = {
+      ts_ms: 5,
+      kind: "mcp",
+      device_id: A,
+      tool: "terminal.create",
+      detail: "jsonrpc error -32002",
+      status: 200
+    };
     expect(filterAudit([detailOnly], filter({ tool: "firmware" }))).toEqual([detailOnly]);
+    // A tool call's detail can name the outcome, and that is how an operator finds a refusal.
+    expect(filterAudit([refused], filter({ tool: "32002" }))).toEqual([refused]);
+  });
+
+  it("calls a device JSON-RPC error failed although it crossed the console as HTTP 200", () => {
+    const refused: AuditLine = {
+      ts_ms: 5,
+      kind: "mcp",
+      device_id: A,
+      tool: "terminal.create",
+      detail: "jsonrpc error -32002",
+      status: 200
+    };
+    expect(auditFailed(refused)).toBe(true);
+    expect(auditFailed(lines[0])).toBe(false);
+    expect(filterAudit([refused], filter({ status: "failed" }))).toEqual([refused]);
+    expect(filterAudit([refused], filter({ status: "ok" }))).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
-import { filterAudit, type AuditFilter } from "./auditFilter";
+import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000; 200 is enough
@@ -15,14 +15,38 @@ function shortId(id: string): string {
   return id.length > 12 ? id.slice(0, 12) + "…" : id;
 }
 
-function rowKey(line: AuditLine, index: number): string {
-  return `${line.ts_ms}-${index}`;
+/**
+ * One key per line, stable across filtering and polling.
+ *
+ * The key is the line's content plus its ordinal among identical lines in the FULL list, not its
+ * index in the filtered one: a filter that keeps an open row must keep it open, and the five-second
+ * poll returns new objects for the same lines. A content-only key would collapse two identical lines
+ * into one; the ordinal is what keeps them apart.
+ */
+function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
+  const seen = new Map<string, number>();
+  const keys = new Map<AuditLine, string>();
+  for (const line of lines) {
+    const base = [
+      line.ts_ms,
+      line.kind,
+      line.device_id ?? "",
+      line.tool ?? "",
+      line.detail ?? "",
+      line.status
+    ].join("|");
+    const ordinal = seen.get(base) ?? 0;
+    seen.set(base, ordinal + 1);
+    keys.set(line, `${base}|${ordinal}`);
+  }
+  return keys;
 }
 
 export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: Device[] }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const shown = useMemo(() => filterAudit(lines, filter), [lines, filter]);
+  const keys = useMemo(() => lineKeys(lines), [lines]);
 
   const fleet = new Set(devices.map((device) => device.id));
   const retired = Array.from(
@@ -128,9 +152,11 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
               </tr>
             </thead>
             <tbody>
-              {shown.map((line, index) => {
-                const key = rowKey(line, index);
+              {shown.map((line) => {
+                const key = keys.get(line) ?? String(line.ts_ms);
                 const isOpen = open.has(key);
+                const failed = auditFailed(line);
+                const deviceError = failed && line.status < 400;
                 return (
                   <Fragment key={key}>
                     <tr>
@@ -139,9 +165,29 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
                       <td className="mono">
                         {line.device_id ? shortId(line.device_id) : ""}
                       </td>
-                      <td className="mono">{line.tool ?? line.detail ?? ""}</td>
+                      <td className="mono">
+                        {line.tool ?? line.detail ?? ""}
+                        {deviceError && (
+                          <>
+                            {" "}
+                            <span className="chip chip-warn" title={line.detail ?? undefined}>
+                              error
+                            </span>
+                          </>
+                        )}
+                      </td>
                       <td>
-                        <span className={"chip " + (line.status < 400 ? "chip-ok" : "chip-bad")}>
+                        <span
+                          className={
+                            "chip " +
+                            (line.status >= 400 ? "chip-bad" : deviceError ? "chip-warn" : "chip-ok")
+                          }
+                          title={
+                            deviceError
+                              ? "HTTP 200: the device answered with a JSON-RPC error, shown in the detail"
+                              : undefined
+                          }
+                        >
                           {line.status}
                         </span>
                       </td>

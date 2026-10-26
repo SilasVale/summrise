@@ -33,7 +33,8 @@ describe("GrantForm", () => {
     const hint = screen.getByText(/device refuses a destructive call/);
     expect(hint).toHaveClass("hint");
     expect(hint).toHaveTextContent("Its refusal asks for the grant to be minted again with this ticked");
-    expect(hint).toHaveTextContent("the audit records the attempt as an ask");
+    expect(hint).toHaveTextContent("the console's audit keeps the refused exchange");
+    expect(hint).toHaveTextContent("the device's error code");
     expect(hint).toHaveTextContent("cannot approve one call at a time");
 
     fireEvent.click(consent);

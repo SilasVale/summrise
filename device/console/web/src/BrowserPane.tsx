@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useRequestGate } from "./requests";
-import { callTool, type Grant } from "./terminal";
+import { callTool, toolFailure, type Grant } from "./terminal";
 
 type Target = { id: string; url?: string; title?: string };
 
@@ -41,7 +41,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     } catch (cause) {
       // A stale error describes a view that is gone, exactly like stale data does.
       if (listGate.stale(ticket)) return null;
-      setStatus("List failed: " + message(cause));
+      setStatus("List failed: " + toolFailure(cause));
       return null;
     }
   };
@@ -59,7 +59,10 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       setStatus(`Captured ${answer.bytes} bytes.`);
     } catch (cause) {
       if (shotGate.stale(ticket)) return;
-      setStatus("Screenshot failed: " + message(cause));
+      // The picture on screen is of a page this call could not read. Leaving it under a failure
+      // sentence would present the old frame as the current one.
+      setShot(null);
+      setStatus("Screenshot failed: " + toolFailure(cause));
     }
   };
 
@@ -81,7 +84,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       const listed = await list(answer.target);
       if (listed) await capture(answer.target);
     } catch (cause) {
-      setStatus("Open failed: " + message(cause));
+      setStatus("Open failed: " + toolFailure(cause));
     }
   };
 
@@ -95,7 +98,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       // the true one and a screenshot would only replace it with a second failure.
       if (listed?.some((entry) => entry.id === wanted)) await capture(wanted);
     } catch (cause) {
-      setStatus("Navigate failed: " + message(cause));
+      setStatus("Navigate failed: " + toolFailure(cause));
     }
   };
 
@@ -107,7 +110,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       const listed = await list();
       if (listed && listed.length > 0) await capture(listed[0].id);
     } catch (cause) {
-      setStatus("Close failed: " + message(cause));
+      setStatus("Close failed: " + toolFailure(cause));
     }
   };
 
@@ -123,7 +126,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       setShot(null);
       setStatus("The browser is stopped. No browser is open on this device.");
     } catch (cause) {
-      setStatus("Stop failed: " + message(cause));
+      setStatus("Stop failed: " + toolFailure(cause));
     }
   };
 
@@ -149,7 +152,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       setStatus("Clicked " + (answer.value ?? "the page") + ".");
       await capture();
     } catch (cause) {
-      setStatus("Click failed: " + message(cause));
+      setStatus("Click failed: " + toolFailure(cause));
     }
   };
 
@@ -170,7 +173,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       setText("");
       await capture();
     } catch (cause) {
-      setStatus("Type failed: " + message(cause));
+      setStatus("Type failed: " + toolFailure(cause));
     }
   };
 
@@ -227,6 +230,3 @@ export function BrowserPane({ grant }: { grant: Grant }) {
   );
 }
 
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}

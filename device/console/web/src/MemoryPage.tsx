@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { copyText } from "./copy";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
-import { callTool, ToolError, type Grant } from "./terminal";
+import { callTool, toolFailure, type Grant } from "./terminal";
 
 /**
  * A memory entry on the wire: the id `memory.list`/`memory.search` return, the text, and its tags.
@@ -19,6 +20,9 @@ const LIMIT = 100;
 
 /// `memory::MAX_EXPORT_BYTES`: the device returns at most 2 MiB of JSONL per export.
 const EXPORT_CAP = 2 * 1024 * 1024;
+
+/// The cap as the sentence spells it; derived so the copy cannot disagree with the number.
+const EXPORT_CAP_LABEL = `${EXPORT_CAP / (1024 * 1024)} MiB`;
 
 /**
  * What the device remembers, as a page.
@@ -506,13 +510,13 @@ function exportCaption(answer: ExportAnswer): string {
   const here = `${answer.entries} ${noun} and ${byteCount(utf8Bytes(answer.text))} of JSONL`;
   if (answer.truncated) {
     return (
-      `The device caps one export at 2 MiB (${byteCount(EXPORT_CAP)}), and this answer was cut there: ` +
+      `The device caps one export at ${EXPORT_CAP_LABEL} (${byteCount(EXPORT_CAP)}), and this answer was cut there: ` +
       `it holds ${here}, while the store holds ${byteCount(answer.total_bytes)}, newest first.`
     );
   }
   return (
     `The whole store: ${here}, newest first. ` +
-    `The device caps one export at 2 MiB (${byteCount(EXPORT_CAP)}); this answer fits.`
+    `The device caps one export at ${EXPORT_CAP_LABEL} (${byteCount(EXPORT_CAP)}); this answer fits.`
   );
 }
 
@@ -524,20 +528,11 @@ function utf8Bytes(text: string): number {
 /**
  * What the page says when an export fails.
  *
- * A device-spoken refusal is the device's sentence, because the reason is the device's. A failure that
- * never reached it is the console's sentence, and must not read like a store that refused.
+ * The shared classifier keeps the device's refusal verbatim and says when the console never reached
+ * it; the prefix is this page's, because the operator asked this page for the export.
  */
 function exportFailure(cause: unknown): string {
-  if (cause instanceof ToolError && cause.fromDevice) {
-    return "Could not export memory: " + cause.message;
-  }
-  if (
-    cause instanceof ToolError &&
-    (cause.status === 0 || cause.status === 503 || cause.status === 504)
-  ) {
-    return "Could not export memory: the console never reached the device. " + cause.message;
-  }
-  return "Could not export memory: " + message(cause);
+  return "Could not export memory: " + toolFailure(cause);
 }
 
 /// "9,000,000 bytes" — exact and grouped, rather than a rounded size that hides which store is meant.
@@ -565,23 +560,6 @@ function downloadExport(answer: ExportAnswer) {
   link.remove();
   // Give the browser a moment to start the download before the URL is revoked.
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-/// Copy the whole text, with the same fallback the diagnostics button uses when the clipboard API is
-/// absent or refuses.
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const area = document.createElement("textarea");
-    area.value = text;
-    document.body.append(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    area.remove();
-    return copied;
-  }
 }
 
 function message(cause: unknown): string {
