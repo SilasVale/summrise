@@ -49,6 +49,7 @@ it proves they build, not that they pass.
 - `docs/superpowers/specs/2026-10-21-remote-access-two-client-classes-design.md` — who may reach a device.
 - `docs/superpowers/specs/2026-10-21-two-runtime-canary-runbook.md` — how to install and verify it.
 - `docs/superpowers/specs/2026-10-21-phase-5-cutover-plan.md` — when the old tree goes away.
+- `docs/CONNECT-MCP.md` — how an AI client reaches one device through the console.
 
 ## License
 

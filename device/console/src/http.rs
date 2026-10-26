@@ -45,6 +45,12 @@ const MAX_AUDIT_LIMIT: usize = 1000;
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
 
+/// The largest body the standard MCP endpoint buffers, after the grant has been verified.
+///
+/// It matches the device's own `/mcp` cap: a body a client can send to one end must not be refused
+/// by the other for a reason that is not the tool's.
+const MAX_STANDARD_MCP_BODY_BYTES: usize = 8 * 1024 * 1024;
+
 /// How long the console tells an operator's client to wait before retrying a busy device.
 const BUSY_RETRY_AFTER_MS: u64 = 250;
 
@@ -258,6 +264,7 @@ impl Console {
             .route("/tools", get(tool_catalogue))
             .route("/grants", post(create_grant))
             .route("/mcp", post(proxy_mcp))
+            .route("/mcp/:id", post(standard_mcp))
             .route("/audit", get(list_audit))
             .layer(axum::middleware::from_fn(no_store))
             .with_state(self.inner.clone())
@@ -1130,6 +1137,162 @@ const RUNS_WAIT_GRACE: Duration = Duration::from_secs(5);
 /// The proxy's backstop around a run: the channel's bound plus room for the frame's round trip.
 const RUNS_BACKSTOP_GRACE: Duration = Duration::from_secs(10);
 
+/// Verify a presented grant: its signature, the device it names and its expiry.
+///
+/// It records nothing on purpose. The custom route's caller has already proved an operator session,
+/// so its refusals are audited; the standard route has no session, so a refusal before a verified
+/// grant is a denial. Which log a refusal belongs to is the caller's decision, not this function's.
+fn verify_presented(
+    app: &AppState,
+    device_id: &str,
+    grant: &GrantEnvelope,
+) -> Result<(), ApiError> {
+    match grants::verify(&app.grant_key, grant, device_id, (app.now)()) {
+        Ok(()) => Ok(()),
+        Err(VerifyError::BadSignature) => Err(ApiError::forbidden("invalid_grant_signature")),
+        Err(VerifyError::DeviceMismatch) => Err(ApiError::forbidden("grant_device_mismatch")),
+        Err(VerifyError::Expired) => Err(ApiError::forbidden("grant_expired")),
+    }
+}
+
+/// Whether this console has the device, separate from the signature check so each route can decide
+/// which refusal is a denial and which is an audited action.
+fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
+    if lock(&app.devices).contains(device_id) {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("unknown_device"))
+    }
+}
+
+/// Forward one MCP exchange to a device and record the authenticated outcome.
+///
+/// The caller has already checked the device and verified the grant. `invalid_params_status` is the
+/// HTTP status a malformed `tools/call` gets: the custom route answers 400, the standard route
+/// answers 200 with a JSON-RPC error, and both are the same authorization decision. `filter` is the
+/// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
+/// `None` and keeps its unfiltered answer.
+async fn forward(
+    app: &AppState,
+    device_id: &str,
+    grant: &GrantEnvelope,
+    audit_id: Option<&str>,
+    request: Value,
+    invalid_params_status: StatusCode,
+    filter: Option<&[String]>,
+) -> Response {
+    let request_id = request.get("id").cloned().unwrap_or(Value::Null);
+    let tool = match requested_tool(&request) {
+        Ok(tool) => tool.map(str::to_owned),
+        Err(()) => {
+            app.record(
+                "denied",
+                audit_id,
+                invalid_params_status,
+                Some("invalid_tool_call"),
+            )
+            .await;
+            return jsonrpc_error(
+                invalid_params_status,
+                request_id,
+                -32602,
+                "invalid params: tools/call requires params.name",
+                None,
+            );
+        }
+    };
+    let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
+
+    if let Some(tool) = tool.as_deref() {
+        if !grant.grant.tools.iter().any(|allowed| allowed == tool) {
+            app.record_tool(
+                "denied",
+                audit_id,
+                StatusCode::FORBIDDEN,
+                Some("tool_not_permitted"),
+                Some(tool),
+            )
+            .await;
+            return jsonrpc_error(
+                StatusCode::FORBIDDEN,
+                request_id,
+                -32001,
+                "tool not permitted by grant",
+                Some(json!({ "tool": tool })),
+            );
+        }
+    }
+
+    // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
+    // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
+    // tool keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
+    let answer = match run_wait(&request) {
+        // A run blocks on the device for its own timeout, so the channel waits that long and the
+        // proxy's backstop sits a little above it.
+        Some(wait) => {
+            tokio::time::timeout(
+                wait + RUNS_BACKSTOP_GRACE,
+                app.channels.request_within(device_id, request, grant, wait),
+            )
+            .await
+        }
+        // Everything else answers in milliseconds; the general bound stays in charge of both layers.
+        None => {
+            tokio::time::timeout(
+                app.mcp_timeout,
+                app.channels.request(device_id, request, grant),
+            )
+            .await
+        }
+    };
+
+    match answer {
+        Err(_) => {
+            app.record_tool(
+                "denied",
+                audit_id,
+                StatusCode::GATEWAY_TIMEOUT,
+                Some("device timeout"),
+                tool.as_deref(),
+            )
+            .await;
+            ApiError::gateway_timeout("device timeout").into_response()
+        }
+        Ok(Err(error)) => {
+            let failure = failure_for(error);
+            app.record_tool(
+                "denied",
+                audit_id,
+                failure.status,
+                Some(failure.detail),
+                tool.as_deref(),
+            )
+            .await;
+            failure.into_response()
+        }
+        Ok(Ok(mut reply)) => {
+            if let (Some(allowed), true) = (filter, is_tools_list) {
+                if let Reply::Result(result) = &mut reply {
+                    crate::mcp::filter_tools(result, allowed);
+                }
+            }
+            let detail = reply_detail(&reply);
+            app.record_tool(
+                "mcp",
+                audit_id,
+                StatusCode::OK,
+                detail.as_deref(),
+                tool.as_deref(),
+            )
+            .await;
+            match reply {
+                Reply::Result(result) => (StatusCode::OK, Json(result)).into_response(),
+                Reply::Error(error) => (StatusCode::OK, Json(error)).into_response(),
+            }
+        }
+    }
+}
+
 /// `POST /mcp`: verify the operator's grant, enforce the tool it permits, then forward one MCP
 /// exchange over the device channel.
 ///
@@ -1149,154 +1312,180 @@ const RUNS_BACKSTOP_GRACE: Duration = Duration::from_secs(10);
 /// client can retry. A request whose channel closed after the frame was written returns 502 with no
 /// retry hint: the outcome is unknown, and a retry could execute it twice. 504 remains the request
 /// the device took and did not answer.
+///
+/// This route's refusals are audited: the operator session has already proved a credential. The
+/// standard route (`/mcp/:id`) shares the same three pieces and sends its pre-authentication refusals
+/// to the denial log instead.
 async fn proxy_mcp(
     State(app): State<AppState>,
     _: OperatorSession,
     Json(body): Json<McpProxy>,
 ) -> Response {
-    let device_id = audit_device_id(&body.device_id);
+    let audit_id = audit_device_id(&body.device_id);
 
-    if !lock(&app.devices).contains(&body.device_id) {
-        return app
-            .deny(device_id.as_deref(), ApiError::not_found("unknown_device"))
-            .await
+    if let Err(error) = ensure_registered(&app, &body.device_id) {
+        return app.deny(audit_id.as_deref(), error).await.into_response();
+    }
+    if let Err(error) = verify_presented(&app, &body.device_id, &body.grant) {
+        return app.deny(audit_id.as_deref(), error).await.into_response();
+    }
+
+    forward(
+        &app,
+        &body.device_id,
+        &body.grant,
+        audit_id.as_deref(),
+        body.request,
+        StatusCode::BAD_REQUEST,
+        None,
+    )
+    .await
+}
+
+/// `POST /mcp/:id`: the standard MCP transport an AI client connects to.
+///
+/// The grant is the credential. It is verified before the device lookup (no registry oracle) and
+/// before the body is read (no 8 MiB buffer for an unauthenticated caller). Everything before a
+/// verified grant goes to the denial log; everything after it is an audited action.
+async fn standard_mcp(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    request: axum::extract::Request,
+) -> Response {
+    let audit_id = audit_device_id(&device_id);
+    let (parts, body) = request.into_parts();
+    let headers = parts.headers;
+
+    if !crate::mcp::content_type_is_json(&headers) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(json!({ "error": "unsupported_media_type" })),
+        )
+            .into_response();
+    }
+    if !crate::mcp::accept_allows_json(&headers) {
+        return (
+            StatusCode::NOT_ACCEPTABLE,
+            Json(json!({ "error": "not_acceptable" })),
+        )
             .into_response();
     }
 
-    match grants::verify(&app.grant_key, &body.grant, &body.device_id, (app.now)()) {
-        Ok(()) => {}
-        Err(VerifyError::BadSignature) => {
-            return app
-                .deny(
-                    device_id.as_deref(),
-                    ApiError::forbidden("invalid_grant_signature"),
-                )
-                .await
-                .into_response()
-        }
-        Err(VerifyError::DeviceMismatch) => {
-            return app
-                .deny(
-                    device_id.as_deref(),
-                    ApiError::forbidden("grant_device_mismatch"),
-                )
-                .await
-                .into_response()
-        }
-        Err(VerifyError::Expired) => {
-            return app
-                .deny(device_id.as_deref(), ApiError::forbidden("grant_expired"))
-                .await
-                .into_response()
-        }
+    let Some(grant) = crate::mcp::grant_from_headers(&headers) else {
+        return app
+            .refuse(audit_id.as_deref(), ApiError::unauthorized())
+            .await
+            .into_response();
+    };
+    if let Err(error) = verify_presented(&app, &device_id, &grant) {
+        return app.refuse(audit_id.as_deref(), error).await.into_response();
+    }
+    if let Err(error) = ensure_registered(&app, &device_id) {
+        return app.deny(audit_id.as_deref(), error).await.into_response();
     }
 
-    let request_id = body.request.get("id").cloned().unwrap_or(Value::Null);
-    let tool = match requested_tool(&body.request) {
-        Ok(tool) => tool.map(str::to_owned),
-        Err(()) => {
-            app.record(
-                "denied",
-                device_id.as_deref(),
-                StatusCode::BAD_REQUEST,
-                Some("invalid_tool_call"),
-            )
-            .await;
-            return jsonrpc_error(
-                StatusCode::BAD_REQUEST,
-                request_id,
-                -32602,
-                "invalid params: tools/call requires params.name",
-                None,
-            );
-        }
-    };
-
-    if let Some(tool) = tool.as_deref() {
-        if !body.grant.grant.tools.iter().any(|allowed| allowed == tool) {
-            app.record_tool(
-                "denied",
-                device_id.as_deref(),
-                StatusCode::FORBIDDEN,
-                Some("tool_not_permitted"),
-                Some(tool),
-            )
-            .await;
-            return jsonrpc_error(
-                StatusCode::FORBIDDEN,
-                request_id,
-                -32001,
-                "tool not permitted by grant",
-                Some(json!({ "tool": tool })),
-            );
-        }
-    }
-
-    // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
-    // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
-    // tool keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
-    let answer = match run_wait(&body.request) {
-        // A run blocks on the device for its own timeout, so the channel waits that long and the
-        // proxy's backstop sits a little above it.
-        Some(wait) => {
-            tokio::time::timeout(
-                wait + RUNS_BACKSTOP_GRACE,
-                app.channels
-                    .request_within(&body.device_id, body.request, &body.grant, wait),
-            )
-            .await
-        }
-        // Everything else answers in milliseconds; the general bound stays in charge of both layers.
-        None => {
-            tokio::time::timeout(
-                app.mcp_timeout,
-                app.channels
-                    .request(&body.device_id, body.request, &body.grant),
-            )
-            .await
-        }
-    };
-
-    match answer {
+    // The grant is verified, so this buffer can only be filled by a caller who proved a credential.
+    let bytes = match axum::body::to_bytes(body, MAX_STANDARD_MCP_BODY_BYTES).await {
+        Ok(bytes) => bytes,
         Err(_) => {
-            app.record_tool(
-                "denied",
-                device_id.as_deref(),
-                StatusCode::GATEWAY_TIMEOUT,
-                Some("device timeout"),
-                tool.as_deref(),
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({ "error": "payload_too_large" })),
             )
-            .await;
-            ApiError::gateway_timeout("device timeout").into_response()
+                .into_response()
         }
-        Ok(Err(error)) => {
-            let failure = failure_for(error);
-            app.record_tool(
-                "denied",
-                device_id.as_deref(),
-                failure.status,
-                Some(failure.detail),
-                tool.as_deref(),
+    };
+    let request: Value = match serde_json::from_slice(&bytes) {
+        Ok(request) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(crate::mcp::jsonrpc_error_body(
+                    Value::Null,
+                    -32700,
+                    "parse error",
+                )),
             )
-            .await;
-            failure.into_response()
+                .into_response()
         }
-        Ok(Ok(reply)) => {
-            let detail = reply_detail(&reply);
-            app.record_tool(
-                "mcp",
-                device_id.as_deref(),
-                StatusCode::OK,
-                detail.as_deref(),
-                tool.as_deref(),
-            )
-            .await;
-            match reply {
-                Reply::Result(result) => (StatusCode::OK, Json(result)).into_response(),
-                Reply::Error(error) => (StatusCode::OK, Json(error)).into_response(),
-            }
-        }
+    };
+    let Some(object) = request.as_object() else {
+        return invalid_protocol_request(Value::Null, "invalid request");
+    };
+    if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return invalid_protocol_request(Value::Null, "invalid request");
     }
+    let id = object.get("id").cloned().unwrap_or(Value::Null);
+    let Some(method) = object
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return invalid_protocol_request(id, "invalid request");
+    };
+    if object.get("id").is_none() {
+        // A notification. `notifications/initialized` is the only one with meaning here; the rest
+        // are dropped, as JSON-RPC says a notification gets no answer.
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    match method.as_str() {
+        "initialize" => (
+            StatusCode::OK,
+            Json(crate::mcp::jsonrpc_result(
+                id,
+                crate::mcp::initialize_result(&device_id, &app.version),
+            )),
+        )
+            .into_response(),
+        "ping" => (
+            StatusCode::OK,
+            Json(crate::mcp::jsonrpc_result(id, json!({}))),
+        )
+            .into_response(),
+        "tools/list" => {
+            forward(
+                &app,
+                &device_id,
+                &grant,
+                audit_id.as_deref(),
+                request,
+                StatusCode::OK,
+                Some(&grant.grant.tools),
+            )
+            .await
+        }
+        "tools/call" => {
+            forward(
+                &app,
+                &device_id,
+                &grant,
+                audit_id.as_deref(),
+                request,
+                StatusCode::OK,
+                None,
+            )
+            .await
+        }
+        _ => (
+            StatusCode::OK,
+            Json(crate::mcp::jsonrpc_error_body(
+                id,
+                -32601,
+                "method not found",
+            )),
+        )
+            .into_response(),
+    }
+}
+
+/// The 400 every malformed JSON-RPC request gets.
+fn invalid_protocol_request(id: Value, message: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(crate::mcp::jsonrpc_error_body(id, -32600, message)),
+    )
+        .into_response()
 }
 
 /// `DELETE /devices/:id`: revoke a machine. The operator's answer to a stolen or retired box.
