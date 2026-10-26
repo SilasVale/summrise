@@ -239,7 +239,7 @@ impl Console {
             .route("/devices", post(register_device))
             .route("/devices/:id/channel", get(device_channel))
             .route("/mesh", get(mesh_status))
-            .route("/devices/:id/mesh", get(device_mesh_readiness))
+            .route("/fleet/:id/mesh", get(device_mesh_readiness))
             .route("/fleet", get(list_devices))
             .route("/fleet/:id/name", post(rename_device))
             .route(
@@ -1457,7 +1457,7 @@ async fn mesh_status(State(app): State<AppState>, _: OperatorSession) -> Json<se
     }))
 }
 
-/// `GET /devices/:id/mesh`: ask the broker whether this device is registered **right now**.
+/// `GET /fleet/:id/mesh`: ask the broker whether this device is registered **right now**.
 ///
 /// This contacts the broker, never the device: no operator frame and no tool call moves on this route. A
 /// device the broker does not know is `reachable: false` (200); a broker that does not answer in time is

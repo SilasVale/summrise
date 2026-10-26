@@ -3166,7 +3166,7 @@ async fn the_readiness_route_asks_the_broker_about_a_registered_device() {
     let session = fixture.authenticate().await;
     let (status, body) = send(
         fixture.app(),
-        get(&format!("/devices/{device_id}/mesh"), Some(&session)),
+        get(&format!("/fleet/{device_id}/mesh"), Some(&session)),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -3181,10 +3181,7 @@ async fn the_readiness_route_refuses_an_unregistered_device() {
     let session = fixture.authenticate().await;
     let (status, _) = send(
         fixture.app(),
-        get(
-            &format!("/devices/{}/mesh", "ab".repeat(32)),
-            Some(&session),
-        ),
+        get(&format!("/fleet/{}/mesh", "ab".repeat(32)), Some(&session)),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -3192,7 +3189,7 @@ async fn the_readiness_route_refuses_an_unregistered_device() {
     // And without an operator session the route is not a public probe.
     let (status, _) = send(
         fixture.app(),
-        get(&format!("/devices/{}/mesh", "ab".repeat(32)), None),
+        get(&format!("/fleet/{}/mesh", "ab".repeat(32)), None),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
