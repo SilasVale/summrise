@@ -911,3 +911,7 @@ span.files-name {
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
+
+/* The destructive-consent checkbox and the sentence that appears when it is unticked: the sentence
+   belongs to the control, not to the lifetime row it shares. */
+.grant-consent { display: grid; gap: 0.2rem; align-content: start; }
