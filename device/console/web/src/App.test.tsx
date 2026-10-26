@@ -48,6 +48,15 @@ vi.mock("./api", () => ({
   NoAnswer: class NoAnswer extends Error {}
 }));
 
+// The workspace owns xterm and the tabs, and this file is about the shell around it. The stub is a
+// marker, so "a page change did not remount it" is a node-identity assertion rather than a guess;
+// `visible` is the prop App uses to hide it on every page that is not the terminal.
+vi.mock("./TerminalWorkspace", () => ({
+  TerminalWorkspace: ({ visible }: { visible: boolean }) => (
+    <div data-testid="workspace" data-visible={visible ? "yes" : "no"} />
+  )
+}));
+
 let signedIn = false;
 
 const workshop = {
@@ -102,11 +111,19 @@ async function boot() {
 
 /** Boot signed out, sign in with the operator token, and wait for the fleet. */
 async function bootAndSignIn() {
-  await boot();
+  const view = await boot();
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByRole("heading", { name: "Summrise" });
   await screen.findByText("workshop");
+  return view;
+}
+
+/** Select a device from its card; App switches to the terminal and asks for a grant. */
+function selectDevice(name: string) {
+  const card = screen.getByText(name).closest("article");
+  expect(card).not.toBeNull();
+  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Work on this" }));
 }
 
 describe("App", () => {
@@ -175,9 +192,7 @@ describe("App", () => {
   it("selects a device and lands on the terminal with that device's grant form", async () => {
     await bootAndSignIn();
 
-    const card = screen.getByText("workshop").closest("article");
-    expect(card).not.toBeNull();
-    fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Work on this" }));
+    selectDevice("workshop");
 
     expect(
       screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
@@ -185,6 +200,49 @@ describe("App", () => {
     expect(screen.getByLabelText("Lifetime (seconds)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
     expect(screen.queryByText("No device selected.")).not.toBeInTheDocument();
+    // Files draws the same grant form, so the grant heading alone does not say which page this is.
+    const rail = screen.getByRole("navigation", { name: "Sections" });
+    expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the workspace mounted, hidden, across a page change", async () => {
+    await bootAndSignIn();
+    selectDevice("workshop");
+    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
+    const workspace = await screen.findByTestId("workspace");
+    expect(mocks.grant).toHaveBeenCalledWith("dev-workshop-0001", expect.any(Array), 3600, true);
+    expect(workspace).toHaveAttribute("data-visible", "yes");
+
+    const rail = screen.getByRole("navigation", { name: "Sections" });
+    fireEvent.click(within(rail).getByRole("button", { name: "Audit" }));
+    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
+    // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
+    expect(screen.getByTestId("workspace")).toBe(workspace);
+    expect(workspace).toHaveAttribute("data-visible", "no");
+    expect(workspace.closest("section")).toHaveAttribute("hidden");
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Terminal" }));
+    expect(screen.getByTestId("workspace")).toBe(workspace);
+    expect(workspace).toHaveAttribute("data-visible", "yes");
+    expect(workspace.closest("section")).not.toHaveAttribute("hidden");
+  });
+
+  it("clears its poll when the page unmounts", async () => {
+    const startPoll = vi.spyOn(window, "setInterval");
+    const clearInterval = vi.spyOn(window, "clearInterval");
+    const { unmount } = await bootAndSignIn();
+
+    // Testing Library's `waitFor` polls on a short interval too; only the page's own 5-second timer is
+    // the poll this test is about.
+    const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
+    expect(poll).toBeGreaterThanOrEqual(0);
+    const timer = startPoll.mock.results[poll].value;
+
+    unmount();
+
+    expect(clearInterval).toHaveBeenCalledWith(timer);
   });
 
   it("signs out to the login form and clears the fleet", async () => {
