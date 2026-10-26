@@ -34,20 +34,25 @@ pub(crate) enum BearerKind {
 /// every existing client behaves as before. A malformed token falls through to the grant parser and
 /// fails there (hex has no `s`, `r`, `m` or `_`), which is one `None` for every bad credential.
 pub(crate) fn bearer_from_headers(headers: &HeaderMap) -> Option<BearerKind> {
-    if let Some(token) = token_from_headers(headers) {
-        return Some(BearerKind::Token(token));
+    let token = bearer_value(headers)?;
+    if let Some(permanent) = permanent_token(token) {
+        return Some(BearerKind::Token(permanent));
     }
-    grant_from_headers(headers).map(BearerKind::Grant)
+    grant_from_value(token).map(BearerKind::Grant)
 }
 
-/// The permanent token this header carries, when it is one.
-fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+/// The credential in `Authorization: Bearer …`, parsed once for both bearer types.
+fn bearer_value(headers: &HeaderMap) -> Option<&str> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let (scheme, token) = value.split_once(' ')?;
     if !scheme.eq_ignore_ascii_case("bearer") {
         return None;
     }
-    let token = token.trim();
+    Some(token.trim())
+}
+
+/// The permanent token this value is, when it has the prefix and the exact shape.
+fn permanent_token(token: &str) -> Option<String> {
     let body = token.strip_prefix(crate::tokens::TOKEN_PREFIX)?;
     let well_formed = token.len() == crate::tokens::TOKEN_LEN
         && body
@@ -60,14 +65,15 @@ fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 ///
 /// The scheme is case-insensitive because HTTP says it is. The token is the envelope's own JSON
 /// bytes in hex, the console's one wire encoding for secrets and keys, so a client does not need a
-/// second serializer for this credential.
+/// second serializer for this credential. Test-only: the route goes through [`bearer_from_headers`],
+/// which uses the same single parse and the same [`grant_from_value`].
+#[cfg(test)]
 pub(crate) fn grant_from_headers(headers: &HeaderMap) -> Option<GrantEnvelope> {
-    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    let (scheme, token) = value.split_once(' ')?;
-    if !scheme.eq_ignore_ascii_case("bearer") {
-        return None;
-    }
-    let bytes = crate::hex::decode_bytes(token.trim())?;
+    grant_from_value(bearer_value(headers)?)
+}
+
+fn grant_from_value(token: &str) -> Option<GrantEnvelope> {
+    let bytes = crate::hex::decode_bytes(token)?;
     serde_json::from_slice(&bytes).ok()
 }
 

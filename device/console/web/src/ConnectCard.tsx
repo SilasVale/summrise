@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type Device, type TokenMeta } from "./api";
 import { copyText } from "./copy";
-import { shortId } from "./format";
+import { message, shortId } from "./format";
 import { useToolNames } from "./useToolNames";
 import { Modal } from "./Modal";
+import { ToolPicker } from "./ToolPicker";
 
 /** The lifetimes the card offers, and the sentence each one carries. */
 const LIFETIMES = [
@@ -31,9 +32,19 @@ function hexOf(text: string): string {
   return Array.from(new TextEncoder().encode(text), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** The one sentence every failure on this card is shown as. */
-function sentenceOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+/** The DeepSeek Harness snippet both modes show: one endpoint, one credential, the same shape. */
+function clientConfig(endpoint: string, deviceId: string, authorization: string): string {
+  const serverName = `summrise-${deviceId.slice(0, 12)}`;
+  return [
+    `- id: mcp-${serverName}`,
+    `  name: '@deepseek-ai/dsh-mcp-client'`,
+    `  config:`,
+    `    serverName: ${serverName}`,
+    `    transport: streamable-http`,
+    `    url: ${endpoint}`,
+    `    headers:`,
+    `      Authorization: ${authorization}`
+  ].join("\n");
 }
 
 /**
@@ -90,7 +101,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
       setTokenList(await api.tokens());
       setTokenListError(null);
     } catch (cause) {
-      setTokenListError(sentenceOf(cause));
+      setTokenListError(message(cause));
     }
   };
 
@@ -108,43 +119,20 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
       const envelope = await api.grant(device.id, tools, lifetime, destructive);
       const expires = (envelope as { grant?: { expires_at_ms?: number } }).grant?.expires_at_ms;
       const header = `Bearer ${hexOf(JSON.stringify(envelope))}`;
-      const serverName = `summrise-${device.id.slice(0, 12)}`;
-      const config = [
-        `- id: mcp-${serverName}`,
-        `  name: '@deepseek-ai/dsh-mcp-client'`,
-        `  config:`,
-        `    serverName: ${serverName}`,
-        `    transport: streamable-http`,
-        `    url: ${endpoint}`,
-        `    headers:`,
-        `      Authorization: ${header}`
-      ].join("\n");
       setIssued({
         endpoint,
         header,
-        config,
+        config: clientConfig(endpoint, device.id, header),
         expiresAt: expires ?? Date.now() + lifetime * 1000
       });
     } catch (cause) {
-      setError(sentenceOf(cause));
+      setError(message(cause));
     } finally {
       setBusy(false);
     }
   };
 
-  const tokenConfig = (token: string) => {
-    const serverName = `summrise-${device.id.slice(0, 12)}`;
-    return [
-      `- id: mcp-${serverName}`,
-      `  name: '@deepseek-ai/dsh-mcp-client'`,
-      `  config:`,
-      `    serverName: ${serverName}`,
-      `    transport: streamable-http`,
-      `    url: ${endpoint}`,
-      `    headers:`,
-      `      Authorization: Bearer ${token}`
-    ].join("\n");
-  };
+  const tokenConfig = (token: string) => clientConfig(endpoint, device.id, `Bearer ${token}`);
 
   const createPermanent = async () => {
     setCreating(true);
@@ -161,7 +149,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
       );
       await refreshTokens();
     } catch (cause) {
-      setCreateError(sentenceOf(cause));
+      setCreateError(message(cause));
     } finally {
       setCreating(false);
     }
@@ -176,17 +164,10 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
       setRevoking(null);
       await refreshTokens();
     } catch (cause) {
-      setRevokeError(sentenceOf(cause));
+      setRevokeError(message(cause));
     } finally {
       setRevokeBusy(false);
     }
-  };
-
-  const toggle = (tool: string) => {
-    const next = new Set(chosen);
-    if (next.has(tool)) next.delete(tool);
-    else next.add(tool);
-    setChosen(next);
   };
 
   const copy = async (what: string, text: string) => {
@@ -319,21 +300,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                 />
               </div>
 
-              <fieldset className="tools">
-                <legend>
-                  Tools ({chosen.size} of {tools.length})
-                  <button type="button" className="mini" onClick={() => setChosen(new Set(tools))}>All</button>
-                  <button type="button" className="mini" onClick={() => setChosen(new Set())}>None</button>
-                </legend>
-                <div className="tool-grid">
-                  {tools.map((tool) => (
-                    <label key={tool} className="check mono">
-                      <input type="checkbox" checked={chosen.has(tool)} onChange={() => toggle(tool)} />
-                      {tool}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <ToolPicker names={tools} chosen={chosen} onChange={setChosen} />
 
               <label className="check">
                 <input type="checkbox" checked={tokenDestructive} onChange={(event) => setTokenDestructive(event.target.checked)} />
@@ -401,7 +368,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                     </div>
                     <div>
                       <span className="muted">
-                        {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"}
+                        {entry.tools.join(", ")}
                         {entry.allow_destructive ? " · destructive allowed" : " · read-only"}
                       </span>{" "}
                       <button type="button" onClick={() => { setRevokeError(null); setRevoking(entry); }}>

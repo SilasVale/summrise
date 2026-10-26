@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::auth::constant_time_eq;
 use crate::config::{self, StartupError};
@@ -283,8 +282,7 @@ fn parse_public_key(public_key: &str) -> Option<[u8; 32]> {
 }
 
 fn hash_token(token: &[u8; 32]) -> String {
-    let digest = Sha256::digest(token);
-    hex::encode(&digest)
+    crate::hash::sha256_hex(token)
 }
 
 fn validate(stored: &StoredDevice) -> Result<(), String> {

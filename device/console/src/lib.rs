@@ -4,10 +4,10 @@
 //!
 //! The console is deliberately small. It is a broker, not a data path (design §5.2): it holds the
 //! grant key, so a compromised console can mint grants, and the only thing that keeps that key
-//! meaningful is that this service stays the operator's own. Storage is three atomic JSON files
-//! (`devices.json`, `codes.json` and `tokens.json`) plus two append-only JSONL indexes (`audit.jsonl`
-//! for authenticated actions and `denials.jsonl` for failed authentication); there is still no
-//! database.
+//! meaningful is that this service stays the operator's own. Storage is the atomic JSON files
+//! (`devices.json`, `codes.json`, `tokens.json`, `connections.json` and the short-lived `login.code`)
+//! plus two append-only JSONL indexes (`audit.jsonl` for authenticated actions and `denials.jsonl`
+//! for failed authentication); there is still no database.
 //!
 //! It also serves one embedded page at `/` (`page.html`, no build step): the operator's face on the
 //! same routes. The page holds no secret and keeps the session it is given in memory.
@@ -26,6 +26,7 @@ mod connections;
 mod denials;
 mod devices;
 mod grants;
+mod hash;
 mod hex;
 mod http;
 mod jsonl;

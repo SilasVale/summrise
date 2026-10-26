@@ -21,7 +21,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::auth::random_32;
 use crate::config::{self, StartupError};
@@ -186,8 +185,7 @@ impl EnrollmentCodes {
 
 /// The lookup key for an issued code: the file never holds the code itself.
 fn hash_code(code: &str) -> String {
-    let digest = Sha256::digest(code.as_bytes());
-    hex::encode(&digest)
+    crate::hash::sha256_hex(code.as_bytes())
 }
 
 #[cfg(test)]

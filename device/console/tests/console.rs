@@ -4249,19 +4249,24 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     assert_eq!(body, json!({ "error": "unauthorized" }));
 
     let denials = denial_lines(&fixture);
-    for detail in ["api_token_device_mismatch", "unknown_api_token"] {
-        assert!(
-            denials
-                .iter()
-                .any(|line| line["detail"] == json!(detail) && line["status"] == json!(401)),
-            "{detail} is missing from {denials:?}"
-        );
-    }
     assert!(
-        audit_lines(&fixture)
+        denials.iter().any(
+            |line| line["detail"] == json!("unknown_api_token") && line["status"] == json!(401)
+        ),
+        "the unknown/revoked credential is a denial line: {denials:?}"
+    );
+    assert!(
+        denials
             .iter()
-            .all(|line| line["kind"] != json!("denied")),
-        "an unauthenticated token refusal never enters the audit"
+            .all(|line| line["detail"] != json!("api_token_device_mismatch")),
+        "a live token used elsewhere is authenticated, so it is not a denial line"
+    );
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["detail"] == json!("api_token_device_mismatch")
+            && line["device_id"] == json!(device_b)),
+        "the foreign-device attempt is in the operator's audit: {audit:?}"
     );
 
     for request in [
@@ -4276,6 +4281,39 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
             "management needs the operator"
         );
     }
+}
+
+/// Removing a device removes its tokens with it: no token outlives the machine it was scoped to.
+#[tokio::test]
+async fn removing_a_device_revokes_its_tokens() {
+    let fixture = Fixture::new("token-device-removed");
+    let (device_id, _channel) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{device_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list, json!([]), "the device's token is gone: {list}");
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("token_revoke")
+                && line["device_id"] == json!(device_id)
+                && line["detail"] == json!("device_removed")),
+        "the removal is audited with the device"
+    );
 }
 
 /// Every refusal is the console's typed code, not a prose error.

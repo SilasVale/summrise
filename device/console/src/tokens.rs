@@ -21,7 +21,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::auth::{constant_time_eq, random_32};
 use crate::config::{self, StartupError};
@@ -139,50 +138,41 @@ impl Tokens {
 
         let path = data.join(TOKENS_FILE);
         config::check_private_file("API tokens", &path)?;
-        let list: Vec<Token> = match store::read_json_with_backup::<Vec<Token>>(&path) {
-            Ok(Some((list, from_backup))) => {
-                if from_backup {
-                    eprintln!(
-                        "summrise-console: {} was unusable; the tokens were read from its backup",
-                        path.display()
-                    );
+        // A token file never uses the registry's backup path: a backup is the previous complete
+        // list, so the save after a revocation would keep the withdrawn hash alive on disk, and a
+        // lost `tokens.json` would then resurrect the token. Remove one left by an older build.
+        let _ = std::fs::remove_file(store::backup_path(&path));
+        let list: Vec<Token> = match std::fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(list) => list,
+                Err(reason) => {
+                    quarantine_and_start_empty(&path, &format!("not a tokens file: {reason}"));
+                    Vec::new()
                 }
-                list
-            }
-            Ok(None) => Vec::new(),
-            Err(reason) => {
-                let quarantined = store::quarantine(&path);
-                eprintln!(
-                    "summrise-console: {} is unusable ({reason}); quarantined to {} and starting \
-                     with no API tokens",
-                    path.display(),
-                    quarantined
-                        .as_ref()
-                        .map(|path| path.display().to_string())
-                        .unwrap_or_else(|| "nothing".to_owned())
-                );
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                quarantine_and_start_empty(&path, &error.to_string());
                 Vec::new()
             }
         };
 
-        // A record this build cannot trust is not one record's problem: the operator's list and the
-        // bearer path would disagree about what exists. Quarantine the file whole, as above.
-        let tokens = match index(list) {
-            Ok(tokens) => tokens,
+        let (tokens, dropped) = match index(list) {
+            Ok(indexed) => indexed,
             Err(reason) => {
-                let quarantined = store::quarantine(&path);
-                eprintln!(
-                    "summrise-console: {} is unusable ({reason}); quarantined to {} and starting \
-                     with no API tokens",
-                    path.display(),
-                    quarantined
-                        .as_ref()
-                        .map(|path| path.display().to_string())
-                        .unwrap_or_else(|| "nothing".to_owned())
-                );
-                BTreeMap::new()
+                quarantine_and_start_empty(&path, &reason);
+                (BTreeMap::new(), 0)
             }
         };
+        if dropped > 0 {
+            // A tool leaving the registry does not make the file untrustworthy: the records that
+            // name it are dropped and the operator's fixed configs keep working where they can.
+            eprintln!(
+                "summrise-console: {}: {dropped} API token record(s) named tools outside this \
+                 build's registry and were ignored",
+                path.display()
+            );
+        }
 
         Ok(Tokens { path, tokens })
     }
@@ -256,16 +246,37 @@ impl Tokens {
         Ok((meta, plaintext))
     }
 
-    /// Remove a token; `false` means no such token. The file is written before memory changes.
-    pub(crate) fn revoke(&mut self, id: &str) -> Result<bool, TokenError> {
+    /// Remove a token, returning the record so the audit can name its device.
+    pub(crate) fn revoke(&mut self, id: &str) -> Result<Option<Token>, TokenError> {
         if !self.tokens.contains_key(id) {
-            return Ok(false);
+            return Ok(None);
         }
         let mut next = self.tokens.clone();
-        next.remove(id);
+        let removed = next.remove(id);
         self.save(&next).map_err(|_| TokenError::Storage)?;
         self.tokens = next;
-        Ok(true)
+        Ok(removed)
+    }
+
+    /// Remove every token scoped to `device_id`, returning the records. Device removal calls this so
+    /// a retired machine's tokens do not outlive it and consume the cap with no page to revoke them.
+    pub(crate) fn revoke_for_device(&mut self, device_id: &str) -> Result<Vec<Token>, TokenError> {
+        let removed: Vec<Token> = self
+            .tokens
+            .values()
+            .filter(|token| token.device_id == device_id)
+            .cloned()
+            .collect();
+        if removed.is_empty() {
+            return Ok(removed);
+        }
+        let mut next = self.tokens.clone();
+        for token in &removed {
+            next.remove(&token.id);
+        }
+        self.save(&next).map_err(|_| TokenError::Storage)?;
+        self.tokens = next;
+        Ok(removed)
     }
 
     /// The token whose hash is `hash`, if any.
@@ -280,18 +291,21 @@ impl Tokens {
     /// Replace the file with `tokens`, atomically.
     fn save(&self, tokens: &BTreeMap<String, Token>) -> std::io::Result<()> {
         let list: Vec<&Token> = tokens.values().collect();
-        store::write_json_atomic(&self.path, &list)
+        store::write_json_atomic_without_backup(&self.path, &list)
     }
 }
 
-/// The records as a map by id, or why the file cannot be trusted.
+/// The records as a map by id and how many were dropped for naming unknown tools, or why the file
+/// cannot be trusted.
 ///
 /// The checks are the file's own invariants: an id and hash the console could have written, a device
 /// and tools this build knows, and no duplicate id or hash (two records with one hash would make
-/// revocation name an arbitrary one of them).
-fn index(list: Vec<Token>) -> Result<BTreeMap<String, Token>, String> {
+/// revocation name an arbitrary one of them). A tool that left the registry is not a corrupt file:
+/// that record cannot be used, so it is dropped, not the whole list.
+fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
     let mut tokens = BTreeMap::new();
     let mut hashes = BTreeSet::new();
+    let mut dropped = 0;
     for token in list {
         if !is_lower_hex_64(&token.id) {
             return Err("an entry's id is not 32 bytes of lowercase hex".to_owned());
@@ -313,7 +327,8 @@ fn index(list: Vec<Token>) -> Result<BTreeMap<String, Token>, String> {
                 .iter()
                 .any(|tool| summrise_core::registry::tool(tool).is_none())
         {
-            return Err("an entry names no tools or a tool outside the registry".to_owned());
+            dropped += 1;
+            continue;
         }
         if !hashes.insert(token.hash.clone()) {
             return Err("the same hash appears twice".to_owned());
@@ -322,7 +337,27 @@ fn index(list: Vec<Token>) -> Result<BTreeMap<String, Token>, String> {
             return Err("the same id appears twice".to_owned());
         }
     }
-    Ok(tokens)
+    if tokens.len() > MAX_TOKENS {
+        return Err(format!(
+            "the file holds {} records, more than the {MAX_TOKENS} this console can mint",
+            tokens.len()
+        ));
+    }
+    Ok((tokens, dropped))
+}
+
+/// Quarantine `path` and say so once; the console then starts with no API tokens.
+fn quarantine_and_start_empty(path: &Path, reason: &str) {
+    let quarantined = store::quarantine(path);
+    eprintln!(
+        "summrise-console: {} is unusable ({reason}); quarantined to {} and starting with no API \
+         tokens",
+        path.display(),
+        quarantined
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "nothing".to_owned())
+    );
 }
 
 /// Whether `value` is exactly 64 lowercase hex characters: the only shape this build writes.
@@ -335,8 +370,7 @@ fn is_lower_hex_64(value: &str) -> bool {
 
 /// The lookup key for a presented token: SHA-256 of the whole string, prefix included.
 pub(crate) fn hash_token(token: &str) -> String {
-    let digest = Sha256::digest(token.as_bytes());
-    hex::encode(&digest)
+    crate::hash::sha256_hex(token.as_bytes())
 }
 
 #[cfg(test)]
@@ -473,15 +507,19 @@ mod tests {
         let hash = hash_token(&plaintext);
 
         assert!(
-            tokens.revoke(&meta.id).expect("the write succeeds"),
+            tokens
+                .revoke(&meta.id)
+                .expect("the write succeeds")
+                .is_some(),
             "the token was there"
         );
         assert!(tokens.find_by_hash(&hash).is_none());
         assert!(tokens.list().is_empty());
         assert!(
-            !tokens
+            tokens
                 .revoke(&meta.id)
-                .expect("a second revocation is a no-op"),
+                .expect("a second revocation is a no-op")
+                .is_none(),
             "revoking a gone token reports that it was gone"
         );
 
@@ -606,11 +644,13 @@ mod tests {
         std::fs::remove_dir_all(&data).ok();
     }
 
-    /// A record this build cannot trust (a hash that is not one, a tool outside the registry) is a
-    /// reason to trust none of the file: the whole list is quarantined, never partly served.
+    /// A record whose hash is not one the console could have written makes the whole file
+    /// untrustworthy: a credential file with a broken hash is not partly served.
     #[test]
-    fn a_record_this_build_cannot_trust_quarantines_the_whole_file() {
-        let bad_hashes = serde_json::json!([{
+    fn a_record_with_a_bad_hash_quarantines_the_whole_file() {
+        let data = tempdir("untrusted-hash");
+        let path = data.join(TOKENS_FILE);
+        let bad = serde_json::json!([{
             "id": "ab".repeat(32),
             "name": "laptop",
             "device_id": "ab".repeat(32),
@@ -619,37 +659,150 @@ mod tests {
             "created_at_ms": 1_000,
             "hash": "zz",
         }]);
-        let unknown_tool = serde_json::json!([{
-            "id": "ab".repeat(32),
-            "name": "laptop",
+        std::fs::write(&path, bad.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let tokens = Tokens::load(&data).expect("the console still starts");
+
+        assert!(tokens.list().is_empty(), "no record is served");
+        assert!(!path.exists(), "the file is out of the way");
+        assert!(
+            data.join("tokens.json.bad").exists(),
+            "the bytes are kept as evidence"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A tool that left the registry drops that record, not every token: fixed configurations for
+    /// other tools keep working after a registry change.
+    #[test]
+    fn a_record_with_a_tool_outside_the_registry_is_dropped_alone() {
+        let data = tempdir("registry-drift");
+        let path = data.join(TOKENS_FILE);
+        let valid = serde_json::json!([{
+            "id": "aa".repeat(32),
+            "name": "keep",
+            "device_id": "ab".repeat(32),
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 2_000,
+            "hash": "11".repeat(32),
+        }, {
+            "id": "bb".repeat(32),
+            "name": "drop",
             "device_id": "ab".repeat(32),
             "tools": ["no.such.tool"],
             "allow_destructive": false,
             "created_at_ms": 1_000,
-            "hash": "00".repeat(32),
+            "hash": "22".repeat(32),
         }]);
-
-        for (tag, record) in [("hash", bad_hashes), ("tool", unknown_tool)] {
-            let data = tempdir(&format!("untrusted-{tag}"));
-            let path = data.join(TOKENS_FILE);
-            std::fs::write(&path, record.to_string()).expect("the fixture is written");
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-                    .expect("the fixture is private");
-            }
-
-            let tokens = Tokens::load(&data).expect("the console still starts");
-
-            assert!(tokens.list().is_empty(), "{tag}: no record is served");
-            assert!(!path.exists(), "{tag}: the file is out of the way");
-            assert!(
-                data.join("tokens.json.bad").exists(),
-                "{tag}: the bytes are kept as evidence"
-            );
-            std::fs::remove_dir_all(&data).ok();
+        std::fs::write(&path, valid.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
         }
+
+        let tokens = Tokens::load(&data).expect("the console still starts");
+
+        assert_eq!(tokens.list().len(), 1, "only the valid record is served");
+        assert_eq!(tokens.list()[0].name, "keep");
+        assert!(path.exists(), "a registry change is not file corruption");
+        assert!(
+            !data.join("tokens.json.bad").exists(),
+            "nothing is quarantined"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A revocation is durable: the store keeps no backup of the pre-revocation list, so losing
+    /// `tokens.json` cannot resurrect a withdrawn token.
+    #[test]
+    fn a_revocation_leaves_no_backup_to_restore() {
+        let data = tempdir("revoke-durable");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, plaintext) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 0)
+            .expect("a valid token");
+        tokens.revoke(&meta.id).expect("the revocation writes");
+
+        assert!(
+            !data.join("tokens.json.bak").exists(),
+            "a credential file keeps no previous list"
+        );
+        std::fs::remove_file(data.join(TOKENS_FILE)).expect("the operator loses the file");
+        let reloaded = Tokens::load(&data).expect("the console still starts");
+        assert!(reloaded.list().is_empty(), "no token is resurrected");
+        assert!(reloaded.find_by_hash(&hash_token(&plaintext)).is_none());
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// The cap is a property of the file too: a hand-edited list larger than the console can mint
+    /// is quarantined, not served.
+    #[test]
+    fn a_file_over_the_cap_is_quarantined() {
+        let data = tempdir("over-cap");
+        let path = data.join(TOKENS_FILE);
+        let list: Vec<serde_json::Value> = (0..MAX_TOKENS + 1)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("{index:064x}"),
+                    "name": format!("token-{index}"),
+                    "device_id": device_id(),
+                    "tools": ["files.read"],
+                    "allow_destructive": false,
+                    "created_at_ms": 1_000,
+                    "hash": format!("{:064x}", index + 10_000),
+                })
+            })
+            .collect();
+        std::fs::write(&path, serde_json::json!(list).to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let tokens = Tokens::load(&data).expect("the console still starts");
+
+        assert!(tokens.list().is_empty());
+        assert!(data.join("tokens.json.bad").exists());
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Removing a device removes its tokens, not another device's.
+    #[test]
+    fn revoking_for_a_device_removes_only_that_devices_tokens() {
+        let data = tempdir("revoke-device");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (_a1, _) = tokens
+            .create(draft("one", &device_id(), &["files.read"]), true, 0)
+            .expect("a token");
+        let (_a2, _) = tokens
+            .create(draft("two", &device_id(), &["files.read"]), true, 0)
+            .expect("a token");
+        let (_b, _) = tokens
+            .create(draft("other", &other_device(), &["files.read"]), true, 0)
+            .expect("a token");
+
+        let removed = tokens
+            .revoke_for_device(&device_id())
+            .expect("the revocation writes");
+
+        assert_eq!(removed.len(), 2);
+        assert_eq!(tokens.list().len(), 1);
+        assert_eq!(tokens.list()[0].name, "other");
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        assert_eq!(reloaded.list().len(), 1);
+        assert_eq!(reloaded.list()[0].name, "other");
+        std::fs::remove_dir_all(&data).ok();
     }
 
     /// A leftover temporary file is not the store; the complete file is what loads.

@@ -35,7 +35,7 @@ TypeScript (`device/console/web`), the existing store/atomic-write patterns.
 - **Limits.** At most 64 tokens; name 1–80 characters (trimmed); tools non-empty and every name in
   `summrise_core::registry`; the device must exist. Validation errors are typed `ApiError`s with the
   console's existing codes (`empty_tools`, `unknown_tool`, `unknown_device`, `name_empty`,
-  `too_many_tokens`, `no_such_token`).
+  `invalid_name`, `too_many_tokens` as a 429, `no_such_token`).
 - **The token is a bearer.** The UI says it once and says so: treat it like a password; revoke is the
   only withdrawal. No expiry (revocation replaces it), and the create response is the only time it is
   visible.
@@ -173,3 +173,18 @@ a secret/env, not committed).
 - Review Focus: hash/show-once, scope, unchanged grant path, management UX, cheap mint.
 - Deliberate limits: no token expiry (revocation replaces it), no per-token audit name (the audit
   records the call and the device), the existing Access app covers `/tokens` and `/mcp/*`.
+
+## Review rulings (2026-10-26)
+
+- The token file has **no backup**: a `.bak` after a revocation would hold the withdrawn hash and a
+  lost `tokens.json` would resurrect it. `Tokens::load` reads `tokens.json` alone; the atomic write
+  for this file omits the backup.
+- A **live token used against another device** is an authenticated caller: the refusal goes to
+  `audit.jsonl` (detail `api_token_device_mismatch`), not the unauthenticated denial log.
+- **Removing a device revokes its tokens** (`token_revoke`, detail `device_removed`), so the cap and
+  the page cannot be held by a machine that no longer exists.
+- A **tool leaving the registry** drops the records that name it, not every token; file corruption
+  (a bad hash, a duplicate id, more records than the cap) still quarantines.
+- `token` audits carry the destructive consent; `token_revoke` audits the token's device.
+- The page shares one `ToolPicker`, one client-config builder and `format.message`; the token list
+  shows the tool names, not only a count.

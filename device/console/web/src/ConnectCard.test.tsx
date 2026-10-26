@@ -51,17 +51,6 @@ const ENVELOPE = { grant: { jti: "grant-1" }, signature: "signature" };
 const TOKEN = "srm_" + "a".repeat(64);
 const CREATED_AT = Date.UTC(2026, 9, 26, 12, 0, 0);
 
-// What `POST /tokens` answers with: the metadata plus the one plaintext the console ever returns.
-const CREATED = {
-  id: "tok-1",
-  name: "laptop-dsh",
-  device_id: WORKSHOP.id,
-  tools: ["files.read", "host.facts"],
-  allow_destructive: false,
-  created_at_ms: CREATED_AT,
-  token: TOKEN
-};
-
 // The same token as `GET /tokens` lists it: no `token` key, because the list is metadata only.
 const META = {
   id: "tok-1",
@@ -71,6 +60,9 @@ const META = {
   allow_destructive: false,
   created_at_ms: CREATED_AT
 };
+
+// What `POST /tokens` answers with: the metadata plus the one plaintext the console ever returns.
+const CREATED = { ...META, token: TOKEN };
 
 const OTHER = {
   id: "tok-2",
@@ -115,19 +107,19 @@ function createToken() {
   fireEvent.click(screen.getByRole("button", { name: "Create token" }));
 }
 
+beforeEach(() => {
+  mocks.grant.mockResolvedValue(ENVELOPE);
+  mocks.tools.mockResolvedValue(SERVED);
+  mocks.tokens.mockResolvedValue([]);
+  mocks.createToken.mockResolvedValue(CREATED);
+  mocks.revokeToken.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  restoreGlobal(navigator, "clipboard", originals.clipboard);
+});
+
 describe("ConnectCard", () => {
-  beforeEach(() => {
-    mocks.grant.mockResolvedValue(ENVELOPE);
-    mocks.tools.mockResolvedValue(SERVED);
-    mocks.tokens.mockResolvedValue([]);
-    mocks.createToken.mockResolvedValue(CREATED);
-    mocks.revokeToken.mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    restoreGlobal(navigator, "clipboard", originals.clipboard);
-  });
-
   it("mints the served catalogue once the client answers, in its order", async () => {
     renderCard();
     await settle();
@@ -188,18 +180,6 @@ describe("ConnectCard", () => {
 });
 
 describe("ConnectCard's permanent-token mode", () => {
-  beforeEach(() => {
-    mocks.grant.mockResolvedValue(ENVELOPE);
-    mocks.tools.mockResolvedValue(SERVED);
-    mocks.tokens.mockResolvedValue([]);
-    mocks.createToken.mockResolvedValue(CREATED);
-    mocks.revokeToken.mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    restoreGlobal(navigator, "clipboard", originals.clipboard);
-  });
-
   it("offers two modes and starts on the session grant the card has always been", async () => {
     renderCard();
     expect(screen.getByRole("tab", { name: "Session grant" })).toHaveAttribute(
@@ -267,7 +247,7 @@ describe("ConnectCard's permanent-token mode", () => {
     await openTokens();
 
     expect(await screen.findByText("laptop-dsh")).toBeInTheDocument();
-    expect(screen.getByText(/2 tools/)).toBeInTheDocument();
+    expect(screen.getByText(/files\.read, host\.facts/)).toBeInTheDocument();
     expect(screen.getByText(new Date(CREATED_AT).toLocaleDateString())).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeInTheDocument();
     // The other device's token is not this card's business, and no `srm_` value is in the list.

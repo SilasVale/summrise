@@ -1059,8 +1059,19 @@ async fn create_token(
         }
     };
 
-    app.record("token", Some(&meta.device_id), StatusCode::CREATED, None)
-        .await;
+    // The consent is an authorization fact, as it is on a grant: a later review must find it.
+    let detail = if meta.allow_destructive {
+        "allow_destructive=true"
+    } else {
+        "allow_destructive=false"
+    };
+    app.record(
+        "token",
+        Some(&meta.device_id),
+        StatusCode::CREATED,
+        Some(detail),
+    )
+    .await;
 
     Ok((StatusCode::CREATED, Json(CreatedToken { meta, token })))
 }
@@ -1074,11 +1085,16 @@ async fn revoke_token(
     let removed = lock(&app.tokens)
         .revoke(&id)
         .map_err(|_| ApiError::internal())?;
-    if !removed {
+    let Some(token) = removed else {
         return Err(ApiError::not_found("no_such_token"));
-    }
-    app.record("token_revoke", None, StatusCode::NO_CONTENT, None)
-        .await;
+    };
+    app.record(
+        "token_revoke",
+        Some(&token.device_id),
+        StatusCode::NO_CONTENT,
+        None,
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1268,19 +1284,29 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
 /// route therefore cannot widen what the token may reach, and the device verifies this grant as it
 /// verifies any other.
 ///
-/// `Err` is the denial log's detail. The wire answer is always `unauthorized`: a caller holding a
-/// wrong, foreign or revoked token learns only that it was refused.
+/// Why a presented API token did not become a grant.
+enum TokenRefusal {
+    /// The credential itself does not resolve: unknown, revoked, or not mintable. The caller is not
+    /// authenticated, so this is a denial-log line, never the operator's audit.
+    Unauthenticated(&'static str),
+    /// A live token for another device. The caller *is* authenticated, so the operator's audit gets
+    /// the refusal — a credential used against the wrong machine is exactly what an audit is for.
+    ForeignDevice,
+}
+
+/// `Err` is the refusal kind. The wire answer is always `unauthorized`: a caller holding a wrong,
+/// foreign or revoked token learns only that it was refused.
 fn mint_token_grant(
     app: &AppState,
     device_id: &str,
     token: &str,
-) -> Result<GrantEnvelope, &'static str> {
+) -> Result<GrantEnvelope, TokenRefusal> {
     let hash = crate::tokens::hash_token(token);
     let Some(record) = lock(&app.tokens).find_by_hash(&hash) else {
-        return Err("unknown_api_token");
+        return Err(TokenRefusal::Unauthenticated("unknown_api_token"));
     };
     if record.device_id != device_id {
-        return Err("api_token_device_mismatch");
+        return Err(TokenRefusal::ForeignDevice);
     }
 
     let signed = grants::sign(
@@ -1291,7 +1317,7 @@ fn mint_token_grant(
         record.allow_destructive,
         (app.now)(),
     )
-    .map_err(|_| "api_token_unusable")?;
+    .map_err(|_| TokenRefusal::Unauthenticated("api_token_unusable"))?;
 
     Ok(GrantEnvelope {
         grant: signed.grant,
@@ -1527,11 +1553,21 @@ async fn standard_mcp(
         }
         crate::mcp::BearerKind::Token(token) => match mint_token_grant(&app, &device_id, &token) {
             Ok(grant) => grant,
-            Err(detail) => {
+            Err(TokenRefusal::Unauthenticated(detail)) => {
                 return app
                     .refuse_as(audit_id.as_deref(), ApiError::unauthorized(), detail)
                     .await
                     .into_response()
+            }
+            Err(TokenRefusal::ForeignDevice) => {
+                app.record(
+                    "denied",
+                    audit_id.as_deref(),
+                    StatusCode::UNAUTHORIZED,
+                    Some("api_token_device_mismatch"),
+                )
+                .await;
+                return ApiError::unauthorized().into_response();
             }
         },
     };
@@ -1658,6 +1694,27 @@ async fn remove_device(
     if !removed {
         return Err(ApiError::not_found("no_such_device"));
     }
+    // The device's permanent tokens are scoped to it; a removed machine leaves no token that only a
+    // hand-edit could clear. A failed write is logged rather than failing the removal: the tokens can
+    // no longer reach a registered device either way.
+    let revoked = lock(&app.tokens).revoke_for_device(&device_id);
+    match revoked {
+        Ok(revoked) => {
+            for _ in revoked {
+                app.record(
+                    "token_revoke",
+                    Some(&device_id),
+                    StatusCode::NO_CONTENT,
+                    Some("device_removed"),
+                )
+                .await;
+            }
+        }
+        Err(_) => eprintln!(
+            "summrise-console: the tokens of removed device {device_id} could not be revoked"
+        ),
+    }
+
     // The registration is gone, so the device's next connect is refused; closing the live channel
     // makes the revocation immediate instead of waiting for a disconnect.
     app.channels.disconnect(&device_id);

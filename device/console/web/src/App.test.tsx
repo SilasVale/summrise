@@ -108,7 +108,7 @@ beforeEach(() => {
   mocks.remove.mockResolvedValue(undefined);
   mocks.grant.mockResolvedValue({ grant: {}, signature: "signature" });
   mocks.tokens.mockResolvedValue([]);
-  mocks.createToken.mockResolvedValue({ id: "tok-1", token: "srm_token" });
+  mocks.createToken.mockResolvedValue({ id: "tok-1", token: "srm_" + "a".repeat(64) });
   mocks.revokeToken.mockResolvedValue(undefined);
   // The grant form asks the client for the tool registry; that request is not this test's subject,
   // so the client's answer fails and the form keeps its fallback list.

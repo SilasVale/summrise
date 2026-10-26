@@ -1,7 +1,7 @@
 //! One atomic file replacement, shared by the two files the console persists.
 //!
-//! Both `devices.json` and `codes.json` are written whole through a sibling temporary file, synced,
-//! and renamed into place. A reader therefore sees either the previous file or the complete new one,
+//! The console's JSON files are written whole through a sibling temporary file, synced, and renamed
+//! into place. A reader therefore sees either the previous file or the complete new one,
 //! never a half-written list. The rename replaces the destination on Unix and on Windows (Rust's
 //! `fs::rename` uses `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` there).
 //!
@@ -17,15 +17,34 @@ use std::path::{Path, PathBuf};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-/// Serialize `value` and atomically replace `path` with it.
+/// Serialize `value` and atomically replace `path` with it, keeping the previous file as `.bak`.
 pub(crate) fn write_json_atomic<T>(path: &Path, value: &T) -> std::io::Result<()>
+where
+    T: Serialize + ?Sized,
+{
+    serialize_and_replace(path, value, true)
+}
+
+/// Serialize `value` and atomically replace `path` **without** a `.bak` copy.
+///
+/// Credential files use this. A backup of the token registry is the previous complete list, so the
+/// save after a revocation would keep the withdrawn hash alive on disk; the token store never reads
+/// a backup, and this makes sure there is not one to restore by hand either.
+pub(crate) fn write_json_atomic_without_backup<T>(path: &Path, value: &T) -> std::io::Result<()>
+where
+    T: Serialize + ?Sized,
+{
+    serialize_and_replace(path, value, false)
+}
+
+fn serialize_and_replace<T>(path: &Path, value: &T, backup: bool) -> std::io::Result<()>
 where
     T: Serialize + ?Sized,
 {
     let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
     // The registry is the console's memory of every device it trusts: one lost file would mean
     // re-enrolling every machine by hand. Keep the previous contents beside it before replacing.
-    if path.exists() {
+    if backup && path.exists() {
         let _ = fs::copy(path, backup_path(path));
     }
     write_atomic(path, &bytes)
