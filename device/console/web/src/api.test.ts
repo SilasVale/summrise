@@ -12,7 +12,8 @@ import {
   meshReadiness,
   meshStatus,
   NoAnswer,
-  setToken
+  setToken,
+  type TokenMeta
 } from "./api";
 
 type Reply = { status?: number; statusText?: string; text?: string; json?: unknown };
@@ -253,14 +254,15 @@ describe("the endpoints", () => {
     );
   });
 
-  it("tokens GETs /tokens and parses the metadata list", async () => {
-    const meta = {
+  it("tokens GETs /tokens and parses the metadata list, expiry included", async () => {
+    const meta: TokenMeta = {
       id: "tok-1",
       name: "laptop-dsh",
       device_id: "dev-1",
       tools: ["files.read", "host.facts"],
       allow_destructive: false,
-      created_at_ms: 1
+      created_at_ms: 1,
+      expires_at_ms: 1_800_000_000_000
     };
     fetchMock.mockResolvedValue(answer({ json: [meta] }));
     await expect(api.tokens()).resolves.toEqual([meta]);
@@ -287,6 +289,30 @@ describe("the endpoints", () => {
         device_id: "dev-1",
         tools: ["files.read", "host.facts"],
         allow_destructive: true
+      })
+    );
+  });
+
+  it("createToken sends expires_in_s when the draft carries a lifetime", async () => {
+    const init = await request(
+      () =>
+        api.createToken({
+          name: "laptop-dsh",
+          device_id: "dev-1",
+          tools: ["files.read", "host.facts"],
+          allow_destructive: false,
+          expires_in_s: 31_536_000
+        }),
+      "/tokens",
+      "POST"
+    );
+    expect(init.body).toBe(
+      JSON.stringify({
+        name: "laptop-dsh",
+        device_id: "dev-1",
+        tools: ["files.read", "host.facts"],
+        allow_destructive: false,
+        expires_in_s: 31_536_000
       })
     );
   });
