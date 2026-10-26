@@ -41,9 +41,11 @@ named the picker→grant→page duplication.
 2. **The child cannot get the wrong grant.** `DevicePage` renders children only for a grant whose
    `deviceId` is the chosen device, and passes that grant as its argument; a grant for another device
    shows the grant panel instead.
-3. **Search is local and leaves no residue.** A search never produces a `callTool`; closing or
-   switching tabs clears the decorations of the xterm that had them; the addon instance belongs to the
-   tab's terminal and dies with it.
+3. **Search is local, decorated and leaves no residue.** A search never produces a `callTool`; the
+   addon only draws a match when `options.decorations` is set, so both directions pass it (a quiet
+   slate for every hit, amber for the active one) — otherwise `clearDecorations()` would be clearing
+   nothing. Closing or switching tabs clears the decorations of the xterm that had them; the addon
+   instance belongs to the tab's terminal and dies with it, which the test pins through `loadAddon`.
 4. **The search bar is usable without guessing.** Enter searches, Shift+Enter goes back, Escape closes,
    a miss says so, and the Find control is disabled with no session open.
 5. **The Monitors tests pin the device calls, not the markup.** The exact `monitor.add` arguments for
@@ -57,7 +59,9 @@ named the picker→grant→page duplication.
 - Create: `device/console/web/src/DevicePicker.tsx` (moved verbatim from `App.tsx`)
 - Create: `device/console/web/src/DevicePage.tsx`, `device/console/web/src/DevicePage.test.tsx`
 - Modify: `device/console/web/src/App.tsx` (import both; replace the `screen`, `memory`, `events`
-  blocks with one `DevicePage` each)
+  blocks with one `DevicePage` each; the delivery extends the shell to files, browser, monitors,
+  runs and system — every device page but the terminal, which keeps its stale-grant note and mounted
+  workspace)
 - Modify: `device/console/web/src/App.test.tsx` only if a sentence actually moved (it should not)
 
 **Interfaces:**
@@ -82,6 +86,9 @@ named the picker→grant→page duplication.
     {name ?? id.slice(0,12)}`), `grantHint`, `GrantForm` whose `onGranted` calls
     `onGrant(chosen.id, envelope)`.
   - matching grant → `<section className="panel">{children(grant)}</section>`.
+  `grantHint` is optional: the browser's grant panel has no hint paragraph, and the shell does not
+  invent one. The hints are single-line literals (their words are the contract; source indentation is
+  not part of a sentence).
 
 - [ ] **Step 1: Extract the picker**
 
@@ -96,7 +103,7 @@ picker): no chosen → the title, the pick hint, one **Use** per device, no `Gra
 grant hint, `Grant access`; chosen with a matching grant → the child receives that grant and no grant
 heading; chosen with a grant for another device → the grant heading, not the child.
 
-- [ ] **Step 3: Adopt the shell in the three pages**
+- [ ] **Step 3: Adopt the shell in the eight pages**
 
 Replace the three repeated trios in `App.tsx` with:
 
@@ -115,8 +122,10 @@ Replace the three repeated trios in `App.tsx` with:
 </DevicePage>
 ```
 
-The same for Memory (`MemoryPage`) and Events (`EventsPage`). The hints are the current sentences,
-copied, not reworded.
+The same for Memory (`MemoryPage`), Events (`EventsPage`), Files (`FilesPage`), Browser
+(`BrowserPane`, no `grantHint`), Monitors (`MonitorsPage`), Runs (`RunsPage`) and System
+(`SystemPage`). The hints are the current sentences, copied, not reworded, and the App tests pin the
+shipped pick and grant sentences for all eight.
 
 - [ ] **Step 4: Verify and commit**
 

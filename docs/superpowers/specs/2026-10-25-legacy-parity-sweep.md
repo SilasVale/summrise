@@ -185,8 +185,10 @@ longer the only guard.
 
 What remains:
 
-- **Terminal scrollback search** needs `@xterm/addon-search` — a dependency decision, not a wiring one.
-  The workspace has rename, export and a font size; it has no search.
+- **Terminal scrollback search — closed 2026-10-26 (`4f440ee`).** `@xterm/addon-search` (0.16, the
+  xterm project's own addon, bundled at build time) searches the tab's own scrollback with highlighted
+  matches, a miss sentence and Escape from anywhere in the bar. The workspace has rename, export, a
+  font size and search.
 - **Liveness/exit-code mark and hide** need data the device does not report: `terminal.list` is
   discovery only (`id`, `kind`, `started_at_ms`). The fault chip is the liveness the console has; a
   per-tab exit code is a device change.
