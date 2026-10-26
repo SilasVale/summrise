@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   devices: vi.fn(),
   audit: vi.fn(),
+  denials: vi.fn(),
   connections: vi.fn(),
   signIn: vi.fn(),
   logout: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("./api", () => ({
     health: mocks.health,
     devices: mocks.devices,
     audit: mocks.audit,
+    denials: mocks.denials,
     connections: mocks.connections,
     signIn: mocks.signIn,
     logout: mocks.logout,
@@ -111,6 +113,17 @@ const tokenCall = {
   token_id: tokenId
 };
 
+// A refusal as denials.jsonl holds it: the audit line's shape, no token id, and a short code — not a
+// credential — in the detail.
+const denial = {
+  ts_ms: 2,
+  kind: "denied",
+  device_id: null,
+  tool: null,
+  detail: "bad_operator_token",
+  status: 401
+};
+
 beforeEach(() => {
   signedIn = false;
   mocks.session.mockImplementation(async () =>
@@ -121,6 +134,7 @@ beforeEach(() => {
   mocks.health.mockResolvedValue({ version: "0.3.42", devices: 2 });
   mocks.devices.mockResolvedValue([workshop, attic]);
   mocks.audit.mockResolvedValue([]);
+  mocks.denials.mockResolvedValue([]);
   mocks.connections.mockResolvedValue([]);
   mocks.signIn.mockImplementation(async () => {
     signedIn = true;
@@ -189,11 +203,12 @@ describe("App", () => {
     expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
-  it("renders the whole shell: the eleven rail sections, the brand, the build and the sign-in path", async () => {
+  it("renders the whole shell: the twelve rail sections, the brand, the build and the sign-in path", async () => {
     await bootAndSignIn();
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     const sections = within(rail).getAllByRole("button");
+    expect(sections).toHaveLength(12);
     expect(sections.map((section) => section.textContent)).toEqual([
       "Devices",
       "Files",
@@ -205,7 +220,8 @@ describe("App", () => {
       "Runs",
       "System",
       "Audit",
-      "Events"
+      "Events",
+      "Security"
     ]);
     expect(within(rail).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");
 
@@ -240,6 +256,30 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByText(/The events are the device's own/)).toBeInTheDocument();
     expect(screen.queryByText(/Memory is kept on the device/)).not.toBeInTheDocument();
+  });
+
+  it("navigates to Security and shows the denial the console returned, not an audit line", async () => {
+    mocks.denials.mockResolvedValue([denial]);
+    await bootAndSignIn();
+    expect(mocks.denials).toHaveBeenCalledWith(200);
+
+    fireEvent.click(screen.getByRole("button", { name: "Security" }));
+    expect(screen.getByRole("heading", { name: "Security" })).toBeInTheDocument();
+    expect(screen.getByText(/rate-limited to 100\/minute/)).toBeInTheDocument();
+    expect(screen.getByText(/suppressed N line means N refusals were not written/)).toBeInTheDocument();
+
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("denied")).toBeInTheDocument();
+    expect(table.getByText("bad_operator_token")).toBeInTheDocument();
+    expect(table.getByText("401")).toBeInTheDocument();
+    expect(table.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("No failed authentications yet.")).not.toBeInTheDocument();
+
+    // The audit is the other file: the denial is not in it, and its own empty sentence is unchanged.
+    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
+    expect(screen.getByRole("heading", { name: "Audit" })).toBeInTheDocument();
+    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
+    expect(screen.queryByText("bad_operator_token")).not.toBeInTheDocument();
   });
 
   it("selects a device and lands on the terminal with that device's grant form", async () => {

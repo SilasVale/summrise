@@ -29,12 +29,16 @@ import { MonitorChip } from "./MonitorChip";
 import { MonitorsPage } from "./MonitorsPage";
 import { RunsPage } from "./RunsPage";
 import { ScreenPage } from "./ScreenPage";
+import { SecurityPage } from "./SecurityPage";
 import { SystemPage } from "./SystemPage";
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [audit, setAudit] = useState<AuditLine[]>([]);
+  // Failed authentications, from their own log. Fetched with the audit because both are bounded
+  // windows the operator reads, and a poll that refreshed one and not the other would be half a story.
+  const [denials, setDenials] = useState<AuditLine[]>([]);
   // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
   // the console would not answer: the table falls back to record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
@@ -69,13 +73,15 @@ export function App() {
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
-    const [list, lines, tokenList] = await Promise.all([
+    const [list, lines, refusals, tokenList] = await Promise.all([
       api.devices(),
       api.audit(AUDIT_WINDOW),
+      api.denials(AUDIT_WINDOW),
       tokensOrEmpty()
     ]);
     setDevices(list);
     setAudit(lines);
+    setDenials(refusals);
     setTokens(tokenList);
   }, []);
 
@@ -141,6 +147,7 @@ export function App() {
     setSession({ authenticated: false });
     setDevices([]);
     setAudit([]);
+    setDenials([]);
     setTokens([]);
     setSelected(null);
     setGrant(null);
@@ -561,6 +568,10 @@ export function App() {
               </div>
               <AuditTable lines={audit} devices={devices} tokens={tokens} />
             </section>
+          )}
+
+          {page === "security" && (
+            <SecurityPage lines={denials} devices={devices} tokens={tokens} />
           )}
 
           {page === "events" && (

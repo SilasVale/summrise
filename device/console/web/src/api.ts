@@ -192,6 +192,9 @@ export const api = {
   // device has no email login), and a bypassed request carries no identity for the page to use.
   devices: () => call<Device[]>("/fleet"),
   audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
+  // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
+  // no token id because the caller never authenticated.
+  denials: (limit = 200) => call<AuditLine[]>(`/denials?limit=${limit}`),
   health: () => call<{ version: string; devices: number }>("/health"),
   tools: () => call<{ name: string }[]>("/tools"),
   rename: (id: string, name: string | null) =>
