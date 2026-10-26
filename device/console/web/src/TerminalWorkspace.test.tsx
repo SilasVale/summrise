@@ -16,6 +16,14 @@ const mockedFit = vi.hoisted(() => ({
   instances: [] as { fit: Mock }[]
 }));
 
+/// The search addons, in creation order: one per tab, so a search is asserted on the tab's own addon.
+/// `nextResult`/`previousResult` stand in for "the scrollback has a match", which jsdom cannot have.
+const mockedSearch = vi.hoisted(() => ({
+  instances: [] as { findNext: Mock; findPrevious: Mock; clearDecorations: Mock }[],
+  nextResult: true,
+  previousResult: true
+}));
+
 vi.mock("@xterm/xterm", () => {
   class Terminal {
     cols = 80;
@@ -50,6 +58,18 @@ vi.mock("@xterm/addon-fit", () => ({
   }
 }));
 
+vi.mock("@xterm/addon-search", () => ({
+  SearchAddon: class {
+    findNext = vi.fn(() => mockedSearch.nextResult);
+    findPrevious = vi.fn(() => mockedSearch.previousResult);
+    clearDecorations = vi.fn();
+
+    constructor() {
+      mockedSearch.instances.push(this);
+    }
+  }
+}));
+
 vi.mock("./terminal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./terminal")>();
   return { ...actual, callTool: vi.fn() };
@@ -78,6 +98,9 @@ beforeEach(() => {
   created = 0;
   mockedXterm.instances.length = 0;
   mockedFit.instances.length = 0;
+  mockedSearch.instances.length = 0;
+  mockedSearch.nextResult = true;
+  mockedSearch.previousResult = true;
   callToolMock.mockReset();
   callToolMock.mockImplementation(async (_grant, name) => {
     if (name === "terminal.create") {
@@ -457,5 +480,145 @@ describe("TerminalWorkspace text size", () => {
     } finally {
       restoreGlobal(window, "localStorage", descriptor);
     }
+  });
+});
+
+describe("TerminalWorkspace search", () => {
+  /** Open the bar from the actions row and hand back its input. */
+  function openSearch(): HTMLElement {
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    return screen.getByPlaceholderText("Find in this session");
+  }
+
+  it("disables Find until a session is open", () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    expect(screen.getByRole("button", { name: "Find" })).toBeDisabled();
+  });
+
+  it("finds forward on Enter and backward on Shift+Enter, with no case filter", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
+    const addon = mockedSearch.instances[0];
+
+    const input = openSearch();
+    expect(input).toHaveFocus();
+    // An empty term is not a search: both directions wait for one.
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "error" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(addon.findNext).toHaveBeenCalledTimes(1);
+    expect(addon.findNext.mock.calls[0][0]).toBe("error");
+    expect(addon.findNext.mock.calls[0][1]?.caseSensitive).toBeUndefined();
+
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(addon.findPrevious).toHaveBeenCalledTimes(1);
+    expect(addon.findPrevious.mock.calls[0][0]).toBe("error");
+    expect(addon.findPrevious.mock.calls[0][1]?.caseSensitive).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(addon.findNext).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(addon.findPrevious).toHaveBeenCalledTimes(2);
+  });
+
+  it("says No match. on a miss and clears the sentence on the next hit", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const input = openSearch();
+    fireEvent.change(input, { target: { value: "error" } });
+
+    mockedSearch.nextResult = false;
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByText("No match.")).toBeInTheDocument();
+
+    mockedSearch.nextResult = true;
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByText("No match.")).not.toBeInTheDocument());
+  });
+
+  it("clears the decorations of the tab it searched when the bar closes", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
+    const addon = mockedSearch.instances[0];
+
+    const input = openSearch();
+    fireEvent.change(input, { target: { value: "error" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByPlaceholderText("Find in this session")).not.toBeInTheDocument();
+    expect(addon.clearDecorations).toHaveBeenCalledTimes(1);
+
+    const again = openSearch();
+    fireEvent.keyDown(again, { key: "Escape" });
+    expect(screen.queryByPlaceholderText("Find in this session")).not.toBeInTheDocument();
+    expect(addon.clearDecorations).toHaveBeenCalledTimes(2);
+  });
+
+  it("toggles the bar back out of the way from Find", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    openSearch();
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    expect(screen.queryByPlaceholderText("Find in this session")).not.toBeInTheDocument();
+  });
+
+  it("clears the decorations of the tab it leaves and searches the one that is active", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 2/ });
+    await waitFor(() => expect(mockedSearch.instances).toHaveLength(2));
+    const [first, second] = mockedSearch.instances;
+
+    fireEvent.click(screen.getByRole("tab", { name: /pty 1/ }));
+    const input = openSearch();
+    fireEvent.change(input, { target: { value: "error" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(first.findNext).toHaveBeenCalledTimes(1);
+
+    // A miss belongs to the tab that was searched, not to the one the operator switches to.
+    mockedSearch.nextResult = false;
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByText("No match.")).toBeInTheDocument();
+    mockedSearch.nextResult = true;
+
+    const clearedBefore = first.clearDecorations.mock.calls.length;
+    fireEvent.click(screen.getByRole("tab", { name: /pty 2/ }));
+    expect(first.clearDecorations.mock.calls.length).toBe(clearedBefore + 1);
+    expect(screen.queryByText("No match.")).not.toBeInTheDocument();
+    // The bar stayed open, so the next step is the newly active tab's search.
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(second.findNext).toHaveBeenCalledTimes(1);
+    expect(second.findNext.mock.calls[0][0]).toBe("error");
+    expect(first.findNext).toHaveBeenCalledTimes(2);
+  });
+
+  it("never asks the device anything", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const before = callToolMock.mock.calls.length;
+
+    const input = openSearch();
+    fireEvent.change(input, { target: { value: "error" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // No await between the bar's actions and this assertion, so the tab's poll cannot have run: every
+    // call the workspace made was there before the search started.
+    expect(callToolMock.mock.calls.length).toBe(before);
   });
 });

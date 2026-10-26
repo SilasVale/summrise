@@ -351,6 +351,43 @@ tr:last-child td { border-bottom: 0; }
 .tab-close:hover {
   color: var(--error);
 }
+/* Scrollback search, sitting between the tabs and the screen it reads: a term, the two directions,
+   the way out, and one sentence when there is nothing to find. */
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--surface-recessed);
+}
+.find-bar input {
+  flex: 1;
+  min-width: 9rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.find-bar button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.find-bar button:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
 /* A tab that stopped answering marks itself, and the sentence above the screen says why. The labels
    are deliberately different words: "closed" is the device's, "offline" the link's, "grant" the
    permission's, and "read failed"/"not sent" say which half of the session failed. */
