@@ -317,7 +317,8 @@ describe("BrowserPane", () => {
     try {
       await startLive();
       await tick();
-      expect(shotCalls().at(-1)?.[2]).toEqual({ target: "A" });
+      const calls = shotCalls();
+      expect(calls[calls.length - 1]?.[2]).toEqual({ target: "A" });
 
       fireEvent.change(screen.getByLabelText("Target"), { target: { value: "B" } });
       await tick(0);
