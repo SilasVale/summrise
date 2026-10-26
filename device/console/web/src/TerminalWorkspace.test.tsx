@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
-import { callTool, type Grant } from "./terminal";
+import { callTool, ToolError, type Grant } from "./terminal";
 
 vi.mock("@xterm/xterm", () => {
   class Terminal {
@@ -44,6 +44,17 @@ const GRANT: Grant = { deviceId: "device-1", envelope: {} };
 /// jsdom has no `matchMedia` and the workspace asks it for the terminal's theme.
 const matchMedia = Object.getOwnPropertyDescriptor(window, "matchMedia");
 
+/// jsdom has no object-URL methods; the export's download needs both, and its revoke is delayed.
+const objectUrls = {
+  create: Object.getOwnPropertyDescriptor(URL, "createObjectURL"),
+  revoke: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
+};
+
+function restoreMethod(target: object, key: string, descriptor?: PropertyDescriptor) {
+  if (descriptor) Object.defineProperty(target, key, descriptor);
+  else Reflect.deleteProperty(target, key);
+}
+
 let created = 0;
 
 beforeEach(() => {
@@ -64,11 +75,19 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   });
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:test") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
 });
 
 afterEach(() => {
   if (matchMedia) Object.defineProperty(window, "matchMedia", matchMedia);
   else Reflect.deleteProperty(window, "matchMedia");
+  vi.restoreAllMocks();
+});
+
+afterAll(() => {
+  restoreMethod(URL, "createObjectURL", objectUrls.create);
+  restoreMethod(URL, "revokeObjectURL", objectUrls.revoke);
 });
 
 /** Open the pty dialog from the panel head and submit it. */
@@ -162,5 +181,112 @@ describe("TerminalWorkspace tab names", () => {
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
     expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /prod db/ })).toBeInTheDocument();
+  });
+});
+
+describe("TerminalWorkspace transcript", () => {
+  it("downloads what the device retains without moving the tab's own cursor", async () => {
+    const readCursors: number[] = [];
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        readCursors.push(Number(args?.cursor));
+        return JSON.stringify({ data: "hello\n", cursor: 6 });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    const blobs: Blob[] = [];
+    const createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return "blob:transcript";
+    });
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    // The tab's first poll has already taken its own cursor to 6.
+    await waitFor(() => expect(readCursors.length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("button", { name: "Export log" }));
+    expect(await screen.findByText("Exported 6 bytes.")).toBeInTheDocument();
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const file = await blobs[0].text();
+    expect(file).toContain("Summrise terminal transcript");
+    expect(file).toContain("session: t1");
+    expect(file).toContain("range: bytes 0..6 of this session's output");
+    expect(file).toContain("dropped: none — the whole session is retained");
+    expect(file).toContain("---\nhello\n");
+    const anchor = click.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.download).toBe("t1.log");
+
+    const afterExport = readCursors.length;
+    await waitFor(() => expect(readCursors.length).toBeGreaterThan(afterExport), { timeout: 2_000 });
+    expect(readCursors.slice(afterExport).every((cursor) => cursor === 6)).toBe(true);
+  });
+
+  it("moves the cursor to the earliest retained byte when the device refuses it as too old", async () => {
+    const readCursors: number[] = [];
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        const cursor = Number(args?.cursor);
+        readCursors.push(cursor);
+        if (cursor < 4096) {
+          throw new ToolError(
+            "terminal.read: the cursor 0 is older than the retained output, which starts at 4096",
+            200,
+            null,
+            true
+          );
+        }
+        return JSON.stringify({ data: "", cursor: 4096 });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    await waitFor(() => expect(readCursors).toContain(4096), { timeout: 3_000 });
+    expect(readCursors[0]).toBe(0);
+    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
+  });
+
+  it("leaves the cursor alone after a transient read failure", async () => {
+    const readCursors: number[] = [];
+    let attempts = 0;
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        const cursor = Number(args?.cursor);
+        readCursors.push(cursor);
+        attempts += 1;
+        if (attempts === 1) return JSON.stringify({ data: "", cursor: 6 });
+        if (attempts === 2) throw new ToolError("Failed to fetch", 0);
+        return JSON.stringify({ data: "", cursor: 6 });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    await waitFor(
+      () => expect(readCursors.filter((cursor) => cursor === 6).length).toBeGreaterThanOrEqual(2),
+      { timeout: 3_000 }
+    );
+    expect(readCursors.slice(1).every((cursor) => cursor === 6)).toBe(true);
   });
 });
