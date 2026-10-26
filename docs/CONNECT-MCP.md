@@ -71,7 +71,9 @@ two headers the edge expects:
 
 ## Cloudflare Access
 
-The endpoint must be its own Access application for `console.example.com/mcp/*`:
+The endpoint must be its own Access application for `console.example.com/mcp/*` — the wildcard path,
+**not** the exact `/mcp`, which is the console page's own envelope and must keep its operator-session
+gate:
 
 - **bypass** — the signed grant is the credential; the client sends no Access headers; or
 - **service token** — the client sends the two `CF-Access-*` headers, and the grant is still required.

@@ -54,11 +54,14 @@ an Access path pattern may not express; `/mcp/*` is a prefix. So the standard ro
 - **a service-token policy** — the client also presents `CF-Access-Client-Id` /
   `CF-Access-Client-Secret`.
 
-The choice is the operator's, and the documentation names it as a dashboard step. What must **not**
-happen is the AI client receiving the operator application's credential: `access.rs` turns any verified
-Access JWT (including a service token) into a full operator, so such a client could mint any grant,
-read the audit, and delete devices. That would make the grant a hint rather than a boundary. The
-console's app-level authorization on this route is the grant, never the Access identity.
+The choice is the operator's, and the documentation names it as a dashboard step. The application is
+scoped to `/mcp/*`, not to the exact `/mcp`: the latter is the page's own envelope, which must keep its
+operator-session gate (and a service-token policy that covered it would put the page behind a token it
+does not send). What must **not** happen is the AI client receiving the operator application's
+credential: `access.rs` turns any verified Access JWT (including a service token) into a full operator,
+so such a client could mint any grant, read the audit, and delete devices. That would make the grant a
+hint rather than a boundary. The console's app-level authorization on this route is the grant, never
+the Access identity.
 
 A loopback/tunnel deployment without Access needs no dashboard step.
 
