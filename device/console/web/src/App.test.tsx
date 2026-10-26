@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
 // flag here rather than a server. `api.signIn` flips it, so the following `api.session` reports the
@@ -125,6 +126,7 @@ const denial = {
 };
 
 beforeEach(() => {
+  localStorage.clear();
   signedIn = false;
   mocks.session.mockImplementation(async () =>
     signedIn
@@ -486,5 +488,50 @@ describe("App", () => {
       shortTokenId
     ]);
     expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
+  });
+
+  it("samples host facts into the browser-local history and draws the card's chart", async () => {
+    const gib = 1024 ** 3;
+    mocks.devices.mockResolvedValue([
+      {
+        ...workshop,
+        host: {
+          memory: { total_bytes: 8 * gib, available_bytes: 4 * gib },
+          disks: [{ name: "/", total_bytes: 100 * gib, free_bytes: 25 * gib }]
+        }
+      },
+      attic
+    ]);
+    const prior: VitalsSample[] = [
+      {
+        ts_ms: Date.now() - 60_000,
+        memory_available_bytes: 4 * gib,
+        memory_total_bytes: 8 * gib,
+        disk_name: "/",
+        disk_free_bytes: 25 * gib,
+        disk_total_bytes: 100 * gib
+      }
+    ];
+    localStorage.setItem(VITALS_KEY_PREFIX + workshop.id, JSON.stringify(prior));
+
+    await bootAndSignIn();
+
+    // One sample was already in this browser; the refresh appended this poll's, so the chart has the
+    // two points it needs. The device without host facts has no key at all.
+    expect(screen.getByText("Memory available 50.0%")).toBeInTheDocument();
+    expect(screen.getByText("Tightest disk / 25.0% free")).toBeInTheDocument();
+
+    const stored = JSON.parse(
+      localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]"
+    ) as VitalsSample[];
+    expect(stored).toHaveLength(2);
+    expect(stored[1].ts_ms).toBeGreaterThan(prior[0].ts_ms);
+    expect(localStorage.getItem(VITALS_KEY_PREFIX + attic.id)).toBeNull();
+
+    // A second refresh inside the 30 s window moves the fleet, not the history: there is no new
+    // interval, and the stored timestamp is the only cadence.
+    fireEvent.click(screen.getAllByRole("button", { name: "Refresh" })[0]);
+    await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]")).toHaveLength(2);
   });
 });

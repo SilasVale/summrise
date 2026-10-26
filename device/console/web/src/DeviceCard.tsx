@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
 import { meshReadiness, type MeshReadiness } from "./api";
 import { shortId } from "./format";
+import { VitalsChart } from "./VitalsChart";
+import type { VitalsSample } from "./vitals";
 
 /** The device reports at most this many repairs, so a full list means "at least this many". */
 const REPAIR_LIMIT = 5;
@@ -20,6 +22,8 @@ type Props = {
   device: Device;
   newest: string | null;
   selected: boolean;
+  /** This browser's sampled history for the device; empty until the second sample exists. */
+  vitals?: VitalsSample[];
   onSelect: () => void;
   onRename: () => void;
   onRemove: () => void;
@@ -27,7 +31,7 @@ type Props = {
   onConnect: () => void;
 };
 
-export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics, onConnect }: Props) {
+export function DeviceCard({ device, newest, selected, vitals = [], onSelect, onRename, onRemove, onDiagnostics, onConnect }: Props) {
   const behind = device.version !== null && newest !== null && device.version !== newest;
   // A readiness check is on demand: the page must not ask the broker about every device on every load.
   const [mesh, setMesh] = useState<MeshReadiness | null>(null);
@@ -67,7 +71,7 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
         </div>
       </dl>
 
-      {device.host && <HostFactsBlock host={device.host} />}
+      {device.host && <HostFactsBlock host={device.host} vitals={vitals} />}
 
       {device.last_attempt && device.last_attempt.attempts > 0 && (
         // A device cannot report a failure on the connection that failed, so this is what it said the
@@ -124,8 +128,11 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
  * never "applied" or "updated"; a rollback names the version it left; an applied swap is dated by
  * how long ago it happened. The repairs row counts them and names the generation only when it was
  * not the baseline. A record the launcher did not write is absent, and an absent record draws no row.
+ *
+ * The vitals chart is not a device fact: it is this browser's own sample of the two rows above it,
+ * drawn after them because the live numbers are the current truth and the line is the history.
  */
-function HostFactsBlock({ host }: { host: HostFacts }) {
+function HostFactsBlock({ host, vitals }: { host: HostFacts; vitals: VitalsSample[] }) {
   const memory = host.memory;
   const sessions = host.sessions ?? [];
   const update = updateSentence(host.update);
@@ -133,62 +140,65 @@ function HostFactsBlock({ host }: { host: HostFacts }) {
   const repairs = host.update?.repairs ?? [];
   const system = [host.os?.name, host.os?.version].filter(Boolean).join(" ") || "unknown system";
   return (
-    <dl className="facts host">
-      <div>
-        <dt>Machine</dt>
-        <dd>{system} · up {duration(host.uptime_s)}</dd>
-      </div>
-      {memory && memory.total_bytes ? (
+    <>
+      <dl className="facts host">
         <div>
-          <dt>Memory</dt>
-          <dd>{gib(memory.available_bytes)} free of {gib(memory.total_bytes)}</dd>
+          <dt>Machine</dt>
+          <dd>{system} · up {duration(host.uptime_s)}</dd>
         </div>
-      ) : null}
-      {(host.disks ?? []).map((disk) => (
-        <div key={disk.name}>
-          <dt>{disk.name} free</dt>
-          <dd>{gib(disk.free_bytes)} of {gib(disk.total_bytes)}</dd>
-        </div>
-      ))}
-      {sessions.length > 0 && (
+        {memory && memory.total_bytes ? (
+          <div>
+            <dt>Memory</dt>
+            <dd>{gib(memory.available_bytes)} free of {gib(memory.total_bytes)}</dd>
+          </div>
+        ) : null}
+        {(host.disks ?? []).map((disk) => (
+          <div key={disk.name}>
+            <dt>{disk.name} free</dt>
+            <dd>{gib(disk.free_bytes)} of {gib(disk.total_bytes)}</dd>
+          </div>
+        ))}
+        {sessions.length > 0 && (
+          <div>
+            <dt>Sessions</dt>
+            <dd>{sessions.map(sessionSentence).join(" · ")}</dd>
+          </div>
+        )}
+        {update && (
+          <div>
+            <dt>Update</dt>
+            <dd
+              title={
+                host.update?.pending
+                  ? "Not yet proven: the launcher promotes a staged pair only after the new build answers, and discards it otherwise."
+                  : undefined
+              }
+            >
+              {update}
+            </dd>
+          </div>
+        )}
+        {lastSwap && (
+          <div>
+            <dt>Last swap</dt>
+            <dd>{lastSwap}</dd>
+          </div>
+        )}
+        {repairs.length > 0 && (
+          <div>
+            <dt>Repaired</dt>
+            <dd title={repairsTitle(repairs)}>{repairsSentence(repairs)}</dd>
+          </div>
+        )}
         <div>
-          <dt>Sessions</dt>
-          <dd>{sessions.map(sessionSentence).join(" · ")}</dd>
-        </div>
-      )}
-      {update && (
-        <div>
-          <dt>Update</dt>
-          <dd
-            title={
-              host.update?.pending
-                ? "Not yet proven: the launcher promotes a staged pair only after the new build answers, and discards it otherwise."
-                : undefined
-            }
-          >
-            {update}
+          <dt>Helper</dt>
+          <dd className={host.helper?.registered ? undefined : "muted"}>
+            {host.helper?.registered ? `session ${host.helper.session ?? "?"}` : "not running"}
           </dd>
         </div>
-      )}
-      {lastSwap && (
-        <div>
-          <dt>Last swap</dt>
-          <dd>{lastSwap}</dd>
-        </div>
-      )}
-      {repairs.length > 0 && (
-        <div>
-          <dt>Repaired</dt>
-          <dd title={repairsTitle(repairs)}>{repairsSentence(repairs)}</dd>
-        </div>
-      )}
-      <div>
-        <dt>Helper</dt>
-        <dd className={host.helper?.registered ? undefined : "muted"}>
-          {host.helper?.registered ? `session ${host.helper.session ?? "?"}` : "not running"}
-        </dd>
-      </div>
-    </dl>
+      </dl>
+      <VitalsChart samples={vitals} />
+    </>
   );
 }
 
