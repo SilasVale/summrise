@@ -152,6 +152,7 @@ export const api = {
   devices: () => call<Device[]>("/fleet"),
   audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
   health: () => call<{ version: string; devices: number }>("/health"),
+  tools: () => call<{ name: string }[]>("/tools"),
   rename: (id: string, name: string | null) =>
     call<{ id: string; name: string | null }>(`/fleet/${id}/name`, {
       method: "POST",
