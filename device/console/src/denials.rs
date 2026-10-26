@@ -20,6 +20,8 @@
 
 use std::path::Path;
 
+use serde_json::Value;
+
 use crate::audit::Entry;
 use crate::jsonl::JsonLines;
 
@@ -97,5 +99,10 @@ impl Denials {
         } else {
             window.suppressed += 1;
         }
+    }
+
+    /// The newest `limit` denial lines, newest first.
+    pub(crate) async fn newest(&self, limit: usize) -> Vec<Value> {
+        self.file.newest(limit).await
     }
 }

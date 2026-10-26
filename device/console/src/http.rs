@@ -36,12 +36,12 @@ use crate::tokens::{TokenError, TokenMeta, Tokens};
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
 
-/// How many audit lines `GET /audit` returns when the caller names no limit.
-const DEFAULT_AUDIT_LIMIT: usize = 100;
+/// How many log lines `GET /audit` and `GET /denials` return when the caller names no limit.
+const DEFAULT_LOG_LIMIT: usize = 100;
 
-/// The largest limit `GET /audit` honors: an operator reading the index must not make the console
+/// The largest limit the log routes honor: an operator reading an index must not make the console
 /// hold an unbounded slice of it.
-const MAX_AUDIT_LIMIT: usize = 1000;
+const MAX_LOG_LIMIT: usize = 1000;
 
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
@@ -277,6 +277,9 @@ impl Console {
             .route("/mcp", post(proxy_mcp))
             .route("/mcp/:id", post(standard_mcp))
             .route("/audit", get(list_audit))
+            // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
+            // log holds what probing looks like, and it is surfaced read-only.
+            .route("/denials", get(list_denials))
             .layer(axum::middleware::from_fn(no_store))
             .with_state(self.inner.clone())
     }
@@ -2169,29 +2172,49 @@ impl TransportFailure {
     }
 }
 
+/// The `?limit=` shape shared by the two log routes.
+///
+/// `limit` is a string here so a malformed value is this service's JSON refusal rather than axum's
+/// plain-text query rejection.
 #[derive(Deserialize)]
-struct AuditQuery {
+struct LogQuery {
     limit: Option<String>,
 }
 
-/// `GET /audit`: the operator's own actions, newest first, one JSON line each.
+/// The clamped limit both log routes read.
 ///
-/// `limit` is a string here so a malformed value is this service's JSON refusal rather than axum's
-/// plain-text query rejection. Missing means [`DEFAULT_AUDIT_LIMIT`]; a value above
-/// [`MAX_AUDIT_LIMIT`] is clamped, because the index is not an unbounded read.
-async fn list_audit(
-    State(app): State<AppState>,
-    _: OperatorSession,
-    Query(query): Query<AuditQuery>,
-) -> Result<Json<Vec<Value>>, ApiError> {
-    let limit = match query.limit {
-        None => DEFAULT_AUDIT_LIMIT,
+/// Missing means [`DEFAULT_LOG_LIMIT`]; a value above [`MAX_LOG_LIMIT`] is clamped, because neither
+/// index is an unbounded read.
+fn log_limit(limit: Option<String>) -> Result<usize, ApiError> {
+    let limit = match limit {
+        None => DEFAULT_LOG_LIMIT,
         Some(text) => text
             .parse::<usize>()
             .map_err(|_| ApiError::bad_request("invalid_limit"))?,
     };
 
-    Ok(Json(app.audit.newest(limit.min(MAX_AUDIT_LIMIT)).await))
+    Ok(limit.min(MAX_LOG_LIMIT))
+}
+
+/// `GET /audit`: the operator's own actions, newest first, one JSON line each.
+async fn list_audit(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<LogQuery>,
+) -> Result<Json<Vec<Value>>, ApiError> {
+    Ok(Json(app.audit.newest(log_limit(query.limit)?).await))
+}
+
+/// `GET /denials`: unauthenticated refusals, newest first, one JSON line each.
+///
+/// Operator-only and read-only. The log's write path keeps its rate limit, cap and rotation; this
+/// reads it under the same append lock, so a concurrent write is not torn.
+async fn list_denials(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<LogQuery>,
+) -> Result<Json<Vec<Value>>, ApiError> {
+    Ok(Json(app.denials.newest(log_limit(query.limit)?).await))
 }
 
 /// Lock a mutex, ignoring poisoning: a panic in one handler must not stop the process from serving

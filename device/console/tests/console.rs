@@ -2310,6 +2310,147 @@ async fn the_audit_lists_the_newest_lines_first() {
     );
 }
 
+// ---- the denial index -------------------------------------------------------------------------
+
+/// Write `count` denial lines to the current file, oldest first, without going through the writer.
+fn seed_denials(fixture: &Fixture, count: usize) {
+    let mut text = String::new();
+    for index in 0..count {
+        text.push_str(
+            &json!({
+                "ts_ms": START_MS + index as u64,
+                "kind": "denied",
+                "status": 401,
+                "detail": format!("seeded-{index}"),
+            })
+            .to_string(),
+        );
+        text.push('\n');
+    }
+    fs::write(fixture.config.data.join("denials.jsonl"), text)
+        .expect("the seeded denial file is writable");
+}
+
+#[tokio::test]
+async fn the_denials_route_requires_an_operator_session() {
+    let fixture = Fixture::new("denials-no-session");
+
+    let (status, body) = send(fixture.app(), get("/denials", None)).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+    let denied = denial_lines(&fixture)
+        .pop()
+        .expect("the refused read is itself a denial line");
+    assert_eq!(denied["kind"], json!("denied"));
+    assert_eq!(denied["status"], json!(401));
+    assert_eq!(denied["detail"], json!("unauthorized"));
+    assert!(
+        audit_lines(&fixture).is_empty(),
+        "an unauthenticated read never reaches the authenticated audit"
+    );
+}
+
+#[tokio::test]
+async fn the_denials_list_the_newest_lines_first() {
+    let fixture = Fixture::new("denials-newest-first");
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json("/auth", json!({ "token": "00".repeat(32) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send(fixture.app(), get("/fleet", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let session = fixture.authenticate().await;
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let newest = body.as_array().expect("a list of denial lines");
+    assert_eq!(newest.len(), 2);
+    assert_eq!(newest[0]["kind"], json!("denied"));
+    assert_eq!(newest[0]["detail"], json!("unauthorized"));
+    assert_eq!(newest[1]["detail"], json!("bad_operator_token"));
+    assert_eq!(newest[0]["ts_ms"], json!(START_MS));
+}
+
+#[tokio::test]
+async fn a_denials_limit_of_one_is_the_newest_line() {
+    let fixture = Fixture::new("denials-limit-one");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 2);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=1", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let lines = body.as_array().expect("a list of denial lines");
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["detail"], json!("seeded-1"));
+}
+
+#[tokio::test]
+async fn a_denials_zero_limit_is_empty() {
+    let fixture = Fixture::new("denials-limit-zero");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 2);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=0", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]));
+}
+
+#[tokio::test]
+async fn a_malformed_denials_limit_is_a_json_refusal() {
+    let fixture = Fixture::new("denials-bad-limit");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=abc", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body,
+        json!({ "error": "invalid_limit" }),
+        "the console's JSON refusal, not axum's plain rejection"
+    );
+}
+
+#[tokio::test]
+async fn a_denials_limit_above_the_max_is_clamped() {
+    let fixture = Fixture::new("denials-limit-clamp");
+    let session = fixture.authenticate().await;
+    seed_denials(&fixture, 1001);
+
+    let (status, body) = send(fixture.app(), get("/denials?limit=100000", Some(&session))).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let lines = body.as_array().expect("a list of denial lines");
+    assert_eq!(lines.len(), 1000, "the index is not an unbounded read");
+    assert_eq!(lines[0]["detail"], json!("seeded-1000"));
+    assert_eq!(
+        lines[999]["detail"],
+        json!("seeded-1"),
+        "the newest 1000 lines, not the oldest"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_or_empty_denial_log_is_an_empty_list() {
+    let fixture = Fixture::new("denials-empty");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]), "no denial file has been written yet");
+
+    fs::write(fixture.config.data.join("denials.jsonl"), "").expect("an empty denial file");
+    let (status, body) = send(fixture.app(), get("/denials", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!([]));
+}
+
 #[tokio::test]
 async fn the_grant_audit_line_records_the_destructive_flag() {
     let fixture = Fixture::new("audit-grant-destructive");
