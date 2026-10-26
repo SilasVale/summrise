@@ -1,13 +1,26 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
+import { restoreGlobal } from "./test/dom";
+
+/// The xterms the component created, in creation order: a font change is asserted on the instance,
+/// because that is what the operator's screen shows.
+const mockedXterm = vi.hoisted(() => ({
+  instances: [] as { options: Record<string, unknown> }[]
+}));
+
+/// The fit addons, in creation order: a font change refits each xterm into the host it already has.
+const mockedFit = vi.hoisted(() => ({
+  instances: [] as { fit: Mock }[]
+}));
 
 vi.mock("@xterm/xterm", () => {
   class Terminal {
     cols = 80;
     rows = 24;
-    options: Record<string, unknown> = {};
+    options: Record<string, unknown>;
     buffer = { active: { length: 0, cursorX: 0, cursorY: 0, viewportY: 0, baseY: 0 } };
     open = vi.fn();
     loadAddon = vi.fn();
@@ -18,6 +31,11 @@ vi.mock("@xterm/xterm", () => {
     dispose = vi.fn();
     focus = vi.fn();
     clear = vi.fn();
+
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
+      mockedXterm.instances.push(this);
+    }
   }
   return { Terminal };
 });
@@ -25,6 +43,10 @@ vi.mock("@xterm/xterm", () => {
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     fit = vi.fn();
+
+    constructor() {
+      mockedFit.instances.push(this);
+    }
   }
 }));
 
@@ -50,15 +72,12 @@ const objectUrls = {
   revoke: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
 };
 
-function restoreMethod(target: object, key: string, descriptor?: PropertyDescriptor) {
-  if (descriptor) Object.defineProperty(target, key, descriptor);
-  else Reflect.deleteProperty(target, key);
-}
-
 let created = 0;
 
 beforeEach(() => {
   created = 0;
+  mockedXterm.instances.length = 0;
+  mockedFit.instances.length = 0;
   callToolMock.mockReset();
   callToolMock.mockImplementation(async (_grant, name) => {
     if (name === "terminal.create") {
@@ -80,14 +99,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (matchMedia) Object.defineProperty(window, "matchMedia", matchMedia);
-  else Reflect.deleteProperty(window, "matchMedia");
+  restoreGlobal(window, "matchMedia", matchMedia);
   vi.restoreAllMocks();
 });
 
 afterAll(() => {
-  restoreMethod(URL, "createObjectURL", objectUrls.create);
-  restoreMethod(URL, "revokeObjectURL", objectUrls.revoke);
+  restoreGlobal(URL, "createObjectURL", objectUrls.create);
+  restoreGlobal(URL, "revokeObjectURL", objectUrls.revoke);
 });
 
 /** Open the pty dialog from the panel head and submit it. */
@@ -336,5 +354,108 @@ describe("TerminalWorkspace transcript", () => {
     expect(recoveredAt).toBeGreaterThan(0);
     expect(readCursors[recoveredAt - 1]).toBe(6);
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+});
+
+describe("TerminalWorkspace text size", () => {
+  afterEach(() => {
+    window.localStorage.removeItem(FONT_SIZE_KEY);
+  });
+
+  it("opens a tab at the default size", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
+    expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
+  });
+
+  it("sizes every open terminal in place and remembers the choice", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    await startPtyTab();
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(2));
+    await waitFor(() => expect(mockedFit.instances).toHaveLength(2));
+    const fitsBefore = mockedFit.instances.map((instance) => instance.fit.mock.calls.length);
+
+    fireEvent.click(screen.getByRole("button", { name: "A+" }));
+
+    // Every open tab is refitted into the host it already has, and none of them is recreated.
+    expect(mockedFit.instances.map((instance) => instance.fit.mock.calls.length)).toEqual(
+      fitsBefore.map((count) => count + 1)
+    );
+    expect(mockedXterm.instances.map((instance) => instance.options.fontSize)).toEqual([14, 14]);
+    expect(window.localStorage.getItem(FONT_SIZE_KEY)).toBe("14");
+    expect(screen.getByRole("button", { name: "A+" })).toHaveAttribute(
+      "title",
+      "Larger terminal text (now 14)"
+    );
+  });
+
+  it("creates the next tab at the size already chosen", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    fireEvent.click(screen.getByRole("button", { name: "A+" }));
+
+    await startPtyTab();
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(2));
+    expect(mockedXterm.instances[1].options.fontSize).toBe(14);
+  });
+
+  it("reads the remembered size before the first tab exists", async () => {
+    window.localStorage.setItem(FONT_SIZE_KEY, "18");
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
+    expect(mockedXterm.instances[0].options.fontSize).toBe(18);
+    expect(screen.getByRole("button", { name: "A+" })).toHaveAttribute(
+      "title",
+      "Larger terminal text (now 18)"
+    );
+  });
+
+  it("disables A− at the minimum the layout survives", () => {
+    window.localStorage.setItem(FONT_SIZE_KEY, String(MIN_FONT_SIZE));
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    expect(screen.getByRole("button", { name: "A−" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
+  });
+
+  it("disables A+ at the maximum", () => {
+    window.localStorage.setItem(FONT_SIZE_KEY, String(MAX_FONT_SIZE));
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    expect(screen.getByRole("button", { name: "A+" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "A−" })).toBeEnabled();
+  });
+
+  it("renders and opens a tab when the browser refuses storage access", async () => {
+    // A browser with cookies or site data blocked throws on the property itself, not on getItem: the
+    // workspace must still render, and the size falls back to the default for this visit.
+    const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("The browser blocked storage.");
+      }
+    });
+    try {
+      render(<TerminalWorkspace grant={GRANT} />);
+      expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
+
+      await startPtyTab();
+      await screen.findByRole("tab", { name: /pty 1/ });
+      await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
+      expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
+    } finally {
+      restoreGlobal(window, "localStorage", descriptor);
+    }
   });
 });

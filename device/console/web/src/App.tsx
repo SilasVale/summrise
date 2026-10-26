@@ -4,6 +4,7 @@ import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type S
 import { copyText } from "./copy";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
+import { EventsPage } from "./EventsPage";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
@@ -668,6 +669,41 @@ export function App() {
               </div>
               <AuditTable lines={audit} devices={devices} />
             </section>
+          )}
+
+          {page === "events" && (
+            <>
+              {!chosen && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Events</h2>
+                  </div>
+                  <p className="hint">
+                    The events are the device's own, so pick one. The console signs a grant for the
+                    state tool, and the device checks that grant on every read.
+                  </p>
+                  <DevicePicker devices={devices} onChoose={(id) => setSelected(id)} />
+                </section>
+              )}
+              {chosen && (!grant || grant.deviceId !== chosen.id) && (
+                <section className="panel">
+                  <div className="panel-head">
+                    <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+                  </div>
+                  <p className="hint">
+                    A grant is signed by the console, names the tools and expires. The device checks
+                    it on every call. Everything is selected by default: press the button and the
+                    device's health and its last ten events appear.
+                  </p>
+                  <GrantForm deviceId={chosen.id} onGranted={(envelope) => setGrant({ deviceId: chosen.id, envelope })} />
+                </section>
+              )}
+              {chosen && grant && grant.deviceId === chosen.id && (
+                <section className="panel">
+                  <EventsPage grant={grant} />
+                </section>
+              )}
+            </>
           )}
         </main>
       </div>

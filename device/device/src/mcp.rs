@@ -46,7 +46,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{browser, files, memory, monitor, runs, ssh, system, terminal};
 use crate::config::{Config, Release};
-use crate::store::Store;
+use crate::store::{Store, EVENT_TAIL};
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
 const BASE64: base64::engine::general_purpose::GeneralPurpose =
@@ -1141,7 +1141,8 @@ impl DeviceServer {
             }
             Handler::StateGet => {
                 // The console's device page: the document an operator would read from
-                // `/api/state`, plus the readiness answer `/api/health` would give. A poisoned
+                // `/api/state`, plus the readiness answer `/api/health` would give, and the last ten
+                // events the device recorded — the same tail the local panel shows. A poisoned
                 // document is the failure this tool exists to make visible, so it is a successful
                 // call carrying `poisoned: true` and a null state, not an error the console would
                 // render as "the device is offline".
@@ -1166,7 +1167,14 @@ impl DeviceServer {
                         }),
                     ),
                 };
-                Ok(json!({ "state": state, "health": health }).to_string())
+                // Best-effort: the document still answers when the log cannot be read, but the
+                // field is `null` — "the device cannot say" — not `[]`, which would claim it
+                // recorded nothing. A poisoned document still returns whatever events exist.
+                let events = match self.store.tail_events(EVENT_TAIL) {
+                    Ok(events) => json!(events),
+                    Err(_) => Value::Null,
+                };
+                Ok(json!({ "state": state, "health": health, "events": events }).to_string())
             }
         }
     }
@@ -3191,6 +3199,114 @@ mod tests {
             document["health"]["poisoned"], false,
             "a readable document is not poisoned: {document}"
         );
+        let events = document["events"]
+            .as_array()
+            .unwrap_or_else(|| panic!("state.get answers an event tail: {document}"));
+        assert_eq!(
+            events.len(),
+            1,
+            "this call is audited before it runs, so it is the quiet device's only event: {document}"
+        );
+        assert_eq!(events[0]["event"], "begin", "{document}");
+        assert_eq!(events[0]["tool"], "state.get", "{document}");
+    }
+
+    #[tokio::test]
+    async fn state_get_returns_the_event_tail_oldest_first() {
+        let device = start("mcp-state-events").await;
+        fs::write(
+            device.config.data.join("events.jsonl"),
+            "{\"ts_ms\":1,\"kind\":\"repaired\",\"from\":\"baseline\"}\n\
+             {\"ts_ms\":2,\"kind\":\"state_quarantined\"}\n\
+             a line the device wrote but did not encode as JSON\n",
+        )
+        .expect("the event fixture is written");
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let reply = client.call("state.get", json!({})).await;
+
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("state.get returns one JSON document");
+        let events = document["events"]
+            .as_array()
+            .unwrap_or_else(|| panic!("state.get answers an event tail: {document}"));
+        assert_eq!(
+            events[..3],
+            [
+                json!({ "ts_ms": 1, "kind": "repaired", "from": "baseline" }),
+                json!({ "ts_ms": 2, "kind": "state_quarantined" }),
+                json!("a line the device wrote but did not encode as JSON"),
+            ],
+            "the tail is the device's lines, oldest first, and a line that is not JSON survives as text: {document}"
+        );
+        assert_eq!(
+            events.len(),
+            4,
+            "the device wrote three lines and audited this call: {document}"
+        );
+        assert_eq!(
+            events[3]["tool"], "state.get",
+            "the call reading the tail is its newest event: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn state_get_still_answers_when_the_event_log_is_absent() {
+        let device = start("mcp-state-no-events").await;
+        assert!(
+            !device.config.data.join("events.jsonl").exists(),
+            "the fixture starts without an event log"
+        );
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let reply = client.call("state.get", json!({})).await;
+
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("state.get returns one JSON document");
+        let events = document["events"]
+            .as_array()
+            .unwrap_or_else(|| panic!("state.get answers an event tail: {document}"));
+        assert_eq!(
+            events.len(),
+            1,
+            "a missing log contributes nothing; this call's own audit line is the only event: {document}"
+        );
+        assert_eq!(events[0]["event"], "begin", "{document}");
+        assert_eq!(events[0]["tool"], "state.get", "{document}");
+        assert_eq!(document["health"]["status"], "ok", "{document}");
+    }
+
+    #[tokio::test]
+    async fn state_get_survives_an_unreadable_event_log() {
+        let device = start("mcp-state-events-unreadable").await;
+        // A log that is not UTF-8 is unwritable as text but still appendable, so the call reaches
+        // the handler and the best-effort read is the thing under test.
+        fs::write(device.config.data.join("events.jsonl"), [0xff, 0xfe])
+            .expect("the unreadable fixture is written");
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let reply = client.call("state.get", json!({})).await;
+
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let document: Value =
+            serde_json::from_str(text_of(&reply)).expect("state.get returns one JSON document");
+        assert_eq!(
+            document["events"],
+            Value::Null,
+            "an unreadable event log is 'the device cannot say', not a claim that nothing was recorded: {document}"
+        );
+        assert_eq!(
+            document["health"]["status"], "ok",
+            "the document half still answers: {document}"
+        );
     }
 
     #[tokio::test]
@@ -3201,6 +3317,11 @@ mod tests {
             "{ this is not a state document",
         )
         .expect("the corrupt fixture is written");
+        fs::write(
+            device.config.data.join("events.jsonl"),
+            "{\"ts_ms\":7,\"kind\":\"state_quarantined\"}\n",
+        )
+        .expect("the event fixture is written");
         let mut client = Client::authorized(&device);
         client.initialize().await;
 
@@ -3225,6 +3346,15 @@ mod tests {
                 .as_str()
                 .is_some_and(|reason| reason.starts_with("state:")),
             "the reason names the poisoned subsystem: {document}"
+        );
+        assert_eq!(
+            document["events"][0],
+            json!({ "ts_ms": 7, "kind": "state_quarantined" }),
+            "a poisoned document does not hide the events the device still has: {document}"
+        );
+        assert_eq!(
+            document["events"][1]["tool"], "state.get",
+            "the events half still answers even though the document half is poisoned: {document}"
         );
     }
 

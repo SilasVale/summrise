@@ -150,7 +150,7 @@ describe("App", () => {
     expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
-  it("renders the whole shell: the ten rail sections, the brand, the build and the sign-in path", async () => {
+  it("renders the whole shell: the eleven rail sections, the brand, the build and the sign-in path", async () => {
     await bootAndSignIn();
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
@@ -165,7 +165,8 @@ describe("App", () => {
       "Monitors",
       "Runs",
       "System",
-      "Audit"
+      "Audit",
+      "Events"
     ]);
     expect(within(rail).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");
 
@@ -175,7 +176,7 @@ describe("App", () => {
     expect(screen.getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
-  it("navigates the rail to the audit panel and to the memory picker", async () => {
+  it("navigates the rail to the audit panel and to the memory and events pickers", async () => {
     await bootAndSignIn();
 
     fireEvent.click(screen.getByRole("button", { name: "Audit" }));
@@ -187,6 +188,11 @@ describe("App", () => {
     expect(screen.getByText(/Memory is kept on the device/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Use" })).toHaveLength(2);
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Events" }));
+    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(screen.getByText(/The events are the device's own/)).toBeInTheDocument();
+    expect(screen.queryByText(/Memory is kept on the device/)).not.toBeInTheDocument();
   });
 
   it("selects a device and lands on the terminal with that device's grant form", async () => {
