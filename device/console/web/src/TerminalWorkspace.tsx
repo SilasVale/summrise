@@ -41,9 +41,10 @@ type Instance = {
 /**
  * Why a tab stopped working, in the words that tell the three cases apart.
  *
- * `closed` is the device saying it no longer has the session; `unreachable` is the device not
- * answering; `grant` is permission being refused (the one that names the grant). `read` and `write`
- * are a single call failing while the device still lists the session, and they say which half failed.
+ * `closed` is the session being gone: the device no longer has it, or its reader saw it end.
+ * `unreachable` is the device not answering; `grant` is permission being refused (the one that
+ * names the grant). `read` and `write` are a single call failing while the device still lists the
+ * session, and they say which half failed.
  */
 type FaultKind = "closed" | "unreachable" | "grant" | "read" | "write";
 
@@ -60,6 +61,33 @@ const FAULT_LABELS: Record<FaultKind, string> = {
   read: "read failed",
   write: "not sent"
 };
+
+/**
+ * One `terminal.read` answer.
+ *
+ * `alive` and the two end facts are absent on an older device. That is not a dead tab: only an
+ * explicit `alive: false` marks one ended, because a device that never sends the field is telling
+ * the client nothing, not that the session is gone.
+ */
+type ReadAnswer = {
+  data?: string;
+  cursor?: number;
+  alive?: boolean;
+  exit_code?: number | null;
+  signal?: string | null;
+};
+
+/** The sentence a tab shows once its session ended, naming only what the device reported. */
+function endedSentence(read: Pick<ReadAnswer, "exit_code" | "signal">): string {
+  const tail = " The output above is what it printed.";
+  if (typeof read.exit_code === "number") {
+    return `The session ended with exit code ${read.exit_code}.${tail}`;
+  }
+  if (typeof read.signal === "string" && read.signal !== "") {
+    return `The session ended on signal ${read.signal}.${tail}`;
+  }
+  return `The session ended.${tail}`;
+}
 
 /** The three kinds `terminal.create` accepts, and the shape of the form each one needs. */
 type ConnectKind = "pty" | "ssh" | "serial";
@@ -346,8 +374,8 @@ export function TerminalWorkspace({
     []
   );
 
-  /** One read at this tab's cursor, and the cursor it returns. */
-  const readOnce = useCallback(async (tab: Tab): Promise<{ data?: string; cursor?: number }> => {
+  /** One read at this tab's cursor, and the cursor and end facts it returns. */
+  const readOnce = useCallback(async (tab: Tab): Promise<ReadAnswer> => {
     const cursor = cursors.current.get(tab.key) ?? 0;
     return JSON.parse(await callTool(grantRef.current, "terminal.read", { id: tab.session, cursor }));
   }, []);
@@ -508,6 +536,13 @@ export function TerminalWorkspace({
         const read = await readOnce(tab);
         if (read.data) instance.term.write(read.data);
         if (typeof read.cursor === "number") cursors.current.set(tab.key, read.cursor);
+        // The end is a fact, not an error: the last bytes are already in the terminal and the tab
+        // keeps them. `closed` makes the next tick's existing guard send nothing, and the operator
+        // is the one who closes the tab.
+        if (read.alive === false) {
+          setFault(tab.key, { kind: "closed", sentence: endedSentence(read) });
+          return;
+        }
         // A read that works clears a fault about the link or about reading. It does not clear "your
         // keystrokes were not sent": that sentence stays until a write succeeds (or the tab is
         // retried), because a working read says nothing about the keystroke that was dropped.
@@ -517,7 +552,7 @@ export function TerminalWorkspace({
         fail(tab, "read", cause);
       }
     },
-    [clearFault, fail, instanceAt, readOnce]
+    [clearFault, fail, instanceAt, readOnce, setFault]
   );
 
   // One xterm per tab, created when its host element exists and disposed when the tab goes away.
@@ -982,6 +1017,7 @@ export function TerminalWorkspace({
               onClick={() => setActive(tab.key)}
             >
               {tab.title}
+              {faults[tab.key]?.kind === "closed" && " · ended"}
               {faults[tab.key] && (
                 <span
                   className={"tab-state state-" + faults[tab.key].kind}
