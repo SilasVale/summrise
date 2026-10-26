@@ -109,3 +109,15 @@ CI; the console's session model (`auth.rs`: in-memory, 24 h, no revocation).
   Windows claim.
 - Deliberate: no audit kind for logout, no server-side session list UI, no Access session revocation
   (Access is the identity provider's session).
+
+## Review rulings (2026-10-26)
+
+- The Windows test compiled for `x86_64-pc-windows-msvc` with `cargo xwin check --tests`; execution
+  is the Windows CI's call. The previous note that ConPTY was not executed on Windows is superseded:
+  `windows_tests` starts `cmd.exe` and asserts the end facts, while `end_facts` still carries the
+  parser's cross-platform cases (its doc was updated to say both).
+- Logout's removal is observed behaviourally (the logged-out session's next request and a second
+  logout are 401) because the integration crate cannot see the private session list; no test-only
+  accessor was added. Access identities are per-request JWTs and have no in-memory session to remove.
+- The page's logout is fire-and-forget with a catch; clearing the local session is not conditional on
+  the server's answer.

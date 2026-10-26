@@ -3856,8 +3856,8 @@ mod windows_tests {
 /// The end facts are a pure function of the crate's `ExitStatus`, so their cases run everywhere.
 ///
 /// The pty tests above reach the same parser through a real child, which only a Unix host can start.
-/// The constructors used here exist on every target, so this module is what proves the exit-code
-/// versus signal split on Windows CI too — where the ConPTY reader is still not executed.
+/// The constructors used here exist on every target, so this module proves the exit-code versus
+/// signal split on Windows CI; `windows_tests` below additionally starts a real console there.
 #[cfg(test)]
 mod end_facts {
     use super::*;
