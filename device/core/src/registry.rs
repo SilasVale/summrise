@@ -322,7 +322,7 @@ pub const CAPABILITIES: &[Capability] = &[
             // mints a grant naming `state.get` and reads the device through `/mcp`, which also puts
             // the call in the console's audit index.
             description:
-                "Read the device's state document plus its health: status (ok or degraded), release version, pid, and whether the state document is poisoned (unreadable). A poisoned document is returned as null state with degraded health rather than a failed call.",
+                "Read the device's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
         }],
     },
 ];
