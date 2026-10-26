@@ -7,7 +7,7 @@ use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -2885,6 +2885,10 @@ fn the_page_is_the_built_bundle_and_needs_nothing_from_outside() {
         !page.contains("device-cards"),
         "the hand-written page is not what ships any more"
     );
+    assert!(
+        page.contains("Connect an AI client"),
+        "the built page carries the AI-client card; rebuild it with scripts/build-web.sh when its sources change"
+    );
     // The bundle carries XML namespace URIs and React's documentation links in strings; neither is a
     // request. What would be a request is a load, so that is what this looks for.
     for needle in [
@@ -4011,4 +4015,28 @@ async fn the_official_mcp_client_can_connect() {
             }
         }
     }
+}
+
+/// The manual UI canary: serves the real page with one registered device and prints the URL and the
+/// operator token for a browser to sign in with. It is `#[ignore]`d because it waits for a process
+/// outside this test; CI skips it.
+#[tokio::test]
+#[ignore = "manual UI canary: waits for a browser"]
+async fn the_console_page_canary() {
+    let fixture = Fixture::new("console-page-canary");
+    // A real clock, so the card's expiry sentence is the one an operator would see rather than the
+    // fixture's 1970 epoch.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis() as u64;
+    fixture.clock.store(now, Ordering::Relaxed);
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token) = fixture.register(&signing_key(0xf1)).await;
+
+    println!("UI CANARY URL http://127.0.0.1:{}/", server.addr.port());
+    println!("UI CANARY DEVICE {device_id}");
+    println!("UI CANARY TOKEN {}", hex(&OPERATOR_TOKEN));
+
+    tokio::time::sleep(Duration::from_secs(300)).await;
 }

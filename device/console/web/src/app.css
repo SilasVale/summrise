@@ -129,7 +129,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .card header { display: flex; align-items: center; gap: 0.5rem; }
 .card header strong { font-size: var(--fs-base); font-weight: 650; overflow-wrap: anywhere; }
 .card header .chip { margin-left: auto; }
-.card footer { display: flex; gap: 0.4rem; margin-top: auto; }
+.card footer { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; }
 .card .id { color: var(--ink-faint); margin: 0; font-size: 0.7rem; }
 
 .dot { width: 0.55rem; height: 0.55rem; border-radius: 999px; flex: none; background: var(--ink-faint); }
@@ -174,7 +174,8 @@ tr:last-child td { border-bottom: 0; }
   display: grid; place-items: center; padding: 1.5rem; z-index: 50;
 }
 .modal {
-  width: min(28rem, 100%); background: var(--surface); border: 1px solid var(--line);
+  width: min(28rem, 100%); max-height: calc(100vh - 3rem); overflow: auto;
+  background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-2);
   display: grid; gap: 0.5rem;
 }
@@ -190,6 +191,7 @@ tr:last-child td { border-bottom: 0; }
 }
 /* A radio is a choice, not a field: the modal's full-width input rule would stretch it. */
 .modal input[type="radio"] { width: auto; padding: 0; }
+.modal input[type="checkbox"] { width: auto; padding: 0; }
 .modal .check { font-weight: 450; }
 /* The SSH credential is one of two, so it is a fieldset with two radios and only the chosen
    field below it. */
@@ -203,6 +205,15 @@ tr:last-child td { border-bottom: 0; }
 .serial-framing > div { display: grid; gap: 0.2rem; min-width: 0; }
 .serial-framing label { font-size: var(--fs-xs); font-weight: 550; color: var(--ink-muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; }
+
+/* The AI-client card: one column of form, then the two facts and their copy buttons. */
+.connect { display: grid; gap: 0.55rem; }
+.connect .grant-row select { width: auto; min-width: 9rem; }
+.connect-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+/* The header is a credential, not a document: a phone must still see the actions below it. */
+.connect .code.scroll { max-height: 9rem; }
+.connect-config summary { cursor: pointer; font-size: var(--fs-sm); color: var(--ink-muted); }
+.connect-config .code { margin-top: 0.35rem; }
 
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: 2.6rem; z-index: 60;
@@ -255,7 +266,9 @@ tr:last-child td { border-bottom: 0; }
    stop demanding 19rem they do not have. */
 @media (max-width: 56rem) {
   .body { flex-direction: column-reverse; }
-  .rail { width: 100%; flex-direction: row; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem; }
+  /* Nine destinations do not fit a 320-390 px strip: wrapping keeps every one reachable without the
+     page growing a horizontal scrollbar. */
+  .rail { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem; }
   .rail-btn { width: auto; min-width: 52px; height: 44px; }
   .rail-spacer { display: none; }
   .rail-dot { margin: 0 0.4rem; }
