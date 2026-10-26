@@ -1025,6 +1025,10 @@ struct CreateToken {
     /// consent is a deliberate `true`, never a default.
     #[serde(default)]
     allow_destructive: bool,
+    /// The optional lifetime in seconds. Absent (or `null`) means the token never expires, which is
+    /// the default and stays so.
+    #[serde(default)]
+    expires_in_s: Option<u64>,
 }
 
 /// The create answer: the public facts, plus the one and only copy of the secret a client gets.
@@ -1036,12 +1040,13 @@ struct CreatedToken {
     token: String,
 }
 
-/// `GET /tokens`: the operator's permanent tokens, newest first, without hashes or secrets.
+/// `GET /tokens`: the operator's tokens, newest first, without hashes or secrets.
 async fn list_tokens(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<TokenMeta>> {
     Json(lock(&app.tokens).list())
 }
 
-/// `POST /tokens`: mint one permanent token for one device and a fixed tool set.
+/// `POST /tokens`: mint one token for one device and a fixed tool set, permanent unless the
+/// request gives it a lifetime.
 ///
 /// The answer is the only time the plaintext exists outside the operator's client: the registry
 /// keeps its SHA-256, the list reports metadata only, and the audit line names the device and never
@@ -1059,6 +1064,7 @@ async fn create_token(
             device_id: request.device_id,
             tools: request.tools,
             allow_destructive: request.allow_destructive,
+            expires_in_s: request.expires_in_s,
         },
         device_known,
         (app.now)(),
@@ -1074,6 +1080,8 @@ async fn create_token(
                 TokenError::UnknownTool => ApiError::bad_request("unknown_tool"),
                 TokenError::UnknownDevice => ApiError::not_found("unknown_device"),
                 TokenError::TooManyTokens => ApiError::too_many("too_many_tokens"),
+                TokenError::ExpiryTooShort => ApiError::bad_request("expiry_too_short"),
+                TokenError::ExpiryTooLong => ApiError::bad_request("expiry_too_long"),
                 TokenError::Storage => ApiError::internal(),
             };
             return Err(app.deny(audit_id.as_deref(), refusal).await);
@@ -1341,7 +1349,7 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
     }
 }
 
-/// Mint the grant one permanent token authorizes for this request.
+/// Mint the grant one token authorizes for this request.
 ///
 /// The scope is the token's, never the request's: the record's device, tools and destructive consent
 /// are what get signed, for [`crate::tokens::MINTED_GRANT_LIFETIME_S`] seconds. The caller of this
@@ -1350,15 +1358,15 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
 ///
 /// Why a presented API token did not become a grant.
 enum TokenRefusal {
-    /// The credential itself does not resolve: unknown, revoked, or not mintable. The caller is not
-    /// authenticated, so this is a denial-log line, never the operator's audit.
+    /// The credential itself does not resolve: unknown, revoked, expired, or not mintable. The
+    /// caller is not authenticated, so this is a denial-log line, never the operator's audit.
     Unauthenticated(&'static str),
     /// A live token for another device. The caller *is* authenticated, so the operator's audit gets
     /// the refusal — a credential used against the wrong machine is exactly what an audit is for.
     ForeignDevice,
 }
 
-/// The grant one permanent token request is answered with, and the record that authenticated it.
+/// The grant one token request is answered with, and the record that authenticated it.
 struct MintedGrant {
     envelope: GrantEnvelope,
     /// The token record's id: the audit names this, never the `srm_` secret.
@@ -1379,11 +1387,20 @@ fn mint_token_grant(
     let Some(record) = lock(&app.tokens).find_by_hash(&hash) else {
         return Err(TokenRefusal::Unauthenticated("unknown_api_token"));
     };
+    // An expired token is a credential failure, checked before the scope: a caller cannot learn
+    // which device it belongs to with a credential that is no longer valid. Nothing is signed,
+    // nothing is marked used, and the existing denial path reports the reason.
+    let now = (app.now)();
+    if record
+        .expires_at_ms
+        .is_some_and(|expires_at| now >= expires_at)
+    {
+        return Err(TokenRefusal::Unauthenticated("expired_api_token"));
+    }
     if record.device_id != device_id {
         return Err(TokenRefusal::ForeignDevice);
     }
 
-    let now = (app.now)();
     let signed = grants::sign(
         &app.grant_key,
         device_id,
@@ -1595,7 +1612,7 @@ async fn proxy_mcp(
 /// `POST /mcp/:id`: the standard MCP transport an AI client connects to.
 ///
 /// The bearer is one of two credentials: a grant envelope, verified exactly as it always was, or a
-/// permanent token, found by hash, checked against this path's device and exchanged for a
+/// token, found by hash, checked for expiry and against this path's device and exchanged for a
 /// sixty-second grant with the token's tools and consent. The device only ever sees a grant.
 ///
 /// Either credential is checked before the device lookup (no registry oracle) and before the body is
@@ -1632,7 +1649,7 @@ async fn standard_mcp(
             .into_response();
     };
     // Two bearer types, one grant from here on: a presented envelope is verified exactly as before,
-    // and a permanent token mints an envelope with the token's scope. A token failure is a
+    // and a token mints an envelope with the token's scope. A token failure is a
     // pre-authentication refusal, so it goes to the denial log, never to the audit. Only a token
     // gives the forwarded lines a token id; a grant has no permanent record to name.
     let (grant, token_id) = match bearer {
