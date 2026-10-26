@@ -70,7 +70,7 @@ describe("Modal", () => {
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).not.toHaveBeenCalled();
 
-    fireEvent.mouseDown(screen.getByRole("dialog").parentElement!);
+    fireEvent.mouseDown(screen.getByTestId("scrim"));
     expect(second).toHaveBeenCalledTimes(2);
   });
 
@@ -85,11 +85,9 @@ describe("Modal", () => {
   });
 
   it("closes on a mousedown on the scrim", () => {
-    const { onClose, dialog } = renderModal();
-    const scrim = dialog.parentElement;
-    expect(scrim).not.toBeNull();
+    const { onClose } = renderModal();
 
-    fireEvent.mouseDown(scrim!);
+    fireEvent.mouseDown(screen.getByTestId("scrim"));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
