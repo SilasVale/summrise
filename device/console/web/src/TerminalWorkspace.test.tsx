@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } 
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
+import { restoreGlobal } from "./test/dom";
 
 /// The xterms the component created, in creation order: a font change is asserted on the instance,
 /// because that is what the operator's screen shows.
@@ -71,11 +72,6 @@ const objectUrls = {
   revoke: Object.getOwnPropertyDescriptor(URL, "revokeObjectURL")
 };
 
-function restoreMethod(target: object, key: string, descriptor?: PropertyDescriptor) {
-  if (descriptor) Object.defineProperty(target, key, descriptor);
-  else Reflect.deleteProperty(target, key);
-}
-
 let created = 0;
 
 beforeEach(() => {
@@ -103,14 +99,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (matchMedia) Object.defineProperty(window, "matchMedia", matchMedia);
-  else Reflect.deleteProperty(window, "matchMedia");
+  restoreGlobal(window, "matchMedia", matchMedia);
   vi.restoreAllMocks();
 });
 
 afterAll(() => {
-  restoreMethod(URL, "createObjectURL", objectUrls.create);
-  restoreMethod(URL, "revokeObjectURL", objectUrls.revoke);
+  restoreGlobal(URL, "createObjectURL", objectUrls.create);
+  restoreGlobal(URL, "revokeObjectURL", objectUrls.revoke);
 });
 
 /** Open the pty dialog from the panel head and submit it. */
@@ -460,7 +455,7 @@ describe("TerminalWorkspace text size", () => {
       await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
       expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
     } finally {
-      restoreMethod(window, "localStorage", descriptor);
+      restoreGlobal(window, "localStorage", descriptor);
     }
   });
 });
