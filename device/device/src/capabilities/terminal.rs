@@ -2196,7 +2196,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 mod tests {
     // These tests reach `exit_facts` through a real pty, which is Unix-only work. The parser's
     // cross-platform cases live in `end_facts` below, so the exit-code/signal split is exercised on
-    // every target; the ConPTY path is still not executed on Windows CI.
+    // every target; `windows_tests` below executes the ConPTY path on Windows CI.
     use std::fs;
     use std::os::unix::io::RawFd;
     use std::path::PathBuf;
@@ -3705,6 +3705,151 @@ mod tests {
     fn a_screen_strips_an_osc_terminated_by_st() {
         let raw = b"a\x1b]8;;https://example.test\x1b\\b";
         assert_eq!(screen_text(raw, 10), "ab");
+    }
+}
+
+/// The ConPTY path, executed where it exists: a Windows host starts a real console through the
+/// registry the device serves.
+///
+/// The Unix module above starts `/bin/sh`; this one starts `cmd.exe`, the shell whose availability
+/// on a Windows runner is certain. Every wait has a deadline and panics with the output it has, so a
+/// console that never answers fails the job instead of holding it.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::fs;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use crate::config::Release;
+    use crate::test_support::TempDir;
+
+    use super::*;
+
+    /// How long one read loop waits before failing with the output it has.
+    const READ_TIMEOUT: Duration = Duration::from_secs(20);
+
+    struct Fixture {
+        /// Kept alive so the store's paths exist for the whole test; declared before the registry so
+        /// it drops after it (the registry kills children, which writes nothing).
+        _dir: TempDir,
+        registry: PtyRegistry,
+    }
+
+    impl Fixture {
+        fn new(label: &str) -> Fixture {
+            let dir = TempDir::new(label);
+            let data = dir.join("data");
+            fs::create_dir_all(&data).expect("the data directory is creatable");
+            let store = Store::new(dir.join("install"), &data, Release::standalone());
+            // A device always has a document before it serves; the fixture builds one for the same
+            // reason the Unix fixture does, so a create has a state file to update.
+            store
+                .save(&store.initial())
+                .expect("the fixture state saves");
+            let clock: Clock = Arc::new(|| 1_000);
+            let registry = PtyRegistry::with_clock(
+                store,
+                Arc::new(tokio::sync::Mutex::new(())),
+                clock,
+                Limits::default(),
+            );
+            Fixture {
+                _dir: dir,
+                registry,
+            }
+        }
+    }
+
+    /// Read from the start until `marker` appears, returning everything read and the new cursor.
+    async fn read_until_marker(
+        registry: &PtyRegistry,
+        id: &SessionId,
+        marker: &str,
+    ) -> (String, u64) {
+        let deadline = Instant::now() + READ_TIMEOUT;
+        let mut cursor = 0;
+        let mut text = String::new();
+        while Instant::now() < deadline {
+            let answer = registry.read(id, cursor).expect("a live session reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
+            }
+            if text.contains(marker) {
+                return (text, cursor);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{marker:?} did not arrive within {READ_TIMEOUT:?}; output so far: {text:?}");
+    }
+
+    /// Read from `cursor` until the session stops being alive, returning the output and the answer.
+    async fn read_until_end(
+        registry: &PtyRegistry,
+        id: &SessionId,
+        mut cursor: u64,
+        mut text: String,
+    ) -> (String, ReadAnswer) {
+        let deadline = Instant::now() + READ_TIMEOUT;
+        loop {
+            let answer = registry.read(id, cursor).expect("the session still reads");
+            if answer.cursor > cursor {
+                text.push_str(&String::from_utf8_lossy(&answer.data));
+                cursor = answer.cursor;
+            }
+            if !answer.alive {
+                return (text, answer);
+            }
+            if Instant::now() >= deadline {
+                panic!("the session did not end within {READ_TIMEOUT:?}; output so far: {text:?}");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    /// The registry, not a raw `portable-pty` call, starts the console: this is the device's path.
+    #[tokio::test]
+    async fn cmd_exe_answers_a_marker_and_reports_its_exit() {
+        let fixture = Fixture::new("conpty-round-trip");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("cmd.exe"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a cmd.exe console starts");
+
+        fixture
+            .registry
+            .write(&id, b"echo SUMMRISE42\r\n")
+            .await
+            .expect("the command is written");
+
+        // The marker is searched for anywhere in the stream: ConPTY echoes the typed line and the
+        // shell's prompt shape is not a contract, so neither position nor line shape is asserted.
+        let (text, cursor) = read_until_marker(&fixture.registry, &id, "SUMMRISE42").await;
+
+        fixture
+            .registry
+            .write(&id, b"exit\r\n")
+            .await
+            .expect("the exit is written");
+
+        let (text, ended) = read_until_end(&fixture.registry, &id, cursor, text).await;
+        assert!(!ended.alive, "the reader saw cmd.exe exit: {text:?}");
+        assert_eq!(
+            ended.end.exit_code,
+            Some(0),
+            "cmd.exe exits with its own code; output: {text:?}"
+        );
+        assert!(
+            text.contains("SUMMRISE42"),
+            "the retained output carries the marker after the session ends: {text:?}"
+        );
     }
 }
 
