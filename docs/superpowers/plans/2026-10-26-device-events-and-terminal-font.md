@@ -36,9 +36,10 @@ events page; terminal font size); the local panel's shape is `device/device/src/
 
 1. **A poisoned document is not an empty page.** `state: null` + `health.poisoned: true` must render the
    degraded health and the events that still exist, not a blank panel or a fake "offline".
-2. **An event is whatever the device wrote.** Most lines are objects (`ts_ms`, `kind`, then fields such
-   as `from`/`sha256`); the store falls back to a JSON string for a line that is not an object. Both
-   render as text, never `[object Object]`.
+2. **An event is whatever the device wrote.** Tool-call lines are `{ts_ms, event: "begin"|"end",
+   tool, ...}`, state lines are `{ts_ms, kind: "repaired"|…, ...}`, and the store falls back to a JSON
+   string for a line that is not an object. The label is `kind` or `event`, the other keys are fields,
+   and a non-object line is text — never `[object Object]`.
 3. **The device's order is not the operator's.** The tail arrives oldest-first; the page shows newest
    first without mutating the array it was given.
 4. **A font change reaches every open tab and the next one.** Existing xterms are updated in place and
@@ -64,6 +65,10 @@ events page; terminal font size); the local panel's shape is `device/device/src/
 **Interfaces:**
 - `state.get {}` now answers `{state, health, events}`; `events` is `serde_json::Value[]`, at most the
   10 newest, oldest-first, each the line the device wrote (an object, or a string for a malformed line).
+  **The tail is the device's audit log**, so it contains the MCP surface's own begin/end lines,
+  including the `state.get` call being answered: tool-call lines are `{ts_ms, event: "begin"|"end",
+  tool, ...}`, state lines are `{ts_ms, kind: "repaired"|"state_quarantined", ...}`. The page reads the
+  label from `kind` or `event` and never repeats it among the fields.
 - Produces: `EventsPage({grant}: {grant: Grant})`; `Page` gains `"events"`, labelled **Events**.
 - The events page's own copy: **The device keeps its last ten events.** and, for an empty tail,
   **The device has recorded no events.**
@@ -71,10 +76,12 @@ events page; terminal font size); the local panel's shape is `device/device/src/
 - [ ] **Step 1: The device half, test first**
 
 In `mcp.rs`, add a test that starts a device, writes two object lines and one bare-string line to
-`<data>/events.jsonl`, calls `state.get`, and asserts `events` has all three in order and the string
-survives as a string; a second test with no file asserts `events == []`. Also extend the existing
-`state_get_returns_the_document_and_health_over_mcp` to assert `events` is an array (empty in that
-fixture). Then add to `Handler::StateGet`:
+`<data>/events.jsonl`, calls `state.get`, and asserts the three survive in order, the string as a
+string, and this call's own audit begin line is the newest (the surface audits before dispatch). A
+missing or unreadable log is `[]` **for the log's contribution** — the test asserts the call's own
+line is still the only event, which is the truthful shape. Also extend the existing
+`state_get_returns_the_document_and_health_over_mcp` to assert `events` is an array and carries that
+call's line. Then add to `Handler::StateGet`:
 
 ```rust
 // Best-effort, like the local panel: a device that cannot read its own event log still answers
