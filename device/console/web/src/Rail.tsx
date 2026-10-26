@@ -10,7 +10,8 @@ export type Page =
   | "monitors"
   | "runs"
   | "system"
-  | "audit";
+  | "audit"
+  | "events";
 
 /// What each page is called in the rail and in the top bar. The rail's buttons are icon-first, so the
 /// label is the difference between "a column of glyphs" and a navigable set of sections.
@@ -24,7 +25,8 @@ export const PAGE_LABELS: Record<Page, string> = {
   monitors: "Monitors",
   runs: "Runs",
   system: "System",
-  audit: "Audit"
+  audit: "Audit",
+  events: "Events"
 };
 
 const ICONS: Record<Page, string> = {
@@ -39,7 +41,9 @@ const ICONS: Record<Page, string> = {
   monitors: "M3 12h3.5l2.5-6 4 12 2.5-6H21",
   runs: "M8 5v14l11-7z",
   system: "M8 8h8v8H8zM4 9h4M4 15h4M16 9h4M16 15h4M9 4v4M15 4v4M9 16v4M15 16v4",
-  audit: "M5 4.5h14v15H5zM8 8.5h8M8 12h8M8 15.5h5"
+  audit: "M5 4.5h14v15H5zM8 8.5h8M8 12h8M8 15.5h5",
+  // A list with a dot per line: the event log, not the audit document's page.
+  events: "M4 6h.01M9 6h11M4 12h.01M9 12h11M4 18h.01M9 18h11"
 };
 
 export function Rail({
@@ -55,7 +59,7 @@ export function Rail({
 }) {
   return (
     <nav className="rail" aria-label="Sections">
-      {(["devices", "files", "terminal", "browser", "screen", "memory", "monitors", "runs", "system", "audit"] as Page[]).map((entry) => (
+      {(["devices", "files", "terminal", "browser", "screen", "memory", "monitors", "runs", "system", "audit", "events"] as Page[]).map((entry) => (
         <button
           key={entry}
           type="button"
