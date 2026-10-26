@@ -179,7 +179,8 @@ impl EnrollmentCodes {
                 expires_at_ms: *expires_at_ms,
             })
             .collect();
-        store::write_json_atomic(&self.path, &list)
+        // A spent code must not come back from the recovery copy when the primary file is lost.
+        store::write_json_atomic_mirrored(&self.path, &list)
     }
 }
 
@@ -229,6 +230,32 @@ mod tests {
         let _ = codes.consume(
             "0000000000000000000000000000000000000000000000000000000000000000",
             1_000,
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A spent code is gone from the recovery copy too: losing the primary file must not reopen a
+    /// one-time code the console already burned.
+    #[test]
+    fn a_spent_code_is_not_resurrected_by_the_backup() {
+        let data = tempdir("spent-backup");
+        let mut codes = EnrollmentCodes::load(&data).expect("an empty registry loads");
+        let (code, _expires_at_ms) = codes.issue(1_000).expect("a code is issued");
+        codes.consume(&code, 2_000).expect("the code is spent");
+
+        let backup = std::fs::read_to_string(store::backup_path(&data.join(CODES_FILE)))
+            .expect("the backup exists");
+        assert!(
+            !backup.contains(&hash_code(&code)),
+            "the recovery copy does not hold the spent code's hash"
+        );
+
+        std::fs::remove_file(data.join(CODES_FILE)).expect("the primary is lost");
+        let mut recovered = EnrollmentCodes::load(&data).expect("the backup recovers");
+        assert_eq!(
+            recovered.consume(&code, 2_001),
+            Err(ConsumeError::Unknown),
+            "the spent code stays spent after a recovery"
         );
         std::fs::remove_dir_all(&data).ok();
     }
