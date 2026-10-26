@@ -155,6 +155,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .chip-warn { background: var(--warn-soft); color: var(--warn); }
 .chip-bad { background: var(--error-soft); color: var(--error); }
 
+/* The monitor chip is a fact that is also the way to the page: a button with the chip's shape, not
+   the console's default button chrome. */
+.chip-down { background: var(--error-soft); color: var(--error); }
+button.chip-down { border: 0; cursor: pointer; }
+button.chip-down:hover { border-color: transparent; background: var(--error-soft); color: var(--error); }
+
 .scroll { max-height: 17rem; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); }

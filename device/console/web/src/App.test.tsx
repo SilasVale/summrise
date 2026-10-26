@@ -57,6 +57,14 @@ vi.mock("./TerminalWorkspace", () => ({
   )
 }));
 
+// The chip has its own poll and its own test; here it is a marker whose click must land on the
+// Monitors page without touching the grant or the selected device.
+vi.mock("./MonitorChip", () => ({
+  MonitorChip: ({ onOpen }: { onOpen: () => void }) => (
+    <button type="button" onClick={onOpen}>monitor-chip</button>
+  )
+}));
+
 let signedIn = false;
 
 const workshop = {
@@ -273,11 +281,19 @@ describe("App", () => {
     await bootAndSignIn();
     selectDevice("workshop");
     expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
     const workspace = await screen.findByTestId("workspace");
     expect(mocks.grant).toHaveBeenCalledWith("dev-workshop-0001", expect.any(Array), 3600, true);
     expect(workspace).toHaveAttribute("data-visible", "yes");
+
+    // The chip appears with the grant, and its click is navigation only: no second grant, same page
+    // shell, the Monitors heading.
+    const chip = await screen.findByRole("button", { name: "monitor-chip" });
+    fireEvent.click(chip);
+    expect(screen.getByRole("heading", { name: "Monitors" })).toBeInTheDocument();
+    expect(mocks.grant).toHaveBeenCalledTimes(1);
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     fireEvent.click(within(rail).getByRole("button", { name: "Audit" }));
