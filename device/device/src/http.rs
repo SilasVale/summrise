@@ -7,7 +7,7 @@
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -59,6 +59,8 @@ fn router_with(
         store,
         release: config.release(),
         helper,
+        data: config.data.clone(),
+        panel_token: mint_panel_token(),
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -74,12 +76,16 @@ fn router_with(
         ));
 
     Router::new()
-        // The device's own panel: the surface a person standing at this machine uses. It needs no
-        // token because it needs no network — the listener is loopback, so "can open it" already
-        // means "is on this machine". Its data route refuses anything that is not loopback, so a
-        // reverse proxy in front of 127.0.0.1 cannot turn it into a remote read.
+        // The device's own panel: the surface a person standing at this machine uses, and the only
+        // place this boot's panel token is served. Both the page and its snapshot refuse a
+        // non-loopback peer, so a reverse proxy in front of 127.0.0.1 cannot turn either into a
+        // remote read.
         .route("/", get(local_panel))
         .route("/api/panel", get(panel_snapshot))
+        // The panel's enrollment: the page a person is looking at posts the code here. The handler
+        // demands a loopback peer and this boot's panel token, and the token exists only in that
+        // page, so a request from another origin cannot be made to look like the user's.
+        .route("/api/enroll", post(enroll_from_panel))
         .route("/api/health", get(health))
         .route("/api/state", get(current_state))
         .route("/api/authorize", post(authorize_request))
@@ -162,6 +168,11 @@ struct AppState {
     /// This boot's helper identity, or `None` when the helper is not in play. The helper is optional
     /// by design: without it the device still serves every tool, it just has no user-session browser.
     helper: Option<Arc<helper::Helper>>,
+    /// The data directory enrollment writes `console.json` and `console-token.json` under.
+    data: PathBuf,
+    /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
+    /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
+    panel_token: String,
 }
 
 impl AppState {
@@ -178,6 +189,25 @@ impl AppState {
             Some(presented) => constant_time_eq(&presented, &expected),
             None => false,
         }
+    }
+
+    /// Whether the request carries this boot's panel token, compared in constant time over its
+    /// decoded bytes. The token is served only in the loopback HTML, and a cross-site page cannot
+    /// read it or set this header without a CORS preflight the device never grants.
+    fn panel_authorized(&self, headers: &HeaderMap) -> bool {
+        let Some(presented) = headers
+            .get(PANEL_TOKEN_HEADER)
+            .and_then(|value| value.to_str().ok())
+        else {
+            return false;
+        };
+        let Some(presented) = decode_hex_32(presented.trim()) else {
+            return false;
+        };
+        let expected =
+            decode_hex_32(&self.panel_token).expect("the panel token is minted as 64 hex");
+
+        constant_time_eq(&presented, &expected)
     }
 }
 
@@ -211,13 +241,46 @@ async fn health(State(app): State<AppState>) -> Response {
     }
 }
 
-/// `GET /`: the device-local panel.
-async fn local_panel() -> Html<&'static str> {
-    Html(PANEL_PAGE)
+/// `GET /`: the device-local panel, with this boot's panel token in its meta tag.
+///
+/// Loopback-only by peer address, like `/api/panel`. The page now carries a credential, so a request
+/// that reached the listener through something else gets no page rather than the token.
+async fn local_panel(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+
+    Html(PANEL_PAGE.replace(PANEL_TOKEN_PLACEHOLDER, &app.panel_token)).into_response()
 }
 
 /// The panel's page, compiled in: the device has no assets directory to lose.
 const PANEL_PAGE: &str = include_str!("panel.html");
+
+/// Where the served page gets this boot's panel token. The placeholder exists only in the source;
+/// every response carries the minted value, and the value appears nowhere else.
+const PANEL_TOKEN_PLACEHOLDER: &str = "__PANEL_TOKEN__";
+
+/// The header the panel's script sends the token in. A cross-site page cannot set a custom header
+/// without a CORS preflight, and this API never grants one.
+const PANEL_TOKEN_HEADER: &str = "x-summrise-panel";
+
+/// 32 bytes from the operating system's generator, as lowercase hex: the same shape the helper's and
+/// the console's tokens have, and for the same reason — a token that is guessable is not a token.
+fn mint_panel_token() -> String {
+    use rand_core::{OsRng, RngCore};
+
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let mut text = String::with_capacity(64);
+    for byte in bytes {
+        text.push_str(&format!("{byte:02x}"));
+    }
+
+    text
+}
 
 /// `GET /api/panel`: what this machine is doing, for a caller standing on it.
 ///
@@ -251,6 +314,52 @@ async fn panel_snapshot(
         "console_attempt": crate::console::last_attempt(),
     }))
     .into_response()
+}
+
+/// The panel's enrollment request, as the page sends it. `force` and `allow_plaintext` are the two
+/// operator decisions the form exposes; the URL/code rules are `enroll`'s, not duplicated here.
+#[derive(Deserialize)]
+struct PanelEnroll {
+    console_url: String,
+    code: String,
+    force: Option<bool>,
+    allow_plaintext: Option<bool>,
+}
+
+/// `POST /api/enroll`: enrol this machine with the one-time code the console minted for it.
+///
+/// Three gates, in this order: the peer must be loopback (the listener already binds there; this also
+/// refuses a request that arrived through something else), the header must carry this boot's panel
+/// token, and only then does `enroll` parse the URL and the code. The body is parsed by the extractor
+/// before those checks, but nothing is contacted, signed, or written until all three pass.
+///
+/// The answer is the device id and nothing else: the console token a registration returns is written
+/// to disk and never echoed.
+async fn enroll_from_panel(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(request): Json<PanelEnroll>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    if !app.panel_authorized(&headers) {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+
+    let invocation = crate::enroll::EnrollInvocation {
+        console_url: request.console_url,
+        code: request.code,
+        data: app.data.clone(),
+        force: request.force.unwrap_or(false),
+        allow_plaintext: request.allow_plaintext.unwrap_or(false),
+    };
+    match crate::enroll::enroll(&invocation).await {
+        Ok(enrollment) => Json(serde_json::json!({ "id": enrollment.id })).into_response(),
+        // The operator reads the device's own sentence; the panel invents none.
+        Err(error) => sentence_response(StatusCode::BAD_REQUEST, &error.to_string()),
+    }
 }
 
 async fn current_state(State(app): State<AppState>, headers: HeaderMap) -> Response {
@@ -373,6 +482,12 @@ fn unauthorized() -> Response {
 
 fn error_response(status: StatusCode, error: &'static str, detail: Option<String>) -> Response {
     (status, Json(ErrorBody { error, detail })).into_response()
+}
+
+/// An error body whose sentence is owned: enrollment refusals are `EnrollError`'s Display, and the
+/// panel shows that sentence rather than a second text.
+fn sentence_response(status: StatusCode, sentence: &str) -> Response {
+    (status, Json(serde_json::json!({ "error": sentence }))).into_response()
 }
 
 /// The decision request, as it arrives on the wire.
@@ -527,6 +642,8 @@ mod tests {
     use super::*;
 
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
 
     use axum::body::Body;
     use axum::http::{header, Request};
@@ -1155,5 +1272,478 @@ mod tests {
                 "the deserializer is what rejects {body}: {text}"
             );
         }
+    }
+
+    // ---- the panel's enroll form -----------------------------------------------------------
+
+    /// A loopback server that serves a router with `ConnectInfo`, as production does: the panel's
+    /// handlers read the peer address, and a oneshot router has no address to report.
+    struct PanelServer {
+        base_url: String,
+        _handle: tokio::task::JoinHandle<()>,
+    }
+
+    impl PanelServer {
+        async fn start(app: Router) -> PanelServer {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("a loopback listener");
+            let address = listener.local_addr().expect("the panel's address");
+            let handle = tokio::spawn(async move {
+                let _ = axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await;
+            });
+            PanelServer {
+                base_url: format!("http://{address}"),
+                _handle: handle,
+            }
+        }
+    }
+
+    /// What the mock console has seen, and the tokens it has issued.
+    struct ConsoleState {
+        tokens: AtomicU64,
+        seen: Mutex<Vec<Value>>,
+    }
+
+    /// The console's `POST /devices`, as the plan's mock: it echoes the device id the registration
+    /// named and issues the next 64-hex token. The signature is `enroll`'s own test; the panel only
+    /// has to reach that route through the real enrollment.
+    async fn mock_register(
+        State(state): State<Arc<ConsoleState>>,
+        Json(body): Json<Value>,
+    ) -> Json<Value> {
+        state
+            .seen
+            .lock()
+            .expect("the console's request list")
+            .push(body.clone());
+        let token = format!("{:064x}", state.tokens.fetch_add(1, Ordering::SeqCst) + 1);
+
+        Json(json!({ "id": body["id"].clone(), "token": token }))
+    }
+
+    struct MockConsole {
+        base_url: String,
+        state: Arc<ConsoleState>,
+        _handle: tokio::task::JoinHandle<()>,
+    }
+
+    impl MockConsole {
+        async fn start() -> MockConsole {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("a loopback listener");
+            let address = listener.local_addr().expect("the console's address");
+            let state = Arc::new(ConsoleState {
+                tokens: AtomicU64::new(0),
+                seen: Mutex::new(Vec::new()),
+            });
+            let console = Router::new()
+                .route("/devices", axum::routing::post(mock_register))
+                .with_state(Arc::clone(&state));
+            let handle = tokio::spawn(async move {
+                let _ = axum::serve(listener, console).await;
+            });
+            MockConsole {
+                base_url: format!("http://{address}"),
+                state,
+                _handle: handle,
+            }
+        }
+
+        fn requests(&self) -> Vec<Value> {
+            self.state
+                .seen
+                .lock()
+                .expect("the console's request list")
+                .clone()
+        }
+
+        fn token(&self, index: u64) -> String {
+            format!("{:064x}", index + 1)
+        }
+    }
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .expect("a test HTTP client")
+    }
+
+    async fn get_text(client: &reqwest::Client, url: &str) -> (StatusCode, String) {
+        let response = client.get(url).send().await.expect("the device answers");
+        let status = response.status();
+        let text = response.text().await.expect("the answer is text");
+
+        (status, text)
+    }
+
+    /// The panel token the served page carries, extracted the way the page's own script reads it.
+    fn panel_meta(content: &str) -> Option<String> {
+        const OPEN: &str = r#"<meta name="summrise-panel" content=""#;
+        let start = content.find(OPEN)? + OPEN.len();
+        let rest = &content[start..];
+        let end = rest.find('"')?;
+
+        Some(rest[..end].to_owned())
+    }
+
+    async fn served_token(client: &reqwest::Client, server: &PanelServer) -> String {
+        let (status, html) = get_text(client, &server.base_url).await;
+        assert_eq!(status, StatusCode::OK);
+
+        panel_meta(&html).expect("the panel carries this boot's token in its meta tag")
+    }
+
+    async fn post_enroll(
+        client: &reqwest::Client,
+        base_url: &str,
+        token: Option<&str>,
+        body: Value,
+    ) -> (StatusCode, Value, String) {
+        let mut request = client
+            .post(format!("{base_url}/api/enroll"))
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(token) = token {
+            request = request.header("x-summrise-panel", token);
+        }
+        let response = request
+            .body(serde_json::to_vec(&body).expect("the request body is JSON"))
+            .send()
+            .await
+            .expect("the device answers");
+        let status = response.status();
+        let text = response.text().await.expect("the answer is text");
+        let answer = serde_json::from_str(&text).unwrap_or(Value::Null);
+
+        (status, answer, text)
+    }
+
+    fn post_enroll_request(token: Option<&str>, body: Value) -> Request<Body> {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/api/enroll")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(token) = token {
+            request = request.header("x-summrise-panel", token);
+        }
+
+        request
+            .body(Body::from(body.to_string()))
+            .expect("the request builds")
+    }
+
+    #[tokio::test]
+    async fn the_panel_page_carries_a_fresh_token_and_the_enroll_form() {
+        let fixture = fixture("panel-page", None);
+        let client = client();
+        // Two separately built routers: each one mints its own boot token.
+        let first = PanelServer::start(fixture.app()).await;
+        let second = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &first.base_url).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("GET / carries the panel token meta tag");
+        assert_eq!(token.len(), 64, "the token is 32 bytes as hex: {token}");
+        assert!(
+            token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "the token is lowercase hex: {token}"
+        );
+        for id in [
+            "enroll-console",
+            "enroll-code",
+            "enroll-force",
+            "enroll-plaintext",
+            "enroll-submit",
+            "enroll-status",
+        ] {
+            assert!(
+                html.contains(&format!("id=\"{id}\"")),
+                "the form carries #{id}: {html}"
+            );
+        }
+        assert!(
+            html.contains(r#"role="status""#),
+            "the status line is announced to a screen reader"
+        );
+        assert!(
+            html.contains("x-summrise-panel"),
+            "the page sends this boot's token in the header the endpoint requires"
+        );
+        assert!(
+            !html.contains("__PANEL_TOKEN__"),
+            "the served page carries the token, not the placeholder"
+        );
+
+        let (other_status, other_html) = get_text(&client, &second.base_url).await;
+        assert_eq!(other_status, StatusCode::OK);
+        let other = panel_meta(&other_html).expect("the second server carries its own token");
+        assert_ne!(token, other, "a second boot gets a second token");
+    }
+
+    #[tokio::test]
+    async fn the_panel_snapshot_does_not_carry_the_panel_token() {
+        let fixture = fixture("panel-snapshot-token", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        let (status, body) = get_text(&client, &format!("{}/api/panel", server.base_url)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("\"version\""),
+            "the snapshot is the panel's JSON: {body}"
+        );
+        assert!(
+            !body.contains(&token),
+            "the token the HTML carries is not in the snapshot: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_enroll_endpoint_needs_the_panel_token_and_writes_nothing_without_it() {
+        let fixture = fixture("panel-enroll-no-token", None);
+        let console = MockConsole::start().await;
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+        let wrong = format!(
+            "{}{}",
+            if token.starts_with('0') { '1' } else { '0' },
+            &token[1..]
+        );
+        let body = json!({ "console_url": console.base_url, "code": "a".repeat(64) });
+
+        for presented in [None, Some(wrong.as_str()), Some("not-hex")] {
+            let (status, answer, text) =
+                post_enroll(&client, &server.base_url, presented, body.clone()).await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN, "{presented:?}: {text}");
+            assert_eq!(
+                answer,
+                json!({ "error": "unauthorized" }),
+                "{presented:?}: {text}"
+            );
+        }
+
+        assert!(
+            !fixture.config.data.join("console.json").exists(),
+            "a refused request arms no console link"
+        );
+        assert!(
+            !fixture.config.data.join("console-token.json").exists(),
+            "a refused request writes no token"
+        );
+        assert!(
+            console.requests().is_empty(),
+            "a refused request never reaches the console"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_panel_enrols_this_machine_and_answers_only_the_device_id() {
+        let fixture = fixture("panel-enroll-ok", None);
+        let console = MockConsole::start().await;
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+        let code = "a".repeat(64);
+
+        let (status, answer, text) = post_enroll(
+            &client,
+            &server.base_url,
+            Some(&token),
+            json!({ "console_url": console.base_url.clone(), "code": code.clone() }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{text}");
+        let id = answer["id"]
+            .as_str()
+            .expect("the answer names the device id")
+            .to_owned();
+        assert_eq!(id.len(), 64, "the id is the identity's public key in hex");
+        assert_eq!(
+            answer.as_object().map(|object| object.len()),
+            Some(1),
+            "the answer is the id and nothing else: {text}"
+        );
+        assert!(
+            !text.contains(&console.token(0)),
+            "the console token never comes back in the answer: {text}"
+        );
+
+        let token_file: Value = serde_json::from_slice(
+            &fs::read(fixture.config.data.join("console-token.json"))
+                .expect("the registration response is written"),
+        )
+        .expect("the token file is JSON");
+        assert_eq!(token_file["id"], id);
+        assert_eq!(token_file["token"], console.token(0));
+
+        let link: Value = serde_json::from_slice(
+            &fs::read(fixture.config.data.join("console.json"))
+                .expect("the console link is written"),
+        )
+        .expect("the console link is JSON");
+        assert_eq!(link["url"], console.base_url);
+
+        let registrations = console.requests();
+        assert_eq!(registrations.len(), 1, "one registration was sent");
+        assert_eq!(registrations[0]["id"], id);
+        assert_eq!(registrations[0]["code"], code);
+        assert_eq!(
+            registrations[0]["signature"].as_str().map(str::len),
+            Some(128),
+            "the registration is signed with the device identity"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_panel_enrolment_needs_force_and_then_replaces_the_token() {
+        let fixture = fixture("panel-enroll-conflict", None);
+        let console = MockConsole::start().await;
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+        let token_path = fixture.config.data.join("console-token.json");
+
+        let (status, _, text) = post_enroll(
+            &client,
+            &server.base_url,
+            Some(&token),
+            json!({ "console_url": console.base_url.clone(), "code": "a".repeat(64) }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{text}");
+        let before = fs::read(&token_path).expect("the first registration is on disk");
+
+        let (status, answer, text) = post_enroll(
+            &client,
+            &server.base_url,
+            Some(&token),
+            json!({ "console_url": console.base_url.clone(), "code": "b".repeat(64) }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{text}");
+        let sentence = answer["error"]
+            .as_str()
+            .expect("the refusal is the device's sentence");
+        assert!(
+            sentence.contains("already exists"),
+            "the sentence names the conflict: {sentence}"
+        );
+        assert!(
+            sentence.contains("--force"),
+            "the sentence names the flag the form maps: {sentence}"
+        );
+        assert_eq!(
+            fs::read(&token_path).expect("the first registration is kept"),
+            before,
+            "a refused replacement leaves the old token alone"
+        );
+        assert_eq!(
+            console.requests().len(),
+            1,
+            "a refused replacement does not spend the second code"
+        );
+
+        let (status, answer, text) = post_enroll(
+            &client,
+            &server.base_url,
+            Some(&token),
+            json!({
+                "console_url": console.base_url.clone(),
+                "code": "b".repeat(64),
+                "force": true,
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{text}");
+        assert_eq!(answer["id"].as_str().map(str::len), Some(64));
+        assert_eq!(
+            console.requests().len(),
+            2,
+            "the forced run reaches the console"
+        );
+        let after: Value = serde_json::from_slice(
+            &fs::read(&token_path).expect("the replaced registration is on disk"),
+        )
+        .expect("the token file is JSON");
+        assert_eq!(
+            after["token"],
+            console.token(1),
+            "force replaces the token with the new registration"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_loopback_peer_cannot_read_the_panel_or_enrol() {
+        let fixture = fixture("panel-enroll-non-loopback", None);
+        let console = MockConsole::start().await;
+        let app = fixture.app();
+        let remote = SocketAddr::from(([203, 0, 113, 10], 40_123));
+
+        // The token is only reachable on loopback: reading the same router from a remote peer gets
+        // no page, because the page carries this boot's credential.
+        let mut local = get("/", None);
+        local.extensions_mut().insert(ConnectInfo(loopback_addr(0)));
+        let response = app
+            .clone()
+            .oneshot(local)
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .expect("the page is readable");
+        let html = String::from_utf8_lossy(&bytes).into_owned();
+        let token = panel_meta(&html).expect("the loopback read carries the token");
+
+        let mut request = get("/", None);
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router answers");
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "the page carries this boot's token; a non-loopback reader gets no page"
+        );
+
+        let mut request = post_enroll_request(
+            Some(&token),
+            json!({ "console_url": console.base_url, "code": "a".repeat(64) }),
+        );
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            answer,
+            json!({ "error": "loopback_only" }),
+            "the peer is refused even with the right token"
+        );
+        assert!(
+            !fixture.config.data.join("console.json").exists(),
+            "a non-loopback request arms no console link"
+        );
+        assert!(
+            !fixture.config.data.join("console-token.json").exists(),
+            "a non-loopback request writes no token"
+        );
+        assert!(
+            console.requests().is_empty(),
+            "a non-loopback request never reaches the console"
+        );
     }
 }

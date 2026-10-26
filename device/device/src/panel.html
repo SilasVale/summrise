@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- This boot's panel token: the device replaces the placeholder when it serves the page. It is the
+     proof that the enroll POST below came from this page and not from another origin; a cross-site
+     page cannot read it or set the header without a CORS preflight the device never grants. Never
+     put it in /api/panel, diagnostics, or a log line. -->
+<meta name="summrise-panel" content="__PANEL_TOKEN__">
 <title>Summrise — this machine</title>
 <!--
   The device's own panel: the surface a person standing at this machine uses, and the one that still
@@ -106,6 +111,36 @@
   td.kind { color: var(--ink-muted); }
   .none { color: var(--ink-muted); font-size: 0.88rem; }
 
+  /* The enroll form: the same fields and vocabulary as the console's "Add a device", because the
+     person pastes the code from there into here. Field and button rules only; the tokens above are
+     the panel's. */
+  form {
+    display: grid; gap: 0.45rem; margin-top: 0.9rem; padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+  }
+  form h3 { font-size: 0.9rem; font-weight: 650; margin: 0 0 0.1rem; }
+  form label { font-size: 0.85rem; color: var(--ink-muted); }
+  form input[type="text"] {
+    font: inherit; font-size: 0.88rem; color: var(--ink);
+    background: var(--surface-recessed); border: 1px solid var(--line-strong);
+    border-radius: 8px; padding: 0.4rem 0.6rem; min-width: 0;
+  }
+  form .check { display: flex; align-items: flex-start; gap: 0.45rem; color: var(--ink); }
+  form .check input { margin: 0.25rem 0 0; }
+  form .hint { margin: 0; color: var(--ink-faint); font-size: 0.8rem; }
+  form button {
+    justify-self: start; font: inherit; font-size: 0.85rem; font-weight: 600;
+    padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent; background: var(--accent); color: #fff;
+  }
+  form button:disabled { opacity: 0.6; cursor: progress; }
+  form input:focus-visible, form button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .enroll-status { margin: 0; min-height: 1.35em; font-size: 0.85rem; color: var(--ink-muted); }
+  .enroll-status.ok { color: var(--ok); }
+  .enroll-status.error { color: var(--error); }
+
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
   @media (max-width: 40rem) {
@@ -172,6 +207,20 @@
   <section>
     <h2>Console link <span id="console-chip" class="chip chip-off">unknown</span></h2>
     <dl id="console"><dt>…</dt><dd>reading</dd></dl>
+    <form id="enroll-form" autocomplete="off">
+      <h3>Enrol this machine</h3>
+      <p class="hint">Paste the console URL and the one-time code from the console's “Add a device”.</p>
+      <label for="enroll-console">Console URL</label>
+      <input id="enroll-console" name="console_url" type="text" spellcheck="false" placeholder="https://console.example" required>
+      <label for="enroll-code">One-time code</label>
+      <input id="enroll-code" name="code" type="text" spellcheck="false" autocomplete="off" required>
+      <label class="check"><input id="enroll-force" type="checkbox"> Replace an existing enrollment</label>
+      <p class="hint">Replacing rotates this machine's console token; the token the console issued before stops working.</p>
+      <label class="check"><input id="enroll-plaintext" type="checkbox"> Allow plaintext HTTP to a console on a trusted tunnel</label>
+      <p class="hint">Only for a console reached over a private tunnel (WireGuard, Tailscale, an SSH forward): the code and the returned token cross this connection.</p>
+      <button id="enroll-submit" type="submit">Enroll</button>
+      <p id="enroll-status" role="status"></p>
+    </form>
   </section>
 
   <section>
@@ -339,6 +388,56 @@ async function copyDiagnostics() {
 }
 
 document.getElementById("copy").addEventListener("click", copyDiagnostics);
+
+// The one write the panel makes: the same enrollment the command line runs, so the device's own
+// sentence is what the operator reads on failure. The page adds no text of its own, and the token in
+// the meta tag is the proof this POST came from this page.
+async function enroll(event) {
+  event.preventDefault();
+  const button = document.getElementById("enroll-submit");
+  const status = document.getElementById("enroll-status");
+  const meta = document.querySelector('meta[name="summrise-panel"]');
+  const body = {
+    console_url: document.getElementById("enroll-console").value.trim(),
+    code: document.getElementById("enroll-code").value.trim(),
+  };
+  if (document.getElementById("enroll-force").checked) body.force = true;
+  if (document.getElementById("enroll-plaintext").checked) body.allow_plaintext = true;
+
+  button.disabled = true;
+  status.className = "enroll-status";
+  status.textContent = "Enrolling…";
+  try {
+    const response = await fetch("/api/enroll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-summrise-panel": meta ? meta.content : "",
+      },
+      body: JSON.stringify(body),
+    });
+    let answer = null;
+    try {
+      answer = await response.json();
+    } catch (error) {
+      answer = null;
+    }
+    if (response.ok) {
+      status.className = "enroll-status ok";
+      status.textContent = "Enrolled " + answer.id + ". Restart the SummriseLaunch service, then reload this panel.";
+    } else {
+      status.className = "enroll-status error";
+      status.textContent = (answer && answer.error) || "the device answered HTTP " + response.status;
+    }
+  } catch (error) {
+    status.className = "enroll-status error";
+    status.textContent = "the device did not answer /api/enroll";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("enroll-form").addEventListener("submit", enroll);
 
 refresh();
 setInterval(refresh, 2000);
