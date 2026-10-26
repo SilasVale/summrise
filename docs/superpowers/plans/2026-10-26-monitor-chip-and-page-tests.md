@@ -29,7 +29,9 @@ review's untested-page note; Runs and System are the last two pages without test
   not read.
 - **One call at a time.** A busy guard skips a tick already in flight; the 20-second interval is
   cleared on unmount and restarted when the grant changes; no call without a grant.
-- **Clicking the chip keeps the grant and the device.** It only changes the page to Monitors.
+- **Clicking the chip keeps the grant and the device.** It only changes the page to Monitors. The
+  chip renders only while the grant names the chosen device (`grant.deviceId === chosen.id`), so a
+  grant left behind by a device switch cannot show another device's count and then open a picker.
 - Runs and System tests are test-only: a production mismatch is reported, not fixed.
 - English UI/comments. `npm run typecheck` 0; `npm test` green (131 at the base); `./scripts/build-web.sh`
   and the committed bundle agree. Every build is checked by its exit code, never by a piped tail.
@@ -41,7 +43,9 @@ review's untested-page note; Runs and System are the last two pages without test
    down produces the chip, and a failed refresh leaves the last fact instead of inventing an "all
    clear".
 2. **No pile-up.** A slow list does not overlap the next tick; the timer is cleared on unmount and on
-   a grant change; a stale answer from an old grant never paints the new one.
+   a grant change; a stale answer from an old grant never paints the new one. A refused grant (403 or
+   the console's authorization codes) stops the poll outright — asking again every 20 seconds cannot
+   fix a grant that lacks the tool — while a network or 5xx failure keeps the last fact and retries.
 3. **The click is only navigation.** The grant and the selected device are untouched; the Monitors
    page opens with the same envelope.
 4. **Runs pins the request, not the form.** An argv run sends `{command, args}`, a shell run sends
