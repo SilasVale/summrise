@@ -45,6 +45,12 @@ pub const ACCESS_ISSUER_FLAG: &str = "--access-issuer";
 /// The flag naming the listening port.
 pub const PORT_FLAG: &str = "--port";
 
+/// The flag naming the mesh broker this console asks about a device.
+///
+/// Optional: without it the console has no mesh view and every readiness question answers "not
+/// configured". The broker is contacted for a readiness answer, never for operator traffic.
+pub const MESH_BROKER_FLAG: &str = "--mesh-broker";
+
 /// The port the console serves on when `--port` is not given.
 pub const DEFAULT_PORT: u16 = 18_082;
 
@@ -67,6 +73,11 @@ pub struct Config {
     pub port: u16,
     /// When set, a Cloudflare Access JWT is accepted as the operator: the page skips the token box.
     pub access: Option<AccessConfig>,
+    /// The mesh broker this console asks about a device, as a canonical `http://host:port`.
+    ///
+    /// `None` means the console has no mesh view at all; the readiness route reports that rather than
+    /// pretending the mesh is down.
+    pub mesh_broker: Option<String>,
     /// The build label this console reports on `/health`.
     ///
     /// A console is deployed by replacing a binary, so "which build is running?" used to be
@@ -146,6 +157,7 @@ impl Config {
         let mut access_jwks = None;
         let mut access_aud = None;
         let mut access_iss = None;
+        let mut mesh_broker = None;
 
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
@@ -171,6 +183,7 @@ impl Config {
                 Flag::AccessJwks => access_jwks = Some(PathBuf::from(value)),
                 Flag::AccessAud => access_aud = Some(value.to_string_lossy().into_owned()),
                 Flag::AccessIssuer => access_iss = Some(value.to_string_lossy().into_owned()),
+                Flag::MeshBroker => mesh_broker = Some(value.to_string_lossy().into_owned()),
                 Flag::Port => {
                     let text = value.to_string_lossy();
                     port = Some(text.parse::<u16>().map_err(|_| ConfigError::Invalid {
@@ -190,6 +203,21 @@ impl Config {
             bind: bind.unwrap_or(DEFAULT_BIND),
             port: port.unwrap_or(DEFAULT_PORT),
             version: version.unwrap_or_else(default_version),
+            mesh_broker: match mesh_broker {
+                Some(value) => match summrise_mesh::validate_broker_url(&value) {
+                    // Store the URL the lookup will use: validated once, at startup, so a request never
+                    // interprets the operator's spelling again.
+                    Ok(authority) => Some(format!("http://{authority}")),
+                    Err(_) => {
+                        return Err(ConfigError::Invalid {
+                            option: MESH_BROKER_FLAG,
+                            value,
+                            expected: "an http origin such as http://127.0.0.1:8080",
+                        });
+                    }
+                },
+                None => None,
+            },
             access: match (access_jwks, access_aud, access_iss) {
                 (None, None, None) => None,
                 (Some(jwks), Some(audience), Some(issuer)) => Some(AccessConfig {
@@ -215,6 +243,7 @@ enum Flag {
     Data,
     Bind,
     Port,
+    MeshBroker,
 }
 
 impl Flag {
@@ -229,6 +258,7 @@ impl Flag {
             DATA_FLAG => Some(Flag::Data),
             BIND_FLAG => Some(Flag::Bind),
             PORT_FLAG => Some(Flag::Port),
+            MESH_BROKER_FLAG => Some(Flag::MeshBroker),
             _ => None,
         }
     }
@@ -244,6 +274,7 @@ impl Flag {
             Flag::AccessJwks => ACCESS_JWKS_FLAG,
             Flag::AccessAud => ACCESS_AUD_FLAG,
             Flag::AccessIssuer => ACCESS_ISSUER_FLAG,
+            Flag::MeshBroker => MESH_BROKER_FLAG,
         }
     }
 }
@@ -426,6 +457,39 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn the_mesh_broker_is_optional_and_validated_at_startup() {
+        let base = [
+            OPERATOR_TOKEN_FLAG,
+            "op.token",
+            GRANT_KEY_FLAG,
+            "grant.key",
+            DATA_FLAG,
+            "data",
+        ];
+        let mut with_mesh = base.to_vec();
+        with_mesh.extend([MESH_BROKER_FLAG, "http://127.0.0.1:8080/"]);
+        let config = Config::parse(args(&with_mesh)).expect("an http origin is accepted");
+        assert_eq!(
+            config.mesh_broker.as_deref(),
+            Some("http://127.0.0.1:8080"),
+            "the URL is validated and canonicalised once, at startup"
+        );
+
+        let mut bad = base.to_vec();
+        bad.extend([MESH_BROKER_FLAG, "https://broker.example"]);
+        assert!(
+            matches!(
+                Config::parse(args(&bad)),
+                Err(ConfigError::Invalid {
+                    option: MESH_BROKER_FLAG,
+                    ..
+                })
+            ),
+            "a broker the lookup cannot speak must fail at startup"
+        );
     }
 
     #[test]

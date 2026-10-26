@@ -86,6 +86,11 @@ struct Inner {
     data: std::path::PathBuf,
     /// When set, a verified Cloudflare Access JWT is an operator session.
     access: Option<crate::access::Access>,
+    /// The mesh broker this console asks about a device, as a canonical `http://host:port`.
+    ///
+    /// `None` means the console has no mesh view; the readiness route reports that rather than a fake
+    /// "unreachable". No operator frame moves over the mesh yet.
+    mesh_broker: Option<String>,
 }
 
 impl Console {
@@ -158,6 +163,7 @@ impl Console {
                 started: Instant::now(),
                 version: config.version.clone(),
                 data: config.data.clone(),
+                mesh_broker: config.mesh_broker.clone(),
                 access: match &config.access {
                     Some(access) => Some(
                         crate::access::Access::from_jwks_file(
@@ -232,6 +238,8 @@ impl Console {
             // (2026-10-24: the list loaded, then the page bounced to the token box).
             .route("/devices", post(register_device))
             .route("/devices/:id/channel", get(device_channel))
+            .route("/mesh", get(mesh_status))
+            .route("/devices/:id/mesh", get(device_mesh_readiness))
             .route("/fleet", get(list_devices))
             .route("/fleet/:id/name", post(rename_device))
             .route(
@@ -1436,6 +1444,81 @@ struct ToolView {
     name: &'static str,
     destructive: bool,
     description: &'static str,
+}
+
+/// `GET /mesh`: whether this console has a mesh view at all.
+///
+/// It answers 200 in both cases: "the operator did not configure it" is a fact about this console, not a
+/// failure of the request.
+async fn mesh_status(State(app): State<AppState>, _: OperatorSession) -> Json<serde_json::Value> {
+    Json(json!({
+        "configured": app.mesh_broker.is_some(),
+        "broker": app.mesh_broker,
+    }))
+}
+
+/// `GET /devices/:id/mesh`: ask the broker whether this device is registered **right now**.
+///
+/// This contacts the broker, never the device: no operator frame and no tool call moves on this route. A
+/// device the broker does not know is `reachable: false` (200); a broker that does not answer in time is
+/// 504, another broker refusal is 502.
+async fn device_mesh_readiness(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Path(device_id): Path<String>,
+) -> Response {
+    let Some(broker) = app.mesh_broker.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "configured": false, "error": "no_mesh_broker" })),
+        )
+            .into_response();
+    };
+    // The registry is the authority on whether this id exists: a broker answer for an id the console
+    // never registered is not this console's business to report.
+    if !lock(&app.devices).contains(&device_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "unknown_device" })),
+        )
+            .into_response();
+    }
+    match summrise_mesh::lookup_candidates(&broker, &device_id, (app.now)(), Duration::from_secs(3))
+        .await
+    {
+        Ok(candidates) => (
+            StatusCode::OK,
+            Json(json!({
+                "configured": true,
+                "reachable": true,
+                "candidates": candidates.len(),
+            })),
+        )
+            .into_response(),
+        Err(summrise_mesh::RendezvousError::UnknownPeer(_)) => (
+            StatusCode::OK,
+            Json(json!({
+                "configured": true,
+                "reachable": false,
+                "candidates": 0,
+            })),
+        )
+            .into_response(),
+        Err(summrise_mesh::RendezvousError::Timeout) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(json!({ "configured": true, "error": "broker_timeout" })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "configured": true,
+                "error": "broker_unreachable",
+                "detail": error.to_string(),
+            })),
+        )
+            .into_response(),
+    }
 }
 
 async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
