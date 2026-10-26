@@ -136,6 +136,10 @@ export function App() {
   }, [session?.authenticated, load]);
 
   const signOut = () => {
+    // Best effort, and deliberately not awaited: the request goes out with the token still in hand,
+    // and the page clears whether it answers, fails or never arrives. A slow console must not leave
+    // a live session in this tab.
+    api.logout().catch(() => {});
     setToken(null);
     setSession({ authenticated: false });
     setDevices([]);

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   connections: vi.fn(),
   signIn: vi.fn(),
+  logout: vi.fn(),
   enroll: vi.fn(),
   rename: vi.fn(),
   remove: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("./api", () => ({
     audit: mocks.audit,
     connections: mocks.connections,
     signIn: mocks.signIn,
+    logout: mocks.logout,
     enroll: mocks.enroll,
     rename: mocks.rename,
     remove: mocks.remove,
@@ -124,6 +126,7 @@ beforeEach(() => {
     signedIn = true;
     return { token: "fresh-token", expires_at_ms: Date.now() + 3_600_000 };
   });
+  mocks.logout.mockResolvedValue(undefined);
   mocks.enroll.mockResolvedValue({ code: "code", expires_at_ms: Date.now() + 60_000 });
   mocks.rename.mockResolvedValue({ id: workshop.id, name: workshop.name });
   mocks.remove.mockResolvedValue(undefined);
@@ -379,16 +382,37 @@ describe("App", () => {
     expect(clearInterval).toHaveBeenCalledWith(timer);
   });
 
-  it("signs out to the login form and clears the fleet", async () => {
+  it("signs out on the server and clears the fleet", async () => {
     await bootAndSignIn();
     expect(screen.getByText("workshop")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
     expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
     expect(mocks.setToken).toHaveBeenLastCalledWith(null);
+  });
+
+  it("clears the page even when the logout request is rejected", async () => {
+    mocks.logout.mockRejectedValue(new Error("offline"));
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    // The session in this tab is memory; a server that is slow, down or refusing must not keep it
+    // alive here. The grant, the selected device and the page go with the token.
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
+    expect(screen.queryByText("workshop")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Grant what the console may do on workshop" })
+    ).not.toBeInTheDocument();
+    expect(mocks.setToken).toHaveBeenLastCalledWith(null);
+    expect(document.body.textContent).not.toMatch(/srm_|fresh-token/);
   });
 
   it("names the token behind an audited call from the list it fetched beside the fleet", async () => {

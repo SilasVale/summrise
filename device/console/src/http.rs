@@ -239,6 +239,7 @@ impl Console {
             .route("/health", get(health))
             .route("/auth", post(authenticate))
             .route("/session", get(session_probe))
+            .route("/logout", post(logout))
             .route("/enroll", post(enroll))
             // Two namespaces, because two audiences with different gates. `/devices…` is what a
             // DEVICE calls: it registers and then holds a channel, and Cloudflare Access must let it
@@ -740,6 +741,21 @@ async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<
             access,
         }),
     }
+}
+
+/// `POST /logout`: end the operator session this request presents.
+///
+/// The session list is memory, like the session itself, so removing the matching token is the whole
+/// of logout. The token compared is the one the request presents, so another operator's session is
+/// untouched. It answers 204 whether or not there was a token to remove: an Access identity has no
+/// in-memory token (the identity provider owns that session), and the page clears regardless of the
+/// answer. No audit line on purpose — session lifecycle is not a device action.
+async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> StatusCode {
+    if let Some(presented) = bearer_secret(&headers) {
+        let mut sessions = lock(&app.sessions);
+        sessions.retain(|session| !constant_time_eq(&presented, &session.token));
+    }
+    StatusCode::NO_CONTENT
 }
 
 async fn authenticate(

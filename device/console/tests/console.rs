@@ -303,6 +303,15 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
         .expect("the request builds")
 }
 
+/// `POST` with an empty body, as the page's best-effort logout sends it.
+fn post(uri: &str, session: Option<&str>) -> Request<Body> {
+    let mut request = Request::builder().method("POST").uri(uri);
+    if let Some(session) = session {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
+    }
+    request.body(Body::empty()).expect("the request builds")
+}
+
 fn post_json_bearer(uri: &str, session: &str, body: Value) -> Request<Body> {
     Request::builder()
         .method("POST")
@@ -483,6 +492,54 @@ async fn operator_routes_refuse_a_missing_or_malformed_session() {
         StatusCode::UNAUTHORIZED,
         "a well-formed token that was never issued is not a session"
     );
+}
+
+#[tokio::test]
+async fn logout_ends_only_the_session_that_presented_its_token() {
+    let fixture = Fixture::new("logout-one-session");
+    let first = fixture.authenticate().await;
+    let second = fixture.authenticate().await;
+    assert_ne!(first, second, "two sign-ins are two sessions");
+
+    let (status, body) = send(fixture.app(), post("/logout", Some(&first))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(body, Value::Null, "204 carries no body");
+
+    let (status, body) = send(fixture.app(), get("/fleet", Some(&first))).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the logged-out token is gone"
+    );
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    // A second logout is 401 because the extractor refuses the token: it was removed from the
+    // in-memory list, not merely marked. A flag would answer 204 again here.
+    let (status, _) = send(fixture.app(), post("/logout", Some(&first))).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the session left the list"
+    );
+
+    let (status, _) = send(fixture.app(), get("/fleet", Some(&second))).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the other operator session still works"
+    );
+}
+
+#[tokio::test]
+async fn logout_without_a_session_is_401() {
+    let fixture = Fixture::new("logout-no-session");
+
+    let (status, body) = send(fixture.app(), post("/logout", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let (status, _) = send(fixture.app(), post("/logout", Some("not-a-token"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
