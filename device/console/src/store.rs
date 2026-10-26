@@ -25,6 +25,21 @@ where
     serialize_and_replace(path, value, true)
 }
 
+/// Serialize `value` and replace both `path` and its `.bak` with it.
+///
+/// A revocation or a spent one-time code must not survive in the recovery copy. The backup is
+/// written **first**: if the primary write then fails, memory keeps the old state while the backup
+/// already holds the new one — a recovery copy that is never older than the state the operator asked
+/// for. (A recovery copy that lags would resurrect exactly what was withdrawn.)
+pub(crate) fn write_json_atomic_mirrored<T>(path: &Path, value: &T) -> std::io::Result<()>
+where
+    T: Serialize + ?Sized,
+{
+    let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+    write_atomic(&backup_path(path), &bytes)?;
+    write_atomic(path, &bytes)
+}
+
 /// Serialize `value` and atomically replace `path` **without** a `.bak` copy.
 ///
 /// Credential files use this. A backup of the token registry is the previous complete list, so the

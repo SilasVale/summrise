@@ -267,7 +267,9 @@ impl DeviceRegistry {
 impl DeviceRegistry {
     fn persist(&self, devices: &BTreeMap<String, StoredDevice>) -> std::io::Result<()> {
         let list: Vec<&StoredDevice> = devices.values().collect();
-        store::write_json_atomic(&self.path, &list)
+        // The backup is a recovery copy of the **current** registry, never a history: a removed
+        // device must not reappear when the primary is lost and the backup is read.
+        store::write_json_atomic_mirrored(&self.path, &list)
     }
 }
 
@@ -324,6 +326,24 @@ mod remove_tests {
             .list()
             .is_empty());
         assert!(!registry.remove(&id).expect("a second removal is a no-op"));
+
+        // The recovery copy is the current registry, not the pre-removal one: losing the primary
+        // must not resurrect the revoked device.
+        let backup = store::backup_path(&dir.join(REGISTRY_FILE));
+        assert!(
+            !std::fs::read_to_string(&backup)
+                .unwrap_or_default()
+                .contains(&id),
+            "the backup does not name the removed device"
+        );
+        std::fs::remove_file(dir.join(REGISTRY_FILE)).expect("the primary is lost");
+        assert!(
+            DeviceRegistry::load(&dir)
+                .expect("the backup recovers an empty registry")
+                .list()
+                .is_empty(),
+            "a lost primary recovered from the backup does not admit the removed device"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
