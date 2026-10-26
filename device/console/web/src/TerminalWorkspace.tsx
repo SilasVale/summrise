@@ -17,6 +17,7 @@ import {
 } from "./terminalFont";
 import { api, type SavedConnection } from "./api";
 import { downloadFile } from "./download";
+import { message } from "./format";
 import { Modal } from "./Modal";
 
 /**
@@ -143,10 +144,6 @@ const SEARCH_DECORATIONS = {
   activeMatchColorOverviewRuler: "#f59e0b"
 } as const;
 
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
 /** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
 function safeSession(session: string): string {
   return session.replace(/[^A-Za-z0-9._-]+/g, "_") || "session";
@@ -193,7 +190,7 @@ function unreachableSentence(cause: unknown): string {
   if (cause instanceof ToolError && cause.status === 404) {
     return "The console no longer has this device: it was removed from the fleet.";
   }
-  return `The device is unreachable: ${messageOf(cause)}. The tab keeps its output and resumes when the device answers again.`;
+  return `The device is unreachable: ${message(cause)}. The tab keeps its output and resumes when the device answers again.`;
 }
 
 /**
@@ -391,18 +388,18 @@ export function TerminalWorkspace({
         // The device still has the session, so one call failed. Only a cursor it refused as older
         // than the ring moves, to the earliest byte it still has; a transient failure leaves the
         // cursor where it was, so output the terminal already shows is never replayed.
-        const earliest = source === "read" ? earliestCursor(messageOf(cause)) : null;
+        const earliest = source === "read" ? earliestCursor(message(cause)) : null;
         if (earliest !== null) cursors.current.set(tab.key, earliest);
         setFault(
           tab.key,
           source === "write"
-            ? { kind: "write", sentence: `Your keystrokes were not sent: ${messageOf(cause)}.` }
+            ? { kind: "write", sentence: `Your keystrokes were not sent: ${message(cause)}.` }
             : {
                 kind: "read",
                 sentence:
                   earliest !== null
-                    ? `Reading this session failed: ${messageOf(cause)}. The tab continues from the earliest output the device retains.`
-                    : `Reading this session failed: ${messageOf(cause)}. The tab keeps its place and tries again.`
+                    ? `Reading this session failed: ${message(cause)}. The tab continues from the earliest output the device retains.`
+                    : `Reading this session failed: ${message(cause)}. The tab keeps its place and tries again.`
               }
         );
       } catch (probeCause) {
@@ -441,7 +438,7 @@ export function TerminalWorkspace({
         grantRefusedRef.current?.();
         return;
       }
-      const detail = messageOf(cause);
+      const detail = message(cause);
       const note = source === "write" ? " Your keystrokes were not sent." : "";
       // A read refused because its cursor fell behind the ring can recover by itself: move to the
       // earliest byte the device still has before the existing-fault branch below, which only
@@ -685,7 +682,7 @@ export function TerminalWorkspace({
       setStatus(`Session ${session} is open.`);
       return null;
     } catch (cause) {
-      const sentence = messageOf(cause);
+      const sentence = message(cause);
       setStatus("Could not open: " + sentence);
       return sentence;
     }
@@ -758,7 +755,7 @@ export function TerminalWorkspace({
       setPresetDialog(false);
       setStatus(`Preset "${saved.name}" saved.`);
     } catch (cause) {
-      setPresetError(messageOf(cause));
+      setPresetError(message(cause));
     }
   };
 
@@ -774,7 +771,7 @@ export function TerminalWorkspace({
       setAvailable(sessions);
       setStatus(sessions.length === 0 ? "No open session on this device." : `${sessions.length} session(s) on this device.`);
     } catch (cause) {
-      setStatus("List failed: " + messageOf(cause));
+      setStatus("List failed: " + message(cause));
     }
   };
 
@@ -860,7 +857,7 @@ export function TerminalWorkspace({
           : `Exported ${exported} bytes.`
       );
     } catch (cause) {
-      setStatus("Could not export: " + messageOf(cause));
+      setStatus("Could not export: " + message(cause));
     }
   };
 
