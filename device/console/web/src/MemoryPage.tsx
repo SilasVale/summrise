@@ -15,8 +15,17 @@ type Entry = { id: string; text: string; tags: string[] };
  */
 type ExportAnswer = { text: string; entries: number; truncated: boolean; total_bytes: number };
 
+/**
+ * The answer to `memory.append`: the device accepted the fact and minted the id the next read shows.
+ */
+type AppendAnswer = { appended: boolean; id: string };
+
 /// `memory.list` and `memory.search` refuse a larger limit; 100 is the capability's ceiling.
 const LIMIT = 100;
+
+/// `memory::MAX_TAGS` and `memory::MAX_TAG_BYTES`: the caps a new entry is subject to.
+const MAX_TAGS = 32;
+const MAX_TAG_BYTES = 128;
 
 /// `memory::MAX_EXPORT_BYTES`: the device returns at most 2 MiB of JSONL per export.
 const EXPORT_CAP = 2 * 1024 * 1024;
@@ -48,6 +57,14 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // The create dialog is its own draft: it exists before any entry does, so it shares nothing with
+  // the edit form's `editing`/`draftText` state.
+  const [creating, setCreating] = useState(false);
+  const [createText, setCreateText] = useState("");
+  const [createTags, setCreateTags] = useState<string[]>([]);
+  const [createTag, setCreateTag] = useState("");
+  const [appending, setAppending] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState<ExportAnswer | null>(null);
   const [copied, setCopied] = useState(false);
@@ -58,6 +75,9 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   // An export is a read of a different shape, so it gets its own ticket: one that does not clear the
   // list's busy flag and does not let a stale device's JSONL open a dialog after the grant changed.
   const exportGate = useRequestGate();
+  // A create is a write, so it gets a ticket too: an answer that belongs to the previous device must
+  // not close this device's dialog or claim its status sentence.
+  const createGate = useRequestGate();
 
   const read = useCallback(
     async (want: { query: string; tag: string }) => {
@@ -123,9 +143,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     // An export still on the wire belongs to the previous device; its answer must not open a dialog
     // over this one's store, and a dialog left open is not this device's JSONL.
     exportGate.begin();
+    createGate.begin();
     setExporting(false);
     setExported(null);
     setCopied(false);
+    setCreating(false);
+    setCreateText("");
+    setCreateTags([]);
+    setCreateTag("");
+    setAppending(false);
+    setCreateError(null);
     setQuery("");
     setTag("");
     setView({ query: "", tag: "" });
@@ -135,7 +162,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     setError(null);
     setStatus("Reading the device's memory…");
     void read({ query: "", tag: "" });
-  }, [exportGate, read]);
+  }, [createGate, exportGate, read]);
 
   const knownTags = useMemo(
     () =>
@@ -205,6 +232,70 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     }
   };
 
+  const startCreate = () => {
+    setCreating(true);
+    setCreateText("");
+    setCreateTags([]);
+    setCreateTag("");
+    setCreateError(null);
+  };
+
+  // The Modal refocuses its first field whenever `onClose` changes; a handler that changed on every
+  // keystroke would pull focus out of the tag box, so this one only changes with the submit state.
+  const closeCreate = useCallback(() => {
+    if (appending) return;
+    setCreating(false);
+    setCreateText("");
+    setCreateTags([]);
+    setCreateTag("");
+    setCreateError(null);
+  }, [appending]);
+
+  const addCreateTag = () => {
+    const value = createTag.trim();
+    if (!value) return;
+    setCreateTags((current) => (current.includes(value) ? current : [...current, value]));
+    setCreateTag("");
+  };
+
+  const removeCreateTag = (index: number) => {
+    setCreateTags((current) => current.filter((_, at) => at !== index));
+  };
+
+  const remember = async () => {
+    const text = createText.trim();
+    // `memory.append` requires text; the button is disabled for this, and the guard keeps Enter or
+    // a programmatic click from sending a blank fact.
+    if (!text) return;
+    // A tag still in the add box is part of the entry the operator wrote, exactly as in `save`.
+    const pending = createTag.trim();
+    const tags =
+      pending && !createTags.includes(pending) ? [...createTags, pending] : [...createTags];
+    const ticket = createGate.begin();
+    setAppending(true);
+    setCreateError(null);
+    try {
+      const answer = JSON.parse(
+        await callTool(grant, "memory.append", { text, tags })
+      ) as AppendAnswer;
+      if (createGate.stale(ticket)) return;
+      setCreating(false);
+      setCreateText("");
+      setCreateTags([]);
+      setCreateTag("");
+      // Read the view that is showing, not the whole store: the new entry belongs to this filter.
+      await read(view);
+      if (createGate.stale(ticket)) return;
+      setStatus(`Remembered ${answer.id}.`);
+    } catch (cause) {
+      // A refusal keeps the draft where the operator can fix it: the device's sentence is the fix.
+      if (createGate.stale(ticket)) return;
+      setCreateError("Could not remember: " + toolFailure(cause));
+    } finally {
+      if (!createGate.stale(ticket)) setAppending(false);
+    }
+  };
+
   const filterByTag = (value: string) => {
     setTag(value);
     void read({ query, tag: value });
@@ -247,6 +338,9 @@ export function MemoryPage({ grant }: { grant: Grant }) {
       <div className="panel-head">
         <h2>Memory</h2>
         <div className="actions">
+          <button type="button" className="primary" onClick={startCreate}>
+            New entry
+          </button>
           <button type="button" disabled={exporting} onClick={() => void startExport()}>
             {exporting ? "Exporting…" : "Export"}
           </button>
@@ -444,6 +538,77 @@ export function MemoryPage({ grant }: { grant: Grant }) {
             </button>
             <button type="button" className="danger" disabled={deleting} onClick={() => void remove()}>
               {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {creating && (
+        <Modal title="Remember something" onClose={closeCreate}>
+          <label htmlFor="memory-create-text">Text</label>
+          <textarea
+            id="memory-create-text"
+            rows={4}
+            value={createText}
+            onChange={(event) => setCreateText(event.target.value)}
+          />
+          <label htmlFor="memory-create-tags">Tags</label>
+          {createTags.length === 0 ? (
+            <p className="hint">No tags.</p>
+          ) : (
+            <div className="memory-tags">
+              {createTags.map((value, index) => (
+                <button
+                  type="button"
+                  className="chip chip-tag"
+                  key={`${value}-${index}`}
+                  title={`Remove ${value}`}
+                  onClick={() => removeCreateTag(index)}
+                >
+                  {value} ×
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="memory-add-tag">
+            <input
+              id="memory-create-tags"
+              value={createTag}
+              onChange={(event) => setCreateTag(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addCreateTag();
+                }
+              }}
+              list="memory-tag-options"
+              placeholder="a tag; Enter adds it"
+            />
+            <button
+              type="button"
+              className="mini"
+              disabled={createTag.trim() === ""}
+              onClick={addCreateTag}
+            >
+              Add tag
+            </button>
+          </div>
+          <p className="hint">
+            Tags are optional. The device caps one entry at {MAX_TAGS} tags of at most{" "}
+            {MAX_TAG_BYTES} bytes each; a refusal leaves this draft here.
+          </p>
+          {createError && <p className="error">{createError}</p>}
+          <div className="modal-actions">
+            <button type="button" disabled={appending} onClick={closeCreate}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={appending || createText.trim() === ""}
+              onClick={() => void remember()}
+            >
+              {appending ? "Remembering…" : "Remember"}
             </button>
           </div>
         </Modal>

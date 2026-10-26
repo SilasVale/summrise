@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryPage } from "./MemoryPage";
 import { callTool, ToolError } from "./terminal";
@@ -145,5 +145,113 @@ describe("MemoryPage export", () => {
 
     expect(await screen.findByText(/never reached the device/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("MemoryPage create", () => {
+  const TEXT = "rotate the cert on the 1st";
+
+  beforeEach(() => {
+    mocked.mockReset();
+  });
+
+  /// Open the create dialog; the caller has already primed the mock with the initial list answer.
+  async function openCreate(): Promise<HTMLElement> {
+    render(<MemoryPage grant={GRANT} />);
+    await screen.findByText("The device remembers nothing yet.");
+    fireEvent.click(screen.getByRole("button", { name: "New entry" }));
+    return screen.findByRole("dialog", { name: "Remember something" });
+  }
+
+  it("appends the entry with its tags, closes the dialog and re-reads the list", async () => {
+    let appended = false;
+    const lists: unknown[] = [];
+    mocked.mockImplementation(async (_grant, name, args) => {
+      if (name === "memory.list") {
+        lists.push(args);
+        return appended ? JSON.stringify([{ id: "m1", text: TEXT, tags: ["ops"] }]) : "[]";
+      }
+      if (name === "memory.append") {
+        appended = true;
+        return JSON.stringify({ appended: true, id: "m1" });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: TEXT } });
+    fireEvent.change(within(dialog).getByLabelText("Tags"), { target: { value: "ops" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add tag" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remember" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mocked).toHaveBeenCalledWith(GRANT, "memory.append", { text: TEXT, tags: ["ops"] });
+    expect(await screen.findByText(TEXT)).toBeInTheDocument();
+    expect(lists).toHaveLength(2);
+    expect(await screen.findByText("Remembered m1.")).toBeInTheDocument();
+  });
+
+  it("re-reads the filter that is showing", async () => {
+    const lists: unknown[] = [];
+    mocked.mockImplementation(async (_grant, name, args) => {
+      if (name === "memory.list") {
+        lists.push(args);
+        return "[]";
+      }
+      if (name === "memory.append") return JSON.stringify({ appended: true, id: "m2" });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<MemoryPage grant={GRANT} />);
+    await screen.findByText("The device remembers nothing yet.");
+    fireEvent.change(screen.getByLabelText("Filter by tag"), { target: { value: "ops" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Nothing is tagged ops.");
+
+    fireEvent.click(screen.getByRole("button", { name: "New entry" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remember something" });
+    fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: "a tagged fact" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remember" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(lists).toEqual([{ limit: 100 }, { limit: 100, tag: "ops" }, { limit: 100, tag: "ops" }]);
+  });
+
+  it("keeps Remember disabled until the text is not blank", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "memory.list") return "[]";
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    const dialog = await openCreate();
+    const remember = within(dialog).getByRole("button", { name: "Remember" });
+    expect(remember).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: "   " } });
+    expect(remember).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: TEXT } });
+    expect(remember).toBeEnabled();
+  });
+
+  it("keeps the dialog open and shows the device's refusal", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "memory.list") return "[]";
+      if (name === "memory.append") {
+        throw new ToolError("the entry has 33 tags; the cap is 32", 200, null, true);
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: TEXT } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remember" }));
+
+    expect(
+      await within(dialog).findByText("Could not remember: the entry has 33 tags; the cap is 32")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Remember something" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Text")).toHaveValue(TEXT);
+    expect(within(dialog).getByRole("button", { name: "Remember" })).toBeEnabled();
   });
 });
