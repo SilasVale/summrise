@@ -25,14 +25,21 @@ describe("useRequestGate", () => {
     expect(result.current.stale(second)).toBe(false);
   });
 
-  it("answers for its own tickets, not another gate's", () => {
+  it("keeps one gate's begin out of another gate's tickets", () => {
     const { result: one } = renderHook(() => useRequestGate());
     const { result: two } = renderHook(() => useRequestGate());
 
-    const ticket = one.current.begin();
+    const first = one.current.begin();
+    const second = one.current.begin();
+    expect(one.current.stale(first)).toBe(true);
+    expect(one.current.stale(second)).toBe(false);
 
-    expect(one.current.stale(ticket)).toBe(false);
-    expect(two.current.stale(ticket)).toBe(true);
+    const only = two.current.begin();
+    expect(two.current.stale(only)).toBe(false);
+
+    // Gate two's begin advanced only gate two's counter. A counter shared between the gates would
+    // have made gate one's newest ticket stale here, which is the rule this test exists to pin.
+    expect(one.current.stale(second)).toBe(false);
   });
 
   it("invalidates the last ticket when the page unmounts", () => {

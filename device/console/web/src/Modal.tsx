@@ -35,7 +35,7 @@ export function Modal({
   }, []);
 
   return (
-    <div className="scrim" onMouseDown={onClose}>
+    <div className="scrim" data-testid="scrim" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} onMouseDown={(event) => event.stopPropagation()}>
         <h2>{title}</h2>
         {children}
