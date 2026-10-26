@@ -155,3 +155,17 @@ Keep it under ~140 lines; link `CONNECT-MCP.md` for the grant form and `RELEASE.
 - Deliberate: no notification for a monitor that flips while the tab is closed (the poll is the app's
   only fact), no service-worker push (the console is not a push server), no per-target names in the
   body (the chip counts; the page has the detail).
+
+## Review rulings (2026-10-26)
+
+- The first successful read is a fact, not a transition: it never notifies. The chip's `previous`
+  ref resets with the grant, so a different device's first read is another first.
+- A rise fires once; unchanged counts and falls say nothing. A failed read leaves the last fact and
+  the ref alone.
+- Permission is asked only in the card's click handler. `permission()`/`enabled()`/`notifyMonitors`
+  never prompt; a storage write the browser refuses is a session-only preference.
+- `notifyMonitors` is the only `Notification` constructor; its click focuses and calls the chip's
+  latest `onOpen` through a ref, so a parent re-render neither restarts the poll nor changes where a
+  notification goes.
+- QUICKSTART's commands and codes are the tree's: the enroll flags, `srm_`, the restart, the
+  `503 retry_after_ms` and the `404 no_such_device` paths were checked against the source.
