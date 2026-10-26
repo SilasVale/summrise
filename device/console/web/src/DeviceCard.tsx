@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
 import { meshReadiness, type MeshReadiness } from "./api";
+import { shortId } from "./format";
 
 /** The device reports at most this many repairs, so a full list means "at least this many". */
 const REPAIR_LIMIT = 5;
@@ -322,10 +323,6 @@ export function retrySentence(attempts: number, reason: string): string {
   const noun = attempts === 1 ? "failed attempt" : "failed attempts";
   const base = `reconnected after ${attempts} ${noun}`;
   return reason ? `${base} — ${reason}` : base;
-}
-
-function shortId(id: string): string {
-  return id.slice(0, 12) + "…";
 }
 
 function age(ms: number | null): string {

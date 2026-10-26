@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { message } from "./format";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
@@ -517,8 +518,4 @@ function listNote(targets: Target[]): string {
   if (targets.length === 0) return "No targets are watched yet; the form above adds the first one.";
   const noun = targets.length === 1 ? "target" : "targets";
   return `${targets.length} ${noun} watched. The dot is each target's newest probe.`;
-}
-
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

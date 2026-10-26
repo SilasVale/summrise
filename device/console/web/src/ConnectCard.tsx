@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, getToken, type Device } from "./api";
 import { copyText } from "./copy";
+import { shortId } from "./format";
 import { TOOL_NAMES } from "./GrantForm";
 import { Modal } from "./Modal";
 
@@ -60,7 +61,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
     };
   }, []);
 
-  const name = device.name ?? device.id.slice(0, 12);
+  const name = device.name ?? shortId(device.id);
   const endpoint = `${location.origin}/mcp/${device.id}`;
 
   const mint = async () => {

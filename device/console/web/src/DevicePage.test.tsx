@@ -95,7 +95,7 @@ describe("DevicePage", () => {
     render(shell({ chosen: unnamed }));
 
     expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on 0123456789ab" })
+      screen.getByRole("heading", { name: "Grant what the console may do on 0123456789ab…" })
     ).toBeInTheDocument();
   });
 
