@@ -60,6 +60,42 @@ The version comes from the build (`build.rs` reads `SUMMRISE_BUILD_VERSION`), no
 typed into a launcher script drifted once and reported a superseded release for a day. `/health` is the
 only version that matters.
 
+### The console's run script, and the rollback
+
+`run-console.cmd` is the service's whole definition, and the flags it passes are the console's data
+identity: a redeploy replaces the **binary**, never the script.
+
+```bat
+@echo off
+"C:\SummriseConsole\summrise-console.exe" ^
+  --operator-token-file C:\SummriseConsole\operator.token ^
+  --grant-key-file      C:\SummriseConsole\grant.key ^
+  --data                C:\SummriseConsole\data ^
+  --bind                0.0.0.0 ^
+  --port                19000
+:: optional, when the fleet has a mesh broker:
+::  --mesh-broker http://<broker>:<port>
+```
+
+- `--data` holds `devices.json`, `codes.json`, `audit.jsonl` and `denials.jsonl`: the registry and the audit
+  are that directory, so a redeploy that changes it is a different console, not an upgrade.
+- `--operator-token-file` (64 hex characters) and `--grant-key-file` (a 32-byte seed as hex) are runtime
+  secrets, mode 0600, not build inputs.
+- `--bind 0.0.0.0` is what the tunnel needs to reach port 19000; the Windows firewall and Cloudflare Access
+  are what keep that bind from being public. Bind the tailnet interface instead if the host has one.
+- `--access-jwks/--access-aud/--access-issuer` only applies to the Access deployment; there the JWT is the
+  operator identity and the token box is skipped.
+- `--mesh-broker` is optional: without it `/mesh` reports `configured: false` and the device card says so.
+
+**The rollback is the previous binary, not a code revert:**
+
+```powershell
+taskkill /F /IM summrise-console.exe
+copy /Y C:\SummriseConsole\summrise-console.exe.bak-<old> C:\SummriseConsole\summrise-console.exe
+C:\SummriseConsole\run-console.cmd
+curl http://127.0.0.1:19000/health   # the old version answers
+```
+
 ## Updating a device
 
 A device with `update.json` pointing at the channel pointer updates itself on its interval (15 minutes in
