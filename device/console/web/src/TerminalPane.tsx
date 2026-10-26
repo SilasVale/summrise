@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, type Grant } from "./terminal";
+import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 
 // The device keeps a session after the page loses it, so this pane attaches to what is there rather
 // than always opening another shell.
@@ -26,6 +27,7 @@ export function TerminalPane({ grant }: { grant: Grant }) {
   const fit = useRef<FitAddon | null>(null);
   const session = useRef<string | null>(null);
   const timer = useRef<number | null>(null);
+  const batch = useRef<TerminalWriteBatcher | null>(null);
   const [status, setStatus] = useState("No session.");
   const [sessions, setSessions] = useState<{ id: string; kind: string }[]>([]);
   const [chosen, setChosen] = useState<string>("");
@@ -67,9 +69,17 @@ export function TerminalPane({ grant }: { grant: Grant }) {
       fit.current = new FitAddon();
       term.current.loadAddon(fit.current);
       term.current.open(host.current!);
+      batch.current = createTerminalWriteBatcher(
+        async (data) => {
+          const current = session.current;
+          if (!current) return;
+          await callTool(grant, "terminal.write", { id: current, data });
+        },
+        (cause) => setStatus("Your keystrokes were not sent: " + (cause instanceof Error ? cause.message : String(cause)))
+      );
       term.current.onData((data) => {
         if (!session.current) return;
-        void callTool(grant, "terminal.write", { id: session.current, data }).catch(() => {});
+        batch.current?.push(data);
       });
     }
     try {
@@ -90,6 +100,10 @@ export function TerminalPane({ grant }: { grant: Grant }) {
     if (!session.current) return;
     if (timer.current) window.clearInterval(timer.current);
     window.removeEventListener("resize", resize);
+    // Flush what was typed before the session goes away; a keystroke queued behind the close would
+    // otherwise be sent to an id the device already ended.
+    await batch.current?.flush();
+    batch.current?.cancel();
     const id = session.current;
     session.current = null;
     await callTool(grant, "terminal.close", { id }).catch(() => {});
@@ -110,6 +124,7 @@ export function TerminalPane({ grant }: { grant: Grant }) {
   useEffect(() => () => {
     if (timer.current) window.clearInterval(timer.current);
     window.removeEventListener("resize", resize);
+    batch.current?.cancel();
     term.current?.dispose();
   }, []);
 
