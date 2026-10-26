@@ -20,6 +20,11 @@
 //! on the certificate rustls actually received, exactly as in
 //! [`crate::endpoint`].
 //!
+//! **The hello is bound to this session.** Both ends derive a 32-byte value
+//! from the TLS exporter (the label and context live in
+//! [`crate::hello`]) and sign it as part of the hello, so a hello relayed from
+//! another connection cannot authenticate here even with a correct challenge.
+//!
 //! **The client's identity.** TLS proves the server the client dialed; it
 //! does not prove the client. So after the handshake the server sends the same
 //! fresh [`Challenge`] `endpoint` sends as its first frame, and the client
@@ -48,7 +53,10 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::endpoint;
 use crate::frame::{self, Frame, FrameError, LENGTH_PREFIX_BYTES, MAX_FRAME_BYTES};
-use crate::hello::{Challenge, Hello, HelloError, PinResolver, PublicKey};
+use crate::hello::{
+    Challenge, Hello, HelloError, PinResolver, PublicKey, BINDING_BYTES, BINDING_CONTEXT,
+    BINDING_LABEL,
+};
 use crate::keys::Identity;
 
 /// Why a relayed TLS session could not be built or used.
@@ -67,6 +75,8 @@ pub enum RelayTlsError {
     Hello(HelloError),
     /// Both sides of `for_peer` named the same key; there is no lower key.
     SamePeer,
+    /// The TLS exporter that binds a hello to its connection could not be derived.
+    Exporter(String),
 }
 
 impl std::fmt::Display for RelayTlsError {
@@ -82,6 +92,7 @@ impl std::fmt::Display for RelayTlsError {
             Self::SamePeer => {
                 f.write_str("for_peer needs two different mesh identities, not one key twice")
             }
+            Self::Exporter(message) => write!(f, "the relay TLS binding failed: {message}"),
         }
     }
 }
@@ -271,12 +282,20 @@ impl RelayTlsSession {
             .await
             .map_err(|error| RelayTlsError::Handshake(error.to_string()))?;
 
+        // THE BINDING IS THE CONNECTION, not the challenge: the two ends of this TLS session derive the
+        // same bytes, and a malicious peer that relays a third party's challenge through its own session
+        // cannot produce the value this hello is signed over.
+        let binding: [u8; BINDING_BYTES] = stream
+            .get_ref()
+            .1
+            .export_keying_material([0u8; BINDING_BYTES], BINDING_LABEL, Some(BINDING_CONTEXT))
+            .map_err(|error| RelayTlsError::Exporter(format!("{error:?}")))?;
         // The server speaks first. Nothing is signed until its challenge for
         // this connection has been read, so a hello cannot be lifted from
         // another connection.
         let first = frame::read(&mut stream).await?;
         let challenge = Challenge::from_frame(&first)?;
-        let hello = Hello::sign(&identity, peer_id, &challenge);
+        let hello = Hello::sign(&identity, peer_id, &challenge, &binding);
         frame::write(&mut stream, &hello.to_frame()?).await?;
         Ok(Self {
             stream: Box::new(stream),
@@ -308,6 +327,13 @@ impl RelayTlsSession {
             .await
             .map_err(|error| RelayTlsError::Handshake(error.to_string()))?;
 
+        // BEFORE THE CHALLENGE: the binding is derived from the finished handshake, and the hello that
+        // answers this challenge is checked against it.
+        let binding: [u8; BINDING_BYTES] = stream
+            .get_ref()
+            .1
+            .export_keying_material([0u8; BINDING_BYTES], BINDING_LABEL, Some(BINDING_CONTEXT))
+            .map_err(|error| RelayTlsError::Exporter(format!("{error:?}")))?;
         // The challenge is the whole replay defence: it is fresh for this
         // connection and signed by the answer below.
         let challenge = Challenge::generate();
@@ -325,7 +351,7 @@ impl RelayTlsSession {
             let peer_id = hello.peer_id_hex.clone();
             return Err(refuse_hello(stream, HelloError::UnknownPeer(peer_id)).await);
         };
-        if let Err(error) = hello.verify(&peer, &challenge) {
+        if let Err(error) = hello.verify(&peer, &challenge, &binding) {
             return Err(refuse_hello(stream, error).await);
         }
 
@@ -459,7 +485,7 @@ mod tests {
         answer: F,
     ) -> Result<(Box<dyn AsyncStream>, Challenge), RelayTlsError>
     where
-        F: FnOnce(&Challenge) -> Vec<u8>,
+        F: FnOnce(&Challenge, &[u8; BINDING_BYTES]) -> Vec<u8>,
     {
         let config = endpoint::rustls_client_config(Some(pin))
             .map_err(|error| RelayTlsError::Config(error.to_string()))?;
@@ -471,10 +497,18 @@ mod tests {
             .await
             .map_err(|error| RelayTlsError::Handshake(error.to_string()))?;
 
+        // The raw client is a real TLS peer: it derives the same binding the honest client would, which
+        // is what lets a test sign a hello that the server should ACCEPT (or, with a different
+        // challenge, one it should refuse).
+        let binding: [u8; BINDING_BYTES] = stream
+            .get_ref()
+            .1
+            .export_keying_material([0u8; BINDING_BYTES], BINDING_LABEL, Some(BINDING_CONTEXT))
+            .map_err(|error| RelayTlsError::Exporter(format!("{error:?}")))?;
         let first = frame::read(&mut stream).await?;
         let challenge = Challenge::from_frame(&first)?;
         stream
-            .write_all(&answer(&challenge))
+            .write_all(&answer(&challenge, &binding))
             .await
             .map_err(|error| RelayTlsError::Frame(FrameError::Io(error.kind())))?;
         stream
@@ -775,8 +809,8 @@ mod tests {
             tokio::join!(
                 async {
                     let stream = pair_through_relay(address, "bad-hello").await;
-                    raw_tls_client(stream, server_key, |challenge| {
-                        let hello = Hello::sign(&attacker, "client-1", challenge);
+                    raw_tls_client(stream, server_key, |challenge, binding| {
+                        let hello = Hello::sign(&attacker, "client-1", challenge, binding);
                         frame::encode(&hello.to_frame().expect("a hello frame"))
                             .expect("the hello's wire bytes")
                     })
@@ -821,8 +855,8 @@ mod tests {
             tokio::join!(
                 async {
                     let stream = pair_through_relay(address, "wrong-challenge").await;
-                    raw_tls_client(stream, server_key, |_challenge| {
-                        let hello = Hello::sign(&client_identity, "client-1", &wrong);
+                    raw_tls_client(stream, server_key, |_challenge, binding| {
+                        let hello = Hello::sign(&client_identity, "client-1", &wrong, binding);
                         frame::encode(&hello.to_frame().expect("a hello frame"))
                             .expect("the hello's wire bytes")
                     })
@@ -858,8 +892,8 @@ mod tests {
             tokio::join!(
                 async {
                     let stream = pair_through_relay(address, "missing-challenge").await;
-                    raw_tls_client(stream, server_key, |challenge| {
-                        let hello = Hello::sign(&client_identity, "client-1", challenge);
+                    raw_tls_client(stream, server_key, |challenge, binding| {
+                        let hello = Hello::sign(&client_identity, "client-1", challenge, binding);
                         let mut value =
                             serde_json::to_value(&hello).expect("a hello is serializable");
                         value
@@ -911,8 +945,8 @@ mod tests {
             tokio::join!(
                 async {
                     let stream = pair_through_relay(address, "replay-a").await;
-                    raw_tls_client(stream, server_key, |challenge| {
-                        let hello = Hello::sign(&client_identity, "client-1", challenge);
+                    raw_tls_client(stream, server_key, |challenge, binding| {
+                        let hello = Hello::sign(&client_identity, "client-1", challenge, binding);
                         let encoded = frame::encode(&hello.to_frame().expect("a hello frame"))
                             .expect("the hello's wire bytes");
                         *captured_a.lock().expect("the capture lock") = encoded.clone();
@@ -940,7 +974,8 @@ mod tests {
             tokio::join!(
                 async {
                     let stream = pair_through_relay(address, "replay-b").await;
-                    raw_tls_client(stream, server_key, |_challenge| replayed.clone()).await
+                    raw_tls_client(stream, server_key, |_challenge, _binding| replayed.clone())
+                        .await
                 },
                 async {
                     let stream = pair_through_relay(address, "replay-b").await;

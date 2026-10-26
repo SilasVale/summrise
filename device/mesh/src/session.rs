@@ -686,7 +686,7 @@ impl MeshSession {
                         .await
                     {
                         DirectAttempt::Open(session) => {
-                            direct = Some(session);
+                            direct = Some(*session);
                             let produced = self.path.apply(PathEvent::PunchOpen, clock.now());
                             actions.extend(produced);
                         }
@@ -987,7 +987,8 @@ enum Lookup {
 
 /// What one direct attempt produced.
 enum DirectAttempt {
-    Open(PeerSession),
+    /// Boxed: `PeerSession` grew with the hello's binding, and the other variants carry nothing.
+    Open(Box<PeerSession>),
     Failed,
     TimedOut,
 }
@@ -1090,7 +1091,7 @@ impl MeshSession {
             )
             .await;
             match attempt {
-                Ok(Ok(session)) => return DirectAttempt::Open(session),
+                Ok(Ok(session)) => return DirectAttempt::Open(Box::new(session)),
                 // This candidate's slice expired. Move to the next one; the
                 // whole punch has not timed out until every slice is spent.
                 Err(_) => continue,
@@ -1128,7 +1129,7 @@ impl MeshSession {
                 Err(_) => return DirectAttempt::TimedOut,
                 Ok(Ok(session)) => {
                     if session.peer() == *peer_key && session.hello().peer_id_hex == peer_id {
-                        return DirectAttempt::Open(session);
+                        return DirectAttempt::Open(Box::new(session));
                     }
                 }
                 // A closed endpoint cannot accept again; yielding to the
@@ -2199,7 +2200,14 @@ mod tests {
             .expect("the challenge timed out")
             .expect("the challenge arrives");
         let challenge = Challenge::from_frame(&challenge_frame).expect("a challenge frame");
-        let forged = Hello::sign(&Identity::generate(), dialer_peer.as_str(), &challenge);
+        let binding = crate::endpoint::connection_binding(&connection)
+            .expect("the live connection exports a binding");
+        let forged = Hello::sign(
+            &Identity::generate(),
+            dialer_peer.as_str(),
+            &challenge,
+            &binding,
+        );
         frame::write(&mut send, &forged.to_frame().expect("a hello frame"))
             .await
             .expect("the forged hello goes out");
