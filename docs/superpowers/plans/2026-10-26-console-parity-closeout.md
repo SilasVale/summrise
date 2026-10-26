@@ -153,7 +153,7 @@ Commit: `console: the browser navigates, closes a tab, and stops`.
 **Files:**
 - Modify: `device/console/web/src/MemoryPage.tsx`
 - Create: `device/console/web/src/MemoryPage.test.tsx`
-- Modify: `device/console/web/src/app.css` (only if new)
+- Modify: `device/console/web/src/app.css` (only if a class is genuinely new)
 
 **Interfaces:**
 - Consumes: `memory.export {}` → `{text, entries, truncated, total_bytes}`; the cap is
@@ -194,8 +194,9 @@ Commit: `console: memory exports the device's own JSONL`.
 - Modify: `device/console/web/src/api.ts` only if a type is missing
 
 **Interfaces:**
-- Produces: `type AuditFilter = {device: string; tool: string; status: "all" | "ok" | "failed"}` and
-  `filterAudit(lines: AuditLine[], filter: AuditFilter): AuditLine[]` from `auditFilter.ts`.
+- Produces: `type AuditFilter = {device: string; tool: string; status: "all" | "ok" | "failed"}`,
+  `filterAudit(lines: AuditLine[], filter: AuditFilter): AuditLine[]` and
+  `auditFailed(line: AuditLine): boolean` from `auditFilter.ts`.
 - Produces: `<AuditTable lines={AuditLine[]} devices={Device[]} />`.
 - Consumes: `/audit?limit=` accepts up to 1000; the page asks for 200.
 
@@ -203,9 +204,11 @@ Commit: `console: memory exports the device's own JSONL`.
 
 Pure: three lines — device A / memory.export / 200, device B / terminal.write / 403, device A /
 terminal.list / 200. Assert each filter narrows alone and together (`A` + `terminal` leaves the list
-line; `A` + `failed` leaves none). Component: render three lines; choose device A; the caption says
-`2 of 3`; open the first line's detail; the detail names the tool and the status; set a tool that
-matches nothing; assert **No audit lines match** (different from the empty-table sentence).
+line; `A` + `failed` leaves none; a 200 with `detail: "jsonrpc error -32002"` is failed). Component:
+render three lines; choose device A; the caption says `2 of 3`; open the first line's detail; the detail
+names the tool and the status; set a tool that matches nothing; assert **No audit lines match**
+(different from the empty-table sentence). A row opened under a filter stays open when a narrower
+filter keeps it, and a device error row carries a visible `error` mark.
 
 - [ ] **Step 2: Run and watch fail**
 
@@ -213,8 +216,14 @@ Run: `npm test -- auditFilter AuditTable`.
 
 - [ ] **Step 3: Implement**
 
-`auditFilter.ts` is pure (case-insensitive tool substring; `ok` is status < 400; `failed` is >= 400;
-device is an exact id). `AuditTable` owns the filter controls in a toolbar: a device `<select>` built
+`auditFilter.ts` is pure: the tool field is a case-insensitive substring of the tool name **or** the
+detail (some lines carry only a detail, and a tool call's detail names the outcome), the device is an
+exact id, and the outcome is derived — `failed` is an HTTP status >= 400 **or** a detail beginning
+`jsonrpc error`, because a device's JSON-RPC error crosses the console as HTTP 200 and its acceptance
+is what an MCP client needs. Row-expansion keys come from the line's content and its ordinal in the
+full list, not the filtered index, so a filter that keeps an open row does not close it.
+
+`AuditTable` owns the filter controls in a toolbar: a device `<select>` built
 from `devices` plus any id the lines carry that the fleet no longer knows, a tool input, a status
 select, and a **Clear** button. A caption says `N of M lines`. Each row gains a **Details** button
 that expands a second row (ISO timestamp, kind, device id, tool, detail, status). Import `AuditLine`
@@ -232,7 +241,8 @@ Commit: `console: the audit table filters by device, tool and status, and opens 
 - Create: `device/console/web/src/ScreenPage.tsx`, `device/console/web/src/ScreenPage.test.tsx`
 - Modify: `device/console/web/src/Rail.tsx` (the page union, label, icon, and the rendered list)
 - Modify: `device/console/web/src/App.tsx` (a `screen` block with the picker → grant → page shape)
-- Modify: `device/console/web/src/app.css` (only if new)
+- Modify: `device/console/web/src/app.css` (the capture's new class, and the existing rail rule gains
+  `overflow-y: auto`: the tenth destination makes the column ~617 px tall)
 
 **Interfaces:**
 - Consumes: `screen.capture {}` → `{format: "png", data: <base64>, width, height}`; a device with no
@@ -284,8 +294,10 @@ time. Tick it again; the sentence goes.
 - [ ] **Step 2: Implement the copy**
 
 Keep the toggle (a read-only grant is a real policy; the device refuses with a typed sentence). Add a
-`.hint` under it that says exactly what unticking does. Do not build an approvals queue: that is a
-new protocol and the legacy sweep records why it is not ported.
+`.hint` under it that says exactly what unticking does: the device refuses, its refusal asks for a
+grant minted with the box ticked, and the console's audit keeps the refused exchange with the device's
+error code (the device's own audit is where the ask is recorded). Do not build an approvals queue:
+that is a new protocol and the legacy sweep records why it is not ported.
 
 - [ ] **Step 3: Verify and commit**
 
@@ -300,7 +312,7 @@ Commit: `console: the destructive-grant checkbox states the policy it applies`.
 - [ ] **Step 1: Rewrite each closed item's heading with what landed and the commit that landed it.**
 - [ ] **Step 2: Leave the deferred items (memory create, terminal search/export, tab identity,
   eviction notice, monitor alerts) as open, with one sentence on why.**
-- [ ] **Step 3: Commit as `docs: the parity sweep says which gaps are closed, and by what`.**
+- [ ] **Step 3: Commit as `docs: the parity sweep records which gaps closed, and by what`.**
 
 ## Self-review
 

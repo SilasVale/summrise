@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, getToken, type Device } from "./api";
+import { copyText } from "./copy";
 import { TOOL_NAMES } from "./GrantForm";
 import { Modal } from "./Modal";
 
@@ -22,22 +23,6 @@ type Issued = {
 /** Lowercase hex of the UTF-8 bytes, the encoding the endpoint's bearer uses. */
 function hexOf(text: string): string {
   return Array.from(new TextEncoder().encode(text), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/** Copy text, with the same fallback the diagnostics button uses when the clipboard API is absent. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    const area = document.createElement("textarea");
-    area.value = text;
-    document.body.append(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    area.remove();
-    return copied;
-  }
 }
 
 /**

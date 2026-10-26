@@ -30,6 +30,26 @@ export class ToolError extends Error {
   }
 }
 
+/**
+ * The sentence a page shows for a failed tool call.
+ *
+ * The device's own refusal is passed through verbatim: it names the fix (a grant, a missing helper, a
+ * tab that is gone). A request that never reached the device gets a sentence that says so, because
+ * `Failed to fetch` on its own reads like the device answered and refused, and the two ask the
+ * operator for different things. A console refusal (a `403` with a code) is passed through as well.
+ */
+export function toolFailure(cause: unknown): string {
+  const sentence = cause instanceof Error ? cause.message : String(cause);
+  if (
+    cause instanceof ToolError &&
+    !cause.fromDevice &&
+    (cause.status === 0 || cause.status === 503 || cause.status === 504)
+  ) {
+    return "the console never reached the device: " + sentence;
+  }
+  return sentence;
+}
+
 export async function callTool(grant: Grant, name: string, args: Record<string, unknown>): Promise<string> {
   let response: Response;
   try {

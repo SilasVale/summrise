@@ -1,23 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { copyText } from "./copy";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
-import { callTool, type Grant } from "./terminal";
+import { callTool, toolFailure, type Grant } from "./terminal";
 
 /**
  * A memory entry on the wire: the id `memory.list`/`memory.search` return, the text, and its tags.
  */
 type Entry = { id: string; text: string; tags: string[] };
 
+/**
+ * The answer to `memory.export`: the live entries as JSONL, the whole lines it holds, whether the
+ * device's cap cut the store, and the size of the store it cut.
+ */
+type ExportAnswer = { text: string; entries: number; truncated: boolean; total_bytes: number };
+
 /// `memory.list` and `memory.search` refuse a larger limit; 100 is the capability's ceiling.
 const LIMIT = 100;
+
+/// `memory::MAX_EXPORT_BYTES`: the device returns at most 2 MiB of JSONL per export.
+const EXPORT_CAP = 2 * 1024 * 1024;
+
+/// The cap as the sentence spells it; derived so the copy cannot disagree with the number.
+const EXPORT_CAP_LABEL = `${EXPORT_CAP / (1024 * 1024)} MiB`;
 
 /**
  * What the device remembers, as a page.
  *
  * Memory is device state, so this reads it through the same grant as the terminal and the browser:
- * `memory.list` for the store and its tag filter, `memory.search` for a query, and
- * `memory.update`/`memory.delete` for the two corrections. There is no console route for it — every
- * call is signed by the console, checked by the device, and audited like the other panes' calls.
+ * `memory.list` for the store and its tag filter, `memory.search` for a query,
+ * `memory.update`/`memory.delete` for the two corrections, and `memory.export` for the device's own
+ * JSONL. There is no console route for it — every call is signed by the console, checked by the
+ * device, and audited like the other panes' calls.
  */
 export function MemoryPage({ grant }: { grant: Grant }) {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -34,10 +48,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<Entry | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exported, setExported] = useState<ExportAnswer | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Every read paints the same three things (the list, the note and the edit), so one ticket per read
   // is enough: a newer read supersedes the older one, whichever filter or button started it.
   const gate = useRequestGate();
+  // An export is a read of a different shape, so it gets its own ticket: one that does not clear the
+  // list's busy flag and does not let a stale device's JSONL open a dialog after the grant changed.
+  const exportGate = useRequestGate();
 
   const read = useCallback(
     async (want: { query: string; tag: string }) => {
@@ -100,6 +120,12 @@ export function MemoryPage({ grant }: { grant: Grant }) {
 
   // The store belongs to the device, so a different grant is a different list and a different draft.
   useEffect(() => {
+    // An export still on the wire belongs to the previous device; its answer must not open a dialog
+    // over this one's store, and a dialog left open is not this device's JSONL.
+    exportGate.begin();
+    setExporting(false);
+    setExported(null);
+    setCopied(false);
     setQuery("");
     setTag("");
     setView({ query: "", tag: "" });
@@ -109,7 +135,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     setError(null);
     setStatus("Reading the device's memory…");
     void read({ query: "", tag: "" });
-  }, [read]);
+  }, [exportGate, read]);
 
   const knownTags = useMemo(
     () =>
@@ -190,11 +216,40 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     void read({ query: "", tag: "" });
   };
 
+  const startExport = async () => {
+    const ticket = exportGate.begin();
+    setExporting(true);
+    setError(null);
+    try {
+      const answer = JSON.parse(await callTool(grant, "memory.export", {})) as ExportAnswer;
+      if (exportGate.stale(ticket)) return;
+      setExported(answer);
+      setCopied(false);
+    } catch (cause) {
+      // A refusal is the device's own sentence: show it where the page already reports reads, open no
+      // dialog, and let the button come back so the page stays usable.
+      if (exportGate.stale(ticket)) return;
+      setError(exportFailure(cause));
+    } finally {
+      if (!exportGate.stale(ticket)) setExporting(false);
+    }
+  };
+
+  const copyExport = async () => {
+    if (!exported) return;
+    // The whole answer, never the visible slice of the textarea: a clipped copy would read as a cut
+    // store without saying so.
+    if (await copyText(exported.text)) setCopied(true);
+  };
+
   return (
     <div className="memory-page">
       <div className="panel-head">
         <h2>Memory</h2>
         <div className="actions">
+          <button type="button" disabled={exporting} onClick={() => void startExport()}>
+            {exporting ? "Exporting…" : "Export"}
+          </button>
           <button type="button" disabled={busy} onClick={() => void read(view)}>
             Refresh
           </button>
@@ -393,6 +448,47 @@ export function MemoryPage({ grant }: { grant: Grant }) {
           </div>
         </Modal>
       )}
+
+      {exported && (
+        <Modal
+          title="Device memory export"
+          onClose={() => {
+            setExported(null);
+            setCopied(false);
+          }}
+        >
+          <p className="hint">{exportCaption(exported)}</p>
+          <textarea
+            className="mono"
+            aria-label="Exported JSONL"
+            readOnly
+            rows={12}
+            value={exported.text}
+          />
+          {copied && (
+            <p className="hint" role="status">
+              Copied
+            </p>
+          )}
+          <div className="modal-actions">
+            <button type="button" onClick={() => void copyExport()}>
+              Copy
+            </button>
+            <button type="button" onClick={() => downloadExport(exported)}>
+              Download
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExported(null);
+                setCopied(false);
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -400,6 +496,70 @@ export function MemoryPage({ grant }: { grant: Grant }) {
 /// A confirmation dialog shows enough of the entry to recognise it, not a megabyte of it.
 function preview(text: string): string {
   return text.length > 280 ? text.slice(0, 280) + "…" : text;
+}
+
+/**
+ * What the export dialog says about its own size.
+ *
+ * A truncated answer is a prefix of the store, so the sentence names the cap, the cut and the store's
+ * real size. The whole-store sentence says the opposite, because a prefix that reads as the store is
+ * the failure this dialog exists to prevent.
+ */
+function exportCaption(answer: ExportAnswer): string {
+  const noun = answer.entries === 1 ? "entry" : "entries";
+  const here = `${answer.entries} ${noun} and ${byteCount(utf8Bytes(answer.text))} of JSONL`;
+  if (answer.truncated) {
+    return (
+      `The device caps one export at ${EXPORT_CAP_LABEL} (${byteCount(EXPORT_CAP)}), and this answer was cut there: ` +
+      `it holds ${here}, while the store holds ${byteCount(answer.total_bytes)}, newest first.`
+    );
+  }
+  return (
+    `The whole store: ${here}, newest first. ` +
+    `The device caps one export at ${EXPORT_CAP_LABEL} (${byteCount(EXPORT_CAP)}); this answer fits.`
+  );
+}
+
+/// The exported text as the device counts it: UTF-8 bytes, not JavaScript code units.
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * What the page says when an export fails.
+ *
+ * The shared classifier keeps the device's refusal verbatim and says when the console never reached
+ * it; the prefix is this page's, because the operator asked this page for the export.
+ */
+function exportFailure(cause: unknown): string {
+  return "Could not export memory: " + toolFailure(cause);
+}
+
+/// "9,000,000 bytes" — exact and grouped, rather than a rounded size that hides which store is meant.
+function byteCount(count: number): string {
+  return count.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") + " bytes";
+}
+
+/// The operator's calendar day, for the download's filename.
+function isoDay(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/// Save the answer as it came: a Blob and a temporary anchor, with no console route in between.
+function downloadExport(answer: ExportAnswer) {
+  const url = URL.createObjectURL(new Blob([answer.text], { type: "application/x-ndjson" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `summrise-memory-${isoDay()}.jsonl`;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Give the browser a moment to start the download before the URL is revoked.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function message(cause: unknown): string {

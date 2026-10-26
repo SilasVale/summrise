@@ -85,10 +85,23 @@ export function GrantForm({
       <div className="grant-row">
         <label htmlFor="lifetime">Lifetime (seconds)</label>
         <input id="lifetime" type="number" min={60} max={604800} value={lifetime} onChange={(event) => setLifetime(Number(event.target.value))} />
-        <label className="check">
-          <input type="checkbox" checked={destructive} onChange={(event) => setDestructive(event.target.checked)} />
-          Allow destructive tools
-        </label>
+        <div className="grant-consent">
+          <label className="check">
+            <input type="checkbox" checked={destructive} onChange={(event) => setDestructive(event.target.checked)} />
+            Allow destructive tools
+          </label>
+          {/* Unticking is a real policy, not a dead end: the device refuses a destructive call with
+              a sentence that names the fix, the device's own audit records the ask, and the console's
+              audit keeps the refused exchange. The console has no per-call approval, and the sentence
+              must not imply one. */}
+          {!destructive && (
+            <p className="hint">
+              Without this, the device refuses a destructive call. Its refusal asks for the grant to be
+              minted again with this ticked, and the console's audit keeps the refused exchange
+              with the device's error code. The console cannot approve one call at a time.
+            </p>
+          )}
+        </div>
       </div>
 
       <fieldset className="tools">
