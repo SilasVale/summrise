@@ -197,7 +197,8 @@ so the custom route keeps its unfiltered behaviour (the page does not use it).
 - the device's own `/mcp` and its install-token gate;
 - the custom `POST /mcp`, its operator session, and the console page;
 - the console's role as the only remote data path today (the mesh is the separate proposal);
-- the audit schema (`kind` stays `enroll | register | grant | mcp | denied`);
+- the audit schema (`enroll | register | grant | mcp | token | token_revoke | denied`; `token` and
+  `token_revoke` are the permanent API token's creation and withdrawal);
 - the audit/denial split and the denial log's rate limit.
 
 ## Bounds and errors

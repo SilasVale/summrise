@@ -1,10 +1,10 @@
 //! The operator-action index at `<data>/audit.jsonl`.
 //!
 //! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?"}`.
-//! `kind` is a closed set — `enroll`, `register`, `grant`, `mcp`, and `denied` for a refusal of a
-//! request whose caller proved a credential. `status` is the HTTP status the caller saw, `detail` is
-//! a short reason: the console's wire error code for a refusal, or the device's JSON-RPC error code
-//! when it answered with one. `tool` is the JSON-RPC tool name for a `tools/call`, and only the name:
+//! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `mcp`, and
+//! `denied` for a refusal of a request whose caller proved a credential. `status` is the HTTP status
+//! the caller saw, `detail` is a short reason: the console's wire error code for a refusal, or the
+//! device's JSON-RPC error code when it answered with one. `tool` is the JSON-RPC tool name for a `tools/call`, and only the name:
 //! the arguments are the operator's data and never reach this file.
 //!
 //! A request that fails authentication never reaches this file. Those refusals are an
@@ -41,7 +41,7 @@ const AUDIT_FILE: &str = "audit.jsonl";
 pub(crate) struct Entry<'a> {
     /// The console's clock when the action finished, in Unix milliseconds.
     pub(crate) ts_ms: u64,
-    /// `enroll`, `register`, `grant`, `mcp` or `denied`.
+    /// `enroll`, `register`, `grant`, `token`, `token_revoke`, `mcp` or `denied`.
     pub(crate) kind: &'static str,
     /// The device the action names, in canonical lowercase hex, when it names one.
     #[serde(skip_serializing_if = "Option::is_none")]

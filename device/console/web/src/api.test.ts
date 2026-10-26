@@ -246,6 +246,49 @@ describe("the endpoints", () => {
     );
   });
 
+  it("tokens GETs /tokens and parses the metadata list", async () => {
+    const meta = {
+      id: "tok-1",
+      name: "laptop-dsh",
+      device_id: "dev-1",
+      tools: ["files.read", "host.facts"],
+      allow_destructive: false,
+      created_at_ms: 1
+    };
+    fetchMock.mockResolvedValue(answer({ json: [meta] }));
+    await expect(api.tokens()).resolves.toEqual([meta]);
+    const { path, init } = lastRequest();
+    expect(path).toBe("/tokens");
+    expect(init.method).toBeUndefined();
+  });
+
+  it("createToken POSTs exactly the name, device, tools and destructive flag", async () => {
+    const init = await request(
+      () =>
+        api.createToken({
+          name: "laptop-dsh",
+          device_id: "dev-1",
+          tools: ["files.read", "host.facts"],
+          allow_destructive: true
+        }),
+      "/tokens",
+      "POST"
+    );
+    expect(init.body).toBe(
+      JSON.stringify({
+        name: "laptop-dsh",
+        device_id: "dev-1",
+        tools: ["files.read", "host.facts"],
+        allow_destructive: true
+      })
+    );
+  });
+
+  it("revokeToken DELETEs /tokens/<id> with no body", async () => {
+    const init = await request(() => api.revokeToken("tok-1"), "/tokens/tok-1", "DELETE");
+    expect(init.body).toBeUndefined();
+  });
+
   it("tools GETs the registry with the token and parses the names", async () => {
     setToken("session-token");
     fetchMock.mockResolvedValue(

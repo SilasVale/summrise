@@ -216,6 +216,26 @@ tr:last-child td { border-bottom: 0; }
 
 /* The AI-client card: one column of form, then the two facts and their copy buttons. */
 .connect { display: grid; gap: 0.55rem; }
+/* Two credentials, one card: a tab per mode above the form it belongs to. */
+.connect-tabs { display: flex; gap: 0.15rem; border-bottom: 1px solid var(--line); }
+.connect-tabs button {
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: none; color: var(--ink-muted);
+  padding: 0.3rem 0.55rem; font: inherit; font-size: var(--fs-sm); cursor: pointer;
+}
+.connect-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+/* The tokens this device already has: metadata rows, one revoke action each, never a value. */
+.token-list { display: grid; gap: 0.4rem; }
+.token-list h3 {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--ink-faint);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.token-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.token-list li {
+  display: grid; gap: 0.15rem; padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface-recessed);
+}
+.token-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
 .connect .grant-row select { width: auto; min-width: 9rem; }
 .connect-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
 /* The header is a credential, not a document: a phone must still see the actions below it. */

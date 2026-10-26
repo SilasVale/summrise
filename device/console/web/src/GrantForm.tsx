@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { ToolPicker } from "./ToolPicker";
 import { TOOL_NAMES, useToolNames } from "./useToolNames";
 
 export function GrantForm({
@@ -24,13 +25,6 @@ export function GrantForm({
   useEffect(() => {
     setChosen(new Set(names));
   }, [names]);
-
-  const toggle = (name: string) => {
-    const next = new Set(chosen);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    setChosen(next);
-  };
 
   const mint = async () => {
     if (chosen.size === 0) {
@@ -75,21 +69,7 @@ export function GrantForm({
         </div>
       </div>
 
-      <fieldset className="tools">
-        <legend>
-          Tools ({chosen.size} of {names.length})
-          <button type="button" className="mini" onClick={() => setChosen(new Set(names))}>All</button>
-          <button type="button" className="mini" onClick={() => setChosen(new Set())}>None</button>
-        </legend>
-        <div className="tool-grid">
-          {names.map((name) => (
-            <label key={name} className="check mono">
-              <input type="checkbox" checked={chosen.has(name)} onChange={() => toggle(name)} />
-              {name}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ToolPicker names={names} chosen={chosen} onChange={setChosen} />
 
       <button type="button" className="primary" disabled={busy} onClick={() => void mint()}>
         {busy ? "Signing…" : "Grant access"}

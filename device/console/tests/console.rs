@@ -15,6 +15,7 @@ use axum::Router;
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use summrise_console::{Config, Console};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message as WsMessage};
@@ -241,10 +242,43 @@ impl Fixture {
         assert_eq!(status, StatusCode::OK, "grant: {body}");
         body
     }
+
+    /// `POST /tokens`: the operator's permanent-token mint, with every field named.
+    async fn create_token(
+        &self,
+        session: &str,
+        device_id: &str,
+        name: &str,
+        tools: &[&str],
+        allow_destructive: bool,
+    ) -> (StatusCode, Value) {
+        send(
+            self.app(),
+            post_json_bearer(
+                "/tokens",
+                session,
+                json!({
+                    "name": name,
+                    "device_id": device_id,
+                    "tools": tools,
+                    "allow_destructive": allow_destructive,
+                }),
+            ),
+        )
+        .await
+    }
 }
 
 fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     let mut request = Request::builder().method("GET").uri(uri);
+    if let Some(session) = session {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
+    }
+    request.body(Body::empty()).expect("the request builds")
+}
+
+fn delete(uri: &str, session: Option<&str>) -> Request<Body> {
+    let mut request = Request::builder().method("DELETE").uri(uri);
     if let Some(session) = session {
         request = request.header(header::AUTHORIZATION, format!("Bearer {session}"));
     }
@@ -464,8 +498,6 @@ fn mode_of(path: &Path) -> u32 {
 
 #[tokio::test]
 async fn enrollment_codes_are_stored_hashed_and_never_in_cleartext() {
-    use sha2::Digest;
-
     let fixture = Fixture::new("codes-hashed");
     let session = fixture.authenticate().await;
     let (code, expires_at_ms) = fixture.enroll(&session).await;
@@ -3245,6 +3277,17 @@ fn post_standard(device_id: &str, grant: &Value, body: Value) -> Request<Body> {
     )
 }
 
+/// One standard MCP request with a permanent token in the header.
+fn post_token(device_id: &str, token: &str, body: Value) -> Request<Body> {
+    standard_request(
+        device_id,
+        Some(&format!("Bearer {token}")),
+        Some("application/json"),
+        Some("application/json, text/event-stream"),
+        Body::from(body.to_string()),
+    )
+}
+
 fn ping_request() -> Value {
     json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })
 }
@@ -3946,6 +3989,403 @@ async fn a_tool_call_without_a_name_is_a_json_rpc_error_at_http_200() {
                 && line["detail"] == json!("invalid_tool_call")),
         "{audit:?}"
     );
+}
+
+// ---- permanent API tokens -------------------------------------------------------------------------
+
+/// The create response is the only plaintext; the list and the audit never carry it, and the file
+/// keeps only its hash.
+#[tokio::test]
+async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
+    let fixture = Fixture::new("token-create");
+    let (device_id, _token) = fixture.register(&signing_key(0xb0)).await;
+    let session = fixture.authenticate().await;
+    let now = fixture.now_ms();
+
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "  laptop-dsh  ",
+            &["files.read", "memory.search"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"]
+        .as_str()
+        .expect("the create response carries the token")
+        .to_owned();
+    assert!(plaintext.starts_with("srm_"), "{plaintext}");
+    assert_eq!(plaintext.len(), 68, "srm_ plus 64 hex: {plaintext}");
+    assert!(
+        plaintext[4..]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "the body is 64 lowercase hex: {plaintext}"
+    );
+    assert_eq!(created["name"], json!("laptop-dsh"), "the name is trimmed");
+    assert_eq!(created["device_id"], json!(device_id));
+    assert_eq!(created["tools"], json!(["files.read", "memory.search"]));
+    assert_eq!(created["allow_destructive"], json!(false));
+    assert_eq!(created["created_at_ms"], json!(now));
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let list = list.as_array().expect("a list");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["id"], json!(id));
+    assert_eq!(list[0]["name"], json!("laptop-dsh"));
+    assert_eq!(list[0]["device_id"], json!(device_id));
+    assert_eq!(list[0]["tools"], json!(["files.read", "memory.search"]));
+    assert!(
+        list[0].get("token").is_none(),
+        "the list never repeats the secret: {}",
+        list[0]
+    );
+    assert!(
+        list[0].get("hash").is_none(),
+        "the list carries no hash: {}",
+        list[0]
+    );
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the tokens file is readable");
+    let hash = hex_encode(&Sha256::digest(plaintext.as_bytes()));
+    assert!(
+        on_disk.contains(&hash),
+        "the file keeps the hash: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains(&plaintext),
+        "the file must never hold the token: {on_disk}"
+    );
+    let audit_on_disk =
+        fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit is readable");
+    assert!(
+        !audit_on_disk.contains(&plaintext),
+        "no audit line carries the token: {audit_on_disk}"
+    );
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("token") && line["device_id"] == json!(device_id)),
+        "the mint is an audited operator action"
+    );
+
+    // Newest first, and it survives a restart.
+    fixture.advance_ms(1_000);
+    let (status, second) = fixture
+        .create_token(&session, &device_id, "desktop", &["files.read"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{second}");
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["id"], second["id"], "newest first: {list}");
+    assert_eq!(list[1]["id"], json!(id));
+
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let (status, list) = send(restarted.router(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list.as_array().expect("a list").len(),
+        2,
+        "a restart still lists the tokens: {list}"
+    );
+}
+
+/// A token request reaches the device as a grant with exactly the token's tools and consent, a
+/// sixty-second life and the console's signature — the device verifies it as any grant.
+#[tokio::test]
+async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() {
+    let fixture = Fixture::new("token-mint");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let minted_at = fixture.now_ms();
+
+    let request = json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let grant: summrise_console::Grant =
+            serde_json::from_value(frame["grant"]["grant"].clone())
+                .expect("the frame carries a grant");
+        assert_eq!(grant.device_id, device_id);
+        assert_eq!(
+            grant.tools,
+            vec!["files.read".to_owned(), "memory.search".to_owned()],
+            "the grant names exactly the token's tools"
+        );
+        assert!(
+            grant.allow_destructive,
+            "the consent is the token's, not the caller's"
+        );
+        assert_eq!(
+            grant.expires_at_ms,
+            minted_at + 60_000,
+            "a minted grant lives sixty seconds"
+        );
+        let message = summrise_console::canonical_message(&grant);
+        let signature =
+            decode_signature(frame["grant"]["signature"].as_str().expect("a signature"));
+        SigningKey::from_bytes(&GRANT_SEED)
+            .verifying_key()
+            .verify_strict(message.as_bytes(), &signature)
+            .expect("the device can verify the minted grant offline");
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 11, "result": { "tools": [
+                { "name": "files.read", "description": "read" },
+                { "name": "files.write", "description": "write" },
+            ]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["tools"],
+        json!([{ "name": "files.read", "description": "read" }]),
+        "the device's list is filtered to the token's tools: {body}"
+    );
+}
+
+/// The token's tools are the grant's tools: a call outside them never reaches the device.
+#[tokio::test]
+async fn a_tool_outside_the_token_never_reaches_the_device() {
+    let fixture = Fixture::new("token-tool-denied");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "denied.txt" } },
+    });
+    let (status, body) = send(fixture.app(), post_token(&device_id, &token, request)).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a refused call must not reach the device");
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("denied")
+                && line["tool"] == json!("files.write")
+                && line["detail"] == json!("tool_not_permitted")),
+        "the refusal is audited"
+    );
+}
+
+/// An unknown token, a revoked one and one used against another device are one 401 on the wire; the
+/// denial log keeps the difference, and none of them can rotate the audit.
+#[tokio::test]
+async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
+    let fixture = Fixture::new("token-unauthorized");
+    let (device_a, _token_a) = fixture.register(&signing_key(0xb3)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xb4)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_a, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let unknown = format!("srm_{}", "00".repeat(32));
+    let (status, body) = send(
+        fixture.app(),
+        post_token(&device_a, &unknown, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let (status, _) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{id}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "the operator revokes the token"
+    );
+    let (status, body) = send(fixture.app(), post_token(&device_a, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let denials = denial_lines(&fixture);
+    assert!(
+        denials.iter().any(
+            |line| line["detail"] == json!("unknown_api_token") && line["status"] == json!(401)
+        ),
+        "the unknown/revoked credential is a denial line: {denials:?}"
+    );
+    assert!(
+        denials
+            .iter()
+            .all(|line| line["detail"] != json!("api_token_device_mismatch")),
+        "a live token used elsewhere is authenticated, so it is not a denial line"
+    );
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["detail"] == json!("api_token_device_mismatch")
+            && line["device_id"] == json!(device_b)),
+        "the foreign-device attempt is in the operator's audit: {audit:?}"
+    );
+
+    for request in [
+        get("/tokens", None),
+        post_json("/tokens", json!({})),
+        delete(&format!("/tokens/{id}"), None),
+    ] {
+        let (status, _) = send(fixture.app(), request).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "management needs the operator"
+        );
+    }
+}
+
+/// Removing a device removes its tokens with it: no token outlives the machine it was scoped to.
+#[tokio::test]
+async fn removing_a_device_revokes_its_tokens() {
+    let fixture = Fixture::new("token-device-removed");
+    let (device_id, _channel) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{device_id}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list, json!([]), "the device's token is gone: {list}");
+    assert!(
+        audit_lines(&fixture)
+            .iter()
+            .any(|line| line["kind"] == json!("token_revoke")
+                && line["device_id"] == json!(device_id)
+                && line["detail"] == json!("device_removed")),
+        "the removal is audited with the device"
+    );
+}
+
+/// Every refusal is the console's typed code, not a prose error.
+#[tokio::test]
+async fn token_management_refusals_are_typed() {
+    let fixture = Fixture::new("token-refusals");
+    let (device_id, _token) = fixture.register(&signing_key(0xb5)).await;
+    let session = fixture.authenticate().await;
+
+    let long = "n".repeat(81);
+    let cases = [
+        ("   ", StatusCode::BAD_REQUEST, "name_empty"),
+        (long.as_str(), StatusCode::BAD_REQUEST, "invalid_name"),
+    ];
+    for (name, expected, code) in cases {
+        let (status, body) = fixture
+            .create_token(&session, &device_id, name, &["files.read"], false)
+            .await;
+        assert_eq!(status, expected, "{code}: {body}");
+        assert_eq!(body["error"], json!(code));
+    }
+
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "no-tools", &[], false)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("empty_tools"));
+
+    let (status, body) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "unknown-tool",
+            &["no.such.tool"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+
+    let unknown_device = "cd".repeat(32);
+    let (status, body) = fixture
+        .create_token(&session, &unknown_device, "ghost", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+
+    let (status, body) = send(
+        fixture.app(),
+        delete(&format!("/tokens/{}", "ee".repeat(32)), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("no_such_token"));
+
+    for index in 0..64 {
+        let (status, body) = fixture
+            .create_token(
+                &session,
+                &device_id,
+                &format!("client-{index}"),
+                &["files.read"],
+                false,
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "token {index}: {body}");
+    }
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "one-too-many", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["error"], json!("too_many_tokens"));
 }
 
 /// The manual canary for the design's real-client claim.
