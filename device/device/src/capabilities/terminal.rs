@@ -2194,6 +2194,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    // These tests reach `exit_facts` through a real pty, which is Unix-only work. The parser's
+    // cross-platform cases live in `end_facts` below, so the exit-code/signal split is exercised on
+    // every target; the ConPTY path is still not executed on Windows CI.
     use std::fs;
     use std::os::unix::io::RawFd;
     use std::path::PathBuf;
@@ -3702,5 +3705,50 @@ mod tests {
     fn a_screen_strips_an_osc_terminated_by_st() {
         let raw = b"a\x1b]8;;https://example.test\x1b\\b";
         assert_eq!(screen_text(raw, 10), "ab");
+    }
+}
+
+/// The end facts are a pure function of the crate's `ExitStatus`, so their cases run everywhere.
+///
+/// The pty tests above reach the same parser through a real child, which only a Unix host can start.
+/// The constructors used here exist on every target, so this module is what proves the exit-code
+/// versus signal split on Windows CI too — where the ConPTY reader is still not executed.
+#[cfg(test)]
+mod end_facts {
+    use super::*;
+
+    /// A child that exits with a code keeps that code and has no signal.
+    #[test]
+    fn an_exit_code_is_reported_and_no_signal_is_invented() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_exit_code(7));
+        assert_eq!(facts.exit_code, Some(7), "the child's own code is reported");
+        assert_eq!(facts.signal, None, "a plain exit has no signal");
+    }
+
+    /// Zero is a code, not the absence of one.
+    #[test]
+    fn a_zero_exit_code_is_reported_as_zero() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_exit_code(0));
+        assert_eq!(facts.exit_code, Some(0));
+        assert_eq!(facts.signal, None);
+    }
+
+    /// A signal death is read from the Display prefix, not from the crate's synthetic code 1.
+    #[test]
+    fn a_signal_death_is_reported_as_a_signal_not_a_code() {
+        let facts = exit_facts(&portable_pty::ExitStatus::with_signal("Killed"));
+        assert_eq!(facts.signal.as_deref(), Some("Killed"));
+        assert_eq!(
+            facts.exit_code, None,
+            "the crate's synthetic 1 must not be reported as an exit code"
+        );
+    }
+
+    /// A serial or SSH session has no child, so its end facts are the default.
+    #[test]
+    fn the_default_has_neither_an_exit_code_nor_a_signal() {
+        let facts = EndFacts::default();
+        assert_eq!(facts.exit_code, None);
+        assert_eq!(facts.signal, None);
     }
 }
