@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
@@ -8,6 +8,11 @@ import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "
 /// because that is what the operator's screen shows.
 const mockedXterm = vi.hoisted(() => ({
   instances: [] as { options: Record<string, unknown> }[]
+}));
+
+/// The fit addons, in creation order: a font change refits each xterm into the host it already has.
+const mockedFit = vi.hoisted(() => ({
+  instances: [] as { fit: Mock }[]
 }));
 
 vi.mock("@xterm/xterm", () => {
@@ -37,6 +42,10 @@ vi.mock("@xterm/xterm", () => {
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     fit = vi.fn();
+
+    constructor() {
+      mockedFit.instances.push(this);
+    }
   }
 }));
 
@@ -72,6 +81,7 @@ let created = 0;
 beforeEach(() => {
   created = 0;
   mockedXterm.instances.length = 0;
+  mockedFit.instances.length = 0;
   callToolMock.mockReset();
   callToolMock.mockImplementation(async (_grant, name) => {
     if (name === "terminal.create") {
@@ -372,9 +382,15 @@ describe("TerminalWorkspace text size", () => {
     await screen.findByRole("tab", { name: /pty 1/ });
     await startPtyTab();
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(2));
+    await waitFor(() => expect(mockedFit.instances).toHaveLength(2));
+    const fitsBefore = mockedFit.instances.map((instance) => instance.fit.mock.calls.length);
 
     fireEvent.click(screen.getByRole("button", { name: "A+" }));
 
+    // Every open tab is refitted into the host it already has, and none of them is recreated.
+    expect(mockedFit.instances.map((instance) => instance.fit.mock.calls.length)).toEqual(
+      fitsBefore.map((count) => count + 1)
+    );
     expect(mockedXterm.instances.map((instance) => instance.options.fontSize)).toEqual([14, 14]);
     expect(window.localStorage.getItem(FONT_SIZE_KEY)).toBe("14");
     expect(screen.getByRole("button", { name: "A+" })).toHaveAttribute(
