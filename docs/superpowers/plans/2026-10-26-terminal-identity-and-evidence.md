@@ -73,16 +73,16 @@ panel's export is `summrise-legacy: agent/resources/panel-react/src/hooks/useSes
   ```
   `nextTabTitle` is `${kind} ${n}` for the smallest `n >= 1` whose title is not already in `tabs`.
   `titleFromInput` trims, collapses internal whitespace runs to one space, rejects empty, and caps at
-  60 characters. `renameTab` returns a new array with only the matching `key` replaced (other objects
-  keep identity), and returns the same array when the key is absent.
+  60 code points. `renameTab` returns a new array with only the matching `key` replaced (other objects
+  keep identity); when the key is absent it returns an unchanged copy, not a cast of a readonly array.
 
 - [ ] **Step 1: Write the pure tests first**
 
 `terminalTabs.test.ts`: empty tabs → `pty 1`; tabs `pty 1`, `pty 2` → `pty 3`; close `pty 2` and ask
 again → `pty 2` (the gap fills); a tab renamed `pty 1` keeps `nextTabTitle` from offering `pty 1`
 again; different kinds number independently. `titleFromInput("  prod   db  ")` → `"prod db"`;
-`("   ")` → null; a 70-character input is capped at 60. `renameTab` changes one title, leaves the rest
-identical by `toBe`, and returns the same array for an unknown key.
+`("   ")` → null; a 70-character input is capped at 60 code points. `renameTab` changes one title,
+leaves the rest identical by `toBe`, and returns an equal copy for an unknown key.
 
 - [ ] **Step 2: Run and watch fail**
 
