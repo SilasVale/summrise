@@ -289,6 +289,25 @@ describe("the endpoints", () => {
     expect(init.body).toBeUndefined();
   });
 
+  it("rotateToken POSTs /tokens/<id>/rotate and parses the created shape with the value", async () => {
+    const created = {
+      id: "tok-2",
+      name: "laptop-dsh",
+      device_id: "dev-1",
+      tools: ["files.read", "host.facts"],
+      allow_destructive: false,
+      created_at_ms: 2,
+      token: "srm_" + "b".repeat(64)
+    };
+    fetchMock.mockResolvedValue(answer({ json: created }));
+    await expect(api.rotateToken("tok-1")).resolves.toEqual(created);
+    const { path, init } = lastRequest();
+    expect(path).toBe("/tokens/tok-1/rotate");
+    expect(init.method).toBe("POST");
+    // The rotate request names the token in the path and nothing else: the new scope is the old one.
+    expect(init.body).toBeUndefined();
+  });
+
   it("tools GETs the registry with the token and parses the names", async () => {
     setToken("session-token");
     fetchMock.mockResolvedValue(

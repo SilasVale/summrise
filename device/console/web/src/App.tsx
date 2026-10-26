@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
-import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
+import {
+  api,
+  HttpError,
+  NoAnswer,
+  setToken,
+  type AuditLine,
+  type Device,
+  type Session,
+  type TokenMeta
+} from "./api";
 import { copyText } from "./copy";
 import { shortId } from "./format";
 import { DeviceCard, retrySentence } from "./DeviceCard";
@@ -26,6 +35,9 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [audit, setAudit] = useState<AuditLine[]>([]);
+  // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
+  // the console would not answer: the table falls back to record ids.
+  const [tokens, setTokens] = useState<TokenMeta[]>([]);
   const [page, setPage] = useState<Page>("devices");
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +73,14 @@ export function App() {
     setConsoleVersion(health.version);
     setSession(state);
     if (!state.authenticated) return;
-    const [list, lines] = await Promise.all([api.devices(), api.audit(AUDIT_WINDOW)]);
+    const [list, lines, tokenList] = await Promise.all([
+      api.devices(),
+      api.audit(AUDIT_WINDOW),
+      tokensOrEmpty()
+    ]);
     setDevices(list);
     setAudit(lines);
+    setTokens(tokenList);
     setError(null);
   }, []);
 
@@ -72,9 +89,14 @@ export function App() {
       await probe();
       return;
     }
-    const [list, lines] = await Promise.all([api.devices(), api.audit(AUDIT_WINDOW)]);
+    const [list, lines, tokenList] = await Promise.all([
+      api.devices(),
+      api.audit(AUDIT_WINDOW),
+      tokensOrEmpty()
+    ]);
     setDevices(list);
     setAudit(lines);
+    setTokens(tokenList);
   }, [probe, session?.authenticated]);
 
   useEffect(() => {
@@ -118,6 +140,7 @@ export function App() {
     setSession({ authenticated: false });
     setDevices([]);
     setAudit([]);
+    setTokens([]);
     setSelected(null);
     setGrant(null);
     setGrantStale(false);
@@ -364,7 +387,7 @@ export function App() {
                       <button type="button" onClick={() => void load()}>Refresh</button>
                     </div>
                   </div>
-                  <AuditTable lines={audit} devices={devices} />
+                  <AuditTable lines={audit} devices={devices} tokens={tokens} />
                 </section>
               </div>
             </div>
@@ -535,7 +558,7 @@ export function App() {
                   <button type="button" onClick={() => void load()}>Refresh</button>
                 </div>
               </div>
-              <AuditTable lines={audit} devices={devices} />
+              <AuditTable lines={audit} devices={devices} tokens={tokens} />
             </section>
           )}
 
@@ -614,6 +637,18 @@ export function App() {
       </footer>
     </div>
   );
+}
+
+/**
+ * The operator's token list, asked for beside the devices and the audit.
+ *
+ * The audit resolves each line's `token_id` through it, so it is fetched with the data the page draws —
+ * but it is a convenience, not the load. A console that refuses it (an older build without the route,
+ * a session that may not read it, a poll that catches a restart) answers with an empty list: the table
+ * keeps the ids, which are the fact, and the page keeps working.
+ */
+function tokensOrEmpty(): Promise<TokenMeta[]> {
+  return api.tokens().catch(() => []);
 }
 
 function describe(cause: unknown): string {
