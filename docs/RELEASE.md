@@ -96,6 +96,33 @@ C:\SummriseConsole\run-console.cmd
 curl http://127.0.0.1:19000/health   # the old version answers
 ```
 
+### Proving the standard MCP endpoint after a deploy
+
+The console binary carries the page and, for every registered device, the standard MCP endpoint
+`/mcp/<device-id>`. After a redeploy, prove all three without an AI client:
+
+1. `curl http://127.0.0.1:19000/health` — the version must be the one just built, and `devices` the
+   registry size.
+2. The page at `http://127.0.0.1:19000/`: sign in and press **AI client** on a device card. The modal
+   mints a grant and shows the endpoint, the header and a DeepSeek Harness configuration.
+3. The endpoint: use the card's header (or a grant minted through the loopback `/grants`) and send
+   `initialize`, `tools/list` and one `tools/call`. The data directory's `audit.jsonl` records
+   `{"kind":"mcp","tool":"<tool>","status":200}` for the call; `initialize`/`tools/list` are not a tool
+   call and carry no tool name.
+
+An AI client on another machine also has to cross the console's edge. The endpoint needs its **own
+Cloudflare Access application at `/mcp/*`** — a bypass, or a service token scoped to that application —
+and never the operator application: a verified Access JWT there (a service token included) is a full
+operator in this console. Access decides who may reach the path; the signed grant remains the
+endpoint's authorization. `CONNECT-MCP.md` has the grant, the header and the Access details.
+
+A public `fetch failed` while the loopback call succeeds is the edge/tunnel leg, not the endpoint:
+retry once and then look at the console host's tunnel. The first public canary on 2026-10-26 failed one
+`tools/call` that way and the same grant answered on the retry; the official DeepSeek Harness client
+then completed `initialize`, `tools/list` (filtered to the grant) and `tools/call` against the real
+device. The public `/health` is a `302` to Access, not the console's health JSON; the loopback
+`/health` is the version that matters.
+
 ## Updating a device
 
 A device with `update.json` pointing at the channel pointer updates itself on its interval (15 minutes in
@@ -160,7 +187,7 @@ deletes it as the receipt.
 | `/` | 302 to Cloudflare Access | the console is the operator's, not the internet's |
 | `/health` | 302 to Cloudflare Access | same: it names the build and the device count |
 | `/devices` | reaches the console, 401 without a session | the device channel uses this path and bypasses Access |
-| `/mcp/<device-id>` | its own Access application (`/mcp/*`, not the exact `/mcp`): bypass, or a service token; the console still requires the grant | the standard MCP endpoint an AI client uses; see `docs/CONNECT-MCP.md` |
+| `/mcp/<device-id>` | its own Access application (`/mcp/*`, not the exact `/mcp`): bypass, or a service token; the console still requires the grant | the standard MCP endpoint an AI client uses; see `CONNECT-MCP.md` |
 
 A monitor that needs an unauthenticated health check has to be added to the bypass application — that is a
 deliberate act, not an accident of the configuration.

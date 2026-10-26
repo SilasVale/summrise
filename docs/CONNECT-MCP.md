@@ -125,5 +125,11 @@ The transport shape was verified with the official DeepSeek Harness MCP client
 fake device behind it: `initialize`, `tools/list` (filtered to the grant) and `tools/call` all
 succeeded, with no `Mcp-Session-Id` and with the client's post-initialize `GET` (SSE) answered `405`
 and tolerated. The canary is the `#[ignore]`d `the_official_mcp_client_can_connect` test in the
-console suite; it prints the endpoint and a short-lived grant for the client. The deployed endpoint's
-canary is the same client against a real device.
+console suite; it prints the endpoint and a short-lived grant for the client.
+
+The deployed endpoint was verified with the same client against a real device on 2026-10-26:
+`initialize`, `tools/list` (filtered to the grant) and `tools/call host.facts` answered through the
+console's public Access edge, with the operator's service token for the test and the grant still the
+endpoint's authorization. The first public call failed at the edge and the same grant answered on
+retry; see `RELEASE.md` for the tunnel caveat. The AI client's own gate is the separate `/mcp/*`
+application described above.
