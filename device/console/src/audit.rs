@@ -1,11 +1,13 @@
 //! The operator-action index at `<data>/audit.jsonl`.
 //!
-//! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?"}`.
+//! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?"}`.
 //! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `mcp`, and
 //! `denied` for a refusal of a request whose caller proved a credential. `status` is the HTTP status
 //! the caller saw, `detail` is a short reason: the console's wire error code for a refusal, or the
 //! device's JSON-RPC error code when it answered with one. `tool` is the JSON-RPC tool name for a `tools/call`, and only the name:
-//! the arguments are the operator's data and never reach this file.
+//! the arguments are the operator's data and never reach this file. `token_id` is the permanent
+//! token *record's* id when a token authenticated an MCP call — never the `srm_` secret; the grant
+//! path, the operator's own `/mcp` route and every non-token action write no field.
 //!
 //! A request that fails authentication never reaches this file. Those refusals are an
 //! unauthenticated caller's to generate at will, so they live in [`crate::denials`], rate-limited
@@ -54,6 +56,9 @@ pub(crate) struct Entry<'a> {
     /// The tool a `tools/call` named. The name is an authorization fact; the arguments are a body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool: Option<&'a str>,
+    /// The permanent token record that authenticated this call, by id — never the secret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) token_id: Option<&'a str>,
 }
 
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.

@@ -80,6 +80,7 @@ impl Denials {
                         status: 429,
                         detail: Some(detail.as_str()),
                         tool: None,
+                        token_id: None,
                     })
                     .await;
             }
