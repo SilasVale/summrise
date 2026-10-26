@@ -252,20 +252,31 @@ impl Fixture {
         tools: &[&str],
         allow_destructive: bool,
     ) -> (StatusCode, Value) {
-        send(
-            self.app(),
-            post_json_bearer(
-                "/tokens",
-                session,
-                json!({
-                    "name": name,
-                    "device_id": device_id,
-                    "tools": tools,
-                    "allow_destructive": allow_destructive,
-                }),
-            ),
-        )
-        .await
+        self.create_token_with_expiry(session, device_id, name, tools, allow_destructive, None)
+            .await
+    }
+
+    /// `POST /tokens` with an explicit lifetime, or with the field absent entirely when `None`:
+    /// permanence is the body's silence, not a sentinel.
+    async fn create_token_with_expiry(
+        &self,
+        session: &str,
+        device_id: &str,
+        name: &str,
+        tools: &[&str],
+        allow_destructive: bool,
+        expires_in_s: Option<u64>,
+    ) -> (StatusCode, Value) {
+        let mut body = json!({
+            "name": name,
+            "device_id": device_id,
+            "tools": tools,
+            "allow_destructive": allow_destructive,
+        });
+        if let Some(seconds) = expires_in_s {
+            body["expires_in_s"] = json!(seconds);
+        }
+        send(self.app(), post_json_bearer("/tokens", session, body)).await
     }
 
     /// `POST /tokens/:id/rotate`: replace one token's secret, keeping its scope.
@@ -4842,6 +4853,317 @@ async fn token_management_refusals_are_typed() {
         .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["error"], json!("too_many_tokens"));
+}
+
+/// A token minted with a lifetime reports the absolute date in its answer, in the list and after a
+/// restart: the operator can see when it will stop working.
+#[tokio::test]
+async fn a_token_created_with_a_lifetime_reports_when_it_expires() {
+    let fixture = Fixture::new("token-expiry-create");
+    let (device_id, _token) = fixture.register(&signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+    let now = fixture.now_ms();
+    let thirty_days_s = 30 * 24 * 3_600;
+    let thirty_days_ms = thirty_days_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(thirty_days_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "the create answer carries the date"
+    );
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "the list shows the date: {list}"
+    );
+
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let (status, list) = send(restarted.router(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(now + thirty_days_ms),
+        "a restart keeps the date: {list}"
+    );
+}
+
+/// Absent is permanent and stays absent: a create without the field, its list row, and a rotation
+/// all carry no expiry fact.
+#[tokio::test]
+async fn a_token_created_without_a_lifetime_is_permanent() {
+    let fixture = Fixture::new("token-expiry-default");
+    let (device_id, _token) = fixture.register(&signing_key(0xbb)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert!(
+        created.get("expires_at_ms").is_none(),
+        "an absent lifetime is no fact: {created}"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("expires_at_ms").is_none(),
+        "the list omits the absent fact: {list}"
+    );
+
+    let id = created["id"].as_str().expect("an id").to_owned();
+    fixture.advance_ms(1_000);
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    assert!(
+        rotated.get("expires_at_ms").is_none(),
+        "rotation keeps a permanent token permanent: {rotated}"
+    );
+}
+
+/// At `now == expires_at_ms` the token is expired: 401, a denial detail naming expiry, no grant, no
+/// last use and no audit line. The check comes before the scope check, so a foreign device sees the
+/// same expiry refusal rather than a device mismatch.
+#[tokio::test]
+async fn an_expired_token_is_refused_as_expired_without_a_grant_or_an_audit() {
+    // A short `/mcp` wait, so the pre-implementation run fails fast instead of waiting for a device
+    // that was never meant to answer.
+    let fixture = Fixture::with_timeout("token-expired", Duration::from_millis(200));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_a, _token_a, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbc)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xbd)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let one_hour_s = 3_600;
+    let one_hour_ms = one_hour_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_a,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(one_hour_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+    let expires_at_ms = created_at + one_hour_ms;
+    assert_eq!(created["expires_at_ms"], json!(expires_at_ms));
+
+    fixture.advance_ms(one_hour_ms);
+    assert_eq!(fixture.now_ms(), expires_at_ms, "the clock is at the edge");
+    let audit_before = audit_lines(&fixture).len();
+    let denials_before = denial_lines(&fixture).len();
+
+    let (status, body) = send(fixture.app(), post_token(&device_a, &token, ping_request())).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an expired token is a credential failure: {body}"
+    );
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(
+        body,
+        json!({ "error": "unauthorized" }),
+        "the wire answer does not distinguish the reasons"
+    );
+
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "an expired token must not mint a grant");
+
+    let denials: Vec<Value> = denial_lines(&fixture)
+        .into_iter()
+        .skip(denials_before)
+        .collect();
+    assert_eq!(
+        denials.len(),
+        2,
+        "each attempt is a denial line: {denials:?}"
+    );
+    assert!(
+        denials.iter().all(
+            |line| line["detail"] == json!("expired_api_token") && line["status"] == json!(401)
+        ),
+        "the detail names expiry, even on the foreign device: {denials:?}"
+    );
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        audit_before,
+        "neither attempt touches the operator's audit"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list[0].get("last_used_ms").is_none(),
+        "an expired token is not marked used: {list}"
+    );
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(expires_at_ms),
+        "the list still shows the date: {list}"
+    );
+}
+
+/// One millisecond before expiry the token still mints a grant: the boundary belongs to the refusal.
+#[tokio::test]
+async fn a_token_works_one_millisecond_before_it_expires() {
+    let fixture = Fixture::new("token-almost-expired");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xbe)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let one_hour_s = 3_600;
+    let one_hour_ms = one_hour_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(one_hour_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    fixture.advance_ms(one_hour_ms - 1);
+    assert_eq!(fixture.now_ms(), created_at + one_hour_ms - 1);
+    let request = json!({ "jsonrpc": "2.0", "id": 41, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &token, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let grant: summrise_console::Grant =
+            serde_json::from_value(frame["grant"]["grant"].clone())
+                .expect("the frame carries a grant");
+        assert_eq!(
+            grant.expires_at_ms,
+            fixture.now_ms() + 60_000,
+            "the grant is minted from the same clock"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "one millisecond before expiry is valid: {body}"
+    );
+    assert_eq!(body["result"]["tools"], json!([]));
+}
+
+/// Rotation starts a fresh version of the old policy: a thirty-day token rotates to now plus thirty
+/// days, not the old absolute date, and a permanent one stays permanent.
+#[tokio::test]
+async fn rotation_carries_the_tokens_lifetime() {
+    let fixture = Fixture::new("token-rotate-expiry");
+    let (device_id, _token) = fixture.register(&signing_key(0xbf)).await;
+    let session = fixture.authenticate().await;
+    let created_at = fixture.now_ms();
+    let thirty_days_s = 30 * 24 * 3_600;
+    let thirty_days_ms = thirty_days_s * 1_000;
+
+    let (status, created) = fixture
+        .create_token_with_expiry(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read"],
+            false,
+            Some(thirty_days_s),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+    assert_eq!(created["expires_at_ms"], json!(created_at + thirty_days_ms));
+
+    fixture.advance_ms(5_000);
+    let rotated_at = fixture.now_ms();
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    assert_eq!(rotated["created_at_ms"], json!(rotated_at));
+    assert_eq!(
+        rotated["expires_at_ms"],
+        json!(rotated_at + thirty_days_ms),
+        "the policy is thirty days from the rotation, not the old date"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(
+        list[0]["expires_at_ms"],
+        json!(rotated_at + thirty_days_ms),
+        "the list shows the new date: {list}"
+    );
+
+    let (status, permanent) = fixture
+        .create_token(&session, &device_id, "permanent", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{permanent}");
+    let permanent_id = permanent["id"].as_str().expect("an id").to_owned();
+    let (status, rotated_permanent) = fixture.rotate_token(&session, &permanent_id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated_permanent}");
+    assert!(
+        rotated_permanent.get("expires_at_ms").is_none(),
+        "a permanent token stays permanent: {rotated_permanent}"
+    );
+}
+
+/// A lifetime outside one hour to one year is the console's typed 400, and mints nothing.
+#[tokio::test]
+async fn a_token_expiry_outside_the_window_is_a_typed_400() {
+    let fixture = Fixture::new("token-expiry-bounds");
+    let (device_id, _token) = fixture.register(&signing_key(0xc0)).await;
+    let session = fixture.authenticate().await;
+
+    for (expires_in_s, code) in [(3_599, "expiry_too_short"), (31_536_001, "expiry_too_long")] {
+        let (status, body) = fixture
+            .create_token_with_expiry(
+                &session,
+                &device_id,
+                "bounds",
+                &["files.read"],
+                false,
+                Some(expires_in_s),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{code}: {body}");
+        assert_eq!(body["error"], json!(code));
+    }
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused expiry mints nothing: {list}");
 }
 
 /// The manual canary for the design's real-client claim.

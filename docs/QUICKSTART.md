@@ -51,7 +51,8 @@ call (at least one), decide whether destructive tools are pre-approved, and pres
 
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
-has no expiry; revocation is the only withdrawal ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
+is permanent by default; an optional expiry (1 hour–365 days) can be set at creation, and revocation
+is the only withdrawal ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
 ## 4. Point the client at the endpoint
 
@@ -82,7 +83,8 @@ repository, or have the deployment inject the value from a secret:
 
 The same endpoint accepts a grant for a session instead of a token: the card's **Session grant** tab
 mints one (an hour by default), and its lowercase hex goes in the same header
-([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; the token does not. Behind Cloudflare
+([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; a permanent token does not (one created
+with an expiry does). Behind Cloudflare
 Access with a service-token policy for `/mcp/*`, add the two `CF-Access-*` headers too
 ([details](CONNECT-MCP.md#cloudflare-access)).
 

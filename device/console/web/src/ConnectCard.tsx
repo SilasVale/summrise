@@ -14,6 +14,17 @@ const LIFETIMES = [
   { seconds: 604800, label: "7 days" }
 ];
 
+/**
+ * The token's lifetimes: Never is the default, and 365 days is the server's upper bound. Never is
+ * zero because that is how the form says "omit the lifetime", not a value the server accepts.
+ */
+const TOKEN_EXPIRIES = [
+  { seconds: 0, label: "Never" },
+  { seconds: 30 * 86400, label: "30 days" },
+  { seconds: 90 * 86400, label: "90 days" },
+  { seconds: 365 * 86400, label: "365 days" }
+];
+
 /** What one mint produced: the two facts a client needs, and the YAML that carries them. */
 type Issued = {
   endpoint: string;
@@ -55,6 +66,16 @@ function lastUsed(entry: TokenMeta): string {
 }
 
 /**
+ * The token's lifetime, in the row's muted line: the local day it stops working, or the default it
+ * was created with. An absent field is a record written before lifetimes existed, so it never expires.
+ */
+function expiry(entry: TokenMeta): string {
+  return entry.expires_at_ms == null
+    ? "never expires"
+    : `expires ${new Date(entry.expires_at_ms).toLocaleDateString()}`;
+}
+
+/**
  * The endpoint and the credential an MCP client needs, minted once and shown once.
  *
  * The card is the page's half of `docs/CONNECT-MCP.md`: it mints a grant through the operator session
@@ -82,6 +103,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
 
   // The permanent-token half: the form, the one plaintext the console returns, and the metadata list.
   const [tokenName, setTokenName] = useState("");
+  const [tokenExpiry, setTokenExpiry] = useState(0);
   const [chosen, setChosen] = useState<Set<string>>(new Set(tools));
   const [tokenDestructive, setTokenDestructive] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -154,7 +176,9 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
           name: tokenName.trim(),
           device_id: device.id,
           tools: tools.filter((tool) => chosen.has(tool)),
-          allow_destructive: tokenDestructive
+          allow_destructive: tokenDestructive,
+          // Never is zero and sends no key at all: absence is the server's permanent default.
+          ...(tokenExpiry > 0 ? { expires_in_s: tokenExpiry } : {})
         })
       );
       await refreshTokens();
@@ -330,6 +354,19 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                 />
               </div>
 
+              <div className="grant-row">
+                <label htmlFor="token-expiry">Expires</label>
+                <select
+                  id="token-expiry"
+                  value={tokenExpiry}
+                  onChange={(event) => setTokenExpiry(Number(event.target.value))}
+                >
+                  {TOKEN_EXPIRIES.map((choice) => (
+                    <option key={choice.seconds} value={choice.seconds}>{choice.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <ToolPicker names={tools} chosen={chosen} onChange={setChosen} />
 
               <label className="check">
@@ -401,6 +438,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                         {entry.tools.join(", ")}
                         {entry.allow_destructive ? " · destructive allowed" : " · read-only"}
                       </span>{" · "}
+                      <span className="muted">{expiry(entry)}</span>{" · "}
                       <span className="muted">{lastUsed(entry)}</span>{" "}
                       <button type="button" onClick={() => { setRotateError(null); setRotating(entry); }}>
                         Rotate
@@ -429,6 +467,12 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
             is shown once, right after — the console keeps only its hash — so update the client&apos;s
             configuration then.
           </p>
+          {rotating.expires_at_ms != null && (
+            <p className="hint">
+              The new token keeps its expiry: the same lifetime, counted from now — not the old
+              token&apos;s absolute date.
+            </p>
+          )}
           {rotateError && <p className="error">{rotateError}</p>}
           <div className="modal-actions">
             <button type="button" disabled={rotateBusy} onClick={() => setRotating(null)}>Cancel</button>

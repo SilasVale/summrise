@@ -115,10 +115,16 @@ created with. The path must match: a token for device A sent to `/mcp/<device B>
 A token is not an operator session: it cannot mint grants, list devices, read the audit, or create
 another token. The console accepts at most 64 tokens.
 
-A token has **no expiry**; revocation is the only withdrawal. The device card's token list shows each
-token's name, creation date, tool set and **last use** (`last used <date>`, or `never used`) — never
-the token — and **Revoke** asks for confirmation. After it, the next request with that token is `401`
-and the token is gone from the list: neither the page nor the audit can show it again.
+A token is **permanent by default**. Creation may give it an **expiry** between one hour and 365
+days; the card's form offers Never, 30, 90 and 365 days, and the list says `expires <date>` or `never
+expires`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
+can mint a grant; expiry is checked before the device match. **Rotate** keeps the lifetime policy —
+the new value gets the same duration counted from the rotation, not the old absolute date.
+
+Revocation is the only withdrawal for a permanent token. The device card's token list shows each
+token's name, creation date, tool set, expiry and **last use** (`last used <date>`, or `never used`) —
+never the token — and **Revoke** asks for confirmation. After it, the next request with that token is
+`401` and the token is gone from the list: neither the page nor the audit can show it again.
 
 The audit names the token's **record id** (`token_id`, not the secret) on every MCP line that token
 authenticated, so a call can be attributed to the credential that made it; the grant-authenticated
@@ -197,7 +203,8 @@ A loopback or tunnel deployment without Access needs no dashboard step.
   frame leaves (for a token, outside the token's tool set), and the device re-verifies the same signed
   bytes offline.
 - **Grants cannot be revoked before expiry.** Rotate by minting a new grant and letting the old one
-  expire. A token has no expiry; **Revoke** in the device card withdraws it, and its next request is
+  expire. A token is permanent unless created with an expiry; **Revoke** in the device card withdraws
+  it, and its next request is
   `401`.
 - **HTTPS only.** The bearer is a secret in a header; never put it in a URL, a shell history, a
   repository or a screenshot.

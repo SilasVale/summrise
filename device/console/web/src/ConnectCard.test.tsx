@@ -55,6 +55,8 @@ const TOKEN = "srm_" + "a".repeat(64);
 const CREATED_AT = Date.UTC(2026, 9, 26, 12, 0, 0);
 // A day after the create, so the last-used sentence cannot be mistaken for the created date.
 const LAST_USED_AT = Date.UTC(2026, 9, 27, 12, 0, 0);
+// A year after the create, so the expiry sentence cannot be mistaken for either date above.
+const EXPIRES_AT = Date.UTC(2027, 9, 26, 12, 0, 0);
 
 // The same token as `GET /tokens` lists it: no `token` key, because the list is metadata only.
 const META = {
@@ -112,6 +114,14 @@ function mint() {
 
 function typeName(name: string) {
   fireEvent.change(screen.getByLabelText("Token name"), { target: { value: name } });
+}
+
+/** Pick an Expires option by the label the operator reads, and return the seconds it carries. */
+function chooseExpiry(label: string): string {
+  const select = screen.getByLabelText("Expires") as HTMLSelectElement;
+  const option = within(select).getByRole("option", { name: label }) as HTMLOptionElement;
+  fireEvent.change(select, { target: { value: option.value } });
+  return option.value;
 }
 
 function createToken() {
@@ -238,6 +248,72 @@ describe("ConnectCard's permanent-token mode", () => {
     await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(2));
   });
 
+  it("offers Never as the default and the lifetimes the server accepts", async () => {
+    await openTokens();
+
+    const select = screen.getByLabelText("Expires") as HTMLSelectElement;
+    expect(select.value).toBe("0");
+    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Never",
+      "30 days",
+      "90 days",
+      "365 days"
+    ]);
+  });
+
+  it("creates a token that never expires by default, omitting the lifetime", async () => {
+    await openTokens();
+
+    typeName("laptop-dsh");
+    expect(chooseExpiry("Never")).toBe("0");
+    createToken();
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "laptop-dsh",
+        device_id: WORKSHOP.id,
+        tools: ["terminal.create", "screen.capture"],
+        allow_destructive: false
+      })
+    );
+  });
+
+  it("sends thirty days as the seconds the server measures", async () => {
+    await openTokens();
+
+    typeName("laptop-dsh");
+    expect(chooseExpiry("30 days")).toBe(String(30 * 86400));
+    createToken();
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "laptop-dsh",
+        device_id: WORKSHOP.id,
+        tools: ["terminal.create", "screen.capture"],
+        allow_destructive: false,
+        expires_in_s: 30 * 86400
+      })
+    );
+  });
+
+  it("sends a year as the seconds at the server's upper bound", async () => {
+    await openTokens();
+
+    typeName("laptop-dsh");
+    expect(chooseExpiry("365 days")).toBe(String(365 * 86400));
+    createToken();
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "laptop-dsh",
+        device_id: WORKSHOP.id,
+        tools: ["terminal.create", "screen.capture"],
+        allow_destructive: false,
+        expires_in_s: 365 * 86400
+      })
+    );
+  });
+
   it("copies the token and the config the client pastes", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -285,6 +361,26 @@ describe("ConnectCard's permanent-token mode", () => {
     expect(row.getByText(new Date(CREATED_AT).toLocaleDateString())).toBeInTheDocument();
     expect(row.getByText(/files\.read, host\.facts/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(2);
+  });
+
+  it("shows when a token expires, and never expires for the ones without a date", async () => {
+    mocks.tokens.mockResolvedValue([
+      { ...META, expires_at_ms: EXPIRES_AT },
+      { ...META, id: "tok-2", name: "spare-dsh" },
+      { ...META, id: "tok-3", name: "legacy-dsh", expires_at_ms: null }
+    ]);
+    await openTokens();
+
+    const expiry = `expires ${new Date(EXPIRES_AT).toLocaleDateString()}`;
+    expect(await screen.findByText(expiry)).toBeInTheDocument();
+    // An absent field and an explicit null are the same permanent default: never expires.
+    expect(screen.getAllByText("never expires")).toHaveLength(2);
+    // The facts the row already carried are still beside the new one.
+    const row = within(screen.getByText("laptop-dsh").closest("li") as HTMLElement);
+    expect(row.getByText(expiry)).toBeInTheDocument();
+    expect(row.getByText(/files\.read, host\.facts/)).toBeInTheDocument();
+    expect(row.getByText(new Date(CREATED_AT).toLocaleDateString())).toBeInTheDocument();
+    expect(row.getByText("never used")).toBeInTheDocument();
   });
 
   it("re-reads the list after a create, so a use the console recorded appears", async () => {
@@ -362,6 +458,17 @@ describe("ConnectCard's permanent-token mode", () => {
     await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(2));
     const list = within(screen.getByRole("region", { name: "Existing tokens" }));
     expect(list.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("names the expiry a rotation keeps when the token has one", async () => {
+    mocks.tokens.mockResolvedValue([{ ...META, expires_at_ms: EXPIRES_AT }]);
+    await openTokens();
+    await screen.findByText("laptop-dsh");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rotate" }));
+
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop-dsh"?' });
+    expect(within(dialog).getByText(/keeps its expiry/)).toBeInTheDocument();
   });
 
   it("sends nothing when a rotation is cancelled", async () => {
