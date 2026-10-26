@@ -119,3 +119,15 @@ every token is permanent.
 - Review Focus: default, boundary, expiry-before-scope, rotation arithmetic, honest UI.
 - Deliberate: no post-creation edit of a token's expiry (rotate with the policy; revoke/re-create for a
   different one), no expiry extension endpoint, no audit kind.
+
+## Review rulings (2026-10-26)
+
+- The expiry check sits after the record lookup and before the device match, signing, marking and
+  audit; an expired foreign token is refused as expired (`expired_api_token`), and no grant is minted.
+- `None` is permanent everywhere: create, rotate, list, reload and an old file without the field.
+- Rotation measures the old **policy** (expiry − creation) and applies it from the rotation instant;
+  a permanent token stays permanent.
+- The UI's Never omits `expires_in_s` (the key is absent, not null); the row treats absent and null as
+  `never expires`; the rotate dialog explains the lifetime is counted from now for expiring tokens.
+- The tests pin the inclusive 1 h/365 d bounds, the adjacent refusals, `now == expiry` as expired and
+  `expiry − 1 ms` as valid.
