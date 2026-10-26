@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
+import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import { api, type SavedConnection } from "./api";
 import { Modal } from "./Modal";
 
@@ -118,6 +119,28 @@ function terminalTheme() {
 
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
+function safeSession(session: string): string {
+  return session.replace(/[^A-Za-z0-9._-]+/g, "_") || "session";
+}
+
+/**
+ * Save the transcript as a file: a Blob and a temporary anchor, with no console route in between.
+ * The bytes are the device's retained output, read through the same grant as every other call.
+ */
+function downloadTranscript(file: string, session: string) {
+  const url = URL.createObjectURL(new Blob([file], { type: "text/plain" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeSession(session)}.log`;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Give the browser a moment to start the download before the URL is revoked.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
@@ -331,20 +354,25 @@ export function TerminalWorkspace({
             kind: "closed",
             sentence: reason
               ? `The device closed this session: ${reason}.${note}`
-              : `The device closed this session: it no longer lists ${tab.session}.${note}`
+              : `The device closed this session: it no longer lists ${tab.session}. The device closes a session after 30 minutes with no reads, writes or resizes.${note}`
           });
           return;
         }
-        // The device still has the session, so one call failed. A read whose cursor it cannot serve
-        // is recovered by taking the retained output from the start on the next poll.
-        if (source === "read") cursors.current.set(tab.key, 0);
+        // The device still has the session, so one call failed. Only a cursor it refused as older
+        // than the ring moves, to the earliest byte it still has; a transient failure leaves the
+        // cursor where it was, so output the terminal already shows is never replayed.
+        const earliest = source === "read" ? earliestCursor(messageOf(cause)) : null;
+        if (earliest !== null) cursors.current.set(tab.key, earliest);
         setFault(
           tab.key,
           source === "write"
             ? { kind: "write", sentence: `Your keystrokes were not sent: ${messageOf(cause)}.` }
             : {
                 kind: "read",
-                sentence: `Reading this session failed: ${messageOf(cause)}. The tab takes the retained output again.`
+                sentence:
+                  earliest !== null
+                    ? `Reading this session failed: ${messageOf(cause)}. The tab continues from the earliest output the device retains.`
+                    : `Reading this session failed: ${messageOf(cause)}. The tab keeps its place and tries again.`
               }
         );
       } catch (probeCause) {
@@ -725,6 +753,33 @@ export function TerminalWorkspace({
   const activeTab = tabs.find((tab) => tab.key === active) ?? null;
   const activeFault = activeTab ? faults[activeTab.key] : undefined;
 
+  /**
+   * Save what the device still retains of the active session.
+   *
+   * The export reads through its own calls from cursor 0, so it never touches `cursors.current`: the
+   * tab's poll keeps reading from where the terminal's output ended, not from the export's start.
+   */
+  const exportLog = async () => {
+    if (!activeTab) return;
+    try {
+      const transcript = await readTranscript(async (cursor) =>
+        JSON.parse(await callTool(grantRef.current, "terminal.read", { id: activeTab.session, cursor }))
+      );
+      downloadTranscript(
+        transcriptFile(transcript, { session: activeTab.session, at: new Date() }),
+        activeTab.session
+      );
+      const exported = Math.max(0, transcript.to - transcript.from);
+      setStatus(
+        transcript.dropped > 0
+          ? `Exported ${exported} bytes; ${transcript.dropped} bytes are no longer retained by the device.`
+          : `Exported ${exported} bytes.`
+      );
+    } catch (cause) {
+      setStatus("Could not export: " + messageOf(cause));
+    }
+  };
+
   return (
     <div className="terminal-workspace">
       <div className="panel-head">
@@ -741,6 +796,7 @@ export function TerminalWorkspace({
           >
             Rename tab
           </button>
+          <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
           <button type="button" className="primary" onClick={() => openDialog({}, null)}>+ New</button>
         </div>
       </div>
