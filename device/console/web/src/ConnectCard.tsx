@@ -48,6 +48,16 @@ function clientConfig(endpoint: string, deviceId: string, authorization: string)
 }
 
 /**
+ * Whether a token is still in use, in the row's muted line: the local day of its last call, or that
+ * it has never made one. A token used today and one used a month ago are the same shape otherwise.
+ */
+function lastUsed(entry: TokenMeta): string {
+  return entry.last_used_ms == null
+    ? "never used"
+    : `last used ${new Date(entry.last_used_ms).toLocaleDateString()}`;
+}
+
+/**
  * The endpoint and the credential an MCP client needs, minted once and shown once.
  *
  * The card is the page's half of `docs/CONNECT-MCP.md`: it mints a grant through the operator session
@@ -370,7 +380,8 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
                       <span className="muted">
                         {entry.tools.join(", ")}
                         {entry.allow_destructive ? " · destructive allowed" : " · read-only"}
-                      </span>{" "}
+                      </span>{" · "}
+                      <span className="muted">{lastUsed(entry)}</span>{" "}
                       <button type="button" onClick={() => { setRevokeError(null); setRevoking(entry); }}>
                         Revoke
                       </button>
