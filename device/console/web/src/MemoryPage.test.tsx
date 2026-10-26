@@ -255,3 +255,34 @@ describe("MemoryPage create", () => {
     expect(within(dialog).getByRole("button", { name: "Remember" })).toBeEnabled();
   });
 });
+
+describe("MemoryPage edit", () => {
+  beforeEach(() => {
+    mocked.mockReset();
+  });
+
+  it("keeps Save disabled while the text is blank", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "memory.list") {
+        return JSON.stringify([{ id: "m1", text: "remembered", tags: [] }]);
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<MemoryPage grant={GRANT} />);
+    await screen.findByText("remembered");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const text = screen.getByLabelText("Text");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).toBeEnabled();
+    expect(screen.queryByText("A memory entry needs some text.")).not.toBeInTheDocument();
+
+    fireEvent.change(text, { target: { value: "   " } });
+    expect(save).toBeDisabled();
+    expect(screen.getByText("A memory entry needs some text.")).toBeInTheDocument();
+
+    fireEvent.change(text, { target: { value: "an updated fact" } });
+    expect(save).toBeEnabled();
+    expect(screen.queryByText("A memory entry needs some text.")).not.toBeInTheDocument();
+  });
+});

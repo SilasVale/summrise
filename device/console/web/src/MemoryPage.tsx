@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { copyText } from "./copy";
+import { downloadFile } from "./download";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
+import { TagEditor } from "./TagEditor";
 import { callTool, toolFailure, type Grant } from "./terminal";
 
 /**
@@ -26,6 +28,9 @@ const LIMIT = 100;
 /// `memory::MAX_TAGS` and `memory::MAX_TAG_BYTES`: the caps a new entry is subject to.
 const MAX_TAGS = 32;
 const MAX_TAG_BYTES = 128;
+
+/// The sentence both forms show when their text box would send an empty entry.
+const EMPTY_TEXT = "A memory entry needs some text.";
 
 /// `memory::MAX_EXPORT_BYTES`: the device returns at most 2 MiB of JSONL per export.
 const EXPORT_CAP = 2 * 1024 * 1024;
@@ -78,6 +83,17 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   // A create is a write, so it gets a ticket too: an answer that belongs to the previous device must
   // not close this device's dialog or claim its status sentence.
   const createGate = useRequestGate();
+
+  /// The six create states move together: a new grant, a new dialog, a close and a success all reset
+  /// the same draft, so the reset is one function rather than four lists that can drift apart.
+  const resetCreate = useCallback(() => {
+    setCreating(false);
+    setCreateText("");
+    setCreateTags([]);
+    setCreateTag("");
+    setAppending(false);
+    setCreateError(null);
+  }, []);
 
   const read = useCallback(
     async (want: { query: string; tag: string }) => {
@@ -147,12 +163,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     setExporting(false);
     setExported(null);
     setCopied(false);
-    setCreating(false);
-    setCreateText("");
-    setCreateTags([]);
-    setCreateTag("");
-    setAppending(false);
-    setCreateError(null);
+    resetCreate();
     setQuery("");
     setTag("");
     setView({ query: "", tag: "" });
@@ -162,7 +173,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
     setError(null);
     setStatus("Reading the device's memory…");
     void read({ query: "", tag: "" });
-  }, [createGate, exportGate, read]);
+  }, [createGate, exportGate, read, resetCreate]);
 
   const knownTags = useMemo(
     () =>
@@ -233,23 +244,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
   };
 
   const startCreate = () => {
+    resetCreate();
     setCreating(true);
-    setCreateText("");
-    setCreateTags([]);
-    setCreateTag("");
-    setCreateError(null);
   };
 
   // The Modal refocuses its first field whenever `onClose` changes; a handler that changed on every
   // keystroke would pull focus out of the tag box, so this one only changes with the submit state.
   const closeCreate = useCallback(() => {
     if (appending) return;
-    setCreating(false);
-    setCreateText("");
-    setCreateTags([]);
-    setCreateTag("");
-    setCreateError(null);
-  }, [appending]);
+    resetCreate();
+  }, [appending, resetCreate]);
 
   const addCreateTag = () => {
     const value = createTag.trim();
@@ -279,10 +283,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
         await callTool(grant, "memory.append", { text, tags })
       ) as AppendAnswer;
       if (createGate.stale(ticket)) return;
-      setCreating(false);
-      setCreateText("");
-      setCreateTags([]);
-      setCreateTag("");
+      resetCreate();
       // Read the view that is showing, not the whole store: the new entry belongs to this filter.
       await read(view);
       if (createGate.stale(ticket)) return;
@@ -426,42 +427,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
                     value={draftText}
                     onChange={(event) => setDraftText(event.target.value)}
                   />
-                  <label htmlFor={`memory-tags-${entry.id}`}>Tags</label>
-                  {draftTags.length === 0 ? (
-                    <p className="hint">No tags.</p>
-                  ) : (
-                    <div className="memory-tags">
-                      {draftTags.map((value, index) => (
-                        <button
-                          type="button"
-                          className="chip chip-tag"
-                          key={`${entry.id}-${index}`}
-                          title={`Remove ${value}`}
-                          onClick={() => removeTag(index)}
-                        >
-                          {value} ×
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="memory-add-tag">
-                    <input
-                      id={`memory-tags-${entry.id}`}
-                      value={draftTag}
-                      onChange={(event) => setDraftTag(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          addTag();
-                        }
-                      }}
-                      list="memory-tag-options"
-                      placeholder="a tag; Enter adds it"
-                    />
-                    <button type="button" className="mini" disabled={draftTag.trim() === ""} onClick={addTag}>
-                      Add tag
-                    </button>
-                  </div>
+                  {draftText.trim() === "" && <p className="hint">{EMPTY_TEXT}</p>}
+                  <TagEditor
+                    tags={draftTags}
+                    draft={draftTag}
+                    onDraft={setDraftTag}
+                    onAdd={addTag}
+                    onRemove={removeTag}
+                    inputId={`memory-tags-${entry.id}`}
+                    datalistId="memory-tag-options"
+                  />
                   <p className="hint">
                     Click a tag to remove it. Saving replaces the text and the whole tag list; an
                     empty list clears every tag.
@@ -478,7 +453,7 @@ export function MemoryPage({ grant }: { grant: Grant }) {
                     <button
                       type="button"
                       className="mini primary"
-                      disabled={saving}
+                      disabled={saving || draftText.trim() === ""}
                       onClick={() => void save(entry)}
                     >
                       {saving ? "Saving…" : "Save"}
@@ -552,47 +527,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
             value={createText}
             onChange={(event) => setCreateText(event.target.value)}
           />
-          <label htmlFor="memory-create-tags">Tags</label>
-          {createTags.length === 0 ? (
-            <p className="hint">No tags.</p>
-          ) : (
-            <div className="memory-tags">
-              {createTags.map((value, index) => (
-                <button
-                  type="button"
-                  className="chip chip-tag"
-                  key={`${value}-${index}`}
-                  title={`Remove ${value}`}
-                  onClick={() => removeCreateTag(index)}
-                >
-                  {value} ×
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="memory-add-tag">
-            <input
-              id="memory-create-tags"
-              value={createTag}
-              onChange={(event) => setCreateTag(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addCreateTag();
-                }
-              }}
-              list="memory-tag-options"
-              placeholder="a tag; Enter adds it"
-            />
-            <button
-              type="button"
-              className="mini"
-              disabled={createTag.trim() === ""}
-              onClick={addCreateTag}
-            >
-              Add tag
-            </button>
-          </div>
+          {createText.trim() === "" && <p className="hint">{EMPTY_TEXT}</p>}
+          <TagEditor
+            tags={createTags}
+            draft={createTag}
+            onDraft={setCreateTag}
+            onAdd={addCreateTag}
+            onRemove={removeCreateTag}
+            inputId="memory-create-tags"
+            datalistId="memory-tag-options"
+          />
           <p className="hint">
             Tags are optional. The device caps one entry at {MAX_TAGS} tags of at most{" "}
             {MAX_TAG_BYTES} bytes each; a refusal leaves this draft here.
@@ -639,7 +583,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
             <button type="button" onClick={() => void copyExport()}>
               Copy
             </button>
-            <button type="button" onClick={() => downloadExport(exported)}>
+            <button
+              type="button"
+              onClick={() =>
+                downloadFile(
+                  `summrise-memory-${isoDay()}.jsonl`,
+                  exported.text,
+                  "application/x-ndjson"
+                )
+              }
+            >
               Download
             </button>
             <button
@@ -711,20 +664,6 @@ function isoDay(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${month}-${day}`;
-}
-
-/// Save the answer as it came: a Blob and a temporary anchor, with no console route in between.
-function downloadExport(answer: ExportAnswer) {
-  const url = URL.createObjectURL(new Blob([answer.text], { type: "application/x-ndjson" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `summrise-memory-${isoDay()}.jsonl`;
-  link.rel = "noopener";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // Give the browser a moment to start the download before the URL is revoked.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function message(cause: unknown): string {

@@ -8,6 +8,7 @@ import {
   type FormEvent
 } from "react";
 import { useRequestGate } from "./requests";
+import { downloadFile } from "./download";
 import { callTool, type Grant } from "./terminal";
 
 /** What a listed entry is: the three values `files.list`'s `kind` can take. */
@@ -715,27 +716,15 @@ function readAsBase64(file: File): Promise<string> {
   });
 }
 
-/// Save the base64 bytes as a file: decode to a typed array, wrap it in a Blob and click a temporary
-/// link. The object URL is revoked after a second, once the browser has had time to start the
-/// download.
+/// Save the base64 bytes as a file: decode to a typed array and hand it to the console's one
+/// download helper, which builds the Blob and clicks the temporary link.
 function download(path: string, data: string) {
   const binary = atob(data);
   const decoded = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     decoded[index] = binary.charCodeAt(index);
   }
-  const url = URL.createObjectURL(
-    new Blob([decoded], { type: "application/octet-stream" })
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = baseName(path);
-  link.rel = "noopener";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // Give the browser a moment to start the download before the URL is revoked.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadFile(baseName(path), decoded, "application/octet-stream");
 }
 
 function message(cause: unknown): string {
