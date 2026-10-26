@@ -150,7 +150,9 @@ helper's refusal sentence for locked/disconnected sessions). S.
 
 **Closed (`cc05e6a`).** The rail gains **Screen**; the page captures on demand, shows the PNG with its
 dimensions and moment, offers the file by name, and lands the device's refusal as a sentence. A failed
-capture clears the previous frame. Two tests.
+capture clears the previous frame. Four tests. The tenth destination also exposed a fixed-height rail:
+at 52 px per button the column is ~617 px, so a short window would have clipped the last entries; the
+rail scrolls now (`47c6c9f`).
 
 ### 9. The destructive-consent checkbox is a dead end — S — closed 2026-10-26
 
@@ -165,9 +167,10 @@ approvals card (later, M). S to remove; M to build.
 
 **Closed (`69ba5e8`) — the toggle stays, and the copy stops implying an approval flow.** A read-only
 grant is a real policy, and the device's refusal already carries the fix: it says the grant did not
-consent and asks for one minted with `allow_destructive=true`, while the audit records the attempt as
-an ask. Unticking now says that under the checkbox. No approvals queue is built: it is a new protocol,
-not a port.
+consent and asks for one minted with `allow_destructive=true`. The console's audit keeps the refused
+exchange (`mcp`, HTTP 200, `jsonrpc error -32002`) and now marks it, because the HTTP status alone
+read as success; the device's own audit is where the attempt is recorded as an ask. Unticking says
+that under the checkbox. No approvals queue is built: it is a new protocol, not a port.
 
 ## Worth doing later
 
