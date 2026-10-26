@@ -122,8 +122,15 @@ and the token is gone from the list: neither the page nor the audit can show it 
 
 The audit names the token's **record id** (`token_id`, not the secret) on every MCP line that token
 authenticated, so a call can be attributed to the credential that made it; the grant-authenticated
-path and the page's operator route carry no `token_id`. The id is what the list shows; the `srm_…`
-value never enters the audit.
+path and the page's operator route carry no `token_id`. The audit table resolves that id to the
+token's name when the token list has it, shows the short id otherwise, and its **Token** filter
+narrows the window to one credential. The `srm_…` value never enters the audit.
+
+**Rotate** on the same row replaces a token in one action: the new value keeps the name, device,
+tools and destructive consent, the old value stops working the moment the replacement succeeds, and
+the new value is shown once. The audit records the change as a `token` creation and a `token_revoke`
+with detail `rotated`, both naming the device. Rotation writes the new record and drops the old in a
+single atomic file replacement.
 
 ### Which one to use
 

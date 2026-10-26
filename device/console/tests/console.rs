@@ -267,6 +267,15 @@ impl Fixture {
         )
         .await
     }
+
+    /// `POST /tokens/:id/rotate`: replace one token's secret, keeping its scope.
+    async fn rotate_token(&self, session: &str, id: &str) -> (StatusCode, Value) {
+        send(
+            self.app(),
+            post_json_bearer(&format!("/tokens/{id}/rotate"), session, json!({})),
+        )
+        .await
+    }
 }
 
 fn get(uri: &str, session: Option<&str>) -> Request<Body> {
@@ -4099,6 +4108,231 @@ async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
     );
 }
 
+/// Rotation is one replacement: the old secret is refused at once, the new one reaches the same
+/// device with the same scope, and the answer is the only place the new secret appears.
+#[tokio::test]
+async fn a_rotated_token_kills_the_old_one_and_keeps_the_scope() {
+    let fixture = Fixture::new("token-rotate");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "laptop-dsh",
+            &["files.read", "memory.search"],
+            true,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let old_plaintext = created["token"]
+        .as_str()
+        .expect("the create response carries the token")
+        .to_owned();
+    let old_id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(5_000);
+    let rotated_at = fixture.now_ms();
+    let (status, rotated) = fixture.rotate_token(&session, &old_id).await;
+
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+    let plaintext = rotated["token"]
+        .as_str()
+        .expect("the rotate response carries the new token")
+        .to_owned();
+    let id = rotated["id"].as_str().expect("the new id").to_owned();
+    assert!(plaintext.starts_with("srm_"), "{plaintext}");
+    assert_eq!(plaintext.len(), 68, "srm_ plus 64 hex: {plaintext}");
+    assert_ne!(plaintext, old_plaintext, "a rotation mints a new secret");
+    assert_ne!(id, old_id, "a rotation mints a new id");
+    assert_eq!(rotated["name"], created["name"], "the name is kept");
+    assert_eq!(
+        rotated["device_id"], created["device_id"],
+        "the device is kept"
+    );
+    assert_eq!(rotated["tools"], created["tools"], "the tools are kept");
+    assert_eq!(
+        rotated["allow_destructive"], created["allow_destructive"],
+        "the destructive consent is kept"
+    );
+    assert_eq!(
+        rotated["created_at_ms"],
+        json!(rotated_at),
+        "the new record is created now"
+    );
+    assert!(
+        rotated.get("last_used_ms").is_none(),
+        "the new record has never been used: {rotated}"
+    );
+    let mut rotated_fields: Vec<&String> = rotated
+        .as_object()
+        .expect("the rotate answer is an object")
+        .keys()
+        .collect();
+    let mut created_fields: Vec<&String> = created
+        .as_object()
+        .expect("the create answer is an object")
+        .keys()
+        .collect();
+    rotated_fields.sort();
+    created_fields.sort();
+    assert_eq!(
+        rotated_fields, created_fields,
+        "rotation answers in the create shape"
+    );
+
+    let (status, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let list = list.as_array().expect("a list");
+    assert_eq!(
+        list.len(),
+        1,
+        "rotation replaced the record instead of adding one: {list:?}"
+    );
+    assert_eq!(list[0]["id"], json!(id));
+    assert!(
+        list[0].get("token").is_none() && list[0].get("hash").is_none(),
+        "the list stays metadata only: {}",
+        list[0]
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token(&device_id, &old_plaintext, ping_request()),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the old token is dead at once: {body}"
+    );
+    assert_eq!(body, json!({ "error": "unauthorized" }));
+
+    let request = json!({ "jsonrpc": "2.0", "id": 31, "method": "tools/list" });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        let grant: summrise_console::Grant =
+            serde_json::from_value(frame["grant"]["grant"].clone())
+                .expect("the frame carries a grant");
+        assert_eq!(
+            grant.tools,
+            vec!["files.read".to_owned(), "memory.search".to_owned()],
+            "the new token mints the same tools"
+        );
+        assert!(
+            grant.allow_destructive,
+            "the new token keeps the destructive consent"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "the new token works: {body}");
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the tokens file is readable");
+    let old_hash = hex_encode(&Sha256::digest(old_plaintext.as_bytes()));
+    let new_hash = hex_encode(&Sha256::digest(plaintext.as_bytes()));
+    assert!(
+        !on_disk.contains(&old_hash),
+        "the old hash is gone from the file: {on_disk}"
+    );
+    assert!(
+        on_disk.contains(&new_hash),
+        "the new hash is on disk: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains(&plaintext) && !on_disk.contains(&old_plaintext),
+        "the file never holds a secret: {on_disk}"
+    );
+    let records: Vec<Value> = serde_json::from_str(&on_disk).expect("the file is a JSON list");
+    assert_eq!(records.len(), 1, "one record after rotation: {records:?}");
+    assert_eq!(records[0]["id"], json!(id));
+
+    let audit = audit_text(&fixture);
+    assert!(
+        !audit.contains(&plaintext) && !audit.contains(&old_plaintext),
+        "no audit line carries either secret: {audit}"
+    );
+}
+
+/// A rotation reads as a creation and a revocation in the audit: the replacement's consent and the
+/// old record's withdrawal, both naming the device.
+#[tokio::test]
+async fn a_rotation_is_audited_as_a_creation_and_a_revocation() {
+    let fixture = Fixture::new("token-rotate-audit");
+    let (device_id, _token) = fixture.register(&signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.write"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    fixture.advance_ms(1_000);
+    let (status, rotated) = fixture.rotate_token(&session, &id).await;
+    assert_eq!(status, StatusCode::CREATED, "{rotated}");
+
+    let lines = audit_lines(&fixture);
+    let token_lines: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("token"))
+        .collect();
+    assert_eq!(
+        token_lines.len(),
+        2,
+        "the mint and the rotation are both creations: {lines:?}"
+    );
+    let replacement = token_lines[1];
+    assert_eq!(replacement["device_id"], json!(device_id));
+    assert_eq!(
+        replacement["detail"],
+        json!("allow_destructive=true"),
+        "the replacement's consent is recorded: {replacement}"
+    );
+    assert_eq!(replacement["status"], json!(201));
+
+    let revocations: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["kind"] == json!("token_revoke"))
+        .collect();
+    assert_eq!(
+        revocations.len(),
+        1,
+        "the old record is revoked in the same story: {lines:?}"
+    );
+    assert_eq!(revocations[0]["device_id"], json!(device_id));
+    assert_eq!(revocations[0]["detail"], json!("rotated"));
+    assert_eq!(revocations[0]["status"], json!(201));
+    assert!(
+        !audit_text(&fixture).contains("srm_"),
+        "the audit never carries the secret"
+    );
+}
+
+/// Rotating an id the console does not hold is the same typed 404 as revoking one.
+#[tokio::test]
+async fn rotating_an_unknown_token_is_404() {
+    let fixture = Fixture::new("token-rotate-404");
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture.rotate_token(&session, &"ee".repeat(32)).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body, json!({ "error": "no_such_token" }));
+}
+
 /// A token request reaches the device as a grant with exactly the token's tools and consent, a
 /// sixty-second life and the console's signature — the device verifies it as any grant.
 #[tokio::test]
@@ -4436,6 +4670,7 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     for request in [
         get("/tokens", None),
         post_json("/tokens", json!({})),
+        post_json(&format!("/tokens/{id}/rotate"), json!({})),
         delete(&format!("/tokens/{id}"), None),
     ] {
         let (status, _) = send(fixture.app(), request).await;

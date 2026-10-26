@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import type { AuditLine, Device } from "./api";
+import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import { shortId } from "./format";
 
@@ -9,7 +9,20 @@ import { shortId } from "./format";
  */
 export const AUDIT_WINDOW = 200;
 
-const EMPTY: AuditFilter = { device: "", tool: "", status: "all" };
+const EMPTY: AuditFilter = { device: "", token: "", tool: "", status: "all" };
+
+/**
+ * What to call one token in a cell or an option.
+ *
+ * The name is the operator's, and it is the thing they recognise; the id is what the console recorded
+ * and what the filter compares. So a name the list knows wins, and an id it does not (a revoked token,
+ * one created in another tab, or the whole list when `GET /tokens` failed) falls back to its short
+ * form, which still tells two tokens apart.
+ */
+function tokenLabel(id: string, names: ReadonlyMap<string, string>): string {
+  const name = names.get(id);
+  return name != null && name !== "" ? name : shortId(id);
+}
 
 /**
  * One key per line, stable across filtering and polling.
@@ -41,11 +54,34 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
   return keys;
 }
 
-export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: Device[] }) {
+export function AuditTable({
+  lines,
+  devices,
+  tokens
+}: {
+  lines: AuditLine[];
+  devices: Device[];
+  tokens: TokenMeta[];
+}) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const shown = useMemo(() => filterAudit(lines, filter), [lines, filter]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
+  const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
+
+  // Only the tokens that appear in the window the page holds: the control stays short, and an option
+  // always matches at least one line. Sorted by the label the operator reads rather than by id, so a
+  // poll that reorders the lines cannot reorder the options under their caret.
+  const tokenOptions = useMemo(() => {
+    const ids = new Set(
+      lines
+        .map((line) => line.token_id)
+        .filter((id): id is string => id != null && id !== "")
+    );
+    return Array.from(ids)
+      .map((id) => ({ id, label: tokenLabel(id, tokenNames) }))
+      .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+  }, [lines, tokenNames]);
 
   const fleet = new Set(devices.map((device) => device.id));
   const retired = Array.from(
@@ -56,7 +92,8 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
     )
   ).sort();
 
-  const hasFilter = filter.device !== "" || filter.tool.trim() !== "" || filter.status !== "all";
+  const hasFilter =
+    filter.device !== "" || filter.token !== "" || filter.tool.trim() !== "" || filter.status !== "all";
 
   const clear = () => {
     setFilter(EMPTY);
@@ -92,6 +129,20 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
             {retired.map((id) => (
               <option key={id} value={id}>
                 {shortId(id)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="audit-field">
+          <span>Token</span>
+          <select
+            value={filter.token}
+            onChange={(event) => setFilter({ ...filter, token: event.target.value })}
+          >
+            <option value="">All tokens</option>
+            {tokenOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -165,7 +216,15 @@ export function AuditTable({ lines, devices }: { lines: AuditLine[]; devices: De
                       <td className="mono">
                         {line.device_id ? shortId(line.device_id) : ""}
                       </td>
-                      <td className="mono">{line.token_id ? shortId(line.token_id) : "—"}</td>
+                      <td className="mono">
+                        {line.token_id ? (
+                          <span title={line.token_id}>
+                            {tokenLabel(line.token_id, tokenNames)}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="mono">
                         {line.tool ?? line.detail ?? ""}
                         {deviceError && (
