@@ -21,4 +21,3 @@ binary embeds it with `include_str!`, so a stale page still compiles and still s
 `console` job runs `npm ci`, `npm run typecheck`, `npm test` (vitest), `scripts/build-web.sh` and then
 fails on a bundle that is not the one this source builds. Run those commands before a page commit; the
 page's tests are real tests, not a build smoke.
-
