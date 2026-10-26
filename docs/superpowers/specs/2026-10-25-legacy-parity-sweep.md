@@ -1,13 +1,18 @@
 # Legacy panel → console: the parity gap sweep
 
 > **Status: audit, 2026-10-25.** Legacy: `summrise-legacy: agent/resources/panel-react/src/components`
-> (50 components + tests). Console: `device/console/web/src` (9 pages) over `device/core/src/registry.rs`
+> (50 components + tests). Console: `device/console/web/src` (10 pages) over `device/core/src/registry.rs`
 > (38 tools, 10 capabilities). Method: every legacy component's name and core interaction, then each
 > against the console page that would own it. Not every line, and no code changed.
 >
 > The 2026-10-25 iteration plan's "now" column is stale: terminal tabs and presets, monitors, runs and
-> memory edit/delete have shipped. What P1 still lacks is the connect dialog and the promise that a tab
-> survives page navigation.
+> memory edit/delete have shipped. At the time of the audit, P1 still lacked the connect dialog and the
+> promise that a tab survives page navigation; items 1 and 2 below closed both.
+
+> **Closed since, and what closed it.** Items 1–3 landed on 2026-10-25; items 4–9 landed together on
+> 2026-10-26, each with tests, and each item below names its commit. The same batch added the console
+> a CI job (`console`: typecheck, vitest, and a diff of the rebuilt `dist/index.html`), because the
+> page had no gate at all — a stale bundle compiled and shipped.
 
 ## Verdict
 
@@ -25,7 +30,7 @@ views without the data would be theater, and restoring the data is a new device 
 
 ## Worth doing now
 
-### 1. The console cannot open an SSH session — M
+### 1. The console cannot open an SSH session — M — closed 2026-10-25
 
 Legacy `ConnModal` + `ContextRail`'s new-session menu + `TerminalWorkspace` opened pty/ssh/serial, with
 a password or a private-key path, and saved presets prefilled the form.
@@ -39,7 +44,11 @@ by the tool and absent from the form. Serial presets do work; SSH presets always
 Close with: console only, existing `terminal.create` — one New-connection dialog (kind, host/user/port,
 key path or password, serial framing), credentials per open and never stored. M.
 
-### 2. Tabs do not survive a page change — M
+**Closed (`f7108be`).** `+ New` opens pty, ssh and serial; the dialog sends each kind only its own
+fields, the SSH form takes a password **or** a key path, serial gets its framing, and the credential
+lives in the form's state — never in a preset, a URL or storage.
+
+### 2. Tabs do not survive a page change — M — closed 2026-10-25
 
 Legacy `TerminalWorkspace` + `TabBar` kept every session's tab and cursor; the operator could open
 Settings and come back.
@@ -52,7 +61,10 @@ survive page navigation; it does not.
 Close with: console only — lift `tabs`/`active` to `App` (or keep the page mounted), re-attach by
 `terminal.list` on mount. M.
 
-### 3. A failed terminal is silent — S–M
+**Closed (`8829219`).** The workspace is rendered whichever page is showing and hidden rather than
+unmounted; a rail click no longer closes its tabs.
+
+### 3. A failed terminal is silent — S–M — closed 2026-10-25
 
 Legacy `TerminalWorkspace` showed "Connection lost — reconnecting…" when the stream dropped;
 `EvictedNotice` said when the device took a session away (cap or idle TTL).
@@ -64,7 +76,10 @@ the device's 30-minute idle close all look identical: a frozen terminal with no 
 Close with: console only — per-tab error state, a grant expiry/renew line, and a `terminal.list` probe
 on failure to tell "closed" from "unreachable". S–M.
 
-### 4. The browser can open a tab but never navigate or close one — S
+**Closed (`ea98ea4`).** A terminal that stops answering says which failure it was, in the tab, instead
+of freezing silently.
+
+### 4. The browser can open a tab but never navigate or close one — S — closed 2026-10-26
 
 Legacy `BrowserPage` had an address bar, back/forward/reload and a real view; `PluginsPage` could stop
 the browser.
@@ -75,7 +90,11 @@ page is stuck, and its URL placeholder says "opens or navigates" while it only o
 
 Close with: console + existing tools — navigate the selected target, close tab, stop browser. S.
 
-### 5. A render error blanks the console — S
+**Closed (`b28132c`).** The pane has **Navigate**, **Close tab** and **Stop browser**, and **Open new
+tab** says what it does; the placeholder no longer promises navigation the button did not perform.
+Lists and screenshots each keep their own newest-answer rule. Six tests.
+
+### 5. A render error blanks the console — S — closed 2026-10-26
 
 Legacy `ErrorBoundary` wrapped the app; a page crash showed "Something broke" + Reload.
 
@@ -84,7 +103,11 @@ whole control plane.
 
 Close with: console only, one wrapper. S.
 
-### 6. Audit cannot answer "what happened to this device" — M
+**Closed (`179ff00`).** `ErrorBoundary` wraps the root: a render throw now shows **Something broke**,
+the thrown message and a **Reload**, instead of a blank tab. Two tests, including that a healthy tree
+passes through untouched.
+
+### 6. Audit cannot answer "what happened to this device" — M — closed 2026-10-26
 
 Legacy `ArchivePage`/`ActivityPage` gave a bounded, paginated, filterable record with per-session trails.
 
@@ -95,7 +118,13 @@ paging and no detail. The index records the tool and outcome, not the call's arg
 Close with: console only — filter by device/tool/status, limit or paging, expandable detail (the server
 already supports the limit). A per-device activity view then becomes a filter, not a new store. M.
 
-### 7. Memory cannot be exported — S
+**Closed (`2c443a5`, caption precision `9188eda`).** The page loads 200 lines (the console caps at
+1000), filters them by device, tool/detail substring and outcome, opens a line for its ISO timestamp and
+full ids, and tells "nothing matches" apart from "nothing audited". Retired device ids stay selectable.
+Seven pure-filter tests and four table tests; the caption states what was loaded, not what the console
+might hold.
+
+### 7. Memory cannot be exported — S — closed 2026-10-26
 
 Legacy `MemoryPage` had Export (whole store as JSONL, copy) and "+ New".
 
@@ -105,7 +134,12 @@ Console lists/searches/edits/deletes, but has no export and no create, although 
 Close with: console + existing tools — Export now (show as text, copy/download, state the 2 MiB cut);
 New entry later. S.
 
-### 8. The device's screen cannot be looked at — S (not a legacy feature)
+**Closed (`56ac71c`).** **Export** shows the device's JSONL, states entries, bytes and whether the
+2 MiB cap cut it, and offers **Copy** (the whole answer) and **Download** (`summrise-memory-<date>.jsonl`,
+through a Blob, not a console route). A refusal opens no dialog. Six tests. **Memory create is still
+open** and stays on the later list.
+
+### 8. The device's screen cannot be looked at — S (not a legacy feature) — closed 2026-10-26
 
 The per-user helper was built and `screen.capture` is in the registry, but no console page calls it. The
 legacy panel had no remote screen; the current device does, and this is the one new operator capability
@@ -114,7 +148,11 @@ the console leaves on the floor.
 Close with: console + existing `screen.capture` — a Screen pane (capture, timestamp, download; show the
 helper's refusal sentence for locked/disconnected sessions). S.
 
-### 9. The destructive-consent checkbox is a dead end — S
+**Closed (`cc05e6a`).** The rail gains **Screen**; the page captures on demand, shows the PNG with its
+dimensions and moment, offers the file by name, and lands the device's refusal as a sentence. A failed
+capture clears the previous frame. Two tests.
+
+### 9. The destructive-consent checkbox is a dead end — S — closed 2026-10-26
 
 Legacy `ApprovalGate` armed a session and answered a waiting command.
 
@@ -124,6 +162,12 @@ fails. One control promises a policy the product cannot apply.
 
 Close with: decide now — remove the toggle (consent always granted, matching the default) or build the
 approvals card (later, M). S to remove; M to build.
+
+**Closed (`69ba5e8`) — the toggle stays, and the copy stops implying an approval flow.** A read-only
+grant is a real policy, and the device's refusal already carries the fix: it says the grant did not
+consent and asks for one minted with `allow_destructive=true`, while the audit records the attempt as
+an ask. Unticking now says that under the checkbox. No approvals queue is built: it is a new protocol,
+not a port.
 
 ## Worth doing later
 
