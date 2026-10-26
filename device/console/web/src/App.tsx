@@ -6,6 +6,7 @@ import { AuditTable } from "./AuditTable";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
+import { ConnectCard } from "./ConnectCard";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
@@ -25,6 +26,7 @@ export function App() {
   const [tokenInput, setTokenInput] = useState("");
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
+  const [connecting, setConnecting] = useState<Device | null>(null);
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
@@ -303,6 +305,7 @@ export function App() {
                         }}
                         onRemove={() => setRemoving(device)}
                         onDiagnostics={() => void copyDiagnostics(device)}
+                        onConnect={() => setConnecting(device)}
                       />
                     ))}
                   </div>
@@ -316,6 +319,7 @@ export function App() {
                       <h2>Working on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
                       <div className="actions">
                         <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
+                        <button type="button" onClick={() => setConnecting(chosen)}>Connect an AI client</button>
                       </div>
                     </div>
                     <p className="hint">
@@ -660,6 +664,10 @@ export function App() {
             <button type="button" className="primary" onClick={() => void applyRename()}>Save</button>
           </div>
         </Modal>
+      )}
+
+      {connecting && (
+        <ConnectCard device={connecting} onClose={() => setConnecting(null)} />
       )}
 
       {removing && (

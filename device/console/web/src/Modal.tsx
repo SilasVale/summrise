@@ -18,7 +18,7 @@ export function Modal({
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    ref.current?.querySelector<HTMLElement>("input, button")?.focus();
+    ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 

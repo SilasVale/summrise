@@ -23,9 +23,10 @@ type Props = {
   onRename: () => void;
   onRemove: () => void;
   onDiagnostics: () => void;
+  onConnect: () => void;
 };
 
-export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
+export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics, onConnect }: Props) {
   const behind = device.version !== null && newest !== null && device.version !== newest;
   // A readiness check is on demand: the page must not ask the broker about every device on every load.
   const [mesh, setMesh] = useState<MeshReadiness | null>(null);
@@ -92,6 +93,9 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
           }}
         >
           {checking ? "Checking…" : "Check mesh"}
+        </button>
+        <button type="button" onClick={onConnect} title="Hand an AI client an MCP endpoint and a grant">
+          AI client
         </button>
         <button type="button" onClick={onRename}>Rename</button>
         <button type="button" className="danger" onClick={onRemove}>Remove</button>

@@ -17,6 +17,10 @@ Accept: application/json, text/event-stream
 The path is the device id: 64 lowercase hex characters, the registered public key. The endpoint speaks
 MCP `2025-06-18`; it answers JSON (no SSE), and every request carries the grant — there is no session.
 
+The console page has the same flow without the curl: each device card has an **AI client** button,
+which mints a grant through the page's own session and shows the endpoint, the header and a DeepSeek
+Harness configuration. The steps below are for a script or an operator on a machine without the page.
+
 ## Mint a grant
 
 A grant is minted by the console and signed with its grant key. It names one device, the tools the
