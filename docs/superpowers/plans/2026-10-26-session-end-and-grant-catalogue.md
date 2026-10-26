@@ -31,7 +31,10 @@ everywhere and tested nowhere.
   that discovers the end sets that fault, and the next tick must send nothing.
 - `api.tools()` is one `call<{name:string}[]>("/tools")`; the grant form keeps its fallback on any
   failure and no longer imports `getToken` or calls `fetch`.
-- Task 3 is test-only. English. `npm run typecheck` 0; `cargo test -p summrise-device`; clippy/fmt;
+- Task 3 is test-only **except the defects its tests found**: `Modal`'s focus re-running on every
+  parent render (an inline `onClose` in the effect's deps) and `copyText` leaking/rejecting on a
+  throwing `execCommand` are fixed in the same task, with regression tests. No other production change.
+  English. `npm run typecheck` 0; `cargo test -p summrise-device`; clippy/fmt;
   `npm test`; `./scripts/build-web.sh` with its **exit code checked directly** (never piped), bundle
   committed.
 
@@ -124,6 +127,9 @@ Commit: `device+console: a tab learns that its session ended, and with what`.
 - Modify: `device/console/web/src/api.test.ts`
 - Modify: `device/console/web/src/GrantForm.tsx` (the mount effect)
 - Modify: `device/console/web/src/GrantForm.test.tsx`
+- Modify: `device/console/web/src/ConnectCard.tsx` and `ConnectCard.test.tsx` (the second raw
+  `/tools` fetch the plan missed; the same `api.tools()` swap and its first tests)
+- Modify: `device/console/web/src/App.test.tsx` (its hand-written `api` mock needs `tools`)
 
 **Interfaces:**
 - `api.tools: () => Promise<{name: string}[]>`; GET `/tools`, the token header the client already adds.
