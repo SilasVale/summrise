@@ -21,9 +21,12 @@ review's untested-page note; Runs and System are the last two pages without test
 - **The chip is console-only and has no new route.** `monitor.list {}` through `callTool` with the
   grant the console already holds; no browser notification this round (deferred and recorded), no
   permission prompt, no new dependency.
-- **Unknown is not zero.** A refused or failed list, a target with no `summary`, and "no targets" all
-  render nothing — the chip never claims "0 down" and never becomes an error banner in the top bar.
-  Only `summary.up_now === false` counts.
+- **Unknown is not zero.** A target with no `summary`, a non-array answer, and "no targets" never
+  produce a count; the chip never claims "0 down" and never becomes an error banner in the top bar.
+  Only `summary.up_now === false` counts. A failed refresh before any success renders nothing; after
+  one it keeps the last fact rather than flipping to an implied all-clear — losing a real "down" to a
+  transient error is worse than a fact one poll old, and the chip never becomes a reassurance it did
+  not read.
 - **One call at a time.** A busy guard skips a tick already in flight; the 20-second interval is
   cleared on unmount and restarted when the grant changes; no call without a grant.
 - **Clicking the chip keeps the grant and the device.** It only changes the page to Monitors.
@@ -33,8 +36,10 @@ review's untested-page note; Runs and System are the last two pages without test
 
 ## Review Focus
 
-1. **No false all-clear.** A refusal, a transport failure, a null summary or an empty list hides the
-   chip; only a target the device marked down produces it.
+1. **No false all-clear.** A null summary, a non-array answer or an empty list hides the chip, and a
+   refusal or transport failure never turns a down count into zero; only a target the device marked
+   down produces the chip, and a failed refresh leaves the last fact instead of inventing an "all
+   clear".
 2. **No pile-up.** A slow list does not overlap the next tick; the timer is cleared on unmount and on
    a grant change; a stale answer from an old grant never paints the new one.
 3. **The click is only navigation.** The grant and the selected device are untouched; the Monitors
