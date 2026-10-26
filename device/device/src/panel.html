@@ -141,6 +141,21 @@
   .enroll-status.ok { color: var(--ok); }
   .enroll-status.error { color: var(--error); }
 
+  /* The local MCP instructions: the config is the thing to copy, so it gets the free space and a
+     button, while the token itself is named by file and never printed. */
+  .config {
+    margin: 0.5rem 0 0.6rem; padding: 0.7rem 0.8rem; overflow-x: auto;
+    background: var(--surface-recessed); border: 1px solid var(--line); border-radius: 8px;
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.5; color: var(--ink);
+  }
+  #copy-local {
+    font: inherit; font-size: 0.85rem; font-weight: 600; padding: 0.35rem 0.8rem;
+    border-radius: 8px; border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  #copy-local.copied { border-color: var(--ok); color: var(--ok); }
+  code { font-family: var(--font-mono); font-size: 0.82rem; }
+
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
   @media (max-width: 40rem) {
@@ -198,6 +213,24 @@
     <button id="copy" type="button">Copy diagnostics</button>
   </header>
   <p class="lede">The device's own panel. Loopback only, no login: if you can read this, you are on the box.</p>
+
+  <section>
+    <h2>Use this machine</h2>
+    <p class="hint">
+      A client on this machine reaches the device's MCP endpoint with the install token. Nothing below
+      leaves the machine, and the token is not printed here: the page is served to anyone on loopback,
+      while the token file is protected to the service account and administrators. Read it yourself
+      and paste it into the config.
+    </p>
+    <dl id="local">
+      <dt>MCP endpoint</dt><dd id="local-endpoint" class="mono">…</dd>
+      <dt>Install token</dt><dd id="local-token-file" class="mono">…</dd>
+      <dt>Read it</dt><dd id="local-token-command" class="mono">…</dd>
+    </dl>
+    <pre class="config" id="local-config">…</pre>
+    <button id="copy-local" type="button">Copy local MCP config</button>
+    <p class="hint" id="local-copy-status" role="status"></p>
+  </section>
 
   <section>
     <h2>Build</h2>
@@ -259,6 +292,7 @@ async function refresh() {
   }
 
   latest = snapshot;
+  if (snapshot.data_dir) showLocal(snapshot.data_dir);
   const build = document.getElementById("build");
   build.replaceChildren();
   row(build, "Version", snapshot.version || "unknown");
@@ -438,6 +472,49 @@ async function enroll(event) {
 }
 
 document.getElementById("enroll-form").addEventListener("submit", enroll);
+
+// The local MCP instructions are facts the device can give: its port, its data directory, and the
+// token file's name. The token's value is deliberately absent; the operator reads the file.
+function localConfig(endpoint, tokenFile) {
+  return [
+    "# Local MCP (this machine)",
+    "- id: mcp-summrise-local",
+    "  name: '@deepseek-ai/dsh-mcp-client'",
+    "  config:",
+    "    serverName: summrise-local",
+    "    transport: streamable-http",
+    `    url: ${endpoint}`,
+    "    headers:",
+    `      Authorization: Bearer <contents of ${tokenFile}>`,
+  ].join("\n");
+}
+
+function showLocal(dataDir) {
+  const endpoint = location.origin + "/mcp";
+  const separator = dataDir.includes("\\") ? "\\" : "/";
+  const tokenFile = dataDir.replace(/[\\/]+$/, "") + separator + "token";
+  const command = separator === "\\" ? `Get-Content "${tokenFile}"` : `cat "${tokenFile}"`;
+  document.getElementById("local-endpoint").textContent = endpoint;
+  document.getElementById("local-token-file").textContent = tokenFile;
+  document.getElementById("local-token-command").textContent = command;
+  document.getElementById("local-config").textContent = localConfig(endpoint, tokenFile);
+}
+
+async function copyLocal() {
+  const button = document.getElementById("copy-local");
+  const status = document.getElementById("local-copy-status");
+  try {
+    await navigator.clipboard.writeText(document.getElementById("local-config").textContent);
+    status.textContent = "Config copied. Paste it into your MCP client and add the token.";
+    button.textContent = "Copied";
+    button.classList.add("copied");
+    setTimeout(() => { button.textContent = "Copy local MCP config"; button.classList.remove("copied"); }, 2000);
+  } catch (error) {
+    status.textContent = "The clipboard refused; select the config and copy it.";
+  }
+}
+
+document.getElementById("copy-local").addEventListener("click", copyLocal);
 
 refresh();
 setInterval(refresh, 2000);

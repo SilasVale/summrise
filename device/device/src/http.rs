@@ -307,6 +307,7 @@ async fn panel_snapshot(
         "sha256": app.release.sha256,
         "pid": std::process::id(),
         "state": state,
+        "data_dir": app.data.display().to_string(),
         "events": events,
         // The console link's own story. A device cannot report a failure while it is failing, so this
         // is the last attempt it knows about — and it is the one place that knows it: the panel, on the
@@ -1463,6 +1464,12 @@ mod tests {
             "enroll-plaintext",
             "enroll-submit",
             "enroll-status",
+            "local-endpoint",
+            "local-token-file",
+            "local-token-command",
+            "local-config",
+            "copy-local",
+            "local-copy-status",
         ] {
             assert!(
                 html.contains(&format!("id=\"{id}\"")),
@@ -1476,6 +1483,14 @@ mod tests {
         assert!(
             html.contains("x-summrise-panel"),
             "the page sends this boot's token in the header the endpoint requires"
+        );
+        assert!(
+            html.contains("Use this machine"),
+            "the panel explains the local MCP path"
+        );
+        assert!(
+            html.contains("Copy local MCP config"),
+            "the local config is copyable"
         );
         assert!(
             !html.contains("__PANEL_TOKEN__"),
@@ -1503,8 +1518,28 @@ mod tests {
             "the snapshot is the panel's JSON: {body}"
         );
         assert!(
+            body.contains("\"data_dir\""),
+            "the local section needs the data directory: {body}"
+        );
+        assert!(
             !body.contains(&token),
             "the token the HTML carries is not in the snapshot: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_panel_snapshot_never_carries_the_install_token() {
+        let token = token_hex();
+        let fixture = fixture("panel-snapshot-install-token", Some(&token));
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, body) = get_text(&client, &format!("{}/api/panel", server.base_url)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains(&token),
+            "the install token is the owner credential and is named by file, not printed: {body}"
         );
     }
 
