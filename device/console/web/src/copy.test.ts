@@ -14,7 +14,7 @@ const originals = {
 afterEach(() => {
   restoreGlobal(navigator, "clipboard", originals.clipboard);
   restoreGlobal(document, "execCommand", originals.execCommand);
-  // The failing-command test leaves the fallback's textarea behind; do not hand it to the next test.
+  // A test that fails mid-fallback must not leave its textarea in the document for the next one.
   document.querySelectorAll("textarea").forEach((area) => area.remove());
 });
 
@@ -83,10 +83,9 @@ describe("copyText", () => {
     expect(execCommand).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects when the fallback command itself throws, rather than claiming it copied", async () => {
-    // `copy.ts` does not wrap `execCommand` in a try/finally, so a throwing command rejects out of
-    // `copyText` (it does not answer false) and leaves its textarea in the document. The rejection is
-    // what callers must survive; the leaked textarea is reported as a defect, not pinned here.
+  it("answers false, not a rejection, when the fallback command itself throws", async () => {
+    // Some browsers throw instead of answering false; the caller has no catch, so the answer must
+    // stay a boolean and the temporary textarea must not survive the failed attempt.
     stubClipboard(async () => {
       throw new Error("NotAllowedError: the clipboard needs a permission");
     });
@@ -94,6 +93,8 @@ describe("copyText", () => {
       throw new Error("the browser blocked the command");
     });
 
-    await expect(copyText("x")).rejects.toThrow("the browser blocked the command");
+    await expect(copyText("x")).resolves.toBe(false);
+
+    expect(document.querySelector("textarea")).toBeNull();
   });
 });
