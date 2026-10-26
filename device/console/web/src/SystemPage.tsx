@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { message } from "./format";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
@@ -552,8 +553,4 @@ function listNote(rows: DeviceProcess[], filter: string): string {
 function where(host: string, port: number): string {
   const bare = host.replace(/^\[(.*)\]$/, "$1");
   return (bare.includes(":") ? `[${bare}]` : bare) + ":" + port;
-}
-
-function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

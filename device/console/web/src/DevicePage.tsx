@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Device } from "./api";
 import { DevicePicker } from "./DevicePicker";
 import { GrantForm } from "./GrantForm";
+import { shortId } from "./format";
 import type { Grant } from "./terminal";
 
 // The three states every device page repeats: pick a device, sign a grant for it, show the page. The
@@ -46,7 +47,7 @@ export function DevicePage({
     return (
       <section className="panel">
         <div className="panel-head">
-          <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
+          <h2>Grant what the console may do on {chosen.name ?? shortId(chosen.id)}</h2>
         </div>
         {grantHint && <p className="hint">{grantHint}</p>}
         <GrantForm deviceId={chosen.id} onGranted={(envelope) => onGrant(chosen.id, envelope)} />

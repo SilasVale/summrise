@@ -1,4 +1,5 @@
 import type { Device } from "./api";
+import { shortId } from "./format";
 
 /**
  * A device list for a page that needs one: the rail can be the first thing an operator clicks, and
@@ -13,7 +14,7 @@ export function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoos
       {devices.map((device) => (
         <li key={device.id}>
           <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} />
-          <strong>{device.name ?? device.id.slice(0, 12)}</strong>
+          <strong>{device.name ?? shortId(device.id)}</strong>
           {device.version && <span className="chip">{device.version}</span>}
           <button type="button" className="mini" onClick={() => onChoose(device.id)}>
             Use
