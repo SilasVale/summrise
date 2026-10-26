@@ -28,6 +28,7 @@ mod grants;
 mod hex;
 mod http;
 mod jsonl;
+mod mcp;
 mod setup;
 mod store;
 

@@ -160,6 +160,7 @@ deletes it as the receipt.
 | `/` | 302 to Cloudflare Access | the console is the operator's, not the internet's |
 | `/health` | 302 to Cloudflare Access | same: it names the build and the device count |
 | `/devices` | reaches the console, 401 without a session | the device channel uses this path and bypasses Access |
+| `/mcp/<device-id>` | its own Access application (`/mcp/*`, not the exact `/mcp`): bypass, or a service token; the console still requires the grant | the standard MCP endpoint an AI client uses; see `docs/CONNECT-MCP.md` |
 
 A monitor that needs an unauthenticated health check has to be added to the bypass application — that is a
 deliberate act, not an accident of the configuration.

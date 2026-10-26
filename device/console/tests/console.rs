@@ -3194,3 +3194,821 @@ async fn the_readiness_route_refuses_an_unregistered_device() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+// ---- the standard MCP endpoint -------------------------------------------------------------------
+
+/// Lowercase hex, as the grant header carries it.
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn standard_request(
+    device_id: &str,
+    authorization: Option<&str>,
+    content_type: Option<&str>,
+    accept: Option<&str>,
+    body: Body,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(format!("/mcp/{device_id}"));
+    if let Some(value) = authorization {
+        builder = builder.header(header::AUTHORIZATION, value);
+    }
+    if let Some(value) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, value);
+    }
+    if let Some(value) = accept {
+        builder = builder.header(header::ACCEPT, value);
+    }
+    builder.body(body).expect("the request builds")
+}
+
+/// One standard MCP request with the grant in the header and the JSON-RPC body the endpoint reads.
+fn post_standard(device_id: &str, grant: &Value, body: Value) -> Request<Body> {
+    let bytes = serde_json::to_vec(grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+    standard_request(
+        device_id,
+        Some(&authorization),
+        Some("application/json"),
+        Some("application/json, text/event-stream"),
+        Body::from(body.to_string()),
+    )
+}
+
+fn ping_request() -> Value {
+    json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })
+}
+
+async fn answer_error(socket: &mut DeviceSocket, frame: &Value, error: Value) {
+    let reply = json!({ "id": frame["id"].clone(), "error": error });
+    socket
+        .send(WsMessage::Text(reply.to_string()))
+        .await
+        .expect("the device answers");
+}
+
+#[tokio::test]
+async fn a_standard_client_initializes_with_a_grant() {
+    let fixture = Fixture::new("standard-initialize");
+    let (device_id, _token) = fixture.register(&signing_key(0xd1)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": { "name": "test", "version": "0" },
+                },
+            }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["protocolVersion"], json!("2025-06-18"));
+    assert_eq!(
+        body["result"]["serverInfo"]["name"],
+        json!("summrise-console")
+    );
+    assert_eq!(
+        body["result"]["serverInfo"]["version"],
+        json!(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(
+        body["result"]["capabilities"]["tools"]["listChanged"],
+        json!(false)
+    );
+    assert!(
+        body["result"]["instructions"]
+            .as_str()
+            .expect("instructions")
+            .contains(device_id.as_str()),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_initialize_is_not_an_audited_action() {
+    let fixture = Fixture::new("standard-initialize-audit");
+    let (device_id, _token) = fixture.register(&signing_key(0xd4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let before = audit_lines(&fixture).len();
+
+    let (status, _) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        before,
+        "initialize is a local transport fact, not an operator action"
+    );
+}
+
+#[tokio::test]
+async fn an_initialized_notification_is_accepted_without_a_device_frame() {
+    let fixture = Fixture::new("standard-initialized");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body, Value::Null);
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a notification must not reach the device");
+}
+
+#[tokio::test]
+async fn a_missing_or_malformed_grant_is_unauthorized_and_denied() {
+    let fixture = Fixture::new("standard-unauthorized");
+    let (device_id, _token) = fixture.register(&signing_key(0xd3)).await;
+
+    for authorization in [None, Some("Bearer zz"), Some("Basic abcd")] {
+        let (status, body) = send(
+            fixture.app(),
+            standard_request(
+                &device_id,
+                authorization,
+                Some("application/json"),
+                Some("application/json"),
+                Body::from(ping_request().to_string()),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}: {body}"
+        );
+        assert_eq!(body["error"], json!("unauthorized"));
+    }
+
+    let denials = denial_lines(&fixture);
+    assert_eq!(denials.len(), 3, "{denials:?}");
+    assert!(denials.iter().all(|line| line["kind"] == json!("denied")));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().all(|line| line["kind"] != json!("denied")),
+        "a missing credential is a denial, not an audited action: {audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_device_without_a_grant_is_unauthorized_not_not_found() {
+    let fixture = Fixture::new("standard-unknown-unauthenticated");
+    let unknown = "ab".repeat(32);
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &unknown,
+            None,
+            Some("application/json"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(
+        body["error"],
+        json!("unauthorized"),
+        "the route must not confirm which ids are registered"
+    );
+}
+
+#[tokio::test]
+async fn a_valid_grant_for_a_removed_device_is_not_found_and_audited() {
+    let fixture = Fixture::new("standard-removed-device");
+    let (device_id, _token) = fixture.register(&signing_key(0xd5)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/fleet/{device_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {session}"))
+            .body(Body::empty())
+            .expect("the request builds"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, ping_request()),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(
+            |line| line["kind"] == json!("denied") && line["detail"] == json!("unknown_device")
+        ),
+        "the caller held a valid grant, so the missing device is an audited action: {audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_bad_expired_or_mismatched_grant_is_forbidden_and_denied() {
+    let fixture = Fixture::new("standard-grant-refusals");
+    let (device_a, _token_a) = fixture.register(&signing_key(0xd6)).await;
+    let (device_b, _token_b) = fixture.register(&signing_key(0xd7)).await;
+    let session = fixture.authenticate().await;
+    let grant_a = fixture.create_grant(&session, &device_a, 60).await;
+    let grant_b = fixture.create_grant(&session, &device_b, 60).await;
+
+    let mut tampered = grant_a.clone();
+    tampered["signature"] = json!("00".repeat(64));
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &tampered, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("invalid_grant_signature"));
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &grant_b, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("grant_device_mismatch"));
+
+    fixture.advance_ms(61_000);
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(&device_a, &grant_a, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], json!("grant_expired"));
+
+    let denials = denial_lines(&fixture);
+    for code in [
+        "invalid_grant_signature",
+        "grant_device_mismatch",
+        "grant_expired",
+    ] {
+        assert!(
+            denials.iter().any(|line| line["detail"] == json!(code)),
+            "{code} is missing from {denials:?}"
+        );
+    }
+    let audit = audit_lines(&fixture);
+    for code in [
+        "invalid_grant_signature",
+        "grant_device_mismatch",
+        "grant_expired",
+    ] {
+        assert!(
+            audit.iter().all(|line| line["detail"] != json!(code)),
+            "{code} must not be in the audit: {audit:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn tools_list_is_filtered_to_the_grants_tools() {
+    let fixture = Fixture::new("standard-tools-list");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd8)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": { "tools": [
+            { "name": "files.read", "description": "read" },
+            { "name": "files.write", "description": "write" },
+        ]},
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["tools"],
+        json!([{ "name": "files.read", "description": "read" }])
+    );
+}
+
+#[tokio::test]
+async fn a_tool_call_round_trips_through_the_channel() {
+    let fixture = Fixture::new("standard-tool-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": { "content": [{ "type": "text", "text": "hello" }] },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, response);
+}
+
+#[tokio::test]
+async fn a_tool_outside_the_grant_is_refused_and_the_device_sees_nothing() {
+    let fixture = Fixture::new("standard-tool-denied");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": { "name": "files.write", "arguments": { "path": "denied" } },
+    });
+
+    let (status, body) = send(fixture.app(), post_standard(&device_id, &grant, request)).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .expect("a message")
+            .contains("not permitted"),
+        "{body}"
+    );
+    let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
+    assert!(frame.is_err(), "a refused call must not reach the device");
+
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["tool"] == json!("files.write")
+            && line["detail"] == json!("tool_not_permitted")),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_device_error_envelope_is_a_json_rpc_answer_at_http_200() {
+    let fixture = Fixture::new("standard-device-error");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let error = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "error": { "code": -32000, "message": "the device said no" },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer_error(&mut device, &frame, error.clone()).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body, error,
+        "a JSON-RPC error is an answer, not a transport failure"
+    );
+}
+
+#[tokio::test]
+async fn a_standard_call_is_one_audit_line_without_its_payload() {
+    let fixture = Fixture::new("standard-audit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdc)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let marker = "marker-standard-audit-7f3a";
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": marker } },
+    });
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "result": { "content": [{ "type": "text", "text": "ok" }] },
+    });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(&mut device, &frame, response.clone()).await;
+    };
+    let ((status, _body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK);
+
+    let audit = audit_lines(&fixture);
+    let rows: Vec<_> = audit
+        .iter()
+        .filter(|line| line["kind"] == json!("mcp") && line["tool"] == json!("files.read"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{audit:?}");
+    let text = fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit file");
+    assert!(
+        !text.contains(marker),
+        "the audit must not carry the argument"
+    );
+}
+
+#[tokio::test]
+async fn a_wrong_content_type_is_refused() {
+    let fixture = Fixture::new("standard-content-type");
+    let (device_id, _token) = fixture.register(&signing_key(0xdd)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("text/plain"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+    assert_eq!(body["error"], json!("unsupported_media_type"));
+
+    // The media type is checked before the credential: without a grant the answer is still 415,
+    // and no denial is written for a request that never presented one.
+    let (status, _) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            None,
+            Some("text/plain"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(denial_lines(&fixture).is_empty());
+}
+
+#[tokio::test]
+async fn a_get_on_the_standard_endpoint_is_method_not_allowed() {
+    let fixture = Fixture::new("standard-get");
+    let (device_id, _token) = fixture.register(&signing_key(0xe5)).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        Request::builder()
+            .method("GET")
+            .uri(format!("/mcp/{device_id}"))
+            .header(header::ACCEPT, "text/event-stream")
+            .body(Body::empty())
+            .expect("the request builds"),
+    )
+    .await;
+
+    // The official client opens a standalone SSE stream after initialize and tolerates this; the
+    // endpoint has nothing to say on such a stream.
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn an_accept_header_without_json_is_not_acceptable() {
+    let fixture = Fixture::new("standard-accept");
+    let (device_id, _token) = fixture.register(&signing_key(0xde)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("text/event-stream"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_ACCEPTABLE, "{body}");
+    assert_eq!(body["error"], json!("not_acceptable"));
+}
+
+#[tokio::test]
+async fn a_malformed_body_is_a_parse_error() {
+    let fixture = Fixture::new("standard-parse-error");
+    let (device_id, _token) = fixture.register(&signing_key(0xdf)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from("{"),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32700));
+    assert_eq!(body["id"], Value::Null);
+}
+
+#[tokio::test]
+async fn a_batch_is_an_invalid_request() {
+    let fixture = Fixture::new("standard-batch");
+    let (device_id, _token) = fixture.register(&signing_key(0xe0)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+
+    let (status, body) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from("[]"),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32600));
+}
+
+#[tokio::test]
+async fn an_unknown_method_is_method_not_found() {
+    let fixture = Fixture::new("standard-unknown-method");
+    let (device_id, _token) = fixture.register(&signing_key(0xe1)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32601));
+    assert_eq!(body["id"], json!(5));
+}
+
+#[tokio::test]
+async fn a_body_over_the_cap_is_refused() {
+    let fixture = Fixture::new("standard-body-cap");
+    let (device_id, _token) = fixture.register(&signing_key(0xe2)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let bytes = serde_json::to_vec(&grant).expect("the grant serializes");
+    let authorization = format!("Bearer {}", hex_encode(&bytes));
+    let body = Body::from(vec![b' '; 9 * 1024 * 1024]);
+
+    let (status, answer) = send(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some(&authorization),
+            Some("application/json"),
+            Some("application/json"),
+            body,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{answer}");
+    assert_eq!(answer["error"], json!("payload_too_large"));
+}
+
+#[tokio::test]
+async fn an_offline_device_is_a_retryable_503() {
+    let fixture = Fixture::new("standard-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xe3)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"));
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["detail"] == json!("device reconnecting")),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_tool_call_without_a_name_is_a_json_rpc_error_at_http_200() {
+    let fixture = Fixture::new("standard-invalid-tool-call");
+    let (device_id, _token) = fixture.register(&signing_key(0xe4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {} }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32602));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit
+            .iter()
+            .any(|line| line["kind"] == json!("denied")
+                && line["detail"] == json!("invalid_tool_call")),
+        "{audit:?}"
+    );
+}
+
+/// The manual canary for the design's real-client claim.
+///
+/// It is `#[ignore]`d because it waits for a process outside this test (an official MCP client) and
+/// prints the endpoint and a short-lived grant for that process to use. Run it with
+/// `--ignored --nocapture`, copy the two `CANARY ...` lines, point the client at them, then stop the
+/// test. CI's `cargo test` skips it.
+#[tokio::test]
+#[ignore = "manual canary: waits for an external MCP client"]
+async fn the_official_mcp_client_can_connect() {
+    let fixture = Fixture::new("official-client-canary");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf0)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture
+        .create_grant_with_tools(&session, &device_id, &["files.read"], 300)
+        .await;
+    let grant_hex = hex_encode(&serde_json::to_vec(&grant).expect("the grant serializes"));
+
+    println!(
+        "CANARY URL http://127.0.0.1:{}/mcp/{device_id}",
+        server.addr.port()
+    );
+    println!("CANARY GRANT {grant_hex}");
+
+    let deadline = tokio::time::sleep(Duration::from_secs(120));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => break,
+            message = device.next() => {
+                let Some(Ok(WsMessage::Text(text))) = message else { break };
+                let frame: Value = serde_json::from_str(&text).expect("a device frame");
+                let id = frame["mcp"]["id"].clone();
+                let result = match frame["mcp"]["method"].as_str() {
+                    Some("tools/list") => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "tools": [{
+                            "name": "files.read",
+                            "description": "Read a file.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": { "path": { "type": "string" } },
+                                "required": ["path"],
+                            },
+                        }]},
+                    }),
+                    Some("tools/call") => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "content": [{ "type": "text", "text": "canary-ok" }] },
+                    }),
+                    _ => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32601, "message": "method not found" },
+                    }),
+                };
+                let reply = json!({ "id": frame["id"].clone(), "result": result });
+                device
+                    .send(WsMessage::Text(reply.to_string()))
+                    .await
+                    .expect("the canary device answers");
+            }
+        }
+    }
+}
