@@ -1,23 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, getToken } from "./api";
-
-// The device's tool catalogue, as the grant form offers it. It is duplicated here rather than fetched
-// because a grant is what asks the device anything, so there is nothing to ask before one exists.
-// Fallback only: the console serves the registry at /tools, and this copy exists so a failed request
-// leaves a usable form rather than an empty one. The order is `device/core/src/registry.rs`'s, so a
-// diff against the registry is readable.
-export const TOOL_NAMES = [
-  "files.read", "files.write", "files.mkdir", "files.list",
-  "memory.append", "memory.update", "memory.delete", "memory.search", "memory.list", "memory.export",
-  "terminal.create", "terminal.write", "terminal.read", "terminal.resize", "terminal.close", "terminal.list", "terminal.screen",
-  "browser.list", "browser.open", "browser.navigate", "browser.eval", "browser.screenshot", "browser.close", "browser.shutdown",
-  "monitor.add", "monitor.remove", "monitor.list", "monitor.probe", "monitor.status",
-  "runs.exec", "runs.list", "runs.get",
-  "system.process_list", "system.process_kill", "system.net_test",
-  "host.facts",
-  "screen.capture",
-  "state.get"
-];
+import { api } from "./api";
+import { TOOL_NAMES, useToolNames } from "./useToolNames";
 
 export function GrantForm({
   deviceId,
@@ -28,31 +11,19 @@ export function GrantForm({
 }) {
   // Everything selected to begin with: the operator is the only user, the grant expires, and a
   // half-selected list is the reason a first attempt fails with "tool not permitted".
-  const [names, setNames] = useState<string[]>(TOOL_NAMES);
+  const names = useToolNames();
   const [chosen, setChosen] = useState<Set<string>>(new Set(TOOL_NAMES));
   const [lifetime, setLifetime] = useState(3600);
   const [destructive, setDestructive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The registry is the list. A copy in the page drifted once and offered a tool that does not exist.
+  // The fallback list is already the initial selection. When the served catalogue replaces it,
+  // everything it offers starts selected too; a failed or empty answer leaves the list unchanged, so
+  // it leaves the operator's selection alone.
   useEffect(() => {
-    let live = true;
-    fetch("/tools", { headers: { authorization: `Bearer ${getToken()}` } })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
-      .then((tools: { name: string }[]) => {
-        if (!live || tools.length === 0) return;
-        const list = tools.map((tool) => tool.name);
-        setNames(list);
-        setChosen(new Set(list));
-      })
-      .catch(() => {
-        /* keep the fallback */
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
+    setChosen(new Set(names));
+  }, [names]);
 
   const toggle = (name: string) => {
     const next = new Set(chosen);

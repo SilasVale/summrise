@@ -1249,9 +1249,9 @@ mod tests {
         let mut cursor = 0;
         let mut text = String::new();
         while std::time::Instant::now() < deadline {
-            let (bytes, next) = registry.read(&id, cursor).expect("a live session reads");
-            text.push_str(&String::from_utf8_lossy(&bytes));
-            cursor = next;
+            let answer = registry.read(&id, cursor).expect("a live session reads");
+            text.push_str(&String::from_utf8_lossy(&answer.data));
+            cursor = answer.cursor;
             if text.contains("REGISTRY-MARK") {
                 break;
             }

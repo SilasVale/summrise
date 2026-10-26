@@ -1,21 +1,21 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GrantForm, TOOL_NAMES } from "./GrantForm";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GrantForm } from "./GrantForm";
+import { TOOL_NAMES } from "./useToolNames";
 
-// The form is the console's only mint, and the HTTP client behind it has its own test. So `grant` is
-// a mock and the token is a constant here; everything else in `./api` stays real (importOriginal),
-// and `TOOL_NAMES` is the component's own export — the fallback list is one of the subjects.
+// The form is the console's only mint, and the HTTP client behind it has its own test. So `grant` and
+// the catalogue `tools` are mocks; everything else in `./api` stays real (importOriginal), and
+// `TOOL_NAMES` is the fallback the hook starts from — the fallback list is one of the subjects.
 const mocks = vi.hoisted(() => ({
   grant: vi.fn(),
-  getToken: vi.fn()
+  tools: vi.fn()
 }));
 
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
   return {
     ...actual,
-    api: { ...actual.api, grant: mocks.grant },
-    getToken: mocks.getToken
+    api: { ...actual.api, grant: mocks.grant, tools: mocks.tools }
   };
 });
 
@@ -35,14 +35,12 @@ const ENVELOPE = { grant: { jti: "grant-1" }, signature: "signature" };
 
 /// Answer `/tools` with the two-tool catalogue the grant tests count on.
 function serveTools() {
-  const fetchMock = vi.fn(async () => ({ ok: true, json: async () => SERVED }));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
+  mocks.tools.mockResolvedValue(SERVED);
 }
 
 /// Leave `/tools` unanswered for the whole test: the form has only the fallback to offer.
 function leaveToolsUnanswered() {
-  vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+  mocks.tools.mockImplementation(() => new Promise(() => {}));
 }
 
 /// Let a settled `/tools` request reach the effect and React flush the form it leaves behind.
@@ -66,17 +64,12 @@ function toolNames() {
 
 describe("GrantForm", () => {
   beforeEach(() => {
-    mocks.getToken.mockReturnValue("token");
     mocks.grant.mockResolvedValue(ENVELOPE);
-    // The form fetches the registry on mount; a stable two-tool answer keeps the checkbox under test
-    // from moving when the request settles. Tests about `/tools` replace this stub before rendering.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve({ ok: true, json: async () => TOOLS }))
-    );
+    // The form asks the client for the registry on mount; a stable two-tool answer keeps the checkbox
+    // under test from moving when the request settles. Tests about `/tools` replace this stub before
+    // rendering.
+    mocks.tools.mockResolvedValue(TOOLS);
   });
-
-  afterEach(() => vi.unstubAllGlobals());
 
   it("states the policy when destructive consent is unticked, and hides it when ticked", async () => {
     renderForm();
@@ -113,40 +106,19 @@ describe("GrantForm", () => {
     expect(screen.getByText("Tools (38 of 38)")).toBeInTheDocument();
   });
 
-  it("takes the served catalogue over the fallback, all selected, with the token on the request", async () => {
-    const fetchMock = serveTools();
+  it("takes the served catalogue over the fallback, all selected", async () => {
+    serveTools();
     renderForm();
 
     expect(await screen.findByText("Tools (2 of 2)")).toBeInTheDocument();
     expect(toolNames()).toEqual(["terminal.create", "screen.capture"]);
     toolCheckboxes().forEach((box) => expect(box).toBeChecked());
     expect(screen.queryByRole("checkbox", { name: "files.read" })).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/tools", {
-      headers: { authorization: "Bearer token" }
-    });
+    expect(mocks.tools).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the fallback usable when the catalogue request fails", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("offline")))
-    );
-    renderForm();
-    await settle();
-
-    expect(toolNames()).toEqual(TOOL_NAMES);
-    toolCheckboxes().forEach((box) => expect(box).toBeChecked());
-    expect(screen.getByText("Tools (38 of 38)")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "host.facts" }));
-    expect(screen.getByText("Tools (37 of 38)")).toBeInTheDocument();
-  });
-
-  it("keeps the fallback usable when the catalogue answers 500", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: false, status: 500 }))
-    );
+    mocks.tools.mockRejectedValue(new Error("offline"));
     renderForm();
     await settle();
 

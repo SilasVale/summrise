@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
@@ -15,10 +15,10 @@ const mocks = vi.hoisted(() => ({
   enroll: vi.fn(),
   rename: vi.fn(),
   remove: vi.fn(),
+  tools: vi.fn(),
   grant: vi.fn(),
   meshReadiness: vi.fn(),
-  setToken: vi.fn(),
-  getToken: vi.fn(() => "")
+  setToken: vi.fn()
 }));
 
 vi.mock("./api", () => ({
@@ -32,11 +32,11 @@ vi.mock("./api", () => ({
     enroll: mocks.enroll,
     rename: mocks.rename,
     remove: mocks.remove,
+    tools: mocks.tools,
     grant: mocks.grant
   },
   meshReadiness: mocks.meshReadiness,
   setToken: mocks.setToken,
-  getToken: mocks.getToken,
   HttpError: class HttpError extends Error {
     constructor(
       readonly status: number,
@@ -101,13 +101,9 @@ beforeEach(() => {
   mocks.rename.mockResolvedValue({ id: workshop.id, name: workshop.name });
   mocks.remove.mockResolvedValue(undefined);
   mocks.grant.mockResolvedValue({ grant: {}, signature: "signature" });
-  mocks.getToken.mockReturnValue("fresh-token");
-  // The grant form asks the console for the tool registry; that request is not this test's subject.
-  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
+  // The grant form asks the client for the tool registry; that request is not this test's subject,
+  // so the client's answer fails and the form keeps its fallback list.
+  mocks.tools.mockRejectedValue(new TypeError("Failed to fetch"));
 });
 
 /** Render the page and wait for the signed-out boot to settle on the login form. */

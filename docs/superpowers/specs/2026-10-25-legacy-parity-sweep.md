@@ -189,9 +189,12 @@ What remains:
   xterm project's own addon, bundled at build time) searches the tab's own scrollback with highlighted
   matches, a miss sentence and Escape from anywhere in the bar. The workspace has rename, export, a
   font size and search.
-- **Liveness/exit-code mark and hide** need data the device does not report: `terminal.list` is
-  discovery only (`id`, `kind`, `started_at_ms`). The fault chip is the liveness the console has; a
-  per-tab exit code is a device change.
+- **Liveness/exit-code — mark is closed 2026-10-26 (`d3398f6`); hide is deliberately not built.**
+  `terminal.read` now answers `alive`, `exit_code` and `signal`; the tab appends its last bytes, marks
+  itself `· ended` with the exit or signal sentence, and stops reading. The tab is never auto-hidden:
+  the retained output is the reason to keep it, and closing stays the operator's act. A signal death
+  is reported in `portable-pty`'s public wording (e.g. `Killed`), because 0.8.1 exposes no `signal()`
+  accessor; a serial or SSH end has no child facts and says only that it ended.
 - **Monitor alerts — the chip is closed 2026-10-26 (`7606b5d`); notifications remain.** The top bar
   reads the chosen device's `monitor.list` every 20 seconds and shows `<n> monitors down` from every
   page; clicking it opens Monitors with the same grant. It never shows a count it did not read, keeps

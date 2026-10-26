@@ -9,7 +9,7 @@ import { restoreGlobal } from "./test/dom";
 /// because that is what the operator's screen shows, and the loaded addons are how a tab proves the
 /// search addon belongs to its own terminal.
 const mockedXterm = vi.hoisted(() => ({
-  instances: [] as { options: Record<string, unknown>; loadAddon: Mock }[]
+  instances: [] as { options: Record<string, unknown>; loadAddon: Mock; write: Mock }[]
 }));
 
 /// The fit addons, in creation order: a font change refits each xterm into the host it already has.
@@ -481,6 +481,116 @@ describe("TerminalWorkspace text size", () => {
     } finally {
       restoreGlobal(window, "localStorage", descriptor);
     }
+  });
+});
+
+describe("TerminalWorkspace session end", () => {
+  /**
+   * Answer the workspace's terminal calls, serving `answer` to every read.
+   *
+   * Returns the read count: a tab that discovered its session ended must stop asking, and the
+   * count is how a test sees that.
+   */
+  function serveRead(answer: Record<string, unknown>): () => number {
+    let reads = 0;
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        reads += 1;
+        return JSON.stringify(answer);
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    return () => reads;
+  }
+
+  it("marks the tab ended with the exit code and asks no further", async () => {
+    const readCount = serveRead({
+      data: "bye\n",
+      cursor: 4,
+      alive: false,
+      exit_code: 7,
+      signal: null
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The session ended with exit code 7. The output above is what it printed."
+    );
+    // The last bytes are written before the tab is marked, and the output stays on screen.
+    await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
+    expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("bye\n");
+    // One mark: the suffix ends the label, and the old "closed" chip is not drawn beside it.
+    expect(tab).toHaveTextContent(/^pty 1 · ended$/);
+    expect(within(tab).queryByText("closed")).not.toBeInTheDocument();
+
+    // The read that discovered the end sets `closed`; the next 250 ms tick must send nothing.
+    const before = readCount();
+    expect(before).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(readCount()).toBe(before);
+  });
+
+  it("leaves a tab alone when the device does not say whether it is alive", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+
+    // The default answer is the older device's `{data, cursor}`; it must not mark the tab.
+    await waitFor(() => expect(reads()).toBeGreaterThan(0), { timeout: 2_000 });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(tab).not.toHaveTextContent("ended");
+  });
+
+  it("says which signal ended the session", async () => {
+    serveRead({ data: "", cursor: 0, alive: false, exit_code: null, signal: "SIGTERM" });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The session ended on signal SIGTERM. The output above is what it printed."
+    );
+  });
+
+  it("says only that the session ended when the device knows neither fact", async () => {
+    serveRead({ data: "", cursor: 0, alive: false, exit_code: null, signal: null });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The session ended. The output above is what it printed."
+    );
+  });
+
+  it("clears a read fault on a live answer that says alive", async () => {
+    let attempts = 0;
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.read") {
+        attempts += 1;
+        if (attempts <= 2) throw new ToolError("Failed to fetch", 0);
+        return JSON.stringify({ data: "", cursor: 0, alive: true, exit_code: null, signal: null });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Failed to fetch");
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument(), {
+      timeout: 3_000
+    });
   });
 });
 
