@@ -4,7 +4,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
+import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
+import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import { api, type SavedConnection } from "./api";
+import { downloadFile } from "./download";
 import { Modal } from "./Modal";
 
 /**
@@ -18,13 +21,6 @@ import { Modal } from "./Modal";
  * Each tab polls only while it is the active one — a hidden tab's output is still there when it is
  * selected again, because the device retains it and the tab reads from its own cursor.
  */
-type Tab = {
-  key: string;
-  session: string;
-  kind: string;
-  title: string;
-};
-
 type Instance = {
   term: Terminal;
   fit: FitAddon;
@@ -124,6 +120,11 @@ function terminalTheme() {
 
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
+function safeSession(session: string): string {
+  return session.replace(/[^A-Za-z0-9._-]+/g, "_") || "session";
 }
 
 /**
@@ -245,6 +246,7 @@ export function TerminalWorkspace({
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
   const [presets, setPresets] = useState<SavedConnection[]>([]);
   const [connect, setConnect] = useState<Connect | null>(null);
+  const [renaming, setRenaming] = useState<{ key: string; title: string; error: string | null } | null>(null);
   const [presetDialog, setPresetDialog] = useState(false);
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
   const [presetError, setPresetError] = useState<string | null>(null);
@@ -336,20 +338,25 @@ export function TerminalWorkspace({
             kind: "closed",
             sentence: reason
               ? `The device closed this session: ${reason}.${note}`
-              : `The device closed this session: it no longer lists ${tab.session}.${note}`
+              : `The device closed this session: it no longer lists ${tab.session}. The device closes a session after 30 minutes with no reads, writes or resizes.${note}`
           });
           return;
         }
-        // The device still has the session, so one call failed. A read whose cursor it cannot serve
-        // is recovered by taking the retained output from the start on the next poll.
-        if (source === "read") cursors.current.set(tab.key, 0);
+        // The device still has the session, so one call failed. Only a cursor it refused as older
+        // than the ring moves, to the earliest byte it still has; a transient failure leaves the
+        // cursor where it was, so output the terminal already shows is never replayed.
+        const earliest = source === "read" ? earliestCursor(messageOf(cause)) : null;
+        if (earliest !== null) cursors.current.set(tab.key, earliest);
         setFault(
           tab.key,
           source === "write"
             ? { kind: "write", sentence: `Your keystrokes were not sent: ${messageOf(cause)}.` }
             : {
                 kind: "read",
-                sentence: `Reading this session failed: ${messageOf(cause)}. The tab takes the retained output again.`
+                sentence:
+                  earliest !== null
+                    ? `Reading this session failed: ${messageOf(cause)}. The tab continues from the earliest output the device retains.`
+                    : `Reading this session failed: ${messageOf(cause)}. The tab keeps its place and tries again.`
               }
         );
       } catch (probeCause) {
@@ -390,6 +397,14 @@ export function TerminalWorkspace({
       }
       const detail = messageOf(cause);
       const note = source === "write" ? " Your keystrokes were not sent." : "";
+      // A read refused because its cursor fell behind the ring can recover by itself: move to the
+      // earliest byte the device still has before the existing-fault branch below, which only
+      // updates the sentence. Without this, a tab already showing a read fault keeps retrying the
+      // refused cursor until the operator presses Try again.
+      if (source === "read") {
+        const earliest = earliestCursor(detail);
+        if (earliest !== null) cursors.current.set(tab.key, earliest);
+      }
       if (current) {
         if (current.kind === "unreachable") {
           setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(cause) + note });
@@ -560,12 +575,21 @@ export function TerminalWorkspace({
     []
   );
 
-  /** Open one session and add its tab. Returns the device's sentence on failure, null on success. */
-  const openWith = async (args: Record<string, unknown>, title: string): Promise<string | null> => {
+  /**
+   * Open one session and add its tab. Returns the device's sentence on failure, null on success.
+   *
+   * `title` is what the operator named the session (a preset's name); null means a generated label.
+   * The label is chosen inside the updater so two opens in one render cannot pick the same number.
+   */
+  const openWith = async (args: Record<string, unknown>, title: string | null): Promise<string | null> => {
     try {
       const answer = JSON.parse(await callTool(grantRef.current, "terminal.create", args));
       const session = answer.id as string;
-      setTabs((previous) => [...previous, { key: session, session, kind: String(args.kind), title }]);
+      const kind = String(args.kind);
+      setTabs((previous) => [
+        ...previous,
+        { key: session, session, kind, title: title ?? nextTabTitle(kind, previous) }
+      ]);
       setActive(session);
       setStatus(`Session ${session} is open.`);
       return null;
@@ -594,8 +618,7 @@ export function TerminalWorkspace({
       return;
     }
     setConnect({ ...connect, busy: true, error: null });
-    const title = connect.name ?? `${connect.draft.kind} ${tabs.length + 1}`;
-    const failure = await openWith(built.args, title);
+    const failure = await openWith(built.args, connect.name);
     if (failure === null) setConnect(null);
     else setConnect({ ...connect, busy: false, error: failure });
   };
@@ -669,7 +692,7 @@ export function TerminalWorkspace({
       setActive(session);
       return;
     }
-    setTabs((previous) => [...previous, { key: session, session, kind, title: `${kind} ${previous.length + 1}` }]);
+    setTabs((previous) => [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous) }]);
     setActive(session);
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
     setStatus(`Attached to ${session}.`);
@@ -700,8 +723,55 @@ export function TerminalWorkspace({
     void poll(tab);
   };
 
+  /**
+   * Give the tab the operator is looking at a name of its own.
+   *
+   * This is a console label, not a device operation: no call leaves the page and the session id is
+   * unchanged. An empty name is refused here rather than silently turning into the old title.
+   */
+  const submitRename = () => {
+    if (!renaming) return;
+    const title = titleFromInput(renaming.title);
+    if (title === null) {
+      setRenaming({ ...renaming, error: "A tab needs a name." });
+      return;
+    }
+    setTabs((previous) => renameTab(previous, renaming.key, title));
+    setActive(renaming.key);
+    setRenaming(null);
+    setStatus(`Renamed to "${title}".`);
+  };
+
   const activeTab = tabs.find((tab) => tab.key === active) ?? null;
   const activeFault = activeTab ? faults[activeTab.key] : undefined;
+
+  /**
+   * Save what the device still retains of the active session.
+   *
+   * The export reads through its own calls from cursor 0, so it never touches `cursors.current`: the
+   * tab's poll keeps reading from where the terminal's output ended, not from the export's start.
+   */
+  const exportLog = async () => {
+    if (!activeTab) return;
+    try {
+      const transcript = await readTranscript(async (cursor) =>
+        JSON.parse(await callTool(grantRef.current, "terminal.read", { id: activeTab.session, cursor }))
+      );
+      downloadFile(
+        `${safeSession(activeTab.session)}.log`,
+        transcriptFile(transcript, { session: activeTab.session, at: new Date() }),
+        "text/plain"
+      );
+      const exported = Math.max(0, transcript.to - transcript.from);
+      setStatus(
+        transcript.dropped > 0
+          ? `Exported ${exported} bytes; ${transcript.dropped} bytes are no longer retained by the device.`
+          : `Exported ${exported} bytes.`
+      );
+    } catch (cause) {
+      setStatus("Could not export: " + messageOf(cause));
+    }
+  };
 
   return (
     <div className="terminal-workspace">
@@ -710,6 +780,16 @@ export function TerminalWorkspace({
         <div className="actions">
           <button type="button" onClick={() => void attach()}>Attach to a session</button>
           <button type="button" onClick={() => setPresetDialog(true)}>Save a preset</button>
+          <button
+            type="button"
+            disabled={!activeTab}
+            onClick={() =>
+              activeTab && setRenaming({ key: activeTab.key, title: activeTab.title, error: null })
+            }
+          >
+            Rename tab
+          </button>
+          <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
           <button type="button" className="primary" onClick={() => openDialog({}, null)}>+ New</button>
         </div>
       </div>
@@ -995,6 +1075,26 @@ export function TerminalWorkspace({
             <button type="button" className="primary" disabled={connect.busy} onClick={() => void submitConnect()}>
               {connect.busy ? "Opening…" : "Open"}
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {renaming && (
+        <Modal title="Rename tab" onClose={() => setRenaming(null)}>
+          <label htmlFor="rename-title">Tab name</label>
+          <input
+            id="rename-title"
+            value={renaming.title}
+            onChange={(event) => setRenaming({ ...renaming, title: event.target.value, error: null })}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submitRename();
+            }}
+          />
+          <p className="hint">The name stays in this console. The device session keeps its own id.</p>
+          {renaming.error && <p className="error">{renaming.error}</p>}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setRenaming(null)}>Cancel</button>
+            <button type="button" className="primary" onClick={() => submitRename()}>Save</button>
           </div>
         </Modal>
       )}

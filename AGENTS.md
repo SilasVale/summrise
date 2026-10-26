@@ -15,3 +15,9 @@ wrong line returns nothing, which looks exactly like a suite that passed silentl
 --workspace --target x86_64-pc-windows-msvc` is the Linux-side compile check, not execution proof.
 
 **THE DISK IS THE CONSTRAINT, NOT THE CPU.** `device/target` grows; clean it after a full run.
+
+**THE CONSOLE PAGE HAS ITS OWN GATE.** `device/console/web/dist/index.html` is committed because the
+binary embeds it with `include_str!`, so a stale page still compiles and still ships. `ci.yml`'s
+`console` job runs `npm ci`, `npm run typecheck`, `npm test` (vitest), `scripts/build-web.sh` and then
+fails on a bundle that is not the one this source builds. Run those commands before a page commit; the
+page's tests are real tests, not a build smoke.

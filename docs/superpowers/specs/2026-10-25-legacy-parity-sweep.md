@@ -174,14 +174,20 @@ that under the checkbox. No approvals queue is built: it is a new protocol, not 
 
 ## Worth doing later
 
-- **Memory create** (`memory.append`): legacy "+ New"; one form on the existing page. S.
-- **Terminal conveniences** (`TerminalPane`): scrollback search with next/prev, font size, transcript
-  export. Console `<Terminal>` has none. Search S; export needs paged `terminal.read` and a truncation
-  marker. S–M.
-- **Tab identity** (`ContextRail`/`TabBar`): local rename, liveness/exit-code mark, hide. Console names
-  tabs "pty 1", "ssh 2"; after three sessions that is not an identity. S–M.
-- **Eviction/idle notice** (`EvictedNotice`/`IdleSessionsBar`): the device closes idle sessions at 30
-  minutes; the console should say so and offer the session list. S.
+**Closed in the 2026-10-26 close-out.** Memory create (`a9c89c0`, one dialog that re-reads the filter
+it was opened from); tab identity's local rename and unique generated labels (`d3e8b12`); transcript
+export with the ring's lost bytes stated, and the idle notice in a closed-without-reason sentence
+(`a4fc798`); the AI-client card, which this list still called unbuilt (`dd32014`, `c0af880`); and the
+console's first shell tests (`0ba4d31`). The device now refuses an empty memory text (`6fd8a01`), so
+the page's disabled submit is no longer the only guard.
+
+What remains:
+
+- **Terminal scrollback search** needs `@xterm/addon-search` — a dependency decision, not a wiring one
+  — and **font size** is still absent. The workspace has rename and export; it has neither of these.
+- **Liveness/exit-code mark and hide** need data the device does not report: `terminal.list` is
+  discovery only (`id`, `kind`, `started_at_ms`). The fault chip is the liveness the console has; a
+  per-tab exit code is a device change.
 - **Monitor alerts and notifications** (`MonitorAlerts`/`MonitorChip`/`NotificationsCard`): the page
   polls only while mounted, so a down target is invisible from every other page. A global chip plus a
   browser notification is the legacy behaviour. M.
@@ -193,13 +199,6 @@ that under the checkbox. No approvals queue is built: it is a new protocol, not 
   L. The iteration plan defers this; keep it deferred.
 - **Browser live view** (`EmbeddedBrowserPane`): the native Electron view cannot be ported; a CDP
   screencast is the remote equivalent (P6). L, transport + device.
-- **AI-client onboarding** (`ConnectCard`): the console has no way to hand an AI client an MCP endpoint
-  plus a grant. Console-only, but a credential-sharing design comes first. M.
-- **Session handoff** (`SessionControl`): "a person holds the keyboard" is more relevant with remote AI
-  clients, but the device has no such flag. New tool, L.
-- **Large file transfer**: files are base64 and capped at 1 MiB; the legacy relay could move 100 MiB.
-  The operator channel is documented as control-only, so this needs the relay back. L; do not fake it
-  with a larger base64 cap.
 
 ## Do not port, and why
 
