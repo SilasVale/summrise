@@ -15,6 +15,7 @@ import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
 import { MemoryPage } from "./MemoryPage";
+import { MonitorChip } from "./MonitorChip";
 import { MonitorsPage } from "./MonitorsPage";
 import { RunsPage } from "./RunsPage";
 import { ScreenPage } from "./ScreenPage";
@@ -263,6 +264,9 @@ export function App() {
             <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
+            {chosen && grant && grant.deviceId === chosen.id && (
+              <MonitorChip grant={grant} onOpen={() => setPage("monitors")} />
+            )}
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
             {session.email ? session.email : `${online} of ${devices.length} devices online`}
             <button type="button" onClick={signOut}>Sign out</button>

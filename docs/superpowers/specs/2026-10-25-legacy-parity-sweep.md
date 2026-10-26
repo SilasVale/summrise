@@ -192,9 +192,12 @@ What remains:
 - **Liveness/exit-code mark and hide** need data the device does not report: `terminal.list` is
   discovery only (`id`, `kind`, `started_at_ms`). The fault chip is the liveness the console has; a
   per-tab exit code is a device change.
-- **Monitor alerts and notifications** (`MonitorAlerts`/`MonitorChip`/`NotificationsCard`): the page
-  polls only while mounted, so a down target is invisible from every other page. A global chip plus a
-  browser notification is the legacy behaviour. M.
+- **Monitor alerts — the chip is closed 2026-10-26 (`7606b5d`); notifications remain.** The top bar
+  reads the chosen device's `monitor.list` every 20 seconds and shows `<n> monitors down` from every
+  page; clicking it opens Monitors with the same grant. It never shows a count it did not read, keeps
+  the last fact through a failed refresh rather than implying an all-clear, and stops polling when the
+  grant refuses. Browser notifications (`NotificationsCard`) are not built: the permission prompt is
+  its own decision.
 - **Restart history and vitals history** (`RestartHistoryCard`/`DeviceHealthCard`): the device card has
   one snapshot, not a series; neither a boot list nor 30 s samples cross the channel. New device facts,
   L. The iteration plan defers this; keep it deferred.
