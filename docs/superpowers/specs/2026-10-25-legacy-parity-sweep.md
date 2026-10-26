@@ -177,23 +177,22 @@ that under the checkbox. No approvals queue is built: it is a new protocol, not 
 **Closed in the 2026-10-26 close-out.** Memory create (`a9c89c0`, one dialog that re-reads the filter
 it was opened from); tab identity's local rename and unique generated labels (`d3e8b12`); transcript
 export with the ring's lost bytes stated, and the idle notice in a closed-without-reason sentence
-(`a4fc798`); the AI-client card, which this list still called unbuilt (`dd32014`, `c0af880`); and the
-console's first shell tests (`0ba4d31`). The device now refuses an empty memory text (`6fd8a01`), so
-the page's disabled submit is no longer the only guard.
+(`a4fc798`); the AI-client card, which this list still called unbuilt (`dd32014`, `c0af880`); the
+console's first shell tests (`0ba4d31`) and its Files page tests (`595ae19`); the terminal's font size
+(`ef9f015`); and the device events page (`6424bd7`, an additive `state.get` field rather than a new
+tool). The device now refuses an empty memory text (`6fd8a01`), so the page's disabled submit is no
+longer the only guard.
 
 What remains:
 
-- **Terminal scrollback search** needs `@xterm/addon-search` — a dependency decision, not a wiring one
-  — and **font size** is still absent. The workspace has rename and export; it has neither of these.
+- **Terminal scrollback search** needs `@xterm/addon-search` — a dependency decision, not a wiring one.
+  The workspace has rename, export and a font size; it has no search.
 - **Liveness/exit-code mark and hide** need data the device does not report: `terminal.list` is
   discovery only (`id`, `kind`, `started_at_ms`). The fault chip is the liveness the console has; a
   per-tab exit code is a device change.
 - **Monitor alerts and notifications** (`MonitorAlerts`/`MonitorChip`/`NotificationsCard`): the page
   polls only while mounted, so a down target is invisible from every other page. A global chip plus a
   browser notification is the legacy behaviour. M.
-- **Device events page** (`state.get` has no page): the device already keeps a 10-event tail for its
-  local panel; expose it as `state.events` (S device) and render it (S console). This is the honest,
-  cheap version of `ActivityPage` — no session trails, just "what the device did". M total.
 - **Restart history and vitals history** (`RestartHistoryCard`/`DeviceHealthCard`): the device card has
   one snapshot, not a series; neither a boot list nor 30 s samples cross the channel. New device facts,
   L. The iteration plan defers this; keep it deferred.
