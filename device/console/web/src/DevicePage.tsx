@@ -7,10 +7,11 @@ import type { Grant } from "./terminal";
 // The three states every device page repeats: pick a device, sign a grant for it, show the page. The
 // page is rendered only for the grant that names the chosen device, and receives that grant, so it
 // cannot call the device with another device's envelope.
-type DevicePageProps = {
+export type DevicePageProps = {
   title: string;
   pickHint: string;
-  grantHint: string;
+  /** Omitted by the pages whose grant panel has no hint to give (Browser). */
+  grantHint?: string;
   devices: Device[];
   chosen: Device | null;
   grant: Grant | null;
@@ -47,7 +48,7 @@ export function DevicePage({
         <div className="panel-head">
           <h2>Grant what the console may do on {chosen.name ?? chosen.id.slice(0, 12)}</h2>
         </div>
-        <p className="hint">{grantHint}</p>
+        {grantHint && <p className="hint">{grantHint}</p>}
         <GrantForm deviceId={chosen.id} onGranted={(envelope) => onGrant(chosen.id, envelope)} />
       </section>
     );

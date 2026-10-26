@@ -1,17 +1,20 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
-import { DevicePage } from "./DevicePage";
+import { DevicePage, type DevicePageProps } from "./DevicePage";
 import type { Grant } from "./terminal";
 
 // Only the grant form is stubbed: the shell's subject is which panel is shown and which grant reaches
 // the child, and the real form's tool catalogue is not part of either. The stub's button is the
-// "Grant access" the operator sees; its click is the form's success, so the shell's wiring is testable.
+// "Grant access" the operator sees, and the id it prints is the device the shell handed it.
 vi.mock("./GrantForm", () => ({
-  GrantForm: ({ onGranted }: { deviceId: string; onGranted: (envelope: unknown) => void }) => (
-    <button type="button" onClick={() => onGranted({ token: "envelope" })}>
-      Grant access
-    </button>
+  GrantForm: ({ deviceId, onGranted }: { deviceId: string; onGranted: (envelope: unknown) => void }) => (
+    <>
+      <span>grant form for {deviceId}</span>
+      <button type="button" onClick={() => onGranted({ token: "envelope" })}>
+        Grant access
+      </button>
+    </>
   )
 }));
 
@@ -37,7 +40,7 @@ const otherGrant: Grant = { deviceId: attic.id, envelope: { token: "other" } };
 const pickHint = "The screen belongs to the device's user session, so pick one.";
 const grantHint = "A grant is signed by the console, names the tools and expires.";
 
-function shell(overrides: Partial<Parameters<typeof DevicePage>[0]> = {}) {
+function shell(overrides: Partial<DevicePageProps> = {}) {
   return (
     <DevicePage
       title="Screen"
@@ -79,6 +82,7 @@ describe("DevicePage", () => {
       screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
     ).toBeInTheDocument();
     expect(screen.getByText(grantHint)).toBeInTheDocument();
+    expect(screen.getByText(`grant form for ${workshop.id}`)).toBeInTheDocument();
     expect(screen.queryByText(/^child for /)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Use" })).not.toBeInTheDocument();
 
@@ -95,50 +99,31 @@ describe("DevicePage", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the child with the matching grant and no grant heading", () => {
-    const child = vi.fn((active: Grant) => <div>child for {active.deviceId}</div>);
-    render(
-      <DevicePage
-        title="Screen"
-        pickHint={pickHint}
-        grantHint={grantHint}
-        devices={devices}
-        chosen={workshop}
-        grant={grant}
-        onChoose={vi.fn()}
-        onGrant={vi.fn()}
-      >
-        {child}
-      </DevicePage>
-    );
-
-    expect(screen.getByText(`child for ${workshop.id}`)).toBeInTheDocument();
-    expect(child).toHaveBeenCalledWith(grant);
-    expect(screen.queryByRole("heading", { name: /Grant what the console may do/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
-  });
-
-  it("shows the grant panel instead of the child when the grant belongs to another device", () => {
-    const child = vi.fn(() => <div>child for the wrong device</div>);
-    render(
-      <DevicePage
-        title="Screen"
-        pickHint={pickHint}
-        grantHint={grantHint}
-        devices={devices}
-        chosen={workshop}
-        grant={otherGrant}
-        onChoose={vi.fn()}
-        onGrant={vi.fn()}
-      >
-        {child}
-      </DevicePage>
-    );
+  it("omits the grant hint paragraph when the page has no hint to give", () => {
+    const { container } = render(shell({ chosen: workshop, grantHint: undefined }));
 
     expect(
       screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
-    expect(child).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("p")).toHaveLength(0);
+  });
+
+  it("renders the child with the matching grant and no grant heading", () => {
+    render(shell({ chosen: workshop, grant }));
+
+    expect(screen.getByText(`child for ${workshop.id}`)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Grant what the console may do/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
+  });
+
+  it("shows the grant panel instead of the child when the grant belongs to another device", () => {
+    render(shell({ chosen: workshop, grant: otherGrant }));
+
+    expect(
+      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    expect(screen.queryByText(/^child for /)).not.toBeInTheDocument();
   });
 });

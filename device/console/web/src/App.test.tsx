@@ -176,7 +176,7 @@ describe("App", () => {
     expect(screen.getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
-  it("navigates the rail to the audit panel and to the memory and events pickers", async () => {
+  it("navigates the rail to the audit panel and to the memory, screen and events pickers", async () => {
     await bootAndSignIn();
 
     fireEvent.click(screen.getByRole("button", { name: "Audit" }));
@@ -188,6 +188,14 @@ describe("App", () => {
     expect(screen.getByText(/Memory is kept on the device/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Use" })).toHaveLength(2);
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Screen" }));
+    expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
+      )
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Events" }));
     expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
@@ -209,6 +217,56 @@ describe("App", () => {
     // Files draws the same grant form, so the grant heading alone does not say which page this is.
     const rail = screen.getByRole("navigation", { name: "Sections" });
     expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("draws each device page's grant panel with the hint that shipped, and Browser without one", async () => {
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    const rail = screen.getByRole("navigation", { name: "Sections" });
+    const grantHints: [string, string][] = [
+      [
+        "Screen",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
+      ],
+      [
+        "Memory",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the entries appear."
+      ],
+      [
+        "Events",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the device's health and its last ten events appear."
+      ],
+      [
+        "Files",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
+      ],
+      [
+        "Monitors",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the targets appear."
+      ],
+      [
+        "Runs",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the run form appears."
+      ],
+      [
+        "System",
+        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
+      ]
+    ];
+    for (const [section, hint] of grantHints) {
+      fireEvent.click(within(rail).getByRole("button", { name: section }));
+      expect(
+        screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
+      ).toBeInTheDocument();
+      expect(screen.getByText(hint)).toBeInTheDocument();
+    }
+
+    // Browser's grant panel has no hint paragraph; the heading is all it says.
+    fireEvent.click(within(rail).getByRole("button", { name: "Browser" }));
+    expect(
+      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
+    ).toBeInTheDocument();
   });
 
   it("keeps the workspace mounted, hidden, across a page change", async () => {
