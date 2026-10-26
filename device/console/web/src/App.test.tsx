@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   enroll: vi.fn(),
   rename: vi.fn(),
   remove: vi.fn(),
+  tools: vi.fn(),
   grant: vi.fn(),
   meshReadiness: vi.fn(),
   setToken: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("./api", () => ({
     enroll: mocks.enroll,
     rename: mocks.rename,
     remove: mocks.remove,
+    tools: mocks.tools,
     grant: mocks.grant
   },
   meshReadiness: mocks.meshReadiness,
@@ -102,7 +104,9 @@ beforeEach(() => {
   mocks.remove.mockResolvedValue(undefined);
   mocks.grant.mockResolvedValue({ grant: {}, signature: "signature" });
   mocks.getToken.mockReturnValue("fresh-token");
-  // The grant form asks the console for the tool registry; that request is not this test's subject.
+  // The grant form asks the client for the tool registry; that request is not this test's subject.
+  // The client's own answer fails as the raw request did, so the form keeps its fallback list.
+  mocks.tools.mockRejectedValue(new TypeError("Failed to fetch"));
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 });
 

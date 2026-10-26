@@ -246,6 +246,18 @@ describe("the endpoints", () => {
     );
   });
 
+  it("tools GETs the registry with the token and parses the names", async () => {
+    setToken("session-token");
+    fetchMock.mockResolvedValue(
+      answer({ json: [{ name: "files.read" }, { name: "host.facts" }] })
+    );
+    await expect(api.tools()).resolves.toEqual([{ name: "files.read" }, { name: "host.facts" }]);
+    const { path, init } = lastRequest();
+    expect(path).toBe("/tools");
+    expect(init.method).toBeUndefined();
+    expect(headers(init)).toEqual({ authorization: "Bearer session-token" });
+  });
+
   it("meshStatus GETs /mesh", async () => {
     await request(() => meshStatus(), "/mesh");
   });

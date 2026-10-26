@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, getToken } from "./api";
+import { api } from "./api";
 
 // The device's tool catalogue, as the grant form offers it. It is duplicated here rather than fetched
 // because a grant is what asks the device anything, so there is nothing to ask before one exists.
@@ -38,9 +38,9 @@ export function GrantForm({
   // The registry is the list. A copy in the page drifted once and offered a tool that does not exist.
   useEffect(() => {
     let live = true;
-    fetch("/tools", { headers: { authorization: `Bearer ${getToken()}` } })
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
-      .then((tools: { name: string }[]) => {
+    api
+      .tools()
+      .then((tools) => {
         if (!live || tools.length === 0) return;
         const list = tools.map((tool) => tool.name);
         setNames(list);
