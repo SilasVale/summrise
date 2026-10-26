@@ -34,6 +34,37 @@ jobs:
       - name: the device workspace is clippy-clean
         run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
+  console:
+    name: console (typecheck + tests + the committed page)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: device/console/web/package-lock.json
+      # **THE PAGE IS HALF THE PRODUCT AND HAD NO JOB OF ITS OWN.** `dist/index.html` is committed
+      # because the Rust binary embeds it with `include_str!`, so a stale bundle still compiles and
+      # still ships — and a TypeScript error only surfaces on the next build, which may be a release.
+      # These are the three facts a page change owes: it typechecks, its tests pass, and the committed
+      # artifact IS this source's build. `build-web.sh --check` compares mtimes, which a fresh
+      # checkout cannot distinguish; the diff is the check that cannot be fooled.
+      - name: the page's dependencies, from the lockfile
+        working-directory: device/console/web
+        run: npm ci
+      - name: the page typechecks
+        working-directory: device/console/web
+        run: npm run typecheck
+      - name: the page's tests
+        working-directory: device/console/web
+        run: npm test
+      - name: the committed page is rebuilt from this source
+        run: ./scripts/build-web.sh
+      - name: the bundle is committed, not stale
+        run: git diff --exit-code -- device/console/web/dist/index.html
+
   device-windows:
     name: device (the Windows lifecycle)
     runs-on: windows-latest

@@ -43,6 +43,21 @@ Windows is the target: the lifecycle suite only runs there (`ci.yml`'s `device-w
 Linux `cargo test` proves the portable half. `--windows` compiles the Windows-only paths from Linux;
 it proves they build, not that they pass.
 
+The console page is a second buildable surface. `dist/index.html` is committed because the Rust
+binary embeds it, so the page's own gate is `ci.yml`'s `console` job:
+
+```bash
+cd device/console/web
+npm ci
+npm run typecheck
+npm test
+cd -
+./scripts/build-web.sh            # rebuilds dist/index.html; commit it
+```
+
+The job also fails when the committed bundle is not the one this source builds — a stale page still
+compiles, which is why the diff is the check.
+
 ## The documents
 
 - `docs/superpowers/specs/2026-10-20-the-two-runtime-architecture-design.md` — the design.
