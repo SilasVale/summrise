@@ -20,6 +20,9 @@ serde_json = "1"
 # A device token is stored as a hash, never as the token itself.
 sha2 = "0.10"
 summrise-core = { path = "../core" }
+# The mesh: the readiness probe asks the broker whether a device is registered, and the console's
+# data path will speak the mesh's envelope (docs/superpowers/specs/2026-10-25-console-mesh-surface-design.md).
+summrise-mesh = { path = "../mesh" }
 # `sync` carries the channel's outbound queue and the waiters; `time` is the proxy's 30 s bound;
 # `fs` is the audit index, whose writer must not block the async runtime.
 tokio = { version = "1", features = [

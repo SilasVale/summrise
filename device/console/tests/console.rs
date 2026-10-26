@@ -100,6 +100,7 @@ impl Fixture {
             port: 0,
             version: env!("CARGO_PKG_VERSION").to_owned(),
             access: None,
+            mesh_broker: None,
         };
         let clock = Arc::new(AtomicU64::new(START_MS));
         let reader = clock.clone();
@@ -123,6 +124,18 @@ impl Fixture {
             clock,
             config,
         }
+    }
+
+    /// A console with a mesh broker configured: the readiness route's live case.
+    fn with_mesh_broker(label: &str, broker: &str) -> Self {
+        let mut fixture = Self::new(label);
+        let mut config = fixture.config.clone();
+        config.mesh_broker = Some(broker.to_owned());
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with the broker");
+        fixture.config = config;
+        fixture
     }
 
     fn app(&self) -> Router {
@@ -326,6 +339,7 @@ fn fixture_config(dir: &TempDir, token: Option<&Path>, grant_key: Option<&Path>)
         port: 0,
         version: env!("CARGO_PKG_VERSION").to_owned(),
         access: None,
+        mesh_broker: None,
     }
 }
 
@@ -3103,4 +3117,83 @@ async fn a_saved_connection_is_per_device_and_carries_no_credential() {
     )
     .await;
     assert!(list.as_array().expect("a list").is_empty(), "{list}");
+}
+
+/// A real mesh broker on an ephemeral loopback port, for the readiness route.
+struct TestBroker {
+    url: String,
+}
+
+async fn start_broker() -> TestBroker {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a broker listener");
+    let address = listener.local_addr().expect("the broker's address");
+    tokio::spawn(async move {
+        axum::serve(listener, summrise_mesh::Broker::new().router())
+            .await
+            .expect("the test broker serves");
+    });
+    TestBroker {
+        url: format!("http://{address}"),
+    }
+}
+
+#[tokio::test]
+async fn the_mesh_view_is_absent_without_a_broker() {
+    let fixture = Fixture::new("mesh-absent");
+    let session = fixture.authenticate().await;
+    let (status, body) = send(fixture.app(), get("/mesh", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["configured"], json!(false));
+    assert_eq!(body["broker"], Value::Null);
+}
+
+#[tokio::test]
+async fn the_readiness_route_asks_the_broker_about_a_registered_device() {
+    let broker = start_broker().await;
+    let fixture = Fixture::with_mesh_broker("mesh-ready", &broker.url);
+    let key = SigningKey::from_bytes(&[0x33; 32]);
+    let (device_id, _token) = fixture.register(&key).await;
+
+    // The device id IS the mesh peer id: register the same key at the broker.
+    let peer = summrise_mesh::Identity::from_private_bytes(key.to_bytes());
+    summrise_mesh::Rendezvous::new(peer, Vec::new(), 30_000)
+        .register(&broker.url)
+        .await
+        .expect("the device registers at the broker");
+
+    let session = fixture.authenticate().await;
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/devices/{device_id}/mesh"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["configured"], json!(true));
+    assert_eq!(body["reachable"], json!(true), "{body}");
+}
+
+#[tokio::test]
+async fn the_readiness_route_refuses_an_unregistered_device() {
+    let broker = start_broker().await;
+    let fixture = Fixture::with_mesh_broker("mesh-unregistered", &broker.url);
+    let session = fixture.authenticate().await;
+    let (status, _) = send(
+        fixture.app(),
+        get(
+            &format!("/devices/{}/mesh", "ab".repeat(32)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // And without an operator session the route is not a public probe.
+    let (status, _) = send(
+        fixture.app(),
+        get(&format!("/devices/{}/mesh", "ab".repeat(32)), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
