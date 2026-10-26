@@ -106,6 +106,28 @@ summrise-device.exe --set-update-source <document-url> --channel canary --interv
 release only after checking the signature, the artifact's SHA-256, the channel and the revocation
 list, and the supervisor rolls back to the previous generation if the new one fails its health probe.
 
+## Onboarding a machine
+
+The console's **Add a device** mints a one-time code for this machine. Either path spends that code
+once and writes `console.json` and `console-token.json` under the data directory; the running app
+builds its console link at boot, so restart the `SummriseLaunch` service afterwards.
+
+- **From the panel (a person at the machine).** Open `http://127.0.0.1:<port>/` on the device — 18080
+  for a stable install, 18090 for the canary builds published so far — and paste the console URL and
+  the code under **Console link → Enrol this machine**, then press **Enroll**. The page is served on
+  loopback only and carries a per-boot token the endpoint requires, so enrollment needs no command
+  line and no login. Tick **Replace an existing enrollment** only to rotate this machine's token: the
+  old token stops working.
+- **From a command line:**
+
+  ```bat
+  summrise-device.exe --enroll <console-url> <code> --data C:\ProgramData\Summrise
+  ```
+
+  Add `--force` to replace an existing registration, and `--allow-plaintext` only for a console on a
+  trusted plaintext tunnel. `--data` defaults to `<install>\data`, so an installed binary needs only
+  the URL and the code.
+
 ## Cutting a release
 
 1. **Build and sign**: `scripts/publish-canary.bash --version <v> --channel canary --mirror <url>
