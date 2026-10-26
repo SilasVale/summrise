@@ -2,13 +2,15 @@
 //! configuration.
 //!
 //! A token is `srm_` plus 32 bytes of OS randomness, in lowercase hex. It is shown **once**, in the
-//! create response, and only its SHA-256 is persisted, so the file (or a copy of it) never holds a
-//! usable credential. A client presents the token as its bearer on `/mcp/:id`; the console finds the
+//! create or rotate response, and only its SHA-256 is persisted, so the file (or a copy of it) never
+//! holds a usable credential. A client presents the token as its bearer on `/mcp/:id`; the console finds the
 //! record by hash, refuses a token that names another device, and signs a sixty-second grant with
 //! the token's tools and destructive consent. The device protocol and its offline verification are
 //! unchanged, because the device only ever sees a grant.
 //!
 //! A token is a bearer with **no expiry**: revocation is the withdrawal, and it removes the record.
+//! Rotation is the other way out: one atomic replacement whose new id and secret keep the old scope,
+//! so the previous bearer stops working at the same instant the next one starts.
 //! The scope is fixed at creation — one device, a non-empty set of registry tools, and the operator's
 //! destructive consent — so a token can never name a tool or a device the operator did not.
 //!
@@ -268,6 +270,52 @@ impl Tokens {
         self.tokens = next;
 
         Ok((meta, plaintext))
+    }
+
+    /// Replace one token's identity in one save, keeping its scope.
+    ///
+    /// The next map is built first — the old record removed, the replacement inserted with the old
+    /// name, device, tools and destructive consent and a new id, secret and creation time — then
+    /// written once. Memory adopts it only after the write succeeds, so a failed save is [`Storage`]
+    /// with the old token still valid in memory and in the file: there is no moment with both
+    /// secrets or neither.
+    ///
+    /// The count does not change, so [`MAX_TOKENS`] is not checked: a rotation at the cap is the
+    /// operator replacing a token, not minting an extra one.
+    ///
+    /// [`Storage`]: TokenError::Storage
+    pub(crate) fn rotate(
+        &mut self,
+        id: &str,
+        now_ms: u64,
+    ) -> Result<Option<(TokenMeta, String)>, TokenError> {
+        let Some(old) = self.tokens.get(id) else {
+            return Ok(None);
+        };
+
+        // The plaintext exists in this scope, in the return value and in nothing else: the record
+        // keeps only its hash, and the file is written from the record.
+        let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
+        let token = Token {
+            id: hex::encode(&random_32()),
+            name: old.name.clone(),
+            device_id: old.device_id.clone(),
+            tools: old.tools.clone(),
+            allow_destructive: old.allow_destructive,
+            created_at_ms: now_ms,
+            last_used_ms: None,
+            saved_last_used_ms: None,
+            hash: hash_token(&plaintext),
+        };
+        let meta = token.meta();
+
+        let mut next = self.tokens.clone();
+        next.remove(id);
+        next.insert(token.id.clone(), token);
+        self.save(&next).map_err(|_| TokenError::Storage)?;
+        self.tokens = next;
+
+        Ok(Some((meta, plaintext)))
     }
 
     /// Remove a token, returning the record so the audit can name its device.
@@ -585,6 +633,189 @@ mod tests {
 
         let reloaded = Tokens::load(&data).expect("the store reloads");
         assert!(reloaded.find_by_hash(&hash).is_none());
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Rotation keeps the scope and replaces the identity: a new id and secret, a fresh creation
+    /// time and no last use, with the old hash gone from the one record left behind.
+    #[test]
+    fn rotating_a_token_keeps_its_scope_and_replaces_its_identity() {
+        let data = tempdir("rotate");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let mut scope = draft("laptop-dsh", &device_id(), &["files.read", "memory.search"]);
+        scope.allow_destructive = true;
+        let (old_meta, old_plaintext) = tokens.create(scope, true, 1_000).expect("a valid token");
+        assert!(
+            tokens.mark_used(&hash_token(&old_plaintext), 1_500),
+            "the old record has a use to lose"
+        );
+
+        let (meta, plaintext) = tokens
+            .rotate(&old_meta.id, 2_000)
+            .expect("the rotation writes")
+            .expect("the id was there");
+
+        assert!(
+            is_token(&plaintext),
+            "the replacement is 'srm_' plus 64 lowercase hex, got {plaintext}"
+        );
+        assert_ne!(plaintext, old_plaintext, "a rotation mints a new secret");
+        assert_ne!(meta.id, old_meta.id, "a rotation mints a new id");
+        assert_eq!(meta.name, old_meta.name, "the name is kept");
+        assert_eq!(meta.device_id, old_meta.device_id, "the device is kept");
+        assert_eq!(meta.tools, old_meta.tools, "the tools are kept");
+        assert!(meta.allow_destructive, "the destructive consent is kept");
+        assert_eq!(meta.created_at_ms, 2_000, "the new record is new");
+        assert_eq!(
+            meta.last_used_ms, None,
+            "the new record has never been used"
+        );
+
+        let old_hash = hash_token(&old_plaintext);
+        let new_hash = hash_token(&plaintext);
+        assert!(
+            tokens.find_by_hash(&old_hash).is_none(),
+            "the old hash is gone from memory"
+        );
+        assert_eq!(
+            tokens.find_by_hash(&new_hash).map(|token| token.id),
+            Some(meta.id.clone()),
+            "the new hash finds the replacement"
+        );
+        assert_eq!(tokens.list(), vec![meta.clone()], "one record, the new one");
+
+        let text = std::fs::read_to_string(data.join(TOKENS_FILE)).expect("the file is readable");
+        assert!(!text.contains(&old_hash), "the old hash is gone from disk");
+        assert!(text.contains(&new_hash), "the new hash is on disk");
+        assert!(
+            !text.contains(&plaintext),
+            "the file must never hold the token"
+        );
+
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        assert!(
+            reloaded.find_by_hash(&old_hash).is_none(),
+            "a reload does not resurrect the old hash"
+        );
+        assert_eq!(
+            reloaded.find_by_hash(&new_hash).map(|token| token.id),
+            Some(meta.id.clone()),
+            "a reload finds the replacement by its hash"
+        );
+        assert_eq!(
+            reloaded.list(),
+            vec![meta],
+            "a reload holds exactly the new record"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// Rotation replaces a record rather than adding one, so it is allowed at the cap: the operator
+    /// does not have to revoke a token to make room for its replacement.
+    #[test]
+    fn rotating_at_the_cap_keeps_the_count() {
+        let data = tempdir("rotate-at-cap");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let mut ids = Vec::new();
+        for index in 0..MAX_TOKENS {
+            let (meta, _) = tokens
+                .create(
+                    draft(&format!("client-{index}"), &device_id(), &["files.read"]),
+                    true,
+                    1_000 + index as u64,
+                )
+                .expect("a token under the cap");
+            ids.push(meta.id);
+        }
+
+        let (rotated, _) = tokens
+            .rotate(&ids[0], 2_000)
+            .expect("a rotation at the cap writes")
+            .expect("the id was there");
+
+        assert_ne!(rotated.id, ids[0], "the record was replaced");
+        assert_eq!(
+            tokens.list().len(),
+            MAX_TOKENS,
+            "rotation replaces one record instead of adding one"
+        );
+        assert_eq!(
+            Tokens::load(&data).expect("the store reloads").list().len(),
+            MAX_TOKENS,
+            "the file still holds exactly the cap"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// An unknown id is a plain `None`, and nothing is written: a rotation of something that is not
+    /// there is not a way to rewrite the list.
+    #[test]
+    fn rotating_an_unknown_id_writes_nothing() {
+        let data = tempdir("rotate-unknown");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, _) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+        let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
+        let list_before = tokens.list();
+
+        let rotated = tokens
+            .rotate(&"ff".repeat(32), 2_000)
+            .expect("an unknown id is not an error");
+
+        assert!(rotated.is_none(), "there is no such token to replace");
+        assert_eq!(tokens.list(), list_before, "the list is unchanged");
+        assert_eq!(tokens.list()[0].id, meta.id, "the token is still there");
+        assert_eq!(
+            std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable"),
+            before,
+            "nothing was written"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A failed save is not a half rotation: `Storage` is returned, memory keeps the old record and
+    /// the file is untouched, so the old secret is still the one that works.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_rotation_write_leaves_the_old_token_valid() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data = tempdir("rotate-write-failure");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, plaintext) = tokens
+            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .expect("a valid token");
+        let hash = hash_token(&plaintext);
+        let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
+        let list_before = tokens.list();
+
+        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o500))
+            .expect("the directory is made read-only");
+        let rotated = tokens.rotate(&meta.id, 2_000);
+        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))
+            .expect("the directory is writable again");
+
+        assert_eq!(rotated.err(), Some(TokenError::Storage));
+        assert_eq!(
+            tokens.find_by_hash(&hash).map(|token| token.id),
+            Some(meta.id.clone()),
+            "the old token still authenticates from memory"
+        );
+        assert_eq!(tokens.list(), list_before, "the list is unchanged");
+        assert_eq!(
+            std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable"),
+            before,
+            "the file still holds exactly the old record"
+        );
+        assert_eq!(
+            Tokens::load(&data)
+                .expect("the file still loads")
+                .find_by_hash(&hash)
+                .map(|token| token.id),
+            Some(meta.id),
+            "a reload still finds the old token"
+        );
         std::fs::remove_dir_all(&data).ok();
     }
 
