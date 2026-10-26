@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectCard } from "./ConnectCard";
-import { TOOL_NAMES } from "./GrantForm";
+import { TOOL_NAMES } from "./useToolNames";
 
 // The card asks the client for the device's registry, and the card does not render the list it gets:
 // the catalogue is visible only in the grant it mints. So `tools` answers the question and `grant` is

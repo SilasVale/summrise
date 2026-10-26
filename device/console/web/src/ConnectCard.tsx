@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, type Device } from "./api";
 import { copyText } from "./copy";
 import { shortId } from "./format";
-import { TOOL_NAMES } from "./GrantForm";
+import { useToolNames } from "./useToolNames";
 import { Modal } from "./Modal";
 
 /** The lifetimes the card offers, and the sentence each one carries. */
@@ -35,31 +35,15 @@ function hexOf(text: string): string {
  * first — the grant model has no revocation, only expiry.
  */
 export function ConnectCard({ device, onClose }: { device: Device; onClose: () => void }) {
-  const [tools, setTools] = useState<string[]>(TOOL_NAMES);
+  // The registry is the list, as it is for the grant form; the fallback keeps the card usable when
+  // the console cannot answer, and the mint's own `unknown_tool` refusal is the last word.
+  const tools = useToolNames();
   const [lifetime, setLifetime] = useState(3600);
   const [destructive, setDestructive] = useState(false);
   const [issued, setIssued] = useState<Issued | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-
-  // The registry is the list, as it is for the grant form; the fallback keeps the card usable when
-  // the console cannot answer, and the mint's own `unknown_tool` refusal is the last word.
-  useEffect(() => {
-    let live = true;
-    api
-      .tools()
-      .then((list) => {
-        if (!live || list.length === 0) return;
-        setTools(list.map((tool) => tool.name));
-      })
-      .catch(() => {
-        /* keep the fallback */
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const name = device.name ?? shortId(device.id);
   const endpoint = `${location.origin}/mcp/${device.id}`;
