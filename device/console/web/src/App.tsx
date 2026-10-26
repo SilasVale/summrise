@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import logoUrl from "./logo.svg";
 import { api, HttpError, NoAnswer, setToken, type AuditLine, type Device, type Session } from "./api";
 import { DeviceCard, retrySentence } from "./DeviceCard";
-import { AuditTable } from "./AuditTable";
+import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
@@ -54,7 +54,7 @@ export function App() {
     setConsoleVersion(health.version);
     setSession(state);
     if (!state.authenticated) return;
-    const [list, lines] = await Promise.all([api.devices(), api.audit()]);
+    const [list, lines] = await Promise.all([api.devices(), api.audit(AUDIT_WINDOW)]);
     setDevices(list);
     setAudit(lines);
     setError(null);
@@ -65,7 +65,7 @@ export function App() {
       await probe();
       return;
     }
-    const [list, lines] = await Promise.all([api.devices(), api.audit()]);
+    const [list, lines] = await Promise.all([api.devices(), api.audit(AUDIT_WINDOW)]);
     setDevices(list);
     setAudit(lines);
   }, [probe, session?.authenticated]);
@@ -171,7 +171,7 @@ export function App() {
       "recent audit for this device:"
     ];
     const mine = audit.filter((line) => line.device_id === device.id).slice(0, 8);
-    if (mine.length === 0) lines.push("  (none in the last 20 lines)");
+    if (mine.length === 0) lines.push(`  (none in the last ${AUDIT_WINDOW} lines)`);
     for (const line of mine) {
       lines.push(
         `  ${new Date(line.ts_ms).toISOString()}  ${line.kind} ${line.tool ?? line.detail ?? ""} ${line.status}`.trimEnd()
@@ -360,7 +360,7 @@ export function App() {
                       <button type="button" onClick={() => void load()}>Refresh</button>
                     </div>
                   </div>
-                  <AuditTable lines={audit} />
+                  <AuditTable lines={audit} devices={devices} />
                 </section>
               </div>
             </div>
@@ -634,7 +634,7 @@ export function App() {
                   <button type="button" onClick={() => void load()}>Refresh</button>
                 </div>
               </div>
-              <AuditTable lines={audit} />
+              <AuditTable lines={audit} devices={devices} />
             </section>
           )}
         </main>
