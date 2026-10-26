@@ -6,6 +6,14 @@ import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
+import {
+  clampFontSize,
+  fontStorage,
+  loadFontSize,
+  saveFontSize,
+  MAX_FONT_SIZE,
+  MIN_FONT_SIZE
+} from "./terminalFont";
 import { api, type SavedConnection } from "./api";
 import { downloadFile } from "./download";
 import { Modal } from "./Modal";
@@ -245,6 +253,8 @@ export function TerminalWorkspace({
   const [status, setStatus] = useState("No session. Open one, or attach to a session this device already has.");
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
   const [presets, setPresets] = useState<SavedConnection[]>([]);
+  // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
+  const [fontSize, setFontSize] = useState(() => loadFontSize(fontStorage()));
   const [connect, setConnect] = useState<Connect | null>(null);
   const [renaming, setRenaming] = useState<{ key: string; title: string; error: string | null } | null>(null);
   const [presetDialog, setPresetDialog] = useState(false);
@@ -487,7 +497,7 @@ export function TerminalWorkspace({
         convertEol: true,
         cursorBlink: true,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-        fontSize: 13,
+        fontSize,
         theme: terminalTheme()
       });
       const fit = new FitAddon();
@@ -512,7 +522,24 @@ export function TerminalWorkspace({
       clearFault(key);
       probing.current.delete(key);
     }
-  }, [tabs, write, clearFault]);
+  }, [tabs, write, clearFault, fontSize]);
+
+  // A new size reaches every xterm that is already open, in place, and the one that is remembered.
+  //
+  // It is set on the terminal rather than by recreating it: a new xterm would lose the output the
+  // device already sent, and the session's cursor belongs to this instance. The refit is best-effort
+  // because a hidden tab's host has no measurable size until the tab is shown, which refits it again.
+  useEffect(() => {
+    for (const instance of instances.current.values()) {
+      instance.term.options.fontSize = fontSize;
+      try {
+        instance.fit.fit();
+      } catch {
+        /* the host may not be measurable yet */
+      }
+    }
+    saveFontSize(fontStorage(), fontSize);
+  }, [fontSize]);
 
   // The active tab polls; switching polls once immediately so the tab is current when it appears.
   //
@@ -790,6 +817,22 @@ export function TerminalWorkspace({
             Rename tab
           </button>
           <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
+          <button
+            type="button"
+            title={`Smaller terminal text (now ${fontSize})`}
+            disabled={fontSize <= MIN_FONT_SIZE}
+            onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+          >
+            A−
+          </button>
+          <button
+            type="button"
+            title={`Larger terminal text (now ${fontSize})`}
+            disabled={fontSize >= MAX_FONT_SIZE}
+            onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+          >
+            A+
+          </button>
           <button type="button" className="primary" onClick={() => openDialog({}, null)}>+ New</button>
         </div>
       </div>
