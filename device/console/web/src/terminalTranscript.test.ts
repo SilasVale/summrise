@@ -82,7 +82,10 @@ describe("transcriptFile", () => {
     expect(file).toContain("session: t1");
     expect(file).toContain("exported: 2026-10-26T09:00:00.000Z");
     expect(file).toContain("range: bytes 0..6 of this session's output");
-    expect(file).toContain(`retained: the device keeps the newest ${RETAINED_BYTES / (1024 * 1024)} MiB of a session's output`);
+    // The device's `terminal::BUFFER_BYTES` is the authority; deriving this line from the constant
+    // would let the test agree with a wrong constant.
+    expect(RETAINED_BYTES).toBe(1024 * 1024);
+    expect(file).toContain("retained: the device keeps the newest 1 MiB of a session's output");
     expect(file).toContain("dropped: none — the whole session is retained");
     expect(file).toContain("---\nhello\n");
   });
