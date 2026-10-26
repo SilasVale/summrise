@@ -7,6 +7,7 @@ import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./termina
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import { api, type SavedConnection } from "./api";
+import { downloadFile } from "./download";
 import { Modal } from "./Modal";
 
 /**
@@ -124,23 +125,6 @@ function messageOf(cause: unknown): string {
 /** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
 function safeSession(session: string): string {
   return session.replace(/[^A-Za-z0-9._-]+/g, "_") || "session";
-}
-
-/**
- * Save the transcript as a file: a Blob and a temporary anchor, with no console route in between.
- * The bytes are the device's retained output, read through the same grant as every other call.
- */
-function downloadTranscript(file: string, session: string) {
-  const url = URL.createObjectURL(new Blob([file], { type: "text/plain" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${safeSession(session)}.log`;
-  link.rel = "noopener";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // Give the browser a moment to start the download before the URL is revoked.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
@@ -765,9 +749,10 @@ export function TerminalWorkspace({
       const transcript = await readTranscript(async (cursor) =>
         JSON.parse(await callTool(grantRef.current, "terminal.read", { id: activeTab.session, cursor }))
       );
-      downloadTranscript(
+      downloadFile(
+        `${safeSession(activeTab.session)}.log`,
         transcriptFile(transcript, { session: activeTab.session, at: new Date() }),
-        activeTab.session
+        "text/plain"
       );
       const exported = Math.max(0, transcript.to - transcript.from);
       setStatus(

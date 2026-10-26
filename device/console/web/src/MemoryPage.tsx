@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { copyText } from "./copy";
+import { downloadFile } from "./download";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { TagEditor } from "./TagEditor";
@@ -582,7 +583,16 @@ export function MemoryPage({ grant }: { grant: Grant }) {
             <button type="button" onClick={() => void copyExport()}>
               Copy
             </button>
-            <button type="button" onClick={() => downloadExport(exported)}>
+            <button
+              type="button"
+              onClick={() =>
+                downloadFile(
+                  `summrise-memory-${isoDay()}.jsonl`,
+                  exported.text,
+                  "application/x-ndjson"
+                )
+              }
+            >
               Download
             </button>
             <button
@@ -654,20 +664,6 @@ function isoDay(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${month}-${day}`;
-}
-
-/// Save the answer as it came: a Blob and a temporary anchor, with no console route in between.
-function downloadExport(answer: ExportAnswer) {
-  const url = URL.createObjectURL(new Blob([answer.text], { type: "application/x-ndjson" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `summrise-memory-${isoDay()}.jsonl`;
-  link.rel = "noopener";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // Give the browser a moment to start the download before the URL is revoked.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function message(cause: unknown): string {
