@@ -411,13 +411,25 @@ pub struct SessionInfo {
     pub pid: Option<u32>,
 }
 
+/// The exit facts of a reaped child, kept together because they describe one event.
+///
+/// A child either exits with a code or is killed by a signal; a serial or SSH session has no child
+/// and keeps the default, both `None`. The MCP answer flattens the two fields to its wire keys.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct EndFacts {
+    /// The child's exit code, when it exited with one.
+    pub(crate) exit_code: Option<i32>,
+    /// The signal that ended the child, in the platform's spelling, when it was killed by one.
+    pub(crate) signal: Option<String>,
+}
+
 /// The answer to one read: the bytes after the cursor, the new cursor, and what is known about the
 /// session's end.
 ///
-/// `alive` is false once the reader saw the output end or the child's status. The exit facts are
-/// the child's own: a serial or SSH session has no child, so both stay `None`, and a still-running
-/// child has neither yet.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `alive` is false once the reader saw the output end or the child's status. The end facts are the
+/// child's own: a serial or SSH session has no child, so both stay `None`, and a still-running child
+/// has neither yet.
+#[derive(Debug)]
 pub struct ReadAnswer {
     /// The retained output after the caller's cursor.
     pub data: Vec<u8>,
@@ -425,10 +437,8 @@ pub struct ReadAnswer {
     pub cursor: u64,
     /// Whether the session is still producing. False once the reader saw the output end.
     pub alive: bool,
-    /// The child's exit code, once it was reaped with one.
-    pub exit_code: Option<i32>,
-    /// The signal that ended the child, in the platform's spelling, if it ended on one.
-    pub signal: Option<String>,
+    /// The child's exit code and signal, once the reader reaped it.
+    pub(crate) end: EndFacts,
 }
 
 /// Why a terminal operation was refused or failed.
@@ -774,12 +784,9 @@ struct Output {
     eof: bool,
     /// The session is being closed; the reader must stop.
     closed: bool,
-    /// The child's exit code, once the reader reaped it. A serial or SSH session has no child, so
-    /// it keeps `None`.
-    exit_code: Option<i32>,
-    /// The signal the child ended on, in the platform's spelling, when it ended on one. A serial or
-    /// SSH session has no child, so it keeps `None`.
-    signal: Option<String>,
+    /// The child's exit facts, once the reader reaped it. A serial or SSH session has no child, so
+    /// it keeps the default (both `None`).
+    end: EndFacts,
 }
 
 /// One live session.
@@ -1238,8 +1245,7 @@ impl PtyRegistry {
                     // `closed` cannot be observed here: a closing session is already out of the map
                     // this call holds. The end a reader can read is the reader's EOF.
                     alive: !output.eof,
-                    exit_code: output.exit_code,
-                    signal: output.signal.clone(),
+                    end: output.end.clone(),
                 })
         };
         drop(sessions);
@@ -1448,8 +1454,7 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
-            exit_code: None,
-            signal: None,
+            end: EndFacts::default(),
         }));
         // portable-pty's Unix spawn calls setsid(), so this pid is the child's session and process
         // group id; the descendants a close has to reach inherit it.
@@ -1527,8 +1532,7 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
-            exit_code: None,
-            signal: None,
+            end: EndFacts::default(),
         }));
         let task_output = Arc::clone(&output);
         let reader_task = tokio::spawn(async move {
@@ -1619,8 +1623,7 @@ impl PtyRegistry {
             ring: Ring::new(self.limits.buffer_bytes),
             eof: false,
             closed: false,
-            exit_code: None,
-            signal: None,
+            end: EndFacts::default(),
         }));
         let thread_output = Arc::clone(&output);
         let thread_name = format!("summrise-serial-reader-{id}");
@@ -1755,14 +1758,13 @@ fn drain_reader(
             }
         }
     }
-    let (exit_code, signal) = status.as_ref().map(exit_facts).unwrap_or((None, None));
+    let end = status.as_ref().map(exit_facts).unwrap_or_default();
     let mut output = lock(&output);
-    output.exit_code = exit_code;
-    output.signal = signal;
+    output.end = end;
     output.eof = true;
 }
 
-/// Split a reaped child's status into the two end facts the wire carries.
+/// Split a reaped child's status into the end facts the wire carries.
 ///
 /// `portable-pty` 0.8.1 exposes `success()` and `exit_code()`, but its `signal` field is private and
 /// has no accessor. Its `Display` is therefore the only public way to tell a signal death from a
@@ -1770,12 +1772,18 @@ fn drain_reader(
 /// for the latter. Without that distinction a shell killed by a signal would be reported with the
 /// crate's synthetic code 1, which is an invented code. A serial or SSH session has no child and
 /// never reaches this function.
-fn exit_facts(status: &portable_pty::ExitStatus) -> (Option<i32>, Option<String>) {
+fn exit_facts(status: &portable_pty::ExitStatus) -> EndFacts {
     let rendered = status.to_string();
     if let Some(signal) = rendered.strip_prefix("Terminated by ") {
-        (None, Some(signal.to_owned()))
+        EndFacts {
+            exit_code: None,
+            signal: Some(signal.to_owned()),
+        }
     } else {
-        (i32::try_from(status.exit_code()).ok(), None)
+        EndFacts {
+            exit_code: i32::try_from(status.exit_code()).ok(),
+            signal: None,
+        }
     }
 }
 
@@ -2491,7 +2499,7 @@ mod tests {
             .expect("a shell starts");
         let live = fixture.registry.read(&id, 0).expect("a live session reads");
         assert!(live.alive, "a session that is running says so");
-        assert_eq!(live.exit_code, None, "a running child has no exit code");
+        assert_eq!(live.end.exit_code, None, "a running child has no exit code");
 
         fixture
             .registry
@@ -2517,16 +2525,10 @@ mod tests {
             printed.contains("BYE-SESSION-END"),
             "the retained output outlives the shell: {printed:?}"
         );
-        #[cfg(unix)]
         assert_eq!(
-            ended.exit_code,
+            ended.end.exit_code,
             Some(7),
             "the child's own exit code is reported"
-        );
-        #[cfg(not(unix))]
-        assert!(
-            ended.exit_code.is_some(),
-            "a natural exit reports a code; the shell's exact code is not the contract"
         );
 
         let second = fixture
@@ -2546,7 +2548,7 @@ mod tests {
             .expect("the running session reads");
         assert!(running.alive, "a session that is still running says alive");
         assert_eq!(
-            running.exit_code, None,
+            running.end.exit_code, None,
             "a live session does not borrow the ended one's code"
         );
     }
@@ -2587,13 +2589,13 @@ mod tests {
         }
         assert!(!ended.alive, "the reader saw the shell die");
         assert_eq!(
-            ended.exit_code, None,
+            ended.end.exit_code, None,
             "a signal death is not an exit code, and the crate's synthetic 1 must not be reported"
         );
         assert!(
-            ended.signal.is_some(),
+            ended.end.signal.is_some(),
             "the signal that ended the child is reported: {:?}",
-            ended.signal
+            ended.end.signal
         );
     }
 

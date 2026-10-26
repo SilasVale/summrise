@@ -830,8 +830,8 @@ impl DeviceServer {
                     "data": String::from_utf8_lossy(&answer.data),
                     "cursor": answer.cursor,
                     "alive": answer.alive,
-                    "exit_code": answer.exit_code,
-                    "signal": answer.signal,
+                    "exit_code": answer.end.exit_code,
+                    "signal": answer.end.signal,
                 })
                 .to_string())
             }
