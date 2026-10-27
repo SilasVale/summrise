@@ -579,6 +579,25 @@ fn human_kb(kb: u64) -> String {
     }
 }
 
+/// How long ago, in the unit a person would say: "just now", "6m ago", "3h ago", "2d ago".
+///
+/// `then` of 0 is a device that has never been seen, which is not the same as "56 years ago".
+fn ago(now_ms: u64, then_ms: u64) -> String {
+    if then_ms == 0 {
+        return "never seen".to_owned();
+    }
+    if then_ms >= now_ms {
+        return "just now".to_owned();
+    }
+    let seconds = (now_ms - then_ms) / 1000;
+    match seconds {
+        0..=59 => "just now".to_owned(),
+        60..=3599 => format!("{}m ago", seconds / 60),
+        3600..=86_399 => format!("{}h ago", seconds / 3600),
+        _ => format!("{}d ago", seconds / 86_400),
+    }
+}
+
 /// The short id the fleet shows: the first eight characters, never a wall of hex.
 fn short_id(id: &str) -> String {
     if let Some((index, _)) = id.char_indices().nth(8) {
@@ -825,6 +844,7 @@ pub(super) fn dashboard(
     code: Option<&str>,
     error: Option<&str>,
     recent: &[serde_json::Value],
+    now_ms: u64,
 ) -> Markup {
     let total = devices.len();
     let online = devices.iter().filter(|device| device.online).count();
@@ -903,6 +923,8 @@ pub(super) fn dashboard(
                                                 None => { "no version" },
                                             }
                                         }
+                                        span class="meta-sep" aria-hidden="true" { "·" }
+                                        span class="device-seen" { (ago(now_ms, device.last_seen_ms)) }
                                     }
                                 }
                                 td class="pages-cell" {
@@ -2941,7 +2963,15 @@ mod tests {
         vec![
             (
                 "Fleet",
-                dashboard(std::slice::from_ref(device), "00", "0.1.0", None, None, &[]),
+                dashboard(
+                    std::slice::from_ref(device),
+                    "00",
+                    "0.1.0",
+                    None,
+                    None,
+                    &[],
+                    1_791_000_000_000,
+                ),
             ),
             ("Fleet", logs(&[], "Audit", 0, None, "00", "0.1.0")),
             ("Fleet", logs(&[], "Denials", 0, None, "00", "0.1.0")),
@@ -3029,7 +3059,8 @@ mod tests {
         let offline = view('2', None, false);
         let ids = [online.id.clone(), offline.id.clone()];
         let devices = [online, offline];
-        let page = dashboard(&devices, "00", "0.1.0", None, None, &[]).into_string();
+        let page =
+            dashboard(&devices, "00", "0.1.0", None, None, &[], 1_791_000_000_000).into_string();
 
         assert!(
             page.contains("2 devices · 1 online"),
@@ -3138,11 +3169,14 @@ mod tests {
         let out = std::env::var("SUMMRISE_PAGE_DIR").unwrap_or_else(|_| "/tmp/pages".to_owned());
         let dir = std::path::Path::new(&out);
         std::fs::create_dir_all(dir).expect("the review directory");
-        let devices = vec![
+        let mut devices = vec![
             view('a', Some("DESKTOP-9VH92BJ"), true),
             view('b', Some("DESKTOP-14RJCR8"), true),
             view('c', None, false),
         ];
+        devices[0].last_seen_ms = 1_791_000_000_000 - 6 * 60 * 1000;
+        devices[1].last_seen_ms = 1_791_000_000_000 - 3 * 3600 * 1000;
+        devices[2].last_seen_ms = 1_791_000_000_000 - 2 * 86_400 * 1000;
         let id = devices[0].id.clone();
         let entries = vec![
             FileEntry {
@@ -3345,6 +3379,7 @@ mod tests {
                         serde_json::json!({ "ts_ms": 1_790_999_500_000u64, "kind": "tool", "tool": "system.kill", "status": 403 }),
                         serde_json::json!({ "ts_ms": 1_790_999_000_000u64, "kind": "device", "tool": "", "status": 0 }),
                     ],
+                    1_791_000_000_000,
                 ),
             ),
             (
@@ -3356,11 +3391,12 @@ mod tests {
                     Some(&"9f".repeat(32)),
                     None,
                     &[],
+                    1_791_000_000_000,
                 ),
             ),
             (
                 "dashboard-empty",
-                dashboard(&[], "csrf", "0.3.72", None, None, &[]),
+                dashboard(&[], "csrf", "0.3.72", None, None, &[], 1_791_000_000_000),
             ),
             (
                 "terminal",
@@ -3524,7 +3560,8 @@ mod tests {
     fn the_fleet_row_is_identity_pages_and_one_disclosure() {
         let device = view('a', Some("studio"), true);
         let id = device.id.clone();
-        let page = dashboard(&[device], "00", "0.1.0", None, None, &[]).into_string();
+        let page =
+            dashboard(&[device], "00", "0.1.0", None, None, &[], 1_791_000_000_000).into_string();
 
         assert!(
             page.contains("aaaaaaaa…"),
@@ -3664,7 +3701,7 @@ mod tests {
         let device = view('1', Some("studio"), true);
         let fleet = [view('2', Some("other"), false)];
         let pages = [
-            dashboard(&fleet, "00", "0.1.0", None, None, &[]),
+            dashboard(&fleet, "00", "0.1.0", None, None, &[], 1_791_000_000_000),
             terminal(&device, "00", "0.1.0", &[]),
             files(&device, "", &[], "00", "0.1.0", None),
             runs(&device, &[], "00", "0.1.0", None),
@@ -3748,6 +3785,19 @@ mod tests {
     }
 
     #[test]
+    fn a_device_says_how_long_ago_it_was_seen() {
+        let now = 1_791_000_000_000u64;
+        assert_eq!(ago(now, now - 5_000), "just now");
+        assert_eq!(ago(now, now - 6 * 60 * 1000), "6m ago");
+        assert_eq!(ago(now, now - 3 * 3600 * 1000), "3h ago");
+        assert_eq!(ago(now, now - 2 * 86_400 * 1000), "2d ago");
+        // A device that has never connected is not "56 years ago", and a clock that went backwards
+        // is not "in the future".
+        assert_eq!(ago(now, 0), "never seen");
+        assert_eq!(ago(now, now + 60_000), "just now");
+    }
+
+    #[test]
     fn a_device_name_is_escaped() {
         let device = DeviceView {
             id: "00".repeat(32),
@@ -3760,7 +3810,16 @@ mod tests {
             host: None,
             last_attempt: None,
         };
-        let page = dashboard(&[device], "00", "0.3.48", None, None, &[]).into_string();
+        let page = dashboard(
+            &[device],
+            "00",
+            "0.3.48",
+            None,
+            None,
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
         assert!(
             page.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
             "{page}"

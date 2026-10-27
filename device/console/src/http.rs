@@ -1077,6 +1077,7 @@ async fn next_page(
             query.code.as_deref(),
             query.error.as_deref(),
             &app.audit.newest(6).await,
+            (app.now)(),
         )
         .into_string(),
     )
