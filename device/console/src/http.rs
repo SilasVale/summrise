@@ -289,6 +289,11 @@ impl Console {
             .route("/next/memory/:device", get(next_memory_page))
             .route("/next/memory/:device/append", post(next_memory_append))
             .route("/next/memory/:device/delete", post(next_memory_delete))
+            // The device's screen, and the watches it runs.
+            .route("/next/screen/:device", get(next_screen_page))
+            .route("/next/monitors/:device", get(next_monitors_page))
+            .route("/next/monitors/:device/add", post(next_monitor_add))
+            .route("/next/monitors/:device/remove", post(next_monitor_remove))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -1153,6 +1158,20 @@ fn terminal_refusal(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+/// The sentence a refused [`device_tool`] carried, for a page that renders sentences rather than JSON.
+async fn refusal_sentence(response: Response) -> String {
+    let (_, body) = response.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 64 * 1024).await else {
+        return "the device refused the call".to_owned();
+    };
+    let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    value
+        .get("error")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| "the device refused the call".to_owned())
+}
+
 /// One tool call on the operator's own authority, relayed through the device's channel.
 ///
 /// The console session is the credential — the same rule `/mcp` follows: a signed-in operator may
@@ -1906,6 +1925,166 @@ async fn next_memory_delete(
     };
     match device_tool(&app, &device_id, "memory.delete", json!({ "id": form.id })).await {
         Ok(_) => Redirect::to(&format!("/next/memory/{device_id}")).into_response(),
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize)]
+struct MonitorAddForm {
+    csrf: String,
+    kind: String,
+    host: String,
+    port: u16,
+    interval_ms: Option<u64>,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    expect: String,
+}
+
+#[derive(Deserialize)]
+struct MonitorRemoveForm {
+    csrf: String,
+    id: String,
+}
+
+/// `GET /next/screen/:device`: one capture, inline as a data URL.
+async fn next_screen_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match device_tool(&app, &device_id, "screen.capture", json!({})).await {
+        Ok(text) => {
+            let capture: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let format = capture["format"].as_str().unwrap_or("png");
+            let data = capture["data"].as_str().unwrap_or_default();
+            let width = capture["width"].as_u64().unwrap_or(0);
+            let height = capture["height"].as_u64().unwrap_or(0);
+            let url = format!("data:image/{format};base64,{data}");
+            let detail = format!("{width}×{height} png, captured now");
+            Html(page::screen(&device, Some(&url), &detail, &app.version).into_string())
+                .into_response()
+        }
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Html(page::screen(&device, None, &sentence, &app.version).into_string()).into_response()
+        }
+    }
+}
+
+/// `GET /next/monitors/:device`: the watches, their newest state, and the add form.
+async fn next_monitors_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut error = None;
+    let targets = match device_tool(&app, &device_id, "monitor.list", json!({})).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(response) => {
+            error = Some(refusal_sentence(*response).await);
+            Vec::new()
+        }
+    };
+    let rows: Vec<page::MonitorRow> = targets
+        .iter()
+        .map(|target| {
+            let host = target["host"].as_str().unwrap_or_default();
+            let port = target["port"].as_u64().unwrap_or(0);
+            page::MonitorRow {
+                id: target["id"].as_str().unwrap_or_default().to_owned(),
+                kind: target["kind"].as_str().unwrap_or_default().to_owned(),
+                target: format!("{host}:{port}"),
+                interval_ms: target["interval_ms"].as_u64().unwrap_or(0),
+                up_now: target["summary"]["up_now"].as_bool(),
+                up_pct: target["summary"]["up_pct"].as_u64(),
+                drops: target["summary"]["drops"].as_u64(),
+                last_status: target["summary"]["last_status"]
+                    .as_u64()
+                    .and_then(|status| u16::try_from(status).ok()),
+            }
+        })
+        .collect();
+    Html(
+        page::monitors(
+            &device,
+            &rows,
+            &hex::encode(&session.csrf),
+            &app.version,
+            error.as_deref(),
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/monitors/:device/add`: watch one target.
+async fn next_monitor_add(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MonitorAddForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let kind = form.kind.trim();
+    if kind != "tcp" && kind != "http" {
+        return Redirect::to(&format!("/next/monitors/{device_id}?error=kind")).into_response();
+    }
+    let mut arguments = json!({
+        "kind": kind,
+        "host": form.host.trim(),
+        "port": form.port,
+        "interval_ms": form.interval_ms.unwrap_or(15_000).clamp(5_000, 3_600_000),
+    });
+    let path = form.path.trim();
+    let expect = form.expect.trim();
+    if kind == "http" {
+        if !path.is_empty() {
+            arguments["path"] = json!(path);
+        }
+        if !expect.is_empty() {
+            arguments["expect"] = json!(expect);
+        }
+    }
+    match device_tool(&app, &device_id, "monitor.add", arguments).await {
+        Ok(_) => Redirect::to(&format!("/next/monitors/{device_id}")).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/monitors/:device/remove`: stop watching one target.
+async fn next_monitor_remove(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MonitorRemoveForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match device_tool(&app, &device_id, "monitor.remove", json!({ "id": form.id })).await {
+        Ok(_) => Redirect::to(&format!("/next/monitors/{device_id}")).into_response(),
         Err(response) => *response,
     }
 }

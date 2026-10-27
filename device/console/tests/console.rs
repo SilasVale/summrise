@@ -7146,3 +7146,139 @@ async fn a_memory_delete_without_the_page_csrf_is_refused() {
         "a refused delete must not reach the device"
     );
 }
+
+#[tokio::test]
+async fn the_screen_page_renders_the_capture_as_a_data_url() {
+    let fixture = Fixture::new("screen-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xed)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/screen/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("screen.capture"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "format": "png", "data": "QUJD", "width": 10, "height": 20
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the screen page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("src=\"data:image/png;base64,QUJD\""),
+        "{body}"
+    );
+    assert!(body.contains("10×20"), "{body}");
+}
+
+#[tokio::test]
+async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
+    let fixture = Fixture::new("monitors-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xee)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/monitors/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "tcp:10.0.0.1:443", "kind": "tcp", "host": "10.0.0.1", "port": 443,
+                      "path": null, "expect": null, "interval_ms": 15000,
+                      "summary": { "up_now": true, "since_ms": 1, "up_pct": 100, "drops": 0, "last_status": null } }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the monitors page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("10.0.0.1:443"), "{body}");
+    assert!(body.contains("Watch a target"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/monitors/{device_id}/add"),
+        &[
+            ("csrf", &csrf),
+            ("kind", "http"),
+            ("host", "192.168.1.1"),
+            ("port", "80"),
+            ("interval_ms", "20000"),
+            ("path", "/health"),
+            ("expect", "ok"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let add = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.add"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["kind"], json!("http"));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["host"],
+        json!("192.168.1.1")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["port"], json!(80));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("/health")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["expect"], json!("ok"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "id": "http:192.168.1.1:80" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = add.await.expect("the add finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/monitors/{device_id}").as_str())
+    );
+}

@@ -46,6 +46,8 @@ nav a { color:var(--accent); text-decoration:none; }
 label.check { display:flex; align-items:center; gap:6px; margin:12px 0; }
 label.check input { width:auto; }
 textarea { width:100%; font:13px/1.4 ui-monospace, monospace; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
+img.capture { max-width:100%; border:1px solid var(--line); border-radius:8px; }
+select { padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); font:inherit; }
 pre.file { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; }
 h3 { font-size:13px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin:22px 0 8px; }
 "#;
@@ -169,6 +171,10 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/state/{}", device.id)) { "State" }
                                             " · "
                                             a href=(format!("/next/memory/{}", device.id)) { "Memory" }
+                                            " · "
+                                            a href=(format!("/next/screen/{}", device.id)) { "Screen" }
+                                            " · "
+                                            a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
                                         }
                                     }
                                 }
@@ -768,6 +774,146 @@ pub(super) fn memory(
                         button type="submit" { "Append" }
                     }
                     p class="hint" { code { (device.id) } }
+                }
+            }
+        }
+    }
+}
+
+/// The device's screen, as the per-user helper captured it.
+pub(super) fn screen(
+    device: &DeviceView,
+    image: Option<&str>,
+    detail: &str,
+    version: &str,
+) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — screen" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Screen" }
+                    p class="hint" { (detail) }
+                    @if let Some(image) = image {
+                        img class="capture" src=(image) alt="the device screen";
+                    }
+                    p { a href=(format!("/next/screen/{}", device.id)) { "Capture again" } }
+                }
+            }
+        }
+    }
+}
+
+/// One monitor as the page draws it.
+pub(super) struct MonitorRow {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) target: String,
+    pub(super) interval_ms: u64,
+    pub(super) up_now: Option<bool>,
+    pub(super) up_pct: Option<u64>,
+    pub(super) drops: Option<u64>,
+    pub(super) last_status: Option<u16>,
+}
+
+/// The monitors page: the watches the device runs, an add form and a remove per row.
+pub(super) fn monitors(
+    device: &DeviceView,
+    rows: &[MonitorRow],
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let base = format!("/next/monitors/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — monitors" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Monitors" }
+                    p class="hint" {
+                        "The device probes each target on its own interval and keeps the last 60 probes. "
+                        "A down target is a fact, not a failure of this page."
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { (error) }
+                    }
+                    @if rows.is_empty() {
+                        p class="hint" { "No targets are watched yet." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Target" } th { "Kind" } th { "Now" } th { "Up %" } th { "Drops" } th { "Status" } th { "" } } }
+                            tbody {
+                                @for row in rows {
+                                    tr {
+                                        td { code { (row.target) } }
+                                        td { (row.kind) }
+                                        td {
+                                            @match row.up_now {
+                                                Some(true) => { span class="ok" { "up" } },
+                                                Some(false) => { span class="off" { "down" } },
+                                                None => { "—" },
+                                            }
+                                        }
+                                        td { (row.up_pct.map(|pct| pct.to_string()).unwrap_or_else(|| "—".to_owned())) }
+                                        td { (row.drops.map(|drops| drops.to_string()).unwrap_or_else(|| "—".to_owned())) }
+                                        td { (row.last_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_owned())) }
+                                        td {
+                                            form method="post" action=(format!("{base}/remove")) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                input type="hidden" name="id" value=(row.id);
+                                                button type="submit" class="inline-button" { "Remove" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 { "Watch a target" }
+                    form method="post" action=(format!("{base}/add")) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        label for="kind" { "Kind" }
+                        select id="kind" name="kind" {
+                            option value="tcp" { "tcp" }
+                            option value="http" { "http" }
+                        }
+                        label for="host" { "Host" }
+                        input id="host" name="host" type="text" placeholder="192.168.1.1" required;
+                        label for="port" { "Port" }
+                        input id="port" name="port" type="number" min="1" max="65535" required;
+                        label for="interval_ms" { "Interval (ms)" }
+                        input id="interval_ms" name="interval_ms" type="number" value="15000" min="5000";
+                        label for="path" { "HTTP path (http only)" }
+                        input id="path" name="path" type="text" placeholder="/";
+                        label for="expect" { "Body must contain (http only)" }
+                        input id="expect" name="expect" type="text";
+                        button type="submit" { "Add target" }
+                    }
                 }
             }
         }
