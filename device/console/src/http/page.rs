@@ -9,6 +9,8 @@
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
+use crate::connections::Connection;
+
 use super::DeviceView;
 
 /// The page's whole style: the console's tokens, the desktop shell, and the surfaces it frames.
@@ -269,6 +271,20 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .kind-fields label { display:block; margin:0 0 2px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
 .kind-fields input { width:130px; min-height:28px; padding:3px 8px; font-size:12px; }
 .kind-fields input#serial_port { width:170px; }
+.preset-count { margin-left:2px; color:var(--faint); font-variant-numeric:tabular-nums; }
+.preset-panel { width:340px; padding:12px; }
+.preset-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; }
+.preset-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
+.preset-row:last-child { border-bottom:0; }
+.preset-ident { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.preset-name { overflow:hidden; font-size:12.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+.preset-target { overflow:hidden; color:var(--muted); font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+.preset-actions { flex:none; display:flex; align-items:center; gap:4px; }
+.preset-add { display:grid; gap:6px; margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
+.preset-add .field { margin:0; }
+.preset-add label { font-size:10.5px; }
+.preset-add input, .preset-add select { min-height:28px; padding:3px 8px; font-size:12px; }
+.preset-add .btn { justify-content:center; }
 .terminal-toolbar .spacer { flex:1; }
 .terminal-tabbar { flex:none; display:flex; align-items:center; gap:10px; min-height:0; padding:0 10px; border-bottom:1px solid var(--line); background:var(--panel-2); }
 .terminal-tabbar:has(#terminal-tabs:empty):has(#terminal-status:empty) { display:none; }
@@ -1271,12 +1287,43 @@ pub(super) struct TerminalSession {
     pub(super) started_at_ms: u64,
 }
 
+/// What the terminal page shows besides the canvas: the device's live sessions, its saved presets,
+/// the preset the operator asked to prefill (`?preset=`), and the sentence a refused preset left.
+pub(super) struct TerminalView<'a> {
+    pub sessions: &'a [TerminalSession],
+    pub presets: &'a [Connection],
+    pub preset: Option<&'a Connection>,
+    pub error: Option<&'a str>,
+}
+
 pub(super) fn terminal(
     device: &DeviceView,
     csrf: &str,
     version: &str,
-    sessions: &[TerminalSession],
+    view: TerminalView<'_>,
 ) -> Markup {
+    let sessions = view.sessions;
+    // The one-line form's prefill: a preset the operator clicked "Use" on fills the ssh or serial
+    // fields, so the password is the only thing left to type (and the only thing never stored).
+    let preset = view.preset;
+    let preset_kind = preset.map(|preset| preset.kind.as_str()).unwrap_or("pty");
+    let preset_host = preset
+        .and_then(|preset| preset.host.as_deref())
+        .unwrap_or_default();
+    let preset_user = preset
+        .and_then(|preset| preset.user.as_deref())
+        .unwrap_or_default();
+    let preset_port = preset
+        .and_then(|preset| preset.port)
+        .map(|port| port.to_string())
+        .unwrap_or_else(|| "22".to_owned());
+    let preset_serial = preset
+        .and_then(|preset| preset.port_path.as_deref())
+        .unwrap_or_default();
+    let preset_baud = preset
+        .and_then(|preset| preset.baud)
+        .map(|baud| baud.to_string())
+        .unwrap_or_else(|| "115200".to_owned());
     let meta = if sessions.is_empty() {
         Markup::default()
     } else {
@@ -1313,39 +1360,102 @@ pub(super) fn terminal(
                 form id="terminal-form" class="terminal-form" {
                     label for="kind" class="toolbar-label" { "Kind" }
                     select id="kind" name="kind" {
-                        option value="pty" { "pty — a shell on this machine" }
-                        option value="ssh" { "ssh — a host this device can reach" }
-                        option value="serial" { "serial — an OS port" }
+                        option value="pty" selected[preset_kind == "pty"] { "pty — a shell on this machine" }
+                        option value="ssh" selected[preset_kind == "ssh"] { "ssh — a host this device can reach" }
+                        option value="serial" selected[preset_kind == "serial"] { "serial — an OS port" }
                     }
-                    div class="kind-fields" data-kind="ssh" hidden {
+                    div class="kind-fields" data-kind="ssh" hidden[preset_kind != "ssh"] {
                         div class="field" {
                             label for="host" { "Host" }
-                            input id="host" name="host" type="text" placeholder="192.168.1.1";
+                            input id="host" name="host" type="text" placeholder="192.168.1.1" value=(preset_host);
                         }
                         div class="field" {
                             label for="ssh_port" { "Port" }
-                            input id="ssh_port" name="ssh_port" type="number" value="22" min="1" max="65535";
+                            input id="ssh_port" name="ssh_port" type="number" value=(preset_port) min="1" max="65535";
                         }
                         div class="field" {
                             label for="user" { "User" }
-                            input id="user" name="user" type="text" placeholder="root";
+                            input id="user" name="user" type="text" placeholder="root" value=(preset_user);
                         }
                         div class="field" {
                             label for="password" { "Password" }
                             input id="password" name="password" type="password" autocomplete="off";
                         }
                     }
-                    div class="kind-fields" data-kind="serial" hidden {
+                    div class="kind-fields" data-kind="serial" hidden[preset_kind != "serial"] {
                         div class="field" {
                             label for="serial_port" { "Port" }
-                            input id="serial_port" name="serial_port" type="text" placeholder="COM3 or /dev/ttyUSB0";
+                            input id="serial_port" name="serial_port" type="text" placeholder="COM3 or /dev/ttyUSB0" value=(preset_serial);
                         }
                         div class="field" {
                             label for="baud" { "Baud" }
-                            input id="baud" name="baud" type="number" value="115200" min="1";
+                            input id="baud" name="baud" type="number" value=(preset_baud) min="1";
                         }
                     }
                     button type="submit" class="btn btn-primary btn-sm" { "Start session" }
+                }
+                // A refused preset opens the panel: the sentence is the point of the redirect, and a
+                // closed dropdown would hide it.
+                details class="row-menu presets" open[view.error.is_some()] {
+                    summary class="btn btn-ghost btn-sm" title="Saved connections for this device" {
+                        "Presets " span class="preset-count" { (view.presets.len()) }
+                        span class="caret" { "▾" }
+                    }
+                    div class="menu-panel preset-panel" {
+                        @if let Some(error) = view.error {
+                            p class="alert error" { (error) }
+                        }
+                        @if view.presets.is_empty() {
+                            p class="rail-note" { "No saved connections on this device yet." }
+                        } @else {
+                            ul class="preset-list" {
+                                @for preset in view.presets {
+                                    li class="preset-row" {
+                                        div class="preset-ident" {
+                                            span class="preset-name" { (preset.name) }
+                                            span class="preset-target" { (preset_summary(preset)) }
+                                        }
+                                        div class="preset-actions" {
+                                            @if preset.kind == "ssh" {
+                                                // An SSH preset deliberately carries no password, so it
+                                                // fills the form instead of opening a session.
+                                                a class="btn btn-sm" href=(format!("/next/terminal/{}?preset={}", device.id, encode(&preset.id))) { "Use" }
+                                            } @else {
+                                                form method="post" action=(format!("/next/terminal/{}/connections/{}/connect", device.id, encode(&preset.id))) {
+                                                    input type="hidden" name="csrf" value=(csrf);
+                                                    button type="submit" class="btn btn-sm" { "Connect" }
+                                                }
+                                            }
+                                            form method="post" action=(format!("/next/terminal/{}/connections/{}/remove", device.id, encode(&preset.id))) {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                button type="submit" class="btn btn-quiet-danger btn-sm" { "Forget" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        form class="preset-add" method="post" action=(format!("/next/terminal/{}/connections", device.id)) {
+                            input type="hidden" name="csrf" value=(csrf);
+                            div class="field" {
+                                label for="preset-name" { "Name" }
+                                input id="preset-name" name="name" maxlength="64" required;
+                            }
+                            div class="field" {
+                                label for="preset-kind" { "Kind" }
+                                select id="preset-kind" name="kind" {
+                                    option value="pty" { "pty" }
+                                    option value="ssh" { "ssh" }
+                                    option value="serial" { "serial" }
+                                }
+                            }
+                            div class="field" {
+                                label for="preset-target" { "Target" }
+                                input id="preset-target" name="target" placeholder="root@host:22 or COM3@115200";
+                            }
+                            button type="submit" class="btn btn-sm" { "Save preset" }
+                        }
+                    }
                 }
                 span class="spacer" {}
                 a class="btn btn-ghost btn-sm" href=(format!("/next/terminal/{}", device.id)) title="Close every session in this page" { "Close all" }
@@ -1404,6 +1514,23 @@ fn clock(ms: u64) -> String {
     match stamp.split_once(' ') {
         Some((_, rest)) => rest.to_owned(),
         None => stamp,
+    }
+}
+
+/// One preset, in the line an operator recognises it by.
+fn preset_summary(preset: &Connection) -> String {
+    match preset.kind.as_str() {
+        "ssh" => format!(
+            "{}@{}:{}",
+            preset.user.as_deref().unwrap_or("?"),
+            preset.host.as_deref().unwrap_or("?"),
+            preset.port.unwrap_or(22)
+        ),
+        "serial" => match preset.baud {
+            Some(baud) => format!("{}@{}", preset.port_path.as_deref().unwrap_or("?"), baud),
+            None => preset.port_path.clone().unwrap_or_default(),
+        },
+        _ => "a shell on this device".to_owned(),
     }
 }
 
@@ -3014,7 +3141,20 @@ mod tests {
             ),
             ("Fleet", logs(&[], "Audit", 0, None, "00", "0.1.0")),
             ("Fleet", logs(&[], "Denials", 0, None, "00", "0.1.0")),
-            ("Terminal", terminal(device, "00", "0.1.0", &[])),
+            (
+                "Terminal",
+                terminal(
+                    device,
+                    "00",
+                    "0.1.0",
+                    TerminalView {
+                        sessions: &[],
+                        presets: &[],
+                        preset: None,
+                        error: None,
+                    },
+                ),
+            ),
             ("Files", files(device, "", &[], "00", "0.1.0", None)),
             (
                 "Files",
@@ -3150,7 +3290,18 @@ mod tests {
                 started_at_ms: 1_791_000_500_000,
             },
         ];
-        let page = terminal(&device, "00", "0.1.0", &sessions).into_string();
+        let page = terminal(
+            &device,
+            "00",
+            "0.1.0",
+            TerminalView {
+                sessions: &sessions,
+                presets: &[],
+                preset: None,
+                error: None,
+            },
+        )
+        .into_string();
         assert!(page.contains("class=\"context-rail\""), "{page}");
         assert!(
             page.contains("?attach=session-3"),
@@ -3160,7 +3311,18 @@ mod tests {
         assert!(page.contains(">pty<") && page.contains(">ssh<"), "{page}");
 
         // An empty device says so rather than showing an empty rail.
-        let empty = terminal(&device, "00", "0.1.0", &[]).into_string();
+        let empty = terminal(
+            &device,
+            "00",
+            "0.1.0",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                error: None,
+            },
+        )
+        .into_string();
         assert!(empty.contains("No live session on this device"), "{empty}");
         assert!(!empty.contains("?attach="), "{empty}");
     }
@@ -3168,7 +3330,18 @@ mod tests {
     #[test]
     fn the_terminal_page_keeps_its_form_and_tabs() {
         let device = view('1', Some("studio"), true);
-        let page = terminal(&device, "ab".repeat(32).as_str(), "0.1.0", &[]).into_string();
+        let page = terminal(
+            &device,
+            "ab".repeat(32).as_str(),
+            "0.1.0",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                error: None,
+            },
+        )
+        .into_string();
 
         for marker in [
             "id=\"terminal-form\"",
@@ -3411,6 +3584,16 @@ mod tests {
             serde_json::json!({"ts_ms": 1_793_057_500_000u64, "kind": "device", "status": 0, "device_id": id, "tool": "", "detail": "channel open"}),
             serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "tool", "status": 500, "device_id": id, "tool": "browser.open", "detail": "the device did not answer"}),
         ];
+        let preset = Connection {
+            id: "a".repeat(32),
+            name: "Edge box".to_owned(),
+            kind: "ssh".to_owned(),
+            host: Some("10.0.0.5".to_owned()),
+            port: Some(2222),
+            user: Some("root".to_owned()),
+            port_path: None,
+            baud: None,
+        };
         let pages: Vec<(&str, Markup)> = vec![
             (
                 "dashboard",
@@ -3454,7 +3637,8 @@ mod tests {
                     &devices[0],
                     "csrf",
                     "0.3.72",
-                    &[
+                    TerminalView {
+                        sessions: &[
                         TerminalSession {
                             id: "session-3".to_owned(),
                             kind: "pty".to_owned(),
@@ -3465,7 +3649,39 @@ mod tests {
                             kind: "ssh".to_owned(),
                             started_at_ms: 1_791_000_500_000,
                         },
-                    ],
+                        ],
+                        presets: &[],
+                        preset: None,
+                        error: None,
+                    },
+                ),
+            ),
+            (
+                "terminal-prefilled",
+                terminal(
+                    &devices[0],
+                    "csrf",
+                    "0.3.72",
+                    TerminalView {
+                        sessions: &[],
+                        presets: std::slice::from_ref(&preset),
+                        preset: Some(&preset),
+                        error: None,
+                    },
+                ),
+            ),
+            (
+                "terminal-preset-error",
+                terminal(
+                    &devices[0],
+                    "csrf",
+                    "0.3.72",
+                    TerminalView {
+                        sessions: &[],
+                        presets: std::slice::from_ref(&preset),
+                        preset: None,
+                        error: Some("An ssh preset needs its password typed on the page."),
+                    },
                 ),
             ),
             (
@@ -3653,7 +3869,18 @@ mod tests {
     #[test]
     fn the_terminal_has_an_empty_state_and_a_close_control() {
         let device = view('1', Some("studio"), true);
-        let page = terminal(&device, "00", "0.1.0", &[]).into_string();
+        let page = terminal(
+            &device,
+            "00",
+            "0.1.0",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                error: None,
+            },
+        )
+        .into_string();
         assert!(
             page.contains("No session yet — choose a kind and start one"),
             "the empty state explains the canvas: {page}"
@@ -3766,7 +3993,17 @@ mod tests {
                 &[],
                 1_791_000_000_000,
             ),
-            terminal(&device, "00", "0.1.0", &[]),
+            terminal(
+                &device,
+                "00",
+                "0.1.0",
+                TerminalView {
+                    sessions: &[],
+                    presets: &[],
+                    preset: None,
+                    error: None,
+                },
+            ),
             files(&device, "", &[], "00", "0.1.0", None),
             runs(&device, &[], "00", "0.1.0", None),
             system(&device, &[], "", "00", "0.1.0", None),

@@ -3450,6 +3450,220 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
     );
 }
 
+/// Presets are operator convenience the console stores, and the terminal page is where they are
+/// used: saving one has to show up on the page that will open a session from it.
+#[tokio::test]
+async fn a_saved_connection_is_listed_on_the_terminal_page() {
+    let fixture = Fixture::new("presets-list");
+    let (device_id, _) = fixture.register(&signing_key(0xf2)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/terminal/{device_id}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5:2222"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a save redirects back");
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Edge box"), "{page}");
+    assert!(page.contains("10.0.0.5"), "{page}");
+}
+
+/// The id of the first preset the page rendered, read off its remove form's action.
+fn first_preset_id(page: &str) -> String {
+    let marker = "/connections/";
+    let start = page.find(marker).expect("a preset row") + marker.len();
+    page[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .collect()
+}
+
+/// Saving and forgetting are the two halves of the same control; a forgotten preset must leave the
+/// page, not merely the file.
+#[tokio::test]
+async fn a_preset_can_be_forgotten_from_the_page() {
+    let fixture = Fixture::new("presets-forget");
+    let (device_id, _) = fixture.register(&signing_key(0xf3)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Old box"),
+                ("kind", "pty"),
+                ("target", ""),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(page.contains("Old box"), "{page}");
+    let preset = first_preset_id(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections/{preset}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(!page.contains("Old box"), "the row is gone: {page}");
+}
+
+/// An ssh preset carries no credential, so "Use" fills the form and leaves the password blank —
+/// that is the whole reason the preset may store host, user and port but nothing else.
+#[tokio::test]
+async fn an_ssh_preset_prefills_the_form_but_not_a_password() {
+    let fixture = Fixture::new("presets-prefill");
+    let (device_id, _) = fixture.register(&signing_key(0xf4)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5:2222"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let preset = first_preset_id(&page);
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("{page_uri}?preset={preset}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("value=\"10.0.0.5\""), "{page}");
+    assert!(page.contains("value=\"root\""), "{page}");
+    assert!(page.contains("value=\"2222\""), "{page}");
+    assert!(
+        page.contains("option value=\"ssh\" selected"),
+        "the kind follows the preset: {page}"
+    );
+    assert!(
+        !page.contains("data-kind=\"ssh\" hidden"),
+        "the prefilled group is visible without touching the select: {page}"
+    );
+    assert!(
+        !page.contains("value=\"root\" type=\"password\""),
+        "no password is ever prefilled: {page}"
+    );
+}
+
+/// The password is the preset's deliberate omission, so connecting an ssh preset from the page has
+/// to say so instead of failing at the device with a worse sentence.
+#[tokio::test]
+async fn connecting_an_ssh_preset_asks_for_the_password() {
+    let fixture = Fixture::new("presets-ssh-connect");
+    let (device_id, _) = fixture.register(&signing_key(0xf5)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+    send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let preset = first_preset_id(&page);
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections/{preset}/connect"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(location, &cookie)).await;
+    assert!(
+        page.contains("needs its password typed on the page"),
+        "{page}"
+    );
+}
+
+/// The presets are mutations of the console's own file, so the page's CSRF rule covers them.
+#[tokio::test]
+async fn a_preset_cannot_be_saved_without_the_sessions_csrf() {
+    let fixture = Fixture::new("presets-csrf");
+    let (device_id, _) = fixture.register(&signing_key(0xf6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/terminal/{device_id}/connections"),
+            &[
+                ("csrf", &"00".repeat(32)),
+                ("name", "Nope"),
+                ("kind", "pty"),
+                ("target", ""),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
 /// `/health` is what a supervisor and a human check first; whether Access is configured is the fact
 /// that explains why the page behaves the way it does, and it is not a secret.
 #[tokio::test]

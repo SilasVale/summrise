@@ -275,6 +275,18 @@ impl Console {
             // The terminal page: one device, one shell, the session's own cookie as the gate.
             .route("/next/terminal/:device", get(next_terminal_page))
             .route("/next/terminal/:device/create", post(next_terminal_create))
+            .route(
+                "/next/terminal/:device/connections",
+                post(next_terminal_preset_save),
+            )
+            .route(
+                "/next/terminal/:device/connections/:id/remove",
+                post(next_terminal_preset_remove),
+            )
+            .route(
+                "/next/terminal/:device/connections/:id/connect",
+                post(next_terminal_preset_connect),
+            )
             .route("/next/terminal/:device/:id/read", get(next_terminal_read))
             .route(
                 "/next/terminal/:device/:id/write",
@@ -1498,6 +1510,78 @@ fn terminal_csrf(app: &AppState, headers: &HeaderMap) -> Option<Session> {
     next_session(app, headers, csrf)
 }
 
+/// Turn the one-line target the presets form takes into the draft the connection registry validates.
+///
+/// `pty` needs no target, `ssh` is `user@host[:port]` (port 22 when absent), `serial` is
+/// `path[@baud]`. The registry still owns the shape rules; this only splits the line the operator
+/// typed and says which part is missing, so a bad preset is refused at save time with a sentence.
+fn draft_from_target(
+    name: &str,
+    kind: &str,
+    target: &str,
+) -> Result<connections::Draft, &'static str> {
+    let name = name.trim().to_owned();
+    let target = target.trim();
+    let draft = match kind.trim() {
+        "pty" => connections::Draft {
+            name,
+            kind: "pty".to_owned(),
+            host: None,
+            port: None,
+            user: None,
+            port_path: None,
+            baud: None,
+        },
+        "ssh" => {
+            let (user, rest) = target
+                .split_once('@')
+                .ok_or("an ssh target is user@host or user@host:port")?;
+            let (host, port) = match rest.rsplit_once(':') {
+                Some((host, port)) => (
+                    host,
+                    Some(
+                        port.parse::<u16>()
+                            .map_err(|_| "the ssh port must be a number")?,
+                    ),
+                ),
+                None => (rest, None),
+            };
+            connections::Draft {
+                name,
+                kind: "ssh".to_owned(),
+                host: Some(host.trim().to_owned()),
+                port: Some(port.unwrap_or(22)),
+                user: Some(user.trim().to_owned()),
+                port_path: None,
+                baud: None,
+            }
+        }
+        "serial" => {
+            let (path, baud) = match target.split_once('@') {
+                Some((path, baud)) => (
+                    path,
+                    Some(
+                        baud.parse::<u32>()
+                            .map_err(|_| "the baud must be a number")?,
+                    ),
+                ),
+                None => (target, None),
+            };
+            connections::Draft {
+                name,
+                kind: "serial".to_owned(),
+                host: None,
+                port: None,
+                user: None,
+                port_path: Some(path.trim().to_owned()),
+                baud,
+            }
+        }
+        _ => return Err("kind must be pty, ssh or serial"),
+    };
+    Ok(draft)
+}
+
 fn terminal_refusal(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
@@ -1608,10 +1692,19 @@ async fn terminal_tool(
 }
 
 /// `GET /next/terminal/:device`: the page. A cookie is the page's gate; an unknown device is 404.
+/// The terminal page's query: a preset the operator asked to prefill, and the sentence a refused
+/// preset left behind.
+#[derive(Deserialize)]
+struct TerminalPresetQuery {
+    preset: Option<String>,
+    preset_error: Option<String>,
+}
+
 async fn next_terminal_page(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     headers: HeaderMap,
+    Query(query): Query<TerminalPresetQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return login_card(&app, &headers).into_response();
@@ -1643,16 +1736,135 @@ async fn next_terminal_page(
                 .unwrap_or_default(),
             Err(_) => Vec::new(),
         };
+    let presets = lock(&app.connections).list(&device_id);
+    let preset = query
+        .preset
+        .as_ref()
+        .and_then(|id| presets.iter().find(|preset| &preset.id == id));
     Html(
         page::terminal(
             &device,
             &hex::encode(&session.csrf),
             &app.version,
-            &sessions,
+            page::TerminalView {
+                sessions: &sessions,
+                presets: &presets,
+                preset,
+                error: query.preset_error.as_deref(),
+            },
         )
         .into_string(),
     )
     .into_response()
+}
+
+/// `POST /next/terminal/:device/connections`: save a preset from the toolbar's one-line form.
+async fn next_terminal_preset_save(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<PresetSave>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/terminal/{device_id}");
+    let refuse = |sentence: &str| {
+        Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+    };
+    let draft = match draft_from_target(&form.name, &form.kind, &form.target) {
+        Ok(draft) => draft,
+        Err(sentence) => return refuse(sentence),
+    };
+    match lock(&app.connections).add(&device_id, draft) {
+        Ok(_) => Redirect::to(&uri).into_response(),
+        Err(sentence) => refuse(sentence),
+    }
+}
+
+/// `POST /next/terminal/:device/connections/:id/remove`: forget one preset.
+async fn next_terminal_preset_remove(
+    State(app): State<AppState>,
+    Path((device_id, id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/terminal/{device_id}");
+    match lock(&app.connections).remove(&device_id, &id) {
+        Ok(true) => Redirect::to(&uri).into_response(),
+        Ok(false) => Redirect::to(&format!(
+            "{uri}?preset_error={}",
+            page::encode("That preset is not on this device.")
+        ))
+        .into_response(),
+        Err(sentence) => {
+            Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+        }
+    }
+}
+
+/// `POST /next/terminal/:device/connections/:id/connect`: open a session from a preset.
+///
+/// Only `pty` and `serial` can connect this way: a preset never stores a credential, so an ssh one
+/// fills the form (`?preset=`) and the operator types the password, as the page's form already asks.
+async fn next_terminal_preset_connect(
+    State(app): State<AppState>,
+    Path((device_id, id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/terminal/{device_id}");
+    let refuse = |sentence: &str| {
+        Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+    };
+    let Some(preset) = lock(&app.connections)
+        .list(&device_id)
+        .into_iter()
+        .find(|preset| preset.id == id)
+    else {
+        return refuse("That preset is not on this device.");
+    };
+    let arguments = match preset.kind.as_str() {
+        "pty" => json!({ "kind": "pty" }),
+        "serial" => json!({
+            "kind": "serial",
+            "port": preset.port_path,
+            "baud": preset.baud.unwrap_or(115_200),
+        }),
+        "ssh" => return refuse("An ssh preset needs its password typed on the page."),
+        _ => return refuse("That preset's kind is unknown."),
+    };
+    match terminal_tool(&app, &device_id, "terminal.create", arguments).await {
+        Ok(answer) => {
+            let session = answer.get("id").and_then(Value::as_str).unwrap_or_default();
+            Redirect::to(&format!("{uri}?attach={}", page::encode(session))).into_response()
+        }
+        Err(response) => refuse(&refusal_sentence(*response).await),
+    }
+}
+
+#[derive(Deserialize)]
+struct PresetSave {
+    csrf: String,
+    name: String,
+    kind: String,
+    #[serde(default)]
+    target: String,
 }
 
 /// `POST /next/terminal/:device/create`: one pty, sized by the browser.
@@ -4732,6 +4944,44 @@ fn system_now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The presets form takes one line; the parts it produces are the registry's draft fields.
+    #[test]
+    fn a_target_line_becomes_the_draft_the_registry_validates() {
+        let ssh = draft_from_target("edge", "ssh", "root@10.0.0.5:2222").expect("ssh parses");
+        assert_eq!(ssh.name, "edge");
+        assert_eq!(ssh.kind, "ssh");
+        assert_eq!(ssh.user.as_deref(), Some("root"));
+        assert_eq!(ssh.host.as_deref(), Some("10.0.0.5"));
+        assert_eq!(ssh.port, Some(2222));
+
+        let default_port = draft_from_target("edge", "ssh", "root@10.0.0.5").expect("ssh parses");
+        assert_eq!(default_port.port, Some(22));
+
+        let serial = draft_from_target("console", "serial", "COM3@9600").expect("serial parses");
+        assert_eq!(serial.port_path.as_deref(), Some("COM3"));
+        assert_eq!(serial.baud, Some(9600));
+
+        let plain = draft_from_target("console", "serial", "COM3").expect("serial parses");
+        assert_eq!(plain.baud, None);
+
+        let pty = draft_from_target("shell", "pty", "ignored").expect("pty parses");
+        assert_eq!(pty.kind, "pty");
+        assert_eq!(pty.host, None);
+
+        // A serial path may contain anything (a `/dev/serial/by-id/...` path has colons); only the
+        // length rule applies, and the device owns whether the OS has that port.
+        for (kind, target) in [
+            ("ssh", "no-at-sign"),
+            ("ssh", "root@host:not-a-port"),
+            ("telnet", "x"),
+        ] {
+            assert!(
+                draft_from_target("name", kind, target).is_err(),
+                "{kind} {target} must be refused"
+            );
+        }
+    }
 
     /// A `runs.exec` wait follows the run; everything else leaves the general bound in charge.
     #[test]
