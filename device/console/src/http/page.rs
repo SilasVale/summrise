@@ -690,6 +690,24 @@ fn fleet_status(devices: &[DeviceView]) -> Markup {
     }
 }
 
+/// Every kind the console writes, newest subsystems included. The list is what the audit filter
+/// offers, and it was written before approvals, installs and the log's own events existed: a line
+/// with a kind missing here could be found by text but never selected.
+const AUDIT_KINDS: [&str; 12] = [
+    "approval",
+    "auth",
+    "denied",
+    "device",
+    "device_remove",
+    "enroll",
+    "grant",
+    "mcp",
+    "register",
+    "token",
+    "token_revoke",
+    "tool",
+];
+
 /// The `head` every page shares. `extra` is where the terminal puts its stylesheet and its scripts.
 fn head(title: &str, extra: Markup) -> Markup {
     html! {
@@ -1229,7 +1247,7 @@ pub(super) fn audit_filter(
                         label for="f-kind" { "Kind" }
                         select id="f-kind" name="kind" {
                             option value="" { "Every kind" }
-                            @for kind in ["tool", "auth", "device", "denied"] {
+                            @for kind in AUDIT_KINDS {
                                 option value=(kind) selected[filter.kind == kind] { (kind) }
                             }
                         }

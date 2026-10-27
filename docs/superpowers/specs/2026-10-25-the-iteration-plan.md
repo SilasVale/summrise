@@ -167,3 +167,24 @@ absence the operator feels least; updates and restarts ride along because they a
 
 One phase per iteration, each with: the tool tests, the console page, the canary evidence, and the
 spec updated in the same commit series. A phase that cannot be observed on the canary is not done.
+
+## 9. Status (2026-10-27)
+
+Written after the console rounds that took P1–P6 from "planned" to "shipped, with two deviations
+from the acceptance text above". The deviations are the point of this section.
+
+| Phase | State | What differs from §5 |
+|---|---|---|
+| P1 terminal, P2 tools, P3 monitors, P4 runs | shipped | as specified; `runs.get` opens a history row (rows, not output — the device keeps no output) |
+| P5 approvals | shipped | the console HOLDS the client's call and re-sends it with consent for that call only, instead of signing a decision; a token keeps saying no to the next call. The deadline is **90 s**, not the legacy 15 min: the console is behind Cloudflare Access, whose origin bound cuts a request at about 100 s, so a longer hold would answer a request nobody holds. Expiry fails closed; the badge on every page reports a held call |
+| P6 updates | shipped | the Install card on Vitals (generations, last swap with its reason, repairs), from `host.facts`; the console keeps no copy |
+| P6 restarts | partial | the launcher's swap outcome and repairs are shown; a per-restart history is still not exposed by any tool |
+| P6 browser live view | **not the acceptance** | frames are `browser.screenshot` polled at 1 fps by the page, single-flight, paused while hidden — not CDP `Page.startScreencast`. The 5 fps scrolling acceptance above is not met; a real screencast needs a device-side stream, which is the remaining build |
+
+Two decisions made during those rounds belong beside the phases:
+
+- **The pages stay static except two scripts** (`assets/approvals.js` badge poll, `assets/browser.js`
+  frame pump). A held call waits 90 s, and no static page can report a window that short.
+- **A held call cannot outlive its request**: a `Held` guard removes the approval row when the
+  holding future drops, and the client is told the outcome is unknown (504) rather than "needs
+  approval" when the re-send fails — a retry after that answer could run the command twice.

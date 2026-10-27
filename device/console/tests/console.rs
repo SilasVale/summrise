@@ -10704,6 +10704,48 @@ async fn the_audit_page_narrows_to_the_lines_the_filter_names() {
     assert!(body.contains("enroll"), "{body}");
 }
 
+/// The filter offers every kind the console writes, so a line it can record is a line it can select.
+#[tokio::test]
+async fn the_audit_filter_offers_the_new_kinds() {
+    let fixture = Fixture::new("audit-filter-kinds");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let approval = json!({
+        "ts_ms": 1_793_060_000_000u64,
+        "kind": "approval",
+        "status": 200,
+        "tool": "terminal.create",
+        "detail": "asked"
+    });
+    let enroll = json!({
+        "ts_ms": 1_793_059_000_000u64,
+        "kind": "enroll",
+        "status": 200,
+        "tool": "memory.list",
+        "detail": "page"
+    });
+    let path = fixture.config.data.join("audit.jsonl");
+    let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+    text.push_str(&format!("{approval}\n{enroll}\n"));
+    std::fs::write(&path, text).expect("the audit line is written");
+
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=approval", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("option value=\"approval\" selected"),
+        "the filter can name it: {body}"
+    );
+    assert!(body.contains("terminal.create"), "{body}");
+    assert!(
+        !body.contains("memory.list"),
+        "only the named kind's line: {body}"
+    );
+}
+
 #[tokio::test]
 async fn the_denials_page_narrows_with_the_same_filter() {
     let fixture = Fixture::new("denials-filter");
