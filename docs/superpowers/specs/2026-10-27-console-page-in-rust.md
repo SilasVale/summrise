@@ -145,6 +145,37 @@ The evidence for the paragraphs above, in the order a reader would want it:
 | `scripts/console-screenshots.bash --out /tmp/acceptance` | **26 pages, 52 images**, gallery written |
 | every live page (fleet, terminal, files, runs, system, state, memory, monitors, browser, tokens, vitals, audit, denials) | **13/13 answered 200**; nine carry a context rail |
 | `/health` on the running console | `ok`, version 0.3.87, three devices |
+
+## Acceptance record (2026-10-27, console 0.3.120)
+
+The record above was measured at 0.3.87. This is the same measurement twenty-odd rounds later,
+after the console gained the approvals gate, the install card, the vitals trend, the browser frame
+pump and the approvals badge — measured with the commands the table names, in this session.
+
+| Check | Result |
+|---|---|
+| the device workspace's tests (`cargo test` over nine crates, CI's own command) | **1289 passed, 0 failed, 3 ignored** (1214 at 0.3.87) |
+| `cargo test -p summrise-console` alone | 108 unit + 246 integration + 1 bin |
+| clippy, every target, warnings as errors | clean |
+| `cargo fmt --all -- --check` | clean |
+| `scripts/console-screenshots.bash --out …` | **28 pages, 56 images**, gallery written (26 at 0.3.87) |
+| every live page (fleet, terminal, files, runs, system, state, memory, monitors, browser, tokens, vitals, audit, denials) | **13/13 answered 200** |
+| `/health` on the running console | `ok`, version 0.3.120, three devices |
+
+What the page gained since the first record, each with a test that can fail:
+
+- **approvals** — a destructive call a token did not consent to is held, listed on the dashboard and
+  counted in a badge on every page; approving re-sends it with consent for that call only, refusing
+  or expiry returns the device's sentence, and a failed re-send answers "outcome unknown" instead of
+  inviting a retry that would run it twice. The deadline is 90 s because Cloudflare Access cuts the
+  origin at about 100 s — the plan's §9 says why that differs from the legacy gate.
+- **install** — generations, the launcher's last swap with its reason, and its repairs, read from
+  `host.facts` and kept nowhere in the console.
+- **trend** — the vitals page's own visits, labelled "Not a sampler" so nobody reads it as a
+  background series.
+- **browser** — a frame pump at 1 fps, single-flight and paused while hidden, replacing one static
+  capture. Not the CDP screencast the plan's P6 acceptance asked for; that remains the open build.
+- **audit** — the filter offers every kind the log can hold, not the four it started with.
 | the browser smoke (`scripts/console-smoke.mjs --terminal`) | `terminal ok — session session-4 · powershell.exe, 2 tabs` |
 
 What is intentionally not here: a per-page pixel budget, a performance
