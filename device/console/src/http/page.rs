@@ -1392,6 +1392,10 @@ pub(super) fn terminal(
                             label for="password" { "Password" }
                             input id="password" name="password" type="password" autocomplete="off";
                         }
+                        div class="field" {
+                            label for="key_path" { "Key file" }
+                            input id="key_path" name="key_path" type="text" placeholder="C:\\Users\\you\\.ssh\\id_ed25519";
+                        }
                     }
                     div class="kind-fields" data-kind="serial" hidden[preset_kind != "serial"] {
                         div class="field" {

@@ -1492,6 +1492,9 @@ struct TerminalCreate {
     user: String,
     #[serde(default)]
     password: String,
+    /// `kind: "ssh"`, instead of a password: an absolute path to an OpenSSH key on the device.
+    #[serde(default)]
+    key_path: String,
     /// `kind: "serial"`.
     #[serde(default)]
     serial_port: String,
@@ -1932,18 +1935,24 @@ async fn next_terminal_create(
             if body.host.trim().is_empty() || body.user.trim().is_empty() {
                 return terminal_refusal(StatusCode::BAD_REQUEST, "ssh needs a host and a user");
             }
-            if body.password.is_empty() {
+            // A password is typed on the page; a key path names a key the device already has. The
+            // path is configuration, which is why a preset may carry it and a password may not.
+            let auth = if !body.key_path.trim().is_empty() {
+                json!({ "kind": "key", "path": body.key_path.trim() })
+            } else if !body.password.is_empty() {
+                json!({ "kind": "password", "password": body.password })
+            } else {
                 return terminal_refusal(
                     StatusCode::BAD_REQUEST,
-                    "ssh needs a password on this page (key files are not offered yet)",
+                    "ssh needs a password typed here or a key path on the device",
                 );
-            }
+            };
             json!({
                 "kind": "ssh",
                 "host": body.host.trim(),
                 "port": body.ssh_port.unwrap_or(22),
                 "user": body.user.trim(),
-                "auth": { "kind": "password", "password": body.password },
+                "auth": auth,
             })
         }
         "serial" => {

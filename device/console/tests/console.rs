@@ -8387,6 +8387,90 @@ async fn a_terminal_create_can_name_an_ssh_or_a_serial_target() {
     .await;
     let (status, _, body) = create.await.expect("the serial create finishes");
     assert_eq!(status, StatusCode::OK, "{body}");
+
+    // SSH by key: the page names the key on the device and sends no password. A key path is
+    // configuration, not a credential, so the preset and the form may hold it.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({
+            "kind": "ssh", "host": "10.0.0.5", "ssh_port": 22, "user": "root",
+            "key_path": "C:\\Users\\operator\\.ssh\\id_ed25519", "rows": 24, "cols": 80
+        }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["auth"]["kind"], json!("key"), "{frame}");
+    assert_eq!(
+        arguments["auth"]["path"],
+        json!("C:\\Users\\operator\\.ssh\\id_ed25519"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-11", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the key create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// An ssh session needs one of the two: a password typed on the page, or a key path the device can
+/// read. Saying so beats a device-side refusal with a worse sentence.
+#[tokio::test]
+async fn an_ssh_create_without_a_password_or_a_key_is_refused_by_the_page() {
+    let fixture = Fixture::new("terminal-ssh-no-auth");
+    let (device_id, _) = fixture.register(&signing_key(0xee)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({ "kind": "ssh", "host": "10.0.0.5", "user": "root" }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let (status, _, body) = send_with_headers(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|sentence| sentence.contains("key path")),
+        "{body}"
+    );
+}
+
+/// The page offers the key field; without it the device's public-key auth was unreachable from the
+/// console, which said so in the one place an operator would look for it.
+#[tokio::test]
+async fn the_terminal_page_offers_a_key_file() {
+    let fixture = Fixture::new("terminal-key-field");
+    let (device_id, _) = fixture.register(&signing_key(0xed)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"key_path\""), "{page}");
 }
 
 #[tokio::test]

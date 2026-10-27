@@ -199,6 +199,7 @@ function bodyFromForm() {
     body.ssh_port = Number(document.getElementById("ssh_port").value || 22);
     body.user = document.getElementById("user").value.trim();
     body.password = document.getElementById("password").value;
+    body.key_path = document.getElementById("key_path").value.trim();
   }
   if (kind.value === "serial") {
     body.serial_port = document.getElementById("serial_port").value.trim();
