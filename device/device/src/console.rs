@@ -636,7 +636,13 @@ async fn handle_frame(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let admitted = match remote::admit(&frame, &endpoint.device_id, key, crate::http::now_ms()) {
+    let admitted = match remote::admit(
+        &frame,
+        &endpoint.device_id,
+        key,
+        crate::http::now_ms(),
+        remote::Transport::Console,
+    ) {
         Ok(admitted) => admitted,
         Err(refusal) => {
             server

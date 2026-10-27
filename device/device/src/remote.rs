@@ -116,13 +116,29 @@ impl PartialEq for Admitted<'_> {
     }
 }
 
+/// Where a frame came from, which decides what may authorize it.
+///
+/// A GRANT is self-authenticating: the console's key signed it, so it is admitted on any transport.
+/// A TOKEN SCOPE has no signature at all — the console's authenticated channel is what stands behind
+/// it — so it is admitted only when the frame arrived over that channel. A mesh peer is
+/// authenticated as a peer, not as the console, and must never be able to name its own scopes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transport {
+    Console,
+    Mesh,
+}
+
 pub(crate) fn admit<'a>(
     frame: &'a RemoteFrame,
     device_id: &str,
     key: &VerifyingKey,
     now_ms: i64,
+    transport: Transport,
 ) -> Result<Admitted<'a>, GrantRefusal> {
     if let Some(scope) = frame.token.as_ref() {
+        if transport != Transport::Console {
+            return Err(GrantRefusal::NoGrant);
+        }
         // The console authenticated the token; the device still checks the facts the console's
         // record promised, exactly as it checks a grant's: the device, the expiry, the tool.
         if scope.device_id != device_id {
@@ -263,7 +279,13 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant.clone()));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Ok(Admitted::Grant(&grant))
         );
     }
@@ -285,7 +307,7 @@ mod tests {
         };
         assert!(
             matches!(
-                admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+                admit(&frame, &device_id(), &signing().verifying_key(), now_ms(), Transport::Console),
                 Ok(Admitted::Token(scope)) if scope.token_id == "operator"
             ),
             "the operator scope is a wildcard, not the literal tool name `*`"
@@ -311,7 +333,14 @@ mod tests {
                 expires_at_ms: None,
             }),
         };
-        assert!(admit(&covered, &device_id(), &signing().verifying_key(), now_ms()).is_ok());
+        assert!(admit(
+            &covered,
+            &device_id(),
+            &signing().verifying_key(),
+            now_ms(),
+            Transport::Console
+        )
+        .is_ok());
         let outside = RemoteFrame {
             id: 9,
             mcp: call("runs.exec"),
@@ -319,7 +348,13 @@ mod tests {
             token: Some(narrowed),
         };
         assert_eq!(
-            admit(&outside, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &outside,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::ToolNotCovered)
         );
     }
@@ -329,7 +364,13 @@ mod tests {
         let frame = remote_frame(call("state.get"), None);
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::NoGrant)
         );
     }
@@ -349,7 +390,13 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::BadSignature)
         );
     }
@@ -360,7 +407,13 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::DeviceMismatch)
         );
     }
@@ -370,7 +423,13 @@ mod tests {
         let stale = grant_for(&device_id(), &["state.get"], (now_ms() - 600_000) as u64);
         let frame = remote_frame(call("state.get"), Some(stale));
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::Expired)
         );
 
@@ -380,7 +439,14 @@ mod tests {
         let recent = grant_for(&device_id(), &["state.get"], (now_ms() - 60_000) as u64);
         let frame = remote_frame(call("state.get"), Some(recent));
         assert!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()).is_ok(),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            )
+            .is_ok(),
             "a minute past the stated expiry is inside the five-minute allowance"
         );
     }
@@ -391,7 +457,13 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console
+            ),
             Err(GrantRefusal::ToolNotCovered)
         );
     }
@@ -405,7 +477,14 @@ mod tests {
         ] {
             let frame = remote_frame(mcp.clone(), Some(grant.clone()));
             assert!(
-                admit(&frame, &device_id(), &signing().verifying_key(), now_ms()).is_ok(),
+                admit(
+                    &frame,
+                    &device_id(),
+                    &signing().verifying_key(),
+                    now_ms(),
+                    Transport::Console
+                )
+                .is_ok(),
                 "{mcp}"
             );
         }

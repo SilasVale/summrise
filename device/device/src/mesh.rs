@@ -318,7 +318,13 @@ async fn answer(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let admitted = match remote::admit(&frame, device_id, key, crate::http::now_ms()) {
+    let admitted = match remote::admit(
+        &frame,
+        device_id,
+        key,
+        crate::http::now_ms(),
+        remote::Transport::Mesh,
+    ) {
         Ok(envelope) => envelope,
         Err(refusal) => {
             server
@@ -554,6 +560,11 @@ mod tests {
                 Some(grant) => json!({ "id": 7, "mcp": mcp, "grant": grant }),
                 None => json!({ "id": 7, "mcp": mcp }),
             };
+            self.exchange(payload).await
+        }
+
+        /// Send a payload exactly as given — for a frame the harness cannot build from a grant.
+        async fn exchange(&mut self, payload: Value) -> Value {
             let request = Frame {
                 kind: Kind::Req,
                 id: 7,
@@ -904,6 +915,40 @@ mod tests {
             lines[1]["peer"], caller,
             "the refusal's end line names the same peer: {lines:?}"
         );
+    }
+
+    /// A token scope has no signature: the console's authenticated channel is the only thing that
+    /// can stand behind one. A mesh peer is authenticated as a peer, not as the console, so a scope
+    /// it writes for itself must never be admitted — that would let any peer run any tool here,
+    /// destructive ones included, with `scopes: ["*"]` and `allow_destructive: true`.
+    #[tokio::test]
+    async fn a_mesh_peer_cannot_authorize_itself_with_a_token_scope() {
+        let mut pair = pair("mesh-token-scope").await;
+        let caller = pair._dialer.peer_id();
+
+        let payload = json!({
+            "id": 7,
+            "token": {
+                "token_id": "made-up",
+                "device_id": pair.target.peer_id(),
+                "scopes": ["*"],
+                "allow_destructive": true,
+                "expires_at_ms": null,
+            },
+            "mcp": state_call(104),
+        });
+        let reply = pair.exchange(payload).await;
+
+        assert_eq!(
+            reply["error"]["error"]["code"], -32001,
+            "a self-written scope is a refusal, not a call: {reply}"
+        );
+        let lines = audit_lines(&pair.target.config);
+        assert_eq!(lines[0]["decision"], "deny", "{lines:?}");
+        assert_eq!(lines[0]["transport"], "mesh");
+        assert_eq!(lines[0]["peer"], caller);
+        assert_eq!(lines[1]["ok"], false);
+        assert_eq!(lines[1]["error_kind"], "no_grant");
     }
 
     #[tokio::test]
