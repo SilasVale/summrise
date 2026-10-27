@@ -175,6 +175,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/screen/{}", device.id)) { "Screen" }
                                             " · "
                                             a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
+                                            " · "
+                                            a href=(format!("/next/browser/{}", device.id)) { "Browser" }
                                         }
                                     }
                                 }
@@ -914,6 +916,87 @@ pub(super) fn monitors(
                         label for="expect" { "Body must contain (http only)" }
                         input id="expect" name="expect" type="text";
                         button type="submit" { "Add target" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One browser target on the browser page.
+pub(super) struct BrowserRow {
+    pub(super) id: String,
+    pub(super) title: String,
+    pub(super) url: String,
+    pub(super) kind: String,
+}
+
+/// The browser page: the targets, a capture of the first one, and the open/close forms.
+pub(super) fn browser(
+    device: &DeviceView,
+    rows: &[BrowserRow],
+    shot: Option<&str>,
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let base = format!("/next/browser/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — browser" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Browser" }
+                    p class="hint" {
+                        "The browser the device runs for you — in the user's session when the helper is "
+                        "there, headless otherwise. The capture is the first target in the device's list."
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { (error) }
+                    }
+                    @if let Some(shot) = shot {
+                        img class="capture" src=(shot) alt="the device's browser";
+                    }
+                    @if rows.is_empty() {
+                        p class="hint" { "The device has no browser targets." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Title" } th { "URL" } th { "Type" } th { "" } } }
+                            tbody {
+                                @for row in rows {
+                                    tr {
+                                        td { (row.title) }
+                                        td { code { (row.url) } }
+                                        td { (row.kind) }
+                                        td {
+                                            form method="post" action=(format!("{base}/close")) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                input type="hidden" name="target" value=(row.id);
+                                                button type="submit" class="inline-button" { "Close" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 { "Open a page" }
+                    form method="post" action=(format!("{base}/open")) class="format-form" {
+                        input type="hidden" name="csrf" value=(csrf);
+                        input type="text" name="url" placeholder="https://example.com" required;
+                        button type="submit" { "Open" }
                     }
                 }
             }

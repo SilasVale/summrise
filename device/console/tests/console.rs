@@ -7282,3 +7282,110 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
         Some(format!("/next/monitors/{device_id}").as_str())
     );
 }
+
+#[tokio::test]
+async fn the_browser_page_lists_targets_captures_the_first_and_forwards_an_open() {
+    let fixture = Fixture::new("browser-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xef)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the browser page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("https://example.com/"), "{body}");
+    assert!(
+        body.contains("src=\"data:image/png;base64,QUJD\""),
+        "{body}"
+    );
+
+    let mut request = post_form(
+        &format!("/next/browser/{device_id}/open"),
+        &[("csrf", &csrf), ("url", "https://example.org/")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let open = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.open"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["url"],
+        json!("https://example.org/")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "target": "target-2", "url": "https://example.org/" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = open.await.expect("the open finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/browser/{device_id}").as_str())
+    );
+}

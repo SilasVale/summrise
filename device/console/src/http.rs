@@ -294,6 +294,10 @@ impl Console {
             .route("/next/monitors/:device", get(next_monitors_page))
             .route("/next/monitors/:device/add", post(next_monitor_add))
             .route("/next/monitors/:device/remove", post(next_monitor_remove))
+            // The device's browser: its targets, a capture, and open/close.
+            .route("/next/browser/:device", get(next_browser_page))
+            .route("/next/browser/:device/open", post(next_browser_open))
+            .route("/next/browser/:device/close", post(next_browser_close))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -2085,6 +2089,127 @@ async fn next_monitor_remove(
     };
     match device_tool(&app, &device_id, "monitor.remove", json!({ "id": form.id })).await {
         Ok(_) => Redirect::to(&format!("/next/monitors/{device_id}")).into_response(),
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize)]
+struct BrowserUrlForm {
+    csrf: String,
+    url: String,
+}
+
+#[derive(Deserialize)]
+struct BrowserTargetForm {
+    csrf: String,
+    target: String,
+}
+
+/// `GET /next/browser/:device`: the targets, and a capture of the first.
+async fn next_browser_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut error = None;
+    let targets = match device_tool(&app, &device_id, "browser.list", json!({})).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(response) => {
+            error = Some(refusal_sentence(*response).await);
+            Vec::new()
+        }
+    };
+    let rows: Vec<page::BrowserRow> = targets
+        .iter()
+        .map(|target| page::BrowserRow {
+            id: target["id"].as_str().unwrap_or_default().to_owned(),
+            title: target["title"].as_str().unwrap_or_default().to_owned(),
+            url: target["url"].as_str().unwrap_or_default().to_owned(),
+            kind: target["type"].as_str().unwrap_or_default().to_owned(),
+        })
+        .collect();
+    let mut shot = None;
+    if let Some(first) = rows.first() {
+        if let Ok(text) = device_tool(
+            &app,
+            &device_id,
+            "browser.screenshot",
+            json!({ "target": first.id }),
+        )
+        .await
+        {
+            let capture: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let format = capture["format"].as_str().unwrap_or("png");
+            if let Some(data) = capture["data"].as_str() {
+                shot = Some(format!("data:image/{format};base64,{data}"));
+            }
+        }
+    }
+    Html(
+        page::browser(
+            &device,
+            &rows,
+            shot.as_deref(),
+            &hex::encode(&session.csrf),
+            &app.version,
+            error.as_deref(),
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/browser/:device/open`: open a page on the device.
+async fn next_browser_open(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BrowserUrlForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match device_tool(
+        &app,
+        &device_id,
+        "browser.open",
+        json!({ "url": form.url.trim() }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/browser/:device/close`: close one target.
+async fn next_browser_close(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BrowserTargetForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match device_tool(
+        &app,
+        &device_id,
+        "browser.close",
+        json!({ "target": form.target }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
         Err(response) => *response,
     }
 }
