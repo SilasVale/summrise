@@ -350,6 +350,9 @@ body.login { margin:0; background:var(--bg); }
 .menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
 .menu-panel .field { margin:0 0 7px; }
 .restart-panel { width:300px; padding:12px; }
+.facts { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0 0 12px; }
+.facts dt { color:var(--muted); font:11px/1.6 var(--font); text-transform:uppercase; letter-spacing:.04em; padding-top:2px; }
+.facts dd { margin:0; font:12px/1.6 var(--mono); overflow-wrap:anywhere; }
 .code-block { margin:0 0 10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); color:var(--ink); font:12px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }
 .restart-panel p { margin:0 0 10px; }
 
@@ -1839,11 +1842,27 @@ fn join(path: &str, name: &str) -> String {
 
 /// One row of the run history, as the page draws it.
 pub(super) struct RunRow {
+    pub(super) id: String,
     pub(super) command_line: String,
     pub(super) started_at_ms: u64,
     pub(super) duration_ms: u64,
     pub(super) exit_code: Option<i64>,
     pub(super) timed_out: bool,
+}
+
+/// One history row, as `runs.get` answers it: what ran, where, and how much it wrote. The device
+/// keeps rows, not output.
+pub(super) struct RunDetail {
+    pub(super) id: String,
+    pub(super) command: String,
+    pub(super) args: String,
+    pub(super) cwd: String,
+    pub(super) started_at_ms: u64,
+    pub(super) duration_ms: u64,
+    pub(super) exit_code: Option<i64>,
+    pub(super) timed_out: bool,
+    pub(super) stdout_bytes: u64,
+    pub(super) stderr_bytes: u64,
 }
 
 /// One finished run, with the output the tool captured for it.
@@ -1903,6 +1922,7 @@ fn exit_chip(code: Option<i64>, timed_out: bool) -> Markup {
 pub(super) fn runs(
     device: &DeviceView,
     rows: &[RunRow],
+    detail: Option<&RunDetail>,
     csrf: &str,
     version: &str,
     error: Option<&str>,
@@ -1916,6 +1936,45 @@ pub(super) fn runs(
         }
         @if let Some(error) = error {
             p class="alert error" { (error) }
+        }
+        @if let Some(detail) = detail {
+            section class="card" {
+                (card_head(
+                    &format!("Run {}", detail.id),
+                    html! {
+                        @if detail.timed_out {
+                            span class="chip failed" { "timed out" }
+                        } @else if detail.exit_code == Some(0) {
+                            span class="chip online" { "exit 0" }
+                        } @else {
+                            span class="chip failed" { (format!("exit {}", detail.exit_code.map_or("—".to_owned(), |code| code.to_string()))) }
+                        }
+                    },
+                    html! { a class="btn btn-ghost btn-sm" href=(base.clone()) { "Close" } },
+                ))
+                div class="card-body" {
+                    dl class="facts" {
+                        dt { "Command" }
+                        dd { code { (detail.command) } }
+                        @if !detail.args.is_empty() {
+                            dt { "Arguments" }
+                            dd { code { (detail.args) } }
+                        }
+                        dt { "Directory" }
+                        dd { code { (detail.cwd) } }
+                        dt { "Started" }
+                        dd { (stamp(detail.started_at_ms)) }
+                        dt { "Took" }
+                        dd { (detail.duration_ms) " ms" }
+                        dt { "Output" }
+                        dd { (detail.stdout_bytes) " bytes stdout, " (detail.stderr_bytes) " bytes stderr" }
+                    }
+                    p class="footnote" {
+                        "The device keeps history rows, not output: a run's stdout appears only on "
+                        "the page that ran it."
+                    }
+                }
+            }
         }
         section class="card" {
             (card_head("Run a command", Markup::default(), Markup::default()))
@@ -1973,7 +2032,9 @@ pub(super) fn runs(
                         @for row in rows {
                             tr {
                                 td class="nowrap" { (stamp(row.started_at_ms)) }
-                                td { span class="mono cmd-line" { (row.command_line) } }
+                                td {
+                                    a class="mono cmd-line" href=(format!("{base}?run={}", encode(&row.id))) { (row.command_line) }
+                                }
                                 td class="num" { (row.duration_ms) " ms" }
                                 td { (exit_chip(row.exit_code, row.timed_out)) }
                             }
@@ -3400,7 +3461,7 @@ mod tests {
                 "Files",
                 file_text(device, "notes.txt", "text", "00", "0.1.0"),
             ),
-            ("Runs", runs(device, &[], "00", "0.1.0", None)),
+            ("Runs", runs(device, &[], None, "00", "0.1.0", None)),
             ("Runs", run_result(device, "cmd", &run, "00", "0.1.0")),
             ("System", state_document(device, "{}", "00", "0.1.0")),
             ("System", system(device, &[], "", "00", "0.1.0", None)),
@@ -3697,6 +3758,7 @@ mod tests {
         ];
         let runs_rows = vec![
             RunRow {
+                id: format!("run-{}", 0),
                 command_line: "pwsh -NoProfile Get-Date".to_owned(),
                 started_at_ms: 1_793_059_200_000,
                 duration_ms: 412,
@@ -3704,6 +3766,7 @@ mod tests {
                 timed_out: false,
             },
             RunRow {
+                id: format!("run-{}", 0),
                 command_line: "Get-Service Spooler".to_owned(),
                 started_at_ms: 1_793_058_100_000,
                 duration_ms: 286,
@@ -3711,6 +3774,7 @@ mod tests {
                 timed_out: false,
             },
             RunRow {
+                id: format!("run-{}", 0),
                 command_line: "ping 10.0.0.1 -n 4".to_owned(),
                 started_at_ms: 1_793_057_000_000,
                 duration_ms: 30_000,
@@ -3718,6 +3782,7 @@ mod tests {
                 timed_out: true,
             },
             RunRow {
+                id: format!("run-{}", 0),
                 command_line: "Get-ChildItem C:\\Missing".to_owned(),
                 started_at_ms: 1_793_056_000_000,
                 duration_ms: 190,
@@ -3973,11 +4038,11 @@ mod tests {
             ),
             (
                 "runs",
-                runs(&devices[0], &runs_rows, "csrf", "0.3.72", None),
+                runs(&devices[0], &runs_rows, None, "csrf", "0.3.72", None),
             ),
             (
                 "runs-empty",
-                runs(&devices[0], &[], "csrf", "0.3.72", None),
+                runs(&devices[0], &[], None, "csrf", "0.3.72", None),
             ),
             (
                 "run",
@@ -4285,7 +4350,7 @@ mod tests {
                 },
             ),
             files(&device, "", &[], "00", "0.1.0", None),
-            runs(&device, &[], "00", "0.1.0", None),
+            runs(&device, &[], None, "00", "0.1.0", None),
             system(&device, &[], "", "00", "0.1.0", None),
             memory(
                 &device,

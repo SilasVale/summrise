@@ -8591,6 +8591,73 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// A history row can be opened: `runs.get` answers the row, which is all the device keeps.
+#[tokio::test]
+async fn a_run_history_row_can_be_opened() {
+    let fixture = Fixture::new("runs-get");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd8)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/runs/{device_id}?run=run-7"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "run-7", "command": "pwsh", "args": ["-c", "1"], "cwd": "C:\\work",
+                  "exit_code": 0, "timed_out": false, "duration_ms": 12,
+                  "started_at_ms": 1793057500000u64, "stdout_bytes": 5, "stderr_bytes": 0 }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["params"]["name"], json!("runs.get"), "{frame}");
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("run-7"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({
+                "id": "run-7", "command": "pwsh", "args": ["-c", "1"], "cwd": "C:\\work",
+                "exit_code": 0, "timed_out": false, "duration_ms": 12,
+                "started_at_ms": 1793057500000u64, "stdout_bytes": 5, "stderr_bytes": 0
+            }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("?run=run-7"),
+        "the row links to itself: {body}"
+    );
+    assert!(body.contains("run-7"), "{body}");
+    assert!(
+        body.contains("C:\\work"),
+        "the row's working directory: {body}"
+    );
+    assert!(
+        body.contains("5 bytes"),
+        "how much stdout the run produced: {body}"
+    );
+}
+
 /// The memory page can search the text (not only filter a tag), which is what `memory.search` is for.
 #[tokio::test]
 async fn the_memory_page_searches_the_text() {

@@ -2338,6 +2338,8 @@ async fn next_files_write(
 #[derive(Deserialize, Default)]
 struct RunsQuery {
     error: Option<String>,
+    /// A history row to open.
+    run: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2398,6 +2400,7 @@ async fn next_runs_page(
                 })
                 .unwrap_or_default();
             page::RunRow {
+                id: row["id"].as_str().unwrap_or_default().to_owned(),
                 command_line: format!("{command} {args}").trim().to_owned(),
                 started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
                 duration_ms: row["duration_ms"].as_u64().unwrap_or(0),
@@ -2406,13 +2409,48 @@ async fn next_runs_page(
             }
         })
         .collect();
+    let mut error = query.error.clone();
+    let detail = match query.run.as_deref() {
+        Some(id) => match device_tool(&app, &device_id, "runs.get", json!({ "id": id })).await {
+            Ok(text) => serde_json::from_str::<Value>(&text).ok().map(|row| {
+                let args = row["args"]
+                    .as_array()
+                    .map(|args| {
+                        args.iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default();
+                page::RunDetail {
+                    id: row["id"].as_str().unwrap_or_default().to_owned(),
+                    command: row["command"].as_str().unwrap_or_default().to_owned(),
+                    args,
+                    cwd: row["cwd"].as_str().unwrap_or_default().to_owned(),
+                    started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
+                    duration_ms: row["duration_ms"].as_u64().unwrap_or(0),
+                    exit_code: row["exit_code"].as_i64(),
+                    timed_out: row["timed_out"].as_bool().unwrap_or(false),
+                    stdout_bytes: row["stdout_bytes"].as_u64().unwrap_or(0),
+                    stderr_bytes: row["stderr_bytes"].as_u64().unwrap_or(0),
+                }
+            }),
+            Err(response) => {
+                error.get_or_insert_with(|| "that run is not in the device's history".to_owned());
+                let _ = response;
+                None
+            }
+        },
+        None => None,
+    };
     Html(
         page::runs(
             &device,
             &rows,
+            detail.as_ref(),
             &hex::encode(&session.csrf),
             &app.version,
-            query.error.as_deref(),
+            error.as_deref(),
         )
         .into_string(),
     )
