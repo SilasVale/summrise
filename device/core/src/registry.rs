@@ -293,14 +293,25 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability {
         name: "host",
-        tools: &[ToolDef {
-            name: "host.facts",
-            destructive: false,
-            // Read-only, and the console's device page is the caller: an operator should not need a
-            // grant to learn what machine a device is.
-            description:
-                "Read what machine this device is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
-        }],
+        tools: &[
+            ToolDef {
+                name: "host.facts",
+                destructive: false,
+                // Read-only, and the console's device page is the caller: an operator should not need a
+                // grant to learn what machine a device is.
+                description:
+                    "Read what machine this device is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
+            },
+            ToolDef {
+                name: "host.restart",
+                destructive: true,
+                // The app ends and the launcher starts it again: every live session ends with it.
+                // The budget is the launcher's, so it is stated where the operator chooses, not
+                // discovered by repeating the call until the device stays down.
+                description:
+                    "Restart this device's app through its launcher. Terminals, browser tabs and runs on the device end, and the device goes offline briefly. The launcher allows three consecutive restarts, so repeated restarts can leave the device down; a standalone process refuses.",
+            },
+        ],
     },
     Capability {
         name: "screen",
@@ -358,7 +369,7 @@ mod tests {
             10,
             "ten capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 38, "the surface is 38 tools");
+        assert_eq!(tools.len(), 39, "the surface is 39 tools");
         assert_eq!(
             tools,
             [
@@ -398,6 +409,7 @@ mod tests {
                 "system.process_kill",
                 "system.net_test",
                 "host.facts",
+                "host.restart",
                 "screen.capture",
                 "state.get",
             ],
@@ -438,6 +450,7 @@ mod tests {
             ("runs.list", false),
             ("runs.get", false),
             ("host.facts", false),
+            ("host.restart", true),
             ("screen.capture", false),
             ("state.get", false),
         ] {
