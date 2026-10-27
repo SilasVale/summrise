@@ -4,22 +4,23 @@
 // The page broke once in a way no string test could catch: seven functions were deleted while their
 // call sites stayed, so the script threw where the login handler was registered and every button
 // after it was dead — and the HTML still contained every string the tests looked for. This runs the
-// page the way an operator does and fails on a page error, a missing card, or a dead sign-in.
+// page the way an operator does and fails on a page error, a missing table, or a dead sign-in.
 //
-// Usage (on a machine with Playwright and the console's operator token):
+// The console is the Rust page at /next now (`/` redirects there). Two legs:
+//
+//   (default)   sign in, read the fleet table, follow one device's Files link, wait for its form.
+//   --terminal  open a shell on the first device, type a marker, read it back through xterm, then
+//               open a second session and require two tabs.
+//
+// Usage (on a machine with a browser and the console's operator token):
 //   CONSOLE_URL=http://127.0.0.1:19000 \
 //   CONSOLE_TOKEN_FILE=C:\SummriseConsole\operator.token \
-//   node scripts/console-smoke.mjs [--shot out.png] [--expect 2] [--expect-online 2]
-//
-// `--terminal` checks the Rust page at /next/terminal/<device> instead of the SPA at `/`: it signs
-// in with the page cookie, opens a shell, and waits for a marker it typed to come back through
-// xterm. It must run where a browser can start — a signed-in desktop session, not the device
-// service (which has no desktop and cannot launch Edge). CONSOLE_BROWSER names a system Chromium
-// when the runtime has no bundled one:
-//
-//   CONSOLE_URL=http://127.0.0.1:19000 CONSOLE_TOKEN_FILE=/path/operator.token \
 //   CONSOLE_BROWSER='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' \
-//   node scripts/console-smoke.mjs --terminal
+//   node scripts/console-smoke.mjs [--terminal] [--shot out.png] [--expect 2]
+//
+// It must run where a browser can start — a signed-in desktop session, not the device service
+// (which has no desktop and cannot launch Edge). CONSOLE_BROWSER names a system Chromium when the
+// runtime has no bundled one.
 //
 // Exit codes: 0 the page works · 1 the page is broken · 2 it could not be checked.
 
@@ -36,8 +37,7 @@ const option = (name, fallback) => {
 
 const base = process.env.CONSOLE_URL || 'http://127.0.0.1:19000';
 const tokenFile = process.env.CONSOLE_TOKEN_FILE;
-const expectedCardinals = Number(option('--expect', process.env.CONSOLE_EXPECT || '1'));
-const expectedOnline = Number(option('--expect-online', process.env.CONSOLE_EXPECT_ONLINE || '-1'));
+const expectedRows = Number(option('--expect', process.env.CONSOLE_EXPECT || '1'));
 const shot = option('--shot', '');
 
 if (!tokenFile) {
@@ -69,7 +69,7 @@ if (!playwright) {
 const token = readFileSync(tokenFile, 'utf8').trim();
 const browserPath = process.env.CONSOLE_BROWSER || '';
 const browser = await playwright.chromium.launch(browserPath ? { executablePath: browserPath } : {});
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
 const errors = [];
 page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
@@ -85,22 +85,23 @@ const fail = async (reason) => {
   process.exit(1);
 };
 
-const terminalOnly = args.includes('--terminal');
-
-if (terminalOnly) {
-  // The Rust page at /next signs in with a cookie, not the SPA's bearer. The leg proves the page
-  // runs a shell: it types a marker and waits to read it back through xterm, which is the one thing
-  // a string test cannot see.
+/** Open the page and sign in if the login card is showing. */
+async function signIn() {
   await page.goto(base + '/next', { waitUntil: 'domcontentloaded', timeout: 30000 });
   if (await page.locator('input#token').isVisible().catch(() => false)) {
     await page.fill('input#token', token);
     await Promise.all([page.waitForLoadState('domcontentloaded'), page.click('button[type=submit]')]);
   }
+}
+
+if (args.includes('--terminal')) {
+  // The page signs in with a cookie, not a bearer. The leg proves the page runs a shell: it types a
+  // marker and waits to read it back through xterm, which is the one thing a string test cannot see.
+  await signIn();
   if (!(await page.locator('a:has-text("Terminal")').count())) {
-    await fail('no Terminal link on /next (is the page signed in?)');
+    await fail('no Terminal link on the page (is it signed in?)');
   }
   await page.click('a:has-text("Terminal")');
-  // The page now asks what kind of session to open; the smoke opens the default (a local shell).
   await page.waitForSelector('#terminal-form', { timeout: 20000 });
   await page.click('#terminal-form button[type=submit]');
   await page.waitForSelector('.xterm', { timeout: 20000 });
@@ -146,53 +147,42 @@ if (terminalOnly) {
   process.exit(0);
 }
 
-await page.goto(base + '/', { waitUntil: 'load', timeout: 30000 });
-
-// A resumed session and a fresh tab are both normal: sign in only if the box is showing.
-if (await page.locator('.login').isVisible().catch(() => false)) {
-  await page.fill('#token', token);
-  await page.click('.login button.primary');
+// The default leg: the fleet is a table, every device row carries the pages that act on it, and the
+// old root lands here. A redirect that stopped redirecting is the cheapest page break to ship.
+const response = await page.goto(base + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+if (!response || !response.ok()) await fail('GET / did not answer');
+if (!page.url().endsWith('/next')) await fail('GET / did not land on /next: ' + page.url());
+if (await page.locator('input#token').isVisible().catch(() => false)) {
+  await page.fill('input#token', token);
+  await Promise.all([page.waitForLoadState('domcontentloaded'), page.click('button[type=submit]')]);
 }
-
 try {
-  await page.waitForSelector('.card', { timeout: 20000 });
+  await page.waitForSelector('table tbody tr', { timeout: 20000 });
 } catch {
-  await fail('no device card rendered within 20 s (is the sign-in working?)');
+  await fail('no device row rendered within 20 s (is the sign-in working?)');
 }
-
-const cards = await page.locator('.card').count();
-if (cards < expectedCardinals) await fail(`expected at least ${expectedCardinals} card(s), saw ${cards}`);
-
-// A card proves the page rendered; it does not prove a device can be reached. The summary line is
-// where the console says how many channels are live, and a fleet that is all offline is a console
-// that looks fine and is useless.
-if (expectedOnline >= 0) {
-  // A device reconnects on its own backoff, which is up to a minute — so a check that runs right after
-  // the console restarts must wait for the channels rather than call them broken.
-  let summary = '';
-  let online = -1;
-  for (let attempt = 0; attempt < 18; attempt += 1) {
-    await page.click('.panel-head button', { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(5000);
-    summary = await page.locator('.summary').innerText();
-    online = Number((summary.match(/(\d+)\s+online/) || [])[1] ?? -1);
-    if (online >= expectedOnline) break;
+const rows = await page.locator('table tbody tr').count();
+if (rows < expectedRows) await fail(`expected at least ${expectedRows} device row(s), saw ${rows}`);
+for (const label of [
+  'Terminal',
+  'Files',
+  'Runs',
+  'System',
+  'State',
+  'Memory',
+  'Screen',
+  'Monitors',
+  'Browser',
+  'Connect',
+  'Vitals',
+]) {
+  if (!(await page.locator(`a:has-text("${label}")`).count())) {
+    await fail(`the device row has no ${label} link`);
   }
-  if (online < expectedOnline) await fail(`expected ${expectedOnline} online, the page says "${summary}"`);
 }
+await page.click('a:has-text("Files")');
+await page.waitForSelector('form', { timeout: 20000 });
 if (errors.length > 0) await fail('the page logged errors');
-
-// A dead button is the exact failure this script exists for: click a control that only needs a session
-// and check the thing it is supposed to change.
-await page.locator('.rail-btn').last().click().catch(() => {});
-await page.waitForTimeout(1200);
-const auditRows = await page.locator('table tbody tr').count();
-if (auditRows === 0) await fail('the audit table stayed empty after opening the audit page');
-
-// The rail and the status bar are the shell: their absence means the page rendered a fragment.
-if ((await page.locator('.rail-btn').count()) === 0) await fail('the rail is missing');
-if ((await page.locator('.statusbar').count()) === 0) await fail('the status bar is missing');
-
 if (shot) await page.screenshot({ path: shot, fullPage: true });
 await browser.close();
-console.log(`console-smoke: ok — ${cards} card(s), ${auditRows} audit row(s), no page errors`);
+console.log(`console-smoke: ok — ${rows} device row(s), every page link present, / redirected to /next`);

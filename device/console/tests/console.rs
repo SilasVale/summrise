@@ -3072,25 +3072,21 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     assert_eq!(denials[101]["status"], json!(401));
 }
 
-// ---- the operator page ------------------------------------------------------------------------
+// ---- the root and the Rust page ----------------------------------------------------------------
 
 #[tokio::test]
-async fn the_operator_page_is_served_as_html() {
-    let fixture = Fixture::new("page-served");
+async fn the_root_sends_a_bookmark_to_the_rust_page() {
+    let fixture = Fixture::new("root-redirect");
 
-    let (status, headers, page) = send_text(fixture.app(), get("/", None)).await;
+    let (status, headers, _) = send_text(fixture.app(), get("/", None)).await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert!(
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
         headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with("text/html")),
-        "the operator page is HTML, not JSON: {headers:?}"
-    );
-    assert!(
-        page.contains("<!doctype html>") && page.contains("<html"),
-        "the response is the page itself: {page}"
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next"),
+        "the old root points at the page that replaced it"
     );
 }
 
@@ -3122,14 +3118,8 @@ async fn the_served_tool_catalogue_is_the_registry() {
         assert_eq!(tool["destructive"], expected.destructive, "{name}");
     }
 
-    // And the page really does call it: a page that silently fell back to a stale copy would pass
-    // every other test here.
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(
-        page.contains("/tools"),
-        "the page asks the console for the catalogue"
-    );
+    // The Rust page carries no catalogue of its own: the device's `tools/list` is the only source,
+    // and the server renders what it needs. Nothing to assert on the page, which is the point.
 }
 
 #[tokio::test]
@@ -3139,43 +3129,11 @@ async fn the_tool_catalogue_is_not_served_without_an_operator() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
-#[test]
-fn the_page_is_the_built_bundle_and_needs_nothing_from_outside() {
-    let page = include_str!("../web/dist/index.html");
-
-    assert!(
-        page.contains("id=\"root\""),
-        "the served page is the React bundle's mount point"
-    );
-    assert!(
-        !page.contains("device-cards"),
-        "the hand-written page is not what ships any more"
-    );
-    assert!(
-        page.contains("Connect an AI client"),
-        "the built page carries the AI-client card; rebuild it with scripts/build-web.sh when its sources change"
-    );
-    // The bundle carries XML namespace URIs and React's documentation links in strings; neither is a
-    // request. What would be a request is a load, so that is what this looks for.
-    for needle in [
-        "src=\"http",
-        "href=\"http",
-        "url(http",
-        "@import",
-        "fetch(\"http",
-        "import(\"http",
-    ] {
-        assert!(
-            !page.contains(needle),
-            "the page must not load {needle} — the console serves it alone"
-        );
-    }
-}
-
 #[tokio::test]
 async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
     let fixture = Fixture::new("page-secret");
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
+    // The login page is what an unauthenticated visitor sees; the signed-in page is behind the cookie.
+    let (status, _, page) = send_text(fixture.app(), get("/next", None)).await;
     assert_eq!(status, StatusCode::OK);
 
     assert!(
@@ -3234,7 +3192,7 @@ async fn no_console_answer_is_cacheable() {
     // The page is HTML, so it is read off the response rather than through the JSON helper.
     let response = fixture
         .app()
-        .oneshot(get("/", None))
+        .oneshot(get("/next", None))
         .await
         .expect("the page is served");
     assert_eq!(response.status(), StatusCode::OK);
@@ -6196,7 +6154,10 @@ async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
     let fixture = Fixture::new("rust-page-frame");
     for uri in ["/", "/next"] {
         let (status, headers, _) = send_text(fixture.app(), get(uri, None)).await;
-        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert!(
+            status == StatusCode::OK || status == StatusCode::SEE_OTHER,
+            "{uri}: {status}"
+        );
         assert_eq!(
             headers
                 .get("x-frame-options")

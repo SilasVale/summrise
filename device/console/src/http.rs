@@ -58,12 +58,6 @@ const MAX_STANDARD_MCP_BODY_BYTES: usize = 8 * 1024 * 1024;
 /// How long the console tells an operator's client to wait before retrying a busy device.
 const BUSY_RETRY_AFTER_MS: u64 = 250;
 
-/// The operator page, embedded at compile time so the binary carries its own UI.
-///
-/// The page is one file: its styles and its script are inline, there is no build step, and it holds
-/// no secret. The operator types the token into it, and the token stays in the page's memory.
-const OPERATOR_PAGE: &str = include_str!("../web/dist/index.html");
-
 /// The clock the console reads, in Unix milliseconds.
 ///
 /// It is a value rather than a direct `SystemTime::now` call so a test can advance it: an expiry that
@@ -196,7 +190,7 @@ impl Console {
     /// Build the router. It carries no socket and no runtime: the caller decides where it listens.
     pub fn router(&self) -> Router {
         Router::new()
-            .route("/", get(operator_page))
+            .route("/", get(root_redirect))
             // The terminal emulator, served from the binary: the page needs a real terminal for
             // interactive prompts (sudo, ssh host keys), and fetching it from a CDN would make the
             // console depend on a third party at run time. Two files, no build step.
@@ -772,10 +766,10 @@ mod assets {
     }
 }
 
-/// `GET /`: the operator page. It is static HTML with no secret in it; the page asks for the token
-/// and keeps the session it gets back in memory.
-async fn operator_page() -> Html<&'static str> {
-    Html(OPERATOR_PAGE)
+/// `GET /`: the console is the Rust page. `web/` is gone, so a bookmark to the old root is sent to
+/// the page that replaced it rather than to a 404.
+async fn root_redirect() -> Redirect {
+    Redirect::to("/next")
 }
 
 /// Every answer this console gives is for one request, and a cache that disagrees is how a browser
