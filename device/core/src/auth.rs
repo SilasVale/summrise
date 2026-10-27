@@ -283,7 +283,7 @@ pub fn authorize(ctx: &Ctx<'_>, tool: &ToolCall) -> Decision {
 /// A linear backtracking matcher: it allocates nothing and cannot blow up on a pathological pattern
 /// the way a recursive one can. `*` matches any run of bytes, including the empty one, so
 /// `terminal.*` covers both `terminal.create` and `terminal.`.
-fn pattern_matches(pattern: &str, name: &str) -> bool {
+pub fn pattern_matches(pattern: &str, name: &str) -> bool {
     let pattern = pattern.as_bytes();
     let name = name.as_bytes();
     let mut p = 0;

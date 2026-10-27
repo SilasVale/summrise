@@ -45,6 +45,15 @@ nav a { color:var(--accent); text-decoration:none; }
 .code strong { font-family:ui-monospace, monospace; letter-spacing:0.04em; }
 "#;
 
+/// The terminal page's own few rules: the xterm host must have a height, and the page is a column.
+const TERMINAL_STYLE: &str = r#"
+body.terminal { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+body.terminal main { flex:1; display:flex; flex-direction:column; min-height:0; }
+#terminal { flex:1; min-height:0; background:#000; border-radius:8px; padding:8px; }
+#terminal-status { margin:6px 2px 0; }
+header a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
+"#;
+
 /// The sign-in card. `error` is the one line a refused token gets.
 pub(super) fn login(error: Option<&str>) -> Markup {
     html! {
@@ -121,7 +130,7 @@ pub(super) fn dashboard(
                         p class="hint" { "No devices have registered yet." }
                     } @else {
                         table {
-                            thead { tr { th { "Device" } th { "State" } th { "Version" } } }
+                            thead { tr { th { "Device" } th { "State" } th { "Version" } th { "" } } }
                             tbody {
                                 @for device in devices {
                                     tr {
@@ -143,6 +152,7 @@ pub(super) fn dashboard(
                                             @if device.online { span class="ok" { "online" } } @else { span class="off" { "offline" } }
                                         }
                                         td { (device.version.as_deref().unwrap_or("—")) }
+                                        td { a href=(format!("/next/terminal/{}", device.id)) { "Terminal" } }
                                     }
                                 }
                             }
@@ -197,6 +207,40 @@ pub(super) fn logs(rows: &[serde_json::Value], title: &str, version: &str) -> Ma
                         }
                     }
                     nav { a href="/next" { "Fleet" } }
+                }
+            }
+        }
+    }
+}
+
+/// The terminal page: one xterm host, wired to the console's `/next/terminal` endpoints.
+///
+/// The device id and this session's CSRF value ride in data attributes, not in the URL or a cookie
+/// the script reads: the session cookie is `HttpOnly`, so the page cannot leak what it cannot see.
+pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — terminal" }
+                link rel="stylesheet" href="/assets/xterm.css";
+                style { (STYLE) (TERMINAL_STYLE) }
+                script src="/assets/xterm.js" defer {}
+                script src="/assets/addon-fit.js" defer {}
+                script src="/assets/terminal.js" defer {}
+            }
+            body class="terminal" {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    div id="terminal" data-device=(device.id) data-csrf=(csrf) {}
+                    p id="terminal-status" class="hint" { "connecting…" }
                 }
             }
         }

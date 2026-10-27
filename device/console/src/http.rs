@@ -222,6 +222,15 @@ impl Console {
                 }),
             )
             .route(
+                "/assets/terminal.js",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::TERMINAL,
+                        content_type: "text/javascript; charset=utf-8",
+                    }
+                }),
+            )
+            .route(
                 "/assets/addon-fit.js",
                 get(|| async {
                     assets::Asset {
@@ -249,6 +258,22 @@ impl Console {
             .route("/next/enroll", post(next_enroll))
             .route("/next/audit", get(next_audit))
             .route("/next/denials", get(next_denials))
+            // The terminal page: one device, one shell, the session's own cookie as the gate.
+            .route("/next/terminal/:device", get(next_terminal_page))
+            .route("/next/terminal/:device/create", post(next_terminal_create))
+            .route("/next/terminal/:device/:id/read", get(next_terminal_read))
+            .route(
+                "/next/terminal/:device/:id/write",
+                post(next_terminal_write),
+            )
+            .route(
+                "/next/terminal/:device/:id/resize",
+                post(next_terminal_resize),
+            )
+            .route(
+                "/next/terminal/:device/:id/close",
+                post(next_terminal_close),
+            )
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -694,6 +719,8 @@ mod assets {
     pub(super) const JS: &str = include_str!("../assets/xterm.js");
     pub(super) const CSS: &str = include_str!("../assets/xterm.css");
     pub(super) const FIT: &str = include_str!("../assets/addon-fit.js");
+    /// The terminal page's glue: the loop between xterm and `/next/terminal`.
+    pub(super) const TERMINAL: &str = include_str!("../assets/terminal.js");
     /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
     pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
 
@@ -1066,6 +1093,262 @@ async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Respon
     }
     let rows = app.denials.newest(DEFAULT_LOG_LIMIT).await;
     Html(page::logs(&rows, "Denials", &app.version).into_string()).into_response()
+}
+
+/// The terminal page's request bodies. All three are small on purpose: the page sends a session id
+/// in the path and nothing else, and the device is the one that decides what the call means.
+#[derive(Deserialize)]
+struct TerminalCreate {
+    /// Phase 3 is the pty; ssh and serial come with their own forms, not a hidden field.
+    #[serde(default = "pty_kind")]
+    kind: String,
+    rows: Option<u16>,
+    cols: Option<u16>,
+}
+
+fn pty_kind() -> String {
+    "pty".to_owned()
+}
+
+#[derive(Deserialize)]
+struct TerminalWrite {
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct TerminalResize {
+    rows: u16,
+    cols: u16,
+}
+
+#[derive(Deserialize, Default)]
+struct TerminalReadQuery {
+    #[serde(default)]
+    cursor: u64,
+}
+
+/// The page's CSRF value, from the header its fetch sends. A form field is the other spelling; this
+/// surface is JSON, so the header is the one that carries it.
+fn terminal_csrf(app: &AppState, headers: &HeaderMap) -> Option<Session> {
+    let csrf = headers.get("x-csrf").and_then(|value| value.to_str().ok());
+    next_session(app, headers, csrf)
+}
+
+fn terminal_refusal(status: StatusCode, message: &str) -> Response {
+    (status, Json(json!({ "error": message }))).into_response()
+}
+
+/// One `terminal.*` call on the operator's own authority, relayed through the device's channel.
+///
+/// The console session is the credential — the same rule `/mcp` follows: a signed-in operator may
+/// use every tool on the named device, destructive ones included. The device's answer is the tool's
+/// own JSON text; this page passes it through unchanged so a refusal keeps its sentence.
+async fn terminal_tool(
+    app: &AppState,
+    device_id: &str,
+    tool: &str,
+    arguments: Value,
+) -> Result<Value, Box<Response>> {
+    let scope = crate::channels::TokenScope {
+        token_id: "operator".to_owned(),
+        device_id: device_id.to_owned(),
+        scopes: vec!["*".to_owned()],
+        allow_destructive: true,
+        expires_at_ms: None,
+    };
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": tool, "arguments": arguments },
+    });
+    let reply = match proxy_reply(
+        app,
+        device_id,
+        &RequestAuth::Token(&scope),
+        None,
+        request,
+        StatusCode::BAD_REQUEST,
+        None,
+    )
+    .await
+    {
+        Ok(reply) => reply,
+        Err(response) => return Err(response),
+    };
+    let result = match reply {
+        Reply::Result(result) => result,
+        Reply::Error(error) => {
+            let sentence = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("the device refused the call");
+            return Err(Box::new(terminal_refusal(
+                StatusCode::BAD_GATEWAY,
+                sentence,
+            )));
+        }
+    };
+    let text = result
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if result
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(Box::new(terminal_refusal(StatusCode::BAD_GATEWAY, text)));
+    }
+    serde_json::from_str(text).map_err(|_| {
+        Box::new(terminal_refusal(
+            StatusCode::BAD_GATEWAY,
+            "the device's answer was not JSON",
+        ))
+    })
+}
+
+/// `GET /next/terminal/:device`: the page. A cookie is the page's gate; an unknown device is 404.
+async fn next_terminal_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    Html(page::terminal(&device, &hex::encode(&session.csrf), &app.version).into_string())
+        .into_response()
+}
+
+/// `POST /next/terminal/:device/create`: one pty, sized by the browser.
+async fn next_terminal_create(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<TerminalCreate>,
+) -> Response {
+    if terminal_csrf(&app, &headers).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if body.kind != "pty" {
+        return terminal_refusal(StatusCode::BAD_REQUEST, "kind must be pty");
+    }
+    let mut arguments = json!({ "kind": "pty" });
+    if let Some(rows) = body.rows {
+        arguments["rows"] = json!(rows);
+    }
+    if let Some(cols) = body.cols {
+        arguments["cols"] = json!(cols);
+    }
+    match terminal_tool(&app, &device_id, "terminal.create", arguments).await {
+        Ok(answer) => Json(json!({
+            "id": answer.get("id").cloned().unwrap_or(Value::Null),
+            "shell": answer.get("shell").cloned().unwrap_or(Value::Null),
+        }))
+        .into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `GET /next/terminal/:device/:id/read?cursor=N`: the output after the cursor.
+async fn next_terminal_read(
+    State(app): State<AppState>,
+    Path((device_id, session_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Query(query): Query<TerminalReadQuery>,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match terminal_tool(
+        &app,
+        &device_id,
+        "terminal.read",
+        json!({ "id": session_id, "cursor": query.cursor }),
+    )
+    .await
+    {
+        Ok(answer) => Json(answer).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/terminal/:device/:id/write`: keystrokes.
+async fn next_terminal_write(
+    State(app): State<AppState>,
+    Path((device_id, session_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<TerminalWrite>,
+) -> Response {
+    if terminal_csrf(&app, &headers).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match terminal_tool(
+        &app,
+        &device_id,
+        "terminal.write",
+        json!({ "id": session_id, "data": body.data }),
+    )
+    .await
+    {
+        Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/terminal/:device/:id/resize`: the browser's grid.
+async fn next_terminal_resize(
+    State(app): State<AppState>,
+    Path((device_id, session_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<TerminalResize>,
+) -> Response {
+    if terminal_csrf(&app, &headers).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match terminal_tool(
+        &app,
+        &device_id,
+        "terminal.resize",
+        json!({ "id": session_id, "rows": body.rows, "cols": body.cols }),
+    )
+    .await
+    {
+        Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/terminal/:device/:id/close`: end the shell.
+async fn next_terminal_close(
+    State(app): State<AppState>,
+    Path((device_id, session_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if terminal_csrf(&app, &headers).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match terminal_tool(
+        &app,
+        &device_id,
+        "terminal.close",
+        json!({ "id": session_id }),
+    )
+    .await
+    {
+        Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(response) => *response,
+    }
 }
 
 /// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial
@@ -1828,7 +2111,13 @@ async fn proxy_reply(
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
 
     if let Some(tool) = tool.as_deref() {
-        if !auth.tools().iter().any(|allowed| allowed == tool) {
+        // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
+        // exact-equality check here silently refused every tool call that presented no grant.
+        if !auth
+            .tools()
+            .iter()
+            .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
+        {
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
