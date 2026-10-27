@@ -23,7 +23,7 @@ const STYLE: &str = r#":root {
   --line:#e6e6e9; --line-strong:#d5d5da;
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  --ok:#1d7a3c; --ok-soft:#e7f6ec;
+  --ok:#1d7a3c; --warn:#a8620a; --ok-soft:#e7f6ec;
   --danger:#b3261e; --danger-soft:#fdecea;
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
@@ -39,7 +39,7 @@ const STYLE: &str = r#":root {
     --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.15);
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
     --accent-soft:#33211a; --accent-fg:#ffffff;
-    --ok:#6edc8b; --ok-soft:rgba(46,160,73,.16);
+    --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
     --danger:#ff8b84; --danger-soft:rgba(190,40,30,.18);
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
@@ -234,6 +234,10 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .context-rail { flex:0 0 244px; display:flex; flex-direction:column; gap:10px; padding:16px; background:var(--panel-2); border-right:1px solid var(--line); overflow:auto; }
 .rail-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
 .rail-list li { display:flex; flex-direction:column; gap:3px; padding:7px 8px; border-radius:8px; }
+.status { font-variant-numeric: tabular-nums; font-weight:600; }
+.status.ok { color:var(--ok); }
+.status.warn { color:var(--warn); }
+.status.error { color:var(--danger, var(--accent)); }
 .rail-meta { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--faint); }
 .rail-list li:hover { background:var(--hover); }
 .rail-when { font-size:11.5px; color:var(--faint); }
@@ -958,11 +962,19 @@ pub(super) fn logs(rows: &[serde_json::Value], title: &str, csrf: &str, version:
                         @for row in rows {
                             tr {
                                 td class="nowrap" { (stamp(row["ts_ms"].as_u64().unwrap_or(0))) }
-                                td { (row["kind"].as_str().unwrap_or("—")) }
+                                td {
+                                    @if let Some(kind) = row["kind"].as_str().filter(|kind| !kind.is_empty()) {
+                                        span class="chip muted" { (kind) }
+                                    } @else {
+                                        span class="muted" { "—" }
+                                    }
+                                }
                                 td class="num" {
                                     @match row["status"].as_u64().unwrap_or(0) {
                                         0 => { span class="muted" { "—" } },
-                                        status => { (status) },
+                                        status if status >= 500 => { span class="status error" { (status) } },
+                                        status if status >= 400 => { span class="status warn" { (status) } },
+                                        status => { span class="status ok" { (status) } },
                                     }
                                 }
                                 td {
@@ -1634,7 +1646,34 @@ pub(super) fn state_document(
             pre class="file" tabindex="0" { (pretty) }
         }
     };
-    page(
+    let health = pretty
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("\"health\": \""))
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or("unknown")
+        .to_owned();
+    let ready = pretty.contains("\"ready\": true");
+    let events = pretty.matches("\"kind\":").count();
+    let context = context_rail(
+        "Health",
+        html! { span class="chip" { (&health) } },
+        html! {
+            ul class="rail-list" {
+                li {
+                    span class="rail-line" { "Ready" }
+                    span class="rail-meta" {
+                        @if ready { span class="chip online" { "yes" } } @else { span class="chip offline" { "no" } }
+                    }
+                }
+                li {
+                    span class="rail-line" { "Events" }
+                    span class="rail-meta" { (events) " recorded in this document" }
+                }
+            }
+        },
+        Markup::default(),
+    );
+    page_with_rail(
         Chrome {
             active: Page::System,
             device: Some(device),
@@ -1643,6 +1682,8 @@ pub(super) fn state_document(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
