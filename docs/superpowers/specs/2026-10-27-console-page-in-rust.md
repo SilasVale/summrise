@@ -1,7 +1,9 @@
 # The console page, in Rust
 
 **Date:** 2026-10-27
-**Status:** proposed
+**Status:** phase 1–2 shipped at `/next`; phase 3's first slice landed 2026-10-27
+(`/next/terminal/:device` runs one pty, with the session cookie and a CSRF header as its gates).
+Tabs, ssh/serial kinds and the session list are still open, as is deleting `web/`.
 
 ## Problem
 
