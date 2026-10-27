@@ -1207,6 +1207,15 @@ fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Response 
 /// The page's sign-in now depends on that header arriving, and a card that does not say why it
 /// appeared cost an operator an hour of looking for a verification bug that did not exist
 /// (2026-10-24, recorded in `docs/superpowers/specs/2026-10-23-the-console-gets-a-public-name.md`).
+/// The card as the page knows how to explain it: the edge's answer when Access is configured and
+/// the request came through it. Every signed-out page uses this, so a bookmarked deep link explains
+/// itself as well as the landing page does.
+fn login_card(app: &AppState, headers: &HeaderMap) -> Html<String> {
+    let (_, access) = app.identity(headers);
+    let note = access_note(&access, headers);
+    Html(page::login(note.as_deref(), None).into_string())
+}
+
 fn access_note(access: &AccessReport, headers: &HeaderMap) -> Option<String> {
     if !access.configured {
         return None;
@@ -1313,7 +1322,7 @@ async fn next_audit(
     Query(query): Query<AuditQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     // The filter is applied to a deeper read than the page shows, so narrowing never hides a line
     // that is in the log: the page says "N of M" and M is what the console actually holds.
@@ -1382,7 +1391,7 @@ async fn next_denials(
     Query(query): Query<AuditQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let total = app.denials.newest(AUDIT_FILTER_WINDOW).await;
     let filter = page::AuditFilter {
@@ -1593,7 +1602,7 @@ async fn next_terminal_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1805,7 +1814,7 @@ async fn next_files_page(
     Query(query): Query<FilesQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1853,7 +1862,7 @@ async fn next_files_read(
     Query(query): Query<FilesQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1949,7 +1958,7 @@ async fn next_runs_page(
     Query(query): Query<RunsQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2092,7 +2101,7 @@ async fn next_state_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2124,7 +2133,7 @@ async fn next_system_page(
     Query(query): Query<SystemQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2233,7 +2242,7 @@ async fn next_memory_page(
     Query(query): Query<MemoryQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2356,7 +2365,7 @@ async fn next_screen_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2409,7 +2418,7 @@ async fn next_monitors_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2528,7 +2537,7 @@ async fn next_browser_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2657,7 +2666,7 @@ async fn next_tokens_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2775,7 +2784,7 @@ async fn next_vitals_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None, None).into_string()).into_response();
+        return login_card(&app, &headers).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()

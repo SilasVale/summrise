@@ -3450,6 +3450,27 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
     );
 }
 
+/// The explanation is not the landing page's privilege: a bookmarked deep link that lands signed out
+/// gets the same sentence, because that is where an operator without a session actually arrives.
+#[tokio::test]
+async fn a_signed_out_deep_page_explains_the_edge_too() {
+    let fixture = Fixture::with_access("deep-page-note");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next/audit")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
 /// The page mints a session for an Access-verified request with no cookie, so a browser that refuses
 /// cookies would append one per page load. The file keeps the newest few, not everything since the
 /// first deploy.
