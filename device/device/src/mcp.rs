@@ -143,6 +143,21 @@ pub(crate) enum Caller<'a> {
         /// fills this; the audit line omits it elsewhere.
         peer: Option<&'a str>,
     },
+    /// The console's channel carried a permanent token's scope. No grant is signed: the token
+    /// record is the permission, and the device applies the same `authorize` rules with it.
+    // The variant lands before the console's frame format switches to it (both must ship
+    // together); until then only the test constructs it.
+    #[allow(dead_code)]
+    Console {
+        /// The token record's id (never the `srm_` secret), for the audit line.
+        token_id: &'a str,
+        /// The registry tools the token allows, in the order the console recorded them.
+        scopes: &'a [String],
+        /// Whether the token's record consented to destructive tools.
+        allow_destructive: bool,
+        /// The wire it arrived on.
+        arrival: Arrival,
+    },
 }
 
 /// How a call reached the handler, as the audit line records it.
@@ -189,6 +204,7 @@ impl<'a> Caller<'a> {
         match self {
             Caller::Owner => Arrival::Loopback,
             Caller::Granted { arrival, .. } => arrival,
+            Caller::Console { arrival, .. } => arrival,
         }
     }
 
@@ -197,6 +213,7 @@ impl<'a> Caller<'a> {
         match self {
             Caller::Owner => None,
             Caller::Granted { peer, .. } => peer,
+            Caller::Console { .. } => None,
         }
     }
 }
@@ -209,16 +226,6 @@ impl<'a> Caller<'a> {
 /// [`terminal::Limits::default`], and an in-process test shortens the write bound. `restart` is the
 /// router's one hook: the same closure the panel's enrollment asks, so both supervised paths exit by
 /// the same code.
-pub(crate) fn service(
-    config: &Config,
-    limits: terminal::Limits,
-    console: Option<crate::console::ConsoleEndpoint>,
-    mesh: Option<crate::mesh::MeshLink>,
-    restart: restart::Hook,
-) -> StreamableHttpService<DeviceServer, LocalSessionManager> {
-    service_with_terminal(config, limits, console, mesh, restart).0
-}
-
 /// The MCP service plus the terminal registry behind it, so the device's own panel can list the live
 /// sessions without a second registry: one machine, one set of terminals.
 pub(crate) fn service_with_terminal(
@@ -502,6 +509,19 @@ impl DeviceServer {
         let policy = match caller {
             Caller::Owner => None,
             Caller::Granted { grant, .. } => Some(summrise_core::Grant::from(grant)),
+            // The token record is the permission; the device's view of it is the same `Grant` shape
+            // `authorize` already reads, without a signature to verify because the console's
+            // authenticated channel carried it. The expiry is the console's to enforce: a token has
+            // no console-side frame deadline, and the device has no clock for it.
+            Caller::Console {
+                scopes,
+                allow_destructive,
+                ..
+            } => Some(summrise_core::Grant {
+                tool_patterns: scopes.to_vec(),
+                expires_at_ms: i64::MAX,
+                auto_for_destructive: allow_destructive,
+            }),
         };
         let context = match caller {
             Caller::Owner => Ctx {
@@ -518,6 +538,18 @@ impl DeviceServer {
                     // mesh peer as the console.
                     id: arrival.as_str().to_owned(),
                     scopes: grant.tools.clone(),
+                },
+                grant: policy.as_ref(),
+                transport: arrival.transport(),
+                approval: ApprovalState::NotRequired,
+                now_ms: now_ms.saturating_sub(CLOCK_SKEW_MS),
+            },
+            Caller::Console {
+                token_id, scopes, ..
+            } => Ctx {
+                subject: Subject::Key {
+                    id: (*token_id).to_owned(),
+                    scopes: scopes.to_vec(),
                 },
                 grant: policy.as_ref(),
                 transport: arrival.transport(),
@@ -548,6 +580,10 @@ impl DeviceServer {
                     Caller::Granted { .. } => format!(
                         "{prompt}; this grant did not consent to destructive tools, so mint a \
                          grant with allow_destructive=true"
+                    ),
+                    Caller::Console { .. } => format!(
+                        "{prompt}; this token did not consent to destructive tools, so mark it \
+                         allow_destructive"
                     ),
                     Caller::Owner => prompt,
                 };
@@ -5152,7 +5188,10 @@ mod tests {
 
         let reply = host_restart(&server, 7).await;
 
-        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        // The denial is either a JSON-RPC error or a tool result flagged `isError`; both are
+        // refusals, and the point is that the empty scope never reaches the capability.
+        let refused = reply.get("error").is_some() || reply["result"]["isError"] == true;
+        assert!(refused, "{reply}");
         assert_eq!(
             text_of(&reply),
             "this device was not started by the launcher; restarting it here would not bring it back",
@@ -5216,6 +5255,39 @@ mod tests {
             .map(|line| serde_json::from_str::<Value>(line).expect("a JSON line"))
             .collect::<Vec<_>>();
         assert_eq!(lines[0]["decision"], "allow");
+    }
+
+    #[tokio::test]
+    async fn a_console_token_scope_authorizes_without_a_grant() {
+        let (server, _config, _dir) = console_server("console-token");
+        let scopes: Vec<String> = Vec::new();
+        let caller = super::Caller::Console {
+            token_id: "tok-1",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+        };
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": { "name": "files.read", "arguments": { "path": "x" } }
+                }),
+                caller,
+            )
+            .await;
+        // The denial is a JSON-RPC error on the wire, not a flagged tool result: the empty token
+        // scope never reaches the capability.
+        assert_eq!(reply["error"]["code"], -32001, "{reply}");
+        assert!(
+            reply["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("does not cover"),
+            "{reply}"
+        );
     }
 
     #[tokio::test]
