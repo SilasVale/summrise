@@ -337,11 +337,24 @@ body.login { display:grid; place-items:center; min-height:100vh; padding:24px; b
 .endpoint .label { color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
 .endpoint code { background:var(--panel); word-break:break-all; }
 
-@media (max-width: 1100px) {
+@media (max-width: 1180px) {
   /* Below the width where the row of page links fits on one line, the separators would lead a
      wrapped line: drop them and let the spacing do the separating. */
   .page-links { gap:4px 12px; }
   .page-links a + a::before { content:none; }
+}
+@media (max-width: 1000px) {
+  /* The canvas keeps its width first: the context rail is context, not navigation, so it is the
+     first thing to go when the window cannot hold all three columns. */
+  .context-rail { display:none; }
+}
+@media (max-width: 860px) {
+  .rail { flex:0 0 46px; }
+  .rail a { width:34px; height:34px; border-radius:8px; }
+  .content { padding:16px 16px 32px; }
+  /* A table wider than the phone scrolls inside its own card rather than pushing the page. */
+  .card { overflow-x:auto; }
+  .table th, .table td { padding:8px 10px; }
 }
 @media (min-width: 721px) and (max-width: 1000px) {
   .stats { grid-template-columns:repeat(3, minmax(0, 1fr)); }
@@ -1118,7 +1131,8 @@ pub(super) fn terminal(
                     @if sessions.is_empty() {
                         p { "No session yet — choose a kind and start one." }
                     } @else {
-                        p { "Pick a session on the left to attach, or start a new one." }
+                        // The rail is hidden below 1000px, so this must not point at it.
+                        p { "No session open in this pane — start one, or attach an existing session." }
                     }
                 }
                 div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
