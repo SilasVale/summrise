@@ -216,6 +216,16 @@ describe("App", () => {
     expect(screen.getByText(/0.1.3, 0.3.30/)).toBeInTheDocument();
   });
 
+  it("warns when a device does not report a build at all", async () => {
+    mocks.devices.mockResolvedValue([
+      { ...workshop, version: "0.3.30" },
+      { ...attic, version: undefined }
+    ]);
+    await bootAndSignIn();
+
+    expect(screen.getByText(/did not report a build/)).toBeInTheDocument();
+  });
+
   it("does not warn when every device runs the same build", async () => {
     await bootAndSignIn();
 

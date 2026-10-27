@@ -88,6 +88,11 @@ export function App() {
     [devices]
   );
 
+  // A device whose channel hello predates the version field is not "the same build": it is a build
+  // the page cannot name, and a tool surface it may not share. Count it separately from the known
+  // versions rather than dropping it from the warning.
+  const unreported = devices.filter((device) => !device.version).length;
+
   // Ask who we are first, then ask for data. Fetching the device list before knowing whether there is
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
@@ -346,11 +351,14 @@ export function App() {
                   <p className="summary">
                     {devices.length} devices, {online} online
                   </p>
-                  {versions.length > 1 && (
+                  {(versions.length > 1 || unreported > 0) && (
                     <p className="hint" role="status">
-                      The fleet is running {versions.length} builds ({versions.join(", ")}). Tools can
-                      differ by device; upgrade the older builds before relying on one shared tool
-                      surface.
+                      {versions.length > 1 &&
+                        `The fleet is running ${versions.length} builds (${versions.join(", ")}). `}
+                      {unreported > 0 &&
+                        `${unreported} device${unreported === 1 ? "" : "s"} did not report a build. `}
+                      Tools can differ by device; upgrade the older builds before relying on one
+                      shared tool surface.
                     </p>
                   )}
                   <div className="cards">
