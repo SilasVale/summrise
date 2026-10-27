@@ -467,29 +467,15 @@ export function App() {
               <DevicePicker devices={devices} onChoose={setSelected} />
             </section>
           )}
-          {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id || grantStale) && (
+          {page === "terminal" && chosen && (
             <section className="panel">
               <div className="panel-head">
-                <h2>Grant what the console may do on {chosen.name ?? shortId(chosen.id)}</h2>
+                <h2>Terminal on {chosen.name ?? shortId(chosen.id)}</h2>
               </div>
               <p className="hint">
-                A grant is signed by the console, names the tools and expires. The device checks it on
-                every call. Everything is selected by default: press the button and the terminal
-                appears.
+                Your console session is the permission: the operator may use every tool on this
+                device, destructive calls included. No grant to sign.
               </p>
-              {grantStale && (
-                <p className="hint">
-                  The grant in force was refused by the console or the device. Sign a new one and the
-                  open tabs resume where they were.
-                </p>
-              )}
-              <GrantForm
-                deviceId={chosen.id}
-                onGranted={(envelope) => {
-                  setGrant({ deviceId: chosen.id, envelope });
-                  setGrantStale(false);
-                }}
-              />
             </section>
           )}
           {/*
@@ -498,12 +484,12 @@ export function App() {
             direct child of `main` so the page's grid keeps its gap; `hidden` takes it out of the
             layout (and out of the modal's way) on every other page.
           */}
-          {chosen && grant && grant.deviceId === chosen.id && (
+          {chosen && (
             <section className="panel" hidden={page !== "terminal"}>
               <TerminalWorkspace
-                grant={grant}
+                grant={{ deviceId: chosen.id }}
                 visible={page === "terminal"}
-                onGrantRefused={() => setGrantStale(true)}
+                onGrantRefused={() => undefined}
               />
             </section>
           )}
