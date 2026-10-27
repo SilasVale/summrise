@@ -8940,6 +8940,81 @@ async fn visit_vitals(
     page.await.expect("the page finishes").2
 }
 
+/// A token that already consents is never asked again: a device answering -32002 to it is refusing
+/// for its own reasons, and the console must not stall the caller for the whole deadline.
+#[tokio::test]
+async fn a_consenting_token_is_not_asked_for_approval() {
+    let fixture = Fixture::new("approval-consenting");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xca)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "trusted", &["terminal.create"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 65,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 65, "error": { "code": -32002, "message": "the device refuses this one" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+
+    // Nothing was held for the operator to answer.
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(count["pending"], json!(0));
+}
+
+/// Facts with no totals are no reading: the trend does not record a zero it did not measure.
+#[tokio::test]
+async fn facts_without_a_reading_do_not_enter_the_trend() {
+    let fixture = Fixture::new("vitals-no-reading");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc9)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Linux", "version": "6.5" },
+        "cpu": { "cores": 4 },
+        "uptime_s": 60,
+        "disks": [],
+        "update": { "current": null, "previous": null, "pending": null, "last_swap": null, "repairs": [] }
+    });
+
+    let first = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    let second = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+
+    assert!(first.contains("One point so far"), "{first}");
+    assert!(
+        second.contains("One point so far"),
+        "two visits without readings are still no point: {second}"
+    );
+}
+
 /// An approved call whose device goes away before answering is UNKNOWN, never "needs approval":
 /// the frame may have run, so a retry could run it twice.
 #[tokio::test]

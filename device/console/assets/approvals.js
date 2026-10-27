@@ -1,7 +1,7 @@
 // The approvals badge: how many destructive calls are waiting for a person to answer.
 //
 // The pages are server-rendered and static, and this is the one poll that runs on all of them — a
-// held call waits only ten minutes, and an operator on another page would otherwise never see the
+// held call waits only ninety seconds, and an operator on another page would otherwise never see the
 // question. It asks the console and nothing else: no state of its own, no mutation, and it pauses
 // while the tab is hidden.
 (() => {
@@ -23,6 +23,15 @@
     }
   };
 
+  let timer = null;
+  const stop = () => {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+    paint(0);
+  };
+
   const poll = async () => {
     if (document.hidden) return;
     try {
@@ -30,6 +39,12 @@
         headers: { accept: "application/json" },
         credentials: "same-origin"
       });
+      // A signed-out tab is not waiting for anything: stop asking and take the badge down, instead
+      // of advertising a count nobody can act on.
+      if (response.status === 401 || response.status === 403) {
+        stop();
+        return;
+      }
       if (!response.ok) return;
       const body = await response.json();
       paint(Number(body.pending) || 0);
@@ -39,7 +54,7 @@
   };
 
   poll();
-  setInterval(poll, 5000);
+  timer = setInterval(poll, 5000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) poll();
   });

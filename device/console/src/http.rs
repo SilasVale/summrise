@@ -3954,13 +3954,17 @@ async fn next_vitals_page(
     let trend = {
         let mut trends = lock(&app.vitals);
         let points = trends.entry(device_id.clone()).or_default();
-        points.push(page::VitalPoint {
-            memory_pct,
-            disk_pct,
-        });
-        if points.len() > MAX_TREND {
-            let excess = points.len() - MAX_TREND;
-            points.drain(..excess);
+        // No totals is no reading: the facts may be the platform's error shape, or a build with no
+        // disks. Recording ("0%, 0%") would draw a line claiming the machine is empty.
+        if memory_total > 0 || disk_total > 0 {
+            points.push(page::VitalPoint {
+                memory_pct,
+                disk_pct,
+            });
+            if points.len() > MAX_TREND {
+                let excess = points.len() - MAX_TREND;
+                points.drain(..excess);
+            }
         }
         points.clone()
     };
@@ -4936,8 +4940,16 @@ async fn proxy_reply(
             // only surface where a person can say yes, and the client's request stays open while
             // they decide. An unanswered question is refused — expiry fails closed, as the legacy
             // gate did.
+            // Only a credential that did NOT consent is held. A consenting token answered -32002
+            // is a device refusing for its own reasons (a damaged or hostile build), and asking the
+            // operator to authorize what they already authorized would stall the page for the whole
+            // deadline.
+            let askable = match auth {
+                RequestAuth::Token(scope) if !scope.allow_destructive => Some(scope),
+                _ => None,
+            };
             if error_code(&reply) == Some(-32002) {
-                if let RequestAuth::Token(scope) = auth {
+                if let Some(scope) = askable {
                     let consenting = crate::channels::TokenScope {
                         token_id: scope.token_id.clone(),
                         device_id: scope.device_id.clone(),
