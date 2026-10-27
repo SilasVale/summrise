@@ -21,10 +21,10 @@ The path is the device id: 64 lowercase hex characters, the registered public ke
 MCP `2025-06-18`; it answers JSON (no SSE), and every request carries a grant, or a token the console
 turns into one — there is no session.
 
-The console page has the same flow without the curl: each device card's **AI client** button opens the
-**Connect an AI client** card, which either mints a session grant or creates a permanent token through
-the page's own operator session, and shows the endpoint, the header and a DeepSeek Harness
-configuration. The curl below is for a script or an operator on a machine without the page.
+The console page has the same flow without the curl for the token half: the device's **Connect an AI
+client** page (rail: **Tokens**) mints a permanent token through the page's own operator session and
+shows the endpoint and the header. It does not mint session grants — those are one API call with the
+operator session, below. The curl is for a script or an operator on a machine without the page.
 
 ## Mint a grant
 
@@ -60,9 +60,9 @@ A grant expires, so a configuration built around one has to be rebuilt. A **perm
 console's answer for a client whose configuration must stay fixed: the console issues it once, the
 client sends it on every request, and the console turns it into a short grant each time.
 
-Create it in the console page: device card → **AI client** (**Connect an AI client**) → **Permanent
-token**. Name it, choose the tools it may call, and set the destructive consent (the same
-`allow_destructive` a grant carries). The token is `srm_` followed by 64 lowercase hex characters (68
+Create it in the console page: the device's **Connect an AI client** page (rail: **Tokens**). Name
+it, tick the destructive consent (the same `allow_destructive` a grant carries — unticked means
+destructive calls are refused), and press **Mint a token**. The token is `srm_` followed by 64 lowercase hex characters (68
 in all), returned once at creation:
 
 ```

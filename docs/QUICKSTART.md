@@ -19,8 +19,8 @@ It is loopback only and has no login — if you can read it, you are on the box.
 
 ## 2. Enroll the machine
 
-In the console: **Devices → Add a device → New enrollment code**. The code is single-use and expires
-in minutes. Spend it either way:
+In the console: the Fleet page's **New enrollment code**. The code is single-use and expires in
+minutes. Spend it either way:
 
 - **At the machine:** in the panel, open **Console link → Enrol this machine**, paste the console URL
   and the code, and press **Enroll**. Tick **Replace an existing enrollment** only to rotate this
@@ -46,9 +46,9 @@ sc start SummriseLaunch
 
 ## 3. Create a permanent token
 
-In the console, select the device and press **Connect an AI client** (the device card's **AI client**
-button opens the same dialog), then choose **Permanent token**. Name the token, select the tools it may
-call (at least one), decide whether destructive tools are pre-approved, and press **Create token**.
+In the console, open the device's **Connect an AI client** page (the fleet row's **Connect** link, or
+the rail's **Tokens**). Name the token, decide whether destructive tools are allowed (unticked means
+they are refused), and press **Mint a token**.
 
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
@@ -86,10 +86,17 @@ repository, or have the deployment inject the value from a secret:
       Authorization: Bearer srm_<64 lowercase hex characters>
 ```
 
-The same endpoint accepts a grant for a session instead of a token: the card's **Session grant** tab
-mints one (an hour by default), and its lowercase hex goes in the same header
-([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; a permanent token does not (one created
-with an expiry does). Behind Cloudflare
+The same endpoint accepts a grant for a session instead of a token. The page mints tokens; a grant
+is one API call with the operator session (`POST /session` returns it):
+
+```bash
+curl -sS -X POST https://<console>/grants \
+  -H "Authorization: Bearer <session>" -H 'content-type: application/json' \
+  -d '{"device_id":"<device-id>","tools":["files.read"],"expires_in_s":3600}'
+```
+
+Its lowercase hex goes in the same header ([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; a
+permanent token does not (one created with an expiry does). Behind Cloudflare
 Access with a service-token policy for `/mcp/*`, add the two `CF-Access-*` headers too
 ([details](CONNECT-MCP.md#cloudflare-access)).
 
@@ -112,9 +119,9 @@ call; [`CONNECT-MCP.md#a-quick-check`](CONNECT-MCP.md#a-quick-check) has `initia
 
 ## 6. Revoke
 
-In **Connect an AI client → Permanent token → Existing tokens**, press **Revoke** and confirm. The next
-request with that token is `401`, and the value is never shown again. Create a new token and update the
-client's configuration if the client should keep working.
+On the device's **Connect an AI client** page (the rail's **Tokens**), the token's row has **Revoke**.
+The next request with that token is `401`, and the value is never shown again. Create a new token and
+update the client's configuration if the client should keep working.
 
 ## 7. Local only: no console
 
