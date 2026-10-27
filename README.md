@@ -43,20 +43,20 @@ Windows is the target: the lifecycle suite only runs there (`ci.yml`'s `device-w
 Linux `cargo test` proves the portable half. `--windows` compiles the Windows-only paths from Linux;
 it proves they build, not that they pass.
 
-The console page is a second buildable surface. `dist/index.html` is committed because the Rust
-binary embeds it, so the page's own gate is `ci.yml`'s `console` job:
+The console page is Rust. `/` redirects to `/next`, which `summrise-console` renders from `maud`
+templates; there is no npm, no committed bundle and no second build. A page change is gated by the
+same `cargo test -p summrise-console` the rest of the crate uses.
+
+The only JavaScript left is vendored xterm and the two terminal pages' glue
+(`device/console/assets/`, `device/device/src/panel.html`). `scripts/console-smoke.mjs` drives the
+console in a browser — the fleet table, every device link, and a real shell typed into — and needs
+a machine where a browser can start (a signed-in desktop session, not the device service):
 
 ```bash
-cd device/console/web
-npm ci
-npm run typecheck
-npm test
-cd -
-./scripts/build-web.sh            # rebuilds dist/index.html; commit it
+CONSOLE_URL=http://127.0.0.1:19000 CONSOLE_TOKEN_FILE=/path/operator.token \
+CONSOLE_BROWSER='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' \
+node scripts/console-smoke.mjs            # add --terminal for the shell leg
 ```
-
-The job also fails when the committed bundle is not the one this source builds — a stale page still
-compiles, which is why the diff is the check.
 
 ## The documents
 
