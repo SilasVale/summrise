@@ -8865,6 +8865,42 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// A transient failure of the live stream is NOT an old device: it reaches the caller, which keeps
+/// trying the stream, instead of silently downgrading the pane to screenshots for the tab's life.
+#[tokio::test]
+async fn a_transient_cast_failure_is_a_502_not_a_fallback() {
+    let fixture = Fixture::new("browser-frame-transient");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.cast"),
+        "{frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "error": { "code": -32603, "message": "browser.cast: the screencast reader stopped before a frame arrived" } }),
+    )
+    .await;
+
+    // No screenshot is asked for: the failure is the answer.
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert!(body.contains("screencast reader"), "{body}");
+}
+
 /// A device older than `browser.cast` still fills the pane: the console falls back to one
 /// screenshot per poll rather than failing the frame.
 #[tokio::test]

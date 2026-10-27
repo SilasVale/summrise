@@ -3474,14 +3474,28 @@ async fn next_browser_frame(
     // says which one it was, so the pane can slow down instead of asking a device without a stream
     // five times a second.
     let streamed = if wants_stream {
-        device_tool(
+        match device_tool(
             &app,
             &device_id,
             "browser.cast",
             json!({ "target": target }),
         )
         .await
-        .ok()
+        {
+            Ok(text) => Some(text),
+            Err(response) => {
+                let sentence = refusal_sentence(*response).await;
+                // Only "this device has no such tool" is a reason to fall back; a transient
+                // failure must reach the caller, because a silent fallback makes the pane latch
+                // itself down to screenshots for the life of the tab.
+                if sentence.contains("unknown tool") {
+                    None
+                } else {
+                    return (StatusCode::BAD_GATEWAY, Json(json!({ "error": sentence })))
+                        .into_response();
+                }
+            }
+        }
     } else {
         None
     };

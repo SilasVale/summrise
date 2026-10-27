@@ -51,7 +51,7 @@ use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1523,7 +1523,18 @@ pub struct BrowserRegistry {
     /// Screencasts by target id. Kept apart from `browser` so a running stream does not hold the
     /// browser's lock while other tools use it.
     casts: std::sync::Mutex<std::collections::HashMap<String, Cast>>,
+    /// Set by `shutdown` before the casts are drained, and cleared when a browser is launched, so a
+    /// stream cannot start in the window between the drain and the next launch.
+    closed: AtomicBool,
 }
+
+/// What a caller needs to read a running stream: the frame slot, the ask counter, and the reader it
+/// can watch for a death it did not cause.
+type CastSlot = (
+    Arc<std::sync::Mutex<Option<CastFrame>>>,
+    Arc<AtomicU64>,
+    tokio::task::AbortHandle,
+);
 
 /// One running screencast: the newest frame, the stop signal, and the task that reads Chrome.
 struct Cast {
@@ -1544,6 +1555,7 @@ impl BrowserRegistry {
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
             casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1556,6 +1568,7 @@ impl BrowserRegistry {
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
             casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1572,6 +1585,7 @@ impl BrowserRegistry {
             readiness_timeout_ms,
             browser: tokio::sync::Mutex::new(None),
             casts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -1580,6 +1594,8 @@ impl BrowserRegistry {
         let mut slot = self.browser.lock().await;
         let running = slot.as_mut().map(Browser::alive).unwrap_or(false);
         if !running {
+            // A fresh launch is a new life for streams too.
+            self.closed.store(false, Ordering::SeqCst);
             // Drop a crashed browser before replacing it: its Drop waits for the process.
             slot.take();
             *slot = Some(
@@ -1640,12 +1656,19 @@ impl BrowserRegistry {
     /// slow reader loses frames instead of falling behind. A stream nobody asks for stops itself
     /// after CAST_IDLE_MS.
     pub async fn cast(&self, target: &str) -> Result<CastFrame, BrowserError> {
-        let (latest, asked_at_ms) = self.cast_slot(target).await?;
+        let (latest, asked_at_ms, reader) = self.cast_slot(target).await?;
         asked_at_ms.store(now_unix_ms(), Ordering::Relaxed);
         let deadline = Instant::now() + Duration::from_millis(CAST_WAIT_MS);
         loop {
             if let Some(frame) = latest.lock().expect("the frame slot").clone() {
                 return Ok(frame);
+            }
+            // A reader that has already ended will never fill the slot: report that instead of
+            // waiting out the bound, which would stall the caller for nothing.
+            if reader.is_finished() {
+                return Err(BrowserError::WebSocket {
+                    message: "the screencast reader stopped before a frame arrived".to_owned(),
+                });
             }
             if Instant::now() >= deadline {
                 return Err(BrowserError::Timeout {
@@ -1671,17 +1694,14 @@ impl BrowserRegistry {
     }
 
     /// The live slot for `target`, starting the reader task when there is none.
-    async fn cast_slot(
-        &self,
-        target: &str,
-    ) -> Result<(Arc<std::sync::Mutex<Option<CastFrame>>>, Arc<AtomicU64>), BrowserError> {
-        {
-            let casts = self.casts.lock().expect("the cast table");
-            if let Some(cast) = casts.get(target) {
-                if !cast.task.is_finished() {
-                    return Ok((cast.latest.clone(), cast.asked_at_ms.clone()));
-                }
-            }
+    ///
+    /// The map is checked before and after the async resolution, and the insert happens under the
+    /// same lock as the second check: two concurrent asks for one target must produce ONE reader,
+    /// because the loser's `Cast` (and its stop handle) would otherwise be dropped on the floor and
+    /// the orphan stream could only be ended by its own idle timer.
+    async fn cast_slot(&self, target: &str) -> Result<CastSlot, BrowserError> {
+        if let Some((latest, asked_at_ms, reader)) = self.live_cast(target) {
+            return Ok((latest, asked_at_ms, reader));
         }
         // No live stream: resolve the page's endpoint through the browser, then spawn its reader.
         let url = {
@@ -1689,6 +1709,22 @@ impl BrowserRegistry {
             let browser = slot.as_mut().expect("the registry just made it live");
             browser.page_url(target).await?
         };
+        let mut casts = self.casts.lock().expect("the cast table");
+        // A shutdown that ran while the endpoint was resolved wins: no stream starts after it.
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(BrowserError::WebSocket {
+                message: "the browser is shutting down".to_owned(),
+            });
+        }
+        if let Some(cast) = casts.get(target) {
+            if !cast.task.is_finished() {
+                return Ok((
+                    cast.latest.clone(),
+                    cast.asked_at_ms.clone(),
+                    cast.task.abort_handle(),
+                ));
+            }
+        }
         let latest = Arc::new(std::sync::Mutex::new(None));
         let stop = Arc::new(tokio::sync::Notify::new());
         let asked_at_ms = Arc::new(AtomicU64::new(now_unix_ms()));
@@ -1698,7 +1734,8 @@ impl BrowserRegistry {
             stop.clone(),
             asked_at_ms.clone(),
         ));
-        self.casts.lock().expect("the cast table").insert(
+        let reader = task.abort_handle();
+        casts.insert(
             target.to_owned(),
             Cast {
                 latest: latest.clone(),
@@ -1707,7 +1744,21 @@ impl BrowserRegistry {
                 task,
             },
         );
-        Ok((latest, asked_at_ms))
+        Ok((latest, asked_at_ms, reader))
+    }
+
+    /// The live cast for `target`, if its reader has not ended.
+    fn live_cast(&self, target: &str) -> Option<CastSlot> {
+        let casts = self.casts.lock().expect("the cast table");
+        let cast = casts.get(target)?;
+        if cast.task.is_finished() {
+            return None;
+        }
+        Some((
+            cast.latest.clone(),
+            cast.asked_at_ms.clone(),
+            cast.task.abort_handle(),
+        ))
     }
 
     /// Stop every screencast, waiting for each reader to finish.
@@ -1740,6 +1791,9 @@ impl BrowserRegistry {
     /// This is not an error when nothing is running: `shutdown` is the action a client takes to be
     /// sure no browser is left, and "already stopped" is that state, not a failure.
     pub async fn shutdown(&self) -> bool {
+        // Set before the drain: a stream that resolves its endpoint right now must not start after
+        // the table has been emptied.
+        self.closed.store(true, Ordering::SeqCst);
         // The streams end before the browser does: their readers hold a connection to it.
         self.stop_all_casts().await;
         let stopped = self.browser.lock().await.take();
@@ -1841,6 +1895,35 @@ async fn run_cast(
         return;
     }
     loop {
+        // Frames that landed while an ack was awaited were parked in the client's buffer by
+        // `command`: they were never shown and never acked, and an unacked frame is one Chrome is
+        // waiting on. Drain them first, then ack each.
+        let parked: Vec<Value> = {
+            let mut parked = Vec::new();
+            let mut keep = std::collections::VecDeque::new();
+            while let Some(message) = client.events.pop_front() {
+                if event_name(&message) == Some("Page.screencastFrame") {
+                    parked.push(message);
+                } else {
+                    keep.push_back(message);
+                }
+            }
+            client.events = keep;
+            parked
+        };
+        for message in parked {
+            if let Some(frame) = frame_from(&message) {
+                *latest.lock().expect("the frame slot") = Some(frame);
+            }
+            let session = message["params"]["sessionId"].as_i64().unwrap_or(0);
+            if client
+                .command("Page.screencastFrameAck", json!({ "sessionId": session }))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
         // The wait is bounded so the idle check runs even when Chrome sends nothing: a static page
         // produces no frames, and without this the task would block on the socket forever.
         let waited = tokio::select! {
