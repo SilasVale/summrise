@@ -95,6 +95,9 @@ Function .onInit
   Pop $0
   Pop $1
   FileWrite $6 "onInit: uninstall-service exit $0$\r$\n"
+  ; The tray is a per-user process, not the service: close it before its image is replaced, and the
+  ; login Run entry below starts the new one next time.
+  nsExec::Exec 'taskkill /F /IM summrise-shell.exe'
   FileClose $6
 FunctionEnd
 
@@ -124,8 +127,13 @@ Section "Summrise runtime" SecRuntime
   File /oname=summrise-launch.exe "${SOURCE}\summrise-launch.exe"
   File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
   File /oname=summrise-console.exe "${SOURCE}\summrise-console.exe"
+  File /oname=summrise-shell.exe "${SOURCE}\summrise-shell.exe"
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"
   WriteUninstaller "$INSTDIR\uninstall.exe"
+
+  ; The runtime is a headless service; the tray is the visible half. HKLM Run starts it in the
+  ; logged-in user's session at every login, with no elevation and no second credential.
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
@@ -221,11 +229,14 @@ SectionEnd
 Section "Uninstall"
   SetShellVarContext all
   SetRegView 64
+  nsExec::Exec 'taskkill /F /IM summrise-shell.exe'
   nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
   Pop $0
   Pop $1
 
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell"
   Delete "$INSTDIR\summrise-launch.exe"
+  Delete "$INSTDIR\summrise-shell.exe"
   Delete "$INSTDIR\summrise-device.exe"
   Delete "$INSTDIR\summrise-console.exe"
   Delete "$INSTDIR\summrise-device.sidecar.json"
