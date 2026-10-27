@@ -23,7 +23,7 @@ use crate::health::{self, State};
 use crate::helper;
 
 /// Where the operator console lives.
-const CONSOLE: &str = "https://console.saisi.online/";
+pub(crate) const CONSOLE: &str = "https://console.saisi.online/";
 /// Where the device's own panel lives: what works when the console does not.
 const PANEL: &str = "http://127.0.0.1:18090/";
 /// The loopback address the health probe asks.
@@ -54,7 +54,7 @@ const OK: [u8; 4] = [0x2f, 0xbf, 0x6f, 0xff];
 const BAD: [u8; 4] = [0xd7, 0x3a, 0x2a, 0xff];
 const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(open: bool) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
 
     let console_item = MenuItem::new("Open console", true, None);
@@ -103,7 +103,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
-            Event::NewEvents(StartCause::Init) => {}
+            Event::NewEvents(StartCause::Init) => {
+                if open {
+                    open_console(target, &mut ui);
+                }
+            }
             Event::UserEvent(Wake::Health(state)) => {
                 if last.as_ref() == Some(&state) {
                     return;
@@ -117,7 +121,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 button: tray_icon::MouseButton::Left,
                 button_state: tray_icon::MouseButtonState::Up,
                 ..
-            })) => open_console(target, &mut ui),
+            }))
+            | Event::UserEvent(Wake::Tray(TrayIconEvent::DoubleClick { .. })) => {
+                open_console(target, &mut ui)
+            }
             Event::UserEvent(Wake::Tray(_)) => {}
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui),
@@ -238,11 +245,15 @@ fn open_console(
         .with_visible(true)
         .build(target)
     else {
+        crate::note("window build failed");
         return;
     };
     match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
         Ok(view) => *ui = Some((window, view)),
-        Err(_) => window.set_visible(false),
+        Err(error) => {
+            crate::note(&format!("webview build failed: {error}"));
+            window.set_visible(false);
+        }
     }
 }
 
@@ -299,7 +310,7 @@ fn window_icon() -> Option<tao::window::Icon> {
 }
 
 /// Ask the shell to open `url` with whatever the operator's default browser is.
-fn open_url(url: &str) {
+pub(crate) fn open_url(url: &str) {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 

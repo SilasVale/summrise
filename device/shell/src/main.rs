@@ -47,16 +47,39 @@ pub fn note(line: &str) {
     }
 }
 
+/// Whether this launch was asked to show the window (`--open`, from the shortcut or the Run key).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn launches_window(mut args: impl Iterator<Item = String>) -> bool {
+    args.any(|argument| argument == "--open")
+}
+
 #[cfg(windows)]
 fn main() {
+    let open = launches_window(std::env::args().skip(1));
     if app::already_running() {
-        // The icon is already in the tray; a second one would be a second dot saying the same thing.
+        // The tray already exists; a second launch is the shortcut asking for the window. Open the
+        // console in the browser rather than adding a second dot, so the desktop icon does something.
+        if open {
+            app::open_url(app::CONSOLE);
+        }
         return;
     }
     note("starting");
-    if let Err(error) = app::run() {
+    if let Err(error) = app::run(open) {
         note(&format!("exited: {error}"));
         eprintln!("summrise-shell: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launches_window;
+
+    #[test]
+    fn the_open_parameter_is_the_window_request() {
+        assert!(launches_window(["--open".to_owned()].into_iter()));
+        assert!(!launches_window([].into_iter()));
+        assert!(!launches_window(["--other".to_owned()].into_iter()));
     }
 }

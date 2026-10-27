@@ -131,9 +131,11 @@ Section "Summrise runtime" SecRuntime
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
-  ; The runtime is a headless service; the tray is the visible half. HKLM Run starts it in the
-  ; logged-in user's session at every login, with no elevation and no second credential.
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
+  ; The runtime is a headless service; the shell is the desktop window. The Run entry opens it at
+  ; every login with its window, and the shortcuts are the entry point the old app had.
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe" --open'
+  CreateShortCut "$DESKTOP\Summrise.lnk" "$INSTDIR\summrise-shell.exe" "--open" "$INSTDIR\summrise-shell.exe" 0
+  CreateShortCut "$SMPROGRAMS\Summrise.lnk" "$INSTDIR\summrise-shell.exe" "--open" "$INSTDIR\summrise-shell.exe" 0
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
@@ -235,6 +237,8 @@ Section "Uninstall"
   Pop $1
 
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell"
+  Delete "$DESKTOP\Summrise.lnk"
+  Delete "$SMPROGRAMS\Summrise.lnk"
   Delete "$INSTDIR\summrise-launch.exe"
   Delete "$INSTDIR\summrise-shell.exe"
   Delete "$INSTDIR\summrise-device.exe"
