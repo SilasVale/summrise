@@ -68,11 +68,11 @@ vi.mock("./TerminalWorkspace", () => ({
   )
 }));
 
-// The chip has its own poll and its own test; here it is a marker whose click must land on the
-// Monitors page without touching the grant or the selected device.
+// The chip has its own poll and its own test; here it is a marker that carries the device it was
+// handed, so "the chip follows the selection" is an assertion rather than a guess.
 vi.mock("./MonitorChip", () => ({
-  MonitorChip: ({ onOpen }: { onOpen: () => void }) => (
-    <button type="button" onClick={onOpen}>monitor-chip</button>
+  MonitorChip: ({ grant, onOpen }: { grant: { deviceId: string }; onOpen: () => void }) => (
+    <button type="button" data-device={grant.deviceId} onClick={onOpen}>monitor-chip</button>
   )
 }));
 
@@ -277,7 +277,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
+        "The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session is the permission for every capture."
       )
     ).toBeInTheDocument();
 
@@ -311,97 +311,62 @@ describe("App", () => {
     expect(screen.queryByText("bad_operator_token")).not.toBeInTheDocument();
   });
 
-  it("selects a device and lands on the terminal with that device's grant form", async () => {
+  it("selects a device and lands on the terminal with its workspace, no grant in between", async () => {
     await bootAndSignIn();
 
     selectDevice("workshop");
 
     expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
+      screen.getByRole("heading", { name: "Terminal on workshop" })
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Lifetime (seconds)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
+    expect(screen.getByText(/Your console session is the permission/)).toBeInTheDocument();
+    expect(screen.getByTestId("workspace")).toHaveAttribute("data-visible", "yes");
+    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
     expect(screen.queryByText("No device selected.")).not.toBeInTheDocument();
-    // Files draws the same grant form, so the grant heading alone does not say which page this is.
+    // The workspace is not the only terminal panel: the rail still says which page this is.
     const rail = screen.getByRole("navigation", { name: "Sections" });
     expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
   });
-
-  it("draws each device page's grant panel with the hint that shipped, and Browser without one", async () => {
+  it("draws every device page directly, with no grant step in front of it", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
-    const grantHints: [string, string][] = [
-      [
-        "Screen",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
-      ],
-      [
-        "Memory",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the entries appear."
-      ],
-      [
-        "Events",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the device's health and its last ten events appear."
-      ],
-      [
-        "Files",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
-      ],
-      [
-        "Monitors",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the targets appear."
-      ],
-      [
-        "Runs",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the run form appears."
-      ],
-      [
-        "System",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
-      ]
+    const pages: [string, string][] = [
+      ["Files", "Files"],
+      ["Browser", "Browser"],
+      ["Screen", "Screen"],
+      ["Memory", "Memory"],
+      ["Monitors", "Monitors"],
+      ["Runs", "Runs"],
+      ["System", "System"],
+      ["Events", "Events"]
     ];
-    for (const [section, hint] of grantHints) {
+    for (const [section, heading] of pages) {
       fireEvent.click(within(rail).getByRole("button", { name: section }));
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+      // The grant panel and its button are gone: the chosen device is the page's scope at once.
       expect(
-        screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
-      ).toBeInTheDocument();
-      expect(screen.getByText(hint)).toBeInTheDocument();
+        screen.queryByRole("heading", { name: /Grant what the console may do/ })
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
     }
-
-    // Browser's grant panel has no hint paragraph; the heading is all it says.
-    fireEvent.click(within(rail).getByRole("button", { name: "Browser" }));
-    expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
-    ).toBeInTheDocument();
   });
-
   it("keeps the workspace mounted, hidden, across a page change", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
-    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
-    const workspace = await screen.findByTestId("workspace");
-    expect(mocks.grant).toHaveBeenCalledWith("dev-workshop-0001", expect.any(Array), 3600, true);
+    // The workspace mounts with the device, not with a grant: there is nothing left to sign.
+    const workspace = screen.getByTestId("workspace");
     expect(workspace).toHaveAttribute("data-visible", "yes");
+    expect(screen.queryByRole("button", { name: "Grant access" })).not.toBeInTheDocument();
 
-    // The chip appears with the grant, and its click is navigation only: no second grant, same page
-    // shell, and the Monitors page itself (the heading alone is also the picker's).
-    const chip = await screen.findByRole("button", { name: "monitor-chip" });
-    fireEvent.click(chip);
+    // The chip is navigation only: the Monitors page it opens is the selected device's page.
+    fireEvent.click(screen.getByRole("button", { name: "monitor-chip" }));
     expect(screen.getByRole("heading", { name: "Monitors" })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "The device probes each target on its own interval and keeps the last 60 probes for the summary. A down target is a fact, not a failure of this page: the dot is its newest probe, and the numbers are the device's."
-      )
-    ).toBeInTheDocument();
     expect(screen.getByLabelText("Host")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add target" })).toBeInTheDocument();
     expect(screen.queryByText(/^Monitors run on the device, so pick one\./)).not.toBeInTheDocument();
-    expect(mocks.grant).toHaveBeenCalledTimes(1);
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     fireEvent.click(within(rail).getByRole("button", { name: "Audit" }));
@@ -416,25 +381,24 @@ describe("App", () => {
     expect(workspace).toHaveAttribute("data-visible", "yes");
     expect(workspace.closest("section")).not.toHaveAttribute("hidden");
   });
-
-  it("shows the chip only for the device the grant names", async () => {
+  it("moves the chip to the device the operator selects", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
-    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
-    await screen.findByRole("button", { name: "monitor-chip" });
+    expect(screen.getByRole("button", { name: "monitor-chip" })).toHaveAttribute(
+      "data-device",
+      workshop.id
+    );
 
-    // The console moves to another device while the workshop grant is still in force: the chip must
-    // not show workshop's monitors under attic, and attic's page asks for its own grant.
+    // The chip is the selected device's monitor summary, so it follows the selection rather than a
+    // grant that used to pin it.
     const rail = screen.getByRole("navigation", { name: "Sections" });
     fireEvent.click(within(rail).getByRole("button", { name: "Devices" }));
     selectDevice("attic");
-
-    expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on attic" })
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "monitor-chip" })).toHaveAttribute(
+      "data-device",
+      attic.id
+    );
   });
-
   it("clears its poll when the page unmounts", async () => {
     const startPoll = vi.spyOn(window, "setInterval");
     const clearInterval = vi.spyOn(window, "clearInterval");
@@ -477,9 +441,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
     expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: "Grant what the console may do on workshop" })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Terminal on workshop/ })).not.toBeInTheDocument();
     expect(mocks.setToken).toHaveBeenLastCalledWith(null);
     expect(document.body.textContent).not.toMatch(/srm_|fresh-token/);
   });

@@ -10,7 +10,7 @@ export type DevicePageProps = {
   pickHint: string;
   devices: Device[];
   chosen: Device | null;
-  onChoose: (device: Device) => void;
+  onChoose: (id: string) => void;
   children: (grant: Grant) => ReactNode;
 };
 

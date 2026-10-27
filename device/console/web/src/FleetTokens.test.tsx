@@ -75,8 +75,8 @@ describe("FleetTokens", () => {
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "dsh" },
     });
-    fireEvent.click(screen.getByLabelText("alpha"));
-    fireEvent.click(screen.getByLabelText("beta"));
+    // Full trust is the default: every device is already checked and destructive tools are already
+    // allowed, so the operator types a name and presses the button.
     fireEvent.click(screen.getByRole("button", { name: "Create fleet token" }));
 
     await waitFor(() =>
@@ -84,7 +84,7 @@ describe("FleetTokens", () => {
         name: "dsh",
         device_ids: [alpha.id, beta.id],
         tools: ["files.read", "files.list"],
-        allow_destructive: false,
+        allow_destructive: true,
       }),
     );
     expect(

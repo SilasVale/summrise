@@ -18,7 +18,6 @@ import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { EventsPage } from "./EventsPage";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
-import { GrantForm } from "./GrantForm";
 import { ConnectCard } from "./ConnectCard";
 import { DevicePage } from "./DevicePage";
 import { DevicePicker } from "./DevicePicker";
@@ -57,9 +56,6 @@ export function App() {
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
-  const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
-  /** True when the grant in force was refused, so the form is offered again above the live tabs. */
-  const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
 
@@ -178,8 +174,6 @@ export function App() {
     setDenials([]);
     setTokens([]);
     setSelected(null);
-    setGrant(null);
-    setGrantStale(false);
     setPage("devices");
   };
 
@@ -324,8 +318,8 @@ export function App() {
             <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
-            {chosen && grant && grant.deviceId === chosen.id && (
-              <MonitorChip grant={grant} onOpen={() => setPage("monitors")} />
+            {chosen && (
+              <MonitorChip grant={{ deviceId: chosen.id }} onOpen={() => setPage("monitors")} />
             )}
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
             {session.email ? session.email : `${online} of ${devices.length} devices online`}
@@ -397,8 +391,8 @@ export function App() {
                       </div>
                     </div>
                     <p className="hint">
-                      Grant what the console may do, then read its state, open a shell, or look at its
-                      browser.
+                      Read its state, open a shell, or look at its browser — your console session is
+                      the permission.
                     </p>
                   </section>
                 ) : (
@@ -443,7 +437,7 @@ export function App() {
           {page === "files" && (
             <DevicePage
               title="Files"
-              pickHint="The files live on the device, so pick one. The console signs a grant for the file tools, and the device checks that grant on every list, read, write and mkdir."
+              pickHint="The files live on the device, so pick one. Your console session is the permission: the device allows every list, read, write and mkdir it covers."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -458,8 +452,8 @@ export function App() {
                 <h2>Terminal</h2>
               </div>
               <p className="hint">
-                A terminal runs on a device, so pick one. The console signs a grant for the tools it
-                needs, and the device checks that grant on every call.
+                A terminal runs on a device, so pick one. Your console session is the permission;
+                the device checks every call against it.
               </p>
               <DevicePicker devices={devices} onChoose={setSelected} />
             </section>
@@ -494,7 +488,7 @@ export function App() {
           {page === "browser" && (
             <DevicePage
               title="Browser"
-              pickHint="The browser is one the device runs for you — in the user's session when the helper is there. Pick a device to grant the console its browser tools."
+              pickHint="The browser is one the device runs for you — in the user's session when the helper is there. Pick the device whose browser you want to drive."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -506,7 +500,7 @@ export function App() {
           {page === "screen" && (
             <DevicePage
               title="Screen"
-              pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
+              pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session is the permission for every capture."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -518,7 +512,7 @@ export function App() {
           {page === "memory" && (
             <DevicePage
               title="Memory"
-              pickHint="Memory is kept on the device, so pick one. The console signs a grant for the memory tools, and the device checks that grant on every read and every edit."
+              pickHint="Memory is kept on the device, so pick one. Your console session is the permission for every read and every edit."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -530,7 +524,7 @@ export function App() {
           {page === "monitors" && (
             <DevicePage
               title="Monitors"
-              pickHint="Monitors run on the device, so pick one. The console signs a grant for the monitor tools, and the device checks that grant on every add, probe and removal."
+              pickHint="Monitors run on the device, so pick one. Your console session is the permission for every add, probe and removal."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -542,7 +536,7 @@ export function App() {
           {page === "runs" && (
             <DevicePage
               title="Runs"
-              pickHint="A run happens on the device, so pick one. runs.exec is destructive and audited: the console signs a grant for it, and the device checks that grant on every call."
+              pickHint="A run happens on the device, so pick one. runs.exec is destructive and audited; your console session is the permission, destructive calls included."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -554,7 +548,7 @@ export function App() {
           {page === "system" && (
             <DevicePage
               title="System"
-              pickHint="Processes and reachability live on the device, so pick one. The console signs a grant for the system tools, and the device checks that grant on every read, every kill and every network test."
+              pickHint="Processes and reachability live on the device, so pick one. Your console session covers every read, every kill and every network test."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
@@ -587,7 +581,7 @@ export function App() {
           {page === "events" && (
             <DevicePage
               title="Events"
-              pickHint="The events are the device's own, so pick one. The console signs a grant for the state tool, and the device checks that grant on every read."
+              pickHint="The events are the device's own, so pick one. Your console session is the permission for every read."
               devices={devices}
               chosen={chosen}
               onChoose={setSelected}
