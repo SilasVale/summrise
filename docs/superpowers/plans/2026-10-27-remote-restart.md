@@ -76,8 +76,8 @@ list test), `device/core/src/registry.rs` (+ tests).
 - `host.restart` schema `{type:"object", properties:{}, additionalProperties:false}`; handler result
   `{"restarting": true}`; unsupervised refusal sentence above.
 
-- [ ] **Step 1: Tests first** (core list/destructive; mcp refusal/success + tool list)
-- [ ] **Step 2: Implement, gates, commit**
+- [x] **Step 1: Tests first** (core list/destructive; mcp refusal/success + tool list)
+- [x] **Step 2: Implement, gates, commit**
   `device: a supervised app can be restarted through host.restart`.
 
 ### Task 2: The page
@@ -116,7 +116,8 @@ needed; bundle).
 
 ## Rulings
 
-Recorded when the page shipped (`24a72cb`). The device half is Task 1's; these are the decisions the
+Recorded after both halves shipped: the device in `7c28f34` (552 tests across core + device + 4
+integration), the page in `24a72cb` (329 web tests). These are the decisions the
 round rests on, and the page's tests pin the ones it can see.
 
 - **The registry is the single list.** `host.restart` is one `ToolDef` in `summrise-core`'s host
