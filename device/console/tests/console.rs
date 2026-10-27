@@ -2013,7 +2013,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2065,7 +2064,7 @@ async fn an_expired_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+"grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2091,7 +2090,7 @@ async fn a_grant_that_names_another_device_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+"grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2117,7 +2116,7 @@ async fn a_tampered_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+"grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2152,7 +2151,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         );
@@ -2233,8 +2231,7 @@ async fn a_device_that_never_answers_is_a_504() {
                 &session,
                 json!({
                     "device_id": device_id,
-                    "grant": grant,
-                    "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
+                        "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
                 }),
             ),
         )
@@ -2785,7 +2782,7 @@ async fn an_expired_grant_is_audited_as_denied_with_its_reason() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+"grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2901,7 +2898,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -2947,7 +2943,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -3008,7 +3003,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
         &session,
         json!({
             "device_id": device_id,
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
