@@ -1179,13 +1179,16 @@ async fn terminal_tool(
     let result = match reply {
         Reply::Result(result) => result,
         Reply::Error(error) => {
+            // The device's own sentence when it has one; the envelope otherwise, so a refusal this
+            // page does not recognise is still readable instead of becoming "refused".
             let sentence = error
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap_or("the device refused the call");
+                .map(str::to_owned)
+                .unwrap_or_else(|| error.to_string());
             return Err(Box::new(terminal_refusal(
                 StatusCode::BAD_GATEWAY,
-                sentence,
+                &sentence,
             )));
         }
     };

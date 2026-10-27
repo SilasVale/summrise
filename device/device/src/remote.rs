@@ -134,7 +134,13 @@ pub(crate) fn admit<'a>(
             return Err(GrantRefusal::Expired);
         }
         if let Some(tool) = requested_tool(&frame.mcp) {
-            if !scope.scopes.iter().any(|allowed| allowed == tool) {
+            // `*` is a wildcard here too: the console's operator scope is exactly that, and an
+            // exact comparison refused every grantless call before it reached a capability.
+            if !scope
+                .scopes
+                .iter()
+                .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
+            {
                 return Err(GrantRefusal::ToolNotCovered);
             }
         }
@@ -259,6 +265,62 @@ mod tests {
         assert_eq!(
             admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
             Ok(Admitted::Grant(&grant))
+        );
+    }
+
+    #[test]
+    fn a_wildcard_token_scope_covers_every_tool() {
+        let scope = TokenScope {
+            token_id: "operator".to_owned(),
+            device_id: device_id(),
+            scopes: vec!["*".to_owned()],
+            allow_destructive: true,
+            expires_at_ms: None,
+        };
+        let frame = RemoteFrame {
+            id: 7,
+            mcp: call("terminal.create"),
+            grant: None,
+            token: Some(scope),
+        };
+        assert!(
+            matches!(
+                admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+                Ok(Admitted::Token(scope)) if scope.token_id == "operator"
+            ),
+            "the operator scope is a wildcard, not the literal tool name `*`"
+        );
+
+        // And a narrower pattern still scopes: `files.*` covers files.read and not runs.exec.
+        let narrowed = TokenScope {
+            token_id: "narrow".to_owned(),
+            device_id: device_id(),
+            scopes: vec!["files.*".to_owned()],
+            allow_destructive: false,
+            expires_at_ms: None,
+        };
+        let covered = RemoteFrame {
+            id: 8,
+            mcp: call("files.read"),
+            grant: None,
+            token: Some(TokenScope {
+                token_id: narrowed.token_id.clone(),
+                device_id: narrowed.device_id.clone(),
+                scopes: narrowed.scopes.clone(),
+                allow_destructive: false,
+                expires_at_ms: None,
+            }),
+        };
+        assert!(admit(&covered, &device_id(), &signing().verifying_key(), now_ms()).is_ok());
+        let outside = RemoteFrame {
+            id: 9,
+            mcp: call("runs.exec"),
+            grant: None,
+            token: Some(narrowed),
+        };
+        assert_eq!(
+            admit(&outside, &device_id(), &signing().verifying_key(), now_ms()),
+            Err(GrantRefusal::ToolNotCovered)
         );
     }
 
