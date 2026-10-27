@@ -7559,3 +7559,54 @@ async fn the_conventional_favicon_path_answers_with_the_icon() {
         Some("image/png")
     );
 }
+
+#[tokio::test]
+async fn a_page_session_survives_a_console_restart() {
+    // Every deploy used to sign the operator out, because sessions were memory only. A session is
+    // written to `<data>/sessions.json` now, and the token itself never is.
+    let fixture = Fixture::new("session-restart");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let restarted = fixture.restart();
+    let (status, _, body) = send_text(restarted.router(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the restarted console accepts the cookie"
+    );
+    assert!(body.contains("Devices"), "{body}");
+
+    // The CSRF value is part of the session too, so a form rendered before the restart still works.
+    let (status, _, _) = send_text(
+        restarted.router(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // The session file holds hashes, not tokens.
+    let file =
+        std::fs::read_to_string(fixture.config.data.join("sessions.json")).expect("the file");
+    assert!(
+        !file.contains(&cookie["summrise_session=".len()..]),
+        "{file}"
+    );
+    assert!(file.contains("token_hash"), "{file}");
+}
+
+#[tokio::test]
+async fn a_page_session_expires_after_its_lifetime() {
+    let fixture = Fixture::new("session-expiry");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    // One minute short of the day: the session still works.
+    fixture.advance_ms(24 * 60 * 60 * 1000 - 60_000);
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // A minute past it: the page is the login card again.
+    fixture.advance_ms(120_000);
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Sign in"), "{body}");
+}

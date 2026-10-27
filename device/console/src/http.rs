@@ -18,6 +18,7 @@ use axum::{Json, Router};
 use ed25519_dalek::{Signature, SigningKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Digest;
 
 use crate::audit::{self, Audit};
 use crate::auth::{
@@ -158,7 +159,7 @@ impl Console {
             inner: Arc::new(Inner {
                 operator_token,
                 grant_key,
-                sessions: Mutex::new(Vec::new()),
+                sessions: Mutex::new(crate::auth::load_sessions(&config.data, (now)())),
                 devices: Mutex::new(devices),
                 tokens: Mutex::new(tokens),
                 connections: Mutex::new(connections),
@@ -464,10 +465,11 @@ impl Inner {
         };
 
         let now = (self.now)();
+        let presented = hash_of(&presented);
         let sessions = lock(&self.sessions);
         let mut matched = false;
         for session in sessions.iter() {
-            let token_matches = constant_time_eq(&presented, &session.token);
+            let token_matches = constant_time_eq(&presented, &session.token_hash);
             let live = now < session.expires_at_ms;
             matched |= token_matches && live;
         }
@@ -868,8 +870,12 @@ async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<
 /// answer. No audit line on purpose — session lifecycle is not a device action.
 async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> StatusCode {
     if let Some(presented) = bearer_secret(&headers) {
+        let token_hash = hash_of(&presented);
         let mut sessions = lock(&app.sessions);
-        sessions.retain(|session| !constant_time_eq(&presented, &session.token));
+        sessions.retain(|session| !constant_time_eq(&session.token_hash, &token_hash));
+        if let Err(error) = crate::auth::save_sessions(&app.data, &sessions) {
+            eprintln!("summrise-console: the sessions could not be persisted: {error}");
+        }
     }
     StatusCode::NO_CONTENT
 }
@@ -908,18 +914,34 @@ async fn operator_from_credentials(
     Ok(())
 }
 
-/// Mint one session, drop the expired ones, and return it. The CSRF value is part of the session.
-fn new_session(app: &AppState) -> Session {
+/// Mint one session, drop the expired ones, and return it with the token the caller must present.
+///
+/// The file is written here rather than on a timer: a session the operator can use must survive the
+/// next restart, and a session that is not on disk is one a deploy forgets.
+fn new_session(app: &AppState) -> (Session, [u8; 32]) {
     let now = (app.now)();
+    let token = new_session_token();
     let session = Session {
-        token: new_session_token(),
+        token_hash: hash_of(&token),
         expires_at_ms: now.saturating_add(SESSION_LIFETIME_MS),
         csrf: random_32(),
     };
-    let mut sessions = lock(&app.sessions);
-    sessions.retain(|session| session.expires_at_ms > now);
-    sessions.push(session.clone());
-    session
+    {
+        let mut sessions = lock(&app.sessions);
+        sessions.retain(|session| session.expires_at_ms > now);
+        sessions.push(session.clone());
+    }
+    if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
+        eprintln!("summrise-console: the sessions could not be persisted: {error}");
+    }
+    (session, token)
+}
+
+/// The stored form of a session token: its SHA-256 bytes, never the token.
+fn hash_of(token: &[u8; 32]) -> [u8; 32] {
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&sha2::Sha256::digest(token));
+    hash
 }
 
 async fn authenticate(
@@ -927,9 +949,9 @@ async fn authenticate(
     Json(request): Json<AuthRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
     operator_from_credentials(&app, request.code.as_deref(), request.token.as_deref()).await?;
-    let session = new_session(&app);
+    let (session, token) = new_session(&app);
     Ok(Json(AuthResponse {
-        token: hex::encode(&session.token),
+        token: hex::encode(&token),
         expires_at_ms: session.expires_at_ms,
     }))
 }
@@ -947,10 +969,13 @@ fn cookie_session(app: &AppState, headers: &HeaderMap) -> Option<Session> {
         .filter_map(|part| part.trim().strip_prefix("summrise_session="))
         .find_map(hex::decode_32)?;
     let now = (app.now)();
+    let token_hash = hash_of(&presented);
     let sessions = lock(&app.sessions);
     sessions
         .iter()
-        .find(|session| constant_time_eq(&session.token, &presented) && now < session.expires_at_ms)
+        .find(|session| {
+            constant_time_eq(&session.token_hash, &token_hash) && now < session.expires_at_ms
+        })
         .cloned()
 }
 
@@ -2467,11 +2492,11 @@ async fn next_login(
         )
             .into_response();
     }
-    let session = new_session(&app);
+    let (_session, token) = new_session(&app);
     let mut response = Redirect::to("/next").into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
-        session_cookie(&session.token, secure_request(&headers)),
+        session_cookie(&token, secure_request(&headers)),
     );
     response
 }
@@ -2493,7 +2518,10 @@ async fn next_logout(
     }
     {
         let mut sessions = lock(&app.sessions);
-        sessions.retain(|entry| !constant_time_eq(&entry.token, &session.token));
+        sessions.retain(|entry| !constant_time_eq(&entry.token_hash, &session.token_hash));
+    }
+    if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
+        eprintln!("summrise-console: the sessions could not be persisted: {error}");
     }
     let mut response = Redirect::to("/next").into_response();
     response

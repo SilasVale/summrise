@@ -1,24 +1,31 @@
 //! Operator sessions.
 //!
 //! The operator presents one secret, once: the 32-byte token from `--operator-token-file`. The
-//! console answers with a session token it generates, keeps in memory, and expires after 24 hours.
-//! Both comparisons — the secret and the session — walk the full 32 bytes, so neither tells a caller
-//! how many leading bytes it guessed.
+//! console answers with a session token it generates and expires after 24 hours.
+//!
+//! The session outlives a console restart: `<data>/sessions.json` holds each session's token HASH,
+//! CSRF value and expiry, so a deploy does not sign the operator out (measured: every restart used
+//! to, and a day of deploys meant a day of sign-ins). The token itself is never written, which still
+//! means a copy of the file is not a credential. Both comparisons — the secret and the session —
+//! walk the full 32 bytes, so neither tells a caller how many leading bytes it guessed.
+
+use std::path::Path;
 
 use axum::http::{header, HeaderMap};
 use rand_core::{OsRng, RngCore};
+use serde::{Deserialize, Serialize};
 
 use crate::hex;
 
 /// How long a session token is valid.
 pub(crate) const SESSION_LIFETIME_MS: u64 = 24 * 60 * 60 * 1000;
 
-/// One in-memory session. The token is never persisted: a console restart ends every session, which
-/// is the right default for a credential that can mint grants.
+/// One operator session. The token is not kept — only its hash — so a restart can validate a cookie
+/// without the file being a credential.
 #[derive(Clone, Debug)]
 pub(crate) struct Session {
-    /// The 32 random bytes the caller presents as a bearer token, in hex.
-    pub(crate) token: [u8; 32],
+    /// SHA-256 of the token the caller presents, in bytes.
+    pub(crate) token_hash: [u8; 32],
     /// When the session stops being valid, in Unix milliseconds.
     pub(crate) expires_at_ms: u64,
     /// The value a server-rendered form echoes back. It lives in the session (server memory),
@@ -80,4 +87,55 @@ mod tests {
     fn two_sessions_are_different_tokens() {
         assert_ne!(new_session_token(), new_session_token());
     }
+}
+
+/// The file a console restart reads sessions back from.
+pub(crate) fn sessions_path(data: &Path) -> std::path::PathBuf {
+    data.join("sessions.json")
+}
+
+/// One session as the file keeps it.
+#[derive(Serialize, Deserialize)]
+struct StoredSession {
+    token_hash: String,
+    csrf: String,
+    expires_at_ms: u64,
+}
+
+/// Read the sessions a previous run left, dropping anything malformed or expired.
+pub(crate) fn load_sessions(data: &Path, now_ms: u64) -> Vec<Session> {
+    let Ok(text) = std::fs::read_to_string(sessions_path(data)) else {
+        return Vec::new();
+    };
+    let Ok(rows) = serde_json::from_str::<Vec<StoredSession>>(&text) else {
+        eprintln!("summrise-console: the session file is not readable JSON; starting signed out");
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            Some(Session {
+                token_hash: hex::decode_32(&row.token_hash)?,
+                csrf: hex::decode_32(&row.csrf)?,
+                expires_at_ms: row.expires_at_ms,
+            })
+        })
+        .filter(|session| session.expires_at_ms > now_ms)
+        .collect()
+}
+
+/// Write the sessions, atomically, so a crash mid-write cannot leave a half file behind.
+pub(crate) fn save_sessions(data: &Path, sessions: &[Session]) -> std::io::Result<()> {
+    let rows: Vec<StoredSession> = sessions
+        .iter()
+        .map(|session| StoredSession {
+            token_hash: hex::encode(&session.token_hash),
+            csrf: hex::encode(&session.csrf),
+            expires_at_ms: session.expires_at_ms,
+        })
+        .collect();
+    let text = serde_json::to_string_pretty(&rows).unwrap_or_else(|_| "[]".to_owned());
+    let path = sessions_path(data);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, &path)
 }
