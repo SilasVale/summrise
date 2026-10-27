@@ -16,7 +16,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use summrise_console::{AccessConfig, Config, Console, ACCESS_HEADER};
+use summrise_console::{AccessConfig, Config, Console, LoginCode, ACCESS_HEADER};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message as WsMessage};
 use tower::ServiceExt;
@@ -3322,6 +3322,217 @@ async fn signing_out_behind_access_ends_the_access_session() {
     );
 }
 
+/// `--login-link` prints `<page>?code=…` and promises two minutes' way in. The page has to spend
+/// that code, or the only recovery left when Access misbehaves is a secret in a file on the host.
+#[tokio::test]
+async fn a_login_link_code_signs_the_page_in_exactly_once() {
+    let fixture = Fixture::new("login-link");
+    let code = LoginCode {
+        code: "a".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    let uri = format!("/next?code={}", code.code);
+
+    let (status, headers, _) = send_text(fixture.app(), get(&uri, None)).await;
+
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "a link signs in and redirects"
+    );
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next"),
+        "the code leaves the URL with the redirect"
+    );
+    assert!(
+        headers
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookie| cookie.starts_with("summrise_session=")),
+        "the link mints the page's session"
+    );
+
+    // A link is one use: a second visit says so instead of minting another session.
+    let (status, headers, page) = send_text(fixture.app(), get(&uri, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("expired or was already used"),
+        "the card explains the dead link: {page}"
+    );
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// A code that does not match is refused like an expired one — and the card still has the token
+/// path under it, because a dead link must not be a dead end.
+#[tokio::test]
+async fn a_login_link_that_does_not_match_leaves_the_token_box() {
+    let fixture = Fixture::new("login-link-refused");
+    let code = LoginCode {
+        code: "b".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+
+    let (status, headers, page) =
+        send_text(fixture.app(), get("/next?code=not-the-code", None)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Operator token"), "{page}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// The card says which of the two Access failures happened, because the page's sign-in now depends
+/// on the header arriving: silence here is what used to look like a verification bug. A request
+/// through the edge carries `cf-ray`, which is how the page knows Access was in the path at all.
+#[tokio::test]
+async fn the_card_says_when_access_did_not_identify_the_request() {
+    let fixture = Fixture::with_access("card-access-missing");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn the_card_says_when_access_did_not_accept_the_request() {
+    let fixture = Fixture::with_access("card-access-refused");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not accept this request"),
+        "{page}"
+    );
+}
+
+/// Without Access there is no edge to explain: the card must not invent one.
+#[tokio::test]
+async fn the_card_is_quiet_when_access_is_not_configured() {
+    let fixture = Fixture::new("card-no-access");
+
+    let (_, _, page) = send_text(fixture.app(), get("/next", None)).await;
+
+    assert!(!page.contains("Cloudflare Access"), "{page}");
+}
+
+/// The operator who opens the console where no edge is in the path (the tailnet address, a smoke
+/// run) is not being asked to sign in at Cloudflare: there is nothing there to sign in to.
+#[tokio::test]
+async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
+    let fixture = Fixture::with_access("card-access-direct");
+
+    let (_, _, page) = send_text(fixture.app(), get("/next", None)).await;
+
+    assert!(
+        !page.contains("Cloudflare Access did not identify"),
+        "a direct request must not send the operator to an edge that is not in the path: {page}"
+    );
+}
+
+/// `--login-link https://console.saisi.online` prints `<public-url>?code=…`. The bare root is the
+/// URL that command would be given, and its redirect to the page must carry the code, not drop it.
+#[tokio::test]
+async fn the_root_redirect_keeps_the_query_a_login_link_carries() {
+    let fixture = Fixture::new("root-query");
+
+    let (status, headers, _) = send_text(fixture.app(), get("/?code=abc", None)).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next?code=abc")
+    );
+}
+
+/// The login box takes the one-time code too: `--login-link` says its code is for that box, and a
+/// code pasted there used to be decoded as a 32-byte token and refused.
+#[tokio::test]
+async fn the_login_box_accepts_a_one_time_code() {
+    let fixture = Fixture::new("login-box-code");
+    let code = LoginCode {
+        code: "c".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("code", &code.code)]),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookie| cookie.starts_with("summrise_session=")),
+        "a spent code buys the same session a token does"
+    );
+}
+
+/// Two 64-hex parameters, two meanings: an enrollment code is shown on the page, a login code is
+/// spent. A login link must never be printed as "Enrollment code".
+#[tokio::test]
+async fn a_login_code_in_the_url_is_not_shown_as_an_enrollment_code() {
+    let fixture = Fixture::new("code-not-enrol");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next?code=deadbeef", &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(!page.contains("Enrollment code:"), "{page}");
+}
+
+/// A refused sign-in says what the edge said, not only that the credential was wrong: the refusal
+/// re-renders the card, and that card is where the operator found the missing sentence before.
+#[tokio::test]
+async fn the_refusal_card_carries_the_access_note() {
+    let fixture = Fixture::with_access("refusal-note");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/auth")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("token=deadbeef"))
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
 #[tokio::test]
 async fn no_console_answer_is_cacheable() {
     // A cached page outlives a deploy and a cached `/session` outlives a login: both were possible
@@ -6433,13 +6644,13 @@ async fn the_rust_page_mints_an_enrollment_code_once_and_gates_the_logs() {
         .expect("a redirect")
         .to_str()
         .expect("ASCII");
-    assert!(location.starts_with("/next?code="), "{location}");
-    let code = location.trim_start_matches("/next?code=");
+    assert!(location.starts_with("/next?enroll="), "{location}");
+    let code = location.trim_start_matches("/next?enroll=");
     assert_eq!(code.len(), 64, "the code is 32 bytes in hex");
 
     let (status, _, page) = send_text(
         fixture.app(),
-        get_with_cookie(&format!("/next?code={code}"), &cookie),
+        get_with_cookie(&format!("/next?enroll={code}"), &cookie),
     )
     .await;
     assert_eq!(status, StatusCode::OK);

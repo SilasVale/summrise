@@ -785,8 +785,13 @@ mod assets {
 
 /// `GET /`: the console is the Rust page. `web/` is gone, so a bookmark to the old root is sent to
 /// the page that replaced it rather than to a 404.
-async fn root_redirect() -> Redirect {
-    Redirect::to("/next")
+async fn root_redirect(uri: axum::http::Uri) -> Redirect {
+    // The root is what `--login-link https://console.saisi.online` prints, and its code rides in the
+    // query: a redirect that drops the query turns a working link into a card with no explanation.
+    match uri.query() {
+        Some(query) => Redirect::to(&format!("/next?{query}")),
+        None => Redirect::to("/next"),
+    }
 }
 
 /// Every answer this console gives is for one request, and a cache that disagrees is how a browser
@@ -1059,7 +1064,10 @@ fn clear_session_cookie() -> HeaderValue {
 
 #[derive(Deserialize)]
 struct NextLogin {
-    token: String,
+    /// The operator token, typed. Absent when the box carried a one-time code instead.
+    token: Option<String>,
+    /// A one-time code pasted into the box; `--login-link` says its code is for this form.
+    code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1085,7 +1093,10 @@ const AUDIT_FILTER_WINDOW: usize = 500;
 /// `GET /next`: the login form without a live cookie, the page with one.
 #[derive(Deserialize, Default)]
 struct NextQuery {
+    /// The one-time code a `--login-link` put in the URL; spent, never displayed.
     code: Option<String>,
+    /// The enrollment code `POST /next/enroll` hands back once, to display.
+    enroll: Option<String>,
     error: Option<String>,
 }
 
@@ -1118,7 +1129,14 @@ async fn next_page(
     Query(query): Query<NextQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        // A `--login-link` code arrives in the URL, not a form: spending it here is what makes the
+        // printed link work on the page it was minted for. The token box stays underneath it.
+        if let Some(code) = query.code.as_deref() {
+            return login_with_code(&app, &headers, code);
+        }
+        let (_, access) = app.identity(&headers);
+        let note = access_note(&access, &headers);
+        return Html(page::login(note.as_deref(), None).into_string()).into_response();
     };
     Html(
         // The fleet is the page an operator lands on; six lines of what the console just did
@@ -1127,7 +1145,7 @@ async fn next_page(
             &device_views(&app),
             &hex::encode(&session.csrf),
             &app.version,
-            query.code.as_deref(),
+            query.enroll.as_deref(),
             query.error.as_deref(),
             &app.audit.newest(6).await,
             (app.now)(),
@@ -1135,6 +1153,60 @@ async fn next_page(
         .into_string(),
     )
     .into_response()
+}
+
+/// Spend a `--login-link` code and answer with the session it buys.
+///
+/// The redirect is the point: the code must leave the address bar with the request that spent it,
+/// and a 303 makes the next request a plain `GET /next` carrying the cookie.
+fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Response {
+    if let Err(reason) = crate::store::spend_login_code(&app.data, code, (app.now)()) {
+        eprintln!("summrise-console: refused a login code: {reason}");
+        let (_, access) = app.identity(headers);
+        let note = access_note(&access, headers);
+        return Html(
+            page::login(
+                note.as_deref(),
+                Some("That sign-in link has expired or was already used."),
+            )
+            .into_string(),
+        )
+        .into_response();
+    }
+    let (_session, token) = new_session(app);
+    let mut response = Redirect::to("/next").into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie(&token, secure_request(headers)),
+    );
+    response
+}
+
+/// The one sentence the card can say about the edge when Access is configured: whether this request
+/// carried no identity, or one the verifier refused.
+///
+/// The page's sign-in now depends on that header arriving, and a card that does not say why it
+/// appeared cost an operator an hour of looking for a verification bug that did not exist
+/// (2026-10-24, recorded in `docs/superpowers/specs/2026-10-23-the-console-gets-a-public-name.md`).
+fn access_note(access: &AccessReport, headers: &HeaderMap) -> Option<String> {
+    if !access.configured {
+        return None;
+    }
+    match (access.header, access.error.as_deref()) {
+        // `cf-ray` is Cloudflare's own stamp on a request it proxied: without it the request did not
+        // come through the edge at all (the tailnet address, a smoke run), and sending that operator
+        // to sign in at Cloudflare would point at a door that is not on this path.
+        (false, _) if headers.contains_key("cf-ray") => Some(
+            "Cloudflare Access did not identify this request. If you expected to be signed in, \
+             sign in at the edge first, then reload this page."
+                .to_owned(),
+        ),
+        (true, Some(error)) => Some(format!(
+            "Cloudflare Access did not accept this request: {error}"
+        )),
+        // A verified header with no session cannot reach the card: the page's middleware signs it in.
+        _ => None,
+    }
 }
 
 /// `POST /next/fleet/:id/name`: rename a device from the page. The name rules are the API's, and an
@@ -1208,7 +1280,7 @@ async fn next_enroll(
         Ok((code, _)) => {
             // The same action the API's `/enroll` records: a code exists because someone minted it.
             app.record("enroll", None, StatusCode::OK, None).await;
-            Redirect::to(&format!("/next?code={code}")).into_response()
+            Redirect::to(&format!("/next?enroll={code}")).into_response()
         }
         Err(IssueError::TooMany) => Redirect::to("/next?error=too_many_codes").into_response(),
         Err(IssueError::Storage) => Redirect::to("/next?error=code_storage").into_response(),
@@ -1222,7 +1294,7 @@ async fn next_audit(
     Query(query): Query<AuditQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     // The filter is applied to a deeper read than the page shows, so narrowing never hides a line
     // that is in the log: the page says "N of M" and M is what the console actually holds.
@@ -1291,7 +1363,7 @@ async fn next_denials(
     Query(query): Query<AuditQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let total = app.denials.newest(AUDIT_FILTER_WINDOW).await;
     let filter = page::AuditFilter {
@@ -1502,7 +1574,7 @@ async fn next_terminal_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1714,7 +1786,7 @@ async fn next_files_page(
     Query(query): Query<FilesQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1762,7 +1834,7 @@ async fn next_files_read(
     Query(query): Query<FilesQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -1858,7 +1930,7 @@ async fn next_runs_page(
     Query(query): Query<RunsQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2001,7 +2073,7 @@ async fn next_state_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2033,7 +2105,7 @@ async fn next_system_page(
     Query(query): Query<SystemQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2142,7 +2214,7 @@ async fn next_memory_page(
     Query(query): Query<MemoryQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2265,7 +2337,7 @@ async fn next_screen_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2318,7 +2390,7 @@ async fn next_monitors_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2437,7 +2509,7 @@ async fn next_browser_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2566,7 +2638,7 @@ async fn next_tokens_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2684,7 +2756,7 @@ async fn next_vitals_page(
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
-        return Html(page::login(None).into_string()).into_response();
+        return Html(page::login(None, None).into_string()).into_response();
     };
     let Some(device) = device_views(&app)
         .into_iter()
@@ -2743,13 +2815,21 @@ async fn next_login(
     headers: HeaderMap,
     Form(form): Form<NextLogin>,
 ) -> Response {
-    if operator_from_credentials(&app, None, Some(&form.token))
+    if operator_from_credentials(&app, form.code.as_deref(), form.token.as_deref())
         .await
         .is_err()
     {
+        let (_, access) = app.identity(&headers);
+        let note = access_note(&access, &headers);
         return (
             StatusCode::UNAUTHORIZED,
-            Html(page::login(Some("That token was not accepted.")).into_string()),
+            Html(
+                page::login(
+                    note.as_deref(),
+                    Some("That token or sign-in code was not accepted."),
+                )
+                .into_string(),
+            ),
         )
             .into_response();
     }

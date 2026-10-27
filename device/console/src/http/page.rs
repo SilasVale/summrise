@@ -816,8 +816,9 @@ fn breadcrumb(trail: &[(String, String)], current: &str) -> Markup {
     }
 }
 
-/// The sign-in card. `error` is the one line a refused token gets.
-pub(super) fn login(error: Option<&str>) -> Markup {
+/// The sign-in card. `note` explains why the card appeared (the edge's answer); `error` is the one
+/// line a refused token or a spent link gets.
+pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -837,6 +838,9 @@ pub(super) fn login(error: Option<&str>) -> Markup {
                     p class="lead" {
                         "The operator token opens a session for this browser. It is not stored by the page."
                     }
+                        @if let Some(note) = note {
+                            p class="alert notice" { (note) }
+                        }
                     form method="post" action="/next/auth" {
                         div class="field" {
                             label for="token" { "Operator token" }
@@ -3561,7 +3565,7 @@ mod tests {
                 ),
             ),
             ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true)), "csrf", "0.3.72")),
-            ("login", login(None)),
+            ("login", login(None, None)),
         ];
         for (name, markup) in pages {
             std::fs::write(dir.join(format!("{name}.html")), markup.into_string())

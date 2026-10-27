@@ -1,7 +1,7 @@
 //! Operator sessions.
 //!
 //! The operator presents one secret, once: the 32-byte token from `--operator-token-file`. The
-//! console answers with a session token it generates and expires after 24 hours.
+//! console answers with a session token it generates and expires after thirty days.
 //!
 //! The session outlives a console restart: `<data>/sessions.json` holds each session's token HASH,
 //! CSRF value and expiry, so a deploy does not sign the operator out (measured: every restart used
