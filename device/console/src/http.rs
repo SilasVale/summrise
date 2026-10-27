@@ -333,6 +333,14 @@ impl Console {
             .route("/next/browser/:device", get(next_browser_page))
             .route("/next/browser/:device/open", post(next_browser_open))
             .route("/next/browser/:device/eval", post(next_browser_eval))
+            .route(
+                "/next/browser/:device/navigate",
+                post(next_browser_navigate),
+            )
+            .route(
+                "/next/browser/:device/shutdown",
+                post(next_browser_shutdown),
+            )
             .route("/next/browser/:device/close", post(next_browser_close))
             // The connect card: a device's permanent tokens, minted once and revocable.
             .route("/next/tokens/:device", get(next_tokens_page))
@@ -3149,6 +3157,71 @@ async fn next_browser_open(
     {
         Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
         Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize)]
+struct BrowserNavigateForm {
+    csrf: String,
+    target: String,
+    url: String,
+}
+
+/// `POST /next/browser/:device/navigate`: send one target to a URL.
+async fn next_browser_navigate(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BrowserNavigateForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/browser/{device_id}");
+    let url = form.url.trim().to_owned();
+    if url.is_empty() {
+        return Redirect::to(&format!("{uri}?error={}", page::encode("A URL is needed.")))
+            .into_response();
+    }
+    match device_tool(
+        &app,
+        &device_id,
+        "browser.navigate",
+        json!({ "target": form.target, "url": url }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&uri).into_response(),
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?error={}", page::encode(&sentence))).into_response()
+        }
+    }
+}
+
+/// `POST /next/browser/:device/shutdown`: end the browser process and every tab in it.
+async fn next_browser_shutdown(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/browser/{device_id}");
+    match device_tool(&app, &device_id, "browser.shutdown", json!({})).await {
+        Ok(_) => Redirect::to(&uri).into_response(),
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?error={}", page::encode(&sentence))).into_response()
+        }
     }
 }
 

@@ -8591,6 +8591,78 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// Navigation and shutdown were the two browser tools without a form; both now reach the device.
+#[tokio::test]
+async fn the_browser_page_can_navigate_and_shut_the_browser_down() {
+    let fixture = Fixture::new("browser-navigate-shutdown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdc)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/navigate"),
+        &[
+            ("csrf", &csrf),
+            ("target", "target-1"),
+            ("url", "https://example.org/next"),
+        ],
+        &cookie,
+    );
+    let navigate = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.navigate"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["url"],
+        json!("https://example.org/next")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = navigate.await.expect("the navigate finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/shutdown"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let shutdown = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.shutdown"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"stopped\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = shutdown.await.expect("the shutdown finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+}
+
 /// An expression runs in the device's target and its answer is on the page that follows; the console
 /// keeps it in memory rather than in the URL.
 #[tokio::test]

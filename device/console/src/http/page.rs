@@ -2733,7 +2733,20 @@ pub(super) fn browser(
             (card_head(
                 "Targets",
                 html! { span class="chip muted" { (rows.len()) } },
-                Markup::default(),
+                html! {
+                    details class="row-menu" {
+                        summary class="btn btn-ghost btn-sm" { "Shut down" }
+                        div class="menu-panel restart-panel" {
+                            p class="small muted" {
+                                "Ends the browser process and every tab in it."
+                            }
+                            form method="post" action=(format!("{base}/shutdown")) {
+                                input type="hidden" name="csrf" value=(csrf);
+                                button type="submit" class="btn btn-quiet-danger btn-sm btn-block" { "Shut down the browser" }
+                            }
+                        }
+                    }
+                },
             ))
             @if rows.is_empty() {
                 (empty_state(
@@ -2783,6 +2796,29 @@ pub(super) fn browser(
                     pre class="code-block" { (eval.expression) }
                     p class="small muted" { "Answer" }
                     pre class="code-block" { (eval.value) }
+                }
+            }
+        }
+        @if !rows.is_empty() {
+            section class="card" {
+                (card_head("Navigate a target", Markup::default(), Markup::default()))
+                div class="card-body" {
+                    form method="post" action=(format!("{base}/navigate")) class="form-inline" {
+                        input type="hidden" name="csrf" value=(csrf);
+                        div class="field" {
+                            label class="visually-hidden" for="navigate-target" { "Target" }
+                            select id="navigate-target" name="target" {
+                                @for row in rows {
+                                    option value=(row.id) { (row.title) }
+                                }
+                            }
+                        }
+                        div class="field grow" {
+                            label class="visually-hidden" for="navigate-url" { "URL" }
+                            input id="navigate-url" type="text" name="url" placeholder="https://example.com/" required;
+                        }
+                        button type="submit" class="btn" { "Go" }
+                    }
                 }
             }
         }
