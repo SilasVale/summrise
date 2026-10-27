@@ -164,12 +164,13 @@ fn set_own_icon_promoted() -> bool {
     let Ok(own) = std::env::current_exe() else {
         return false;
     };
-    let own = own.to_string_lossy().to_lowercase();
+    let own = own.to_string_lossy();
     let Ok(settings) = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(r"Control Panel\NotifyIconSettings", KEY_READ | KEY_WRITE)
     else {
         return false;
     };
+    let mut matched = false;
     for name in settings.enum_keys().flatten() {
         let Ok(entry) = settings.open_subkey_with_flags(&name, KEY_READ | KEY_WRITE) else {
             continue;
@@ -177,19 +178,18 @@ fn set_own_icon_promoted() -> bool {
         let Ok(path) = entry.get_value::<String, _>("ExecutablePath") else {
             continue;
         };
-        if path.to_lowercase() != own {
+        if !path.eq_ignore_ascii_case(&own) {
             continue;
         }
-        if entry.get_value::<u32, _>("IsPromoted").unwrap_or(0) != 0 {
-            return true;
+        matched = true;
+        let already_promoted = entry.get_value::<u32, _>("IsPromoted").unwrap_or(0) != 0;
+        if crate::tray::needs_promotion(&own, &path, already_promoted) {
+            if entry.set_value("IsPromoted", &1u32).is_ok() {
+                crate::note("tray promoted to the visible area");
+            }
         }
-        if entry.set_value("IsPromoted", &1u32).is_ok() {
-            crate::note("tray promoted to the visible area");
-            return true;
-        }
-        return false;
     }
-    false
+    matched
 }
 
 #[cfg(not(windows))]
