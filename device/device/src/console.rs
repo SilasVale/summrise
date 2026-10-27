@@ -599,8 +599,8 @@ async fn handle_frame(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let envelope = match remote::admit(&frame, &endpoint.device_id, key, crate::http::now_ms()) {
-        Ok(envelope) => envelope,
+    let admitted = match remote::admit(&frame, &endpoint.device_id, key, crate::http::now_ms()) {
+        Ok(admitted) => admitted,
         Err(refusal) => {
             server
                 .audit_refused(
@@ -621,16 +621,20 @@ async fn handle_frame(
         }
     };
 
-    let response = server
-        .handle(
-            &frame.mcp,
-            Caller::Granted {
-                grant: &envelope.grant,
-                arrival: Arrival::Console,
-                peer: None,
-            },
-        )
-        .await;
+    let caller = match &admitted {
+        remote::Admitted::Grant(envelope) => Caller::Granted {
+            grant: &envelope.grant,
+            arrival: Arrival::Console,
+            peer: None,
+        },
+        remote::Admitted::Token(scope) => Caller::Console {
+            token_id: &scope.token_id,
+            scopes: &scope.scopes,
+            allow_destructive: scope.allow_destructive,
+            arrival: Arrival::Console,
+        },
+    };
+    let response = server.handle(&frame.mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {

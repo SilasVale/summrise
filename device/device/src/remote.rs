@@ -32,6 +32,26 @@ pub(crate) struct RemoteFrame {
     pub(crate) mcp: Value,
     /// The grant the sender says authorizes the request, when it sent one.
     pub(crate) grant: Option<GrantEnvelope>,
+    /// The console's permanent-token scope, when the frame carries one instead of a grant.
+    pub(crate) token: Option<TokenScope>,
+}
+
+/// A permanent token's scope, as the console's authenticated channel forwards it.
+///
+/// It is not a credential on the wire: the console authenticated the token and this channel is the
+/// console's, so the scope says what the token may do, not who holds it.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct TokenScope {
+    /// The token record's id (never the `srm_` secret), for the audit line.
+    pub(crate) token_id: String,
+    /// The device the console resolved the token to.
+    pub(crate) device_id: String,
+    /// The registry tools the token allows.
+    pub(crate) scopes: Vec<String>,
+    /// Whether the token's record consented to destructive tools.
+    pub(crate) allow_destructive: bool,
+    /// The token's expiry in Unix milliseconds, when it has one.
+    pub(crate) expires_at_ms: Option<u64>,
 }
 
 /// Why a frame was refused before the request could run.
@@ -78,12 +98,48 @@ impl GrantRefusal {
 /// The order is the console's, unchanged: the signature first, because nothing in the grant is
 /// believed before the bytes are the console's; then the device it names; then its expiry; and last
 /// the tool, which is only meaningful once the grant is authentic and live.
+#[derive(Clone, Debug)]
+pub(crate) enum Admitted<'a> {
+    Grant(&'a GrantEnvelope),
+    Token(&'a TokenScope),
+}
+
+impl PartialEq for Admitted<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Admitted::Grant(a), Admitted::Grant(b)) => a == b,
+            (Admitted::Token(a), Admitted::Token(b)) => {
+                a.token_id == b.token_id && a.scopes == b.scopes
+            }
+            _ => false,
+        }
+    }
+}
+
 pub(crate) fn admit<'a>(
     frame: &'a RemoteFrame,
     device_id: &str,
     key: &VerifyingKey,
     now_ms: i64,
-) -> Result<&'a GrantEnvelope, GrantRefusal> {
+) -> Result<Admitted<'a>, GrantRefusal> {
+    if let Some(scope) = frame.token.as_ref() {
+        // The console authenticated the token; the device still checks the facts the console's
+        // record promised, exactly as it checks a grant's: the device, the expiry, the tool.
+        if scope.device_id != device_id {
+            return Err(GrantRefusal::DeviceMismatch);
+        }
+        if scope.expires_at_ms.is_some_and(|expires_at| {
+            now_ms.saturating_sub(CLOCK_SKEW_MS) >= i64::try_from(expires_at).unwrap_or(i64::MAX)
+        }) {
+            return Err(GrantRefusal::Expired);
+        }
+        if let Some(tool) = requested_tool(&frame.mcp) {
+            if !scope.scopes.iter().any(|allowed| allowed == tool) {
+                return Err(GrantRefusal::ToolNotCovered);
+            }
+        }
+        return Ok(Admitted::Token(scope));
+    }
     let envelope = frame.grant.as_ref().ok_or(GrantRefusal::NoGrant)?;
     grant::verify(&envelope.grant, &envelope.signature, key)
         .map_err(|_| GrantRefusal::BadSignature)?;
@@ -104,7 +160,7 @@ pub(crate) fn admit<'a>(
             return Err(GrantRefusal::ToolNotCovered);
         }
     }
-    Ok(envelope)
+    Ok(Admitted::Grant(envelope))
 }
 
 /// The tool a JSON-RPC `tools/call` names, when it names one.
@@ -187,7 +243,12 @@ mod tests {
     }
 
     fn remote_frame(mcp: Value, grant: Option<GrantEnvelope>) -> RemoteFrame {
-        RemoteFrame { id: 7, mcp, grant }
+        RemoteFrame {
+            id: 7,
+            mcp,
+            grant,
+            token: None,
+        }
     }
 
     #[test]
@@ -197,7 +258,7 @@ mod tests {
 
         assert_eq!(
             admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
-            Ok(&grant)
+            Ok(Admitted::Grant(&grant))
         );
     }
 

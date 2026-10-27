@@ -318,7 +318,7 @@ async fn answer(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let envelope = match remote::admit(&frame, device_id, key, crate::http::now_ms()) {
+    let admitted = match remote::admit(&frame, device_id, key, crate::http::now_ms()) {
         Ok(envelope) => envelope,
         Err(refusal) => {
             server
@@ -340,16 +340,20 @@ async fn answer(
         }
     };
 
-    let response = server
-        .handle(
-            &frame.mcp,
-            Caller::Granted {
-                grant: &envelope.grant,
-                arrival: Arrival::Mesh,
-                peer: Some(peer),
-            },
-        )
-        .await;
+    let caller = match &admitted {
+        remote::Admitted::Grant(envelope) => Caller::Granted {
+            grant: &envelope.grant,
+            arrival: Arrival::Mesh,
+            peer: Some(peer),
+        },
+        remote::Admitted::Token(scope) => Caller::Console {
+            token_id: &scope.token_id,
+            scopes: &scope.scopes,
+            allow_destructive: scope.allow_destructive,
+            arrival: Arrival::Mesh,
+        },
+    };
+    let response = server.handle(&frame.mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {
