@@ -230,7 +230,6 @@ export const api = {
   tokens: () => call<TokenMeta[]>("/tokens"),
   createToken: (draft: {
     name: string;
-    device_id: string;
     tools: string[];
     allow_destructive: boolean;
     /**
@@ -238,7 +237,10 @@ export const api = {
      * it for the default — a token that never expires; the request body then carries no such key.
      */
     expires_in_s?: number;
-  }) =>
+  } & (
+    | { device_id: string; device_ids?: never }
+    | { device_ids: string[]; device_id?: never }
+  )) =>
     call<Created>("/tokens", {
       method: "POST",
       body: JSON.stringify(draft)

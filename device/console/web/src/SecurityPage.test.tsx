@@ -1,7 +1,16 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device } from "./api";
 import { SecurityPage } from "./SecurityPage";
+
+// The fleet-token form asks for the registry; the denial tests do not need a network round trip.
+vi.mock("./api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api")>();
+  return {
+    ...actual,
+    api: { ...actual.api, tools: vi.fn().mockResolvedValue([]) }
+  };
+});
 
 const workshop: Device = {
   id: "device-workshop-0123456789",

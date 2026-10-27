@@ -138,9 +138,9 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The page's per-device
-card creates one-device tokens; an aggregate token is created through the API above until the
-fleet-level form ships.
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The Security page's
+**Fleet tokens** section creates, lists and revokes aggregate tokens; the per-device card still
+creates one-device tokens.
 
 ### Scope and revocation
 
