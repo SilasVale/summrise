@@ -167,6 +167,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/system/{}", device.id)) { "System" }
                                             " · "
                                             a href=(format!("/next/state/{}", device.id)) { "State" }
+                                            " · "
+                                            a href=(format!("/next/memory/{}", device.id)) { "Memory" }
                                         }
                                     }
                                 }
@@ -684,6 +686,88 @@ pub(super) fn system(
                         input type="text" name="name" placeholder="name";
                         button type="submit" { "Kill" }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// One memory entry, as the page draws it.
+pub(super) struct MemoryRow {
+    pub(super) id: String,
+    pub(super) text: String,
+    pub(super) tags: String,
+}
+
+/// The device-local memory: the entries, an append form, and a delete button per row.
+pub(super) fn memory(
+    device: &DeviceView,
+    entries: &[MemoryRow],
+    tag: &str,
+    csrf: &str,
+    version: &str,
+    notice: Option<&str>,
+) -> Markup {
+    let base = format!("/next/memory/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — memory" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Memory" }
+                    p class="hint" {
+                        "What this device remembers: notes an operator or a client appended, newest first. "
+                        "It is the device's own store, not the console's."
+                    }
+                    @if let Some(notice) = notice {
+                        p class="hint" { (notice) }
+                    }
+                    form method="get" action=(base) class="format-form" {
+                        input type="text" name="tag" value=(tag) placeholder="filter by tag";
+                        button type="submit" { "Filter" }
+                    }
+                    @if entries.is_empty() {
+                        p class="hint" { "Nothing is remembered yet." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Text" } th { "Tags" } th { "" } } }
+                            tbody {
+                                @for entry in entries {
+                                    tr {
+                                        td { (entry.text) }
+                                        td { code { (entry.tags) } }
+                                        td {
+                                            form method="post" action=(format!("{base}/delete")) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                input type="hidden" name="id" value=(entry.id);
+                                                button type="submit" class="inline-button" { "Delete" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 { "Remember something" }
+                    form method="post" action=(format!("{base}/append")) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        textarea name="text" rows="3" placeholder="the fact to keep" required;
+                        input type="text" name="tags" placeholder="tags, comma-separated";
+                        button type="submit" { "Append" }
+                    }
+                    p class="hint" { code { (device.id) } }
                 }
             }
         }

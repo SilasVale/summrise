@@ -7032,3 +7032,117 @@ async fn the_system_page_lists_processes_and_forwards_a_kill() {
         Some(format!("/next/system/{device_id}?killed=1&failed=0").as_str())
     );
 }
+
+#[tokio::test]
+async fn the_memory_page_lists_entries_and_forwards_an_append() {
+    let fixture = Fixture::new("memory-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xeb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "m1", "text": "the antenna is on COM3", "tags": ["hardware", "serial"] }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the memory page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("the antenna is on COM3"), "{body}");
+    assert!(body.contains("hardware, serial"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/memory/{device_id}/append"),
+        &[
+            ("csrf", &csrf),
+            ("text", "the key is in the drawer"),
+            ("tags", "keys, office"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let append = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.append"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["text"],
+        json!("the key is in the drawer")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["tags"],
+        json!(["keys", "office"])
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "appended": true, "id": "m2" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = append.await.expect("the append finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/memory/{device_id}").as_str())
+    );
+}
+
+#[tokio::test]
+async fn a_memory_delete_without_the_page_csrf_is_refused() {
+    let fixture = Fixture::new("memory-csrf");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xec)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/memory/{device_id}/delete"),
+        &[("csrf", &"00".repeat(32)), ("id", "m1")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused delete must not reach the device"
+    );
+}

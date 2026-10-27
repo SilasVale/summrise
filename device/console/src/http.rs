@@ -285,6 +285,10 @@ impl Console {
             .route("/next/state/:device", get(next_state_page))
             .route("/next/system/:device", get(next_system_page))
             .route("/next/system/:device/kill", post(next_system_kill))
+            // The device's own memory: the entries, an append form, a delete per row.
+            .route("/next/memory/:device", get(next_memory_page))
+            .route("/next/memory/:device/append", post(next_memory_append))
+            .route("/next/memory/:device/delete", post(next_memory_delete))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -1777,6 +1781,131 @@ async fn next_system_kill(
             ))
             .into_response()
         }
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct MemoryQuery {
+    #[serde(default)]
+    tag: String,
+}
+
+#[derive(Deserialize)]
+struct MemoryAppendForm {
+    csrf: String,
+    text: String,
+    #[serde(default)]
+    tags: String,
+}
+
+#[derive(Deserialize)]
+struct MemoryDeleteForm {
+    csrf: String,
+    id: String,
+}
+
+/// `GET /next/memory/:device`: the entries, newest first, and the forms that change them.
+async fn next_memory_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<MemoryQuery>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let tag = query.tag.trim().to_owned();
+    let mut arguments = json!({ "limit": 50 });
+    if !tag.is_empty() {
+        arguments["tag"] = json!(tag);
+    }
+    let entries = match device_tool(&app, &device_id, "memory.list", arguments).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let entries: Vec<page::MemoryRow> = entries
+        .iter()
+        .map(|entry| page::MemoryRow {
+            id: entry["id"].as_str().unwrap_or_default().to_owned(),
+            text: entry["text"].as_str().unwrap_or_default().to_owned(),
+            tags: entry["tags"]
+                .as_array()
+                .map(|tags| {
+                    tags.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
+    Html(
+        page::memory(
+            &device,
+            &entries,
+            &tag,
+            &hex::encode(&session.csrf),
+            &app.version,
+            None,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/memory/:device/append`: keep one fact on the device.
+async fn next_memory_append(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MemoryAppendForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let text = form.text.trim().to_owned();
+    if text.is_empty() {
+        return Redirect::to(&format!("/next/memory/{device_id}")).into_response();
+    }
+    let tags: Vec<String> = form
+        .tags
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_owned)
+        .collect();
+    match device_tool(
+        &app,
+        &device_id,
+        "memory.append",
+        json!({ "text": text, "tags": tags }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!("/next/memory/{device_id}")).into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/memory/:device/delete`: retire one entry.
+async fn next_memory_delete(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MemoryDeleteForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match device_tool(&app, &device_id, "memory.delete", json!({ "id": form.id })).await {
+        Ok(_) => Redirect::to(&format!("/next/memory/{device_id}")).into_response(),
         Err(response) => *response,
     }
 }
