@@ -46,6 +46,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{browser, files, memory, monitor, runs, ssh, system, terminal};
 use crate::config::{Config, Release};
+use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 
 /// The base64 engine the file tools use: the standard alphabet, padded, as every client library emits.
@@ -112,6 +113,12 @@ pub(crate) struct DeviceServer {
     runs: Arc<runs::Runs>,
     /// The per-call audit log; shared so concurrent sessions serialize their appends.
     audit: Arc<Audit>,
+    /// Whether the launcher started this process (`Config.supervised`). Only then may
+    /// `host.restart` ask for the hook: a standalone app that exits would not come back.
+    supervised: bool,
+    /// What `host.restart` does after the answer is built. The production hook exits after a short
+    /// delay; tests record the call instead.
+    restart: restart::Hook,
 }
 
 /// Who is asking the handler to run a call.
@@ -199,14 +206,17 @@ impl<'a> Caller<'a> {
 /// Stateful sessions and SSE responses: the standard streamable-HTTP shape, which an rmcp client
 /// speaks without configuration. The allowed hosts are rmcp's loopback default, matching the only
 /// address this device listens on. `limits` is the terminal capability's; production passes
-/// [`terminal::Limits::default`], and an in-process test shortens the write bound.
+/// [`terminal::Limits::default`], and an in-process test shortens the write bound. `restart` is the
+/// router's one hook: the same closure the panel's enrollment asks, so both supervised paths exit by
+/// the same code.
 pub(crate) fn service(
     config: &Config,
     limits: terminal::Limits,
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
+    restart: restart::Hook,
 ) -> StreamableHttpService<DeviceServer, LocalSessionManager> {
-    let server = DeviceServer::new(config, limits);
+    let server = DeviceServer::new(config, limits).with_restart(restart);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -283,7 +293,36 @@ impl DeviceServer {
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
+            supervised: config.supervised,
+            restart: restart::none(),
         }
+    }
+
+    /// Install the router's one restart hook. `new` defaults to "never restart", so a server built
+    /// without a router (a test, a console handler fixture) is safe by default.
+    pub(crate) fn with_restart(mut self, restart: restart::Hook) -> DeviceServer {
+        self.restart = restart;
+        self
+    }
+
+    /// `host.restart`: ask the launcher to replace this process, or refuse in the device's words.
+    ///
+    /// The answer is built before the hook is asked: the hook's delay is what lets it reach the
+    /// caller, and the handler cannot observe the write itself. A standalone app never calls the
+    /// hook — exiting there would end the app with nothing to bring it back — so the refusal is the
+    /// answer, not a failed attempt.
+    fn restart_app(&self) -> Result<String, ToolError> {
+        if !self.supervised {
+            return Err(ToolError::Refused(
+                "this device was not started by the launcher; restarting it here would not bring it \
+                 back"
+                    .to_owned(),
+            ));
+        }
+
+        let answer = json!({ "restarting": true }).to_string();
+        (self.restart)();
+        Ok(answer)
     }
 
     /// Log the authorization half of a call before anything can have a side effect.
@@ -1120,6 +1159,10 @@ impl DeviceServer {
                 // what machine a device is is context for every decision that follows.
                 Ok(crate::host::facts().to_string())
             }
+            Handler::HostRestart => {
+                let _arguments: EmptyArgs = parse(arguments, name)?;
+                self.restart_app()
+            }
             Handler::ScreenCapture => {
                 // The one tool that runs where this process cannot: the picture comes from the
                 // per-user helper, and "no helper" is a sentence rather than a black frame.
@@ -1291,6 +1334,7 @@ enum Handler {
     SystemProcessKill,
     SystemNetTest,
     HostFacts,
+    HostRestart,
     ScreenCapture,
     StateGet,
 }
@@ -1338,6 +1382,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("system.process_kill", Handler::SystemProcessKill),
     ("system.net_test", Handler::SystemNetTest),
     ("host.facts", Handler::HostFacts),
+    ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
 ];
@@ -2018,6 +2063,11 @@ fn input_schema(definition: &ToolDef) -> Value {
             "properties": {},
             "additionalProperties": false
         }),
+        "host.restart" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
         "screen.capture" => json!({
             "type": "object",
             "properties": {},
@@ -2579,6 +2629,8 @@ fn audit_tool(tool: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     // The PTY tests are Unix (or Linux) only, and they are the only users of these on Windows.
     #[cfg(unix)]
     use std::time::{Duration, Instant};
@@ -2878,6 +2930,22 @@ mod tests {
             "a mkdir names the one directory it creates"
         );
         assert_eq!(schema("files.list")["required"], json!(["path"]));
+        let restart_schema = schema("host.restart");
+        assert_eq!(
+            restart_schema["type"], "object",
+            "a restart takes no arguments"
+        );
+        assert_eq!(
+            restart_schema["additionalProperties"],
+            json!(false),
+            "a restart takes no arguments"
+        );
+        assert!(
+            restart_schema["properties"]
+                .as_object()
+                .is_some_and(|properties| properties.is_empty()),
+            "a restart names no arguments: {restart_schema:?}"
+        );
         assert_eq!(schema("memory.append")["required"], json!(["text"]));
         assert_eq!(
             schema("memory.append")["properties"]["tags"]["type"],
@@ -3155,6 +3223,7 @@ mod tests {
                 "system.process_kill",
                 "system.net_test",
                 "host.facts",
+                "host.restart",
                 "screen.capture",
                 "state.get",
             ],
@@ -5003,6 +5072,98 @@ mod tests {
         };
         let server = super::DeviceServer::new(&config, terminal::Limits::default());
         (server, config, dir)
+    }
+
+    /// A device server for the restart tests: the supervision mark, and a hook that only counts.
+    fn restart_server(
+        label: &str,
+        supervised: bool,
+    ) -> (super::DeviceServer, Arc<AtomicU64>, TempDir) {
+        let dir = TempDir::new(label);
+        let install = dir.join("install");
+        let data = dir.join("data");
+        let files_root = dir.join("workspace");
+        for path in [&install, &data, &files_root] {
+            fs::create_dir_all(path).expect("the fixture directory is creatable");
+        }
+        let config = Config {
+            install,
+            data,
+            port: 0,
+            token_file: dir.join("token"),
+            files_root,
+            release_version: None,
+            release_sha: None,
+            release_channel: None,
+            supervised,
+            console_url: None,
+            console_token_file: None,
+            mesh_broker: None,
+            mesh_relay: None,
+            mesh_stun: None,
+        };
+        let calls = Arc::new(AtomicU64::new(0));
+        let recorder = Arc::clone(&calls);
+        let server = super::DeviceServer::new(&config, terminal::Limits::default()).with_restart(
+            Arc::new(move || {
+                recorder.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        (server, calls, dir)
+    }
+
+    /// One `host.restart` call through the handler's one authorization-and-dispatch path.
+    async fn host_restart(server: &super::DeviceServer, id: u64) -> Value {
+        server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "tools/call",
+                    "params": { "name": "host.restart", "arguments": {} }
+                }),
+                super::Caller::Owner,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_standalone_device_refuses_to_restart_and_never_calls_the_hook() {
+        let (server, calls, _dir) = restart_server("mcp-restart-refused", false);
+
+        let reply = host_restart(&server, 7).await;
+
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        assert_eq!(
+            text_of(&reply),
+            "this device was not started by the launcher; restarting it here would not bring it back",
+            "the refusal is the device's sentence, shown as the tool's error: {reply}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "a refusal never asks the restart hook"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_supervised_device_calls_the_restart_hook_once_and_answers_restarting() {
+        let (server, calls, _dir) = restart_server("mcp-restart-supervised", true);
+
+        let reply = host_restart(&server, 8).await;
+
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(
+            serde_json::from_str::<Value>(text_of(&reply)).expect("the answer is JSON"),
+            json!({ "restarting": true }),
+            "the answer is the fact, not a promise that the device came back: {reply}"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the hook is asked exactly once"
+        );
     }
 
     #[tokio::test]

@@ -201,6 +201,112 @@ describe("SystemPage", () => {
     );
   });
 
+  it("opens the restart confirmation, and Cancel makes no call", async () => {
+    device((name) => {
+      if (name === "system.process_list") return JSON.stringify([]);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("The device reports no running processes.");
+
+    // The grant decides whether the call is allowed; the page does not ask for a tool list first
+    // (this mock fails an unasked-for call) and does not hide the deliberate step on a guess.
+    const button = screen.getByRole("button", { name: "Restart app" });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+
+    const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
+    // The confirmation names the losses and the launcher budget, not just "are you sure".
+    expect(dialog).toHaveTextContent(
+      "Every open terminal, browser tab and run on the device ends"
+    );
+    expect(dialog).toHaveTextContent("The launcher allows three consecutive restarts");
+    expect(dialog).toHaveTextContent("three quick restarts can leave the device down");
+    // Cancel is the first focus, and it is the way out without a call.
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(called("host.restart")).toHaveLength(0);
+  });
+
+  it("restarts through the tool exactly once, then disables the button until a reload", async () => {
+    device((name) => {
+      if (name === "system.process_list") return JSON.stringify([]);
+      if (name === "host.restart") return JSON.stringify({ restarting: true });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("The device reports no running processes.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
+    const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart app" }));
+
+    // The empty object is the whole argument set: the tool restarts the app, not a named process.
+    await vi.waitFor(() => expect(called("host.restart")).toHaveLength(1));
+    expect(mocked).toHaveBeenCalledWith(GRANT, "host.restart", {});
+    expect(
+      await screen.findByText(
+        "The device is restarting through its launcher. It will reconnect in a few seconds; " +
+          "terminals, browser tabs and runs on the device ended."
+      )
+    ).toBeInTheDocument();
+    // The answer precedes the exit: the sentence says restarting, never that it is back.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart app" })).toBeDisabled();
+    expect(called("host.restart")).toHaveLength(1);
+  });
+
+  it("shows the device's refusal in its own words and leaves the restart available", async () => {
+    const refusal =
+      "this device was not started by the launcher; restarting it here would not bring it back";
+    device((name) => {
+      if (name === "system.process_list") return JSON.stringify([]);
+      if (name === "host.restart") throw new ToolError(refusal, 200, null, true);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("The device reports no running processes.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
+    const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart app" }));
+
+    // The refusal is the device's, shown verbatim: a standalone app has no launcher to bring it back.
+    expect(
+      await screen.findByText("The device did not restart: " + refusal)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // A refused restart did not restart anything, so the operator may try after fixing the grant.
+    expect(screen.getByRole("button", { name: "Restart app" })).toBeEnabled();
+    expect(called("host.restart")).toHaveLength(1);
+  });
+
+  it("shows the tool's error when the call failed before the device answered", async () => {
+    device((name) => {
+      if (name === "system.process_list") return JSON.stringify([]);
+      if (name === "host.restart") {
+        throw new ToolError("the console never reached the device: fetch failed", 503);
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("The device reports no running processes.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
+    const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart app" }));
+
+    expect(
+      await screen.findByText(
+        "The device did not restart: the console never reached the device: fetch failed"
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart app" })).toBeEnabled();
+  });
+
   it("shows a net refusal and keeps the result of the last test that finished", async () => {
     let refused = false;
     device((name) => {
