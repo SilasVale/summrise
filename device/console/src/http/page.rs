@@ -1038,18 +1038,25 @@ impl AuditFilter {
 }
 
 /// The audit page's filter bar: a GET form, so a narrowed view is a URL an operator can keep.
-pub(super) fn audit_filter(devices: &[(String, String)], filter: &AuditFilter) -> Markup {
+pub(super) fn audit_filter(
+    action: &str,
+    devices: &[(String, String)],
+    filter: &AuditFilter,
+    show_device: bool,
+) -> Markup {
     html! {
         section class="card" {
             (card_head("Filter", Markup::default(), Markup::default()))
             div class="card-body" {
-                form method="get" action="/next/audit" class="filter-form" {
-                    div class="field" {
-                        label for="f-device" { "Device" }
-                        select id="f-device" name="device" {
-                            option value="" { "All devices" }
-                            @for (id, label) in devices {
-                                option value=(id) selected[filter.device == *id] { (label) }
+                form method="get" action=(action) class="filter-form" {
+                    @if show_device {
+                        div class="field" {
+                            label for="f-device" { "Device" }
+                            select id="f-device" name="device" {
+                                option value="" { "All devices" }
+                                @for (id, label) in devices {
+                                    option value=(id) selected[filter.device == *id] { (label) }
+                                }
                             }
                         }
                     }
@@ -1078,7 +1085,7 @@ pub(super) fn audit_filter(devices: &[(String, String)], filter: &AuditFilter) -
                     div class="form-actions" {
                         button type="submit" class="btn btn-primary btn-sm" { "Apply" }
                         @if filter.is_active() {
-                            a class="btn btn-ghost btn-sm" href="/next/audit" { "Clear" }
+                            a class="btn btn-ghost btn-sm" href=(action) { "Clear" }
                         }
                     }
                 }
@@ -3480,6 +3487,7 @@ mod tests {
                     "Audit",
                     log_rows.len() + 3,
                     Some(audit_filter(
+                        "/next/audit",
                         &[
                             ("a".repeat(64), "DESKTOP-9VH92BJ".to_owned()),
                             ("b".repeat(64), "DESKTOP-14RJCR8".to_owned()),
@@ -3488,12 +3496,13 @@ mod tests {
                             kind: "tool".to_owned(),
                             ..AuditFilter::default()
                         },
+                        true,
                     )),
                     "csrf",
                     "0.3.72",
                 ),
             ),
-            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter(&[], &AuditFilter::default())), "csrf", "0.3.72")),
+            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true)), "csrf", "0.3.72")),
             ("login", login(None)),
         ];
         for (name, markup) in pages {

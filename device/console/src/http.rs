@@ -1215,7 +1215,7 @@ async fn next_audit(
             (device.id, label)
         })
         .collect();
-    let bar = page::audit_filter(&devices, &filter);
+    let bar = page::audit_filter("/next/audit", &devices, &filter, true);
     Html(
         page::logs(
             &rows,
@@ -1231,17 +1231,49 @@ async fn next_audit(
 }
 
 /// `GET /next/denials`: the unauthenticated-refusal log, read-only, behind the page's cookie.
-async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Response {
+async fn next_denials(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AuditQuery>,
+) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
     };
-    let rows = app.denials.newest(DEFAULT_LOG_LIMIT).await;
+    let total = app.denials.newest(AUDIT_FILTER_WINDOW).await;
+    let filter = page::AuditFilter {
+        device: String::new(),
+        kind: query.kind.unwrap_or_default(),
+        status: query.status.unwrap_or_default(),
+        tool: query.tool.unwrap_or_default(),
+    };
+    let rows: Vec<Value> = total
+        .iter()
+        .filter(|row| {
+            let kind_ok =
+                filter.kind.is_empty() || row["kind"].as_str() == Some(filter.kind.as_str());
+            let status_ok = match row["status"].as_u64() {
+                Some(status) if !filter.status.is_empty() => {
+                    status.to_string().starts_with(&filter.status)
+                }
+                _ => filter.status.is_empty(),
+            };
+            let needle = filter.tool.to_ascii_lowercase();
+            let detail_ok = needle.is_empty()
+                || row["detail"]
+                    .as_str()
+                    .is_some_and(|detail| detail.to_ascii_lowercase().contains(&needle));
+            kind_ok && status_ok && detail_ok
+        })
+        .take(DEFAULT_LOG_LIMIT)
+        .cloned()
+        .collect();
+    let bar = page::audit_filter("/next/denials", &[], &filter, false);
     Html(
         page::logs(
             &rows,
             "Denials",
-            rows.len(),
-            None,
+            total.len(),
+            Some(bar),
             &hex::encode(&session.csrf),
             &app.version,
         )

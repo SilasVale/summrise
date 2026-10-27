@@ -7720,3 +7720,42 @@ async fn the_audit_page_narrows_to_the_lines_the_filter_names() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("enroll"), "{body}");
 }
+
+#[tokio::test]
+async fn the_denials_page_narrows_with_the_same_filter() {
+    let fixture = Fixture::new("denials-filter");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    // A request with no session is a denial line; one with a bad token is another.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit", "summrise_session=not-a-cookie"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _, body) =
+        send_text(fixture.app(), get_with_cookie("/next/denials", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("id=\"f-kind\""),
+        "the filter bar is on the page: {body}"
+    );
+    assert!(
+        body.contains("action=\"/next/denials\""),
+        "the form posts back to the denials page: {body}"
+    );
+    assert!(
+        !body.contains("id=\"f-device\""),
+        "a denial has no device to filter by: {body}"
+    );
+
+    // A status class that cannot be in the log gives the empty state.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/denials?status=5", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Nothing has been recorded yet"), "{body}");
+}
