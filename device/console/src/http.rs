@@ -3441,6 +3441,10 @@ struct BrowserTargetForm {
 #[derive(Deserialize)]
 struct BrowserFrameQuery {
     target: String,
+    /// `0` when the pane learned this device has no live stream, so the console stops asking for
+    /// one on every frame; absent or `1` tries the stream first.
+    #[serde(default)]
+    stream: Option<String>,
 }
 
 /// `GET /next/browser/:device/frame`: the newest screencast frame, as JSON, for the pane's pump.
@@ -3464,28 +3468,38 @@ async fn next_browser_frame(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let target = query.target.trim().to_owned();
+    let wants_stream = query.stream.as_deref() != Some("0");
     // The live stream is the better answer, but a device build older than `browser.cast` has to keep
-    // working: the pane then gets one screenshot per poll, which is what it had before.
-    let captured = match device_tool(
-        &app,
-        &device_id,
-        "browser.cast",
-        json!({ "target": target }),
-    )
-    .await
-    {
-        Ok(text) => text,
-        Err(_) => match device_tool(
+    // working: the pane then gets one screenshot per poll, which is what it had before. The answer
+    // says which one it was, so the pane can slow down instead of asking a device without a stream
+    // five times a second.
+    let streamed = if wants_stream {
+        device_tool(
             &app,
             &device_id,
-            "browser.screenshot",
+            "browser.cast",
             json!({ "target": target }),
         )
         .await
-        {
-            Ok(text) => text,
-            Err(response) => return *response,
-        },
+        .ok()
+    } else {
+        None
+    };
+    let (captured, streaming) = match streamed {
+        Some(text) => (text, true),
+        None => {
+            match device_tool(
+                &app,
+                &device_id,
+                "browser.screenshot",
+                json!({ "target": target }),
+            )
+            .await
+            {
+                Ok(text) => (text, false),
+                Err(response) => return *response,
+            }
+        }
     };
     let capture: Value = serde_json::from_str(&captured).unwrap_or(Value::Null);
     match capture["data"].as_str() {
@@ -3495,6 +3509,7 @@ async fn next_browser_frame(
             "width": capture["width"],
             "height": capture["height"],
             "at_ms": capture["at_ms"],
+            "stream": streaming,
         }))
         .into_response(),
         None => StatusCode::BAD_GATEWAY.into_response(),

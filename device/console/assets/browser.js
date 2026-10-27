@@ -10,6 +10,10 @@
 
   let stopped = false;
   let timer = null;
+  // A device with a live stream is polled five times a second; one without (a build older than
+  // `browser.cast`) once a second, and the console is told to stop trying the stream at all.
+  let streaming = true;
+  const interval = () => (streaming ? 200 : 1000);
 
   // One capture at a time: each frame is a device call that holds a channel slot and a queue place
   // until it answers, so a device slower than the interval must not accumulate them (and an older
@@ -21,7 +25,8 @@
     }
     try {
       const response = await fetch(
-        `/next/browser/${encodeURIComponent(device)}/frame?target=${encodeURIComponent(target)}`,
+        `/next/browser/${encodeURIComponent(device)}/frame?target=${encodeURIComponent(target)}` +
+          `&stream=${streaming ? 1 : 0}`,
         { headers: { accept: "application/json" }, credentials: "same-origin" }
       );
       // A signed-out tab stops asking rather than turning every second into a login page request.
@@ -31,6 +36,7 @@
       }
       if (response.ok) {
         const body = await response.json();
+        streaming = body.stream === true;
         if (body && body.data) {
           img.src = `data:image/${body.format || "png"};base64,${body.data}`;
         }
@@ -39,12 +45,12 @@
       // The console or the device is away; the next tick asks again.
     } finally {
       if (!stopped && timer === null) {
-        timer = setTimeout(tick, 1000);
+        timer = setTimeout(tick, interval());
       }
     }
   };
 
-  timer = setTimeout(tick, 1000);
+  timer = setTimeout(tick, interval());
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && timer === null && !stopped) {
       timer = setTimeout(tick, 0);

@@ -8854,6 +8854,7 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     assert_eq!(frame["format"], json!("jpeg"));
     assert_eq!(frame["data"], json!("/9j/AAAA"));
     assert_eq!(frame["width"], json!(1280));
+    assert_eq!(frame["stream"], json!(true), "the pane may poll faster");
 
     // Without a session it refuses before touching the device.
     let request = get(
@@ -8914,6 +8915,47 @@ async fn the_frame_route_falls_back_to_a_screenshot_on_an_older_device() {
     let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
     assert_eq!(frame["format"], json!("png"));
     assert_eq!(frame["data"], json!("QUJD"));
+    assert_eq!(
+        frame["stream"],
+        json!(false),
+        "the pane learns to slow down: {frame}"
+    );
+}
+
+/// Once the pane knows the device has no stream, the console stops asking for one: `stream=0` goes
+/// straight to a screenshot and makes one device call, not two.
+#[tokio::test]
+async fn a_pane_that_knows_there_is_no_stream_skips_the_ask() {
+    let fixture = Fixture::new("browser-frame-nostream");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc7)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1&stream=0"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "no cast attempt at all: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["stream"], json!(false));
 }
 
 /// The install card is the device's own account of its generations and its last swap: the console
