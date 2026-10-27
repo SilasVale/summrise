@@ -238,6 +238,8 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .status.ok { color:var(--ok); }
 .status.warn { color:var(--warn); }
 .status.error { color:var(--danger, var(--accent)); }
+.rail-actions { display:flex; flex-direction:column; gap:6px; margin-top:auto; }
+.rail-actions .btn { justify-content:center; }
 .rail-meta { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--faint); }
 .rail-list li:hover { background:var(--hover); }
 .rail-when { font-size:11.5px; color:var(--faint); }
@@ -545,6 +547,21 @@ fn rail(active: Page, device: Option<&DeviceView>) -> Markup {
                 (rail_item(page, active, device))
             }
         }
+    }
+}
+
+/// A file length a person reads: bytes, KiB, MiB, GiB.
+fn human_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    let size = bytes as f64;
+    if size >= KB * KB * KB {
+        format!("{:.1} GiB", size / (KB * KB * KB))
+    } else if size >= KB * KB {
+        format!("{:.1} MiB", size / (KB * KB))
+    } else if size >= KB {
+        format!("{:.1} KiB", size / KB)
+    } else {
+        format!("{bytes} B")
     }
 }
 
@@ -1384,7 +1401,48 @@ pub(super) fn files(
             }
         }
     };
-    page(
+    // The rail is the directory itself: how much is in it, and the two ways out of it.
+    let dirs = entries
+        .iter()
+        .filter(|entry| entry.kind == "directory")
+        .count();
+    let bytes: u64 = entries.iter().map(|entry| entry.len).sum();
+    // The root is "" in a URL and "/" to a reader; the rail always speaks to the reader.
+    let display_path = if path.is_empty() { "/" } else { path };
+    let parent = display_path.trim_end_matches('/');
+    let parent = match parent.rfind('/') {
+        Some(index) => parent[..index].to_owned() + "/",
+        None => "/".to_owned(),
+    };
+    let context = context_rail(
+        "This directory",
+        html! { span class="chip muted" { (entries.len()) } },
+        html! {
+            ul class="rail-list" {
+                li {
+                    span class="rail-line" { "Entries" }
+                    span class="rail-meta" { (dirs) " directories · " (entries.len() - dirs) " files" }
+                }
+                li {
+                    span class="rail-line" { "Size" }
+                    span class="rail-meta" { (human_bytes(bytes)) " in this listing" }
+                }
+                li {
+                    span class="rail-line" { "Path" }
+                    span class="rail-meta mono" { (display_path) }
+                }
+            }
+        },
+        html! {
+            div class="rail-actions" {
+                @if display_path != "/" {
+                    a class="btn btn-ghost btn-sm" href=(format!("/next/files/{}{}", device.id, encode(&parent))) { "Up one level" }
+                }
+                a class="btn btn-ghost btn-sm" href=(format!("/next/files/{}", device.id)) { "Root" }
+            }
+        },
+    );
+    page_with_rail(
         Chrome {
             active: Page::Files,
             device: Some(device),
@@ -1393,6 +1451,8 @@ pub(super) fn files(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
