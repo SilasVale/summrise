@@ -534,6 +534,18 @@ async fn connect(
     }
 }
 
+/// The most frames the channel runs at once.
+///
+/// One machine, one console: the bound keeps a console that pipelines requests from spawning an
+/// unbounded number of blocking commands, while still letting a slow tool be one call rather than
+/// the whole channel. Measured on 2026-10-27 (14rjcr8): one `runs.exec` — an `scp` — ran 420 s, and
+/// every frame behind it waited; the console recorded 504 for `host.facts`, `terminal.list` and the
+/// run itself. A serial loop turned one slow command into an unanswerable device.
+const MAX_IN_FLIGHT_FRAMES: usize = 16;
+
+/// How many finished answers may wait for the socket before a task waits for the loop.
+const OUTGOING_FRAMES: usize = 64;
+
 /// Serve one socket until it closes, then return whether it carried any frame.
 async fn serve(
     mut socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
@@ -547,11 +559,25 @@ async fn serve(
     // the console knows what the machine is without asking for a grant.
     let mut host = tokio::time::interval(std::time::Duration::from_secs(60));
     host.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // A frame is answered by its own task, and the answer comes back here: the socket has one owner,
+    // so a ping is still answered while a tool is running, and one slow tool cannot stop the channel.
+    let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Value>(OUTGOING_FRAMES);
+    let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
     loop {
         tokio::select! {
             _ = host.tick() => {
                 if let Err(error) = socket.send(Message::text(crate::host::frame())).await {
                     eprintln!("summrise-device: the host report could not be sent: {error}");
+                    break;
+                }
+            }
+            answer = answers.recv() => {
+                // `outgoing` is held by this loop, so the channel closes only when the loop does.
+                let Some(answer) = answer else {
+                    break;
+                };
+                if let Err(error) = socket.send(Message::text(answer.to_string())).await {
+                    eprintln!("summrise-device: the console channel write failed: {error}");
                     break;
                 }
             }
@@ -562,12 +588,23 @@ async fn serve(
                 match message {
                     Ok(Message::Text(text)) => {
                         served = true;
-                        if let Some(reply) = handle_frame(text.as_str(), endpoint, server, key).await {
-                            if let Err(error) = socket.send(Message::text(reply.to_string())).await {
-                                eprintln!("summrise-device: the console channel write failed: {error}");
-                                break;
+                        let endpoint = endpoint.clone();
+                        let server = server.clone();
+                        let key = *key;
+                        let outgoing = outgoing.clone();
+                        let in_flight = in_flight.clone();
+                        tokio::spawn(async move {
+                            // The permit is taken here, not in the read loop: a saturated channel
+                            // parks the task, and pings and the host report keep flowing.
+                            let Ok(_permit) = in_flight.acquire_owned().await else {
+                                return;
+                            };
+                            if let Some(reply) =
+                                handle_frame(text.as_str(), &endpoint, &server, &key).await
+                            {
+                                let _ = outgoing.send(reply).await;
                             }
-                        }
+                        });
                     }
                     Ok(Message::Ping(payload)) => {
                         let _ = socket.send(Message::Pong(payload)).await;
@@ -842,6 +879,12 @@ mod tests {
             .expect("the frame is sent");
     }
 
+    /// The next frame that answers a request.
+    ///
+    /// The host report is unsolicited and rides the same socket, so it can land before or after any
+    /// answer — the console keys it by `host`, not by `id`. A test that reads "the next frame" after
+    /// sending a request wants the answer and must not depend on which of the two the loop flushed
+    /// first.
     async fn next_frame(socket: &mut WebSocketStream<tokio::net::TcpStream>) -> Value {
         loop {
             match socket
@@ -851,7 +894,12 @@ mod tests {
                 .expect("a frame")
             {
                 WsMessage::Text(text) => {
-                    return serde_json::from_str(text.as_str()).expect("the frame is JSON")
+                    let frame: Value =
+                        serde_json::from_str(text.as_str()).expect("the frame is JSON");
+                    if frame.get("host").is_some() {
+                        continue;
+                    }
+                    return frame;
                 }
                 WsMessage::Close(_) => panic!("the device closed the channel"),
                 _ => {}
@@ -1070,6 +1118,69 @@ mod tests {
             matches!(ConsoleEndpoint::from_config(&config), Ok(None)),
             "no console facts means the feature is off, not an error"
         );
+    }
+
+    /// A slow tool is one call, not the whole channel.
+    ///
+    /// On 2026-10-27 an `scp` through `runs.exec` ran 420 s on 14rjcr8, and the serial loop let every
+    /// later frame wait behind it: the console recorded 504 for `host.facts`, `terminal.list` and the
+    /// run itself while the device was alive and answering nothing. The second call here must answer
+    /// while the first still runs.
+    #[tokio::test]
+    async fn a_slow_call_does_not_hold_the_channel() {
+        let (server, _config, _dir) = fixture("console-concurrent");
+        let mut console = FakeConsole::start().await;
+        let handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+
+        // Four seconds, whichever platform: long enough that a serial channel cannot answer the
+        // second frame before the first ends, short enough for a test suite.
+        #[cfg(windows)]
+        let slow = json!({ "command": "cmd", "args": ["/C", "ping", "-n", "5", "127.0.0.1"] });
+        #[cfg(not(windows))]
+        let slow = json!({ "command": "sleep", "args": ["4"] });
+
+        let mut slow_arguments = slow;
+        slow_arguments["timeout_ms"] = json!(10_000);
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 7,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 70,
+                    "method": "tools/call",
+                    "params": { "name": "runs.exec", "arguments": slow_arguments },
+                }),
+                "grant": grant_allowing(&["runs.exec"], now_ms() as u64 + 60_000, true),
+            }),
+        )
+        .await;
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 8,
+                "mcp": state_call(71),
+                "grant": grant(&["state.get"], now_ms() as u64 + 60_000),
+            }),
+        )
+        .await;
+
+        let answer =
+            tokio::time::timeout(Duration::from_secs(3), next_frame(&mut connection.socket))
+                .await
+                .expect("the device answers the second call while the first is still running");
+        assert_eq!(answer["id"], 8, "the fast call answers first: {answer}");
+        let slow_answer = next_frame(&mut connection.socket).await;
+        assert_eq!(
+            slow_answer["id"], 7,
+            "the slow call answers when it ends: {slow_answer}"
+        );
+        handle.abort();
     }
 
     #[tokio::test]
