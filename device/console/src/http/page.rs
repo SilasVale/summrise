@@ -291,8 +291,11 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 #terminal-panes:has(.pane) .terminal-empty { display:none; }
 
 /* ---- sign-in ---- */
-body.login { display:grid; place-items:center; min-height:100vh; padding:24px; background:radial-gradient(760px 420px at 50% -8%, var(--accent-soft), transparent 72%), var(--bg); }
-.login-card { width:min(100%, 400px); padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--panel); box-shadow:0 1px 2px rgba(24,24,27,.04), 0 24px 60px -32px rgba(24,24,27,.4); }
+body.login { margin:0; background:var(--bg); }
+/* A fixed shell, so the card is centred in the viewport whatever else ends up in <body>: a
+   password manager's badge, a translation bar, or a browser that treats the body differently. */
+.login-shell { position:fixed; inset:0; overflow:auto; display:grid; place-items:center; padding:24px; background:radial-gradient(760px 420px at 50% -8%, var(--accent-soft), transparent 72%), var(--bg); }
+.login-card { margin:auto; width:min(100%, 400px); padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--panel); box-shadow:0 1px 2px rgba(24,24,27,.04), 0 24px 60px -32px rgba(24,24,27,.4); }
 .login-brand { display:grid; place-items:center; width:44px; height:44px; margin-bottom:20px; border-radius:12px; background:var(--accent-solid); color:#fff; box-shadow:0 8px 20px -12px rgba(176,58,10,.8); }
 .login-card h1 { margin:0 0 6px; font-size:22px; font-weight:600; letter-spacing:-.02em; }
 .login-card h1 span { color:var(--muted); font-weight:500; }
@@ -825,7 +828,10 @@ pub(super) fn login(error: Option<&str>) -> Markup {
                 style { (PreEscaped(STYLE)) }
             }
             body class="login" {
-                main class="login-card" {
+                // The shell owns the centring, so a node another script adds to <body> cannot move
+                // the card out from under the operator.
+                div class="login-shell" {
+                    main class="login-card" {
                     div class="login-brand" aria-hidden="true" { (brand_icon()) }
                     h1 { "Summrise " span { "console" } }
                     p class="lead" {
@@ -838,8 +844,9 @@ pub(super) fn login(error: Option<&str>) -> Markup {
                         }
                         button type="submit" class="btn btn-primary" { "Sign in" }
                     }
-                    @if let Some(error) = error {
-                        p class="alert error" { (error) }
+                        @if let Some(error) = error {
+                            p class="alert error" { (error) }
+                        }
                     }
                 }
             }
