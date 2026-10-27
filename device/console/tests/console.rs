@@ -8439,6 +8439,54 @@ async fn the_connect_page_mints_a_token_once_lists_it_and_revokes_it() {
     assert!(after.contains("No token names this device yet"), "{after}");
 }
 
+/// The consent is the operator's, not a default: a mint without the box ticked must produce a token
+/// whose destructive calls the device refuses, and the list must say so.
+#[tokio::test]
+async fn a_minted_token_is_only_destructive_when_asked_for() {
+    let fixture = Fixture::new("token-consent");
+    let (device_id, _) = fixture.register(&signing_key(0xfa)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let page_uri = format!("/next/tokens/{device_id}");
+
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[("csrf", &csrf), ("name", "plain")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("plain"), "{listed}");
+    assert!(
+        !listed.contains("destructive allowed"),
+        "a plain mint has no destructive consent: {listed}"
+    );
+
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[
+            ("csrf", &csrf),
+            ("name", "armed"),
+            ("allow_destructive", "on"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("armed"), "{listed}");
+    assert!(
+        listed.contains("destructive allowed"),
+        "the ticked box is recorded on the row: {listed}"
+    );
+}
+
 #[tokio::test]
 async fn a_token_mint_without_csrf_is_refused() {
     let fixture = Fixture::new("connect-csrf");

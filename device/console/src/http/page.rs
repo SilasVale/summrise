@@ -2759,9 +2759,11 @@ pub(super) fn tokens(
             ))
             div class="card-body" {
                 p class="lead" {
-                    "A permanent token is one credential for this device: every tool, destructive "
-                    "calls included. It is shown once; the console keeps only its hash. The client "
-                    "connects to this endpoint with an Authorization: Bearer header."
+                    "A permanent token is one credential for this device: every tool the console "
+                    "knows. Destructive calls are refused unless you allow them below — the device "
+                    "enforces that, not the page. The secret is shown once; the console keeps only "
+                    "its hash. The client connects to this endpoint with an Authorization: Bearer "
+                    "header."
                 }
                 div class="endpoint" {
                     span class="label" { "Endpoint" }
@@ -2775,6 +2777,10 @@ pub(super) fn tokens(
                     div class="field grow" {
                         label class="visually-hidden" for="token-name" { "Client name" }
                         input id="token-name" type="text" name="name" placeholder="what this client is, e.g. dsh" required;
+                    }
+                    label class="check" {
+                        input type="checkbox" name="allow_destructive" value="on";
+                        "Allow destructive tools"
                     }
                     button type="submit" class="btn btn-primary" { "Mint a token" }
                 }

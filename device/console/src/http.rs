@@ -2955,6 +2955,10 @@ async fn next_browser_close(
 struct TokenMintForm {
     csrf: String,
     name: String,
+    /// Present only when the operator ticked the consent box. A checkbox that is not ticked posts
+    /// nothing, so absent is "no destructive consent" rather than a parse error.
+    #[serde(default)]
+    allow_destructive: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3037,7 +3041,7 @@ async fn next_token_mint(
             name: form.name,
             scope: crate::tokens::TokenScope::Device(device_id.clone()),
             tools: every_tool(),
-            allow_destructive: true,
+            allow_destructive: form.allow_destructive.is_some(),
             expires_in_s: None,
         },
         |id| known.contains(id),
