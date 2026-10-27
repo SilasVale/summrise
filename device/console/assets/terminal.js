@@ -19,7 +19,9 @@ const csrf = host.dataset.csrf;
 const sessions = new Map();
 let active = null;
 
-const base = (id) => `/next/terminal/${device}/${id}`;
+// The id comes from the device, so it is encoded before it becomes a path: an id that contains a
+// slash must not be able to address another device's session.
+const base = (id) => `/next/terminal/${device}/${encodeURIComponent(id)}`;
 const say = (text) => {
   status.textContent = text;
 };

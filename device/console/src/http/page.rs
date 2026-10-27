@@ -2452,7 +2452,12 @@ pub(super) fn memory(
                                 td { code { (entry.tags) } }
                                 td class="num" {
                                     div class="form-inline" {
-                                        a class="btn btn-sm" href=(format!("{base}?edit={}", encode(&entry.id))) { "Edit" }
+                                        a class="btn btn-sm" href=(format!(
+                                            "{base}?edit={}{}{}",
+                                            encode(&entry.id),
+                                            if query.is_empty() { String::new() } else { format!("&q={}", encode(query)) },
+                                            if tag.is_empty() { String::new() } else { format!("&tag={}", encode(tag)) }
+                                        )) { "Edit" }
                                         form method="post" action=(format!("{base}/delete")) {
                                             input type="hidden" name="csrf" value=(csrf);
                                             input type="hidden" name="id" value=(entry.id);
@@ -2477,6 +2482,8 @@ pub(super) fn memory(
                     form method="post" action=(format!("{base}/update")) {
                         input type="hidden" name="csrf" value=(csrf);
                         input type="hidden" name="id" value=(entry.id);
+                        input type="hidden" name="q" value=(query);
+                        input type="hidden" name="tag" value=(tag);
                         div class="field" {
                             label for="edit-text" { "Fact" }
                             textarea id="edit-text" name="text" rows="3" required { (entry.text) }

@@ -2050,6 +2050,9 @@ async fn next_terminal_read(
     if cookie_session(&app, &headers).is_none() {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(session_id) = as_session_id(&session_id) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match terminal_tool(
         &app,
         &device_id,
@@ -2063,6 +2066,19 @@ async fn next_terminal_read(
     }
 }
 
+/// Whether a device-supplied id is one shape an id may have: a path segment, not a path.
+///
+/// The page encodes ids into its own request paths, but the console is the one holding the
+/// credential, so it refuses what it would never have produced: `session-3`, `5F61…` and the like.
+fn as_session_id(raw: &str) -> Option<&str> {
+    let valid = !raw.is_empty()
+        && raw.len() <= 64
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    valid.then_some(raw)
+}
+
 /// `POST /next/terminal/:device/:id/write`: keystrokes.
 async fn next_terminal_write(
     State(app): State<AppState>,
@@ -2073,6 +2089,9 @@ async fn next_terminal_write(
     if terminal_csrf(&app, &headers).is_none() {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(session_id) = as_session_id(&session_id) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match terminal_tool(
         &app,
         &device_id,
@@ -2096,6 +2115,9 @@ async fn next_terminal_resize(
     if terminal_csrf(&app, &headers).is_none() {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(session_id) = as_session_id(&session_id) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match terminal_tool(
         &app,
         &device_id,
@@ -2118,6 +2140,9 @@ async fn next_terminal_close(
     if terminal_csrf(&app, &headers).is_none() {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(session_id) = as_session_id(&session_id) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
     match terminal_tool(
         &app,
         &device_id,
@@ -2176,26 +2201,29 @@ async fn next_files_page(
         return StatusCode::NOT_FOUND.into_response();
     };
     let mut error = query.error.clone();
-    let path = match page_path(&query.path) {
-        Ok(path) => path,
+    // An error from the redirect (a refused mkdir, a refused write) says nothing about the path,
+    // so the directory is still listed; only a path the console itself refuses skips the call.
+    let entries = match page_path(&query.path) {
+        Ok(path) => {
+            let entries = match device_tool(&app, &device_id, "files.list", json!({ "path": path }))
+                .await
+            {
+                Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+                Err(_) => {
+                    error.get_or_insert_with(|| {
+                        "the device did not answer; the console's audit names the reason".to_owned()
+                    });
+                    Vec::new()
+                }
+            };
+            entries
+        }
         Err(sentence) => {
             error = Some(sentence.to_owned());
-            String::new()
+            Vec::new()
         }
     };
-    let entries = if error.is_some() {
-        Vec::new()
-    } else {
-        match device_tool(&app, &device_id, "files.list", json!({ "path": path })).await {
-            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-            Err(_) => {
-                error = Some(
-                    "the device did not answer; the console's audit names the reason".to_owned(),
-                );
-                Vec::new()
-            }
-        }
-    };
+    let path = page_path(&query.path).unwrap_or_default();
     let entries: Vec<page::FileEntry> = entries
         .iter()
         .map(|entry| page::FileEntry {
@@ -2802,6 +2830,11 @@ struct MemoryAppendForm {
     /// Set by the edit form; an append leaves it absent.
     #[serde(default)]
     id: Option<String>,
+    /// The list the edit was opened from, so the save lands back on it.
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    tag: String,
 }
 
 #[derive(Deserialize)]
@@ -2924,11 +2957,16 @@ async fn next_memory_update(
     )
     .await
     {
-        Ok(_) => Redirect::to(&format!(
-            "/next/memory/{device_id}?notice={}",
-            page::encode("The entry is rewritten.")
-        ))
-        .into_response(),
+        Ok(_) => {
+            let mut query = format!("notice={}", page::encode("The entry is rewritten."));
+            if !form.q.trim().is_empty() {
+                query.push_str(&format!("&q={}", page::encode(form.q.trim())));
+            }
+            if !form.tag.trim().is_empty() {
+                query.push_str(&format!("&tag={}", page::encode(form.tag.trim())));
+            }
+            Redirect::to(&format!("/next/memory/{device_id}?{query}")).into_response()
+        }
         Err(response) => *response,
     }
 }
@@ -2946,14 +2984,28 @@ async fn next_memory_export(
         return StatusCode::NOT_FOUND.into_response();
     }
     match device_tool(&app, &device_id, "memory.export", json!({})).await {
-        Ok(text) => Response::builder()
-            .header(header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8")
-            .header(
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"memory-{device_id}.jsonl\""),
-            )
-            .body(axum::body::Body::from(text))
-            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Ok(text) => {
+            // The device answers an envelope (`{text, entries, truncated, total_bytes}`); the
+            // download is the JSONL inside it, not the envelope around it.
+            let report: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let body = report["text"]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| text.clone());
+            let mut builder = Response::builder()
+                .header(header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8")
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"memory-{device_id}.jsonl\""),
+                );
+            // JSONL has nowhere to put a note, so a cut export says so in a header.
+            if report["truncated"].as_bool() == Some(true) {
+                builder = builder.header("x-memory-truncated", "true");
+            }
+            builder
+                .body(axum::body::Body::from(body))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
         Err(response) => *response,
     }
 }
@@ -3229,10 +3281,16 @@ struct BrowserTargetForm {
 }
 
 /// `GET /next/browser/:device`: the targets, and a capture of the first.
+#[derive(Deserialize)]
+struct BrowserQuery {
+    error: Option<String>,
+}
+
 async fn next_browser_page(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     headers: HeaderMap,
+    Query(query): Query<BrowserQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return login_card(&app, &headers).into_response();
@@ -3243,7 +3301,7 @@ async fn next_browser_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let mut error = None;
+    let mut error = query.error.clone();
     let targets = match device_tool(&app, &device_id, "browser.list", json!({})).await {
         Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
         Err(response) => {

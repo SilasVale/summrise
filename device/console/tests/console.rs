@@ -8591,6 +8591,195 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// Editing from a filtered list keeps the filter: otherwise the entry the operator clicked can be
+/// outside the unfiltered page, and the edit card silently does not appear.
+#[tokio::test]
+async fn editing_from_a_search_keeps_the_search() {
+    let fixture = Fixture::new("memory-edit-filter");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd4)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?q=needle"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.search"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "id": "entry-1", "text": "a needle", "tags": [] }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    assert!(
+        body.contains("?edit=entry-1&amp;q=needle"),
+        "the edit link carries the search: {body}"
+    );
+
+    // The form carries it too, so the save comes back to the same filtered list.
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/memory/{device_id}/update"),
+        &[
+            ("csrf", &csrf),
+            ("id", "entry-1"),
+            ("text", "a needle"),
+            ("tags", ""),
+            ("q", "needle"),
+        ],
+        &cookie,
+    );
+    let update = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.update"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false } }),
+    )
+    .await;
+    let (status, headers, _) = update.await.expect("the update finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("q=needle"),
+        "the filter comes back: {location}"
+    );
+}
+
+/// A refused action's sentence is on the page the browser lands on, not swallowed by it.
+#[tokio::test]
+async fn the_browser_page_shows_a_refused_action_sentence() {
+    let fixture = Fixture::new("browser-error-shown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}?error=the%20target%20is%20not%20there"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    for name in ["browser.list", "browser.screenshot"] {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!(name), "{frame}");
+        let text = if name == "browser.list" {
+            json!([{ "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }]).to_string()
+        } else {
+            json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string()
+        };
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": text }], "isError": false } }),
+        )
+        .await;
+    }
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("the target is not there"), "{body}");
+}
+
+/// A refused mkdir leaves a sentence and still lists the directory it was refused in.
+#[tokio::test]
+async fn a_refused_mkdir_still_shows_the_directory() {
+    let fixture = Fixture::new("files-error-keeps-listing");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd5)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/files/{device_id}?error=that%20folder%20is%20not%20allowed"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "name": "notes.txt", "kind": "file", "len": 3 }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("that folder is not allowed"), "{body}");
+    assert!(
+        body.contains("notes.txt"),
+        "the listing survives the error: {body}"
+    );
+}
+
+/// The glue builds request paths itself, so the id it interpolates must be encoded: a device that
+/// answers with `../<other-device>/session-3` must not turn the pane into a cross-device write.
+#[tokio::test]
+async fn the_terminal_glue_encodes_the_session_id() {
+    let fixture = Fixture::new("terminal-glue-encoding");
+    let (status, _, js) = send_text(fixture.app(), get("/assets/terminal.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        js.contains("encodeURIComponent(id)"),
+        "the id is encoded before it becomes a path: {js}"
+    );
+}
+
+/// The server does not rely on the glue: an id that is not one is refused before any device call.
+#[tokio::test]
+async fn a_terminal_id_that_is_not_one_is_refused() {
+    let fixture = Fixture::new("terminal-id-guard");
+    let (device_id, _) = fixture.register(&signing_key(0xd7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/session-1%2Fother/write"),
+        json!({ "data": "x" }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let (status, _, _) = send_with_headers(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The read path takes the same id and refuses it the same way.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get_with_cookie(
+            &format!("/next/terminal/{device_id}/session-1%2Fother/read?cursor=0"),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
 /// A refused Access token leaves a line. "Was the edge's header there, and did the console accept
 /// it?" must be answerable from the audit, not only from the card the browser shows.
 #[tokio::test]
@@ -8843,7 +9032,13 @@ async fn the_memory_page_can_export_the_store() {
         &frame,
         json!({
             "jsonrpc": "2.0", "id": 1,
-            "result": { "content": [{ "type": "text", "text": "{\"id\":\"1\",\"text\":\"kept\"}\n" }], "isError": false }
+            "result": { "content": [{ "type": "text", "text": json!({
+                // The device answers an envelope; the download is the JSONL inside it.
+                "text": "{\"id\":\"1\",\"text\":\"kept\"}\n",
+                "entries": 1,
+                "truncated": true,
+                "total_bytes": 27
+            }).to_string() }], "isError": false }
         }),
     )
     .await;
@@ -8851,6 +9046,17 @@ async fn the_memory_page_can_export_the_store() {
     let (status, headers, body) = export.await.expect("the export finishes");
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("kept"), "{body}");
+    assert!(
+        !body.contains("truncated") && !body.contains("entries"),
+        "the envelope is not the file: {body}"
+    );
+    assert!(
+        headers
+            .get("x-memory-truncated")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value == "true"),
+        "a truncated export says so in a header, since JSONL has nowhere else"
+    );
     assert!(
         headers
             .get(header::CONTENT_TYPE)
