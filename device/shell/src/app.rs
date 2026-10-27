@@ -22,9 +22,12 @@ use wry::WebViewBuilder;
 use crate::health::{self, State};
 use crate::helper;
 
-/// Where the operator console lives.
-const CONSOLE: &str = "https://console.saisi.online/";
-/// Where the device's own panel lives: what works when the console does not.
+/// Where the product console lives: the 0.3.4x console (fleet, terminal, `/next`), not the legacy
+/// SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
+/// the console's to publish.
+const CONSOLE: &str = "http://100.74.250.98:19000/";
+/// Where the device's own panel lives: what works when the console does not. This is the product's
+/// panel (0.3.49 lists the live terminal sessions), never the legacy panel.
 const PANEL: &str = "http://127.0.0.1:18090/";
 /// The loopback address the health probe asks.
 const HEALTH: &str = "127.0.0.1:18090";
@@ -347,6 +350,13 @@ pub fn already_running() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_default_targets_are_the_product_surfaces() {
+        assert!(CONSOLE.contains(":19000"), "the product console, not the legacy SPA: {CONSOLE}");
+        assert!(!CONSOLE.contains("console.saisi.online"), "{CONSOLE}");
+        assert!(PANEL.contains(":18090"), "the device's own panel: {PANEL}");
+    }
+
     use super::*;
     use crate::health::Health;
 
