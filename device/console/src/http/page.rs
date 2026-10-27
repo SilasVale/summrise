@@ -3572,6 +3572,118 @@ mod tests {
         assert!(page.contains("Build"), "{page}");
     }
 
+    /// Parse a theme's `--name:#rrggbb` declarations out of the stylesheet.
+    fn theme_tokens(css: &str, block_start: usize) -> std::collections::HashMap<String, [u8; 3]> {
+        let rest = &css[block_start..];
+        // A colour declaration never contains a brace, so the first one closes the block.
+        let end = rest.find('}').expect("the theme block ends");
+        let block = &rest[..end];
+        let mut tokens = std::collections::HashMap::new();
+        // Split on the prefix rather than on `;`: the block's first chunk carries the selector and
+        // its indentation, and that is not worth parsing.
+        for token in block.split("--").skip(1) {
+            let Some((name, value)) = token.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                continue;
+            }
+            // The chunk runs to the declaration's `;`, which is not part of the colour.
+            let value = value.split(';').next().unwrap_or(value).trim();
+            let Some(hex) = value.strip_prefix('#') else {
+                continue;
+            };
+            let (r, g, b) = match hex.len() {
+                6 => (
+                    u8::from_str_radix(&hex[0..2], 16),
+                    u8::from_str_radix(&hex[2..4], 16),
+                    u8::from_str_radix(&hex[4..6], 16),
+                ),
+                3 => {
+                    let expand = |c: &str| u8::from_str_radix(&format!("{c}{c}"), 16);
+                    (expand(&hex[0..1]), expand(&hex[1..2]), expand(&hex[2..3]))
+                }
+                _ => continue,
+            };
+            if let (Ok(r), Ok(g), Ok(b)) = (r, g, b) {
+                tokens.insert(name.to_owned(), [r, g, b]);
+            }
+        }
+        tokens
+    }
+
+    /// WCAG relative luminance and the contrast ratio between two opaque colours.
+    fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
+        fn luminance([r, g, b]: [u8; 3]) -> f64 {
+            let channel = |value: u8| {
+                let value = value as f64 / 255.0;
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+        }
+        let (a, b) = (luminance(a), luminance(b));
+        let (lighter, darker) = if a > b { (a, b) } else { (b, a) };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    #[test]
+    fn every_text_colour_reads_on_the_surface_it_sits_on() {
+        // The design system's promise, measured the way a browser would: WCAG 2.1 AA for normal
+        // text is 4.5:1. A token that fails this test is a token nobody can read in one of the two
+        // themes, and the page's look is not a matter of taste once that is true.
+        let light = theme_tokens(STYLE, STYLE.find(":root {").expect("the light block") + 6);
+        let dark_block = STYLE
+            .find("@media (prefers-color-scheme: dark)")
+            .expect("the dark block");
+        let dark = theme_tokens(
+            STYLE,
+            STYLE[dark_block..].find(":root {").expect("its root") + dark_block + 6,
+        );
+
+        for (theme, tokens) in [("light", &light), ("dark", &dark)] {
+            for (foreground, background) in [
+                ("ink", "bg"),
+                ("ink", "panel"),
+                ("muted", "bg"),
+                ("muted", "panel"),
+                ("faint", "panel"),
+                ("accent", "panel"),
+                ("ok", "panel"),
+                ("warn", "panel"),
+                ("danger", "panel"),
+                // The icon rail is dark in both themes, so its ink is checked against its own
+                // background rather than the page's.
+                ("rail-ink", "rail"),
+            ] {
+                let fg = tokens
+                    .get(foreground)
+                    .unwrap_or_else(|| panic!("{theme}: --{foreground} is a plain colour"));
+                let bg = tokens
+                    .get(background)
+                    .unwrap_or_else(|| panic!("{theme}: --{background} is a plain colour"));
+                let ratio = contrast(*fg, *bg);
+                assert!(
+                    ratio >= 4.5,
+                    "{theme}: --{foreground} on --{background} is {ratio:.2}:1, under AA's 4.5:1"
+                );
+            }
+            // A primary button's label sits on the solid accent, not on the page.
+            let on_solid = contrast(
+                *tokens.get("accent-fg").expect("the button's label colour"),
+                *tokens.get("accent-solid").expect("the button's fill"),
+            );
+            assert!(
+                on_solid >= 4.5,
+                "{theme}: the primary button's label is {on_solid:.2}:1 on its fill"
+            );
+        }
+    }
+
     #[test]
     fn a_device_name_is_escaped() {
         let device = DeviceView {
