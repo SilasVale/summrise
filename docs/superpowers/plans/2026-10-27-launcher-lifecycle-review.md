@@ -16,8 +16,8 @@ the standards source, plus the Fowler baseline.
 axes, dispositions, and the gates. Fixes only for confirmed findings; judgement calls may be deferred
 with a reason.
 
-- [ ] Both axes report
-- [ ] Confirmed findings fixed (or deferred with a reason)
-- [ ] Launcher gates: `cargo test -p summrise-launch` (Linux pure tests), clippy, fmt, `cargo xwin
-  check -p summrise-launch --tests`; Windows CI
-- [ ] Review record committed
+- [x] Both axes report
+- [x] Confirmed findings fixed (or deferred with a reason)
+- [x] Launcher gates: `cargo test -p summrise-launch` (118 lib tests), clippy, fmt, `cargo xwin check -p
+  summrise-launch --tests`; Windows CI is the PR gate
+- [x] Review record committed

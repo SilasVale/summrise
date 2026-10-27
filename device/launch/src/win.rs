@@ -27,15 +27,15 @@ use std::time::{Duration, Instant};
 
 use summrise_launch::{
     app_arguments, app_exe, app_pid_file, commit_pending, discard_pending, ensure_baseline,
-    generation_dir, install_pending_over_app, install_token, launcher_pid_file, link_to_persist,
-    now_ms, parse_config, parse_service_args, read_swap_request, resolve_baseline,
-    restore_current_app, restore_from_previous_at_startup, service_launch_arguments, sha256_bytes,
-    split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request, swap_result,
-    token_action, token_text, validate_staged_update, verify_or_restore_at_startup, wait_healthy,
-    write_console_link, write_swap_result, Action, Baseline, BaselineChoice, BaselineInstall,
-    Config, ConsoleLink, RestartBudget, Restore, Sidecar, StagedPair, SwapRequestState, SwapResult,
-    TokenAction, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS,
-    PENDING_DIR, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    failure_code, generation_dir, install_pending_over_app, install_token, launcher_pid_file,
+    link_to_persist, now_ms, parse_config, parse_service_args, read_swap_request, resolve_baseline,
+    restore_current_app, restore_from_previous_at_startup, same_image, service_launch_arguments,
+    sha256_bytes, split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request,
+    swap_result, token_action, token_text, validate_staged_update, verify_or_restore_at_startup,
+    wait_healthy, write_console_link, write_swap_result, Action, Baseline, BaselineChoice,
+    BaselineInstall, Config, ConsoleLink, RestartBudget, Restore, Sidecar, StagedPair,
+    SwapRequestState, SwapResult, TokenAction, APP_EXE, CURRENT_DIR, LAUNCHER_EXE,
+    LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -540,8 +540,9 @@ fn report(handle: &ServiceStatusHandle, state: ServiceState, exit_code: ServiceE
 /// The job contains **only** app children. The supervisor performs a swap itself and never exits
 /// while one is in flight (fix design F1), so there is no updater inside the job that a stop could
 /// kill; `--apply` is an operator process started outside it. Closing this handle (which process
-/// exit does implicitly) makes Windows terminate every app child, so a dead supervisor cannot leave
-/// `summrise-device.exe` behind to race the next start for the port. The handle lives for the
+/// exit does implicitly) makes Windows terminate every app child **when the assignment succeeded**:
+/// if `AssignProcessToJobObject` fails, the supervisor logs a warning and continues, so that
+/// guarantee is lost and a dead supervisor could leave the app behind. The handle lives for the
 /// supervisor's whole lifetime and is deliberately not closed by hand.
 struct ChildJob(HANDLE);
 
@@ -634,7 +635,9 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
 
     loop {
         if stop.load(Ordering::SeqCst) {
-            stop_child(&mut child);
+            if let Err(error) = stop_child(&mut child) {
+                eprintln!("launch: warning: {error}; the kill-on-close job will finish it");
+            }
             let _ = fs::remove_file(app_pid_file(&config.data));
             return 0;
         }
@@ -683,7 +686,9 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
         match running.try_wait() {
             Ok(Some(status)) => {
                 let _ = fs::remove_file(app_pid_file(&config.data));
-                last_code = status.code().unwrap_or(1).max(0) as u32;
+                // A give-up is a failure, never a clean stop: zero and Windows' negative crash
+                // codes both map to 1, so the SCM's failure actions can run.
+                last_code = failure_code(status.code());
                 let alive = started.elapsed();
                 child = None;
                 match budget.on_child_exit(alive) {
@@ -762,7 +767,7 @@ fn start_supervised_child(
         Restore::NeedsHuman(reason) => return Err(format!("needs a human: {reason}")),
     }
 
-    let spawned = spawn_app(config, &baseline.sidecar)
+    let spawned = spawn_app(config, &baseline.sidecar, true)
         .map_err(|error| format!("cannot spawn the app: {error}"))?;
     if let Some(job) = job {
         if let Err(error) = job.assign(&spawned) {
@@ -776,24 +781,50 @@ fn start_supervised_child(
     Ok(())
 }
 
-fn spawn_app(config: &Config, sidecar: &Sidecar) -> io::Result<Child> {
+fn spawn_app(config: &Config, sidecar: &Sidecar, supervised: bool) -> io::Result<Child> {
     // F6 and the channel fix: the running release is one fact. The app records the sidecar's
     // version, digest and channel rather than re-deriving any of them from its own compile time, so
     // state.json and /api/health report the channel the launcher actually booted.
     let mut command = Command::new(app_exe(&config.install));
     command
         .args(app_arguments(config, sidecar))
-        .current_dir(&config.install)
-        // The mark the app reads before it restarts after a panel enrollment: argv is caller-supplied,
-        // this says the process has a supervisor that will bring it back.
-        .env("SUMMRISE_SUPERVISED", "1");
+        .current_dir(&config.install);
+    if supervised {
+        // The mark the app reads before it restarts after a panel enrollment or host.restart: argv
+        // is caller-supplied, this says a supervisor will bring it back. `--apply`'s standalone
+        // child is not marked: when that console path exits, nothing restarts it.
+        command.env("SUMMRISE_SUPERVISED", "1");
+    }
     command.spawn()
 }
 
-fn stop_child(child: &mut Option<Child>) {
-    if let Some(mut running) = child.take() {
-        let _ = running.kill();
-        let _ = running.wait();
+/// Stop the app and prove it exited. A failed termination is returned, not discarded: the caller
+/// must not install over a process that may still be running. The handle is put back on failure so
+/// the next attempt can retry the kill; success reaps the child.
+fn stop_child(child: &mut Option<Child>) -> Result<(), String> {
+    let Some(mut running) = child.take() else {
+        return Ok(());
+    };
+    let pid = running.id();
+    let _ = running.kill();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match running.try_wait() {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                *child = Some(running);
+                return Err(format!(
+                    "the app (pid {pid}) did not exit within 5 s of the stop; refusing to install over it"
+                ));
+            }
+            Err(error) => {
+                *child = Some(running);
+                return Err(format!("cannot wait for the app (pid {pid}): {error}"));
+            }
+        }
     }
 }
 
@@ -864,17 +895,20 @@ struct SupervisedOwner<'a> {
 
 impl SwapOwner for SupervisedOwner<'_> {
     fn stop_current(&mut self) -> Result<(), String> {
-        self.stop_started();
+        stop_child(self.child)?;
+        let _ = fs::remove_file(app_pid_file(&self.config.data));
         Ok(())
     }
 
     fn stop_started(&mut self) {
-        stop_child(self.child);
+        if let Err(error) = stop_child(self.child) {
+            eprintln!("launch: warning: {error}");
+        }
         let _ = fs::remove_file(app_pid_file(&self.config.data));
     }
 
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String> {
-        let spawned = spawn_app(self.config, sidecar)
+        let spawned = spawn_app(self.config, sidecar, true)
             .map_err(|error| format!("cannot spawn the app: {error}"))?;
         if let Some(job) = self.job {
             if let Err(error) = job.assign(&spawned) {
@@ -904,17 +938,20 @@ struct ManualOwner<'a> {
 
 impl SwapOwner for ManualOwner<'_> {
     fn stop_current(&mut self) -> Result<(), String> {
-        self.stop_started();
+        stop_child(&mut self.child)?;
+        let _ = fs::remove_file(app_pid_file(&self.config.data));
         stop_owner(self.config, self.service)
     }
 
     fn stop_started(&mut self) {
-        stop_child(&mut self.child);
+        if let Err(error) = stop_child(&mut self.child) {
+            eprintln!("launch: warning: {error}");
+        }
         let _ = fs::remove_file(app_pid_file(&self.config.data));
     }
 
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String> {
-        let spawned = spawn_app(self.config, sidecar)
+        let spawned = spawn_app(self.config, sidecar, true)
             .map_err(|error| format!("cannot spawn the app: {error}"))?;
         let pid = spawned.id();
         let _ = fs::write(app_pid_file(&self.config.data), pid.to_string());
@@ -927,7 +964,11 @@ impl SwapOwner for ManualOwner<'_> {
             // Console mode: the standalone child stays, exactly as an operator started it.
             return Ok(());
         };
-        self.stop_started();
+        if let Err(error) = stop_child(&mut self.child) {
+            return Err(format!(
+                "cannot stop the manual app before handing back: {error}"
+            ));
+        }
         start_service(service)?;
         let pid = wait_for_pid_file(&app_pid_file(&self.config.data), Duration::from_secs(30))
             .ok_or_else(|| "the service started but its app did not write a pid".to_string())?;
@@ -1035,10 +1076,13 @@ fn poll_swap(config: &Config, job: &Option<ChildJob>, child: &mut Option<Child>)
             )
         }
         Err(SwapError::Failed(reason)) => {
+            // The supervisor's `finish` is infallible and `Failed` is only the pre-install stop
+            // failure, so nothing was replaced: the honest outcome is refused, not rolled back.
+            // (A future fallible finish must not reuse this mapping; it would need a real rollback.)
             eprintln!("launch: CRITICAL: the update to {version} failed: {reason}");
             (
-                SwapResult::rolled_back(version, &pair.sidecar.sha256, at_ms, reason),
-                SwapPoll::Swapped,
+                SwapResult::refused_verified(&pair.sidecar.sha256, at_ms, reason),
+                SwapPoll::Handled,
             )
         }
     };
@@ -1323,14 +1367,18 @@ fn stop_console_owner(config: &Config) -> Result<(), String> {
     let launcher_pid = read_pid(&launcher_pid_file(&config.data));
     if let Some(pid) = launcher_pid {
         if process_name(pid).is_some_and(|name| name.eq_ignore_ascii_case(LAUNCHER_EXE)) {
-            terminate_verified(pid, LAUNCHER_EXE)?;
-            wait_for_process_exit(pid, LAUNCHER_EXE, SUPERVISOR_EXIT_TIMEOUT)?;
+            let mut launcher_paths = vec![config.install.join(LAUNCHER_EXE)];
+            if let Ok(current) = std::env::current_exe() {
+                launcher_paths.push(current);
+            }
+            terminate_verified(pid, &launcher_paths)?;
+            wait_for_process_exit(pid, &launcher_paths, SUPERVISOR_EXIT_TIMEOUT)?;
         }
     }
     let app_pid = read_pid(&app_pid_file(&config.data));
     if let Some(pid) = app_pid {
         if process_name(pid).is_some_and(|name| name.eq_ignore_ascii_case(APP_EXE)) {
-            terminate_verified(pid, APP_EXE)?;
+            terminate_verified(pid, &[app_exe(&config.install)])?;
         }
     }
     let _ = fs::remove_file(app_pid_file(&config.data));
@@ -1371,13 +1419,6 @@ fn read_pid(path: &Path) -> Option<u32> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-fn process_name(pid: u32) -> Option<String> {
-    let handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, pid)?;
-    let name = image_file_name(handle);
-    unsafe { CloseHandle(handle) };
-    name
-}
-
 fn open_process(access: u32, pid: u32) -> Option<HANDLE> {
     let handle = unsafe { OpenProcess(access, 0, pid) };
     if handle == 0 {
@@ -1387,36 +1428,54 @@ fn open_process(access: u32, pid: u32) -> Option<HANDLE> {
     }
 }
 
-fn image_file_name(handle: HANDLE) -> Option<String> {
+fn image_path(handle: HANDLE) -> Option<PathBuf> {
     let mut buffer = [0u16; 1024];
     let mut length = buffer.len() as u32;
     let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut length) };
     if ok == 0 {
         return None;
     }
-    let path = PathBuf::from(OsString::from_wide(&buffer[..length as usize]));
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
+    Some(PathBuf::from(OsString::from_wide(
+        &buffer[..length as usize],
+    )))
 }
 
-/// Terminate `pid` only if its image is `expected`. A recycled PID must never cost the device an
-/// unrelated process.
-fn terminate_verified(pid: u32, expected: &str) -> Result<(), String> {
+fn process_name(pid: u32) -> Option<String> {
+    let handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, pid)?;
+    let name = image_path(handle).and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
+    unsafe { CloseHandle(handle) };
+    name
+}
+
+/// Terminate `pid` only if its image path is one of `expected`. A recycled PID must never cost the
+/// device an unrelated process — including the same executable name from another install.
+fn terminate_verified(pid: u32, expected: &[PathBuf]) -> Result<(), String> {
     let Some(handle) = open_process(
         PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
         pid,
     ) else {
         return Ok(()); // already gone
     };
-    let name = image_file_name(handle);
-    let is_ours = name
+    let actual = image_path(handle);
+    let is_ours = actual
         .as_deref()
-        .is_some_and(|name| name.eq_ignore_ascii_case(expected));
+        .is_some_and(|actual| expected.iter().any(|wanted| same_image(actual, wanted)));
     if !is_ours {
         unsafe { CloseHandle(handle) };
         return Err(format!(
-            "pid {pid} is not {expected} (found {}); refusing to stop it",
-            name.as_deref().unwrap_or("<unreadable>")
+            "pid {pid} is not {} (found {}); refusing to stop it",
+            expected
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" or "),
+            actual
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<unreadable>".to_owned())
         ));
     }
     let terminated = unsafe { TerminateProcess(handle, 1) };
@@ -1433,20 +1492,28 @@ fn terminate_verified(pid: u32, expected: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn wait_for_process_exit(pid: u32, expected: &str, timeout: Duration) -> Result<(), String> {
+fn wait_for_process_exit(pid: u32, expected: &[PathBuf], timeout: Duration) -> Result<(), String> {
     let Some(handle) = open_process(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, pid)
     else {
         return Ok(());
     };
-    let name = image_file_name(handle);
-    let is_ours = name
+    let actual = image_path(handle);
+    let is_ours = actual
         .as_deref()
-        .is_some_and(|name| name.eq_ignore_ascii_case(expected));
+        .is_some_and(|actual| expected.iter().any(|wanted| same_image(actual, wanted)));
     if !is_ours {
         unsafe { CloseHandle(handle) };
         return Err(format!(
-            "pid {pid} is not {expected} (found {}); refusing to wait on it",
-            name.as_deref().unwrap_or("<unreadable>")
+            "pid {pid} is not {} (found {}); refusing to wait on it",
+            expected
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" or "),
+            actual
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<unreadable>".to_owned())
         ));
     }
     let waited = unsafe { WaitForSingleObject(handle, timeout.as_millis() as u32) };
@@ -1455,7 +1522,12 @@ fn wait_for_process_exit(pid: u32, expected: &str, timeout: Duration) -> Result<
         Ok(())
     } else {
         Err(format!(
-            "the {expected} (pid {pid}) did not exit within {}s; the update would race it",
+            "the process at {} (pid {pid}) did not exit within {}s; the update would race it",
+            expected
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" or "),
             timeout.as_secs()
         ))
     }

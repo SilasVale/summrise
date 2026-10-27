@@ -119,6 +119,25 @@ pub enum Action {
     GiveUp,
 }
 
+/// The exit code the launcher reports for a child that has finished. A give-up must look like a
+/// failure to the SCM, so zero and Windows' negative crash codes map to 1; a positive code is kept.
+/// A planned restart (exit 0) is retried by the budget, not reported as a failure.
+pub fn failure_code(code: Option<i32>) -> u32 {
+    code.map_or(1, |code| code.max(1) as u32)
+}
+
+/// Whether two Windows image paths name the same file. The kernel may report the verbatim form
+/// (`\\?\C:\...`); the install's path is the ordinary form, so both are compared stripped of that
+/// prefix and case-insensitively. This is a path comparison, not a file-name one: a second install
+/// with the same executable name must not be mistaken for this one.
+pub fn same_image(actual: &Path, expected: &Path) -> bool {
+    let trim = |path: &Path| -> String {
+        let text = path.to_string_lossy().into_owned();
+        text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
+    };
+    trim(actual).eq_ignore_ascii_case(&trim(expected))
+}
+
 /// The consecutive-restart budget.
 ///
 /// The budget is deliberately not a lifetime counter: a device that restarted once a month must
@@ -2219,6 +2238,44 @@ pub fn wait_healthy(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_give_up_looks_like_a_failure_to_the_scm() {
+        assert_eq!(
+            failure_code(None),
+            1,
+            "a signal has no code: report a failure"
+        );
+        assert_eq!(
+            failure_code(Some(0)),
+            1,
+            "zero on give-up is not a clean stop"
+        );
+        assert_eq!(failure_code(Some(7)), 7, "a real exit code is kept");
+        assert_eq!(
+            failure_code(Some(-1073741819)),
+            1,
+            "0xC0000005 as a signed int must not become 0"
+        );
+    }
+
+    #[test]
+    fn the_image_check_is_a_path_not_a_name() {
+        let install = Path::new(r"C:\Summrise\summrise-device.exe");
+        assert!(same_image(install, install), "the same path matches");
+        assert!(same_image(
+            install,
+            Path::new(r"c:\summrise\SUMMRISE-DEVICE.EXE")
+        ));
+        assert!(same_image(
+            Path::new(r"\\?\C:\Summrise\summrise-device.exe"),
+            install
+        ));
+        assert!(
+            !same_image(Path::new(r"D:\Summrise\summrise-device.exe"), install),
+            "a second install with the same name is not ours"
+        );
+    }
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;
     use std::fs;
