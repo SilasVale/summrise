@@ -3467,6 +3467,108 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
     );
 }
 
+/// The one operator string that reaches a filesystem is refused by the page itself: a traversal
+/// never becomes a device round trip.
+#[tokio::test]
+async fn a_files_write_outside_the_root_is_refused_by_the_page() {
+    let fixture = Fixture::new("files-traversal");
+    let (device_id, _) = fixture.register(&signing_key(0xf7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &csrf),
+            ("path", "../windows/system32/x"),
+            ("content", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("cannot%20contain"),
+        "the page's own refusal, not the device's: {location}"
+    );
+}
+
+/// A revoke form on device A's page must not destroy a token that belongs to device B.
+#[tokio::test]
+async fn a_token_is_only_revoked_from_a_page_that_can_reach_it() {
+    let fixture = Fixture::new("token-scope");
+    let (device_a, _) = fixture.register(&signing_key(0xf8)).await;
+    let (device_b, _) = fixture.register(&signing_key(0xf9)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/tokens/{device_a}/mint"),
+        &[("csrf", &csrf), ("name", "scoped")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_a}"), &cookie),
+    )
+    .await;
+    let marker = "name=\"id\" value=\"";
+    let start = listed.find(marker).expect("a revoke form") + marker.len();
+    let end = start + listed[start..].find('"').expect("the id ends");
+    let id = listed[start..end].to_owned();
+
+    // Device B's page names a token it cannot reach: refused, and the token survives.
+    let mut request = post_form(
+        &format!("/next/tokens/{device_b}/revoke"),
+        &[("csrf", &csrf), ("id", &id)],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (_, _, after) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_a}"), &cookie),
+    )
+    .await;
+    assert!(
+        after.contains("scoped"),
+        "the token is still there: {after}"
+    );
+}
+
+/// `/session` is a probe a client can call with the page's cookie; before this it could only see a
+/// bearer token, so `via: "session"` was unreachable and a signed-in page read as signed out.
+#[tokio::test]
+async fn the_session_probe_sees_a_page_cookie() {
+    let fixture = Fixture::new("session-probe-cookie");
+    let cookie = page_cookie(&fixture).await;
+    let request = Request::builder()
+        .method("GET")
+        .uri("/session")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, body) = send(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], true);
+    assert_eq!(body["via"], "session");
+}
+
 /// Every way in leaves an audit line naming the way, and nothing about the credential. The console
 /// could not previously answer "did the edge deliver the header?" from its own record — a question
 /// that cost an operator an hour when the page fell back to the token box.

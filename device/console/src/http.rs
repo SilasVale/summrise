@@ -899,7 +899,8 @@ async fn health(State(app): State<AppState>) -> Json<Health> {
 }
 
 /// `POST /auth`: exchange the operator token for a session token.
-/// `GET /session`: whether this request already carries an operator identity.
+/// `GET /session`: whether this request already carries an operator identity — an Access
+/// assertion, a bearer session, or the page's own cookie.
 ///
 /// The page calls it on load: when Access verified the request, there is no token to type, and the
 /// answer says so. It never returns a credential — only whether one is needed.
@@ -928,6 +929,14 @@ struct AccessReport {
 
 async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<SessionProbe> {
     let (operator, access) = app.identity(&headers);
+    // A page session travels in the cookie, and the probe can be asked with one: `identity` reads
+    // the bearer, so the cookie is the fallback that makes `via: "session"` mean what it says.
+    let operator = operator.or_else(|| {
+        cookie_session(&app, &headers).map(|_| Operator {
+            email: None,
+            via: "session",
+        })
+    });
     match operator {
         Some(operator) => Json(SessionProbe {
             authenticated: true,
@@ -2070,6 +2079,20 @@ struct FilesWriteForm {
     content: String,
 }
 
+/// The page's own rule for a files path, applied before the device's.
+///
+/// The device canonicalizes under its root and is the authority (it refuses absolute paths, `..`
+/// components and escaping symlinks). This is the page's half of the same boundary: the one
+/// operator-supplied string that reaches a filesystem is refused here, with a sentence the operator
+/// can act on, instead of relying on the far end to say it.
+fn page_path(raw: &str) -> Result<String, &'static str> {
+    let path = raw.trim().trim_start_matches('/');
+    if path.contains('\\') || path.split('/').any(|part| part == "..") {
+        return Err("a page path cannot contain '..' or a backslash");
+    }
+    Ok(path.to_owned())
+}
+
 /// `GET /next/files/:device`: the files root, server-rendered.
 async fn next_files_page(
     State(app): State<AppState>,
@@ -2086,14 +2109,25 @@ async fn next_files_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let path = query.path.trim_matches('/').to_owned();
     let mut error = query.error.clone();
-    let entries = match device_tool(&app, &device_id, "files.list", json!({ "path": path })).await {
-        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-        Err(_) => {
-            error =
-                Some("the device did not answer; the console's audit names the reason".to_owned());
-            Vec::new()
+    let path = match page_path(&query.path) {
+        Ok(path) => path,
+        Err(sentence) => {
+            error = Some(sentence.to_owned());
+            String::new()
+        }
+    };
+    let entries = if error.is_some() {
+        Vec::new()
+    } else {
+        match device_tool(&app, &device_id, "files.list", json!({ "path": path })).await {
+            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+            Err(_) => {
+                error = Some(
+                    "the device did not answer; the console's audit names the reason".to_owned(),
+                );
+                Vec::new()
+            }
         }
     };
     let entries: Vec<page::FileEntry> = entries
@@ -2134,7 +2168,12 @@ async fn next_files_read(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let path = query.path.trim_matches('/').to_owned();
+    let path = match page_path(&query.path) {
+        Ok(path) => path,
+        Err(sentence) => {
+            return (StatusCode::BAD_REQUEST, sentence).into_response();
+        }
+    };
     match device_tool(&app, &device_id, "files.read", json!({ "path": path })).await {
         Ok(text) => Html(
             page::file_text(
@@ -2161,7 +2200,16 @@ async fn next_files_write(
     let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let path = form.path.trim().trim_start_matches('/').to_owned();
+    let path = match page_path(&form.path) {
+        Ok(path) => path,
+        Err(sentence) => {
+            return Redirect::to(&format!(
+                "/next/files/{device_id}?error={}",
+                page::encode(sentence)
+            ))
+            .into_response();
+        }
+    };
     if path.is_empty() {
         return Redirect::to(&format!("/next/files/{device_id}?error=empty_path")).into_response();
     }
@@ -3037,6 +3085,19 @@ async fn next_token_revoke(
     let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
     };
+    // The page names a device; a token that does not reach it is not this page's to revoke. Without
+    // this, a revoke form on device A could destroy device B's token.
+    let belongs = lock(&app.tokens).list().into_iter().any(|token| {
+        token.id == form.id
+            && (token.device_id == device_id
+                || token
+                    .device_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.contains(&device_id)))
+    });
+    if !belongs {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let _ = lock(&app.tokens).revoke(&form.id);
     Redirect::to(&format!("/next/tokens/{device_id}")).into_response()
 }
@@ -4984,6 +5045,18 @@ fn system_now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The page refuses a traversal itself; the device's canonicalization is the second half of the
+    /// boundary, not the only half.
+    #[test]
+    fn a_page_path_is_refused_before_the_device_sees_it() {
+        assert_eq!(page_path("logs/agent.log").as_deref(), Ok("logs/agent.log"));
+        assert_eq!(page_path("/logs").as_deref(), Ok("logs"));
+        assert_eq!(page_path("").as_deref(), Ok(""));
+        for bad in ["../etc/passwd", "a/../../b", "..\\windows", "C:\\x", "a\\b"] {
+            assert!(page_path(bad).is_err(), "{bad} must be refused");
+        }
+    }
 
     /// The presets form takes one line; the parts it produces are the registry's draft fields.
     #[test]

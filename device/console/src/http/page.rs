@@ -1350,7 +1350,7 @@ pub(super) fn terminal(
                         }
                         // A session another browser left behind can be ended here, without opening
                         // it: the rail is the only list of them the operator has.
-                        form method="post" action=(format!("/next/terminal/{}/{}/end", device.id, encode(&session.id))) {
+                        form method="post" action=(format!("/next/terminal/{}/{}/end", device.id, encode_segment(&session.id))) {
                             input type="hidden" name="csrf" value=(csrf);
                             button type="submit" class="rail-close" title="End this session" aria-label=(format!("End session {}", session.id)) { "×" }
                         }
@@ -1515,6 +1515,12 @@ pub(super) struct FileEntry {
     pub(super) name: String,
     pub(super) kind: String,
     pub(super) len: u64,
+}
+
+/// Percent-encode one path segment. Unlike [`encode`], `/` is escaped: a device-supplied session id
+/// with a slash must not become two path segments in a form's action.
+pub(super) fn encode_segment(value: &str) -> String {
+    encode(value).replace('/', "%2F")
 }
 
 /// Percent-encode a query value. `/` stays readable because a path is the value most of the time.
@@ -3193,6 +3199,13 @@ mod tests {
         let from = haystack.find(start).expect("the start marker") + start.len();
         let to = haystack[from..].find(end).expect("the end marker") + from;
         &haystack[from..to]
+    }
+
+    #[test]
+    fn one_path_segment_stays_one_segment() {
+        assert_eq!(encode_segment("session-3"), "session-3");
+        assert_eq!(encode_segment("a/b"), "a%2Fb");
+        assert_eq!(encode_segment("a b"), "a%20b");
     }
 
     #[test]
